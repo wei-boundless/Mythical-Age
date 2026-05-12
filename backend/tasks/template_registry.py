@@ -90,12 +90,20 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                 "task_summary_refs": {"type": "array", "required": False},
             },
             required_capability_tags=("retrieval",),
-            required_operations=("op.model_response", "op.mcp_retrieval"),
+            required_operations=("op.model_response",),
             step_blueprints=(
-                _step("retrieve_evidence", "检索相关证据", "execute", required_operations=("op.mcp_retrieval",)),
+                _step("retrieve_evidence", "检索相关证据", "execute"),
                 _step("synthesize_answer", "综合检索结果", "finalize"),
             ),
-            metadata={"source_kind": "retrieval", "workflow_id": "workflow.general.main_conversation"},
+            metadata={
+                "source_kind": "retrieval",
+                "workflow_id": "workflow.general.main_conversation",
+                "execution_strategy": "delegate_preferred",
+                "delegate_target_agent_id": "agent:rag_analyst",
+                "delegate_target_agent_category": "worker_sub_agent",
+                "delegation_kind": "retrieval",
+                "fallback_operation": "op.mcp_retrieval",
+            },
         ),
         TaskTemplate(
             template_id=_PDF_TEMPLATE_ID,
@@ -108,12 +116,20 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                 "task_summary_refs": {"type": "array", "required": False},
             },
             required_capability_tags=("pdf", "document_analysis"),
-            required_operations=("op.model_response", "op.mcp_pdf"),
+            required_operations=("op.model_response",),
             step_blueprints=(
-                _step("analyze_pdf", "分析 PDF", "analyze", required_operations=("op.mcp_pdf",)),
+                _step("analyze_pdf", "分析 PDF", "analyze"),
                 _step("finalize_pdf_answer", "输出文档回答", "finalize"),
             ),
-            metadata={"source_kind": "pdf", "workflow_id": "workflow.general.main_conversation"},
+            metadata={
+                "source_kind": "pdf",
+                "workflow_id": "workflow.general.main_conversation",
+                "execution_strategy": "delegate_preferred",
+                "delegate_target_agent_id": "agent:pdf_reader",
+                "delegate_target_agent_category": "worker_sub_agent",
+                "delegation_kind": "pdf",
+                "fallback_operation": "op.mcp_pdf",
+            },
         ),
         TaskTemplate(
             template_id=_STRUCTURED_DATA_TEMPLATE_ID,
@@ -126,12 +142,20 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                 "task_summary_refs": {"type": "array", "required": False},
             },
             required_capability_tags=("structured_data", "dataset_analysis"),
-            required_operations=("op.model_response", "op.mcp_structured_data"),
+            required_operations=("op.model_response",),
             step_blueprints=(
-                _step("analyze_dataset", "分析数据集", "analyze", required_operations=("op.mcp_structured_data",)),
+                _step("analyze_dataset", "分析数据集", "analyze"),
                 _step("finalize_dataset_answer", "输出数据回答", "finalize"),
             ),
-            metadata={"source_kind": "dataset", "workflow_id": "workflow.general.main_conversation"},
+            metadata={
+                "source_kind": "dataset",
+                "workflow_id": "workflow.general.main_conversation",
+                "execution_strategy": "delegate_preferred",
+                "delegate_target_agent_id": "agent:table_analyst",
+                "delegate_target_agent_category": "worker_sub_agent",
+                "delegation_kind": "structured_data",
+                "fallback_operation": "op.mcp_structured_data",
+            },
         ),
         TaskTemplate(
             template_id="template.search.information_search",
@@ -857,9 +881,20 @@ def _intent_candidate_template_ids(
         item_template = str(bundle_items[0].get("template_id") or "").strip()
         if item_template:
             candidates.append(item_template)
-    if has_explicit_dataset or has_bound_dataset:
+    if has_explicit_dataset:
         candidates.append(_STRUCTURED_DATA_TEMPLATE_ID)
-    if has_explicit_pdf or has_bound_pdf:
+    if has_explicit_pdf:
+        candidates.append(_PDF_TEMPLATE_ID)
+    for request in capability_requests:
+        if request in {"dataset_analysis", "structured_data"}:
+            candidates.append(_STRUCTURED_DATA_TEMPLATE_ID)
+        if request in {"document_analysis", "pdf"}:
+            candidates.append(_PDF_TEMPLATE_ID)
+        if request in {"weather", "gold_price", "latest_information", "realtime_network"}:
+            candidates.append("template.search.information_search")
+    if has_bound_dataset:
+        candidates.append(_STRUCTURED_DATA_TEMPLATE_ID)
+    if has_bound_pdf:
         candidates.append(_PDF_TEMPLATE_ID)
     binding_file_kinds = {
         str(item.get("file_kind") or "").strip()
@@ -874,13 +909,6 @@ def _intent_candidate_template_ids(
         pdf_unit = get_local_mcp_unit_for_source_kind("pdf")
         if pdf_unit is not None and pdf_unit.template_ids:
             candidates.append(str(pdf_unit.template_ids[0]))
-    for request in capability_requests:
-        if request in {"dataset_analysis", "structured_data"}:
-            candidates.append(_STRUCTURED_DATA_TEMPLATE_ID)
-        if request in {"document_analysis", "pdf"}:
-            candidates.append(_PDF_TEMPLATE_ID)
-        if request in {"weather", "gold_price", "latest_information"}:
-            candidates.append("template.search.information_search")
     if _looks_like_light_web_game(str(user_goal or "").lower()):
         candidates.append("template.dev.light_web_game")
     source_kind = str(query_understanding.get("source_kind") or "").strip()

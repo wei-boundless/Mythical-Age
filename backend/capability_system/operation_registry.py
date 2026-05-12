@@ -452,6 +452,17 @@ def default_operation_descriptors() -> list[OperationDescriptor]:
             safety_validator_ref="filesystem_path",
         ),
         _descriptor(
+            "op.delegate_to_agent",
+            "agent",
+            "Delegate to agent",
+            "Delegate one bounded task to one registered worker sub-agent; choose evidence_lookup, pdf_reading, or table_analysis in a single call and return summary with refs.",
+            aliases=("delegate_to_agent",),
+            risk_tags=("agent_execution", "delegation"),
+            requires_user_interaction=True,
+            interrupt_behavior="checkpoint_then_abort",
+            deferred_loading=True,
+        ),
+        _descriptor(
             "op.agent_bounded",
             "agent",
             "Bounded agent",

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from project_layout import ProjectLayout
+from .agent_identity import agent_id_aliases, normalize_agent_id
 from .agent_models import AgentDescriptor
 from soul import SoulFacade
 
@@ -52,6 +53,36 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             metadata={"role": "main_conversation_entry", "system_key": "task_system", "slot_index": 0},
         ),
         AgentDescriptor(
+            agent_id="agent:1",
+            agent_name="权限管理Agent",
+            agent_category="system_management_agent",
+            interface_target="permission_system_window",
+            description="负责权限策略、操作准入和安全边界的系统管理 Agent。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="",
+            default_projection_id="",
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "system_manager", "system_key": "permission_system", "slot_index": 1},
+        ),
+        AgentDescriptor(
+            agent_id="agent:2",
+            agent_name="配置管理Agent",
+            agent_category="system_management_agent",
+            interface_target="config_system_window",
+            description="负责系统配置、运行参数和环境状态的系统管理 Agent。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="",
+            default_projection_id="",
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "system_manager", "system_key": "config_system", "slot_index": 2},
+        ),
+        AgentDescriptor(
             agent_id="agent:3",
             agent_name="3号健康管理Agent",
             agent_category="system_management_agent",
@@ -66,6 +97,81 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             updated_at=timestamp,
             metadata={"role": "system_manager", "system_key": "health_system", "slot_index": 3},
         ),
+        AgentDescriptor(
+            agent_id="agent:4",
+            agent_name="任务管理Agent",
+            agent_category="system_management_agent",
+            interface_target="task_system_window",
+            description="负责任务注册、任务契约和任务运行状态的系统管理 Agent。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="",
+            default_projection_id="",
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "system_manager", "system_key": "task_management_system", "slot_index": 4},
+        ),
+        AgentDescriptor(
+            agent_id="agent:5",
+            agent_name="能力管理Agent",
+            agent_category="system_management_agent",
+            interface_target="capability_system_window",
+            description="负责工具、技能、MCP 能力目录的系统管理 Agent。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="",
+            default_projection_id="",
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "system_manager", "system_key": "capability_system", "slot_index": 5},
+        ),
+        AgentDescriptor(
+            agent_id="agent:rag_analyst",
+            agent_name="RAG检索分析Agent",
+            agent_category="worker_sub_agent",
+            interface_target="worker_task_console",
+            description="你是一名证据检索分析员。你负责围绕问题检索知识库，整理证据、引用和不确定性，不负责替主 Agent 做最终回答。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="",
+            default_projection_id="",
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "worker_specialist", "worker_kind": "rag_analysis", "slot_index": 6, "legacy_agent_id": "agent:6"},
+        ),
+        AgentDescriptor(
+            agent_id="agent:pdf_reader",
+            agent_name="PDF阅读分析Agent",
+            agent_category="worker_sub_agent",
+            interface_target="worker_task_console",
+            description="你是一名 PDF 阅读分析员。你负责阅读指定 PDF 内容，抽取要点、证据位置和限制说明，不负责替主 Agent 做最终回答。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="",
+            default_projection_id="",
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "worker_specialist", "worker_kind": "pdf_analysis", "slot_index": 7, "legacy_agent_id": "agent:7"},
+        ),
+        AgentDescriptor(
+            agent_id="agent:table_analyst",
+            agent_name="表格分析Agent",
+            agent_category="worker_sub_agent",
+            interface_target="worker_task_console",
+            description="你是一名表格与结构化数据分析员。你负责读取数据结构、执行受限分析并返回结论依据，不负责替主 Agent 做最终回答。",
+            enabled=True,
+            builtin=True,
+            editable=True,
+            default_soul_id="",
+            default_projection_id="",
+            created_at=timestamp,
+            updated_at=timestamp,
+            metadata={"role": "worker_specialist", "worker_kind": "structured_data_analysis", "slot_index": 8, "legacy_agent_id": "agent:8"},
+        ),
     )
 
 
@@ -78,11 +184,15 @@ class AgentRegistry:
     def list_agents(self) -> list[AgentDescriptor]:
         default_payload = [item.to_dict() for item in default_agent_descriptors()]
         payload = _read_json(self.agents_path, {"agents": default_payload})
-        stored_agents = [item for item in list(payload.get("agents") or []) if isinstance(item, dict)]
-        raw_agents = default_payload if not self.agents_path.exists() else stored_agents
+        stored_agents = [_migrate_agent_payload(item) for item in list(payload.get("agents") or []) if isinstance(item, dict)]
+        raw_agents = (
+            default_payload
+            if not self.agents_path.exists()
+            else _merge_items_by_key(default_payload, stored_agents, key="agent_id")
+        )
         default_by_id = {str(item.get("agent_id") or ""): item for item in default_payload}
         migrated = [
-            _enforce_system_builtin_payload(_migrate_agent_payload(item), default_by_id=default_by_id)
+            _enforce_system_builtin_payload(item, default_by_id=default_by_id)
             for item in raw_agents
         ]
         migrated = [self._hydrate_main_agent_defaults(item) for item in migrated]
@@ -91,10 +201,8 @@ class AgentRegistry:
         return [_agent_from_dict(item) for item in migrated]
 
     def get_agent(self, agent_id: str) -> AgentDescriptor | None:
-        target = str(agent_id or "").strip()
-        aliases = {target}
-        if target == "agent:main":
-            aliases.add("agent:0")
+        target = normalize_agent_id(agent_id)
+        aliases = set(agent_id_aliases(target))
         return next((item for item in self.list_agents() if item.agent_id in aliases), None)
 
     def next_worker_agent_id(self) -> str:
@@ -141,7 +249,7 @@ class AgentRegistry:
     ) -> AgentDescriptor:
         _ = owner_system
         _ = governance_status
-        target = str(agent_id or "").strip()
+        target = normalize_agent_id(agent_id)
         if not target.startswith("agent:"):
             raise ValueError("agent_id must start with agent:")
         normalized_category = _normalize_agent_category(agent_category or profile_type or "worker_sub_agent")
@@ -286,22 +394,23 @@ def _normalize_agent_category(value: str) -> str:
 
 def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
     agent_id = str(payload.get("agent_id") or "").strip()
+    canonical_agent_id = normalize_agent_id(agent_id)
     legacy_name = str(payload.get("display_name") or payload.get("agent_name") or agent_id).strip() or agent_id
     legacy_category = _normalize_agent_category(str(payload.get("agent_category") or payload.get("profile_type") or "worker_sub_agent"))
     owner_system = str(payload.get("owner_system") or payload.get("metadata", {}).get("system_key") or "").strip()
-    if agent_id in {"agent:main", "agent:0"}:
+    if canonical_agent_id == "agent:0":
         legacy_category = "main_agent"
     elif owner_system and owner_system not in {"", "task_system", "worker_pool"}:
         legacy_category = "system_management_agent"
     normalized_soul_id = str(payload.get("default_soul_id") or "").strip()
     normalized_projection_id = str(payload.get("default_projection_id") or "").strip()
     return {
-        "agent_id": "agent:0" if agent_id == "agent:main" else "agent:3" if agent_id == "agent:health:maintainer" else agent_id,
+        "agent_id": canonical_agent_id,
         "agent_name": legacy_name,
         "display_name": legacy_name,
         "agent_category": legacy_category,
         "profile_type": legacy_category,
-        "interface_target": str(payload.get("interface_target") or _default_interface_target(agent_id or "agent:worker", legacy_category)),
+        "interface_target": str(payload.get("interface_target") or _default_interface_target(canonical_agent_id or "agent:worker", legacy_category)),
         "description": str(payload.get("description") or payload.get("metadata", {}).get("role") or "").strip(),
         "enabled": bool(payload.get("enabled", str(payload.get("lifecycle_state") or "enabled") != "disabled")),
         "builtin": bool(payload.get("builtin", str(payload.get("lifecycle_state") or "") == "system_builtin")),
@@ -312,6 +421,7 @@ def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "updated_at": float(payload.get("updated_at") or 0.0),
         "metadata": {
             **dict(payload.get("metadata") or {}),
+            **({"legacy_agent_id": agent_id} if agent_id and agent_id != canonical_agent_id else {}),
             **(
                 {
                     "definition_source": "system_builtin",

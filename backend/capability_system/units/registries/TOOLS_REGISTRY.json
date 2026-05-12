@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 20,
+  "tool_count": 21,
   "tools": [
     {
       "name": "web_search",
@@ -1089,6 +1089,65 @@
       "prompt_exposure_policy": "schema_only",
       "resource_exposure_policy": "explicit_resource",
       "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "delegate_to_agent",
+      "display_name": "委派子Agent",
+      "operation_id": "op.delegate_to_agent",
+      "module": "tools.delegate_to_agent_tool",
+      "contract": {
+        "required_inputs": [
+          "instruction"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "deny",
+        "context_policy": "isolated",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "delegation",
+        "agent",
+        "orchestration"
+      ],
+      "supported_modalities": [
+        "text",
+        "workspace"
+      ],
+      "safety_tags": [
+        "agent_execution"
+      ],
+      "route_hints": [
+        "tool",
+        "delegation"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/delegate_to_agent",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "none",
+      "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": false
     },

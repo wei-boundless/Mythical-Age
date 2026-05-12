@@ -9,6 +9,8 @@ from orchestration.resource_policy_builder import RuntimeApprovalContext
 from orchestration.resource_scope_mapping import map_operations_to_resource_scopes
 from ..runtime_directive import RuntimeDirective
 
+MODEL_VISIBLE_AGENT_OPERATIONS = {"op.delegate_to_agent"}
+
 
 def build_model_response_runtime_adoption(
     task_operation: dict[str, Any],
@@ -223,6 +225,13 @@ def _decide_runtime_operation(
             decision="deny",
             reason="unknown operation",
             diagnostics={"fail_closed": True},
+        )
+    if descriptor.operation_id in MODEL_VISIBLE_AGENT_OPERATIONS:
+        return ResourceDecision(
+            operation_id=descriptor.operation_id,
+            decision="allow",
+            reason="delegate operation is exposed as a bounded model-visible tool",
+            risk_tags=descriptor.risk_tags,
         )
     if descriptor.operation_type in {"mcp", "agent"}:
         return ResourceDecision(

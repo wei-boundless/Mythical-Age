@@ -49,6 +49,12 @@ class RuntimeLoopTraceReader:
             "task_run": task_run.to_dict(),
             "agent_runs": [item.to_dict() for item in agent_runs],
             "agent_run_results": [item.to_dict() for item in self.state_index.list_task_agent_run_results(task_run_id)],
+            "agent_delegation_requests": [
+                item.to_dict() for item in self.state_index.list_task_agent_delegation_requests(task_run_id)
+            ],
+            "agent_delegation_results": [
+                item.to_dict() for item in self.state_index.list_task_agent_delegation_results(task_run_id)
+            ],
             "worker_spawn_requests": [
                 item.to_dict() for item in self.state_index.list_task_worker_spawn_requests(task_run_id)
             ],
@@ -233,6 +239,26 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
                 "spawn_request_id": str(result.get("spawn_request_id") or ""),
                 "spawned_agent_id": str(result.get("spawned_agent_id") or ""),
                 "spawned_agent_run_ref": str(result.get("spawned_agent_run_ref") or ""),
+                "status": str(result.get("status") or ""),
+            }
+        )
+    elif event_type == "agent_delegation_requested":
+        request = dict(payload.get("agent_delegation_request") or {})
+        summary.update(
+            {
+                "request_id": str(request.get("request_id") or ""),
+                "source_agent_id": str(request.get("source_agent_id") or ""),
+                "target_agent_id": str(request.get("target_agent_id") or ""),
+                "delegation_kind": str(request.get("delegation_kind") or ""),
+            }
+        )
+    elif event_type == "agent_delegation_result_created":
+        result = dict(payload.get("agent_delegation_result") or {})
+        summary.update(
+            {
+                "result_id": str(result.get("result_id") or ""),
+                "request_id": str(result.get("request_id") or ""),
+                "target_agent_id": str(result.get("target_agent_id") or ""),
                 "status": str(result.get("status") or ""),
             }
         )

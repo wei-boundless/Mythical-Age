@@ -1381,6 +1381,8 @@ export type OrchestrationSnapshot = {
   source: "live-session" | "test-turn" | "inferred" | "dry-run" | string;
   session_id: string;
   run_id?: string;
+  task_run_id?: string;
+  coordination_run_ids?: string[];
   turn_id?: string;
   turn_index?: number;
   execution_mode: string;
@@ -1396,6 +1398,42 @@ export type OrchestrationSnapshot = {
   dry_run?: Record<string, unknown>;
   orchestration_plan?: Record<string, unknown>;
   orchestration_diff?: Record<string, unknown>;
+};
+
+export type RuntimeLoopTraceEvent = {
+  event_id: string;
+  task_run_id: string;
+  event_type: string;
+  offset: number;
+  created_at: number;
+  refs?: Record<string, unknown>;
+  payload?: Record<string, unknown>;
+  payload_summary?: Record<string, unknown>;
+};
+
+export type RuntimeLoopTaskRunSummary = {
+  task_run: Record<string, unknown>;
+  agent_run_count: number;
+  coordination_run_count: number;
+  event_count: number;
+  latest_event_type: string;
+  latest_checkpoint: Record<string, unknown> | null;
+};
+
+export type RuntimeLoopSessionTaskRuns = {
+  authority: string;
+  session_id: string;
+  task_run_count: number;
+  task_runs: RuntimeLoopTaskRunSummary[];
+};
+
+export type RuntimeLoopTaskRunTrace = {
+  authority: string;
+  task_run: Record<string, unknown>;
+  coordination_runs: Array<Record<string, unknown>>;
+  event_count: number;
+  events: RuntimeLoopTraceEvent[];
+  latest_checkpoint: Record<string, unknown> | null;
 };
 
 export type OrchestrationCatalogSkill = {
@@ -2931,6 +2969,52 @@ export async function updateOrchestrationAgentRuntimeProfile(
     {
       method: "PUT",
       body: JSON.stringify(payload)
+    }
+  );
+}
+
+export async function listOrchestrationRuntimeLoopTaskRuns(sessionId: string) {
+  return request<RuntimeLoopSessionTaskRuns>(
+    `/orchestration/runtime-loop/sessions/${encodeURIComponent(sessionId)}/task-runs`
+  );
+}
+
+export async function getOrchestrationRuntimeLoopTrace(
+  taskRunId: string,
+  options?: {
+    includePayloads?: boolean;
+    includeModelMessages?: boolean;
+  }
+) {
+  const params = new URLSearchParams();
+  if (options?.includePayloads) {
+    params.set("include_payloads", "true");
+  }
+  if (options?.includeModelMessages) {
+    params.set("include_model_messages", "true");
+  }
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return request<RuntimeLoopTaskRunTrace>(
+    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}${suffix}`
+  );
+}
+
+export async function resumeOrchestrationCoordinationRun(
+  coordinationRunId: string,
+  resumePayload: Record<string, unknown>
+) {
+  return request<{
+    authority: string;
+    coordination_run_id: string;
+    checkpoint_ref: string;
+    diagnostics: Record<string, unknown>;
+    stage_execution_request: Record<string, unknown> | null;
+    events: Array<Record<string, unknown>>;
+  }>(
+    `/orchestration/coordination-runs/${encodeURIComponent(coordinationRunId)}/resume`,
+    {
+      method: "POST",
+      body: JSON.stringify({ resume_payload: resumePayload }),
     }
   );
 }

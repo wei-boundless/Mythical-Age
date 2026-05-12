@@ -67,6 +67,40 @@ def test_context_resolver_prefers_explicit_input_over_state_binding() -> None:
     assert context.resolved_bindings[0].source == "explicit_user_input"
 
 
+def test_context_resolver_does_not_split_priority_word_as_sequence_marker() -> None:
+    resolver = ContextResolver()
+    message = "再回到 inventory.xlsx。告诉我当前最该优先处理的是哪个仓库，并说清你依据的是缺口、SKU 还是别的口径。"
+    context = resolver.resolve(
+        session_id="session-priority",
+        task_id="task-priority",
+        user_message=message,
+        memory_runtime_view={
+            "state_snapshot": {
+                "context_slots": {
+                    "active_dataset": "knowledge/E-commerce Data/employees.xlsx",
+                }
+            }
+        },
+        query_understanding={
+            "intent": "general_query",
+            "confidence": 0.9,
+            "capability_requests": ["dataset_analysis"],
+            "structural_signals": {
+                "explicit_dataset_path": "inventory.xlsx",
+                "bound_dataset_path": "knowledge/E-commerce Data/employees.xlsx",
+            },
+            "tool_input": {
+                "query": message,
+                "path": "inventory.xlsx",
+            },
+        },
+    )
+
+    assert context.execution_mode == "single"
+    assert context.bundle_items == ()
+    assert context.explicit_inputs["explicit_dataset_path"] == "inventory.xlsx"
+
+
 def test_context_resolver_keeps_bound_pdf_alongside_explicit_dataset() -> None:
     resolver = ContextResolver()
     context = resolver.resolve(

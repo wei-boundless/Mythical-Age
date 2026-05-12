@@ -168,6 +168,21 @@ def main() -> None:
     assert "缺货商品数：33" in shortage_answer
     assert "SKU-0069" in shortage_answer
 
+    warehouse_gap_result = _run(
+        structured.run(
+            MCPRequest(
+                request_id="sheet:inventory-warehouse-gap",
+                query="继续沿着 inventory.xlsx，只按缺口总量汇总仓库，并给我缺口最高的前三个仓库。",
+                bindings={"active_dataset": "knowledge/E-commerce Data/inventory.xlsx"},
+            )
+        )
+    )
+    assert warehouse_gap_result.canonical_result is not None
+    warehouse_gap_answer = warehouse_gap_result.canonical_result.answer
+    assert "查询模式：分组聚合排名" in warehouse_gap_answer
+    assert "排名维度：仓库" in warehouse_gap_answer
+    assert "缺口" in warehouse_gap_answer
+
     no_gap_result = _run(
         structured.run(
             MCPRequest(

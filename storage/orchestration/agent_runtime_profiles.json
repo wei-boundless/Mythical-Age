@@ -4,7 +4,8 @@
       "agent_profile_id": "main_interactive_agent",
       "agent_id": "agent:0",
       "allowed_task_modes": [
-        "general_task"
+        "general_task",
+        "memory_recall"
       ],
       "allowed_runtime_lanes": [
         "full_interactive",
@@ -28,6 +29,8 @@
         "op.git_show",
         "op.web_search",
         "op.fetch_url",
+        "op.memory_read",
+        "op.delegate_to_agent",
         "op.mcp_retrieval",
         "op.mcp_pdf",
         "op.mcp_structured_data",
@@ -56,6 +59,17 @@
       ],
       "use_shared_contract": true,
       "output_contracts": [],
+      "can_delegate_to_agents": true,
+      "allowed_delegate_agent_ids": [
+        "agent:rag_analyst",
+        "agent:pdf_reader",
+        "agent:table_analyst"
+      ],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "default",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
@@ -109,12 +123,373 @@
         "HealthCaseDraftProposal",
         "HealthFixVerificationProposal"
       ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "system_builtin",
       "metadata": {
         "system_key": "health_system",
         "manager_kind": "health"
+      }
+    },
+    {
+      "agent_profile_id": "permission_system_agent",
+      "agent_id": "agent:1",
+      "allowed_task_modes": [],
+      "allowed_runtime_lanes": [
+        "permission_trace_read"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.agent_bounded"
+      ],
+      "allowed_memory_scopes": [
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "runtime_trace",
+        "runtime_contracts"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "system_key": "permission_system",
+        "manager_kind": "permission"
+      }
+    },
+    {
+      "agent_profile_id": "config_system_agent",
+      "agent_id": "agent:2",
+      "allowed_task_modes": [],
+      "allowed_runtime_lanes": [
+        "config_trace_read"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.agent_bounded"
+      ],
+      "allowed_memory_scopes": [
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "runtime_trace",
+        "runtime_contracts"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "system_key": "config_system",
+        "manager_kind": "config"
+      }
+    },
+    {
+      "agent_profile_id": "task_management_agent",
+      "agent_id": "agent:4",
+      "allowed_task_modes": [],
+      "allowed_runtime_lanes": [
+        "task_trace_read"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.agent_bounded"
+      ],
+      "allowed_memory_scopes": [
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "runtime_trace",
+        "runtime_contracts"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "system_key": "task_management_system",
+        "manager_kind": "task"
+      }
+    },
+    {
+      "agent_profile_id": "capability_system_agent",
+      "agent_id": "agent:5",
+      "allowed_task_modes": [],
+      "allowed_runtime_lanes": [
+        "capability_trace_read"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.agent_bounded"
+      ],
+      "allowed_memory_scopes": [
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "runtime_trace",
+        "runtime_contracts"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "system_key": "capability_system",
+        "manager_kind": "capability"
+      }
+    },
+    {
+      "agent_profile_id": "rag_analysis_agent",
+      "agent_id": "agent:rag_analyst",
+      "allowed_task_modes": [
+        "knowledge_retrieval",
+        "information_search",
+        "evidence_lookup"
+      ],
+      "allowed_runtime_lanes": [
+        "retrieval_delegate",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.mcp_retrieval",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "tool",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "EvidenceLookupResult",
+        "RetrievalSummary"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "worker_kind": "rag_analysis",
+        "delegation_kind": "evidence_lookup",
+        "legacy_agent_id": "agent:6"
+      }
+    },
+    {
+      "agent_profile_id": "pdf_analysis_agent",
+      "agent_id": "agent:pdf_reader",
+      "allowed_task_modes": [
+        "pdf_analysis",
+        "document_reading",
+        "evidence_lookup"
+      ],
+      "allowed_runtime_lanes": [
+        "pdf_delegate",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.mcp_pdf",
+        "op.read_file",
+        "op.analyze_multimodal_file"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "tool",
+        "runtime_contracts",
+        "artifact_refs"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "PdfAnalysisResult",
+        "DocumentEvidenceSummary"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "worker_kind": "pdf_analysis",
+        "delegation_kind": "pdf_reading",
+        "legacy_agent_id": "agent:7"
+      }
+    },
+    {
+      "agent_profile_id": "structured_data_analysis_agent",
+      "agent_id": "agent:table_analyst",
+      "allowed_task_modes": [
+        "structured_data_analysis",
+        "table_analysis",
+        "evidence_lookup"
+      ],
+      "allowed_runtime_lanes": [
+        "structured_data_delegate",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.mcp_structured_data",
+        "op.read_structured_file",
+        "op.read_file"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "tool",
+        "runtime_contracts",
+        "artifact_refs"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "StructuredDataAnalysisResult",
+        "TableEvidenceSummary"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "worker_kind": "structured_data_analysis",
+        "delegation_kind": "table_analysis",
+        "legacy_agent_id": "agent:8"
       }
     }
   ]

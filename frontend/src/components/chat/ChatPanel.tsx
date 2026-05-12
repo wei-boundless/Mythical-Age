@@ -33,6 +33,7 @@ export function ChatPanel() {
     toggleSearchPolicySource,
     taskSelection,
     setTaskSelection,
+    resumeCoordinationRun,
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
   const coordinationWasActiveRef = useRef(false);
@@ -124,7 +125,7 @@ export function ChatPanel() {
         ) : (
           <div className="chat-run-page">
             <div className="chat-monitor-stage">
-              <CoordinationRunPanel snapshot={orchestrationSnapshot} />
+              <CoordinationRunPanel onResumeCoordinationRun={resumeCoordinationRun} snapshot={orchestrationSnapshot} />
             </div>
           </div>
         )}
@@ -137,7 +138,7 @@ export function ChatPanel() {
         onToggleSearchPolicy={toggleSearchPolicySource}
         searchPolicy={searchPolicy}
         taskSelection={taskSelection}
-      />
-    </section>
-  );
+    />
+  </section>
+);
 }

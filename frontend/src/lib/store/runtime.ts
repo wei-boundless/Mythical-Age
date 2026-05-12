@@ -4,11 +4,14 @@ import {
   loadFile,
   createSession,
   deleteSession,
+  getOrchestrationRuntimeLoopTrace,
   getRagMode,
+  listOrchestrationRuntimeLoopTaskRuns,
   getSessionHistory,
   getSessionTokens,
   listSessions,
   listSkills,
+  resumeOrchestrationCoordinationRun,
   renameSession,
   saveFile,
   setRagMode,
@@ -25,7 +28,7 @@ import {
 } from "@/lib/souls";
 
 import type { Store } from "./core";
-import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
+import { buildSnapshotFromRuntimeLoopTrace, reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
 import type { SearchPolicySource, StoreActions, StoreState, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
@@ -94,6 +97,9 @@ export class WorkspaceRuntime {
       },
       setOrchestrationSnapshot: (snapshot) => {
         this.setOrchestrationSnapshot(snapshot);
+      },
+      resumeCoordinationRun: async (coordinationRunId, payload) => {
+        await this.resumeCoordinationRun(coordinationRunId, payload);
       },
       setTaskSelection: (selection) => {
         this.setTaskSelection(selection);
@@ -244,6 +250,7 @@ export class WorkspaceRuntime {
   private async selectSession(sessionId: string) {
     this.store.setState((prev) => ({ ...prev, currentSessionId: sessionId }));
     await this.refreshSessionDetails(sessionId);
+    await this.hydrateLatestOrchestrationSnapshot(sessionId);
   }
 
   private async sendMessage(value: string) {
@@ -313,6 +320,7 @@ export class WorkspaceRuntime {
       });
       if (this.store.getState().currentSessionId === sessionId) {
         await this.refreshSessionDetails(sessionId);
+        await this.hydrateLatestOrchestrationSnapshot(sessionId);
       }
       await this.refreshSessions();
       this.scheduleSessionRefreshes();
@@ -508,6 +516,43 @@ export class WorkspaceRuntime {
 
   private setOrchestrationSnapshot(snapshot: StoreState["orchestrationSnapshot"]) {
     this.store.setState((prev) => ({ ...prev, orchestrationSnapshot: snapshot }));
+  }
+
+  private async resumeCoordinationRun(coordinationRunId: string, payload?: Record<string, unknown>) {
+    const runId = coordinationRunId.trim();
+    if (!runId) {
+      return;
+    }
+    await resumeOrchestrationCoordinationRun(runId, payload ?? {});
+    const sessionId = this.store.getState().currentSessionId;
+    if (sessionId) {
+      await this.hydrateLatestOrchestrationSnapshot(sessionId);
+    }
+  }
+
+  private async hydrateLatestOrchestrationSnapshot(sessionId: string) {
+    const targetSessionId = sessionId.trim();
+    if (!targetSessionId) {
+      this.store.setState((prev) => ({ ...prev, orchestrationSnapshot: null }));
+      return;
+    }
+    try {
+      const taskRunList = await listOrchestrationRuntimeLoopTaskRuns(targetSessionId);
+      const latestTaskRun = taskRunList.task_runs?.[0];
+      const latestTaskRunId = String(latestTaskRun?.task_run?.task_run_id ?? "").trim();
+      if (!latestTaskRunId) {
+        this.store.setState((prev) => ({ ...prev, orchestrationSnapshot: null }));
+        return;
+      }
+      const trace = await getOrchestrationRuntimeLoopTrace(latestTaskRunId, {
+        includePayloads: true,
+        includeModelMessages: false,
+      });
+      const snapshot = buildSnapshotFromRuntimeLoopTrace(trace);
+      this.store.setState((prev) => ({ ...prev, orchestrationSnapshot: snapshot }));
+    } catch {
+      // Keep current snapshot on transient runtime-loop query failures.
+    }
   }
 
   private setTaskSelection(selection: TaskSelectionState | null) {

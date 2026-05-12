@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import pytest
 
 from orchestration.agent_group_registry import AgentGroupRegistry
@@ -17,7 +18,17 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
     profiles = AgentRuntimeRegistry(tmp_path).list_profiles()
     profile_by_agent = {item.agent_id: item for item in profiles}
 
-    builtin_ids = {f"agent:{index}" for index in range(6)}
+    builtin_ids = {
+        "agent:0",
+        "agent:1",
+        "agent:2",
+        "agent:3",
+        "agent:4",
+        "agent:5",
+        "agent:rag_analyst",
+        "agent:pdf_reader",
+        "agent:table_analyst",
+    }
     builtin_agents = [item for item in agents if item.agent_id in builtin_ids]
 
     assert {item.agent_id for item in builtin_agents} == builtin_ids
@@ -28,6 +39,26 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
     assert all(item.definition_source == "system_builtin" for item in builtin_agents)
     assert builtin_ids.issubset(profile_by_agent)
     assert all(profile_by_agent[agent_id].lifecycle_policy == "system_builtin" for agent_id in builtin_ids)
+    assert profile_by_agent["agent:0"].can_delegate_to_agents is True
+    assert profile_by_agent["agent:0"].allowed_delegate_agent_ids == ("agent:rag_analyst", "agent:pdf_reader", "agent:table_analyst")
+    assert "op.delegate_to_agent" in profile_by_agent["agent:0"].allowed_operations
+    assert profile_by_agent["agent:rag_analyst"].allowed_operations == ("op.model_response", "op.mcp_retrieval", "op.memory_read")
+    assert profile_by_agent["agent:rag_analyst"].can_delegate_to_agents is False
+    assert "op.delegate_to_agent" in profile_by_agent["agent:rag_analyst"].blocked_operations
+    assert profile_by_agent["agent:pdf_reader"].allowed_operations == (
+        "op.model_response",
+        "op.mcp_pdf",
+        "op.read_file",
+        "op.analyze_multimodal_file",
+    )
+    assert profile_by_agent["agent:pdf_reader"].can_delegate_to_agents is False
+    assert profile_by_agent["agent:table_analyst"].allowed_operations == (
+        "op.model_response",
+        "op.mcp_structured_data",
+        "op.read_structured_file",
+        "op.read_file",
+    )
+    assert profile_by_agent["agent:table_analyst"].can_delegate_to_agents is False
 
 
 def test_builtin_agent_upsert_and_runtime_profile_updates_follow_regular_management(tmp_path):
@@ -58,41 +89,91 @@ def test_custom_agent_runtime_profile_persists_output_contracts(tmp_path):
     agent_registry = AgentRegistry(tmp_path)
     runtime_registry = AgentRuntimeRegistry(tmp_path)
     agent_registry.upsert_agent(
-        agent_id="agent:6",
+        agent_id="agent:9",
         agent_name="契约测试 Agent",
         agent_category="worker_sub_agent",
     )
 
     runtime_registry.upsert_profile(
-        agent_id="agent:6",
-        agent_profile_id="agent_6_runtime",
+        agent_id="agent:9",
+        agent_profile_id="agent_9_runtime",
         allowed_operations=("op.model_response",),
         output_contracts=("contract.test.chapter_draft", "contract.test.review_report"),
+        can_delegate_to_agents=True,
+        allowed_delegate_agent_ids=("agent:rag_analyst",),
+        max_delegate_calls_per_turn=2,
     )
 
-    loaded = runtime_registry.get_profile("agent:6")
+    loaded = runtime_registry.get_profile("agent:9")
 
     assert loaded is not None
     assert loaded.output_contracts == ("contract.test.chapter_draft", "contract.test.review_report")
+    assert loaded.can_delegate_to_agents is True
+    assert loaded.allowed_delegate_agent_ids == ("agent:rag_analyst",)
+    assert loaded.max_delegate_calls_per_turn == 2
+
+
+def test_system_builtin_profile_storage_is_migrated_with_required_default_permissions(tmp_path):
+    path = tmp_path / "storage" / "orchestration" / "agent_runtime_profiles.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "profiles": [
+                    {
+                        "agent_profile_id": "main_interactive_agent",
+                        "agent_id": "agent:0",
+                        "allowed_task_modes": ["general_task"],
+                        "allowed_runtime_lanes": ["full_interactive"],
+                        "allowed_operations": ["op.model_response", "op.mcp_retrieval"],
+                        "blocked_operations": ["op.python_repl"],
+                        "allowed_memory_scopes": ["conversation_read_write"],
+                        "allowed_context_sections": ["conversation"],
+                        "use_shared_contract": True,
+                        "output_contracts": [],
+                        "can_delegate_to_agents": True,
+                        "allowed_delegate_agent_ids": ["agent:6"],
+                        "allowed_delegate_agent_categories": ["worker_sub_agent"],
+                        "max_delegate_calls_per_turn": 1,
+                        "delegate_context_policy": "summary_and_refs_only",
+                        "approval_policy": "default",
+                        "trace_policy": "runtime_event_log",
+                        "lifecycle_policy": "system_builtin",
+                        "metadata": {},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    profile = AgentRuntimeRegistry(tmp_path).get_profile("agent:0")
+
+    assert profile is not None
+    assert "op.delegate_to_agent" in profile.allowed_operations
+    assert "op.memory_read" in profile.allowed_operations
+    assert "memory_recall" in profile.allowed_task_modes
 
 
 def test_custom_agent_runtime_profile_persists_shared_contract_flag(tmp_path):
     agent_registry = AgentRegistry(tmp_path)
     runtime_registry = AgentRuntimeRegistry(tmp_path)
     agent_registry.upsert_agent(
-        agent_id="agent:6",
+        agent_id="agent:9",
         agent_name="共同契约测试 Agent",
         agent_category="worker_sub_agent",
     )
 
     runtime_registry.upsert_profile(
-        agent_id="agent:6",
-        agent_profile_id="agent_6_runtime",
+        agent_id="agent:9",
+        agent_profile_id="agent_9_runtime",
         allowed_operations=("op.model_response",),
         use_shared_contract=False,
     )
 
-    loaded = runtime_registry.get_profile("agent:6")
+    loaded = runtime_registry.get_profile("agent:9")
 
     assert loaded is not None
     assert loaded.use_shared_contract is False
@@ -102,7 +183,7 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
     agent_registry = AgentRegistry(tmp_path)
 
     agent_registry.upsert_agent(
-        agent_id="agent:6",
+        agent_id="agent:9",
         agent_name="投影绑定测试 Agent",
         agent_category="worker_sub_agent",
         default_soul_id="xuannv",
@@ -120,8 +201,8 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
     )
     runtime_registry = AgentRuntimeRegistry(tmp_path)
     runtime_registry.upsert_profile(
-        agent_id="agent:6",
-        agent_profile_id="agent_6_runtime",
+        agent_id="agent:9",
+        agent_profile_id="agent_9_runtime",
         allowed_task_modes=("projection_test",),
         allowed_runtime_lanes=("full_interactive",),
         allowed_operations=("op.model_response",),
@@ -129,7 +210,7 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
         output_contracts=("AssistantFinalAnswer",),
     )
 
-    loaded = agent_registry.get_agent("agent:6")
+    loaded = agent_registry.get_agent("agent:9")
 
     assert loaded is not None
     assert loaded.metadata["prompt_profile"]["authority"] == "orchestration.agent_prompt_profile"
@@ -150,7 +231,7 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
             "projection_selection": {},
             "operation_requirement": {"requirement_id": "opreq:projection-test"},
         },
-        agent_runtime_profile=runtime_registry.get_profile("agent:6"),
+        agent_runtime_profile=runtime_registry.get_profile("agent:9"),
     )
     orchestration = bundle["task_body_orchestration"]
     rendered = "\n".join(
@@ -193,7 +274,7 @@ def test_agent_group_members_must_be_existing_workers(tmp_path):
     agent_registry = AgentRegistry(tmp_path)
     group_registry = AgentGroupRegistry(tmp_path)
     agent_registry.upsert_agent(
-        agent_id="agent:6",
+        agent_id="agent:9",
         agent_name="测试子 Agent",
         agent_category="worker_sub_agent",
     )
@@ -203,10 +284,10 @@ def test_agent_group_members_must_be_existing_workers(tmp_path):
         title="测试子 Agent 组",
         group_kind="coordination_team",
         coordinator_agent_id="",
-        member_agent_ids=("agent:6",),
+        member_agent_ids=("agent:9",),
     )
 
-    assert group.member_agent_ids == ("agent:6",)
+    assert group.member_agent_ids == ("agent:9",)
     assert group.coordinator_agent_id == ""
 
     with pytest.raises(PermissionError):

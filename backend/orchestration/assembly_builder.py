@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from capability_system import build_default_operation_registry
 from soul import SoulFacade
 from soul.projection_store import get_projection_card
 
@@ -11,6 +12,8 @@ from .agent_runtime_models import AgentRuntimeProfile
 from .agent_runtime_registry import AgentRuntimeRegistry
 from .assembly_models import AgentRuntimeSpec, TaskBodyOrchestration
 from .body_registry import BodyProfileRegistry
+from .resource_policy_builder import build_resource_policy_candidate
+from .resource_runtime_view import build_resource_runtime_views
 
 
 def build_orchestration_runtime_bundle(
@@ -108,11 +111,17 @@ def build_orchestration_runtime_bundle(
         active_skill=active_skill_payload,
         agent_id=agent_id,
     )
+    operation_registry = build_default_operation_registry()
+    candidate_policy = build_resource_policy_candidate(
+        _operation_requirement_from_payload(operation_requirement),
+        operation_registry,
+    )
+    resource_views = [item.to_dict() for item in build_resource_runtime_views(candidate_policy, operation_registry)]
     soul_runtime = SoulFacade(base_dir).build_runtime_view(
         task_prompt_contract=prompt_contract,
         projection_requirement=projection_requirement,
         skill_views=skill_runtime_views,
-        resource_views=[],
+        resource_views=resource_views,
         soul_id=str(projection_requirement.get("soul_id") or getattr(descriptor, "default_soul_id", "") or "runtime"),
         agent_profile_id=str(getattr(runtime_profile, "agent_profile_id", "") or "runtime_agent"),
         use_shared_contract=bool(getattr(runtime_profile, "use_shared_contract", True)),
@@ -473,4 +482,20 @@ def _context_policy_ref(context_policy_result: dict[str, Any]) -> str:
         or package.get("id")
         or package.get("rebuild_reason")
         or ""
+    )
+
+
+def _operation_requirement_from_payload(payload: dict[str, Any]):
+    from tasks.capability_requirements import OperationRequirement
+
+    return OperationRequirement(
+        requirement_id=str(payload.get("requirement_id") or ""),
+        task_id=str(payload.get("task_id") or ""),
+        source=str(payload.get("source") or ""),
+        required_operations=tuple(str(item) for item in list(payload.get("required_operations") or []) if str(item)),
+        optional_operations=tuple(str(item) for item in list(payload.get("optional_operations") or []) if str(item)),
+        denied_operations=tuple(str(item) for item in list(payload.get("denied_operations") or []) if str(item)),
+        reason=str(payload.get("reason") or ""),
+        authority=str(payload.get("authority") or "candidate_only"),
+        metadata=dict(payload.get("metadata") or {}),
     )

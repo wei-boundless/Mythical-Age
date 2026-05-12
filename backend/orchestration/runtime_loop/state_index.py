@@ -17,6 +17,12 @@ from .models import (
     CoordinationRun,
     TaskRun,
 )
+from .delegation_models import (
+    AgentDelegationRequest,
+    AgentDelegationResult,
+    delegation_request_from_dict,
+    delegation_result_from_dict,
+)
 from ..worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
 
 
@@ -151,6 +157,34 @@ class RuntimeStateIndex:
         payload["updated_at"] = time.time()
         self._atomic_write(payload)
 
+    def upsert_agent_delegation_request(self, request: AgentDelegationRequest) -> None:
+        payload = self._read()
+        requests = dict(payload.get("agent_delegation_requests") or {})
+        requests[request.request_id] = request.to_dict()
+        payload["agent_delegation_requests"] = requests
+        task_index = dict(payload.get("task_agent_delegation_requests") or {})
+        request_ids = list(task_index.get(request.task_run_id) or [])
+        if request.request_id not in request_ids:
+            request_ids.append(request.request_id)
+        task_index[request.task_run_id] = request_ids
+        payload["task_agent_delegation_requests"] = task_index
+        payload["updated_at"] = time.time()
+        self._atomic_write(payload)
+
+    def upsert_agent_delegation_result(self, result: AgentDelegationResult) -> None:
+        payload = self._read()
+        results = dict(payload.get("agent_delegation_results") or {})
+        results[result.result_id] = result.to_dict()
+        payload["agent_delegation_results"] = results
+        task_index = dict(payload.get("task_agent_delegation_results") or {})
+        result_ids = list(task_index.get(result.task_run_id) or [])
+        if result.result_id not in result_ids:
+            result_ids.append(result.result_id)
+        task_index[result.task_run_id] = result_ids
+        payload["task_agent_delegation_results"] = task_index
+        payload["updated_at"] = time.time()
+        self._atomic_write(payload)
+
     def get_task_run(self, task_run_id: str) -> TaskRun | None:
         task_run = dict((self._read().get("task_runs") or {}).get(task_run_id) or {})
         if not task_run:
@@ -228,6 +262,18 @@ class RuntimeStateIndex:
         ids = list((payload.get("task_worker_spawn_results") or {}).get(task_run_id) or [])
         return [_worker_spawn_result_from_payload(results[item]) for item in ids if item in results]
 
+    def list_task_agent_delegation_requests(self, task_run_id: str) -> list[AgentDelegationRequest]:
+        payload = self._read()
+        requests = dict(payload.get("agent_delegation_requests") or {})
+        ids = list((payload.get("task_agent_delegation_requests") or {}).get(task_run_id) or [])
+        return [delegation_request_from_dict(requests[item]) for item in ids if item in requests]
+
+    def list_task_agent_delegation_results(self, task_run_id: str) -> list[AgentDelegationResult]:
+        payload = self._read()
+        results = dict(payload.get("agent_delegation_results") or {})
+        ids = list((payload.get("task_agent_delegation_results") or {}).get(task_run_id) or [])
+        return [delegation_result_from_dict(results[item]) for item in ids if item in results]
+
     def _read(self) -> dict[str, Any]:
         if not self.index_path.exists():
             return {
@@ -248,6 +294,10 @@ class RuntimeStateIndex:
                 "task_worker_spawn_requests": {},
                 "worker_spawn_results": {},
                 "task_worker_spawn_results": {},
+                "agent_delegation_requests": {},
+                "task_agent_delegation_requests": {},
+                "agent_delegation_results": {},
+                "task_agent_delegation_results": {},
                 "updated_at": 0.0,
             }
         return json.loads(self.index_path.read_text(encoding="utf-8"))
@@ -258,19 +308,25 @@ class RuntimeStateIndex:
         with _STATE_INDEX_WRITE_LOCK:
             tmp.write_text(text, encoding="utf-8")
             last_error: OSError | None = None
-            for attempt in range(8):
+            for attempt in range(16):
                 try:
                     os.replace(tmp, self.index_path)
                     return
                 except PermissionError as exc:
                     last_error = exc
-                    time.sleep(0.05 * (attempt + 1))
+                    time.sleep(min(0.75, 0.05 * (attempt + 1)))
             try:
                 self.index_path.write_text(text, encoding="utf-8")
-                tmp.unlink(missing_ok=True)
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
                 return
             except OSError as exc:
-                tmp.unlink(missing_ok=True)
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
                 if last_error is not None:
                     raise last_error from exc
                 raise

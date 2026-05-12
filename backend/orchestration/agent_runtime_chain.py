@@ -96,6 +96,7 @@ class AgentRuntimeChainAssembler:
                 skill_frame=skill_frame,
                 tool_registry=self.tool_registry,
             ),
+            agent_runtime_profile=effective_agent_runtime_profile,
         )
         context_payload: dict[str, Any] = {}
         task_operation: dict[str, Any] = dict(task_bundle)

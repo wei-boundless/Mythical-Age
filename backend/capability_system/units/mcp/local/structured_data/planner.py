@@ -541,9 +541,12 @@ class StructuredDataPlanner:
             "不紧张",
         )
         shortage_markers = (
+            "缺口",
+            "最缺货",
             "缺货",
             "库存不足",
             "补货",
+            "优先处理",
             "安全库存",
             "reorder",
             "不够",

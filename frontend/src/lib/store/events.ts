@@ -1,4 +1,4 @@
-import type { OrchestrationEdge, OrchestrationNode, OrchestrationSnapshot, RetrievalResult, ToolCall } from "@/lib/api";
+import type { OrchestrationEdge, OrchestrationNode, OrchestrationSnapshot, RetrievalResult, RuntimeLoopTaskRunTrace, ToolCall } from "@/lib/api";
 
 import type { Message, StoreState } from "./types";
 import {
@@ -321,6 +321,96 @@ function runtimeControlWarningLabel(warning: string) {
     return "执行指令无法匹配候选执行";
   }
   return warning;
+}
+
+function runtimeEventToUiEvent(eventType: string) {
+  if (eventType === "loop_terminal") return "done";
+  if (eventType === "task_contract_built") return "orchestration_plan";
+  if (eventType === "runtime_directive_issued" || eventType === "operation_gate_checked") return "runtime_loop_event";
+  if (eventType === "context_snapshot_built" || eventType === "context_invariant_checked") return "context_management";
+  if (eventType === "memory_runtime_view_built") return "memory_context";
+  if (eventType === "stage_projection_built") return "prompt_manifest";
+  if (eventType.startsWith("agent_delegation_") || eventType.startsWith("child_agent_")) return "worker_start";
+  if (eventType === "tool_call_requested") return "tool_start";
+  if (eventType === "executor_observation_received" || eventType === "executor_started") return "token";
+  if (eventType.startsWith("coordination_")) return "runtime_loop_event";
+  return "runtime_loop_event";
+}
+
+function summarizeRuntimeEvent(eventType: string, data: Record<string, unknown>) {
+  const stage = stageStatusForRuntimeEvent(eventType);
+  if (stage) {
+    return stage;
+  }
+  const summaryByEventType = eventSummary("runtime_loop_event", { event_type: eventType, ...data });
+  return summaryByEventType !== "runtime_loop_event" ? summaryByEventType : eventType;
+}
+
+function makeRuntimeTraceSnapshot(sessionId: string): OrchestrationSnapshot {
+  const nodes = ORCHESTRATION_NODES.map((node, index): OrchestrationNode => ({
+    ...node,
+    index: index + 1,
+    status: node.id === "input" ? "success" : "idle",
+    summary: node.id === "input" ? "已读取运行轨迹。" : "",
+    source_event: node.id === "input" ? "runtime_trace" : ""
+  }));
+  return {
+    source: "runtime-trace",
+    session_id: sessionId,
+    execution_mode: "running",
+    route: "runtime-loop",
+    status: "running",
+    summary: "已载入运行态轨迹。",
+    problem_node_id: "",
+    nodes,
+    edges: deriveOrchestrationEdges(nodes),
+    events: []
+  };
+}
+
+export function buildSnapshotFromRuntimeLoopTrace(trace: RuntimeLoopTaskRunTrace): OrchestrationSnapshot {
+  const taskRun = (trace.task_run ?? {}) as Record<string, unknown>;
+  const sessionId = String(taskRun.session_id ?? "");
+  let snapshot = makeRuntimeTraceSnapshot(sessionId);
+  for (const runtimeEvent of trace.events ?? []) {
+    const payload = (runtimeEvent.payload ?? runtimeEvent.payload_summary ?? {}) as Record<string, unknown>;
+    const eventType = String(runtimeEvent.event_type ?? "").trim();
+    if (!eventType) continue;
+    const uiEvent = runtimeEventToUiEvent(eventType);
+    const eventData: Record<string, unknown> = {
+      event_type: eventType,
+      ...payload,
+      _runtime_event_id: runtimeEvent.event_id,
+      _runtime_offset: runtimeEvent.offset,
+      _runtime_refs: runtimeEvent.refs ?? {},
+    };
+    snapshot = updateOrchestrationSnapshot(snapshot, uiEvent, eventData) ?? snapshot;
+    snapshot = {
+      ...snapshot,
+      events: [
+        ...snapshot.events.slice(0, -1),
+        {
+          index: snapshot.events.length,
+          event: eventType,
+          node_id: snapshot.events[snapshot.events.length - 1]?.node_id ?? "capability",
+          summary: summarizeRuntimeEvent(eventType, eventData),
+          ts_ms: runtimeEvent.created_at ? Math.round(runtimeEvent.created_at * 1000) : null,
+          data: eventData,
+        },
+      ],
+    };
+  }
+  return {
+    ...(snapshot as OrchestrationSnapshot),
+    source: "runtime-trace",
+    task_run_id: String(taskRun["task_run_id"] ?? ""),
+    coordination_run_ids: (trace.coordination_runs ?? [])
+      .map((item) => String(item?.coordination_run_id ?? "").trim())
+      .filter(Boolean),
+    execution_mode: String((taskRun["diagnostics"] as Record<string, unknown> | undefined)?.["execution_mode"] ?? snapshot.execution_mode),
+    route: String(taskRun["task_id"] ?? snapshot.route),
+    summary: `已载入 TaskRun ${String(taskRun["task_run_id"] ?? "").trim() || "-"}`,
+  };
 }
 
 function updateOrchestrationSnapshot(

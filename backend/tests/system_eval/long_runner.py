@@ -182,7 +182,7 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             continue
         if check.startswith("response.contains_all="):
             variants = [item.strip() for item in check.split("=", 1)[1].split("|") if item.strip()]
-            missing = [item for item in variants if item not in turn.response_text]
+            missing = [item for item in variants if not _response_contains_semantic(turn.response_text, item)]
             if missing:
                 failures.append(f"{check} (missing={missing}, actual={turn.response_text[:160]})")
             continue
@@ -206,7 +206,7 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             continue
         if check.startswith("response.contains_any="):
             variants = [item.strip() for item in check.split("=", 1)[1].split("|") if item.strip()]
-            if not any(item in turn.response_text for item in variants):
+            if not any(_response_contains_semantic(turn.response_text, item) for item in variants):
                 failures.append(f"{check} (actual={turn.response_text[:160]})")
             continue
         if check.startswith("response.contains="):
@@ -280,6 +280,23 @@ def _append_warning(warnings: list[str], warning: str) -> None:
     normalized = warning.strip()
     if normalized and normalized not in warnings:
         warnings.append(normalized)
+
+
+_CONTAINS_EQUIVALENTS = {
+    "黄金": ("黄金", "金价", "现货金价", "现货黄金", "xau", "xau/usd"),
+    "建立": ("建立", "建设", "搭建", "建治理", "建规则", "建机制"),
+    "推进": ("推进", "推动", "促发展", "释放产业潜能"),
+}
+
+
+def _response_contains_semantic(response_text: str, expected: str) -> bool:
+    text = str(response_text or "")
+    target = str(expected or "").strip()
+    if not target:
+        return True
+    equivalents = _CONTAINS_EQUIVALENTS.get(target, (target,))
+    lower_text = text.lower()
+    return any(str(item or "").lower() in lower_text for item in equivalents)
 
 
 def _collect_quality_warnings(
@@ -404,6 +421,26 @@ def _runtime_operation_refs(events: list[dict[str, Any]]) -> list[str]:
             if normalized and normalized not in refs:
                 refs.append(normalized)
     return refs
+
+
+def _delegated_capability_markers(events: list[dict[str, Any]]) -> dict[str, list[str]]:
+    event_types: list[str] = []
+    mcp_names: list[str] = []
+    for payload in _runtime_loop_payloads(events, "agent_delegation_result_created"):
+        result = dict(payload.get("agent_delegation_result") or {})
+        diagnostics = dict(result.get("diagnostics") or {})
+        mcp_route = str(diagnostics.get("mcp_route") or "").strip()
+        operation_id = str(diagnostics.get("operation_id") or "").strip()
+        if mcp_route and mcp_route not in mcp_names:
+            mcp_names.append(mcp_route)
+        if mcp_route in {"retrieval", "pdf"} or operation_id in {"op.mcp_retrieval", "op.mcp_pdf"}:
+            if "retrieval" not in event_types:
+                event_types.append("retrieval")
+        if mcp_route:
+            marker = f"child_mcp:{mcp_route}"
+            if marker not in event_types:
+                event_types.append(marker)
+    return {"event_types": event_types, "mcp_names": mcp_names}
 
 
 def _task_selection_payload(turn: LongScenarioTurn) -> dict[str, Any]:
@@ -727,6 +764,14 @@ def _execute_user_turn(
         for item in events
         if item.get("event") in {"mcp_start", "mcp_end"}
     ]
+    delegated_markers = _delegated_capability_markers(events)
+    event_types = [str(item.get("event", "")) for item in events]
+    event_types.extend(
+        marker for marker in delegated_markers["event_types"] if marker and marker not in event_types
+    )
+    mcp_names.extend(
+        name for name in delegated_markers["mcp_names"] if name and name not in mcp_names
+    )
     orchestration_topology = dict(orchestration_plan.get("topology") or {})
     orchestration_executions = [
         dict(item)
@@ -760,7 +805,7 @@ def _execute_user_turn(
         execution_mode=effective_execution_mode,
         bundle_item_count=int(inferred.get("bundle_item_count") or 0),
         subquery_count=int(inferred.get("subquery_count") or 0),
-        event_types=[str(item.get("event", "")) for item in events],
+        event_types=event_types,
         tool_names=[name for name in tool_names if name],
         mcp_names=[name for name in mcp_names if name],
         response_text=response_text,

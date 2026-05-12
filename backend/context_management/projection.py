@@ -147,11 +147,28 @@ def projection_from_bound_answer(
     existing_main_context: dict[str, Any] | None = None,
 ) -> ContextProjection:
     context = dict(current_turn_context or {})
+    current_file_kind = _current_turn_file_work_kind(context)
+    if current_file_kind not in {"pdf", "dataset"}:
+        return ContextProjection()
     bindings = [dict(item) for item in list(context.get("resolved_bindings") or []) if isinstance(item, dict)]
     binding = _select_source_binding(bindings, context)
     if not binding:
         return ContextProjection()
     file_kind = str(binding.get("file_kind") or "").strip()
+    if file_kind != current_file_kind:
+        kind_matched = _binding_by_kind(
+            [
+                item
+                for item in bindings
+                if str(item.get("binding_kind") or "") == "source_file"
+                and str(item.get("file_kind") or "") in {"pdf", "dataset"}
+            ],
+            current_file_kind,
+        )
+        if not kind_matched:
+            return ContextProjection()
+        binding = kind_matched
+        file_kind = current_file_kind
     metadata = dict(binding.get("metadata") or {})
     path = str(metadata.get("path") or binding.get("identity") or "").strip()
     answer = _compact(str(content or ""), 420)
@@ -389,23 +406,158 @@ def _key_points_for_bundle_item(item: dict[str, Any], existing: dict[str, Any]) 
 
 
 def _select_source_binding(bindings: list[dict[str, Any]], context: dict[str, Any]) -> dict[str, Any]:
-    intent = str(context.get("intent") or "").lower()
-    preferred_kind = ""
-    if "pdf" in intent:
-        preferred_kind = "pdf"
-    elif any(token in intent for token in ("structured", "dataset")):
-        preferred_kind = "dataset"
     source_bindings = [
         item
         for item in bindings
         if str(item.get("binding_kind") or "") == "source_file"
         and str(item.get("file_kind") or "") in {"pdf", "dataset"}
     ]
+    if not source_bindings:
+        return {}
+
+    explicit_inputs = dict(context.get("explicit_inputs") or {})
+    tool_input = dict(explicit_inputs.get("tool_input") or {})
+    preferred_path = _first_present(
+        tool_input.get("path"),
+        tool_input.get("file_path"),
+        tool_input.get("active_dataset"),
+        tool_input.get("active_pdf"),
+        explicit_inputs.get("explicit_dataset_path"),
+        explicit_inputs.get("explicit_pdf_path"),
+    )
+    if preferred_path:
+        matched = _binding_by_path(source_bindings, preferred_path)
+        if matched:
+            return matched
+
+    preferred_kind = _preferred_file_kind(context)
     if preferred_kind:
-        for item in source_bindings:
-            if str(item.get("file_kind") or "") == preferred_kind:
-                return item
+        kind_matched = _binding_by_kind(source_bindings, preferred_kind)
+        if kind_matched:
+            return kind_matched
+
     return source_bindings[0] if source_bindings else {}
+
+
+def _preferred_file_kind(context: dict[str, Any]) -> str:
+    current_turn_kind = _current_turn_file_work_kind(context)
+    if current_turn_kind:
+        return current_turn_kind
+
+    explicit_inputs = dict(context.get("explicit_inputs") or {})
+    path_hint = _first_present(
+        explicit_inputs.get("explicit_dataset_path"),
+        explicit_inputs.get("explicit_pdf_path"),
+        explicit_inputs.get("bound_dataset_path"),
+        explicit_inputs.get("bound_pdf_path"),
+    )
+    suffix = _normalized_suffix(path_hint)
+    if suffix in {".xlsx", ".xls", ".csv", ".tsv", ".jsonl", ".parquet"}:
+        return "dataset"
+    if suffix == ".pdf":
+        return "pdf"
+
+    return ""
+
+
+def _current_turn_file_work_kind(context: dict[str, Any]) -> str:
+    explicit_inputs = dict(context.get("explicit_inputs") or {})
+    tool_input = dict(explicit_inputs.get("tool_input") or {})
+    template_id = str(
+        context.get("selected_template_id")
+        or context.get("template_id")
+        or explicit_inputs.get("selected_template_id")
+        or explicit_inputs.get("template_id")
+        or ""
+    ).lower()
+    if "structured" in template_id or ".data." in template_id:
+        return "dataset"
+    if "pdf" in template_id or "document_analysis" in template_id:
+        return "pdf"
+
+    path_hint = _first_present(
+        tool_input.get("path"),
+        tool_input.get("file_path"),
+        tool_input.get("active_dataset"),
+        tool_input.get("active_pdf"),
+        explicit_inputs.get("explicit_dataset_path"),
+        explicit_inputs.get("explicit_pdf_path"),
+    )
+    suffix = _normalized_suffix(path_hint)
+    if suffix in {".xlsx", ".xls", ".csv", ".tsv", ".jsonl", ".parquet"}:
+        return "dataset"
+    if suffix == ".pdf":
+        return "pdf"
+
+    capability_requests = " ".join(str(item or "").lower() for item in list(context.get("capability_requests") or []))
+    if any(token in capability_requests for token in ("dataset", "structured", "table", "spreadsheet")):
+        return "dataset"
+    if "pdf" in capability_requests or "document" in capability_requests:
+        return "pdf"
+
+    intent = str(context.get("intent") or "").lower()
+    if "pdf" in intent:
+        return "pdf"
+    if any(token in intent for token in ("structured", "dataset", "table", "spreadsheet")):
+        return "dataset"
+    return ""
+
+
+def _binding_by_kind(bindings: list[dict[str, Any]], file_kind: str) -> dict[str, Any]:
+    expected = str(file_kind or "").strip()
+    if expected not in {"pdf", "dataset"}:
+        return {}
+    for item in bindings:
+        if str(item.get("file_kind") or "").strip() == expected:
+            return item
+    return {}
+
+
+def _binding_by_path(bindings: list[dict[str, Any]], path: str) -> dict[str, Any]:
+    wanted = _binding_path_key(path)
+    wanted_name = _binding_basename_key(path)
+    if not wanted and not wanted_name:
+        return {}
+    for item in bindings:
+        metadata = dict(item.get("metadata") or {})
+        candidates = [
+            metadata.get("path"),
+            item.get("identity"),
+            metadata.get("source"),
+            metadata.get("file_path"),
+        ]
+        for candidate in candidates:
+            key = _binding_path_key(candidate)
+            name = _binding_basename_key(candidate)
+            if wanted and key and (wanted == key or wanted.endswith("/" + key) or key.endswith("/" + wanted)):
+                return item
+            if wanted_name and name and wanted_name == name:
+                return item
+    return {}
+
+
+def _first_present(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _binding_path_key(value: Any) -> str:
+    return str(value or "").replace("\\", "/").strip().lower()
+
+
+def _binding_basename_key(value: Any) -> str:
+    normalized = _binding_path_key(value)
+    return normalized.rsplit("/", 1)[-1] if normalized else ""
+
+
+def _normalized_suffix(value: Any) -> str:
+    basename = _binding_basename_key(value)
+    if "." not in basename:
+        return ""
+    return "." + basename.rsplit(".", 1)[-1].lower()
 
 
 def _stable_file_work_id(prefix: str, value: str) -> str:

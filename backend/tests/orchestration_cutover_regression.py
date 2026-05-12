@@ -192,7 +192,7 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
         title="小游戏并行交付",
         coordination_mode="review_merge",
         coordinator_agent_id="agent:0",
-        participant_agent_ids=("agent:6",),
+        participant_agent_ids=("agent:9",),
         topology_template_id="topology.dev.parallel_game_delivery",
         handoff_policy="structured_handoff",
         output_merge_policy="coordinator_final_merge",
@@ -202,7 +202,7 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
         template_id="topology.dev.parallel_game_delivery",
         title="小游戏并行交付拓扑",
         nodes=(
-            {"node_id": "design_worker", "agent_id": "agent:6", "lane": "game_delivery", "role": "worker_participant"},
+            {"node_id": "design_worker", "agent_id": "agent:9", "lane": "game_delivery", "role": "worker_participant"},
             {"node_id": "final_merge", "agent_id": "agent:0", "lane": "final_integration", "role": "coordinator"},
         ),
         edges=(
@@ -344,13 +344,13 @@ def test_agent_registry_upsert_preserves_agent_metadata_without_task_scope() -> 
     registry = AgentRegistry(base_dir)
 
     created = registry.upsert_agent(
-        agent_id="agent:6",
+        agent_id="agent:rag_analyst",
         agent_name="测试工作Agent",
         agent_category="worker_sub_agent",
         metadata={"created_by": "regression"},
     )
 
     assert created.metadata["created_by"] == "regression"
-    loaded = registry.get_agent("agent:6")
+    loaded = registry.get_agent("agent:rag_analyst")
     assert loaded is not None
     assert loaded.metadata["created_by"] == "regression"

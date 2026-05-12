@@ -852,13 +852,18 @@ export function hasCoordinationSignal(snapshot: OrchestrationSnapshot | null) {
 }
 
 export function CoordinationRunPanel({
-  snapshot
+  snapshot,
+  onResumeCoordinationRun,
 }: {
   snapshot: OrchestrationSnapshot | null;
+  onResumeCoordinationRun?: (coordinationRunId: string, payload?: Record<string, unknown>) => Promise<void>;
 }) {
   const model = useMemo(() => buildModel(snapshot), [snapshot]);
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [selectedEdgeId, setSelectedEdgeId] = useState("");
+  const [resuming, setResuming] = useState(false);
+  const [resumeError, setResumeError] = useState("");
+  const [resumeNotice, setResumeNotice] = useState("");
   const currentNode = model.nodes.find((node) => node.id === model.currentNodeId) ?? null;
   const selectedNode = model.nodes.find((node) => node.id === selectedNodeId) ?? currentNode;
   const selectedEdge = model.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
@@ -886,6 +891,45 @@ export function CoordinationRunPanel({
   const contractNodeList = activeContractNode
     ? [activeContractNode, ...contractRuntime.nodeSummaries.filter((node) => node.nodeId !== activeContractNode.nodeId)].slice(0, 8)
     : contractRuntime.nodeSummaries.slice(0, 8);
+  const traceCoordinationRunIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const event of snapshot?.events ?? []) {
+      walk(event.data, (record) => {
+        const id = text(record.coordination_run_id) || text(record.coordination_run_ref);
+        if (id) ids.add(id);
+      });
+    }
+    return Array.from(ids);
+  }, [snapshot]);
+  const coordinationRunIds = snapshot?.coordination_run_ids?.length ? snapshot.coordination_run_ids : traceCoordinationRunIds;
+  const activeCoordinationRunId = coordinationRunIds[0] ?? "";
+  const taskRunId = text(snapshot?.task_run_id);
+  const waitingForHuman = Boolean(
+    contractRuntime.waitingNodes.length
+    || contractRuntime.nodeSummaries.some((node) => node.status === "human_gate" || node.status === "waiting_for_human")
+    || model.nodes.some((node) => node.status === "waiting_for_human" || node.status === "human_gate")
+  );
+
+  async function resumeWithDecision(decision: "approve" | "retry" | "reject") {
+    if (!onResumeCoordinationRun || !activeCoordinationRunId || resuming) {
+      return;
+    }
+    setResuming(true);
+    setResumeError("");
+    setResumeNotice("");
+    try {
+      const stageId = selectedNode?.id || activeContractNode?.nodeId || model.currentNodeId || "";
+      await onResumeCoordinationRun(activeCoordinationRunId, {
+        decision,
+        stage_id: stageId || undefined,
+      });
+      setResumeNotice(`已提交 ${decision}，运行态正在刷新。`);
+    } catch (error) {
+      setResumeError(error instanceof Error ? error.message : "续跑失败");
+    } finally {
+      setResuming(false);
+    }
+  }
 
   if (!model.hasSignal) {
     return (
@@ -917,7 +961,34 @@ export function CoordinationRunPanel({
             <strong>{currentNode ? currentNode.title : "等待节点"}</strong>
             <em>{activeStatus}</em>
           </article>
+          {taskRunId ? (
+            <article className="coordination-session__statuspill">
+              <span>TaskRun</span>
+              <strong>{taskRunId}</strong>
+              <em>{activeCoordinationRunId || "无 CoordinationRun"}</em>
+            </article>
+          ) : null}
         </div>
+        {waitingForHuman && activeCoordinationRunId ? (
+          <div className="coordination-session__statusbar" aria-label="人工门控续跑">
+            <article className="coordination-session__statuspill coordination-session__statuspill--active">
+              <span>人工门控</span>
+              <strong>等待决策</strong>
+              <em>{activeCoordinationRunId}</em>
+            </article>
+            <button className="chat-page-tabs__item" disabled={resuming} onClick={() => { void resumeWithDecision("approve"); }} type="button">
+              通过
+            </button>
+            <button className="chat-page-tabs__item" disabled={resuming} onClick={() => { void resumeWithDecision("retry"); }} type="button">
+              返修
+            </button>
+            <button className="chat-page-tabs__item" disabled={resuming} onClick={() => { void resumeWithDecision("reject"); }} type="button">
+              拒绝
+            </button>
+            {resumeNotice ? <span className="chat-page-tabs__signal">{resumeNotice}</span> : null}
+            {resumeError ? <span>{resumeError}</span> : null}
+          </div>
+        ) : null}
       </header>
 
       <section className="coordination-topology-shell" aria-label="协调任务拓扑">

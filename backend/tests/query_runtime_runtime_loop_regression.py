@@ -125,3 +125,66 @@ def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: P
     assert "worker_agent_spawn_completed" in event_types
     assert trace["worker_spawn_requests"]
     assert trace["worker_spawn_results"]
+
+
+def test_delegate_mode_template_skips_legacy_template_mcp_phase() -> None:
+    runtime = _build_stream_runtime()
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-delegate-phase",
+                message="请分析 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf 的核心结论。",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    event_types = [
+        dict(event.get("event") or {}).get("event_type")
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    built_event = next(
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
+    )
+    payload = dict(built_event.get("payload") or {})
+    assert str(dict(payload.get("selected_template") or {}).get("template_id") or "") == "template.pdf.document_analysis"
+
+    assert "mcp_start" not in event_types
+
+
+def test_terminal_state_index_failure_still_yields_done() -> None:
+    runtime = _build_stream_runtime()
+
+    def _raise_state_index_failure(*_args, **_kwargs):
+        raise PermissionError("simulated state_index replace failure")
+
+    runtime.task_run_loop._upsert_finished_task_run = _raise_state_index_failure  # type: ignore[method-assign]
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-state-index-degraded",
+                message="请给我一个值班提示。",
+                history=[],
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    done_event = next(event for event in events if event.get("type") == "done")
+
+    assert not any(event.get("type") == "error" for event in events)
+    assert done_event.get("content") == "单轮收口回答"
+    output_commit = dict(done_event.get("output_commit") or {})
+    assert output_commit["state_index_degraded"] is True
+    assert dict(done_event.get("runtime_state_index") or {})["phase"] == "finished_task_run_state_write"

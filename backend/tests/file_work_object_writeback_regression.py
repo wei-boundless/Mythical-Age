@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from context_management.projection import projection_from_bound_answer
 from memory_system import MemoryFacade
 from orchestration.runtime_loop.task_run_loop import _project_file_work_context_from_tool_observation
 from query.runtime import QueryRuntime
@@ -54,6 +55,112 @@ def test_pdf_mcp_observation_projects_file_work_context() -> None:
     assert main_context["active_result_handle_id"].startswith("result:pdf_answer:")
     assert main_context["active_subset_handle_id"].startswith("subset:pdf_pages:")
     assert task_refs[0]["task_kind"] == "pdf"
+
+
+def test_bound_answer_projection_prefers_dataset_template_over_prior_pdf_binding() -> None:
+    projection = projection_from_bound_answer(
+        content="没有。每个仓库至少存在一条库存低于补货线的记录。",
+        current_turn_context={
+            "intent": "general_query",
+            "selected_template_id": "template.data.structured_analysis",
+            "explicit_inputs": {
+                "bound_dataset_path": "inventory.xlsx",
+                "bound_pdf_path": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                "tool_input": {
+                    "query": "是否存在完全没有缺口的仓库？",
+                    "path": "inventory.xlsx",
+                },
+            },
+            "resolved_bindings": [
+                {
+                    "binding_kind": "source_file",
+                    "identity": "knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf",
+                    "file_kind": "pdf",
+                    "metadata": {"path": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"},
+                },
+                {
+                    "binding_kind": "source_file",
+                    "identity": "inventory.xlsx",
+                    "file_kind": "dataset",
+                    "metadata": {"path": "inventory.xlsx"},
+                },
+            ],
+        },
+    )
+
+    assert projection.main_context["active_work_item"] == "structured_data"
+    assert projection.main_context["followup_binding_key"] == "active_dataset"
+    assert projection.main_context["active_constraints"]["active_dataset"] == "inventory.xlsx"
+    assert projection.main_context["active_result_handle_id"].startswith("result:structured_answer:")
+    assert projection.task_summary_refs[0]["task_kind"] == "structured_data"
+
+
+def test_bound_answer_projection_prefers_pdf_template_over_dataset_binding() -> None:
+    pdf_path = "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+    projection = projection_from_bound_answer(
+        content="第三页承担目录和结构导航作用。",
+        current_turn_context={
+            "intent": "general_query",
+            "selected_template_id": "template.pdf.document_analysis",
+            "explicit_inputs": {
+                "bound_dataset_path": "inventory.xlsx",
+                "bound_pdf_path": pdf_path,
+                "tool_input": {
+                    "query": "第三页承担什么作用？",
+                    "path": pdf_path,
+                    "mode": "page",
+                },
+            },
+            "resolved_bindings": [
+                {
+                    "binding_kind": "source_file",
+                    "identity": "inventory.xlsx",
+                    "file_kind": "dataset",
+                    "metadata": {"path": "inventory.xlsx"},
+                },
+                {
+                    "binding_kind": "source_file",
+                    "identity": pdf_path.lower(),
+                    "file_kind": "pdf",
+                    "metadata": {"path": pdf_path},
+                },
+            ],
+        },
+    )
+
+    assert projection.main_context["active_work_item"] == "pdf"
+    assert projection.main_context["followup_binding_key"] == "active_pdf"
+    assert projection.main_context["active_constraints"]["active_pdf"] == pdf_path
+    assert projection.main_context["active_result_handle_id"].startswith("result:pdf_answer:")
+    assert projection.task_summary_refs[0]["task_kind"] == "pdf"
+
+
+def test_bound_answer_projection_ignores_non_file_task_with_stale_binding() -> None:
+    projection = projection_from_bound_answer(
+        content="现货黄金约 4737 美元/盎司，时间口径为 2026-05-11 21:03 UTC。",
+        current_turn_context={
+            "intent": "realtime_network",
+            "selected_template_id": "template.search.information_search",
+            "explicit_inputs": {
+                "bound_dataset_path": "inventory.xlsx",
+                "tool_input": {
+                    "query": "顺便查一下黄金价格，直接给结论和时间口径。",
+                },
+            },
+            "resolved_bindings": [
+                {
+                    "binding_kind": "source_file",
+                    "identity": "inventory.xlsx",
+                    "file_kind": "dataset",
+                    "metadata": {"path": "inventory.xlsx"},
+                },
+            ],
+        },
+    )
+
+    assert projection.main_context == {}
+    assert projection.task_summary_refs == []
+    assert projection.result_handle_ids == []
 
 
 def test_assistant_commit_uses_context_state_writeback_for_file_work_objects(tmp_path: Path) -> None:

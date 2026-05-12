@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import re
 import time
 import uuid
@@ -77,6 +78,7 @@ from .event_log import RuntimeEventLog
 from .loop_control import RuntimeLoopLimits, check_runtime_loop_control
 from .langgraph_coordination_runner import LangGraphCoordinationRunner
 from .artifact_refs import ArtifactRefIndex, collect_task_result_output_refs, dedupe_refs as dedupe_artifact_refs
+from .agent_delegation_executor import AgentDelegationExecutor
 from .langgraph_coordination_runtime import LangGraphCoordinationRuntime
 from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
 from .task_artifact_materializer import MaterializedTaskArtifacts, materialize_task_artifacts
@@ -100,6 +102,7 @@ from .safety import build_task_safety_validators
 from .stage_projection import StageProjectionCycle
 from .state_index import RuntimeStateIndex
 from .trace_reader import RuntimeLoopTraceReader
+from .delegation_models import AgentDelegationRequest
 from .tool_adoption import build_tool_request_runtime_adoption
 from .tool_repetition_guard import ToolRepetitionGuard
 from ..worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
@@ -699,6 +702,7 @@ class TaskRunLoop:
             adoption_mode=adoption_mode,
             task_agent_binding_ref=str(task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
             graph_payload=graph_payload,
+            task_graph_payload=task_graph_payload,
             communication_protocol_payload=task_communication_protocol_payload,
             task_agent_adoption_plan_payload=task_agent_adoption_plan_payload,
             effective_limits=effective_limits,
@@ -807,6 +811,7 @@ class TaskRunLoop:
         if self._should_run_template_mcp_phase(
             query_understanding=query_understanding,
             selected_template_payload=selected_template_payload,
+            task_operation=task_operation,
         ):
             mcp_outcome = await self._run_template_mcp_phase(
                 task_run_id=state.task_run_id,
@@ -1242,6 +1247,7 @@ class TaskRunLoop:
                     adopted_resource_policy=resource_policy,
                     current_step_id=runtime_task_ledger.current_step_id if runtime_task_ledger is not None else state.current_step_id,
                     runtime_context_manager=runtime_context_manager,
+                    model_response_executor=model_response_executor,
                     tool_runtime_executor=tool_runtime_executor,
                     event=event,
                 )
@@ -1601,13 +1607,14 @@ class TaskRunLoop:
                         next_assistant_tool_call_kwargs.update(event_kwargs)
                 runtime_events = await self._events_from_executor_event(
                     state.task_run_id,
-                task_id=task_id,
-                task_operation=task_operation,
-                adopted_resource_policy=resource_policy,
-                current_step_id=runtime_task_ledger.current_step_id if runtime_task_ledger is not None else state.current_step_id,
-                runtime_context_manager=runtime_context_manager,
-                tool_runtime_executor=tool_runtime_executor,
-                event=event,
+                    task_id=task_id,
+                    task_operation=task_operation,
+                    adopted_resource_policy=resource_policy,
+                    current_step_id=runtime_task_ledger.current_step_id if runtime_task_ledger is not None else state.current_step_id,
+                    runtime_context_manager=runtime_context_manager,
+                    model_response_executor=model_response_executor,
+                    tool_runtime_executor=tool_runtime_executor,
+                    event=event,
                 )
                 for runtime_event in runtime_events:
                     if runtime_event.event_type == "executor_observation_received":
@@ -1977,6 +1984,7 @@ class TaskRunLoop:
                         adopted_resource_policy=resource_policy,
                         current_step_id=runtime_task_ledger.current_step_id if runtime_task_ledger is not None else state.current_step_id,
                         runtime_context_manager=runtime_context_manager,
+                        model_response_executor=model_response_executor,
                         tool_runtime_executor=tool_runtime_executor,
                         event=event,
                     )
@@ -2428,24 +2436,49 @@ class TaskRunLoop:
         yield {"type": "runtime_loop_event", "event": terminal_event.to_dict()}
         checkpoint_event = self._write_checkpoint_event(terminal_state, event_offset=terminal_event.offset)
         yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
-        finished = self._upsert_finished_task_run(
-            start_task_run=start.task_run,
-            start_agent_run=start.agent_run,
-            start_coordination_run=start.coordination_run,
-            task_contract_ref=task_contract_ref,
-            terminal_state=terminal_state,
-            checkpoint_event=checkpoint_event,
-            final_content=final_content,
-            task_result=task_result.to_dict() if task_result is not None else {},
-            task_spec_payload=task_spec_payload,
-            current_turn_context=current_turn_context,
-            user_message=user_message,
-            diagnostics={"final_content_chars": len(final_content)},
-        )
-        for runtime_event in finished.events:
-            yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+        continuation_payload: dict[str, Any] = {}
+        try:
+            finished = self._upsert_finished_task_run(
+                start_task_run=start.task_run,
+                start_agent_run=start.agent_run,
+                start_coordination_run=start.coordination_run,
+                task_contract_ref=task_contract_ref,
+                terminal_state=terminal_state,
+                checkpoint_event=checkpoint_event,
+                final_content=final_content,
+                task_result=task_result.to_dict() if task_result is not None else {},
+                task_spec_payload=task_spec_payload,
+                current_turn_context=current_turn_context,
+                user_message=user_message,
+                diagnostics={"final_content_chars": len(final_content)},
+            )
+            for runtime_event in finished.events:
+                yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+            continuation_payload = dict(finished.continuation_payload or {})
+        except Exception as exc:
+            state_index_diagnostics = {
+                "degraded": True,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "phase": "finished_task_run_state_write",
+            }
+            done_event["output_commit"] = {
+                **dict(done_event.get("output_commit") or {}),
+                "state_index_degraded": True,
+                "state_index_error": state_index_diagnostics,
+            }
+            done_event["runtime_state_index"] = state_index_diagnostics
+            try:
+                degraded_event = self.event_log.append(
+                    terminal_state.task_run_id,
+                    "runtime_state_index_degraded",
+                    payload=state_index_diagnostics,
+                    refs={"checkpoint_ref": str(checkpoint_event.refs.get("checkpoint_ref") or "")},
+                )
+                yield {"type": "runtime_loop_event", "event": degraded_event.to_dict()}
+            except Exception:
+                pass
         yield done_event
-        continuation_payload = dict(finished.continuation_payload or {})
         if continuation_payload:
             async for event in self._continue_coordination_delivery_stream(
                 session_id=session_id,
@@ -2991,12 +3024,14 @@ class TaskRunLoop:
         task_agent_binding_ref: str,
         graph_payload: dict[str, Any],
         communication_protocol_payload: dict[str, Any],
+        task_graph_payload: dict[str, Any] | None = None,
         task_agent_adoption_plan_payload: dict[str, Any] | None = None,
         effective_limits: RuntimeLoopLimits | None = None,
         task_spec_payload: dict[str, Any] | None = None,
     ) -> tuple[Any, ...]:
         events: list[Any] = []
         adoption_plan_payload = dict(task_agent_adoption_plan_payload or {})
+        task_graph_payload = dict(task_graph_payload or graph_payload or {})
         effective_limits_payload = effective_limits.to_dict() if effective_limits is not None else None
         if effective_limits_payload is not None:
             current_task_run = self.state_index.get_task_run(start_result.task_run.task_run_id) or start_result.task_run
@@ -3063,7 +3098,7 @@ class TaskRunLoop:
                 str(graph_payload.get("topology_template_id") or "")
             )
             coordination_flow = build_coordination_flow_state(
-                graph_payload=graph_payload,
+                coordination_task_payload=graph_payload,
                 topology_template=topology_template_payload,
                 communication_protocol_payload=communication_protocol_payload,
             )
@@ -4411,7 +4446,12 @@ class TaskRunLoop:
         *,
         query_understanding: dict[str, Any],
         selected_template_payload: dict[str, Any],
+        task_operation: dict[str, Any],
     ) -> bool:
+        operation_requirement = dict(task_operation.get("operation_requirement") or {})
+        resolution = dict(dict(operation_requirement.get("metadata") or {}).get("runtime_operation_resolution") or {})
+        if str(resolution.get("execution_mode") or "").strip() == "delegate":
+            return False
         template_id = str(selected_template_payload.get("template_id") or "").strip()
         if get_local_mcp_unit_for_template(template_id) is not None:
             return True
@@ -4658,6 +4698,49 @@ class TaskRunLoop:
 
         return build_tool_authorization_index(get_tool_definitions())
 
+    def _delegation_executor(self) -> AgentDelegationExecutor:
+        executor = getattr(self, "_agent_delegation_executor", None)
+        if executor is None:
+            executor = AgentDelegationExecutor(
+                self.backend_dir,
+                state_index=self.state_index,
+                event_log=self.event_log,
+                evidence_orchestrator=self.evidence_orchestrator,
+            )
+            self._agent_delegation_executor = executor
+        return executor
+
+    def _build_delegation_request(
+        self,
+        *,
+        task_run_id: str,
+        action_request: Any,
+        parent_agent_run_ref: str,
+        source_agent_id: str,
+    ) -> AgentDelegationRequest:
+        tool_call = dict(action_request.payload.get("tool_call") or {})
+        tool_args = dict(tool_call.get("args") or {})
+        task_run = self.state_index.get_task_run(task_run_id)
+        return AgentDelegationRequest(
+            request_id=f"delegation:req:{task_run_id}:{uuid.uuid4().hex[:8]}",
+            task_run_id=task_run_id,
+            session_id=str(task_run.session_id if task_run is not None else ""),
+            parent_agent_run_ref=parent_agent_run_ref,
+            source_agent_id=source_agent_id,
+            target_agent_id=str(tool_args.get("target_agent_id") or "").strip(),
+            delegation_kind=str(tool_args.get("delegation_kind") or "").strip(),
+            instruction=str(tool_args.get("instruction") or "").strip(),
+            input_payload=dict(tool_args.get("input_payload") or {}),
+            context_policy=dict(tool_args.get("context_policy") or {}),
+            expected_output_contract=dict(tool_args.get("expected_output_contract") or {}),
+            timeout_policy=dict(tool_args.get("timeout_policy") or {}),
+            created_at=time.time(),
+            diagnostics={
+                "tool_call_id": str(tool_call.get("id") or ""),
+                "operation_id": str(action_request.operation_id or ""),
+            },
+        )
+
     async def _events_from_executor_event(
         self,
         task_run_id: str,
@@ -4667,6 +4750,7 @@ class TaskRunLoop:
         adopted_resource_policy: Any,
         current_step_id: str,
         runtime_context_manager: RuntimeContextManager,
+        model_response_executor: Any,
         tool_runtime_executor: Any | None,
         event: dict[str, Any],
     ):
@@ -4794,6 +4878,97 @@ class TaskRunLoop:
             if gate_result.allowed and tool_runtime_executor is not None:
                 step_id = str(current_step_id or action_request.step_id or "")
                 tool_name = str(action_request.payload.get("tool_name") or "")
+                if tool_name == "delegate_to_agent":
+                    parent_agent_runs = self.state_index.list_task_agent_runs(task_run_id)
+                    parent_agent_run = next((item for item in parent_agent_runs if item.agent_run_id.endswith(":main")), None)
+                    if parent_agent_run is None and parent_agent_runs:
+                        parent_agent_run = parent_agent_runs[0]
+                    if parent_agent_run is None:
+                        error_observation = build_tool_result_observation(
+                            task_run_id=task_run_id,
+                            request_ref=action_request.request_id,
+                            directive_ref=tool_directive.directive_id,
+                            tool_name="delegate_to_agent",
+                            tool_call_id=str(dict(action_request.payload.get("tool_call") or {}).get("id") or action_request.request_id),
+                            tool_args=dict(dict(action_request.payload.get("tool_call") or {}).get("args") or {}),
+                            result="委派失败：未找到父 AgentRun。",
+                        )
+                        context_record = runtime_context_manager.record_observation(error_observation)
+                        events.append(
+                            self.event_log.append(
+                                task_run_id,
+                                "executor_observation_received",
+                                payload={
+                                    "observation": error_observation.to_dict(),
+                                    "context_record": context_record.to_dict(),
+                                    "source": error_observation.source,
+                                    "content_chars": error_observation.content_chars,
+                                },
+                                refs={
+                                    "action_request_ref": action_request.request_id,
+                                    "directive_ref": tool_directive.directive_id,
+                                    "observation_ref": error_observation.observation_id,
+                                },
+                            )
+                        )
+                        return events
+                    delegation_request = self._build_delegation_request(
+                        task_run_id=task_run_id,
+                        action_request=action_request,
+                        parent_agent_run_ref=parent_agent_run.agent_run_id,
+                        source_agent_id=parent_agent_run.agent_id,
+                    )
+                    delegated = await self._delegation_executor().execute(
+                        request=delegation_request,
+                        parent_agent_run=parent_agent_run,
+                        model_response_executor=model_response_executor,
+                    )
+                    events.extend(list(delegated.get("events") or []))
+                    result_observation = build_tool_result_observation(
+                        task_run_id=task_run_id,
+                        request_ref=action_request.request_id,
+                        directive_ref=tool_directive.directive_id,
+                        tool_name="delegate_to_agent",
+                        tool_call_id=str(dict(action_request.payload.get("tool_call") or {}).get("id") or action_request.request_id),
+                        tool_args=dict(dict(action_request.payload.get("tool_call") or {}).get("args") or {}),
+                        result=json.dumps(dict(delegated.get("observation") or {}), ensure_ascii=False),
+                    )
+                    context_record = runtime_context_manager.record_observation(result_observation)
+                    events.append(
+                        self.event_log.append(
+                            task_run_id,
+                            "tool_result_received",
+                            payload={
+                                "observation": result_observation.to_dict(),
+                                "context_record": context_record.to_dict(),
+                            },
+                            refs={
+                                "action_request_ref": action_request.request_id,
+                                "directive_ref": tool_directive.directive_id,
+                                "observation_ref": result_observation.observation_id,
+                                "delegation_request_ref": delegation_request.request_id,
+                            },
+                        )
+                    )
+                    events.append(
+                        self.event_log.append(
+                            task_run_id,
+                            "executor_observation_received",
+                            payload={
+                                "observation": result_observation.to_dict(),
+                                "context_record": context_record.to_dict(),
+                                "source": result_observation.source,
+                                "content_chars": result_observation.content_chars,
+                            },
+                            refs={
+                                "action_request_ref": action_request.request_id,
+                                "directive_ref": tool_directive.directive_id,
+                                "observation_ref": result_observation.observation_id,
+                                "delegation_request_ref": delegation_request.request_id,
+                            },
+                        )
+                    )
+                    return events
                 execution_record, execution_events, execution_decision = self._prepare_tool_execution(
                     task_run_id=task_run_id,
                     step_id=step_id,
@@ -5764,6 +5939,8 @@ def _project_file_work_context_from_tool_observation(payload: dict[str, Any]) ->
     result_text = str(payload.get("result") or "").strip()
     if not result_text or str(payload.get("truncated") or "").lower() == "true":
         return {}, []
+    if tool_name == "delegate_to_agent":
+        return _project_delegated_file_work_context(tool_args=tool_args, result_text=result_text)
     if tool_name in {"mcp_pdf", "pdf"}:
         return _project_pdf_tool_context(tool_args=tool_args, result_text=result_text)
     if tool_name in {"mcp_structured_data", "structured_data"}:
@@ -5898,6 +6075,41 @@ def _project_structured_data_tool_context(
     return main_context, [task_summary]
 
 
+def _project_delegated_file_work_context(
+    *,
+    tool_args: dict[str, Any],
+    result_text: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    result_payload = _parse_json_object(result_text)
+    if not result_payload or str(result_payload.get("status") or "") not in {"completed", "failed"}:
+        return {}, []
+    input_payload = dict(tool_args.get("input_payload") or {})
+    kind = _clean_text(tool_args.get("delegation_kind"))
+    path = _clean_text(
+        input_payload.get("file_path")
+        or input_payload.get("path")
+        or input_payload.get("active_dataset")
+        or input_payload.get("active_pdf")
+    )
+    if not path:
+        path = _clean_text(result_payload.get("source") or result_payload.get("path"))
+    if not path:
+        return {}, []
+    summary = _clean_text(result_payload.get("summary") or result_payload.get("answer_candidate") or result_text)
+    delegated_tool_args = {
+        "path": path,
+        "query": _clean_text(input_payload.get("query") or tool_args.get("instruction")),
+    }
+    if kind in {"structured_data", "table_analysis", "structured_data_lookup"}:
+        return _project_structured_data_tool_context(tool_args=delegated_tool_args, result_text=summary)
+    if kind in {"pdf", "pdf_reading", "document_reading"}:
+        mode = _clean_text(input_payload.get("mode") or input_payload.get("extract_mode"))
+        if mode:
+            delegated_tool_args["mode"] = mode
+        return _project_pdf_tool_context(tool_args=delegated_tool_args, result_text=summary)
+    return {}, []
+
+
 def _stable_file_work_id(prefix: str, value: str) -> str:
     import hashlib
 
@@ -5914,6 +6126,19 @@ def _parse_tool_canonical_payload(value: str, marker: str) -> dict[str, Any]:
     raw = text.split(marker, 1)[1].strip()
     try:
         payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _parse_json_object(value: str) -> dict[str, Any]:
+    import json
+
+    text = str(value or "").strip()
+    if not text.startswith("{"):
+        return {}
+    try:
+        payload = json.loads(text)
     except json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}

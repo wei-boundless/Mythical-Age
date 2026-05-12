@@ -16,6 +16,11 @@ class AgentRuntimeProfile:
     allowed_context_sections: tuple[str, ...] = ()
     use_shared_contract: bool = True
     output_contracts: tuple[str, ...] = ()
+    can_delegate_to_agents: bool = False
+    allowed_delegate_agent_ids: tuple[str, ...] = ()
+    allowed_delegate_agent_categories: tuple[str, ...] = ("worker_sub_agent",)
+    max_delegate_calls_per_turn: int = 1
+    delegate_context_policy: str = "summary_and_refs_only"
     approval_policy: str = "default"
     trace_policy: str = "runtime_event_log"
     lifecycle_policy: str = "orchestration_managed"
@@ -31,6 +36,8 @@ class AgentRuntimeProfile:
             "allowed_memory_scopes",
             "allowed_context_sections",
             "output_contracts",
+            "allowed_delegate_agent_ids",
+            "allowed_delegate_agent_categories",
         ):
             payload[key] = list(payload[key])
         return payload

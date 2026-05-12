@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from orchestration.agent_runtime_models import AgentRuntimeProfile
 from orchestration.resource_policy_builder import RuntimeApprovalContext
 from tasks.capability_requirements import build_operation_requirement
 
@@ -43,6 +44,7 @@ def build_task_execution_assembly_bundle(
     current_turn_context: dict[str, Any] | None = None,
     active_skill: dict[str, Any] | None = None,
     runtime_required_operations: tuple[str, ...] | list[str] | None = None,
+    agent_runtime_profile: AgentRuntimeProfile | None = None,
 ) -> dict[str, Any]:
     _ = approval_context
     registry_base_dir = Path(base_dir) if base_dir is not None else _registry_base_dir()
@@ -125,6 +127,10 @@ def build_task_execution_assembly_bundle(
         active_skill=active_skill_payload,
     )
     runtime_operations = _dedupe(list(runtime_required_operations or ()))
+    resolved_runtime_operations = _resolve_template_runtime_operations(
+        selected_template=selected_template,
+        agent_runtime_profile=agent_runtime_profile,
+    )
     operation_policy = _resolve_task_operation_policy(
         selected_template=selected_template,
         registered_task=registered_task,
@@ -145,7 +151,7 @@ def build_task_execution_assembly_bundle(
         [
             "op.model_response",
             *runtime_operations,
-            *list(selected_template.required_operations),
+            *list(resolved_runtime_operations.get("required_operations") or ()),
             *[
                 operation
                 for definition in definitions
@@ -155,7 +161,7 @@ def build_task_execution_assembly_bundle(
     )
     skill_operations = _dedupe(
         [
-            *list(selected_template.optional_operations),
+            *list(resolved_runtime_operations.get("optional_operations") or ()),
             *[operation for skill in skill_views for operation in skill.required_operations],
         ]
     )
@@ -192,6 +198,7 @@ def build_task_execution_assembly_bundle(
             registered_task=registered_task,
             current_turn_context=current_turn_payload,
         ),
+        extra_metadata={"runtime_operation_resolution": dict(resolved_runtime_operations)},
         reason="derived from TaskTemplate, TaskDefinition, TaskBinding, task-side skill scope, and task operation policy",
     )
     task_spec = _build_task_spec(
@@ -364,6 +371,87 @@ def build_task_execution_assembly_bundle(
         "_operation_requirement_obj": operation_requirement,
         "_projection_selection_obj": projection_selection,
     }
+
+
+def _resolve_template_runtime_operations(
+    *,
+    selected_template,
+    agent_runtime_profile: AgentRuntimeProfile | None,
+) -> dict[str, Any]:
+    metadata = dict(getattr(selected_template, "metadata", {}) or {})
+    strategy = str(metadata.get("execution_strategy") or "").strip()
+    if strategy != "delegate_preferred":
+        return {
+            "strategy": "direct",
+            "required_operations": tuple(getattr(selected_template, "required_operations", ()) or ()),
+            "optional_operations": tuple(getattr(selected_template, "optional_operations", ()) or ()),
+        }
+    fallback_operation = str(metadata.get("fallback_operation") or "").strip()
+    target_agent_id = str(metadata.get("delegate_target_agent_id") or "").strip()
+    target_agent_category = str(metadata.get("delegate_target_agent_category") or "worker_sub_agent").strip()
+    if _can_profile_delegate_to_target(
+        agent_runtime_profile,
+        target_agent_id=target_agent_id,
+        target_agent_category=target_agent_category,
+    ):
+        return {
+            "strategy": "delegate_preferred",
+            "execution_mode": "delegate",
+            "required_operations": ("op.model_response", "op.delegate_to_agent"),
+            "optional_operations": (),
+            "delegate_target_agent_id": target_agent_id,
+            "delegate_target_agent_category": target_agent_category,
+            "delegation_kind": str(metadata.get("delegation_kind") or "").strip(),
+            "delegate_context_policy": str(getattr(agent_runtime_profile, "delegate_context_policy", "") or "").strip(),
+            "fallback_operation": fallback_operation,
+        }
+    return {
+        "strategy": "delegate_preferred",
+        "execution_mode": "direct_fallback",
+        "required_operations": tuple(_dedupe(["op.model_response", fallback_operation])),
+        "optional_operations": tuple(getattr(selected_template, "optional_operations", ()) or ()),
+        "delegate_target_agent_id": target_agent_id,
+        "delegate_target_agent_category": target_agent_category,
+        "delegation_kind": str(metadata.get("delegation_kind") or "").strip(),
+        "fallback_operation": fallback_operation,
+    }
+
+
+def _can_profile_delegate_to_target(
+    profile: AgentRuntimeProfile | None,
+    *,
+    target_agent_id: str,
+    target_agent_category: str,
+) -> bool:
+    if profile is None or not bool(getattr(profile, "can_delegate_to_agents", False)):
+        return False
+    allowed_operations = {
+        str(item).strip()
+        for item in tuple(getattr(profile, "allowed_operations", ()) or ())
+        if str(item).strip()
+    }
+    blocked_operations = {
+        str(item).strip()
+        for item in tuple(getattr(profile, "blocked_operations", ()) or ())
+        if str(item).strip()
+    }
+    if "op.delegate_to_agent" not in allowed_operations or "op.delegate_to_agent" in blocked_operations:
+        return False
+    allowed_ids = {
+        str(item).strip()
+        for item in tuple(getattr(profile, "allowed_delegate_agent_ids", ()) or ())
+        if str(item).strip()
+    }
+    if allowed_ids and target_agent_id and target_agent_id not in allowed_ids:
+        return False
+    allowed_categories = {
+        str(item).strip()
+        for item in tuple(getattr(profile, "allowed_delegate_agent_categories", ()) or ())
+        if str(item).strip()
+    }
+    if allowed_categories and target_agent_category and target_agent_category not in allowed_categories:
+        return False
+    return True
 
 
 def _memory_request_profile_payload(

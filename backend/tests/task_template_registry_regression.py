@@ -141,6 +141,58 @@ def test_task_template_registry_prefers_current_dataset_route_over_stale_pdf_bin
     assert "structured_data_mcp_route" in match.match_reasons
 
 
+def test_task_template_registry_prefers_realtime_request_over_stale_file_bindings() -> None:
+    registry = TaskTemplateRegistry()
+    task_intent = registry.build_task_intent_contract(
+        session_id="session-realtime-over-stale-bindings",
+        task_id="task-realtime-over-stale-bindings",
+        user_goal="把实时查询结果改写成值班提示，至少要同时提到黄金和北京天气。",
+        query_understanding={
+            "source_kind": "mixed_sources",
+            "modality": "multi",
+            "capability_requests": ["weather", "latest_information", "gold_price"],
+            "capability_resolution": {
+                "route": "agent",
+                "execution_posture": "bounded_agent",
+                "selected_candidate_type": "agent",
+            },
+        },
+        current_turn_context={
+            "authority": "context.current_turn",
+            "execution_mode": "single",
+            "explicit_inputs": {
+                "bound_dataset_path": "Data/employees.xlsx",
+                "bound_pdf_path": "backend/knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                "capability_requests": ["weather", "latest_information", "gold_price"],
+                "tool_input": {"query": "把实时查询结果改写成值班提示，至少要同时提到黄金和北京天气。"},
+            },
+            "resolved_bindings": [
+                {"binding_kind": "source_file", "file_kind": "pdf", "binding_id": "binding:pdf"},
+                {"binding_kind": "source_file", "file_kind": "dataset", "binding_id": "binding:dataset"},
+            ],
+        },
+    )
+
+    match = registry.match_template(
+        task_intent_contract=task_intent,
+        query_understanding={
+            "source_kind": "mixed_sources",
+            "modality": "multi",
+            "capability_requests": ["weather", "latest_information", "gold_price"],
+            "capability_resolution": {
+                "route": "agent",
+                "execution_posture": "bounded_agent",
+                "selected_candidate_type": "agent",
+            },
+        },
+        current_turn_context={"authority": "context.current_turn", "execution_mode": "single"},
+        definitions=[],
+    )
+
+    assert match.template_id == "template.search.information_search"
+    assert "candidate_template:template.search.information_search" in match.match_reasons
+
+
 def test_task_template_registry_selects_game_template_for_light_web_game_request() -> None:
     template = TaskTemplateRegistry().select_template(
         user_goal="开发一个贪吃蛇小游戏，并接到当前前端页面里。",

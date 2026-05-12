@@ -16,6 +16,7 @@ from capability_system.tool_contracts import (
     ToolRuntimeVisibility,
 )
 from capability_system.units.tools.analyze_multimodal_file_tool import AnalyzeMultimodalFileTool
+from capability_system.units.tools.delegate_to_agent_tool import DelegateToAgentTool
 from capability_system.units.tools.fetch_url_tool import FetchURLTool
 from capability_system.units.tools.file_system_tools import GlobPathsTool, ListDirTool, PathExistsTool, StatPathTool
 from capability_system.units.tools.git_tools import GitDiffTool, GitLogTool, GitShowTool, GitStatusTool
@@ -546,6 +547,32 @@ def _tool_definitions() -> list[ToolDefinition]:
             prompt_exposure_policy="schema_only",
             resource_exposure_policy="explicit_resource",
             is_read_only=False,
+            is_destructive=False,
+            is_concurrency_safe=False,
+        ),
+        ToolDefinition(
+            name="delegate_to_agent",
+            display_name="委派子Agent",
+            operation_id="op.delegate_to_agent",
+            module="tools.delegate_to_agent_tool",
+            factory=lambda _base_dir: DelegateToAgentTool(),
+            contract=ToolExecutionContract(
+                required_inputs=["instruction"],
+                owner_scope="none",
+                missing_binding_behavior="deny",
+                context_policy="isolated",
+                result_channel="canonical",
+            ),
+            output_contract=ToolOutputContract(display_mode="summary_text"),
+            capability_tags=["delegation", "agent", "orchestration"],
+            supported_modalities=["text", "workspace"],
+            safety_tags=["agent_execution"],
+            route_hints=["tool", "delegation"],
+            safe_for_auto_route=False,
+            schema_identity="local.tools/delegate_to_agent",
+            prompt_exposure_policy="schema_only",
+            resource_exposure_policy="none",
+            is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=False,
         ),

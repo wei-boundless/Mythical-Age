@@ -262,3 +262,52 @@ def test_removed_longform_writing_runtime_residue_stays_absent() -> None:
 
     assert aligned.source_kind != "task_system"
     assert aligned.task_kind != "chapter_planning"
+
+
+def test_delegate_preferred_templates_mount_delegate_operation_for_main_agent() -> None:
+    profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:0")
+    assert profile is not None
+
+    scenarios = [
+        ("请帮我检索知识库里和向量召回有关的结论。", {"route": "rag", "execution_posture": "direct_rag"}, "op.mcp_retrieval", "agent:rag_analyst"),
+        ("请读取这个 PDF 文档并总结前三页要点。", {"route": "pdf"}, "op.mcp_pdf", "agent:pdf_reader"),
+        ("请分析这份表格数据并给我趋势结论。", {"route": "structured_data"}, "op.mcp_structured_data", "agent:table_analyst"),
+    ]
+    for user_goal, understanding, fallback_operation, target_agent_id in scenarios:
+        task_bundle = build_task_execution_assembly_bundle(
+            base_dir=BACKEND_DIR,
+            session_id="session-delegate-preferred",
+            task_id=f"taskinst:{target_agent_id}",
+            user_goal=user_goal,
+            source="test",
+            query_understanding=understanding,
+            agent_runtime_profile=profile,
+        )
+        requirement = task_bundle["operation_requirement"]
+        resolution = dict(requirement.get("metadata") or {}).get("runtime_operation_resolution") or {}
+
+        assert "op.delegate_to_agent" in set(requirement["required_operations"])
+        assert fallback_operation not in set(requirement["required_operations"])
+        assert resolution.get("execution_mode") == "delegate"
+        assert resolution.get("delegate_target_agent_id") == target_agent_id
+
+
+def test_delegate_preferred_templates_fall_back_to_direct_operation_for_specialist_agent() -> None:
+    profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:pdf_reader")
+    assert profile is not None
+
+    task_bundle = build_task_execution_assembly_bundle(
+        base_dir=BACKEND_DIR,
+        session_id="session-delegate-fallback",
+        task_id="taskinst:agent7:pdf",
+        user_goal="请读取这个 PDF 文档并总结前三页要点。",
+        source="test",
+        query_understanding={"route": "pdf"},
+        agent_runtime_profile=profile,
+    )
+    requirement = task_bundle["operation_requirement"]
+    resolution = dict(requirement.get("metadata") or {}).get("runtime_operation_resolution") or {}
+
+    assert "op.mcp_pdf" in set(requirement["required_operations"])
+    assert "op.delegate_to_agent" not in set(requirement["required_operations"])
+    assert resolution.get("execution_mode") == "direct_fallback"

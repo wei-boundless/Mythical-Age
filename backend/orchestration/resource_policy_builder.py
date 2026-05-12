@@ -28,6 +28,7 @@ DENY_BY_DEFAULT_RISK_TAGS = {
     "artifact_write_candidate",
 }
 NOT_EXECUTABLE_TYPES = {"mcp", "agent"}
+MODEL_VISIBLE_AGENT_OPERATIONS = {"op.delegate_to_agent"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +169,13 @@ def _decide_operation(
             reason="dangerous allow rule stripped in auto approval policy",
             risk_tags=descriptor.risk_tags,
             diagnostics={"approval_policy": approval_policy},
+        )
+    if descriptor.operation_id in MODEL_VISIBLE_AGENT_OPERATIONS:
+        return ResourceDecision(
+            operation_id=descriptor.operation_id,
+            decision="allow",
+            reason="delegate operation is exposed as a bounded model-visible tool",
+            risk_tags=descriptor.risk_tags,
         )
     if descriptor.operation_type in NOT_EXECUTABLE_TYPES:
         return ResourceDecision(

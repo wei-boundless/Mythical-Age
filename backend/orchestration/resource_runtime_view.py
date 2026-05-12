@@ -62,7 +62,7 @@ def _view_from_decision(decision: ResourceDecision, registry: OperationRegistry)
         denied_reason=denied_reason,
         requires_approval=requires_approval,
         available_to_model=available_to_model,
-        runtime_executable=False,
+        runtime_executable=authorized,
         policy_decision=decision.decision,
         input_contract_ref=descriptor.input_contract_ref or str(descriptor.input_contract.get("contract_ref") or ""),
         output_contract_ref=descriptor.output_contract_ref or str(descriptor.output_contract.get("contract_ref") or ""),

@@ -132,6 +132,7 @@ export type StoreActions = {
   setMemoryInspectorTarget: (target: MemoryInspectorTarget | null) => void;
   setOrchestrationInspectorTarget: (target: OrchestrationInspectorTarget | null) => void;
   setOrchestrationSnapshot: (snapshot: OrchestrationSnapshot | null) => void;
+  resumeCoordinationRun: (coordinationRunId: string, payload?: Record<string, unknown>) => Promise<void>;
   setTaskSelection: (selection: TaskSelectionState | null) => void;
 };
 

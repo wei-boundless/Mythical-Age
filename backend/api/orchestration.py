@@ -17,6 +17,7 @@ from orchestration import (
     default_worker_agent_blueprints,
     build_base_unit_catalog,
 )
+from orchestration.delegation_catalog import DelegationCatalogBuilder
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
 
 router = APIRouter()
@@ -43,6 +44,11 @@ class AgentRuntimeProfileRequest(BaseModel):
     allowed_context_sections: list[str] = Field(default_factory=list)
     use_shared_contract: bool = True
     output_contracts: list[str] = Field(default_factory=list)
+    can_delegate_to_agents: bool = False
+    allowed_delegate_agent_ids: list[str] = Field(default_factory=list)
+    allowed_delegate_agent_categories: list[str] = Field(default_factory=lambda: ["worker_sub_agent"])
+    max_delegate_calls_per_turn: int = Field(default=1, ge=0)
+    delegate_context_policy: str = Field(default="summary_and_refs_only", max_length=120)
     approval_policy: str = Field(default="default", max_length=80)
     trace_policy: str = Field(default="runtime_event_log", max_length=120)
     lifecycle_policy: str = Field(default="orchestration_managed", max_length=120)
@@ -87,6 +93,12 @@ class OrchestrationPreviewRequest(BaseModel):
 
 class CoordinationRunResumeRequest(BaseModel):
     resume_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class DelegationPreviewRequest(BaseModel):
+    parent_agent_id: str = Field(default="")
+    target_agent_id: str = Field(default="")
+    delegation_kind: str = Field(default="")
 
 
 OPTION_LABELS: dict[str, str] = {
@@ -135,6 +147,7 @@ OPTION_LABELS: dict[str, str] = {
     "op.mcp_retrieval": "检索 MCP",
     "op.mcp_pdf": "PDF MCP",
     "op.mcp_structured_data": "结构化数据 MCP",
+    "op.delegate_to_agent": "委派子Agent",
     "op.agent_bounded": "运行受限 Agent",
     "op.session_message_candidate": "提交会话消息候选",
     "op.artifact_result_ref": "提交产物引用候选",
@@ -547,6 +560,11 @@ async def upsert_orchestration_agent_runtime_profile(
             allowed_context_sections=tuple(payload.allowed_context_sections),
             use_shared_contract=payload.use_shared_contract,
             output_contracts=tuple(payload.output_contracts),
+            can_delegate_to_agents=payload.can_delegate_to_agents,
+            allowed_delegate_agent_ids=tuple(payload.allowed_delegate_agent_ids),
+            allowed_delegate_agent_categories=tuple(payload.allowed_delegate_agent_categories),
+            max_delegate_calls_per_turn=payload.max_delegate_calls_per_turn,
+            delegate_context_policy=payload.delegate_context_policy,
             approval_policy=payload.approval_policy,
             trace_policy=payload.trace_policy,
             lifecycle_policy=payload.lifecycle_policy,
@@ -564,6 +582,22 @@ async def refresh_orchestration_catalog() -> dict[str, Any]:
     runtime = require_runtime()
     runtime.refresh_catalogs()
     return await orchestration_catalog()
+
+
+@router.get("/orchestration/delegation-catalog")
+async def orchestration_delegation_catalog(parent_agent_id: str = "") -> dict[str, Any]:
+    runtime = require_runtime()
+    return DelegationCatalogBuilder(runtime.base_dir).build(parent_agent_id=parent_agent_id)
+
+
+@router.post("/orchestration/delegation-catalog/preview")
+async def orchestration_delegation_preview(payload: DelegationPreviewRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    return DelegationCatalogBuilder(runtime.base_dir).preview(
+        parent_agent_id=payload.parent_agent_id,
+        target_agent_id=payload.target_agent_id,
+        delegation_kind=payload.delegation_kind,
+    )
 
 
 @router.get("/orchestration/runtime-loop/sessions/{session_id}/task-runs")

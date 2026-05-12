@@ -27,6 +27,7 @@ _BUILTIN_OPERATION_TO_TOOL = {
     "op.edit_file": "edit_file",
     "op.shell": "terminal",
     "op.python_repl": "python_repl",
+    "op.delegate_to_agent": "delegate_to_agent",
 }
 
 
@@ -71,6 +72,10 @@ def map_operations_to_resource_scopes(
             mcp_routes.append(server_id or descriptor.provider.removeprefix("external_mcp:") or descriptor.operation_id)
             continue
         if descriptor.operation_type == "agent":
+            tool_name = _BUILTIN_OPERATION_TO_TOOL.get(descriptor.operation_id)
+            if tool_name:
+                tool_names.append(tool_name)
+                continue
             agent_id = str(descriptor.metadata.get("agent_id") or "").strip()
             agent_ids.append(agent_id or descriptor.operation_id)
             continue

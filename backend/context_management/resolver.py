@@ -8,7 +8,7 @@ from capability_system.local_mcp_registry import get_local_mcp_primary_template
 from .current_turn import BundleItem, CurrentTurnContext, ResolvedBinding
 
 
-_ORDER_SPLIT_RE = re.compile(r"(?:先|再|然后|最后|并且|以及|，|,|；|;)")
+_ORDER_SPLIT_RE = re.compile(r"(?:(?<!优)先|再|然后|最后|并且|以及|，|,|；|;)")
 _ORDINAL_FOLLOWUP_RE = re.compile(r"(?:第\s*([一二三四五六七八九十\d]+)\s*个?\s*子任务|([一二三四五六七八九十\d]+)\s*号\s*子任务|(?:展开|只展开|处理|继续)\s*第?\s*([一二三四五六七八九十\d]+)\s*个)")
 _ORDINAL_MULTI_FOLLOWUP_RE = re.compile(r"第\s*([一二三四五六七八九十\d]+)\s*个?\s*(?:和|、|,|，)\s*第?\s*([一二三四五六七八九十\d]+)\s*个?\s*子任务")
 
@@ -303,7 +303,7 @@ class ContextResolver:
 
 def _looks_compound(message: str) -> bool:
     lowered = message.lower()
-    markers = sum(1 for item in ("先", "再", "然后", "最后", "并且", "以及") if item in lowered)
+    markers = len(re.findall(r"(?<!优)先|再|然后|最后|并且|以及", lowered))
     domains = sum(
         1
         for matched in (

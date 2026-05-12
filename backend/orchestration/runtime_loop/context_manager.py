@@ -365,6 +365,9 @@ def _build_runtime_system_prompt(
     runtime_assembly_block = _render_runtime_assembly_block(runtime_assembly)
     if runtime_assembly_block:
         parts.append(runtime_assembly_block)
+    delegation_guidance_block = _render_agent_delegation_guidance_block(runtime_assembly)
+    if delegation_guidance_block:
+        parts.append(delegation_guidance_block)
     return "\n\n".join(part for part in parts if part)
 
 
@@ -399,6 +402,24 @@ def _render_runtime_assembly_block(runtime_assembly: dict[str, Any] | None) -> s
         elif title:
             lines.append(f"- {title}")
     return "\n".join(lines)
+
+
+def _render_agent_delegation_guidance_block(runtime_assembly: dict[str, Any] | None) -> str:
+    assembly = dict(runtime_assembly or {})
+    if str(assembly.get("agent_id") or "") != "agent:0":
+        return ""
+    return "\n".join(
+        [
+            "## 专业子 Agent 调度方式",
+            "你是主 Agent。遇到需要专业证据、PDF 阅读或表格分析的问题时，可以把边界清楚的子任务交给内置专业子 Agent，自己负责最终整合和回答。",
+            "- `agent:rag_analyst` / `evidence_lookup`：适合从知识库或检索证据中找依据、出处和可引用片段。",
+            "- `agent:pdf_reader` / `pdf_reading`：适合读取明确的 PDF、指定页码、章节或全文总览。",
+            "- `agent:table_analyst` / `table_analysis`：适合 Excel、CSV、数据表的筛选、排序、分组汇总、缺口计算和口径说明。",
+            "委派时请像给专业同事派任务一样，把目标对象、文件路径、页码或数据口径、用户真正要的输出一次说明清楚。",
+            "子 Agent 的结果是专业证据包，不是最终回复。你需要根据它的摘要、证据引用、产物引用和限制说明，给用户一个清楚、诚实、可继续推进的答案。",
+            "如果子 Agent 明确说明信息不足，请解释缺什么和为什么影响结论；如果已经有足够结果，请直接收口，不要把内部执行步骤暴露给用户。",
+        ]
+    )
 
 
 def _render_projection_block(stage_projection_snapshot: Any | None) -> str:
@@ -484,7 +505,11 @@ def _render_context_policy_block(context_policy_result: dict[str, Any] | None) -
         "relevant_durable_context": "相关长期记忆；只作为当前判断的辅助依据。",
     }
     for section_name in section_order:
-        items = [str(item).strip() for item in list(model_sections.get(section_name) or ()) if str(item).strip()]
+        items = [
+            str(item).strip()
+            for item in list(model_sections.get(section_name) or ())
+            if str(item).strip() and not _is_stale_runtime_operational_summary(str(item))
+        ]
         if not items:
             continue
         title = section_name.replace("_", " ").title()
@@ -502,6 +527,19 @@ def _render_context_policy_block(context_policy_result: dict[str, Any] | None) -
             *lines,
         ]
     )
+
+
+def _is_stale_runtime_operational_summary(value: str) -> bool:
+    text = str(value or "")
+    stale_markers = (
+        "本轮委派次数已用完",
+        "本轮委派次数已达上限",
+        "委派次数已达上限",
+        "max_delegate_calls_per_turn_exceeded",
+        "无法通过子Agent完成全表扫描",
+        "下一轮继续",
+    )
+    return any(marker in text for marker in stale_markers)
 
 
 def _render_runtime_execution_block(runtime_execution_facts: dict[str, Any] | None) -> str:
