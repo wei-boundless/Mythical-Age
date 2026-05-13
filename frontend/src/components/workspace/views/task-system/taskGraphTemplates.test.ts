@@ -20,7 +20,7 @@ describe("task graph templates", () => {
     }
   });
 
-  it("generates responsibility-language prompts instead of field descriptions", () => {
+  it("generates responsibility-language fields instead of embedded prompt text", () => {
     const draft = buildTaskGraphTemplateDraft({
       template_id: "pdf_table_synthesis",
       task_family: "analysis",
@@ -28,12 +28,10 @@ describe("task graph templates", () => {
 
     for (const node of draft.nodes) {
       const metadata = node.metadata as Record<string, unknown>;
-      const prompt = String(metadata.role_prompt ?? "");
-      expect(prompt).toContain("你是一名");
-      expect(prompt).toContain("你只负责");
-      expect(prompt).toContain("你不负责");
-      expect(prompt).not.toContain("这是 runtime 节点");
-      expect(prompt).not.toContain("根据任务图执行");
+      expect(String(metadata.role_identity ?? "")).toContain("你是一名");
+      expect(String(metadata.responsibility_scope ?? "")).toContain("你只负责");
+      expect(String(metadata.responsibility_exclusions ?? "")).toContain("你不负责");
+      expect(metadata.role_prompt).toBeUndefined();
     }
   });
 
@@ -44,15 +42,15 @@ describe("task graph templates", () => {
     });
 
     expect(draft.nodes.map((node) => node.agent_id)).toEqual([
-      "agent.pdf_analyst",
-      "agent.table_analyst",
+      "agent:pdf_reader",
+      "agent:table_analyst",
       "agent.synthesizer",
     ]);
     expect(draft.edges).toHaveLength(2);
     expect(draft.coordination_mode).toBe("parallel_review");
   });
 
-  it("applies setup parameters to prompts, metadata, loops, and specialist bindings", () => {
+  it("applies setup parameters to metadata, loops, and specialist bindings", () => {
     const draft = buildTaskGraphTemplateDraft({
       template_id: "pdf_table_synthesis",
       task_family: "analysis",
@@ -80,7 +78,7 @@ describe("task graph templates", () => {
     });
     expect(draft.metadata.loop_policy).toMatchObject({ max_attempts: 5 });
     expect(draft.metadata.review_policy).toMatchObject({ strength: "strict", require_human_confirmation: true });
-    expect(String((draft.nodes[0].metadata as Record<string, unknown>).role_prompt)).toContain("当前任务意图：形成投资决策简报");
+    expect((draft.nodes[0].metadata as Record<string, unknown>).template_prompt_context).toContain("当前任务意图：形成投资决策简报");
     expect((draft.nodes[0].metadata as Record<string, unknown>).agent_binding_source).toBe("template_parameter");
   });
 });

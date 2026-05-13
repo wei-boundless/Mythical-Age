@@ -5,6 +5,7 @@ from pathlib import Path
 
 from api import orchestration as orchestration_api
 from api import tasks as tasks_api
+from soul.facade import SoulFacade
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
 
 
@@ -623,6 +624,58 @@ def test_task_graph_api_persists_working_memory_strategy_fields(tmp_path: Path) 
     assert planner["memory_read_policy"]["readable_kinds"] == ["task_goal", "decision_record"]
     assert planner["dynamic_memory_read_policy"]["max_dynamic_reads_per_node_run"] == 2
     assert edge["working_memory_handoff_policy"]["carry_kinds"] == ["plan_fragment"]
+
+
+def test_task_graph_api_migrates_legacy_prompt_metadata_to_projection(tmp_path: Path) -> None:
+    original = tasks_api.require_runtime
+    tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(
+            tasks_api.upsert_task_system_task_graph(
+                "graph.test.prompt_migration",
+                tasks_api.TaskGraphUpsertRequest(
+                    graph_id="graph.test.prompt_migration",
+                    title="Prompt 迁移图",
+                    task_family="story",
+                    graph_kind="multi_agent",
+                    nodes=[
+                        {
+                            "node_id": "world_review",
+                            "node_type": "agent",
+                            "title": "世界观审核",
+                            "agent_id": "agent:reviewer",
+                            "metadata": {
+                                "role_prompt": "你是一名世界观审核员。你只负责评审一致性。你不负责扩写剧情。",
+                                "role_identity": "你是一名世界观审核员。",
+                            },
+                        }
+                    ],
+                ),
+            )
+        )
+    finally:
+        tasks_api.require_runtime = original  # type: ignore[assignment]
+
+    graph = next(
+        item
+        for item in payload["task_graph_management"]["task_graphs"]
+        if item["graph_id"] == "graph.test.prompt_migration"
+    )
+    node = graph["nodes"][0]
+    metadata = node["metadata"]
+
+    assert node["projection_id"] == "projection.taskgraph.graph.test.prompt.migration.world.review"
+    assert "role_prompt" not in metadata
+    assert "role_identity" not in metadata
+    assert metadata["legacy_prompt_migration"]["migration_status"] == "migrated"
+    assert metadata["legacy_prompt_migration"]["projection_id"] == node["projection_id"]
+
+    projection_cards = SoulFacade(tmp_path).list_projection_cards()["cards"]
+    projection = next(item for item in projection_cards if item["projection_id"] == node["projection_id"])
+    assert projection["owner_system"] == "task_system"
+    assert projection["projection_kind"] == "task_graph_node"
+    assert projection["source_task_graph_refs"] == ["graph.test.prompt_migration"]
+    assert "你是一名世界观审核员" in projection["projection_prompt"]
 
 
 def test_task_graph_api_exposes_direct_runtime_spec_in_overview(tmp_path: Path) -> None:

@@ -14,6 +14,7 @@ from orchestration.runtime_loop.runtime_assembly_builder import (
     build_node_runtime_assembly,
     build_single_agent_runtime_assembly,
 )
+from soul.facade import SoulFacade
 from tasks import (
     TaskContractRegistry,
     TaskFlowRegistry,
@@ -59,6 +60,133 @@ def _is_legacy_health_payload(payload: dict[str, object]) -> bool:
             "default_workflow_id",
         )
     )
+
+
+TASK_GRAPH_PROMPT_METADATA_KEYS = {
+    "role_prompt",
+    "role_identity",
+    "responsibility_scope",
+    "responsibility_exclusions",
+    "definition_of_done",
+}
+
+
+def _slug_ref(value: object, fallback: str = "node") -> str:
+    raw = str(value or "").strip().lower() or fallback
+    chars: list[str] = []
+    for char in raw:
+        if char.isalnum():
+            chars.append(char)
+        elif char in {":", ".", "_", "-"}:
+            chars.append(".")
+    normalized = ".".join(part for part in "".join(chars).replace("..", ".").split(".") if part)
+    return normalized or fallback
+
+
+def _build_task_graph_node_projection_prompt(node: dict[str, object], metadata: dict[str, object]) -> str:
+    role_prompt = str(metadata.get("role_prompt") or "").strip()
+    if role_prompt:
+        return role_prompt
+    role_identity = str(metadata.get("role_identity") or "").strip()
+    responsibility_scope = str(metadata.get("responsibility_scope") or "").strip()
+    responsibility_exclusions = str(metadata.get("responsibility_exclusions") or "").strip()
+    definition_of_done = str(metadata.get("definition_of_done") or "").strip()
+    if not any((role_identity, responsibility_scope, responsibility_exclusions, definition_of_done)):
+        return ""
+    title = str(node.get("title") or node.get("label") or node.get("node_id") or "任务协作者").strip()
+    return "\n".join(
+        [
+            role_identity or f"你是一名{title}。",
+            responsibility_scope if responsibility_scope.startswith("你只负责") else f"你只负责{responsibility_scope or '完成当前节点明确交付给你的职责。'}",
+            responsibility_exclusions if responsibility_exclusions.startswith("你不负责") else f"你不负责{responsibility_exclusions or '扩展未经确认的任务范围。'}",
+            definition_of_done if definition_of_done.startswith("你必须") else f"你必须{definition_of_done or '输出清晰结论、依据、遗留问题和下一步建议。'}",
+        ]
+    )
+
+
+def _strip_task_graph_prompt_metadata(
+    metadata: dict[str, object],
+    *,
+    prompt: str = "",
+    projection_id: str = "",
+    migration_status: str = "migrated",
+) -> dict[str, object]:
+    legacy_values = {
+        key: metadata.get(key)
+        for key in TASK_GRAPH_PROMPT_METADATA_KEYS
+        if str(metadata.get(key) or "").strip()
+    }
+    cleaned = {
+        key: value
+        for key, value in metadata.items()
+        if key not in TASK_GRAPH_PROMPT_METADATA_KEYS
+    }
+    if legacy_values or prompt:
+        existing_migration = cleaned.get("legacy_prompt_migration")
+        cleaned["legacy_prompt_migration"] = {
+            **(existing_migration if isinstance(existing_migration, dict) else {}),
+            **legacy_values,
+            "role_prompt": str(legacy_values.get("role_prompt") or prompt or "").strip(),
+            "projection_id": projection_id,
+            "migration_status": migration_status,
+        }
+    return cleaned
+
+
+def _base_projection_card(base_dir) -> dict[str, object] | None:
+    catalog = SoulFacade(base_dir).list_projection_cards()
+    cards = [item for item in list(catalog.get("cards") or []) if isinstance(item, dict)]
+    selected_projection_id = str(catalog.get("selected_projection_id") or "").strip()
+    return next((item for item in cards if str(item.get("projection_id") or "") == selected_projection_id), None) or (cards[0] if cards else None)
+
+
+def _migrate_task_graph_legacy_prompt_nodes(
+    base_dir,
+    *,
+    graph_id: str,
+    graph_title: str,
+    task_family: str,
+    nodes: tuple[dict[str, object], ...],
+) -> tuple[dict[str, object], ...]:
+    base_card = _base_projection_card(base_dir)
+    migrated_nodes: list[dict[str, object]] = []
+    for node in nodes:
+        next_node = dict(node)
+        metadata = dict(next_node.get("metadata") or {})
+        prompt = _build_task_graph_node_projection_prompt(next_node, metadata)
+        projection_id = str(next_node.get("projection_id") or next_node.get("projection_overlay_id") or "").strip()
+        if prompt and not projection_id and base_card:
+            node_id = str(next_node.get("node_id") or next_node.get("id") or next_node.get("title") or "node").strip()
+            projection_id = f"projection.taskgraph.{_slug_ref(graph_id, 'graph')}.{_slug_ref(node_id)}"
+            SoulFacade(base_dir).upsert_projection_card(
+                request={
+                    "projection_id": projection_id,
+                    "soul_id": str(base_card.get("soul_id") or ""),
+                    "projection_kind": "task_graph_node",
+                    "owner_system": "task_system",
+                    "source_task_graph_refs": [graph_id],
+                    "projection_name": f"{str(next_node.get('title') or node_id)} / 节点职责",
+                    "role_type": str(next_node.get("work_posture") or next_node.get("role") or "task_graph_node"),
+                    "task_mode": task_family or "task_graph_node",
+                    "agent_profile_id": str(base_card.get("agent_profile_id") or "task_graph_node_agent"),
+                    "projection_prompt": prompt,
+                    "usage_summary": f"由 TaskGraph {graph_title or graph_id} 的节点职责迁移生成。",
+                    "memory_policy_summary": "记忆读写权限由 TaskGraph 节点策略与 Agent Runtime Profile 决定。",
+                    "output_contract_summary": "输出边界由 TaskGraph 节点契约和边交接契约决定。",
+                },
+                select_after_create=False,
+            )
+            next_node["projection_id"] = projection_id
+            next_node["projection_overlay_id"] = projection_id
+        if prompt or any(key in metadata for key in TASK_GRAPH_PROMPT_METADATA_KEYS):
+            next_node["metadata"] = _strip_task_graph_prompt_metadata(
+                metadata,
+                prompt=prompt,
+                projection_id=projection_id,
+                migration_status="migrated" if projection_id else "pending_no_projection_base",
+            )
+        migrated_nodes.append(next_node)
+    return tuple(migrated_nodes)
 
 
 def _visible_task_payloads(items: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -976,6 +1104,13 @@ async def upsert_task_system_task_graph(
     if payload.graph_id != graph_id:
         payload = payload.model_copy(update={"graph_id": graph_id})
     try:
+        migrated_nodes = _migrate_task_graph_legacy_prompt_nodes(
+            runtime.base_dir,
+            graph_id=payload.graph_id,
+            graph_title=payload.title,
+            task_family=payload.task_family,
+            nodes=tuple(dict(item) for item in payload.nodes),
+        )
         TaskFlowRegistry(runtime.base_dir).upsert_task_graph(
             graph_id=payload.graph_id,
             title=payload.title,
@@ -984,7 +1119,7 @@ async def upsert_task_system_task_graph(
             graph_kind=payload.graph_kind,
             entry_node_id=payload.entry_node_id,
             output_node_id=payload.output_node_id,
-            nodes=tuple(dict(item) for item in payload.nodes),
+            nodes=migrated_nodes,
             edges=tuple(dict(item) for item in payload.edges),
             graph_contract_id=payload.graph_contract_id,
             default_protocol_id=payload.default_protocol_id,

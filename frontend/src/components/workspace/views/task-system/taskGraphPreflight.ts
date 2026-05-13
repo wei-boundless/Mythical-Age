@@ -153,13 +153,24 @@ export function buildTaskGraphPreflightReport({
       ? node.metadata as Record<string, unknown>
       : {};
     const rolePrompt = stringValue(metadata.role_prompt);
-    if (!rolePrompt && agentId) {
+    const projectionId = stringValue(node.projection_id ?? node.projection_overlay_id);
+    if (!projectionId && rolePrompt) {
+      pushIssue(issues, {
+        severity: "warning",
+        scope: "node",
+        target_id: nodeId,
+        title: "节点 Prompt 仍在 TaskGraph 内部",
+        detail: "该节点已有 legacy prompt 文本，但尚未迁移为投影系统中的 Projection。",
+        source: "frontend.preflight.projection_binding",
+      });
+    }
+    if (!projectionId && !rolePrompt && agentId) {
       pushIssue(issues, {
         severity: "info",
         scope: "node",
         target_id: nodeId,
-        title: "节点职责 Prompt 未配置",
-        detail: "建议用职责语言说明它是谁、只负责什么、不负责什么、产出什么。",
+        title: "节点未绑定投影",
+        detail: "建议绑定投影系统中的 Projection，让节点职责和 Prompt Manifest 可追踪。",
         source: "frontend.preflight.prompt_semantics",
       });
     }

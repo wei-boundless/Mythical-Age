@@ -4,6 +4,7 @@ import { TaskSystemField, TaskSystemSelectField, taskSystemOptionLabel } from ".
 import { effectivePolicyDisplayValue, resolveTaskGraphEffectivePolicy } from "./taskGraphEffectivePolicy";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import type { TaskGraphWorkbenchAgentCatalog } from "./taskGraphTypes";
+import type { OrchestrationAgentRuntimeCatalog } from "@/lib/api";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -27,16 +28,16 @@ function parseList(text: string) {
 export function TaskGraphAgentRosterPage({
   activeGraphNodes,
   a2aCatalog,
+  orchestrationAgentCatalog,
   taskGraphDraft,
   updateRuntimePolicy,
-  updateTaskGraphMetadata,
   updateTaskGraphNode,
 }: {
   activeGraphNodes: Array<Record<string, unknown>>;
   a2aCatalog: TaskGraphWorkbenchAgentCatalog | null;
+  orchestrationAgentCatalog: OrchestrationAgentRuntimeCatalog | null;
   taskGraphDraft: TaskGraphDraftV2;
   updateRuntimePolicy: (patch: Partial<TaskGraphDraftV2["runtime_policy"]>) => void;
-  updateTaskGraphMetadata: (patch: Record<string, unknown>) => void;
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
 }) {
   const coordinatorAgentId = String(taskGraphDraft.runtime_policy.coordinator_agent_id ?? "agent:0");
@@ -45,13 +46,40 @@ export function TaskGraphAgentRosterPage({
     coordinatorAgentId,
     ...participantAgentIds,
     ...activeGraphNodes.map((node) => String(node.agent_id ?? "")),
+    ...((orchestrationAgentCatalog?.agents ?? []).map((agent) => String(agent.agent_id ?? ""))),
     ...((a2aCatalog?.agent_cards ?? []).map((card) => String(card.agent_id ?? ""))),
+  ]);
+  const agentGroupOptions = uniqueStrings([
+    String(taskGraphDraft.runtime_policy.agent_group_id ?? ""),
+    ...((orchestrationAgentCatalog?.agent_groups ?? []).map((group) => String(group.group_id ?? ""))),
   ]);
 
   const formatAgent = (agentId: string) => {
+    const agent = (orchestrationAgentCatalog?.agents ?? []).find((item) => String(item.agent_id ?? "") === agentId);
     const card = (a2aCatalog?.agent_cards ?? []).find((item) => String(item.agent_id ?? "") === agentId);
     if (!agentId) return "不绑定";
+    const agentName = String(agent?.display_name ?? agent?.agent_name ?? "").trim();
+    if (agentName) return `${agentName} · ${agentId}`;
     return card?.name ? `${String(card.name)} · ${agentId}` : agentId;
+  };
+  const formatAgentGroup = (groupId: string) => {
+    const group = (orchestrationAgentCatalog?.agent_groups ?? []).find((item) => String(item.group_id ?? "") === groupId);
+    if (!groupId) return "不绑定 Agent 组";
+    return group?.title ? `${String(group.title)} · ${groupId}` : groupId;
+  };
+  const runtimeProfileForAgent = (agentId: string) => {
+    const agent = (orchestrationAgentCatalog?.agents ?? []).find((item) => String(item.agent_id ?? "") === agentId);
+    const inlineProfile = asRecord(agent?.runtime_profile);
+    if (Object.keys(inlineProfile).length) return inlineProfile;
+    return asRecord((orchestrationAgentCatalog?.profiles ?? []).find((profile) => String(profile.agent_id ?? "") === agentId));
+  };
+  const formatProfileSummary = (agentId: string) => {
+    const profile = runtimeProfileForAgent(agentId);
+    const profileId = String(profile.agent_profile_id ?? "").trim();
+    const lanes = Array.isArray(profile.allowed_runtime_lanes) ? profile.allowed_runtime_lanes.length : 0;
+    const operations = Array.isArray(profile.allowed_operations) ? profile.allowed_operations.length : 0;
+    if (!profileId) return "未绑定 Runtime Profile";
+    return `${profileId} / ${lanes} lanes / ${operations} ops`;
   };
 
   return (
@@ -80,12 +108,13 @@ export function TaskGraphAgentRosterPage({
                 value={participantAgentIds.join("\n")}
               />
             </TaskSystemField>
-            <TaskSystemField label="Agent 组 ID">
-              <input
-                onChange={(event) => updateRuntimePolicy({ agent_group_id: event.target.value })}
-                value={taskGraphDraft.runtime_policy.agent_group_id}
-              />
-            </TaskSystemField>
+            <TaskSystemSelectField
+              formatOption={formatAgentGroup}
+              label="Agent 组"
+              onChange={(value) => updateRuntimePolicy({ agent_group_id: value })}
+              options={agentGroupOptions}
+              value={taskGraphDraft.runtime_policy.agent_group_id}
+            />
             <TaskSystemSelectField
               formatOption={taskSystemOptionLabel}
               label="协作模式"
@@ -97,19 +126,10 @@ export function TaskGraphAgentRosterPage({
         </article>
 
         <article className="boundary-card">
-          <header><strong>角色职责提示</strong></header>
+          <header><strong>Prompt 主数据</strong></header>
           <div className="task-graph-note">
-            <strong>Prompt 原则</strong>
-            <span>请写角色职责语言，不要写开发字段说明。示例：你是一名审核员，你只负责裁决是否通过，不负责扩写内容。</span>
-          </div>
-          <div className="boundary-form">
-            <TaskSystemField label="图级协作说明">
-              <textarea
-                onChange={(event) => updateTaskGraphMetadata({ role_prompt: event.target.value })}
-                placeholder="你是协调者，负责推进阶段、整合子结论、对冲突做裁决。"
-                value={String(asRecord(taskGraphDraft.metadata).role_prompt ?? "")}
-              />
-            </TaskSystemField>
+            <strong>归属已切换到投影系统</strong>
+            <span>图级和节点级 Prompt 不再在 TaskGraph 内直接编辑；请在职责与交接页生成并绑定 Projection。</span>
           </div>
         </article>
       </section>
@@ -128,15 +148,10 @@ export function TaskGraphAgentRosterPage({
               agentRolePreset: role === "coordinator" ? { agent_id: coordinatorAgentId } : null,
               systemDefault: "agent:0",
             });
-            const promptPolicy = resolveTaskGraphEffectivePolicy({
-              key: "role_prompt",
+            const projectionPolicy = resolveTaskGraphEffectivePolicy({
+              key: "projection_id",
               node,
               graph: asRecord(taskGraphDraft.metadata),
-              agentRolePreset: {
-                role_prompt: role === "reviewer"
-                  ? "你是一名审核员。你只负责裁决当前结果是否允许进入下一阶段。"
-                  : "",
-              },
             });
             return (
               <article className="task-graph-agent-node-card" key={nodeId || `node_${index}`}>
@@ -151,9 +166,14 @@ export function TaskGraphAgentRosterPage({
                     <em>{agentPolicy.source_label}</em>
                   </p>
                   <p>
-                    <span>Prompt 来源</span>
-                    <strong>{promptPolicy.configured ? "已配置" : "未配置"}</strong>
-                    <em>{promptPolicy.source_label}</em>
+                    <span>Runtime Profile</span>
+                    <strong>{formatProfileSummary(effectivePolicyDisplayValue(agentPolicy.value))}</strong>
+                    <em>编排系统</em>
+                  </p>
+                  <p>
+                    <span>Projection 来源</span>
+                    <strong>{projectionPolicy.configured ? effectivePolicyDisplayValue(projectionPolicy.value) : "未绑定"}</strong>
+                    <em>{projectionPolicy.source_label}</em>
                   </p>
                 </div>
                 <TaskSystemSelectField
@@ -170,18 +190,15 @@ export function TaskGraphAgentRosterPage({
                   options={["coordinator", "planner", "executor", "reviewer", "verifier", "summarizer", "merge", "acceptance", "participant"]}
                   value={String(node.work_posture ?? node.role ?? "participant")}
                 />
-                <TaskSystemField label="节点职责 Prompt">
-                  <textarea
-                    onChange={(event) => updateTaskGraphNode(nodeId, {
-                      metadata: {
-                        ...nodeMetadata,
-                        role_prompt: event.target.value,
-                      },
-                    })}
-                    placeholder="你是一名资料分析员。你只负责提炼证据并标注来源，不负责最终裁决。"
-                    value={String(nodeMetadata.role_prompt ?? "")}
-                  />
+                <TaskSystemField label="节点职责 Projection">
+                  <input readOnly value={String(node.projection_id ?? node.projection_overlay_id ?? "未绑定")} />
                 </TaskSystemField>
+                {String(nodeMetadata.role_prompt ?? "").trim() ? (
+                  <div className="task-graph-note">
+                    <strong>Legacy Prompt 待迁移</strong>
+                    <span>该节点仍有旧 Prompt 文本，请到职责与交接页生成并绑定投影。</span>
+                  </div>
+                ) : null}
               </article>
             );
           })}

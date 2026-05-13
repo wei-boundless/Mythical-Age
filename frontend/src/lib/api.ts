@@ -922,6 +922,11 @@ export type OrchestrationAgentRuntimeProfile = {
   allowed_context_sections: string[];
   use_shared_contract: boolean;
   output_contracts: string[];
+  can_delegate_to_agents: boolean;
+  allowed_delegate_agent_ids: string[];
+  allowed_delegate_agent_categories: string[];
+  max_delegate_calls_per_turn: number;
+  delegate_context_policy: string;
   approval_policy: string;
   trace_policy: string;
   lifecycle_policy: string;
@@ -1793,6 +1798,9 @@ export type SoulProjectionCard = {
   title: string;
   soul_id: string;
   soul_name: string;
+  projection_kind?: string;
+  owner_system?: string;
+  source_task_graph_refs?: string[];
   projection_nodes?: Array<Record<string, unknown>>;
   identity_anchor?: string;
   role_type: string;
@@ -1825,6 +1833,9 @@ export type SoulProjectionCatalog = {
 export type SoulProjectionCardCreatePayload = {
   projection_id?: string;
   soul_id: string;
+  projection_kind?: string;
+  owner_system?: string;
+  source_task_graph_refs?: string[];
   projection_nodes?: Array<Record<string, unknown>>;
   identity_anchor?: string;
   role_type?: string;
@@ -2473,7 +2484,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
   const method = (init?.method || "GET").toUpperCase();
-  const timeoutMs = 12000;
+  const timeoutMs = path === "/tasks/overview" || path === "/soul/projections" || path === "/orchestration/agents"
+    ? 30000
+    : 12000;
   const runFetch = async () => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);

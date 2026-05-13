@@ -4,6 +4,7 @@ import json
 import pytest
 
 from orchestration.agent_group_registry import AgentGroupRegistry
+from orchestration.agent_identity import agent_id_aliases, normalize_agent_id
 from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_models import AgentRuntimeProfile
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
@@ -59,6 +60,15 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
         "op.read_file",
     )
     assert profile_by_agent["agent:table_analyst"].can_delegate_to_agents is False
+
+
+def test_builtin_specialist_agent_aliases_resolve_to_registered_ids():
+    assert normalize_agent_id("agent.rag_retriever") == "agent:rag_analyst"
+    assert normalize_agent_id("agent.pdf_analyst") == "agent:pdf_reader"
+    assert normalize_agent_id("agent.table_analyst") == "agent:table_analyst"
+    assert "agent.rag_retriever" in agent_id_aliases("agent:rag_analyst")
+    assert "agent.pdf_analyst" in agent_id_aliases("agent:pdf_reader")
+    assert "agent.table_analyst" in agent_id_aliases("agent:table_analyst")
 
 
 def test_builtin_agent_upsert_and_runtime_profile_updates_follow_regular_management(tmp_path):

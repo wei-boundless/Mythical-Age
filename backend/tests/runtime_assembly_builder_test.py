@@ -105,6 +105,9 @@ def test_single_agent_runtime_assembly_preserves_manifest_refs_and_output_contra
     assert payload["manifest_ref"] == "contract-manifest:test"
     assert payload["agent_id"] == "agent:test"
     assert payload["diagnostics"]["full_history_included"] is False
+    assert payload["diagnostics"]["agent_resolution_source"] == "agent_profile"
+    assert payload["diagnostics"]["agent_profile_ref"] == "test_profile"
+    assert payload["diagnostics"]["prompt_manifest_ref"] == "contract-manifest:test"
     assert any(item["contract_id"] == "contract.test.output" for item in payload["output_contracts"])
     assert any(item["section_id"] == "task_inputs" for item in payload["context_sections"])
 
@@ -124,6 +127,11 @@ def test_node_runtime_assembly_hides_main_history_and_links_handoff_packet() -> 
     assert payload["node_id"] == "worker"
     assert payload["projection_id"] == "projection.test.node_worker"
     assert payload["diagnostics"]["projection_resolution_source"] == "node"
+    assert payload["diagnostics"]["projection_ref"] == "projection.test.node_worker"
+    assert payload["diagnostics"]["agent_resolution_source"] == "node"
+    assert payload["diagnostics"]["agent_profile_ref"] == "test_profile"
+    assert payload["diagnostics"]["prompt_manifest_ref"] == "contract-manifest:test"
+    assert payload["diagnostics"]["task_graph_node_ref"] == "graph.test:worker"
     assert payload["diagnostics"]["full_main_session_history_included"] is False
     assert all(item["section_id"] != "main_session_history" for item in payload["context_sections"])
     assert payload["handoff_packets"][0]["a2a_trace"]["message_type"] == "message/send"

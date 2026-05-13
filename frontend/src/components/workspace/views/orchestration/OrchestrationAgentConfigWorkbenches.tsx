@@ -29,6 +29,11 @@ type RuntimeDraftLike = {
   allowed_context_sections_text?: string;
   use_shared_contract?: boolean;
   output_contracts_text?: string;
+  can_delegate_to_agents?: boolean;
+  allowed_delegate_agent_ids_text?: string;
+  allowed_delegate_agent_categories_text?: string;
+  max_delegate_calls_per_turn?: number;
+  delegate_context_policy?: string;
 };
 
 function splitList(value: string | undefined) {
@@ -453,6 +458,52 @@ export function OrchestrationRuntimeWorkbench({
           options={outputContractOptionItems}
           selectedValues={splitList(runtimeDraft.output_contracts_text)}
         />
+        <section className="boundary-nested-panel">
+          <header>
+            <strong>子 Agent 调用授权</strong>
+            <OrchestrationBadge tone={runtimeDraft.can_delegate_to_agents ? "ok" : "neutral"}>
+              {runtimeDraft.can_delegate_to_agents ? "可调用" : "不可调用"}
+            </OrchestrationBadge>
+          </header>
+          <label className="boundary-check">
+            <input
+              checked={Boolean(runtimeDraft.can_delegate_to_agents)}
+              onChange={(event) => patchRuntimeDraft({ can_delegate_to_agents: event.target.checked })}
+              type="checkbox"
+            />
+            允许这个 Agent 调用子 Agent
+          </label>
+          <div className="boundary-form">
+            <OrchestrationField label="可调用 Agent ID">
+              <textarea
+                placeholder="agent:rag_analyst&#10;agent:pdf_reader&#10;agent:table_analyst"
+                value={runtimeDraft.allowed_delegate_agent_ids_text || ""}
+                onChange={(event) => patchRuntimeDraft({ allowed_delegate_agent_ids_text: event.target.value })}
+              />
+            </OrchestrationField>
+            <OrchestrationField label="可调用类别">
+              <textarea
+                placeholder="worker_sub_agent"
+                value={runtimeDraft.allowed_delegate_agent_categories_text || "worker_sub_agent"}
+                onChange={(event) => patchRuntimeDraft({ allowed_delegate_agent_categories_text: event.target.value })}
+              />
+            </OrchestrationField>
+            <OrchestrationField label="单轮最大调用次数">
+              <input
+                min={0}
+                type="number"
+                value={runtimeDraft.max_delegate_calls_per_turn ?? 1}
+                onChange={(event) => patchRuntimeDraft({ max_delegate_calls_per_turn: Number(event.target.value || 0) })}
+              />
+            </OrchestrationField>
+            <OrchestrationField label="上下文交接策略">
+              <input
+                value={runtimeDraft.delegate_context_policy || "summary_and_refs_only"}
+                onChange={(event) => patchRuntimeDraft({ delegate_context_policy: event.target.value })}
+              />
+            </OrchestrationField>
+          </div>
+        </section>
       </div>
       <aside className="boundary-card">
         <header><strong>运行摘要</strong></header>
@@ -460,6 +511,7 @@ export function OrchestrationRuntimeWorkbench({
           <p><span>任务范围</span><strong>{taskModesSummary}</strong></p>
           <p><span>运行通道</span><strong>{runtimeLanesSummary}</strong></p>
           <p><span>输出契约</span><strong>{outputContractsSummary}</strong></p>
+          <p><span>子 Agent 调用</span><strong>{runtimeDraft.can_delegate_to_agents ? "允许" : "禁止"}</strong></p>
         </div>
       </aside>
     </section>

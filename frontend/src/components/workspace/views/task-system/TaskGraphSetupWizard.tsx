@@ -25,9 +25,9 @@ export function TaskGraphSetupWizard({
   const [reviewStrength, setReviewStrength] = useState<TaskGraphSetupWizardOptions["review_strength"]>("standard");
   const [loopCount, setLoopCount] = useState(3);
   const [requireHumanConfirmation, setRequireHumanConfirmation] = useState(false);
-  const [pdfAgentId, setPdfAgentId] = useState("agent.pdf_analyst");
-  const [tableAgentId, setTableAgentId] = useState("agent.table_analyst");
-  const [ragAgentId, setRagAgentId] = useState("agent.rag_retriever");
+  const [pdfAgentId, setPdfAgentId] = useState("agent:pdf_reader");
+  const [tableAgentId, setTableAgentId] = useState("agent:table_analyst");
+  const [ragAgentId, setRagAgentId] = useState("agent:rag_analyst");
 
   const buildOptions = (): TaskGraphSetupWizardOptions => ({
     task_intent: taskIntent,

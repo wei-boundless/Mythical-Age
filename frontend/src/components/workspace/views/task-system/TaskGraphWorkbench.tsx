@@ -150,7 +150,11 @@ export function TaskGraphWorkbench({
     });
   };
   const repairPreflightIssue = (issue: TaskGraphPreflightIssue) => {
-    if (issue.source === "frontend.preflight.prompt_semantics" && issue.scope === "node" && issue.target_id) {
+    if (
+      (issue.source === "frontend.preflight.prompt_semantics" || issue.source === "frontend.preflight.projection_binding")
+      && issue.scope === "node"
+      && issue.target_id
+    ) {
       const node = activeGraphNodes.find((item) => String(item.node_id ?? "") === issue.target_id);
       const title = String(node?.title ?? node?.label ?? issue.target_id);
       const role = String(node?.role ?? node?.work_posture ?? "执行者");
@@ -158,14 +162,15 @@ export function TaskGraphWorkbench({
       updateTaskGraphNode(issue.target_id, {
         metadata: {
           ...metadata,
-          role_prompt: [
-            `你是一名${title}。`,
-            `你只负责以“${role}”身份完成当前节点被分配的任务。`,
-            "你不负责改变任务图结构，也不负责替其他节点完成职责。",
-            "你必须输出可交接的结果、依据和仍需后续节点处理的问题。",
-          ].join("\n"),
+          role_identity: metadata.role_identity || `你是一名${title}。`,
+          responsibility_scope: metadata.responsibility_scope || `你只负责以“${role}”身份完成当前节点被分配的任务。`,
+          responsibility_exclusions: metadata.responsibility_exclusions || "你不负责改变任务图结构，也不负责替其他节点完成职责。",
+          definition_of_done: metadata.definition_of_done || "你必须输出可交接的结果、依据和仍需后续节点处理的问题。",
         },
       });
+      rest.setSelectedGraphNodeId(issue.target_id);
+      rest.setSelectedGraphEdgeId("");
+      setActiveLayer("responsibility");
       return;
     }
     if (issue.source === "frontend.preflight.contract" && issue.scope === "edge" && issue.target_id) {
@@ -256,16 +261,18 @@ export function TaskGraphWorkbench({
         <TaskGraphAgentRosterPage
           a2aCatalog={rest.a2aCatalog}
           activeGraphNodes={activeGraphNodes}
+          orchestrationAgentCatalog={rest.orchestrationAgentCatalog}
           taskGraphDraft={taskGraphDraftV2}
           updateRuntimePolicy={updateRuntimePolicy}
           updateTaskGraphNode={updateTaskGraphNode}
-          updateTaskGraphMetadata={updateTaskGraphMetadata}
         />
       );
     }
     if (activeLayer === "responsibility") {
       return (
         <TaskGraphResponsibilityPage
+          onCreateProjectionFromPrompt={rest.onCreateProjectionFromPrompt}
+          projectionCards={rest.projectionCards}
           selectedGraphEdge={rest.selectedGraphEdge ?? activeGraphEdges[0] ?? null}
           selectedGraphEdgeId={rest.selectedGraphEdgeId || String(activeGraphEdges[0]?.edge_id ?? activeGraphEdges[0]?.id ?? "")}
           selectedGraphNode={rest.selectedGraphNode}
@@ -333,7 +340,7 @@ export function TaskGraphWorkbench({
             if (issue.scope === "node" && issue.target_id) {
               rest.setSelectedGraphNodeId(issue.target_id);
               rest.setSelectedGraphEdgeId("");
-              setActiveLayer(issue.source.includes("prompt") ? "agents" : "responsibility");
+              setActiveLayer(issue.source.includes("agent") ? "agents" : "responsibility");
               return;
             }
             if (issue.scope === "edge" && issue.target_id) {

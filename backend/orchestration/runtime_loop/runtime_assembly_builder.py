@@ -29,6 +29,7 @@ def build_single_agent_runtime_assembly(
 ) -> SingleAgentRuntimeAssembly:
     agent_id = str(getattr(agent_profile, "agent_id", "") or "agent:0")
     agent_profile_id = str(getattr(agent_profile, "agent_profile_id", "") or "main_interactive_agent")
+    agent_profile_agent_id = str(getattr(agent_profile, "agent_id", "") or "")
     sections = (
         RuntimeContextSection(
             section_id="main_session_history",
@@ -79,6 +80,11 @@ def build_single_agent_runtime_assembly(
         diagnostics={
             "manifest_valid": manifest.valid,
             "manifest_issue_count": len(manifest.issues),
+            "agent_resolution_source": "agent_profile" if agent_profile_agent_id else "system_default",
+            "agent_profile_ref": agent_profile_id,
+            "agent_profile_source": "orchestration.agent_runtime_profile" if agent_profile else "system_default",
+            "agent_profile_agent_id": agent_profile_agent_id,
+            "prompt_manifest_ref": manifest.manifest_id,
             "full_history_included": False,
             "explicit_input_keys": sorted(str(key) for key in dict(explicit_inputs or {}).keys()),
             **working_diag,
@@ -104,6 +110,7 @@ def build_node_runtime_assembly(
         raise ValueError(f"node not found in manifest: {node_id}")
     agent_id = node.agent_id or str(getattr(agent_profile, "agent_id", "") or "")
     agent_profile_id = str(getattr(agent_profile, "agent_profile_id", "") or "")
+    agent_profile_agent_id = str(getattr(agent_profile, "agent_id", "") or "")
     node_projection_id = str(getattr(node, "projection_id", "") or "").strip()
     agent_default_projection_id = str(getattr(agent_profile, "default_projection_id", "") or "").strip()
     resolved_projection_id = node_projection_id or agent_default_projection_id
@@ -170,9 +177,17 @@ def build_node_runtime_assembly(
             "manifest_issue_count": len(manifest.issues),
             "full_main_session_history_included": False,
             "handoff_packet_count": len(handoff_packets),
+            "node_agent_id": node.agent_id,
+            "agent_profile_agent_id": agent_profile_agent_id,
+            "agent_resolution_source": "node" if node.agent_id else ("agent_profile" if agent_profile_agent_id else "none"),
+            "agent_profile_ref": agent_profile_id,
+            "agent_profile_source": "orchestration.agent_runtime_profile" if agent_profile else "none",
             "node_projection_id": node_projection_id,
             "agent_default_projection_id": agent_default_projection_id,
             "projection_resolution_source": "node" if node_projection_id else ("agent_default" if agent_default_projection_id else "none"),
+            "projection_ref": resolved_projection_id,
+            "prompt_manifest_ref": manifest.manifest_id,
+            "task_graph_node_ref": f"{manifest.graph_ref or manifest.graph_id}:{node.node_id}",
             "projection_override": bool(node_projection_id and agent_default_projection_id and node_projection_id != agent_default_projection_id),
             "explicit_input_keys": sorted(str(key) for key in dict(explicit_inputs or {}).keys()),
             **working_diag,

@@ -42,6 +42,8 @@ import {
 import {
   deleteTaskSystemDomain,
   deleteTaskSystemSpecificRecord,
+  createSoulProjectionCard,
+  getOrchestrationAgents,
   getSoulProjectionCards,
   getTaskSystemNextIds,
   getTaskSystemOverview,
@@ -61,6 +63,7 @@ import {
   type ConversationEntryPolicy,
   type ContractSpec,
   type CoordinationGraphSpec,
+  type OrchestrationAgentRuntimeCatalog,
   type SoulProjectionCard,
   type SoulProjectionCatalog,
   type SpecificTaskRecord,
@@ -1109,6 +1112,7 @@ export function TaskSystemView() {
   const { activeWorkspaceView, setTaskSelection, setWorkspaceView } = useAppStore();
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
+  const [orchestrationAgentCatalog, setOrchestrationAgentCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
   const [loading, setLoading] = useState(true);
   const [projectionLoading, setProjectionLoading] = useState(false);
   const [saving, setSaving] = useState("");
@@ -1142,41 +1146,66 @@ export function TaskSystemView() {
   const [coordinationDraft, setCoordinationDraft] = useState<CoordinationDraft>(emptyCoordination());
   const [topologyDraft, setTopologyDraft] = useState<TopologyDraft>(emptyTopology());
   const [protocolDraft, setProtocolDraft] = useState<ProtocolDraft>(emptyProtocol());
+  const selectedDomainIdRef = useRef("");
+  const projectionCatalogLoadRef = useRef<Promise<void> | null>(null);
+  const orchestrationAgentCatalogLoadRef = useRef<Promise<void> | null>(null);
+
+  useEffect(() => {
+    selectedDomainIdRef.current = selectedDomainId;
+  }, [selectedDomainId]);
 
   const applyOverview = useCallback((overview: TaskSystemOverview) => {
     setConsolePayload(overview);
     const nextDomains = buildDomains(overview);
     const firstDomainWithTasks = nextDomains.find((item) => item.tasks.length > 0) ?? null;
     const fallbackDomain = firstDomainWithTasks ?? nextDomains[0] ?? null;
-    const preferredDomain = nextDomains.find((item) => item.domain_id === selectedDomainId) ?? null;
+    const preferredDomain = nextDomains.find((item) => item.domain_id === selectedDomainIdRef.current) ?? null;
     const selectedDomain = preferredDomain && (preferredDomain.tasks.length > 0 || !firstDomainWithTasks)
       ? preferredDomain
       : fallbackDomain;
-    const taskGraphs = overview.task_graph_management?.task_graphs ?? overview.coordination_management.task_graphs ?? [];
+    const taskGraphs = overview.task_graph_management?.task_graphs ?? overview.coordination_management?.task_graphs ?? [];
     setSelectedDomainId(selectedDomain?.domain_id ?? "");
     setSelectedTaskId((current) => current || selectedDomain?.tasks[0]?.task_id || overview.task_management.specific_task_records[0]?.task_id || "");
     setEditorDomainId((current) => current || selectedDomain?.domain_id || "");
     setSelectedTaskGraphId((current) => current || taskGraphs[0]?.graph_id || "");
     setEditorTaskId((current) => current && overview.task_management.specific_task_records.some((task) => task.task_id === current) ? current : "");
     setEditorTaskGraphId((current) => current && taskGraphs.some((graph) => graph.graph_id === current) ? current : "");
-  }, [selectedDomainId]);
+  }, []);
 
   const loadProjectionCatalog = useCallback(async () => {
-    setProjectionLoading(true);
-    try {
-      const projectionTimeoutMs = 8000;
-      const projections = await Promise.race([
-        getSoulProjectionCards(),
-        new Promise<null>((resolve) => {
-          setTimeout(() => resolve(null), projectionTimeoutMs);
-        }),
-      ]);
-      setProjectionCatalog(projections);
-    } catch {
-      setProjectionCatalog(null);
-    } finally {
-      setProjectionLoading(false);
+    if (projectionCatalogLoadRef.current) {
+      return projectionCatalogLoadRef.current;
     }
+    const run = (async () => {
+      setProjectionLoading(true);
+      try {
+        setProjectionCatalog(await getSoulProjectionCards());
+      } catch {
+        setProjectionCatalog((current) => current ?? null);
+      } finally {
+        setProjectionLoading(false);
+        projectionCatalogLoadRef.current = null;
+      }
+    })();
+    projectionCatalogLoadRef.current = run;
+    return run;
+  }, []);
+
+  const loadOrchestrationAgentCatalog = useCallback(async () => {
+    if (orchestrationAgentCatalogLoadRef.current) {
+      return orchestrationAgentCatalogLoadRef.current;
+    }
+    const run = (async () => {
+      try {
+        setOrchestrationAgentCatalog(await getOrchestrationAgents());
+      } catch {
+        setOrchestrationAgentCatalog((current) => current ?? null);
+      } finally {
+        orchestrationAgentCatalogLoadRef.current = null;
+      }
+    })();
+    orchestrationAgentCatalogLoadRef.current = run;
+    return run;
   }, []);
 
   const load = useCallback(async () => {
@@ -1190,6 +1219,7 @@ export function TaskSystemView() {
         const overview = await getTaskSystemOverview();
         applyOverview(overview);
         void loadProjectionCatalog();
+        void loadOrchestrationAgentCatalog();
       } catch (exc) {
         setError(exc instanceof Error ? exc.message : "任务系统加载失败");
       } finally {
@@ -1199,12 +1229,7 @@ export function TaskSystemView() {
     })();
     loadInFlightRef.current = run;
     return run;
-  }, [applyOverview, loadProjectionCatalog]);
-
-  useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [applyOverview, loadOrchestrationAgentCatalog, loadProjectionCatalog]);
 
   useEffect(() => {
     if (activeWorkspaceView !== "task-system") return;
@@ -1259,14 +1284,20 @@ export function TaskSystemView() {
   const executionPolicy = (consolePayload?.task_management.execution_policies ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const memoryProfile = (consolePayload?.task_management.memory_request_profiles ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const selectedWorkflow = workflows.find((item) => item.workflow_id === selectedTask?.default_workflow_id);
-  const allTaskGraphs = useMemo(() => consolePayload?.task_graph_management?.task_graphs ?? consolePayload?.coordination_management.task_graphs ?? [], [consolePayload]);
+  const allTaskGraphs = useMemo(() => consolePayload?.task_graph_management?.task_graphs ?? consolePayload?.coordination_management?.task_graphs ?? [], [consolePayload]);
   const allCoordinationGraphSpecs = useMemo(
-    () => consolePayload?.task_graph_management?.task_graph_specs ?? consolePayload?.coordination_management.coordination_graph_specs ?? [],
+    () => consolePayload?.task_graph_management?.task_graph_specs ?? consolePayload?.coordination_management?.coordination_graph_specs ?? [],
     [consolePayload],
   );
-  const allTopologyTemplates = useMemo(() => consolePayload?.coordination_management.topology_templates ?? [], [consolePayload]);
-  const allCommunicationProtocols = useMemo(() => consolePayload?.coordination_management.communication_protocols ?? [], [consolePayload]);
-  const a2aCatalog = consolePayload?.coordination_management.a2a ?? null;
+  const allTopologyTemplates = useMemo(
+    () => consolePayload?.task_graph_management?.topology_templates ?? consolePayload?.coordination_management?.topology_templates ?? [],
+    [consolePayload],
+  );
+  const allCommunicationProtocols = useMemo(
+    () => consolePayload?.task_graph_management?.communication_protocols ?? consolePayload?.coordination_management?.communication_protocols ?? [],
+    [consolePayload],
+  );
+  const a2aCatalog = consolePayload?.task_graph_management?.a2a ?? consolePayload?.coordination_management?.a2a ?? null;
   const activeDomainId = selectedDomain?.domain_id || "";
   const taskGraphs = useMemo(
     () => activeDomainId ? allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === activeDomainId) : [],
@@ -1360,6 +1391,63 @@ export function TaskSystemView() {
     setWorkspaceView("chat");
     setNotice(`已将任务图“${graph.title}”带入主会话。`);
   }, [setTaskSelection, setWorkspaceView]);
+
+  const createProjectionFromNodePrompt = useCallback(async ({
+    node,
+    nodeId,
+    prompt,
+  }: {
+    node: Record<string, unknown>;
+    nodeId: string;
+    prompt: string;
+  }) => {
+    const latestProjectionCatalog = projectionCatalog?.cards?.length ? projectionCatalog : await getSoulProjectionCards();
+    if (latestProjectionCatalog !== projectionCatalog) {
+      setProjectionCatalog(latestProjectionCatalog);
+    }
+    const cards = latestProjectionCatalog?.cards ?? [];
+    const currentProjectionId = String(node.projection_id ?? node.projection_overlay_id ?? "").trim();
+    const selectedProjectionId = String(latestProjectionCatalog?.selected_projection_id ?? "").trim();
+    const baseCard = cards.find((card) => card.projection_id === currentProjectionId)
+      ?? cards.find((card) => card.projection_id === selectedProjectionId)
+      ?? cards[0];
+    if (!baseCard?.soul_id) {
+      throw new Error("投影系统暂无可用 Soul，无法创建节点投影");
+    }
+    const graphSlug = slugFromTitle(coordinationDraft.graph_id || editorTaskGraphId || selectedTaskGraphId || "task_graph");
+    const nodeSlug = slugFromTitle(nodeId || String(node.node_id ?? node.title ?? "node"));
+    const role = String(node.work_posture ?? node.role ?? "task_graph_node").trim() || "task_graph_node";
+    const agentId = String(node.agent_id ?? "").trim();
+    const agentProfile = orchestrationAgentCatalog?.profiles.find((profile) => String(profile.agent_id ?? "") === agentId);
+    const agentProfileId = String(agentProfile?.agent_profile_id ?? baseCard.agent_profile_id ?? "task_graph_node_agent").trim();
+    const nextProjectionId = `projection.taskgraph.${graphSlug}.${nodeSlug}`;
+    const nextCatalog = await createSoulProjectionCard({
+      projection_id: nextProjectionId,
+      soul_id: baseCard.soul_id,
+      projection_kind: "task_graph_node",
+      owner_system: "task_system",
+      source_task_graph_refs: [coordinationDraft.graph_id || editorTaskGraphId || selectedTaskGraphId || ""].filter(Boolean),
+      projection_name: `${text(node.title ?? node.label ?? nodeId, nodeId)} / 节点职责`,
+      role_type: role,
+      task_mode: editorTask?.task_mode || selectedTask?.task_mode || "task_graph_node",
+      agent_profile_id: agentProfileId,
+      projection_prompt: prompt,
+      usage_summary: "由 TaskGraph Studio 节点职责生成的静态投影，用于运行装配时绑定节点 Prompt。",
+      memory_policy_summary: "记忆读写权限由 TaskGraph 节点策略与 Agent Runtime Profile 决定。",
+      output_contract_summary: "输出边界由 TaskGraph 节点契约和边交接契约决定。",
+      select_after_create: false,
+    });
+    setProjectionCatalog(nextCatalog);
+    return nextProjectionId;
+  }, [
+    coordinationDraft.graph_id,
+    editorTask?.task_mode,
+    editorTaskGraphId,
+    orchestrationAgentCatalog?.profiles,
+    projectionCatalog,
+    selectedTask?.task_mode,
+    selectedTaskGraphId,
+  ]);
   useEffect(() => {
     if (!selectedDomain) return;
     setDomainDraft({
@@ -2556,7 +2644,7 @@ export function TaskSystemView() {
                   onClick={() => {
                     setSelectedDomainId(domain.domain_id);
                     setSelectedTaskId(domain.tasks[0]?.task_id || "");
-                    const nextGraph = (consolePayload?.task_graph_management?.task_graphs ?? consolePayload?.coordination_management.task_graphs ?? []).find((item) => String(item.domain_id ?? "").trim() === domain.domain_id);
+                    const nextGraph = (consolePayload?.task_graph_management?.task_graphs ?? consolePayload?.coordination_management?.task_graphs ?? []).find((item) => String(item.domain_id ?? "").trim() === domain.domain_id);
                     setSelectedTaskGraphId(nextGraph?.graph_id || "");
                     setEditingDomainName(false);
                   }}
@@ -2960,6 +3048,8 @@ export function TaskSystemView() {
             taskGraphDraftV2={taskGraphDraftV2}
             updateTaskGraphEdge={updateCoordinationEdge}
             updateTaskGraphNode={updateCoordinationNode}
+            orchestrationAgentCatalog={orchestrationAgentCatalog}
+            onCreateProjectionFromPrompt={createProjectionFromNodePrompt}
             projectionCards={domainProjectionCards}
           />
         </section>

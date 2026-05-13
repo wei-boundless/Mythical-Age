@@ -4,6 +4,8 @@ import { EdgeHandoffCard } from "./EdgeHandoffCard";
 import { NodeResponsibilityCard } from "./NodeResponsibilityCard";
 
 export function TaskGraphResponsibilityPage({
+  onCreateProjectionFromPrompt,
+  projectionCards,
   selectedGraphNode,
   selectedGraphNodeId,
   selectedGraphEdge,
@@ -11,6 +13,8 @@ export function TaskGraphResponsibilityPage({
   updateTaskGraphNode,
   updateTaskGraphEdge,
 }: {
+  onCreateProjectionFromPrompt?: (input: { node: Record<string, unknown>; nodeId: string; prompt: string }) => Promise<string>;
+  projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
   selectedGraphNode: Record<string, unknown> | null;
   selectedGraphNodeId: string;
   selectedGraphEdge: Record<string, unknown> | null;
@@ -28,6 +32,8 @@ export function TaskGraphResponsibilityPage({
 
       <section className="task-graph-form-grid">
         <NodeResponsibilityCard
+          onCreateProjectionFromPrompt={onCreateProjectionFromPrompt}
+          projectionCards={projectionCards}
           selectedGraphNode={selectedGraphNode}
           selectedGraphNodeId={selectedGraphNodeId}
           updateTaskGraphNode={updateTaskGraphNode}

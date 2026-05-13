@@ -72,6 +72,9 @@ class SoulToolViewPayload(BaseModel):
 class SoulProjectionCardRequest(BaseModel):
     projection_id: str = ""
     soul_id: str = Field(..., min_length=1)
+    projection_kind: str = "soul_projection"
+    owner_system: str = "soul_system"
+    source_task_graph_refs: list[str] = Field(default_factory=list)
     projection_nodes: list[dict[str, Any]] = Field(default_factory=list)
     identity_anchor: str = ""
     role_type: str = "dialogue"

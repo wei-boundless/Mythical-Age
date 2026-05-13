@@ -25,7 +25,8 @@ function runtimeIssueTitle(issue: Record<string, unknown>, index: number) {
 }
 
 function repairActionLabel(issue: TaskGraphPreflightIssue) {
-  if (issue.source === "frontend.preflight.prompt_semantics") return "生成职责 Prompt";
+  if (issue.source === "frontend.preflight.prompt_semantics") return "补全职责字段";
+  if (issue.source === "frontend.preflight.projection_binding") return "迁移到投影";
   if (issue.source === "frontend.preflight.contract" && issue.scope === "edge") return "补默认载荷契约";
   if (issue.source === "frontend.preflight.memory_handoff") return "补摘要交接";
   if (issue.source === "frontend.preflight.timeline" && issue.scope === "phase") return "补阶段定义";

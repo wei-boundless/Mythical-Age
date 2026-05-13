@@ -17091,6 +17091,29 @@ html[data-soul="xuannv"] .soul-portrait__label {
   overflow-wrap: anywhere;
 }
 
+.orchestration-subagent-card__main span {
+  color: var(--color-muted);
+  font-size: 0.68rem;
+  line-height: 1.25;
+}
+
+.boundary-nested-panel {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+  padding: 0.85rem;
+}
+
+.boundary-nested-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+}
+
 .orchestration-subagent-card__delete {
   display: inline-flex;
   align-items: center;

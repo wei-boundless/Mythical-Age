@@ -7,23 +7,28 @@ CANONICAL_AGENT_ID_BY_ALIAS = {
     "agent:main": "agent:0",
     "agent:health:maintainer": "agent:3",
     "agent:6": "agent:rag_analyst",
+    "agent.rag_retriever": "agent:rag_analyst",
+    "agent.rag_analyst": "agent:rag_analyst",
     "builtin-rag-reader": "agent:rag_analyst",
     "builtin-rag-agent": "agent:rag_analyst",
     "builtin-rag-analyst": "agent:rag_analyst",
     "agent:7": "agent:pdf_reader",
+    "agent.pdf_analyst": "agent:pdf_reader",
+    "agent.pdf_reader": "agent:pdf_reader",
     "builtin-pdf-reader": "agent:pdf_reader",
     "builtin-pdf-agent": "agent:pdf_reader",
     "builtin-pdf-analyst": "agent:pdf_reader",
     "agent:8": "agent:table_analyst",
+    "agent.table_analyst": "agent:table_analyst",
     "builtin-table-analyzer": "agent:table_analyst",
     "builtin-structured-data-agent": "agent:table_analyst",
     "builtin-table-analyst": "agent:table_analyst",
 }
 
 WORKER_AGENT_ALIASES = {
-    "agent:rag_analyst": ("agent:6", "builtin-rag-reader", "builtin-rag-agent", "builtin-rag-analyst"),
-    "agent:pdf_reader": ("agent:7", "builtin-pdf-reader", "builtin-pdf-agent", "builtin-pdf-analyst"),
-    "agent:table_analyst": ("agent:8", "builtin-table-analyzer", "builtin-structured-data-agent", "builtin-table-analyst"),
+    "agent:rag_analyst": ("agent:6", "agent.rag_retriever", "agent.rag_analyst", "builtin-rag-reader", "builtin-rag-agent", "builtin-rag-analyst"),
+    "agent:pdf_reader": ("agent:7", "agent.pdf_analyst", "agent.pdf_reader", "builtin-pdf-reader", "builtin-pdf-agent", "builtin-pdf-analyst"),
+    "agent:table_analyst": ("agent:8", "agent.table_analyst", "builtin-table-analyzer", "builtin-structured-data-agent", "builtin-table-analyst"),
 }
 
 

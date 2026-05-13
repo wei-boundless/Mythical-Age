@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type {
   ContractSpec,
   CoordinationGraphSpec,
+  OrchestrationAgentRuntimeCatalog,
   SpecificTaskRecord,
   TaskCommunicationProtocol,
   TaskGraphRecord,
@@ -172,6 +173,8 @@ export type TaskGraphWorkbenchProps = {
   updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
   selectedTaskGraphSpec: CoordinationGraphSpec | null;
   a2aCatalog: TaskGraphWorkbenchAgentCatalog | null;
+  orchestrationAgentCatalog: OrchestrationAgentRuntimeCatalog | null;
+  onCreateProjectionFromPrompt?: (input: { node: Record<string, unknown>; nodeId: string; prompt: string }) => Promise<string>;
   contractSpecs: ContractSpec[];
   projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
 };

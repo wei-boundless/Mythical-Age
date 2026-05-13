@@ -85,16 +85,25 @@ export function OrchestrationDirectoryRail({
   const categoryDescriptions: Record<AgentCategory, string> = {
     main_agent: "主会话入口与最终整合输出",
     system_management_agent: "系统内置治理与维护入口",
-    worker_sub_agent: "可自由定义与复用的工作 Agent",
+    worker_sub_agent: "内置专业 Agent 与自定义工作 Agent",
   };
+  const builtinCount = agents.filter((agent) => Boolean(agent.builtin)).length;
+  const builtinCountByCategory = agents.reduce<Record<string, number>>((acc, agent) => {
+    if (!agent.builtin) return acc;
+    const category = String(agent.agent_category || agent.profile_type || "worker_sub_agent");
+    acc[category] = (acc[category] ?? 0) + 1;
+    return acc;
+  }, {});
 
   function WorkerAgentCard({ agent }: { agent: Record<string, unknown> }) {
     const agentId = String(agent.agent_id);
     const name = displayName(agent);
+    const builtin = Boolean(agent.builtin);
     return (
       <article className={agentId === selectedAgentId ? "orchestration-subagent-card orchestration-subagent-card--active" : "orchestration-subagent-card"}>
         <button className="orchestration-subagent-card__main" onClick={() => selectAgent(agentId)} type="button">
           <strong>{name}</strong>
+          <span>{builtin ? "内置专业子 Agent" : "自定义子 Agent"}</span>
         </button>
         <button
           className="orchestration-subagent-card__delete"
@@ -112,7 +121,7 @@ export function OrchestrationDirectoryRail({
     <aside className="boundary-rail orchestration-subagent-rail">
       <div className="boundary-rail__head">
         <strong>Agent 分类</strong>
-        <span>{agents.length}</span>
+        <span>{agents.length} 个 / 内置 {builtinCount}</span>
       </div>
       <div className="boundary-search">
         <Search size={15} />
@@ -123,7 +132,7 @@ export function OrchestrationDirectoryRail({
           <button className={activeCategory === category ? "active" : ""} key={category} onClick={() => selectCategory(category)} type="button">
             <span>{categoryLabels[category]}</span>
             <b>{categoryCounts[category] ?? 0}</b>
-            <small>{categoryDescriptions[category]}</small>
+            <small>{categoryDescriptions[category]} · 内置 {builtinCountByCategory[category] ?? 0}</small>
           </button>
         ))}
       </div>

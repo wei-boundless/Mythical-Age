@@ -54,18 +54,18 @@ describe("taskGraphEffectivePolicy", () => {
     }).source).toBe("system_default");
   });
 
-  it("reads nested metadata values for prompt semantics", () => {
+  it("reads nested metadata values for projection defaults", () => {
     const result = resolveTaskGraphEffectivePolicy({
-      key: "role_prompt",
+      key: "projection_id",
       node: {
         metadata: {
-          role_prompt: "你是一名审核员。你只负责裁决是否通过。",
+          projection_id: "projection.review",
         },
       },
       systemDefault: "未配置",
     });
 
-    expect(result.value).toContain("你是一名审核员");
+    expect(result.value).toBe("projection.review");
     expect(result.source).toBe("node_explicit");
   });
 });

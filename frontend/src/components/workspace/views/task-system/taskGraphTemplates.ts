@@ -115,15 +115,6 @@ export const TASK_GRAPH_TEMPLATE_CARDS: TaskGraphTemplateCard[] = [
   },
 ];
 
-function rolePrompt(input: Pick<TemplateNodeInput, "role_identity" | "responsibility_scope" | "responsibility_exclusions" | "definition_of_done">) {
-  return [
-    input.role_identity,
-    input.responsibility_scope,
-    input.responsibility_exclusions,
-    input.definition_of_done,
-  ].filter(Boolean).join("\n");
-}
-
 function makeNode(input: TemplateNodeInput, taskFamily: string): TaskGraphNode {
   return {
     node_id: input.node_id,
@@ -145,7 +136,6 @@ function makeNode(input: TemplateNodeInput, taskFamily: string): TaskGraphNode {
       responsibility_scope: input.responsibility_scope,
       responsibility_exclusions: input.responsibility_exclusions,
       definition_of_done: input.definition_of_done,
-      role_prompt: rolePrompt(input),
     },
   };
 }
@@ -169,7 +159,6 @@ function applyTemplateOptions(
   ].filter(Boolean);
   const nodes = result.nodes.map((node) => {
     const metadata = (node.metadata ?? {}) as Record<string, unknown>;
-    const rolePrompt = String(metadata.role_prompt ?? "");
     return {
       ...node,
       metadata: {
@@ -178,8 +167,8 @@ function applyTemplateOptions(
         template_input_material_type: inputMaterialType,
         template_artifact_type: artifactType,
         template_review_strength: reviewStrength,
+        template_prompt_context: optionLines,
         agent_binding_source: Object.values(input.agent_bindings ?? {}).includes(String(node.agent_id ?? "")) ? "template_parameter" : "template_default",
-        role_prompt: optionLines.length ? `${rolePrompt}\n${optionLines.join("\n")}` : rolePrompt,
       },
     };
   });
@@ -420,7 +409,7 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
         node_id: "agent.rag",
         role: "retriever",
         title: "RAG 检索员",
-        agent_id: agentIdFor(input, "rag", "agent.rag_retriever"),
+        agent_id: agentIdFor(input, "rag", "agent:rag_analyst"),
         phase_id: "phase.evidence",
         sequence_index: 1,
         role_identity: "你是一名资料检索员。",
@@ -468,7 +457,7 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
       output_node_id: "agent.writer",
       coordination_mode: "pipeline",
       participant_agent_ids: [
-        agentIdFor(input, "rag", "agent.rag_retriever"),
+        agentIdFor(input, "rag", "agent:rag_analyst"),
         agentIdFor(input, "analyst", "agent.evidence_analyst"),
         agentIdFor(input, "writer", "agent.writer"),
       ],
@@ -481,7 +470,7 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
         node_id: "agent.pdf",
         role: "pdf_analyst",
         title: "PDF 分析员",
-        agent_id: agentIdFor(input, "pdf_analyst", "agent.pdf_analyst"),
+        agent_id: agentIdFor(input, "pdf_analyst", "agent:pdf_reader"),
         phase_id: "phase.extract",
         sequence_index: 1,
         role_identity: "你是一名 PDF 分析员。",
@@ -493,7 +482,7 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
         node_id: "agent.table",
         role: "table_analyst",
         title: "表格分析员",
-        agent_id: agentIdFor(input, "table_analyst", "agent.table_analyst"),
+        agent_id: agentIdFor(input, "table_analyst", "agent:table_analyst"),
         phase_id: "phase.extract",
         sequence_index: 1,
         role_identity: "你是一名表格分析员。",
@@ -528,8 +517,8 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
       output_node_id: "agent.synthesizer",
       coordination_mode: "parallel_review",
       participant_agent_ids: [
-        agentIdFor(input, "pdf_analyst", "agent.pdf_analyst"),
-        agentIdFor(input, "table_analyst", "agent.table_analyst"),
+        agentIdFor(input, "pdf_analyst", "agent:pdf_reader"),
+        agentIdFor(input, "table_analyst", "agent:table_analyst"),
         agentIdFor(input, "synthesizer", "agent.synthesizer"),
       ],
     });

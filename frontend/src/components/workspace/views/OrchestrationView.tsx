@@ -59,6 +59,8 @@ type RuntimeDraft = OrchestrationAgentRuntimeProfile & {
   allowed_memory_scopes_text: string;
   allowed_context_sections_text: string;
   output_contracts_text: string;
+  allowed_delegate_agent_ids_text: string;
+  allowed_delegate_agent_categories_text: string;
 };
 
 type AgentGroupDraft = OrchestrationAgentGroup & {
@@ -97,6 +99,11 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   allowed_context_sections: [],
   use_shared_contract: true,
   output_contracts: [],
+  can_delegate_to_agents: false,
+  allowed_delegate_agent_ids: [],
+  allowed_delegate_agent_categories: ["worker_sub_agent"],
+  max_delegate_calls_per_turn: 1,
+  delegate_context_policy: "summary_and_refs_only",
   approval_policy: "default",
   trace_policy: "runtime_event_log",
   lifecycle_policy: "orchestration_managed",
@@ -108,6 +115,8 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   allowed_memory_scopes_text: "",
   allowed_context_sections_text: "",
   output_contracts_text: "",
+  allowed_delegate_agent_ids_text: "",
+  allowed_delegate_agent_categories_text: "worker_sub_agent",
 };
 
 const EMPTY_GROUP_DRAFT: AgentGroupDraft = {
@@ -275,6 +284,11 @@ function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentR
     allowed_context_sections: merged.allowed_context_sections ?? [],
     use_shared_contract: Boolean(merged.use_shared_contract ?? true),
     output_contracts: merged.output_contracts ?? [],
+    can_delegate_to_agents: Boolean(merged.can_delegate_to_agents ?? false),
+    allowed_delegate_agent_ids: merged.allowed_delegate_agent_ids ?? [],
+    allowed_delegate_agent_categories: merged.allowed_delegate_agent_categories ?? ["worker_sub_agent"],
+    max_delegate_calls_per_turn: Number(merged.max_delegate_calls_per_turn ?? 1),
+    delegate_context_policy: String(merged.delegate_context_policy || "summary_and_refs_only"),
     approval_policy: String(merged.approval_policy || "default"),
     trace_policy: String(merged.trace_policy || "runtime_event_log"),
     lifecycle_policy: String(merged.lifecycle_policy || "orchestration_managed"),
@@ -286,6 +300,8 @@ function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentR
     allowed_memory_scopes_text: listText(merged.allowed_memory_scopes ?? []),
     allowed_context_sections_text: listText(merged.allowed_context_sections ?? []),
     output_contracts_text: listText(merged.output_contracts ?? []),
+    allowed_delegate_agent_ids_text: listText(merged.allowed_delegate_agent_ids ?? []),
+    allowed_delegate_agent_categories_text: listText(merged.allowed_delegate_agent_categories ?? ["worker_sub_agent"]),
   };
 }
 
@@ -300,6 +316,11 @@ function runtimePayloadFromDraft(draft: RuntimeDraft) {
     allowed_context_sections: splitList(draft.allowed_context_sections_text),
     use_shared_contract: Boolean(draft.use_shared_contract),
     output_contracts: splitList(draft.output_contracts_text),
+    can_delegate_to_agents: Boolean(draft.can_delegate_to_agents),
+    allowed_delegate_agent_ids: splitList(draft.allowed_delegate_agent_ids_text),
+    allowed_delegate_agent_categories: splitList(draft.allowed_delegate_agent_categories_text),
+    max_delegate_calls_per_turn: Math.max(0, Number(draft.max_delegate_calls_per_turn ?? 1)),
+    delegate_context_policy: draft.delegate_context_policy || "summary_and_refs_only",
     approval_policy: draft.approval_policy,
     trace_policy: draft.trace_policy,
     lifecycle_policy: draft.lifecycle_policy,

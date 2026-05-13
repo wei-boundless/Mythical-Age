@@ -107,6 +107,24 @@ describe("TaskGraph preflight", () => {
     expect(report.issues.some((issue) => issue.scope === "phase" && issue.target_id === "phase.review")).toBe(true);
   });
 
+  it("warns when legacy node prompt has not been migrated to projection binding", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [
+        {
+          node_id: "review",
+          agent_id: "agent.review",
+          metadata: { role_prompt: "你是一名审核员。你只负责裁决是否通过。" },
+        },
+      ],
+      edges: [],
+    });
+
+    expect(report.issues.some((issue) => issue.source === "frontend.preflight.projection_binding")).toBe(true);
+  });
+
   it("does not block publishing on warnings and info issues", () => {
     const report = buildTaskGraphPreflightReport({
       dirty: false,
