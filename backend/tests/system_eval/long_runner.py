@@ -346,6 +346,28 @@ def _collect_quality_warnings(
     return warnings
 
 
+def _collect_critical_quality_failures(turn: TurnResult) -> list[str]:
+    failures: list[str] = []
+    fallback = str(turn.answer_fallback_reason or "").strip()
+    if fallback in {"runtime_budget_exhausted"}:
+        failures.append(f"answer.fallback_critical={fallback}")
+    response_text = str(turn.response_text or "")
+    critical_markers = (
+        "本轮运行预算达到上限",
+        "本轮运行时间达到上限",
+        "本轮模型续写次数达到上限",
+        "本轮委派全部被限流",
+        "委派被限流",
+        "下一轮我会优先调用",
+        "请直接继续问“基于已读取内容总结”",
+    )
+    for marker in critical_markers:
+        if marker in response_text:
+            failures.append(f"response.critical_marker={marker}")
+            break
+    return failures
+
+
 def _ensure_session(client: TestClient, session_ids: dict[str, str], alias: str, *, title: str = "") -> str:
     existing = session_ids.get(alias)
     if existing:
@@ -858,6 +880,7 @@ def _execute_user_turn(
             f" ({'; '.join(turn_result.orchestration_diff_mismatches[:3]) or turn_result.orchestration_diff_summary})"
         )
     turn_result.quality_warnings = _collect_quality_warnings(turn=turn_result, events=events)
+    turn_result.failed_checks.extend(_collect_critical_quality_failures(turn_result))
     turn_result.passed = not turn_result.failed_checks and "error" not in turn_result.event_types
 
     artifact_path = scenario_dir / f"turn-{turn_index:02d}-{_slug(turn.session)}.json"

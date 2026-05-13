@@ -5,7 +5,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from document_conversion.models import ConversionBlock, ConversionResult
+from document_conversion.models import ConversionBlock, ConversionPage, ConversionResult
 from project_layout import ProjectLayout
 
 
@@ -58,6 +58,7 @@ class DocumentCacheLayout:
                     "version_digest": result.version_digest,
                     "parser_backend": result.parser_backend,
                     "quality_flags": list(result.quality_flags),
+                    "page_count": len(result.pages) or int(result.page_count or 0),
                     "block_count": len(result.blocks),
                 },
                 ensure_ascii=False,
@@ -91,6 +92,23 @@ class DocumentCacheLayout:
             )
             for block in payload.get("blocks", []) or []
         )
+        pages = tuple(
+            ConversionPage(
+                page_number=int(page.get("page_number", 0) or 0),
+                raw_text=str(page.get("raw_text", "") or ""),
+                text_block_count=int(page.get("text_block_count", 0) or 0),
+                table_block_count=int(page.get("table_block_count", 0) or 0),
+                image_block_count=int(page.get("image_block_count", 0) or 0),
+                diagnostic_block_count=int(page.get("diagnostic_block_count", 0) or 0),
+                has_text=bool(page.get("has_text", False)),
+                has_usable_text=bool(page.get("has_usable_text", False)),
+                page_state=str(page.get("page_state", "") or ""),
+                state_confidence=float(page.get("state_confidence", 0.0) or 0.0),
+                metadata=dict(page.get("metadata", {}) or {}),
+            )
+            for page in payload.get("pages", []) or []
+            if int(page.get("page_number", 0) or 0) > 0
+        )
         return ConversionResult(
             doc_id=str(payload.get("doc_id", "")),
             collection=str(payload.get("collection", "")),
@@ -105,6 +123,7 @@ class DocumentCacheLayout:
             parser_route=tuple(payload.get("parser_route", []) or ()),
             fallback_used=bool(payload.get("fallback_used", False)),
             quality_flags=tuple(payload.get("quality_flags", []) or ()),
+            pages=pages,
             blocks=blocks,
             metadata=dict(payload.get("metadata", {}) or {}),
         )

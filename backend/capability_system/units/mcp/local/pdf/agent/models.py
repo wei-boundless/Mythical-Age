@@ -31,6 +31,8 @@ class PDFPreparedPage:
     text: str
     section: str = ""
     body_text: str = ""
+    page_state: str = ""
+    state_confidence: float = 0.0
     quality_score: float = 0.0
     quality_flags: list[str] = field(default_factory=list)
     parse_strategy: str = "text_fast"

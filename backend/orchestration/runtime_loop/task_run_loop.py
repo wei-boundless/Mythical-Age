@@ -1303,6 +1303,7 @@ class TaskRunLoop:
                         assistant_tool_call_kwargs.update(event_kwargs)
                 runtime_events = await self._events_from_executor_event(
                     state.task_run_id,
+                    user_message=user_message,
                     task_id=task_id,
                     task_operation=task_operation,
                     adopted_resource_policy=resource_policy,
@@ -1623,11 +1624,23 @@ class TaskRunLoop:
             if not followup_control.allowed:
                 terminal_reason = followup_control.reason
                 if not final_content:
-                    final_content = _build_runtime_budget_exhausted_message(
-                        followup_control.message,
-                        tool_observation_count=tool_observation_count,
+                    synthesized = _forced_tool_synthesis_from_available_evidence(
+                        user_message=user_message,
+                        aggregation=observation_aggregator.snapshot(),
+                        final_task_summary_refs=final_task_summary_refs,
+                        final_main_context=final_main_context,
                     )
-                    final_answer_metadata = _runtime_budget_exhausted_answer_metadata()
+                    if synthesized:
+                        final_content = synthesized
+                        final_answer_metadata = _forced_synthesis_answer_metadata(
+                            source="runtime_loop.budget_exhausted_force_synthesis"
+                        )
+                    else:
+                        final_content = _build_runtime_budget_exhausted_message(
+                            followup_control.message,
+                            tool_observation_count=tool_observation_count,
+                        )
+                        final_answer_metadata = _runtime_budget_exhausted_answer_metadata()
                 break
             followup_event = self.event_log.append(
                 state.task_run_id,
@@ -1668,6 +1681,7 @@ class TaskRunLoop:
                         next_assistant_tool_call_kwargs.update(event_kwargs)
                 runtime_events = await self._events_from_executor_event(
                     state.task_run_id,
+                    user_message=user_message,
                     task_id=task_id,
                     task_operation=task_operation,
                     adopted_resource_policy=resource_policy,
@@ -1919,9 +1933,28 @@ class TaskRunLoop:
             ):
                 retrieval_followup_force_synthesis = True
             if next_pending_tool_calls and next_tool_messages and terminal_reason == "completed":
-                if retrieval_followup_force_synthesis:
-                    synthesized = _forced_tool_synthesis_answer(
+                if _should_force_answer_after_tool_results(
+                    aggregation=observation_aggregator.snapshot(),
+                    final_task_summary_refs=final_task_summary_refs,
+                    final_main_context=final_main_context,
+                ):
+                    synthesized = _forced_tool_synthesis_from_available_evidence(
                         user_message=user_message,
+                        aggregation=observation_aggregator.snapshot(),
+                        final_task_summary_refs=final_task_summary_refs,
+                        final_main_context=final_main_context,
+                    )
+                    if synthesized:
+                        final_content = synthesized
+                        final_answer_metadata = _forced_synthesis_answer_metadata(
+                            source="runtime_loop.post_tool_judgement_force_synthesis"
+                        )
+                        followup_messages = []
+                        break
+                if retrieval_followup_force_synthesis:
+                    synthesized = _forced_tool_synthesis_from_available_evidence(
+                        user_message=user_message,
+                        aggregation=observation_aggregator.snapshot(),
                         final_task_summary_refs=final_task_summary_refs,
                         final_main_context=final_main_context,
                     )
@@ -1936,8 +1969,9 @@ class TaskRunLoop:
                     followup_messages = []
                     break
                 if repeated_tool_halt:
-                    synthesized = _forced_tool_synthesis_answer(
+                    synthesized = _forced_tool_synthesis_from_available_evidence(
                         user_message=user_message,
+                        aggregation=observation_aggregator.snapshot(),
                         final_task_summary_refs=final_task_summary_refs,
                         final_main_context=final_main_context,
                     )
@@ -2040,6 +2074,7 @@ class TaskRunLoop:
                             repair_assistant_tool_call_kwargs.update(event_kwargs)
                     runtime_events = await self._events_from_executor_event(
                         state.task_run_id,
+                        user_message=user_message,
                         task_id=task_id,
                         task_operation=task_operation,
                         adopted_resource_policy=resource_policy,
@@ -4778,10 +4813,23 @@ class TaskRunLoop:
         action_request: Any,
         parent_agent_run_ref: str,
         source_agent_id: str,
+        user_message: str,
     ) -> AgentDelegationRequest:
         tool_call = dict(action_request.payload.get("tool_call") or {})
         tool_args = dict(tool_call.get("args") or {})
         task_run = self.state_index.get_task_run(task_run_id)
+        instruction = str(tool_args.get("instruction") or "").strip()
+        input_payload = dict(tool_args.get("input_payload") or {})
+        diagnostics = {
+            "tool_call_id": str(tool_call.get("id") or ""),
+            "operation_id": str(action_request.operation_id or ""),
+            "goal_alignment": _classify_delegation_goal_alignment(
+                user_message=user_message,
+                instruction=instruction,
+                input_payload=input_payload,
+            ),
+            "current_user_message": str(user_message or "").strip(),
+        }
         return AgentDelegationRequest(
             request_id=f"delegation:req:{task_run_id}:{uuid.uuid4().hex[:8]}",
             task_run_id=task_run_id,
@@ -4790,22 +4838,20 @@ class TaskRunLoop:
             source_agent_id=source_agent_id,
             target_agent_id=str(tool_args.get("target_agent_id") or "").strip(),
             delegation_kind=str(tool_args.get("delegation_kind") or "").strip(),
-            instruction=str(tool_args.get("instruction") or "").strip(),
-            input_payload=dict(tool_args.get("input_payload") or {}),
+            instruction=instruction,
+            input_payload=input_payload,
             context_policy=dict(tool_args.get("context_policy") or {}),
             expected_output_contract=dict(tool_args.get("expected_output_contract") or {}),
             timeout_policy=dict(tool_args.get("timeout_policy") or {}),
             created_at=time.time(),
-            diagnostics={
-                "tool_call_id": str(tool_call.get("id") or ""),
-                "operation_id": str(action_request.operation_id or ""),
-            },
+            diagnostics=diagnostics,
         )
 
     async def _events_from_executor_event(
         self,
         task_run_id: str,
         *,
+        user_message: str,
         task_id: str,
         task_operation: dict[str, Any],
         adopted_resource_policy: Any,
@@ -4978,6 +5024,7 @@ class TaskRunLoop:
                         action_request=action_request,
                         parent_agent_run_ref=parent_agent_run.agent_run_id,
                         source_agent_id=parent_agent_run.agent_id,
+                        user_message=user_message,
                     )
                     delegated = await self._delegation_executor().execute(
                         request=delegation_request,
@@ -4991,7 +5038,10 @@ class TaskRunLoop:
                         directive_ref=tool_directive.directive_id,
                         tool_name="delegate_to_agent",
                         tool_call_id=str(dict(action_request.payload.get("tool_call") or {}).get("id") or action_request.request_id),
-                        tool_args=dict(dict(action_request.payload.get("tool_call") or {}).get("args") or {}),
+                        tool_args={
+                            **dict(dict(action_request.payload.get("tool_call") or {}).get("args") or {}),
+                            "current_user_message": str(user_message or "").strip(),
+                        },
                         result=json.dumps(dict(delegated.get("observation") or {}), ensure_ascii=False),
                     )
                     context_record = runtime_context_manager.record_observation(result_observation)
@@ -5927,6 +5977,79 @@ def _build_artifact_success_fallback_answer(
     return "\n".join(lines)
 
 
+def _forced_tool_synthesis_from_available_evidence(
+    *,
+    user_message: str,
+    aggregation: ObservationAggregation,
+    final_task_summary_refs: list[dict[str, Any]],
+    final_main_context: dict[str, Any],
+) -> str:
+    synthesized = _forced_tool_synthesis_answer(
+        user_message=user_message,
+        final_task_summary_refs=final_task_summary_refs,
+        final_main_context=final_main_context,
+    )
+    if synthesized:
+        return synthesized
+    return _forced_tool_synthesis_from_observation_aggregation(
+        user_message=user_message,
+        aggregation=aggregation,
+    )
+
+
+def _forced_tool_synthesis_from_observation_aggregation(
+    *,
+    user_message: str,
+    aggregation: ObservationAggregation,
+) -> str:
+    boundary = AssistantOutputBoundary()
+    eligible = 0
+    for item in list(aggregation.evidence_items or [])[-8:]:
+        tool_name = str(item.get("tool_name") or "").strip()
+        preview = str(item.get("result_preview") or "").strip()
+        if not tool_name or not preview:
+            continue
+        if tool_name in {"search_text", "web_search", "fetch_url"} and len(preview) < 80:
+            continue
+        boundary.ingest_tool_result(tool_name, preview)
+        eligible += 1
+    if eligible <= 0:
+        return ""
+    boundary.finalize_segment()
+    response = boundary.build_response(
+        route="runtime_force_synthesis",
+        execution_posture="tool_synthesis",
+        user_message=user_message,
+        tool_name="aggregated_tool_results",
+        retrieval_results=None,
+    )
+    content = str(response.canonical_answer or "").strip()
+    if not content or response.fallback_reason:
+        return ""
+    if response.selected_channel not in {"tool_visible_summary", "answer_candidate"}:
+        return ""
+    if _looks_like_runtime_internal_answer(content):
+        return ""
+    return content
+
+
+def _should_force_answer_after_tool_results(
+    *,
+    aggregation: ObservationAggregation,
+    final_task_summary_refs: list[dict[str, Any]],
+    final_main_context: dict[str, Any],
+) -> bool:
+    tool_names = [str(item).strip() for item in list(aggregation.tool_names or []) if str(item).strip()]
+    if final_task_summary_refs:
+        return True
+    active_constraints = dict(final_main_context.get("active_constraints") or {})
+    if active_constraints.get("active_pdf") or active_constraints.get("active_dataset"):
+        return True
+    if "delegate_to_agent" in tool_names:
+        return True
+    return False
+
+
 def _forced_tool_synthesis_answer(
     *,
     user_message: str,
@@ -6152,11 +6275,42 @@ def _project_delegated_file_work_context(
         or input_payload.get("active_dataset")
         or input_payload.get("active_pdf")
     )
+    goal_alignment = _classify_delegation_goal_alignment(
+        user_message=_clean_text(tool_args.get("current_user_message")),
+        instruction=_clean_text(tool_args.get("instruction")),
+        input_payload=input_payload,
+    )
+    if goal_alignment == "offtopic":
+        return {}, []
     if not path:
         path = _clean_text(result_payload.get("source") or result_payload.get("path"))
+    summary = _clean_text(result_payload.get("summary") or result_payload.get("answer_candidate") or result_text)
+    if not path and kind in {"retrieval", "evidence_lookup", "knowledge_retrieval"}:
+        task_id = _stable_file_work_id(
+            "result:delegated_retrieval",
+            f"{tool_args.get('instruction')}:{summary[:160]}",
+        )
+        main_context = {
+            "active_goal": _clean_text(tool_args.get("instruction")),
+            "active_work_item": "delegated_retrieval",
+            "followup_mode": "summary_ref",
+            "followup_resolution_source": "tool_observation_projection",
+            "followup_target_task_id": task_id,
+            "followup_target_task_ids": [task_id],
+        }
+        task_summary = {
+            "task_id": task_id,
+            "query": _clean_text(tool_args.get("instruction")),
+            "summary": _compact_summary(summary),
+            "task_kind": "delegated_retrieval",
+            "key_points": [
+                "source=delegated_retrieval",
+                f"target_agent={_clean_text(result_payload.get('target_agent_id')) or 'worker_sub_agent'}",
+            ],
+        }
+        return main_context, [task_summary]
     if not path:
         return {}, []
-    summary = _clean_text(result_payload.get("summary") or result_payload.get("answer_candidate") or result_text)
     delegated_tool_args = {
         "path": path,
         "query": _clean_text(input_payload.get("query") or tool_args.get("instruction")),
@@ -6236,6 +6390,83 @@ def _looks_like_failed_tool_result(value: str) -> bool:
         "unavailable",
     )
     return any(marker in text for marker in failure_markers)
+
+
+def _looks_like_runtime_internal_answer(value: str) -> bool:
+    text = str(value or "").strip()
+    internal_markers = (
+        "本轮运行预算达到上限",
+        "本轮运行时间达到上限",
+        "本轮模型续写次数达到上限",
+        "本轮委派全部被限流",
+        "委派被限流",
+        "请直接继续问",
+        "下一轮我会优先调用",
+    )
+    return any(marker in text for marker in internal_markers)
+
+
+def _classify_delegation_goal_alignment(
+    *,
+    user_message: str,
+    instruction: str,
+    input_payload: dict[str, Any],
+) -> str:
+    user_text = _clean_text(user_message)
+    instruction_text = _clean_text(instruction)
+    path = _clean_text(
+        input_payload.get("file_path")
+        or input_payload.get("path")
+        or input_payload.get("active_pdf")
+        or input_payload.get("active_dataset")
+    )
+    if not user_text or not instruction_text:
+        return "unknown"
+    user_lower = user_text.lower()
+    instruction_lower = instruction_text.lower()
+    if path:
+        normalized_path = path.replace("\\", "/").lower()
+        if normalized_path and normalized_path in user_lower:
+            return "aligned"
+        file_name = normalized_path.split("/")[-1]
+        if file_name and file_name in user_lower:
+            return "aligned"
+    user_tokens = set(_alignment_tokens(user_text))
+    instruction_tokens = set(_alignment_tokens(instruction_text))
+    if not user_tokens or not instruction_tokens:
+        return "unknown"
+    overlap = user_tokens & instruction_tokens
+    if len(overlap) >= 2:
+        return "aligned"
+    strong_user = any(token in user_lower for token in ("pdf", ".pdf", "第3页", "第三页", "第4页", "第四页", "第二部分", "章节"))
+    strong_instruction = any(
+        token in instruction_lower for token in ("pdf", ".pdf", "页", "第二部分", "章节", "全文", "目录页", "正文页")
+    )
+    if strong_user and strong_instruction:
+        return "aligned"
+    if strong_user != strong_instruction and not overlap:
+        return "offtopic"
+    if any(token in user_lower for token in ("表格", "excel", ".xlsx", ".csv")) and not any(
+        token in instruction_lower for token in ("表格", "excel", ".xlsx", ".csv", "数据表", "数据集")
+    ):
+        return "offtopic"
+    if any(token in user_lower for token in ("黄金", "金价", "xau", "天气")) and not any(
+        token in instruction_lower for token in ("黄金", "金价", "xau", "天气")
+    ):
+        return "offtopic"
+    return "unknown"
+
+
+def _alignment_tokens(value: str) -> list[str]:
+    import re
+
+    tokens: list[str] = []
+    for match in re.finditer(r"[A-Za-z0-9_.:/\\-]{2,}|[\u4e00-\u9fff]{2,8}", str(value or "")):
+        token = match.group(0).strip().lower()
+        if not token or token in {"当前", "继续", "直接", "告诉我", "给我", "分析", "文件", "内容", "结果"}:
+            continue
+        tokens.append(token)
+    return tokens
 
 
 def _extract_page_numbers(value: str) -> list[int]:

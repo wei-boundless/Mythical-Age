@@ -538,6 +538,16 @@ def _is_stale_runtime_operational_summary(value: str) -> bool:
         "max_delegate_calls_per_turn_exceeded",
         "无法通过子Agent完成全表扫描",
         "下一轮继续",
+        "委派被限流",
+        "本轮委派全部被限流",
+        "下一轮我会优先调用",
+        "当前无法读取",
+        "当前没有第二部分正文的任何证据",
+        "本轮两次 PDF 委派均未成功",
+        "第一次缺文件句柄",
+        "第二次被限流",
+        "本轮运行预算达到上限",
+        "本轮运行时间达到上限",
     )
     return any(marker in text for marker in stale_markers)
 

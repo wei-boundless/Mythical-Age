@@ -491,6 +491,31 @@ def _build_pdf_fallback_message(rejected_candidates: list[OutputCandidate]) -> t
     pages = [int(page) for page in list(metadata.get("pdf_pages") or []) if int(page) > 0][:3]
     degraded_reason = str(metadata.get("pdf_degraded_reason", "") or "").strip()
     selected = "、".join(f"P{page}" for page in pages)
+    if degraded_reason == "target_page_transition_title_only" and selected:
+        return (
+            f"已定位到 {selected}。这一页更像标题过渡页，只承载标题或章节分隔作用，不是正文页。",
+            "pdf_target_page_transition_title_only",
+        )
+    if degraded_reason == "target_page_toc_like" and selected:
+        return (
+            f"已定位到 {selected}。这一页更像目录页，主要承担结构导航作用，不是正文论述页。",
+            "pdf_target_page_toc_like",
+        )
+    if degraded_reason == "target_page_structure_missing" and selected:
+        return (
+            f"已定位到 {selected}，但当前页级结构化结果缺失，不能把它当作正文页来稳定提取。",
+            "pdf_target_page_structure_missing",
+        )
+    if degraded_reason == "target_page_text_corrupted" and selected:
+        return (
+            f"已定位到 {selected}，但这一页文本损坏或乱码严重，当前无法可靠给出页级结论。",
+            "pdf_target_page_text_corrupted",
+        )
+    if degraded_reason == "target_page_image_without_text" and selected:
+        return (
+            f"已定位到 {selected}，但这一页更像图片页或扫描页，当前没有稳定可提取的文本正文。",
+            "pdf_target_page_image_without_text",
+        )
     if degraded_reason == "target_page_has_no_stable_text" and selected:
         return (
             f"已定位到 {selected}，但这一页没有稳定可提取的正文，可能是扫描页、图片页、目录页或空白页。",

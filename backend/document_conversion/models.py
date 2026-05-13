@@ -80,6 +80,21 @@ class ConversionBlock:
 
 
 @dataclass(frozen=True, slots=True)
+class ConversionPage:
+    page_number: int
+    raw_text: str = ""
+    text_block_count: int = 0
+    table_block_count: int = 0
+    image_block_count: int = 0
+    diagnostic_block_count: int = 0
+    has_text: bool = False
+    has_usable_text: bool = False
+    page_state: str = ""
+    state_confidence: float = 0.0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class ConversionResult:
     doc_id: str
     collection: str
@@ -94,6 +109,7 @@ class ConversionResult:
     parser_route: tuple[str, ...] = ()
     fallback_used: bool = False
     quality_flags: tuple[str, ...] = ()
+    pages: tuple[ConversionPage, ...] = ()
     blocks: tuple[ConversionBlock, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
 

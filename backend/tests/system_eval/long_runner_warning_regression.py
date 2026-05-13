@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from health_system.maintenance.harness.contracts import RunContext, RunResult, ScenarioResult, TimingSnapshot
 from health_system.maintenance.harness.reporter import render_markdown
-from tests.system_eval.long_runner import TurnResult, _collect_quality_warnings, _issues_from_result
+from tests.system_eval.long_runner import (
+    TurnResult,
+    _collect_critical_quality_failures,
+    _collect_quality_warnings,
+    _issues_from_result,
+)
 
 
 def test_long_runner_collects_fallback_and_tool_failure_warnings() -> None:
@@ -94,6 +99,32 @@ def test_long_runner_emits_warning_issue_for_passed_scenario() -> None:
     assert issues[0].severity == "medium"
     assert issues[0].category == "long_scenario/warning"
     assert "1 turns emitted quality warnings" in issues[0].summary
+
+
+def test_long_runner_treats_budget_fallback_as_critical_failure() -> None:
+    turn = TurnResult(
+        index=3,
+        session_alias="main",
+        session_id="s",
+        message="直接给我今天金价。",
+        plan_route="builtin_tool_lane",
+        plan_tool="web_search",
+        plan_mcp="",
+        plan_skill="",
+        subquery_count=1,
+        event_types=["done"],
+        tool_names=["web_search"],
+        mcp_names=[],
+        response_text="本轮运行预算达到上限，所以先停止继续调用工具。",
+        answer_channel="answer_candidate",
+        answer_source="runtime_loop_control",
+        answer_fallback_reason="runtime_budget_exhausted",
+    )
+
+    failures = _collect_critical_quality_failures(turn)
+
+    assert "answer.fallback_critical=runtime_budget_exhausted" in failures
+    assert any(item.startswith("response.critical_marker=") for item in failures)
 
 
 def test_reporter_renders_runtime_control_summary() -> None:

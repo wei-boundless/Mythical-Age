@@ -14,7 +14,7 @@ from capability_system.units.mcp.local.pdf.agent.models import (
     PDFRouteDecision,
 )
 from capability_system.units.mcp.local.pdf.analysis import PdfTextParser
-from capability_system.units.mcp.local.pdf.analysis.parser import PdfSegment
+from capability_system.units.mcp.local.pdf.analysis.parser import PdfPageSnapshot, PdfSegment
 from runtime_encoding import count_mojibake_markers, looks_like_mojibake
 from structured_memory.text_utils import normalize_storage_text
 
@@ -127,24 +127,36 @@ class PDFReadAgentRuntime:
                 "usable_pages": prepared.usable_pages,
                 "parse_strategy": prepared.parse_strategy,
                 "parse_confidence": prepared.parse_confidence,
+                "target_page_state": self._page_state_for_target(prepared=prepared, target_page=route.target_page),
+                "target_page_state_confidence": self._page_state_confidence_for_target(prepared=prepared, target_page=route.target_page),
             },
         )
 
     def _prepare_document(self, file_path: Path) -> PDFPreparedDocument:
+        page_snapshots = list(self._parser.extract_page_snapshots(file_path))
+        page_snapshot_by_number = {
+            int(snapshot.page_number): snapshot for snapshot in page_snapshots if int(snapshot.page_number) > 0
+        }
         pages = list(self._parser.extract_pages(file_path))
         segments = list(self._parser.extract_segments(file_path))
         section_by_page = self._sections_by_page(segments)
         segments_by_page = self._segments_by_page(segments)
         prepared_pages: list[PDFPreparedPage] = []
-        for page_number, text in pages:
+        total_pages = self._document_total_pages(file_path=file_path, pages=pages, segments=segments)
+        if total_pages <= 0:
+            total_pages = max([int(snapshot.page_number) for snapshot in page_snapshots], default=0)
+        page_text_by_number = {int(page_number): text for page_number, text in pages if int(page_number) > 0}
+        for page_number in range(1, max(total_pages, 0) + 1):
+            snapshot = page_snapshot_by_number.get(page_number)
+            text = str(page_text_by_number.get(page_number, "") or getattr(snapshot, "raw_text", "") or "")
             profile = self._profile_page(
                 page_number=page_number,
                 text=text,
                 section=section_by_page.get(page_number, ""),
                 segments=segments_by_page.get(page_number, []),
+                snapshot=snapshot,
             )
             prepared_pages.append(profile)
-        total_pages = self._document_total_pages(file_path=file_path, pages=pages, segments=segments)
         usable_count = sum(1 for page in prepared_pages if page.usable)
         parse_strategy = self._document_parse_strategy(prepared_pages, segments)
         parse_confidence = self._document_parse_confidence(prepared_pages, total_pages)
@@ -207,6 +219,7 @@ class PDFReadAgentRuntime:
         text: str,
         section: str,
         segments: list[PdfSegment],
+        snapshot: PdfPageSnapshot | None,
     ) -> PDFPreparedPage:
         flags: list[str] = []
         normalized = self._collapse(text)
@@ -245,6 +258,15 @@ class PDFReadAgentRuntime:
         elif normalized and len(body_text) < max(20, int(len(normalized) * 0.35)):
             flags.append("body_text_heavily_cleaned")
             score -= 0.12
+        page_state, state_confidence = self._infer_page_state(
+            normalized=normalized,
+            body_text=body_text,
+            body_chars=body_chars,
+            flags=flags,
+            dominant_element_type=dominant_element_type,
+            segments=segments,
+            snapshot=snapshot,
+        )
         quality_score = round(max(0.0, min(score, 1.0)), 3)
         usable = quality_score > 0.2 and "unusable_text" not in flags
         return PDFPreparedPage(
@@ -252,6 +274,8 @@ class PDFReadAgentRuntime:
             text=text.strip(),
             section=section,
             body_text=self._preserve_line_structure(body_text),
+            page_state=page_state,
+            state_confidence=state_confidence,
             quality_score=quality_score,
             quality_flags=list(dict.fromkeys(flags)),
             parse_strategy=parse_strategy,
@@ -286,16 +310,36 @@ class PDFReadAgentRuntime:
         target_page = int(route.target_page or 0)
         page = next((item for item in prepared.pages if item.page_number == target_page), None)
         if page is None:
-            if 0 < target_page <= prepared.total_pages:
-                return _PDFExecutionOutcome(
-                    degraded_reason="target_page_has_no_stable_text",
-                    evidence=[],
-                )
             return _PDFExecutionOutcome(
                 error=f"PDF analysis failed: target page P{target_page} does not exist. Detected page count is about {prepared.total_pages}.",
                 evidence=[],
             )
         evidence = [self._evidence_from_page(page, score=1.0, snippet_chars=900)]
+        if page.page_state == "transition_title_only":
+            return _PDFExecutionOutcome(
+                degraded_reason="target_page_transition_title_only",
+                evidence=evidence,
+            )
+        if page.page_state == "toc_like":
+            return _PDFExecutionOutcome(
+                degraded_reason="target_page_toc_like",
+                evidence=evidence,
+            )
+        if page.page_state == "page_structure_missing":
+            return _PDFExecutionOutcome(
+                degraded_reason="target_page_structure_missing",
+                evidence=evidence if self._collapse(page.text) else [],
+            )
+        if page.page_state == "text_corrupted":
+            return _PDFExecutionOutcome(
+                degraded_reason="target_page_text_corrupted",
+                evidence=evidence,
+            )
+        if page.page_state == "image_or_scan_without_text":
+            return _PDFExecutionOutcome(
+                degraded_reason="target_page_image_without_text",
+                evidence=evidence if self._collapse(page.text) else [],
+            )
         if not self._page_meets_stable_gate(page):
             return _PDFExecutionOutcome(
                 degraded_reason="target_page_text_quality_low",
@@ -929,6 +973,85 @@ class PDFReadAgentRuntime:
             kept.append(token)
         return " ".join(kept)
 
+    def _infer_page_state(
+        self,
+        *,
+        normalized: str,
+        body_text: str,
+        body_chars: int,
+        flags: list[str],
+        dominant_element_type: str,
+        segments: list[PdfSegment],
+        snapshot: PdfPageSnapshot | None,
+    ) -> tuple[str, float]:
+        snapshot_state = str(getattr(snapshot, "likely_page_state", "") or "").strip()
+        snapshot_confidence = float(getattr(snapshot, "state_confidence", 0.0) or 0.0)
+        if snapshot_state in {
+            "page_structure_missing",
+            "toc_like",
+            "transition_title_only",
+            "text_corrupted",
+            "image_or_scan_without_text",
+            "reference_like",
+            "cover_or_copyright",
+        }:
+            return (snapshot_state, round(snapshot_confidence or 0.8, 3))
+        if not normalized and not segments:
+            return ("page_structure_missing", 0.95)
+        if dominant_element_type == "toc_index":
+            return ("toc_like", 0.92)
+        if dominant_element_type == "cover_copyright":
+            return ("cover_or_copyright", 0.88)
+        if dominant_element_type == "references":
+            return ("reference_like", 0.86)
+        if not normalized and any(segment.modality == "image" for segment in segments):
+            return ("image_or_scan_without_text", 0.84)
+        if "unusable_text" in flags and not body_text and normalized:
+            return ("text_corrupted", 0.84)
+        if self._looks_transition_title_page(normalized=normalized, body_chars=body_chars, segments=segments):
+            return ("transition_title_only", 0.87)
+        if body_chars >= max(20, _PAGE_BODY_CHARS_MIN - 10):
+            return ("body_content", 0.9)
+        if snapshot_state:
+            return (snapshot_state, round(snapshot_confidence or 0.62, 3))
+        if normalized:
+            return ("thin_text", 0.62)
+        return ("page_structure_missing", 0.72)
+
+    def _looks_transition_title_page(
+        self,
+        *,
+        normalized: str,
+        body_chars: int,
+        segments: list[PdfSegment],
+    ) -> bool:
+        if not normalized or body_chars >= 20:
+            return False
+        if any(segment.element_type in {"body_text", "table_text"} and self._collapse(segment.text) for segment in segments):
+            return False
+        if _TOC_HINT_RE.search(normalized) or _REFERENCE_HINT_RE.search(normalized):
+            return False
+        if _DOT_LEADER_RE.search(normalized):
+            return False
+        lines = [line.strip() for line in normalized.splitlines() if line.strip()]
+        if not lines or len(lines) > 4:
+            return False
+        return all(len(re.sub(r"\s+", "", line)) <= 24 for line in lines)
+
+    def _page_state_for_target(self, *, prepared: PDFPreparedDocument, target_page: int | None) -> str:
+        page_number = int(target_page or 0)
+        if page_number <= 0:
+            return ""
+        page = next((item for item in prepared.pages if item.page_number == page_number), None)
+        return str(getattr(page, "page_state", "") or "")
+
+    def _page_state_confidence_for_target(self, *, prepared: PDFPreparedDocument, target_page: int | None) -> float:
+        page_number = int(target_page or 0)
+        if page_number <= 0:
+            return 0.0
+        page = next((item for item in prepared.pages if item.page_number == page_number), None)
+        return round(float(getattr(page, "state_confidence", 0.0) or 0.0), 3)
+
     def _classify_suspicious_token(self, token: str) -> str:
         normalized = self._collapse(token).strip("[](){}<>|")
         if not normalized:
@@ -1000,6 +1123,16 @@ class PDFReadAgentRuntime:
         return round(min(1.0, usable_ratio * 0.6 + avg_quality * 0.4), 3)
 
     def _page_meets_stable_gate(self, page: PDFPreparedPage) -> bool:
+        if page.page_state in {
+            "transition_title_only",
+            "toc_like",
+            "page_structure_missing",
+            "text_corrupted",
+            "image_or_scan_without_text",
+            "reference_like",
+            "cover_or_copyright",
+        }:
+            return False
         if page.dominant_element_type in {"references", "toc_index", "header_footer", "diagnostic_only", "cover_copyright"}:
             return False
         content_chars = len(self._collapse(page.body_text or page.text))
@@ -1015,6 +1148,7 @@ class PDFReadAgentRuntime:
             page.page_has_text
             and page.body_chars >= _PAGE_BODY_CHARS_MIN
             and page.excluded_ratio <= _EXCLUDED_RATIO_MAX
+            and page.page_state == "body_content"
             and page.dominant_element_type in {"body_text", "section_heading", "table_text"}
             and "reference_page" not in page.quality_flags
             and "toc_page" not in page.quality_flags
@@ -1041,6 +1175,7 @@ class PDFReadAgentRuntime:
             page.page_has_text
             and page.body_chars >= max(20, _PAGE_BODY_CHARS_MIN - 10)
             and page.excluded_ratio <= _EXCLUDED_RATIO_MAX
+            and page.page_state == "body_content"
             and page.dominant_element_type in {"body_text", "section_heading", "table_text"}
             and "reference_page" not in page.quality_flags
             and "toc_page" not in page.quality_flags

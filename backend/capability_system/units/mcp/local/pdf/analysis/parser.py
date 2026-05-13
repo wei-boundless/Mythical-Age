@@ -23,6 +23,21 @@ class PdfSegment:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(slots=True)
+class PdfPageSnapshot:
+    page_number: int
+    raw_text: str = ""
+    text_block_count: int = 0
+    table_block_count: int = 0
+    image_block_count: int = 0
+    diagnostic_block_count: int = 0
+    has_text: bool = False
+    has_usable_text: bool = False
+    likely_page_state: str = ""
+    state_confidence: float = 0.0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 class PdfTextParser:
     def __init__(
         self,
@@ -76,6 +91,52 @@ class PdfTextParser:
                 )
             )
         return segments
+
+    def extract_page_snapshots(self, file_path: Path) -> list[PdfPageSnapshot]:
+        pages = dict(self.extract_pages(file_path))
+        segments = self.extract_segments(file_path)
+        total_pages = self.document_total_pages(file_path)
+        if total_pages <= 0:
+            total_pages = max([*pages.keys(), *[int(segment.page or 0) for segment in segments]], default=0)
+        snapshots: list[PdfPageSnapshot] = []
+        for page_number in range(1, max(total_pages, 0) + 1):
+            page_segments = [segment for segment in segments if int(segment.page or 0) == page_number]
+            raw_text = str(pages.get(page_number, "") or "")
+            text_block_count = sum(1 for segment in page_segments if segment.modality == "text")
+            table_block_count = sum(1 for segment in page_segments if segment.modality == "table")
+            image_block_count = sum(1 for segment in page_segments if segment.modality == "image")
+            diagnostic_block_count = sum(1 for segment in page_segments if segment.diagnostic_only)
+            has_text = bool(self._normalize_page_text(raw_text))
+            has_usable_text = any(
+                not segment.diagnostic_only
+                and segment.element_type in {"body_text", "section_heading", "table_text"}
+                and self._normalize_page_text(segment.text)
+                for segment in page_segments
+            )
+            likely_page_state, state_confidence = self._infer_page_state(
+                raw_text=raw_text,
+                segments=page_segments,
+                has_text=has_text,
+                has_usable_text=has_usable_text,
+            )
+            snapshots.append(
+                PdfPageSnapshot(
+                    page_number=page_number,
+                    raw_text=raw_text,
+                    text_block_count=text_block_count,
+                    table_block_count=table_block_count,
+                    image_block_count=image_block_count,
+                    diagnostic_block_count=diagnostic_block_count,
+                    has_text=has_text,
+                    has_usable_text=has_usable_text,
+                    likely_page_state=likely_page_state,
+                    state_confidence=state_confidence,
+                    metadata={
+                        "segment_count": len(page_segments),
+                    },
+                )
+            )
+        return snapshots
 
     def _extract_segments_with_pdfplumber(self, file_path: Path) -> list[PdfSegment]:
         try:
@@ -320,6 +381,48 @@ class PdfTextParser:
                 flags=re.IGNORECASE,
             )
         )
+
+    def _infer_page_state(
+        self,
+        *,
+        raw_text: str,
+        segments: list[PdfSegment],
+        has_text: bool,
+        has_usable_text: bool,
+    ) -> tuple[str, float]:
+        normalized = self._normalize_page_text(raw_text)
+        compact = re.sub(r"\s+", "", normalized)
+        if not normalized and not segments:
+            return ("page_structure_missing", 0.95)
+        if any(segment.element_type == "toc_index" for segment in segments):
+            return ("toc_like", 0.92)
+        if any(segment.element_type == "cover_copyright" for segment in segments):
+            return ("cover_or_copyright", 0.88)
+        if any(segment.element_type == "references" for segment in segments):
+            return ("reference_like", 0.86)
+        if not has_text and any(segment.modality == "image" for segment in segments):
+            return ("image_or_scan_without_text", 0.82)
+        if has_usable_text:
+            return ("body_content", 0.9)
+        if normalized and self.looks_unusable_text(normalized):
+            return ("text_corrupted", 0.84)
+        if normalized and self._looks_transition_title_only(normalized, compact):
+            return ("transition_title_only", 0.87)
+        if has_text:
+            return ("thin_text", 0.62)
+        return ("page_structure_missing", 0.72)
+
+    def _looks_transition_title_only(self, normalized: str, compact: str) -> bool:
+        lines = [line.strip() for line in normalized.splitlines() if line.strip()]
+        if not lines or len(lines) > 4:
+            return False
+        if len(compact) > 40:
+            return False
+        if re.search(r"(?:\.{4,}|…{2,}|·{4,})", normalized):
+            return False
+        if re.search(r"\b(?:19|20)\d{2}\b", normalized) and len(compact) > 28:
+            return False
+        return all(len(re.sub(r"\s+", "", line)) <= 24 for line in lines)
 
     def _load_remote_result(self, file_path: Path) -> MinerUParseResult | None:
         if not self._mineru_client.available():

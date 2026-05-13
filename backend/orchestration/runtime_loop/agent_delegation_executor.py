@@ -213,11 +213,21 @@ class AgentDelegationExecutor:
                 reasons.append("nested_delegation_denied")
             max_calls = max(0, int(getattr(parent_profile, "max_delegate_calls_per_turn", 1) or 0))
             if max_calls > 0:
+                prior_requests = self.state_index.list_task_agent_delegation_requests(request.task_run_id)
+                results_by_request = {
+                    str(item.request_id or ""): item
+                    for item in self.state_index.list_task_agent_delegation_results(request.task_run_id)
+                }
                 existing_count = sum(
                     1
-                    for item in self.state_index.list_task_agent_delegation_requests(request.task_run_id)
+                    for item in prior_requests
                     if item.request_id != request.request_id
                     and str(item.source_agent_id or "") == str(parent_agent_run.agent_id or "")
+                    and _delegation_request_counts_against_budget(
+                        item,
+                        current_request=request,
+                        result=results_by_request.get(str(item.request_id or "")),
+                    )
                 )
                 if existing_count >= max_calls:
                     reasons.append("max_delegate_calls_per_turn_exceeded")
@@ -535,6 +545,38 @@ def _child_user_message(request: AgentDelegationRequest) -> str:
             "不要写执行计划，不要输出 <op.*> 或 JSON action 这类工具调用文本。",
         ]
     )
+
+
+def _delegation_request_counts_against_budget(
+    previous_request: AgentDelegationRequest,
+    *,
+    current_request: AgentDelegationRequest,
+    result: AgentDelegationResult | None,
+) -> bool:
+    previous_alignment = str(dict(previous_request.diagnostics or {}).get("goal_alignment") or "").strip().lower()
+    current_alignment = str(dict(current_request.diagnostics or {}).get("goal_alignment") or "").strip().lower()
+    if previous_alignment == "offtopic" and current_alignment == "aligned":
+        return False
+    previous_payload = dict(previous_request.input_payload or {})
+    current_payload = dict(current_request.input_payload or {})
+    previous_path = str(
+        previous_payload.get("file_path")
+        or previous_payload.get("path")
+        or previous_payload.get("active_pdf")
+        or previous_payload.get("active_dataset")
+        or ""
+    ).strip()
+    current_path = str(
+        current_payload.get("file_path")
+        or current_payload.get("path")
+        or current_payload.get("active_pdf")
+        or current_payload.get("active_dataset")
+        or ""
+    ).strip()
+    limitations = tuple(getattr(result, "limitations", ()) or ())
+    if limitations == ("missing_object_handle",) and current_path and not previous_path:
+        return False
+    return True
 
 
 def validate_delegation_result_quality(

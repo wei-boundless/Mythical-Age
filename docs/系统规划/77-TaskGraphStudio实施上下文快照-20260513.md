@@ -60,6 +60,52 @@ TaskGraph 只保存引用、绑定关系和必要覆盖策略。
 并逐步让编辑、保存、预检、发布、运行装配都消费同一套 TaskGraph 规范。
 ```
 
+## 0.2 2026-05-14 运行时预算与收口修复进展
+
+已新增计划书：
+
+- `docs/系统规划/79-主Agent预算耗尽与子Agent回收后收口失效结构修复计划-20260513.md`
+
+本轮已完成的运行时修复：
+
+- `task_run_loop.py`
+  - 子 Agent / 工具结果回收后，增加优先收口分支。
+  - 预算超限时优先基于已有证据强制收口，不再直接把预算耗尽文案暴露给用户。
+  - `delegate_to_agent` 结果观测现在附带当前用户问题，用于后续对齐判断。
+  - 对齐的委派结果可沉淀为 `task_summary_refs`，供主 Agent 直接收口。
+- `agent_delegation_executor.py`
+  - 委派额度计数不再把明显偏题的旧委派与缺对象句柄后的修正重试一并算进预算。
+- `context_manager.py`
+  - “委派被限流”“下一轮我会优先调用”“预算达到上限”等失败性运行摘要已降级，不再进入主决策上下文。
+- `long_runner.py`
+  - `runtime_budget_exhausted` 和内部预算/限流暴露已升级为关键质量失败，不再只是普通 warning。
+
+新增回归测试：
+
+- `backend/tests/runtime_loop_budget_regression.py`
+- `backend/tests/system_eval/long_runner_warning_regression.py` 已补充关键失败断言
+
+验证结果：
+
+- `pytest backend/tests/runtime_loop_budget_regression.py backend/tests/system_eval/long_runner_warning_regression.py backend/tests/runtime_commit_gate_regression.py -q`
+  - `13 passed`
+- `python -m py_compile ...`
+  - 通过
+- 重新执行 60 轮长测：
+  - 输出目录：`output/test_runs/20260514-main-agent-60round-after-budget-fix`
+  - 总结：`53/53 user turns passed; warnings=2 turns`
+
+本轮长测相较前一版的关键改善：
+
+- `本轮运行预算达到上限`：从 3 次降为 0 次
+- `本轮运行时间达到上限`：从 1 次降为 0 次
+- `委派被限流` / `本轮委派全部被限流`：从大量出现降为 0 次
+
+仍待继续深追的剩余问题：
+
+- 个别 PDF 页在 OCR/正文抽取不稳定时仍会出现“没有稳定可提取的正文”类 warning。
+- `missing_object_handle` 仍有零星残留，说明对象绑定链路已改善但尚未完全收敛。
+
 ## 1. 当前已完成
 
 ### 1.1 前端主链路

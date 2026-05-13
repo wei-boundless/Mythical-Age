@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from document_conversion.models import ConversionBlock, ConversionResult, SourceFileRecord
+from document_conversion.models import ConversionBlock, ConversionPage, ConversionResult, SourceFileRecord
 from document_conversion.quality import infer_quality_flags
 from document_conversion.structured_text import build_markdown_conversion_result
 from capability_system.units.mcp.local.pdf.analysis.parser import PdfSegment, PdfTextParser
@@ -78,12 +78,14 @@ class DoclingConverter:
 
     def _convert_pdf_with_parser(self, record: SourceFileRecord) -> ConversionResult | None:
         try:
+            snapshots = self._pdf_parser.extract_page_snapshots(record.absolute_path)
             segments = self._pdf_parser.extract_segments(record.absolute_path)
         except Exception:
             return None
         blocks = self._blocks_from_pdf_segments(record, segments)
         if not blocks:
             return None
+        pages = self._pages_from_pdf_snapshots(snapshots)
         flags = infer_quality_flags(tuple(blocks), parser_backend="mineru_pdf")
         return ConversionResult(
             doc_id=ConversionResult.empty(record, parser_backend="mineru_pdf").doc_id,
@@ -93,11 +95,12 @@ class DoclingConverter:
             version_digest=record.version_digest,
             parser_backend="mineru_pdf",
             title=record.absolute_path.stem,
-            page_count=len({block.page for block in blocks if block.page is not None}),
+            page_count=len(pages) or len({block.page for block in blocks if block.page is not None}),
             structure_contract_version=ConversionResult.empty(record, parser_backend="mineru_pdf").structure_contract_version,
             parser_route=("mineru_pdf",),
             fallback_used=False,
             quality_flags=flags,
+            pages=tuple(pages),
             blocks=tuple(blocks),
             metadata={
                 "prefer_ocr": self.prefer_ocr,
@@ -186,6 +189,26 @@ class DoclingConverter:
                 )
             )
         return blocks
+
+    def _pages_from_pdf_snapshots(self, snapshots) -> list[ConversionPage]:
+        pages: list[ConversionPage] = []
+        for snapshot in snapshots:
+            pages.append(
+                ConversionPage(
+                    page_number=int(snapshot.page_number),
+                    raw_text=str(snapshot.raw_text or ""),
+                    text_block_count=int(snapshot.text_block_count or 0),
+                    table_block_count=int(snapshot.table_block_count or 0),
+                    image_block_count=int(snapshot.image_block_count or 0),
+                    diagnostic_block_count=int(snapshot.diagnostic_block_count or 0),
+                    has_text=bool(snapshot.has_text),
+                    has_usable_text=bool(snapshot.has_usable_text),
+                    page_state=str(snapshot.likely_page_state or ""),
+                    state_confidence=float(snapshot.state_confidence or 0.0),
+                    metadata=dict(snapshot.metadata or {}),
+                )
+            )
+        return pages
 
     def _legacy_parser(self) -> MultimodalParserAdapter | None:
         if self.repo_root is None:

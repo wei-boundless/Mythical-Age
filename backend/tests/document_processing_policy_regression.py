@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from capability_system.units.mcp.local.pdf.analysis.parser import PdfSegment
+from capability_system.units.mcp.local.pdf.analysis.parser import PdfPageSnapshot, PdfSegment
 from capability_system.units.mcp.local.retrieval.parser_adapter import MultimodalParserAdapter
 from document_conversion.docling_converter import DoclingConverter
 from document_conversion.models import SourceFileRecord
@@ -11,6 +11,12 @@ from normalized_ingestion.policy import ChunkingPolicy
 
 
 class _FakePdfParser:
+    def extract_page_snapshots(self, path: Path):
+        return [
+            PdfPageSnapshot(page_number=1, raw_text="第一页证据", text_block_count=1, has_text=True, has_usable_text=True, likely_page_state="body_content", state_confidence=0.9),
+            PdfPageSnapshot(page_number=2, raw_text="第二页证据", text_block_count=1, has_text=True, has_usable_text=True, likely_page_state="body_content", state_confidence=0.9),
+        ]
+
     def extract_segments(self, path: Path):
         return [
             PdfSegment(text="第一页证据", page=1, modality="text", section="开头", metadata={"parser": "fake_pdf"}),
@@ -35,6 +41,8 @@ def test_pdf_conversion_prefers_page_aware_parser(tmp_path: Path) -> None:
     assert result.parser_backend == "mineru_pdf"
     assert result.parser_route == ("mineru_pdf",)
     assert result.metadata["page_aware"] is True
+    assert [page.page_number for page in result.pages] == [1, 2]
+    assert result.pages[0].page_state == "body_content"
     assert [block.page for block in result.blocks] == [1, 2]
 
 

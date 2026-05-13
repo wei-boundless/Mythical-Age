@@ -277,7 +277,30 @@ def _degraded_pdf_answer(canonical: PDFCanonicalResult) -> str:
     pages = "、".join(f"P{page}" for page in canonical.pages[:5] if int(page or 0) > 0)
     reason = str(canonical.degraded_reason or canonical.error or "").strip().lower()
     target_section = str(canonical.metadata.get("target_section", "") or "").strip()
+    page_state = str(canonical.metadata.get("target_page_state", "") or "").strip()
     evidence_hint = _stable_evidence_hint(canonical)
+    if reason == "target_page_transition_title_only" or page_state == "transition_title_only":
+        if pages:
+            return f"已定位到 {pages}。这一页更像标题过渡页，只承载标题或章节分隔作用，不是正文页。"
+        return "已定位到目标页。这一页更像标题过渡页，只承载标题或章节分隔作用，不是正文页。"
+    if reason == "target_page_toc_like" or page_state == "toc_like":
+        if pages:
+            return f"已定位到 {pages}。这一页更像目录页，主要承担结构导航作用，不是正文论述页。"
+        return "已定位到目标页。这一页更像目录页，主要承担结构导航作用，不是正文论述页。"
+    if reason == "target_page_structure_missing" or page_state == "page_structure_missing":
+        if pages:
+            return f"已定位到 {pages}，但当前页级结构化结果缺失，不能把它当作正文页来稳定提取。"
+        return "已定位到目标页，但当前页级结构化结果缺失，不能把它当作正文页来稳定提取。"
+    if reason == "target_page_text_corrupted" or page_state == "text_corrupted":
+        if pages and evidence_hint:
+            return f"已定位到 {pages}，但这一页文本损坏或乱码严重。当前只能稳定辨认出：{evidence_hint}。"
+        if pages:
+            return f"已定位到 {pages}，但这一页文本损坏或乱码严重，暂时不能可靠提取正文。"
+        return "已定位到目标页，但这一页文本损坏或乱码严重，暂时不能可靠提取正文。"
+    if reason == "target_page_image_without_text" or page_state == "image_or_scan_without_text":
+        if pages:
+            return f"已定位到 {pages}，但这一页更像图片页或扫描页，当前没有稳定可提取的文本正文。"
+        return "已定位到目标页，但这一页更像图片页或扫描页，当前没有稳定可提取的文本正文。"
     if reason == "target_page_has_no_stable_text":
         if pages:
             return f"已定位到 {pages}，但这一页没有稳定可提取的正文，可能是扫描页、图片页、目录页或近乎空白页。"
@@ -442,6 +465,16 @@ def _result_handles_from_canonical(canonical: PDFCanonicalResult, *, active_pdf:
 
 def _typed_degraded_reason(canonical: PDFCanonicalResult) -> str:
     reason = str(canonical.degraded_reason or canonical.error or "").strip().lower()
+    if "transition_title_only" in reason:
+        return "page_transition_title_only"
+    if "toc_like" in reason:
+        return "page_toc_like"
+    if "structure_missing" in reason:
+        return "page_structure_missing"
+    if "text_corrupted" in reason:
+        return "page_text_corrupted"
+    if "image_without_text" in reason:
+        return "page_image_without_text"
     if "no_stable_text" in reason or "no_text" in reason:
         return "page_has_no_text"
     if "section_not_located" in reason:
