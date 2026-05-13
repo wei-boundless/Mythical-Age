@@ -9,6 +9,8 @@ import type {
   TaskSystemOverview,
   TopologyTemplate,
 } from "@/lib/api";
+import type { TaskGraphTemplateBuildInput, TaskGraphTemplateId } from "./taskGraphTemplates";
+import type { TaskGraphDraftV2, TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
 
 export type TaskGraphKind = "single_agent" | "multi_agent" | "coordination";
 
@@ -125,12 +127,13 @@ export type TaskGraphWorkbenchProps = {
   selectedTaskGraphId: string;
   setSelectedTaskGraphId: (value: string) => void;
   taskGraphDraft: TaskGraphDraft;
+  taskGraphDraftV2: TaskGraphDraftV2;
   selectedTaskGraph: TaskGraphRecord | null;
   saving: string;
-  applyTaskGraphTemplate: (template: "single_agent" | "multi_sequence" | "multi_parallel_merge") => void;
+  applyTaskGraphTemplate: (template: TaskGraphTemplateId, options?: Partial<TaskGraphTemplateBuildInput>) => void;
   duplicateTaskGraphDraft: () => Promise<void>;
   sendTaskGraphToChat: (task: TaskGraphRecord | null, domain: TaskGraphDomainRecordLike | null) => void;
-  saveTaskGraphStack: (nextPublished?: boolean) => Promise<void>;
+  saveTaskGraphStack: (nextPublished?: boolean, nextEditorPublishState?: TaskGraphPublishStateV2) => Promise<void>;
   editorValid: boolean;
   editorIssueCount: number;
   editorPublished: boolean;

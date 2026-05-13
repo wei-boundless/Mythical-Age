@@ -623,3 +623,67 @@ def test_task_graph_api_persists_working_memory_strategy_fields(tmp_path: Path) 
     assert planner["memory_read_policy"]["readable_kinds"] == ["task_goal", "decision_record"]
     assert planner["dynamic_memory_read_policy"]["max_dynamic_reads_per_node_run"] == 2
     assert edge["working_memory_handoff_policy"]["carry_kinds"] == ["plan_fragment"]
+
+
+def test_task_graph_api_exposes_direct_runtime_spec_in_overview(tmp_path: Path) -> None:
+    original = tasks_api.require_runtime
+    tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
+    try:
+        asyncio.run(
+            tasks_api.upsert_task_system_task_graph(
+                "graph.test.direct_spec",
+                tasks_api.TaskGraphUpsertRequest(
+                    graph_id="graph.test.direct_spec",
+                    title="直接运行规范图",
+                    domain_id="domain.story",
+                    task_family="story",
+                    graph_kind="multi_agent",
+                    graph_contract_id="contract.story.graph",
+                    runtime_policy={
+                        "coordinator_agent_id": "agent:coordinator",
+                        "default_execution_mode": "parallel",
+                    },
+                    nodes=[
+                        {
+                            "node_id": "draft",
+                            "node_type": "agent",
+                            "title": "起草",
+                            "agent_id": "agent:writer",
+                            "phase_id": "drafting",
+                        },
+                        {
+                            "node_id": "review",
+                            "node_type": "review_gate",
+                            "title": "审核",
+                            "agent_id": "agent:reviewer",
+                            "review_gate_policy": {"is_review_gate": True},
+                        },
+                    ],
+                    edges=[
+                        {
+                            "edge_id": "draft_review",
+                            "source_node_id": "draft",
+                            "target_node_id": "review",
+                            "payload_contract_id": "contract.story.payload",
+                        }
+                    ],
+                ),
+            )
+        )
+        payload = asyncio.run(tasks_api.task_system_overview())
+        runtime_spec = asyncio.run(tasks_api.compile_task_system_task_graph_runtime_spec("graph.test.direct_spec"))
+    finally:
+        tasks_api.require_runtime = original  # type: ignore[assignment]
+
+    graph_specs = payload["task_graph_management"]["task_graph_specs"]
+    spec = next(item for item in graph_specs if item["graph_id"] == "graph.test.direct_spec")
+    draft = next(item for item in spec["nodes"] if item["node_id"] == "draft")
+    edge = spec["edges"][0]
+
+    assert spec["diagnostics"]["source"] == "task_system.task_graph_definition_runtime_compiler"
+    assert spec["diagnostics"]["graph_contract_id"] == "contract.story.graph"
+    assert draft["execution_mode"] == "parallel"
+    assert draft["phase_id"] == "drafting"
+    assert edge["payload_contract_id"] == "contract.story.payload"
+    assert runtime_spec["graph_id"] == "graph.test.direct_spec"
+    assert runtime_spec["coordinator_agent_id"] == "agent:coordinator"

@@ -14,7 +14,13 @@ from orchestration.runtime_loop.runtime_assembly_builder import (
     build_node_runtime_assembly,
     build_single_agent_runtime_assembly,
 )
-from tasks import TaskContractRegistry, TaskFlowRegistry, TaskWorkflowRegistry, compile_task_graph_runtime_spec
+from tasks import (
+    TaskContractRegistry,
+    TaskFlowRegistry,
+    TaskWorkflowRegistry,
+    compile_task_graph_definition_runtime_spec,
+    compile_task_graph_runtime_spec,
+)
 
 router = APIRouter()
 
@@ -232,6 +238,9 @@ class TaskGraphBundleUpsertRequest(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
+CoordinationTaskUpsertRequest = TaskGraphBundleUpsertRequest
+
+
 class TopologyTemplateUpsertRequest(BaseModel):
     template_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
@@ -333,9 +342,24 @@ def _task_system_payload(base_dir) -> dict[str, object]:
         for item in registry.list_specific_task_records()
         if item.task_id in visible_task_ids
     }
-    task_graph_specs = []
     topology_templates = [item.to_dict() for item in registry.list_topology_templates()]
     communication_protocols = [item.to_dict() for item in registry.list_task_communication_protocols()]
+    communication_protocol_by_id = {
+        str(item.get("protocol_id") or ""): item
+        for item in communication_protocols
+    }
+    task_graph_specs = [
+        compile_task_graph_definition_runtime_spec(
+            graph=graph,
+            specific_tasks=tuple(specific_task_records_by_id.values()),
+            communication_protocol=registry.get_task_communication_protocol(
+                str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "")
+            )
+            if str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "") in communication_protocol_by_id
+            else None,
+        ).to_dict()
+        for graph in registry.list_task_graphs()
+    ]
     contract_catalog = _visible_contract_payloads([item.to_dict() for item in registry.list_contract_descriptors()])
     contract_management = contract_registry.build_catalog()
     template_validation_matrix = registry.template_registry.build_validation_matrix()
@@ -473,6 +497,7 @@ async def task_system_next_ids() -> dict[str, object]:
             "flow": _display_number(flow_id, prefix="flow.", fallback="流程"),
             "workflow": _display_number(workflow_id, prefix="workflow.", fallback="流程"),
             "graph": _display_number(graph_id, prefix="graph.", fallback="任务图"),
+            "coordination": _display_number(graph_id, prefix="graph.", fallback="协作"),
             "topology": _display_number(topology_template_id, prefix="topology.", fallback="拓扑"),
         },
     }
@@ -589,6 +614,26 @@ async def compile_task_system_task_graph_contract_manifest(graph_id: str) -> dic
         agent_profiles=agent_profiles,
     )
     return manifest.to_dict()
+
+
+@router.get("/tasks/runtime-specs/task-graphs/{graph_id}")
+async def compile_task_system_task_graph_runtime_spec(graph_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.get_task_graph(graph_id)
+    if graph is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="task graph not found")
+    protocol = registry.get_task_communication_protocol(
+        str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "")
+    )
+    graph_spec = compile_task_graph_definition_runtime_spec(
+        graph=graph,
+        specific_tasks=tuple(registry.list_specific_task_records()),
+        communication_protocol=protocol,
+    )
+    return graph_spec.to_dict()
 
 
 @router.get("/tasks/runtime-assemblies/workflows/{workflow_id}")

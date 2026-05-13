@@ -493,8 +493,8 @@ export function OrchestrationPermissionsWorkbench({
 }) {
   const allowedOps = splitList(runtimeDraft.allowed_operations_text);
   const blockedOps = splitList(runtimeDraft.blocked_operations_text);
-  const allowedSet = useMemo(() => new Set(allowedOps), [runtimeDraft.allowed_operations_text]);
-  const blockedSet = useMemo(() => new Set(blockedOps), [runtimeDraft.blocked_operations_text]);
+  const allowedSet = useMemo(() => new Set(allowedOps), [allowedOps]);
+  const blockedSet = useMemo(() => new Set(blockedOps), [blockedOps]);
   const capabilityCards = useMemo(
     () => buildCapabilityCards({ capabilityCatalog, operationDescriptors, operationOptionItems }),
     [capabilityCatalog, operationDescriptors, operationOptionItems],

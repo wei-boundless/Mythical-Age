@@ -1,3 +1,34 @@
 {
-  "specific_task_records": []
+  "specific_task_records": [
+    {
+      "task_id": "task.000001",
+      "task_title": "TaskGraph 收尾验证任务",
+      "task_family": "general",
+      "task_mode": "general_task",
+      "description": "用于 TaskGraph Studio 收尾联调",
+      "enabled": true,
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "AssistantFinalAnswer",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.000001",
+      "default_workflow_id": "workflow.000001",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "execution_chain_type": "coordination_chain",
+          "trigger_signals": []
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_smoke",
+        "domain_id": "domain.general"
+      }
+    }
+  ],
+  "deleted_task_ids": []
 }

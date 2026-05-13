@@ -9,12 +9,13 @@
       "description": "撰写长篇小说的成员们，一般是两个创作者，一个审核员，只有审核员通过才行",
       "default_topology_template_ids": [],
       "default_communication_protocol_ids": [],
-      "allowed_coordination_task_ids": [],
+      "allowed_task_graph_ids": [],
       "lifecycle_state": "enabled",
       "metadata": {
         "managed_by": "orchestration_console"
       },
-      "authority": "orchestration.agent_group"
+      "authority": "orchestration.agent_group",
+      "allowed_coordination_task_ids": []
     }
   ]
 }

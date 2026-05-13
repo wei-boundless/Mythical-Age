@@ -20,6 +20,8 @@ from project_layout import ProjectLayout
 from output_boundary.boundary import AssistantOutputBoundary
 from memory_system import WorkingMemoryFinalizer, WorkingMemoryService
 from tasks.flow_registry import TaskFlowRegistry
+from tasks.coordination_graph_models import TaskGraphRuntimeSpec
+from tasks.task_graph_models import TaskGraphDefinition
 from tasks.coordination_graph_compiler import compile_task_graph_runtime_spec
 from tasks.run_models import (
     TaskRunLedger,
@@ -232,6 +234,8 @@ class TaskRunLoop:
         health_issue_ref: str = "",
         adoption_mode: str = "adopt_existing",
         graph_ref: str = "",
+        graph_payload: dict[str, Any] | None = None,
+        topology_template_payload: dict[str, Any] | None = None,
         coordinator_agent_id: str = "",
         topology_template_id: str = "",
         communication_protocol_id: str = "",
@@ -247,8 +251,12 @@ class TaskRunLoop:
         manifest_ref = str(assembly_payload.get("manifest_ref") or "")
         working_memory_refs = _working_memory_refs_from_assembly(assembly_payload)
         working_memory_diag = _working_memory_diagnostics_from_assembly(assembly_payload)
+        dispatch_graph_payload = dict(graph_payload or {})
+        dispatch_topology_payload = dict(topology_template_payload or {})
         resolved_graph_ref = str(
             graph_ref
+            or dispatch_graph_payload.get("graph_id")
+            or dispatch_graph_payload.get("task_graph_id")
             or assembly_payload.get("graph_ref")
             or ""
         ).strip()
@@ -341,8 +349,8 @@ class TaskRunLoop:
             _compile_agent_dispatch_plan_from_graph_payload(
                 task_run_id=task_run_id,
                 coordination_run_id=coordination_run.coordination_run_id,
-                graph_payload={},
-                topology_template_payload={},
+                graph_payload=dispatch_graph_payload,
+                topology_template_payload=dispatch_topology_payload,
             )
             if coordination_run is not None
             else None
@@ -467,6 +475,59 @@ class TaskRunLoop:
             loop_state=state,
             checkpoint=checkpoint,
             events=tuple(ordered_events),
+        )
+
+    def start_task_graph_run(
+        self,
+        *,
+        session_id: str,
+        graph: TaskGraphDefinition,
+        runtime_spec: TaskGraphRuntimeSpec,
+        task_id: str = "",
+        initial_inputs: dict[str, Any] | None = None,
+        diagnostics: dict[str, Any] | None = None,
+    ) -> TaskRunLoopStartResult:
+        """Create a durable runtime-loop run from a first-class TaskGraphDefinition."""
+        runtime_policy = dict(graph.runtime_policy or {})
+        coordinator_agent_id = str(runtime_spec.coordinator_agent_id or runtime_policy.get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
+        graph_payload = _dispatch_graph_payload_from_task_graph_runtime_spec(
+            graph=graph,
+            runtime_spec=runtime_spec,
+        )
+        runtime_assembly = {
+            "authority": "orchestration.task_graph_runtime_spec_assembly",
+            "assembly_id": f"runtime-assembly:task-graph:{graph.graph_id}",
+            "graph_ref": graph.graph_id,
+            "runtime_spec_ref": f"runtime-spec:task-graph:{graph.graph_id}",
+            "runtime_spec": runtime_spec.to_dict(),
+            "initial_inputs": dict(initial_inputs or {}),
+            "working_memory_policy_profile_id": graph.working_memory_policy_profile_id,
+            "working_memory_policy": dict(graph.working_memory_policy or {}),
+        }
+        return self.start(
+            session_id=session_id,
+            task_id=task_id or graph.graph_id,
+            task_contract_ref=graph.graph_contract_id or graph.graph_id,
+            agent_id=coordinator_agent_id,
+            agent_profile_id=str(runtime_policy.get("coordinator_agent_profile_id") or "task_graph_coordinator"),
+            runtime_lane=str(runtime_policy.get("runtime_lane") or "task_graph_coordination"),
+            adoption_mode="task_graph_runtime",
+            graph_ref=graph.graph_id,
+            graph_payload=graph_payload,
+            coordinator_agent_id=coordinator_agent_id,
+            communication_protocol_id=graph.default_protocol_id,
+            handoff_policy=str((runtime_spec.communication_modes or ("handoff",))[0]),
+            failure_policy=str(runtime_policy.get("failure_policy") or ""),
+            merge_policy=str(runtime_policy.get("merge_policy") or ""),
+            runtime_assembly=runtime_assembly,
+            diagnostics={
+                "task_graph_run": True,
+                "task_graph_id": graph.graph_id,
+                "task_graph_title": graph.title,
+                "task_graph_publish_state": graph.publish_state,
+                "task_graph_runtime_spec_valid": runtime_spec.valid,
+                **dict(diagnostics or {}),
+            },
         )
 
     def submit_working_memory_candidates(
@@ -6460,6 +6521,47 @@ def _compile_agent_dispatch_plan_from_graph_payload(
             "scheduler_phase": "compiled_plan_only",
         },
     )
+
+
+def _dispatch_graph_payload_from_task_graph_runtime_spec(
+    *,
+    graph: TaskGraphDefinition,
+    runtime_spec: TaskGraphRuntimeSpec,
+) -> dict[str, Any]:
+    runtime_nodes = [node.to_dict() for node in runtime_spec.nodes]
+    runtime_edges = [
+        {
+            **edge.to_dict(),
+            "edge_type": edge.mode,
+        }
+        for edge in runtime_spec.edges
+    ]
+    return {
+        "authority": "orchestration.task_graph_dispatch_payload",
+        "graph_id": graph.graph_id,
+        "task_graph_id": graph.graph_id,
+        "title": graph.title,
+        "domain_id": graph.domain_id,
+        "task_family": graph.task_family,
+        "graph_kind": graph.graph_kind,
+        "coordinator_agent_id": runtime_spec.coordinator_agent_id,
+        "agent_group_id": runtime_spec.agent_group_id,
+        "topology_template_id": "",
+        "handoff_policy": str((runtime_spec.communication_modes or ("handoff",))[0]),
+        "conflict_resolution_policy": str(dict(graph.runtime_policy or {}).get("failure_policy") or ""),
+        "output_merge_policy": str(dict(graph.runtime_policy or {}).get("merge_policy") or ""),
+        "shared_context_policy": str(dict(graph.context_policy or {}).get("shared_context_policy") or ""),
+        "memory_sharing_policy": str(dict(graph.working_memory_policy or {}).get("memory_sharing_policy") or ""),
+        "graph_nodes": runtime_nodes,
+        "graph_edges": runtime_edges,
+        "metadata": {
+            **dict(graph.metadata or {}),
+            "runtime_spec_source": str(dict(runtime_spec.diagnostics or {}).get("source") or ""),
+            "start_node_ids": list(runtime_spec.start_node_ids),
+            "terminal_node_ids": list(runtime_spec.terminal_node_ids),
+            "communication_modes": list(runtime_spec.communication_modes),
+        },
+    }
 
 
 def _dispatch_nodes_from_payload(graph_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:

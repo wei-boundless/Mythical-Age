@@ -33,6 +33,17 @@
       "metadata": {
         "derived": true
       }
+    },
+    {
+      "domain_id": "domain.general",
+      "task_family": "general",
+      "title": "general任务域",
+      "description": "",
+      "enabled": true,
+      "sort_order": 270,
+      "metadata": {
+        "derived": true
+      }
     }
   ],
   "deleted_domain_ids": [

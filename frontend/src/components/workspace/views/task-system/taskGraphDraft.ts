@@ -1,5 +1,6 @@
 import type { TaskCommunicationProtocol, TaskGraphRecord, TopologyTemplate } from "@/lib/api";
 
+import { inferTaskGraphBoundaryNodes } from "./taskGraphDraftV2";
 import type { LegacyTaskGraphStack, TaskGraphDraft, TaskGraphEdge, TaskGraphKind, TaskGraphNode } from "./taskGraphTypes";
 
 function inferTaskGraphKind(nodes: TaskGraphNode[]) {
@@ -9,18 +10,6 @@ function inferTaskGraphKind(nodes: TaskGraphNode[]) {
   return nodes.length <= 1 ? "single_agent" : "multi_agent";
 }
 
-function graphNodeId(node: TaskGraphNode | Record<string, unknown>, index: number) {
-  return String(node.node_id ?? node.id ?? `node_${index + 1}`).trim();
-}
-
-function graphEdgeSource(edge: TaskGraphEdge | Record<string, unknown>) {
-  return String(edge.from ?? edge.source_node_id ?? edge.source ?? "").trim();
-}
-
-function graphEdgeTarget(edge: TaskGraphEdge | Record<string, unknown>) {
-  return String(edge.to ?? edge.target_node_id ?? edge.target ?? "").trim();
-}
-
 export function buildTaskGraphDraft({
   coordinationDraft,
   topologyDraft,
@@ -28,13 +17,7 @@ export function buildTaskGraphDraft({
 }: LegacyTaskGraphStack): TaskGraphDraft {
   const nodes = (topologyDraft.nodes ?? []) as TaskGraphNode[];
   const edges = (topologyDraft.edges ?? []) as TaskGraphEdge[];
-  const firstNodeId = nodes.length ? graphNodeId(nodes[0], 0) : "";
-  const entryNodeId = nodes.find((node) => String(node.node_type ?? "") === "input")?.node_id
-    ?? nodes.find((node) => !edges.some((edge) => graphEdgeTarget(edge) === String(node.node_id ?? "")))?.node_id
-    ?? firstNodeId;
-  const outputNodeId = nodes.find((node) => String(node.node_type ?? "") === "output")?.node_id
-    ?? nodes.find((node) => !edges.some((edge) => graphEdgeSource(edge) === String(node.node_id ?? "")))?.node_id
-    ?? "";
+  const boundaries = inferTaskGraphBoundaryNodes(nodes, edges);
 
   return {
     graph_id: coordinationDraft.graph_id || topologyDraft.template_id || "graph.draft",
@@ -45,8 +28,8 @@ export function buildTaskGraphDraft({
     coordination_task_id: coordinationDraft.coordination_task_id || coordinationDraft.graph_id || topologyDraft.template_id || "graph.draft",
     topology_template_id: topologyDraft.template_id,
     protocol_id: protocolDraft.protocol_id,
-    entry_node_id: String(entryNodeId ?? ""),
-    output_node_id: String(outputNodeId ?? ""),
+    entry_node_id: boundaries.entry_node_id,
+    output_node_id: boundaries.output_node_id,
     agent_group_id: coordinationDraft.agent_group_id || "",
     coordination_mode: coordinationDraft.coordination_mode,
     nodes,
@@ -68,15 +51,10 @@ export function taskGraphRecordToDraft(
 ): TaskGraphDraft {
   const nodes = (graph.nodes ?? []) as TaskGraphNode[];
   const edges = (graph.edges ?? []) as TaskGraphEdge[];
-  const firstNodeId = nodes.length ? graphNodeId(nodes[0], 0) : "";
-  const entryNodeId = graph.entry_node_id
-    || nodes.find((node) => String(node.node_type ?? "") === "input")?.node_id
-    || nodes.find((node) => !edges.some((edge) => graphEdgeTarget(edge) === String(node.node_id ?? "")))?.node_id
-    || firstNodeId;
-  const outputNodeId = graph.output_node_id
-    || nodes.find((node) => String(node.node_type ?? "") === "output")?.node_id
-    || nodes.find((node) => !edges.some((edge) => graphEdgeSource(edge) === String(node.node_id ?? "")))?.node_id
-    || "";
+  const boundaries = inferTaskGraphBoundaryNodes(nodes, edges, {
+    fallback_entry_node_id: graph.entry_node_id,
+    fallback_output_node_id: graph.output_node_id,
+  });
 
   return {
     graph_id: graph.graph_id,
@@ -87,8 +65,8 @@ export function taskGraphRecordToDraft(
     coordination_task_id: graph.graph_id,
     topology_template_id: String(graph.metadata?.topology_template_id ?? topologyDraft.template_id ?? ""),
     protocol_id: graph.default_protocol_id || String(graph.metadata?.protocol_id ?? protocolDraft.protocol_id ?? ""),
-    entry_node_id: String(entryNodeId ?? ""),
-    output_node_id: String(outputNodeId ?? ""),
+    entry_node_id: boundaries.entry_node_id,
+    output_node_id: boundaries.output_node_id,
     agent_group_id: String(graph.runtime_policy?.agent_group_id ?? graph.metadata?.agent_group_id ?? ""),
     coordination_mode: String(graph.runtime_policy?.coordination_mode ?? graph.metadata?.coordination_mode ?? "review_merge"),
     nodes,
@@ -176,12 +154,16 @@ export function syncTaskGraphNodes(
   nodes: TaskGraphNode[],
   edges: TaskGraphEdge[],
 ): TaskGraphDraft {
+  const boundaries = inferTaskGraphBoundaryNodes(nodes, edges, {
+    fallback_entry_node_id: graphDraft.entry_node_id,
+    fallback_output_node_id: graphDraft.output_node_id,
+  });
   return {
     ...graphDraft,
     nodes,
     edges,
     graph_kind: inferTaskGraphKind(nodes),
-    entry_node_id: nodes.find((node) => String(node.node_type ?? "") === "input")?.node_id ?? graphDraft.entry_node_id,
-    output_node_id: nodes.find((node) => String(node.node_type ?? "") === "output")?.node_id ?? graphDraft.output_node_id,
+    entry_node_id: boundaries.entry_node_id,
+    output_node_id: boundaries.output_node_id,
   };
 }

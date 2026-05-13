@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from api.tasks import _task_system_payload
+from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from tasks.flow_registry import TaskFlowRegistry
 from tasks.task_graph_models import task_graph_from_dict, validate_task_graph
 
@@ -238,6 +239,140 @@ def test_task_graph_round_trips_agent_dispatch_policy(tmp_path: Path) -> None:
     assert edge.ack_required is False
     assert edge.failure_propagation_policy == "isolate_failure"
     assert edge.result_delivery_policy == "summary_and_refs"
+
+
+def test_task_graph_round_trips_timeline_review_and_artifact_policies(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+
+    registry.upsert_task_graph(
+        graph_id="graph.test.timeline_artifact",
+        title="时序产物图",
+        graph_kind="multi_agent",
+        nodes=(
+            {
+                "node_id": "draft",
+                "node_type": "agent",
+                "title": "起草",
+                "agent_id": "agent:writer",
+                "phase_id": "drafting",
+                "sequence_index": 1,
+                "timeline_group_id": "main",
+                "blocks_phase_exit": True,
+                "artifact_target": "chapters/chapter_001_draft.md",
+                "artifact_policy": {"required": True},
+            },
+            {
+                "node_id": "review",
+                "node_type": "review_gate",
+                "title": "审核",
+                "agent_id": "agent:reviewer",
+                "phase_id": "review",
+                "sequence_index": 2,
+                "review_gate_policy": {"is_review_gate": True, "on_fail": "draft", "on_pass": "publish"},
+                "loop_policy": {"max_attempts": 2},
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "draft_review",
+                "source_node_id": "draft",
+                "target_node_id": "review",
+            },
+        ),
+    )
+
+    loaded = registry.get_task_graph("graph.test.timeline_artifact")
+
+    assert loaded is not None
+    draft = next(node for node in loaded.nodes if node.node_id == "draft")
+    review = next(node for node in loaded.nodes if node.node_id == "review")
+    assert draft.phase_id == "drafting"
+    assert draft.sequence_index == 1
+    assert draft.artifact_target == "chapters/chapter_001_draft.md"
+    assert draft.artifact_policy["required"] is True
+    assert review.review_gate_policy["is_review_gate"] is True
+    assert review.loop_policy["max_attempts"] == 2
+
+
+def test_task_graph_definition_compiles_direct_runtime_spec_with_policy_diagnostics(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.direct_compile",
+        title="直接编译图",
+        domain_id="domain.story",
+        task_family="story",
+        graph_kind="multi_agent",
+        graph_contract_id="contract.story.graph",
+        default_protocol_id="protocol.story",
+        runtime_policy={
+            "coordinator_agent_id": "agent:coordinator",
+            "agent_group_id": "group.story",
+            "default_execution_mode": "parallel",
+            "default_wait_policy": "wait_required_contracts",
+            "participant_agent_ids": ["agent:writer", "agent:reviewer"],
+        },
+        context_policy={"shared_context_policy": "shared_task_context"},
+        working_memory_policy_profile_id="wmprofile.story",
+        working_memory_policy={"default_scope": "graph_scope"},
+        metadata={
+            "artifact_policy": {"enabled": True},
+            "timeline_policy": {"scheduling_mode": "phase_then_sequence_index"},
+        },
+        nodes=(
+            {
+                "node_id": "draft",
+                "node_type": "agent",
+                "title": "起草",
+                "agent_id": "agent:writer",
+                "phase_id": "drafting",
+                "sequence_index": 1,
+                "memory_read_policy": {"readable_kinds": ["task_goal"]},
+                "artifact_policy": {"required": True},
+                "artifact_target": "draft.md",
+            },
+            {
+                "node_id": "review",
+                "node_type": "review_gate",
+                "title": "审核",
+                "agent_id": "agent:reviewer",
+                "phase_id": "review",
+                "sequence_index": 2,
+                "review_gate_policy": {"is_review_gate": True},
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "draft_review",
+                "source_node_id": "draft",
+                "target_node_id": "review",
+                "payload_contract_id": "contract.story.payload",
+                "wait_policy": "wait_handoff_ack",
+                "ack_required": True,
+                "working_memory_handoff_policy": {"carry_kinds": ["draft_artifact"]},
+            },
+        ),
+    )
+
+    spec = compile_task_graph_definition_runtime_spec(graph=graph)
+
+    assert spec.graph_id == "graph.test.direct_compile"
+    assert spec.coordinator_agent_id == "agent:coordinator"
+    assert spec.agent_group_id == "group.story"
+    assert spec.start_node_ids == ("draft",)
+    assert spec.terminal_node_ids == ("review",)
+    assert spec.diagnostics["source"] == "task_system.task_graph_definition_runtime_compiler"
+    assert spec.diagnostics["graph_contract_id"] == "contract.story.graph"
+    assert spec.diagnostics["working_memory_policy_profile_id"] == "wmprofile.story"
+    draft = next(node for node in spec.nodes if node.node_id == "draft")
+    review = next(node for node in spec.nodes if node.node_id == "review")
+    edge = spec.edges[0]
+    assert draft.execution_mode == "parallel"
+    assert draft.wait_policy == "wait_required_contracts"
+    assert draft.phase_id == "drafting"
+    assert draft.artifact_policy["artifact_target"] == "draft.md"
+    assert review.review_gate_policy["is_review_gate"] is True
+    assert edge.payload_contract_id == "contract.story.payload"
+    assert edge.working_memory_handoff_policy["carry_kinds"] == ["draft_artifact"]
 
 
 def test_task_graph_dispatch_policy_fails_closed_for_invalid_or_unsafe_modes() -> None:

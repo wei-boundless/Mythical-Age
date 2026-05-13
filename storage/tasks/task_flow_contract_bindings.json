@@ -1,3 +1,16 @@
 {
-  "flow_contract_bindings": []
+  "flow_contract_bindings": [
+    {
+      "binding_id": "taskflowbind:task.000001",
+      "task_id": "task.000001",
+      "flow_contract_id": "flow.000001",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    }
+  ]
 }

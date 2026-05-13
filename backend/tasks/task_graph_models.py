@@ -49,6 +49,16 @@ class TaskGraphNodeDefinition:
     memory_read_policy: dict[str, Any] = field(default_factory=dict)
     memory_writeback_policy: dict[str, Any] = field(default_factory=dict)
     dynamic_memory_read_policy: dict[str, Any] = field(default_factory=dict)
+    phase_id: str = ""
+    sequence_index: int = 0
+    timeline_group_id: str = ""
+    main_chain: bool = True
+    blocks_phase_exit: bool = True
+    loop_policy: dict[str, Any] = field(default_factory=dict)
+    review_gate_policy: dict[str, Any] = field(default_factory=dict)
+    artifact_policy: dict[str, Any] = field(default_factory=dict)
+    artifact_target: str = ""
+    output_path: str = ""
     execution_mode: str = "sync"
     dispatch_group: str = ""
     wait_policy: str = "wait_all_upstream_completed"
@@ -138,8 +148,11 @@ class TaskGraphDefinition:
         payload = asdict(self)
         payload["nodes"] = [item.to_dict() for item in self.nodes]
         payload["edges"] = [item.to_dict() for item in self.edges]
+        payload["graph_nodes"] = payload["nodes"]
+        payload["graph_edges"] = payload["edges"]
         payload["issues"] = [item.to_dict() for item in validate_task_graph(self)]
         payload["valid"] = self.valid
+        payload["subtask_refs"] = _subtask_refs_from_graph_payload(self)
         return payload
 
 
@@ -165,6 +178,16 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
         memory_read_policy=dict(payload.get("memory_read_policy") or {}),
         memory_writeback_policy=dict(payload.get("memory_writeback_policy") or {}),
         dynamic_memory_read_policy=dict(payload.get("dynamic_memory_read_policy") or {}),
+        phase_id=str(payload.get("phase_id") or "").strip(),
+        sequence_index=_int_value(payload.get("sequence_index"), 0),
+        timeline_group_id=str(payload.get("timeline_group_id") or "").strip(),
+        main_chain=bool(payload.get("main_chain", True)),
+        blocks_phase_exit=bool(payload.get("blocks_phase_exit", True)),
+        loop_policy=dict(payload.get("loop_policy") or {}),
+        review_gate_policy=dict(payload.get("review_gate_policy") or {}),
+        artifact_policy=dict(payload.get("artifact_policy") or {}),
+        artifact_target=str(payload.get("artifact_target") or "").strip(),
+        output_path=str(payload.get("output_path") or "").strip(),
         execution_mode=str(payload.get("execution_mode") or "sync").strip() or "sync",
         dispatch_group=str(payload.get("dispatch_group") or "").strip(),
         wait_policy=str(payload.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed",
@@ -353,3 +376,19 @@ def _positive_int_policy(policy: dict[str, Any], key: str) -> bool:
         return int(policy.get(key) or 0) > 0
     except (TypeError, ValueError):
         return False
+
+
+def _int_value(value: Any, fallback: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _subtask_refs_from_graph_payload(graph: TaskGraphDefinition) -> list[str]:
+    metadata = dict(graph.metadata or {})
+    refs = [
+        *[str(value).strip() for value in list(metadata.get("subtask_refs") or []) if str(value).strip()],
+        *[str(node.task_id or "").strip() for node in graph.nodes if str(node.task_id or "").strip()],
+    ]
+    return list(dict.fromkeys(value for value in refs if value.startswith("task.")))

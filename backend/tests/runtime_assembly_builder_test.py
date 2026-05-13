@@ -17,6 +17,8 @@ from orchestration.runtime_loop.contract_compiler_models import (
     ContractManifest,
 )
 from orchestration.runtime_loop.stage_execution_request import StageExecutionRequest
+from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+from tasks.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 
 
 def _manifest() -> ContractManifest:
@@ -199,6 +201,57 @@ def test_task_run_loop_start_writes_runtime_assembly_refs_to_trace(tmp_path: Pat
     assert result.loop_state.diagnostics["contract_manifest_ref"] == assembly.manifest_ref
     started_event = result.events[0]
     assert started_event["refs"]["runtime_assembly_ref"] == assembly.assembly_id
+
+
+def test_task_run_loop_starts_task_graph_with_real_dispatch_plan(tmp_path: Path) -> None:
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.task_graph_run",
+        title="测试任务图运行",
+        graph_kind="multi_agent",
+        publish_state="published",
+        entry_node_id="collect",
+        output_node_id="review",
+        runtime_policy={"coordinator_agent_id": "agent:coordinator"},
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="collect",
+                node_type="agent",
+                title="资料整理",
+                agent_id="agent:collector",
+            ),
+            TaskGraphNodeDefinition(
+                node_id="review",
+                node_type="agent",
+                title="审核",
+                agent_id="agent:reviewer",
+            ),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="collect_to_review",
+                source_node_id="collect",
+                target_node_id="review",
+                payload_contract_id="contract.collect.review",
+            ),
+        ),
+    )
+    runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
+
+    result = TaskRunLoop(tmp_path, backend_dir=Path("backend")).start_task_graph_run(
+        session_id="session:test",
+        graph=graph,
+        runtime_spec=runtime_spec,
+    )
+
+    trace = TaskRunLoop(tmp_path, backend_dir=Path("backend")).get_trace(result.task_run.task_run_id)
+    assert result.coordination_run is not None
+    assert result.task_run.diagnostics["task_graph_run"] is True
+    dispatch_plan = result.task_run.diagnostics["agent_dispatch_plan"]
+    assert dispatch_plan["diagnostics"]["node_count"] == 2
+    assert dispatch_plan["ready_node_ids"] == ["collect"]
+    assert dispatch_plan["blocked_node_ids"] == ["review"]
+    assert trace is not None
+    assert trace["coordination_runs"][0]["graph_ref"] == graph.graph_id
 
 
 def test_runtime_assembly_includes_working_memory_sections_when_provided() -> None:

@@ -667,7 +667,7 @@ export type RuntimeAssembly = {
 
 export type CoordinationGraphSpec = {
   graph_id: string;
-  coordination_task_id: string;
+  coordination_task_id?: string;
   domain_id: string;
   task_family: string;
   coordinator_agent_id: string;
@@ -755,6 +755,8 @@ export type TaskGraphRecord = {
   edges: TaskGraphEdgeRecord[];
   graph_contract_id?: string;
   default_protocol_id?: string;
+  working_memory_policy_profile_id?: string;
+  working_memory_policy?: Record<string, unknown>;
   runtime_policy?: Record<string, unknown>;
   context_policy?: Record<string, unknown>;
   publish_state: "draft" | "published" | "archived";
@@ -872,6 +874,18 @@ export type TaskSystemOverview = {
   };
   task_graph_management?: {
     task_graphs: TaskGraphRecord[];
+    task_graph_specs?: CoordinationGraphSpec[];
+    topology_templates?: TopologyTemplate[];
+    communication_protocols?: TaskCommunicationProtocol[];
+    a2a?: {
+      protocol_version: string;
+      transport: string;
+      protocol_locked: boolean;
+      agent_cards: Array<Record<string, unknown>>;
+      message_types: string[];
+      part_types: string[];
+      task_states: string[];
+    };
   };
   coordination_management: {
     task_graphs?: TaskGraphRecord[];
@@ -1434,6 +1448,19 @@ export type RuntimeLoopTaskRunTrace = {
   event_count: number;
   events: RuntimeLoopTraceEvent[];
   latest_checkpoint: Record<string, unknown> | null;
+};
+
+export type TaskGraphRunStartResult = {
+  authority: string;
+  graph_id: string;
+  task_run_id: string;
+  coordination_run_id: string;
+  task_run: Record<string, unknown>;
+  coordination_run: Record<string, unknown> | null;
+  checkpoint: Record<string, unknown>;
+  runtime_spec: CoordinationGraphSpec;
+  trace: RuntimeLoopTaskRunTrace | null;
+  events: Array<Record<string, unknown>>;
 };
 
 export type OrchestrationCatalogSkill = {
@@ -2441,13 +2468,35 @@ function getApiBase() {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (!(init?.body instanceof FormData) && !headers.has("Content-Type")) {
+  const hasBody = init?.body !== undefined && init?.body !== null;
+  if (hasBody && !(init?.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(`${getApiBase()}${path}`, {
-    ...init,
-    headers
-  });
+  const method = (init?.method || "GET").toUpperCase();
+  const timeoutMs = 12000;
+  const runFetch = async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(`${getApiBase()}${path}`, {
+        ...init,
+        headers,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  let response: Response;
+  try {
+    response = await runFetch();
+  } catch (error) {
+    if (method === "GET" && error instanceof DOMException && error.name === "AbortError") {
+      response = await runFetch();
+    } else {
+      throw error;
+    }
+  }
 
   if (!response.ok) {
     const text = await response.text();
@@ -2999,6 +3048,25 @@ export async function getOrchestrationRuntimeLoopTrace(
   );
 }
 
+export async function startTaskGraphRuntimeLoopRun(
+  graphId: string,
+  payload: {
+    session_id?: string;
+    task_id?: string;
+    initial_inputs?: Record<string, unknown>;
+    require_published?: boolean;
+    include_trace?: boolean;
+  } = {}
+) {
+  return request<TaskGraphRunStartResult>(
+    `/orchestration/runtime-loop/task-graphs/${encodeURIComponent(graphId)}/start`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
 export async function resumeOrchestrationCoordinationRun(
   coordinationRunId: string,
   resumePayload: Record<string, unknown>
@@ -3234,6 +3302,12 @@ export async function compileTaskSystemCoordinationContractManifest(coordination
 export async function compileTaskSystemTaskGraphContractManifest(graphId: string) {
   return request<ContractManifest>(
     `/tasks/contract-manifests/task-graphs/${encodeURIComponent(graphId)}`
+  );
+}
+
+export async function compileTaskSystemTaskGraphRuntimeSpec(graphId: string) {
+  return request<CoordinationGraphSpec>(
+    `/tasks/runtime-specs/task-graphs/${encodeURIComponent(graphId)}`
   );
 }
 

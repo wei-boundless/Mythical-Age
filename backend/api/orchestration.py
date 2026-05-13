@@ -18,6 +18,7 @@ from orchestration import (
     build_base_unit_catalog,
 )
 from orchestration.delegation_catalog import DelegationCatalogBuilder
+from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
 
 router = APIRouter()
@@ -93,6 +94,14 @@ class OrchestrationPreviewRequest(BaseModel):
 
 class CoordinationRunResumeRequest(BaseModel):
     resume_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class TaskGraphRunStartRequest(BaseModel):
+    session_id: str = Field(default="session:task_graph_studio", max_length=180)
+    task_id: str = Field(default="", max_length=180)
+    initial_inputs: dict[str, Any] = Field(default_factory=dict)
+    require_published: bool = True
+    include_trace: bool = True
 
 
 class DelegationPreviewRequest(BaseModel):
@@ -621,6 +630,66 @@ async def get_runtime_loop_trace(
     if trace is None:
         raise HTTPException(status_code=404, detail="TaskRun trace not found")
     return trace
+
+
+@router.post("/orchestration/runtime-loop/task-graphs/{graph_id}/start")
+async def start_task_graph_runtime_loop_run(
+    graph_id: str,
+    payload: TaskGraphRunStartRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.get_task_graph(graph_id)
+    if graph is None:
+        raise HTTPException(status_code=404, detail="TaskGraph not found")
+    if payload.require_published and graph.publish_state != "published":
+        raise HTTPException(status_code=409, detail="TaskGraph must be published before run start")
+    protocol = registry.get_task_communication_protocol(
+        str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "")
+    )
+    runtime_spec = compile_task_graph_definition_runtime_spec(
+        graph=graph,
+        specific_tasks=tuple(registry.list_specific_task_records()),
+        communication_protocol=protocol,
+    )
+    blocking_issues = [issue.to_dict() for issue in runtime_spec.issues if issue.severity == "error"]
+    if blocking_issues:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "TaskGraph runtime spec has blocking issues",
+                "issues": blocking_issues,
+            },
+        )
+    session_id = payload.session_id.strip() or "session:task_graph_studio"
+    start = runtime.query_runtime.task_run_loop.start_task_graph_run(
+        session_id=session_id,
+        task_id=payload.task_id.strip(),
+        graph=graph,
+        runtime_spec=runtime_spec,
+        initial_inputs=dict(payload.initial_inputs or {}),
+        diagnostics={
+            "source": "orchestration.runtime_loop.task_graph_start_api",
+            "require_published": payload.require_published,
+        },
+    )
+    trace = (
+        runtime.query_runtime.task_run_loop.get_trace(start.task_run.task_run_id)
+        if payload.include_trace
+        else None
+    )
+    return {
+        "authority": "orchestration.task_graph_run_start",
+        "graph_id": graph.graph_id,
+        "task_run_id": start.task_run.task_run_id,
+        "coordination_run_id": start.coordination_run.coordination_run_id if start.coordination_run is not None else "",
+        "task_run": start.task_run.to_dict(),
+        "coordination_run": start.coordination_run.to_dict() if start.coordination_run is not None else None,
+        "checkpoint": start.checkpoint.to_dict(),
+        "runtime_spec": runtime_spec.to_dict(),
+        "trace": trace,
+        "events": [dict(item) for item in start.events],
+    }
 
 
 @router.post("/orchestration/coordination-runs/{coordination_run_id}/resume")

@@ -1,0 +1,172 @@
+"use client";
+
+import type { ContractSpec } from "@/lib/api";
+
+import { TaskSystemField } from "./TaskSystemWorkbenchUi";
+import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
+
+function contractTitle(contract: ContractSpec) {
+  return String(contract.contract_id);
+}
+
+function nodeTitle(node: Record<string, unknown>) {
+  return String(node.title ?? node.label ?? node.node_id ?? "节点");
+}
+
+function edgeSource(edge: Record<string, unknown>) {
+  return String(edge.source_node_id ?? edge.from ?? edge.source ?? "");
+}
+
+function edgeTarget(edge: Record<string, unknown>) {
+  return String(edge.target_node_id ?? edge.to ?? edge.target ?? "");
+}
+
+export function TaskGraphContractQualityPage({
+  activeGraphEdges,
+  activeGraphNodes,
+  contractSpecs,
+  editorIssueCount,
+  editorValid,
+  taskGraphDraft,
+  updateTaskGraph,
+  updateTaskGraphEdge,
+  updateTaskGraphNode,
+}: {
+  activeGraphEdges: Array<Record<string, unknown>>;
+  activeGraphNodes: Array<Record<string, unknown>>;
+  contractSpecs: ContractSpec[];
+  editorIssueCount: number;
+  editorValid: boolean;
+  taskGraphDraft: TaskGraphDraftV2;
+  updateTaskGraph: (patch: Partial<TaskGraphDraftV2>) => void;
+  updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
+  updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
+}) {
+  const graphContractId = String(taskGraphDraft.graph_contract_id ?? "");
+  const contractIds = contractSpecs.map((item) => item.contract_id);
+
+  const formatContract = (contractId: string) => {
+    const contract = contractSpecs.find((item) => item.contract_id === contractId);
+    return contract ? `${contractTitle(contract)} · ${contractId}` : contractId || "未绑定";
+  };
+
+  return (
+    <section className="task-graph-studio-page">
+      <header className="task-graph-studio-page__head">
+        <span>TaskGraph Studio</span>
+        <strong>契约与质量门</strong>
+        <small>统一管理图契约、节点输入输出、边载荷契约和预检质量状态。</small>
+      </header>
+
+      <section className="task-graph-form-grid">
+        <article className="boundary-card">
+          <header><strong>图级契约</strong></header>
+          <div className="boundary-form">
+            <TaskSystemField label="图契约 ID">
+              <select
+                onChange={(event) => updateTaskGraph({ graph_contract_id: event.target.value })}
+                value={graphContractId}
+              >
+                <option value="">未绑定</option>
+                {contractIds.map((contractId) => (
+                  <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
+                ))}
+              </select>
+            </TaskSystemField>
+          </div>
+          <div className="task-graph-note">
+            <strong>保存落点</strong>
+            <span>图契约保存时会进入 TaskGraph 一等字段，节点和边契约分别写入节点与边。</span>
+          </div>
+        </article>
+
+        <article className="boundary-card">
+          <header><strong>质量门状态</strong></header>
+          <div className="task-graph-mini-kv">
+            <p><span>预检</span><strong>{editorValid ? "通过" : "待处理"}</strong></p>
+            <p><span>问题</span><strong>{editorIssueCount}</strong></p>
+            <p><span>契约库</span><strong>{contractSpecs.length}</strong></p>
+          </div>
+        </article>
+      </section>
+
+      <section className="boundary-card">
+        <header><strong>节点契约</strong></header>
+        <div className="task-graph-node-policy-list">
+          {activeGraphNodes.map((node, index) => {
+            const nodeId = String(node.node_id ?? "");
+            return (
+              <article className="task-graph-node-policy-row" key={nodeId || `node_${index}`}>
+                <div className="task-graph-node-policy-row__identity">
+                  <strong>{nodeTitle(node)}</strong>
+                  <span>{nodeId}</span>
+                </div>
+                <TaskSystemField label="节点契约">
+                  <select
+                    onChange={(event) => updateTaskGraphNode(nodeId, { node_contract_id: event.target.value, contract_id: event.target.value })}
+                    value={String(node.node_contract_id ?? node.contract_id ?? "")}
+                  >
+                    <option value="">未绑定</option>
+                    {contractIds.map((contractId) => (
+                      <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
+                    ))}
+                  </select>
+                </TaskSystemField>
+                <TaskSystemField label="输入契约">
+                  <select
+                    onChange={(event) => updateTaskGraphNode(nodeId, { input_contract_id: event.target.value })}
+                    value={String(node.input_contract_id ?? "")}
+                  >
+                    <option value="">未绑定</option>
+                    {contractIds.map((contractId) => (
+                      <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
+                    ))}
+                  </select>
+                </TaskSystemField>
+                <TaskSystemField label="输出契约">
+                  <select
+                    onChange={(event) => updateTaskGraphNode(nodeId, { output_contract_id: event.target.value })}
+                    value={String(node.output_contract_id ?? "")}
+                  >
+                    <option value="">未绑定</option>
+                    {contractIds.map((contractId) => (
+                      <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
+                    ))}
+                  </select>
+                </TaskSystemField>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="boundary-card">
+        <header><strong>边载荷契约</strong></header>
+        <div className="task-graph-node-policy-list">
+          {activeGraphEdges.map((edge, index) => {
+            const edgeId = String(edge.edge_id ?? edge.id ?? `edge_${index + 1}`);
+            return (
+              <article className="task-graph-node-policy-row" key={edgeId}>
+                <div className="task-graph-node-policy-row__identity">
+                  <strong>{edgeSource(edge)} {"->"} {edgeTarget(edge)}</strong>
+                  <span>{edgeId}</span>
+                </div>
+                <TaskSystemField label="载荷契约">
+                  <select
+                    onChange={(event) => updateTaskGraphEdge(edgeId, { payload_contract_id: event.target.value, contract_id: event.target.value })}
+                    value={String(edge.payload_contract_id ?? edge.contract_id ?? "")}
+                  >
+                    <option value="">未绑定</option>
+                    {contractIds.map((contractId) => (
+                      <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
+                    ))}
+                  </select>
+                </TaskSystemField>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    </section>
+  );
+}

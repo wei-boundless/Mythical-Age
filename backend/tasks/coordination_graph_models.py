@@ -15,6 +15,21 @@ class TaskGraphRuntimeNode:
     projection_id: str = ""
     task_id: str = ""
     task_family: str = ""
+    execution_mode: str = "sync"
+    wait_policy: str = "wait_all_upstream_completed"
+    join_policy: str = "all_success"
+    dispatch_group: str = ""
+    phase_id: str = ""
+    sequence_index: int = 0
+    timeline_group_id: str = ""
+    blocks_phase_exit: bool = True
+    context_visibility_policy: dict[str, Any] = field(default_factory=dict)
+    memory_read_policy: dict[str, Any] = field(default_factory=dict)
+    memory_writeback_policy: dict[str, Any] = field(default_factory=dict)
+    dynamic_memory_read_policy: dict[str, Any] = field(default_factory=dict)
+    artifact_policy: dict[str, Any] = field(default_factory=dict)
+    review_gate_policy: dict[str, Any] = field(default_factory=dict)
+    loop_policy: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -27,6 +42,16 @@ class TaskGraphRuntimeEdge:
     source_node_id: str
     target_node_id: str
     mode: str
+    payload_contract_id: str = ""
+    a2a_message_type: str = "message/send"
+    ack_required: bool = True
+    ack_policy: str = "explicit_ack"
+    wait_policy: str = ""
+    failure_propagation_policy: str = "fail_downstream"
+    result_delivery_policy: str = "contract_payload_and_refs"
+    context_filter_policy: dict[str, Any] = field(default_factory=dict)
+    artifact_ref_policy: dict[str, Any] = field(default_factory=dict)
+    working_memory_handoff_policy: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

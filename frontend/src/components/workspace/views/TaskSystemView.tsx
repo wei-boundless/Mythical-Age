@@ -12,7 +12,7 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   coordinationSubtaskRefs,
   graphEdgeId,
@@ -27,6 +27,9 @@ import { TaskAssemblyPreflightPanel } from "@/components/workspace/views/task-sy
 import { TaskGraphWorkbench } from "@/components/workspace/views/task-system/TaskGraphWorkbench";
 import { TaskRunLoopWorkbenchPanel } from "@/components/workspace/views/task-system/TaskRunLoopWorkbenchPanel";
 import { buildTaskGraphDraft, taskGraphRecordToDraft } from "@/components/workspace/views/task-system/taskGraphDraft";
+import { legacyStackToTaskGraphDraftV2, taskGraphRecordToDraftV2 } from "@/components/workspace/views/task-system/taskGraphDraftV2";
+import { buildTaskGraphUpsertPayload } from "@/components/workspace/views/task-system/taskGraphSaveMapper";
+import { buildTaskGraphTemplateDraft, type TaskGraphTemplateId } from "@/components/workspace/views/task-system/taskGraphTemplates";
 import {
   TaskSystemDomainTaskSelectField as DomainTaskSelectField,
   TaskSystemField as Field,
@@ -1103,10 +1106,11 @@ function LayerNav<T extends string>({
 
 
 export function TaskSystemView() {
-  const { setTaskSelection, setWorkspaceView } = useAppStore();
+  const { activeWorkspaceView, setTaskSelection, setWorkspaceView } = useAppStore();
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
   const [loading, setLoading] = useState(true);
+  const [projectionLoading, setProjectionLoading] = useState(false);
   const [saving, setSaving] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -1123,6 +1127,7 @@ export function TaskSystemView() {
   const [linkingFromNodeId, setLinkingFromNodeId] = useState("");
   const [taskConfigPanel, setTaskConfigPanel] = useState<TaskConfigPanel>("definition");
   const [contractPanel, setContractPanel] = useState<ContractPanel>("library");
+  const loadInFlightRef = useRef<Promise<void> | null>(null);
 
   const [entryDraft, setEntryDraft] = useState<ConversationEntryPolicy>(emptyEntryPolicy());
   const [domainDraft, setDomainDraft] = useState<TaskDomainRecord>(emptyTaskDomain());
@@ -1138,38 +1143,73 @@ export function TaskSystemView() {
   const [topologyDraft, setTopologyDraft] = useState<TopologyDraft>(emptyTopology());
   const [protocolDraft, setProtocolDraft] = useState<ProtocolDraft>(emptyProtocol());
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const [overview, projections] = await Promise.all([
-        getTaskSystemOverview(),
-        getSoulProjectionCards().catch(() => null),
-      ]);
-      setConsolePayload(overview);
-      setProjectionCatalog(projections);
-      const nextDomains = buildDomains(overview);
-      const defaultDomain = nextDomains.find((item) => item.tasks.length > 0) ?? nextDomains[0];
-      const preferredDomain = selectedDomainId || defaultDomain?.domain_id || "";
-      const selectedDomain = nextDomains.find((item) => item.domain_id === preferredDomain) ?? defaultDomain;
-      const taskGraphs = overview.task_graph_management?.task_graphs ?? overview.coordination_management.task_graphs ?? [];
-      setSelectedDomainId(selectedDomain?.domain_id ?? "");
-      setSelectedTaskId((current) => current || selectedDomain?.tasks[0]?.task_id || overview.task_management.specific_task_records[0]?.task_id || "");
-      setEditorDomainId((current) => current || selectedDomain?.domain_id || "");
-      setSelectedTaskGraphId((current) => current || taskGraphs[0]?.graph_id || "");
-      setEditorTaskId((current) => current && overview.task_management.specific_task_records.some((task) => task.task_id === current) ? current : "");
-      setEditorTaskGraphId((current) => current && taskGraphs.some((graph) => graph.graph_id === current) ? current : "");
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "任务系统加载失败");
-    } finally {
-      setLoading(false);
-    }
+  const applyOverview = useCallback((overview: TaskSystemOverview) => {
+    setConsolePayload(overview);
+    const nextDomains = buildDomains(overview);
+    const firstDomainWithTasks = nextDomains.find((item) => item.tasks.length > 0) ?? null;
+    const fallbackDomain = firstDomainWithTasks ?? nextDomains[0] ?? null;
+    const preferredDomain = nextDomains.find((item) => item.domain_id === selectedDomainId) ?? null;
+    const selectedDomain = preferredDomain && (preferredDomain.tasks.length > 0 || !firstDomainWithTasks)
+      ? preferredDomain
+      : fallbackDomain;
+    const taskGraphs = overview.task_graph_management?.task_graphs ?? overview.coordination_management.task_graphs ?? [];
+    setSelectedDomainId(selectedDomain?.domain_id ?? "");
+    setSelectedTaskId((current) => current || selectedDomain?.tasks[0]?.task_id || overview.task_management.specific_task_records[0]?.task_id || "");
+    setEditorDomainId((current) => current || selectedDomain?.domain_id || "");
+    setSelectedTaskGraphId((current) => current || taskGraphs[0]?.graph_id || "");
+    setEditorTaskId((current) => current && overview.task_management.specific_task_records.some((task) => task.task_id === current) ? current : "");
+    setEditorTaskGraphId((current) => current && taskGraphs.some((graph) => graph.graph_id === current) ? current : "");
   }, [selectedDomainId]);
+
+  const loadProjectionCatalog = useCallback(async () => {
+    setProjectionLoading(true);
+    try {
+      const projectionTimeoutMs = 8000;
+      const projections = await Promise.race([
+        getSoulProjectionCards(),
+        new Promise<null>((resolve) => {
+          setTimeout(() => resolve(null), projectionTimeoutMs);
+        }),
+      ]);
+      setProjectionCatalog(projections);
+    } catch {
+      setProjectionCatalog(null);
+    } finally {
+      setProjectionLoading(false);
+    }
+  }, []);
+
+  const load = useCallback(async () => {
+    if (loadInFlightRef.current) {
+      return loadInFlightRef.current;
+    }
+    const run = (async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const overview = await getTaskSystemOverview();
+        applyOverview(overview);
+        void loadProjectionCatalog();
+      } catch (exc) {
+        setError(exc instanceof Error ? exc.message : "任务系统加载失败");
+      } finally {
+        setLoading(false);
+        loadInFlightRef.current = null;
+      }
+    })();
+    loadInFlightRef.current = run;
+    return run;
+  }, [applyOverview, loadProjectionCatalog]);
 
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (activeWorkspaceView !== "task-system") return;
+    void load();
+  }, [activeWorkspaceView, load]);
 
   const domains = useMemo(() => buildDomains(consolePayload), [consolePayload]);
   const visibleDomains = useMemo(() => {
@@ -1220,7 +1260,10 @@ export function TaskSystemView() {
   const memoryProfile = (consolePayload?.task_management.memory_request_profiles ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const selectedWorkflow = workflows.find((item) => item.workflow_id === selectedTask?.default_workflow_id);
   const allTaskGraphs = useMemo(() => consolePayload?.task_graph_management?.task_graphs ?? consolePayload?.coordination_management.task_graphs ?? [], [consolePayload]);
-  const allCoordinationGraphSpecs = useMemo(() => consolePayload?.coordination_management.coordination_graph_specs ?? [], [consolePayload]);
+  const allCoordinationGraphSpecs = useMemo(
+    () => consolePayload?.task_graph_management?.task_graph_specs ?? consolePayload?.coordination_management.coordination_graph_specs ?? [],
+    [consolePayload],
+  );
   const allTopologyTemplates = useMemo(() => consolePayload?.coordination_management.topology_templates ?? [], [consolePayload]);
   const allCommunicationProtocols = useMemo(() => consolePayload?.coordination_management.communication_protocols ?? [], [consolePayload]);
   const a2aCatalog = consolePayload?.coordination_management.a2a ?? null;
@@ -1391,8 +1434,9 @@ export function TaskSystemView() {
       return;
     }
     const graphDraft = taskGraphRecordToDraft(activeTaskGraph, topologyDraftFrom(activeTopology), protocolDraftFrom(activeProtocol));
-    setCoordinationDraft(coordinationDraftFrom({
-      ...coordinationDraft,
+    const graphDraftV2 = taskGraphRecordToDraftV2(activeTaskGraph);
+    setCoordinationDraft((current) => coordinationDraftFrom({
+      ...current,
       graph_id: graphDraft.graph_id,
       title: graphDraft.title,
       graph_kind: graphDraft.graph_kind,
@@ -1405,11 +1449,18 @@ export function TaskSystemView() {
       graph_edges: graphDraft.edges,
       communication_modes: graphDraft.communication_modes,
       enabled: graphDraft.publish_state === "published",
-      metadata: graphDraft.metadata,
+      coordinator_agent_id: graphDraftV2.runtime_policy.coordinator_agent_id,
+      participant_agent_ids: graphDraftV2.runtime_policy.participant_agent_ids,
+      metadata: {
+        ...graphDraft.metadata,
+        runtime_policy: graphDraftV2.runtime_policy,
+        working_memory_policy_profile_id: graphDraftV2.working_memory_policy_profile_id,
+        working_memory_policy: graphDraftV2.working_memory_policy,
+      },
       stop_conditions: [],
       task_family: domainIdToLegacyFamily(graphDraft.domain_id, ""),
-      shared_context_policy: String(activeTaskGraph.context_policy?.shared_context_policy ?? "explicit_refs_only"),
-      memory_sharing_policy: String(activeTaskGraph.context_policy?.memory_sharing_policy ?? "isolated_by_default"),
+      shared_context_policy: graphDraftV2.context_policy.shared_context_policy,
+      memory_sharing_policy: graphDraftV2.context_policy.memory_sharing_policy,
       handoff_policy: String(activeTaskGraph.metadata?.handoff_policy ?? "filtered_handoff"),
       conflict_resolution_policy: String(activeTaskGraph.metadata?.conflict_resolution_policy ?? "coordinator_review"),
       output_merge_policy: String(activeTaskGraph.metadata?.output_merge_policy ?? "coordinator_final_merge"),
@@ -1575,75 +1626,39 @@ export function TaskSystemView() {
     setSelectedGraphEdgeId("");
   }
 
-  function applyCoordinationGraphTemplate(template: "single_agent" | "multi_sequence" | "multi_parallel_merge") {
+  function applyCoordinationGraphTemplate(template: TaskGraphTemplateId, options: Partial<Parameters<typeof buildTaskGraphTemplateDraft>[0]> = {}) {
     const shouldReplace = !(topologyDraft.nodes?.length || topologyDraft.edges?.length)
       || window.confirm("应用图模板会替换当前未保存的拓扑草稿，确认继续吗？");
     if (!shouldReplace) return;
-    const domainFamily = graphContextFamily;
-    const makeNode = (nodeId: string, role: string, title: string) => ({
-      node_id: nodeId,
-      node_type: role === "merge" ? "merge" : "agent_role",
-      task_id: "",
-      task_title: "",
-      task_family: domainFamily,
-      agent_id: "",
-      role,
-      work_posture: role,
-      label: title,
-      title,
-    });
     const mode = coordinationDraft.communication_modes?.[0] || "structured_handoff";
-    const makeEdge = (edgeId: string, from: string, to: string, edgeType = "handoff") => ({
-      edge_id: edgeId,
-      from,
-      to,
-      source_node_id: from,
-      target_node_id: to,
-      edge_type: edgeType,
-      mode,
-      policy: mode,
-    });
     const selectedTaskForNode = graphContextTask ?? graphContextDomainTasks[0] ?? null;
-    const nodes = template === "single_agent"
-      ? [
-        makeNode("input_1", "input", "任务输入"),
-        {
-          ...makeNode("agent_1", "executor", selectedTaskForNode?.task_title || "Agent 执行节点"),
-          node_type: "subtask",
-          task_id: selectedTaskForNode?.task_id || "",
-          task_title: selectedTaskForNode?.task_title || "",
-        },
-        makeNode("output_1", "output", "最终输出"),
-      ]
-      : template === "multi_parallel_merge"
-      ? [
-        makeNode("agent_a", "executor", "Agent A"),
-        makeNode("agent_b", "reviewer", "Agent B"),
-        makeNode("merge_1", "merge", "汇总节点"),
-      ]
-      : [
-        makeNode("agent_a", "planner", "Agent A"),
-        makeNode("agent_b", "executor", "Agent B"),
-      ];
-    const edges = template === "single_agent"
-      ? [
-        makeEdge("edge_input_agent", "input_1", "agent_1", "handoff"),
-        makeEdge("edge_agent_output", "agent_1", "output_1", "finalize"),
-      ]
-      : template === "multi_parallel_merge"
-      ? [
-        makeEdge("edge_1", "agent_a", "merge_1", "parallel_join"),
-        makeEdge("edge_2", "agent_b", "merge_1", "parallel_join"),
-      ]
-      : [
-        makeEdge("edge_1", "agent_a", "agent_b", "handoff"),
-      ];
+    const templateDraft = buildTaskGraphTemplateDraft({
+      template_id: template,
+      task_family: graphContextFamily,
+      selected_task_title: selectedTaskForNode?.task_title || "",
+      communication_mode: mode,
+      ...options,
+    });
+    const nodes = templateDraft.nodes;
+    const edges = templateDraft.edges;
     setTopologyDraft((current) => ({
       ...current,
       nodes,
       edges,
       nodes_text: JSON.stringify(nodes, null, 2),
       edges_text: JSON.stringify(edges, null, 2),
+    }));
+    setCoordinationDraft((current) => ({
+      ...current,
+      coordination_mode: templateDraft.coordination_mode,
+      participant_agent_ids: templateDraft.participant_agent_ids,
+      metadata: {
+        ...(current.metadata ?? {}),
+        ...templateDraft.metadata,
+        entry_node_id: templateDraft.entry_node_id,
+        output_node_id: templateDraft.output_node_id,
+        setup_template_id: template,
+      },
     }));
     setSelectedGraphNodeId(nodes[0]?.node_id ?? "");
     setSelectedGraphEdgeId("");
@@ -1690,6 +1705,9 @@ export function TaskSystemView() {
   }
 
   function updateCoordinationNode(nodeId: string, patch: Record<string, unknown>) {
+    const nextNodesSnapshot = (topologyDraft.nodes?.length ? topologyDraft.nodes : coordinationDraft.graph_nodes ?? []).map((node) =>
+      String(node.node_id ?? "") === nodeId ? { ...node, ...patch } : node,
+    );
     setTopologyDraft((current) => {
       const nextNodes = (current.nodes ?? []).map((node) =>
         String(node.node_id ?? "") === nodeId ? { ...node, ...patch } : node,
@@ -1698,6 +1716,12 @@ export function TaskSystemView() {
         ...current,
         nodes: nextNodes,
         nodes_text: JSON.stringify(nextNodes, null, 2),
+      };
+    });
+    setCoordinationDraft((current) => {
+      return {
+        ...current,
+        graph_nodes: nextNodesSnapshot,
       };
     });
   }
@@ -1792,6 +1816,9 @@ export function TaskSystemView() {
   }
 
   function updateCoordinationEdge(edgeId: string, patch: Record<string, unknown>) {
+    const nextEdgesSnapshot = (topologyDraft.edges?.length ? topologyDraft.edges : coordinationDraft.graph_edges ?? []).map((edge, index) =>
+      graphEdgeId(edge, index) === edgeId ? { ...edge, ...patch } : edge,
+    );
     setTopologyDraft((current) => {
       const nextEdges = (current.edges ?? []).map((edge, index) =>
         graphEdgeId(edge, index) === edgeId ? { ...edge, ...patch } : edge,
@@ -1800,6 +1827,12 @@ export function TaskSystemView() {
         ...current,
         edges: nextEdges,
         edges_text: JSON.stringify(nextEdges, null, 2),
+      };
+    });
+    setCoordinationDraft((current) => {
+      return {
+        ...current,
+        graph_edges: nextEdgesSnapshot,
       };
     });
   }
@@ -2020,6 +2053,10 @@ export function TaskSystemView() {
     setCoordinationDraft((current) => ({
       ...current,
       enabled,
+      metadata: {
+        ...(current.metadata ?? {}),
+        editor_publish_state: enabled ? "published" : "draft",
+      },
     }));
     setTopologyDraft((current) => ({
       ...current,
@@ -2153,7 +2190,7 @@ export function TaskSystemView() {
     }
   }
 
-  async function saveCoordinationStack(nextPublished?: boolean) {
+  async function saveCoordinationStack(nextPublished?: boolean, nextEditorPublishState?: "draft" | "saved" | "preflight_passed" | "published" | "run_bound" | "archived") {
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
     const draftTask = taskLayer === "editor" ? editorTask : selectedTask;
     const draftDomainId = draftDomain?.domain_id || (draftTask ? taskDomainId(draftTask) : "") || coordinationDraft.domain_id || "";
@@ -2166,9 +2203,15 @@ export function TaskSystemView() {
     setError("");
     setNotice("");
     try {
+      const nextCoordinationMetadata = nextEditorPublishState
+        ? {
+          ...(coordinationDraft.metadata ?? {}),
+          editor_publish_state: nextEditorPublishState,
+        }
+        : coordinationDraft.metadata;
       const effectiveCoordinationDraft = nextPublished === undefined
-        ? coordinationDraft
-        : { ...coordinationDraft, enabled: nextPublished };
+        ? { ...coordinationDraft, metadata: nextCoordinationMetadata }
+        : { ...coordinationDraft, enabled: nextPublished, metadata: nextCoordinationMetadata };
       const effectiveTopologyDraft = nextPublished === undefined
         ? topologyDraft
         : { ...topologyDraft, enabled: nextPublished };
@@ -2177,7 +2220,6 @@ export function TaskSystemView() {
         : { ...protocolDraft, enabled: nextPublished };
       const coordinationNodes = effectiveCoordinationDraft.graph_nodes ?? [];
       const coordinationEdges = effectiveCoordinationDraft.graph_edges ?? [];
-      const subtaskRefs = coordinationSubtaskRefs(effectiveCoordinationDraft);
       const protocolPayload: TaskCommunicationProtocol = {
         ...effectiveProtocolDraft,
         message_types: a2aCatalog?.message_types?.length ? a2aCatalog.message_types : ["message/send", "message/stream", "task/status", "task/artifact"],
@@ -2209,42 +2251,37 @@ export function TaskSystemView() {
           task_id: draftTask?.task_id || "",
         },
       });
-      const payload = await upsertTaskSystemTaskGraph(effectiveCoordinationDraft.graph_id, {
-        graph_id: effectiveCoordinationDraft.graph_id,
-        title: effectiveCoordinationDraft.title,
+      const effectiveTaskGraphDraftV2 = legacyStackToTaskGraphDraftV2({
+        coordinationDraft: effectiveCoordinationDraft,
+        topologyDraft: effectiveTopologyDraft,
+        protocolDraft: effectiveProtocolDraft,
+      });
+      const taskGraphPayload = buildTaskGraphUpsertPayload({
+        taskGraphDraft: {
+          ...effectiveTaskGraphDraftV2,
+          publish_state: nextPublished === true
+            ? "published"
+            : nextPublished === false
+              ? "draft"
+              : effectiveTaskGraphDraftV2.publish_state,
+        },
+        legacyDrafts: {
+          coordinationDraft: effectiveCoordinationDraft,
+          topologyDraft: effectiveTopologyDraft,
+          protocolDraft: effectiveProtocolDraft,
+        },
         domain_id: draftDomainId,
         task_family: draftFamily,
-        graph_kind: activeGraphNodes.length <= 1 ? "single_agent" : "multi_agent",
-        entry_node_id: String((effectiveCoordinationDraft.graph_nodes ?? [])[0]?.node_id ?? ""),
-        output_node_id: String((effectiveCoordinationDraft.graph_nodes ?? []).slice(-1)[0]?.node_id ?? ""),
-        nodes: (effectiveCoordinationDraft.graph_nodes ?? []) as TaskGraphRecord["nodes"],
-        edges: (effectiveCoordinationDraft.graph_edges ?? []) as TaskGraphRecord["edges"],
-        graph_contract_id: "",
-        default_protocol_id: protocolPayload.protocol_id,
-        runtime_policy: {
-          coordination_mode: effectiveCoordinationDraft.coordination_mode,
-          agent_group_id: effectiveCoordinationDraft.agent_group_id,
-        },
-        context_policy: {
-          shared_context_policy: effectiveCoordinationDraft.shared_context_policy,
-          memory_sharing_policy: effectiveCoordinationDraft.memory_sharing_policy,
-        },
-        publish_state: nextPublished === true ? "published" : "draft",
-        enabled: nextPublished === true,
-        metadata: {
-          ...(effectiveCoordinationDraft.metadata ?? {}),
-          protocol_id: protocolPayload.protocol_id,
-          topology_template_id: effectiveTopologyDraft.template_id,
-          task_family: draftFamily,
-          domain_id: draftDomainId,
-          task_id: draftTask?.task_id || "",
-          handoff_policy: effectiveCoordinationDraft.handoff_policy,
-          conflict_resolution_policy: effectiveCoordinationDraft.conflict_resolution_policy,
-          output_merge_policy: effectiveCoordinationDraft.output_merge_policy,
-          business_communication_modes: effectiveCoordinationDraft.communication_modes ?? [],
-          subtask_refs: subtaskRefs,
-        },
+        task_id: draftTask?.task_id || "",
+        publish_state: nextPublished === true
+          ? "published"
+          : nextPublished === false
+            ? "draft"
+            : effectiveTaskGraphDraftV2.publish_state === "published" || effectiveTaskGraphDraftV2.publish_state === "run_bound"
+              ? "published"
+              : "draft",
       });
+      const payload = await upsertTaskSystemTaskGraph(effectiveCoordinationDraft.graph_id, taskGraphPayload);
       setCoordinationDraft(effectiveCoordinationDraft);
       setTopologyDraft(effectiveTopologyDraft);
       setProtocolDraft(effectiveProtocolDraft);
@@ -2309,6 +2346,11 @@ export function TaskSystemView() {
   const activeGraphNodes = topologyDraft.nodes ?? [];
   const activeGraphEdges = topologyDraft.edges ?? [];
   const taskGraphDraft = buildTaskGraphDraft({
+    coordinationDraft,
+    topologyDraft,
+    protocolDraft,
+  });
+  const taskGraphDraftV2 = legacyStackToTaskGraphDraftV2({
     coordinationDraft,
     topologyDraft,
     protocolDraft,
@@ -2470,7 +2512,14 @@ export function TaskSystemView() {
           <button
             className={taskLayer === item.value ? "task-system-page-tab task-system-page-tab--active" : "task-system-page-tab"}
             key={item.value}
-            onClick={() => item.value === "management" ? enterManagementLayer() : setTaskLayer("editor")}
+            onClick={() => {
+              void load();
+              if (item.value === "management") {
+                enterManagementLayer();
+                return;
+              }
+              setTaskLayer("editor");
+            }}
             type="button"
           >
             <span>{item.label}</span>
@@ -2497,6 +2546,7 @@ export function TaskSystemView() {
             </div>
           </div>
           {loading ? <div className="boundary-empty"><Loader2 className="spin" size={16} />加载中</div> : null}
+          {!loading && projectionLoading ? <div className="boundary-empty">投影卡片加载中，任务系统已可用</div> : null}
           {visibleDomains.map((domain) => {
             const active = domain.domain_id === selectedDomainId;
             return (
@@ -2849,16 +2899,12 @@ export function TaskSystemView() {
                 </select>
               </label>
             </div>
-            <div className="task-graph-editor-chrome__status">
-              <span className={topologyDirty ? "boundary-status boundary-status--warn" : "boundary-status"}>{topologyDirty ? "拓扑未保存" : "拓扑已同步"}</span>
-              <span className={editorValid ? "boundary-status boundary-status--ok" : "boundary-status boundary-status--danger"}>{editorValid ? "图校验通过" : `图校验未通过 ${editorIssueCount}`}</span>
-              <span className={editorPublished ? "boundary-status boundary-status--ok" : "boundary-status"}>{editorPublished ? "已发布" : "草稿"}</span>
+            <div className="task-graph-editor-chrome__status task-graph-editor-chrome__status--context">
+              <span className={topologyDirty ? "boundary-status boundary-status--warn" : "boundary-status"}>{topologyDirty ? "拓扑未同步" : "拓扑已同步"}</span>
+              <span className="boundary-status">图编辑动作请在 Studio 顶栏执行</span>
             </div>
-            <div className="task-graph-editor-chrome__actions">
+            <div className="task-graph-editor-chrome__actions task-graph-editor-chrome__actions--minimal">
               <ToolbarButton disabled={saving === "coordination-create"} onClick={() => void createCoordinationDraft()}><Network size={15} />新图草稿</ToolbarButton>
-              <ToolbarButton onClick={saveTopologyDraftIntoCoordination}><Save size={15} />同步拓扑</ToolbarButton>
-              <ToolbarButton disabled={saving === "coordination"} onClick={() => { void saveCoordinationStack(false); }}><Save size={15} />保存</ToolbarButton>
-              <ToolbarButton onClick={() => sendTaskGraphToChat(editorSelectedTaskGraph, editorDomain)}>带入会话</ToolbarButton>
             </div>
           </section>
 
@@ -2911,6 +2957,7 @@ export function TaskSystemView() {
             setTopologyDraft={setTopologyDraft}
             taskGraphDirty={topologyDirty}
             taskGraphDraft={taskGraphDraft}
+            taskGraphDraftV2={taskGraphDraftV2}
             updateTaskGraphEdge={updateCoordinationEdge}
             updateTaskGraphNode={updateCoordinationNode}
             projectionCards={domainProjectionCards}

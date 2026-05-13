@@ -1,3 +1,29 @@
 {
-  "communication_protocols": []
+  "communication_protocols": [
+    {
+      "protocol_id": "protocol.000001",
+      "title": "收尾验证协议",
+      "message_types": [
+        "message/send",
+        "task/status"
+      ],
+      "payload_contracts": [
+        "contract.intake.writer",
+        "contract.writer.review"
+      ],
+      "signal_rules": [],
+      "handoff_rules": [],
+      "ack_policy": "explicit_ack",
+      "timeout_policy": "fail_closed",
+      "error_signal_policy": "raise_to_coordinator",
+      "enabled": true,
+      "metadata": {
+        "task_family": "general",
+        "task_id": "task.000001",
+        "domain_id": "domain.general",
+        "managed_by": "codex_smoke"
+      },
+      "authority": "task_system.task_communication_protocol"
+    }
+  ]
 }
