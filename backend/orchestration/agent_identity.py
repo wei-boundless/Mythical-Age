@@ -23,12 +23,18 @@ CANONICAL_AGENT_ID_BY_ALIAS = {
     "builtin-table-analyzer": "agent:table_analyst",
     "builtin-structured-data-agent": "agent:table_analyst",
     "builtin-table-analyst": "agent:table_analyst",
+    "agent.web_researcher": "agent:web_researcher",
+    "agent.web_research": "agent:web_researcher",
+    "builtin-web-researcher": "agent:web_researcher",
+    "builtin-web-agent": "agent:web_researcher",
+    "builtin-web-search-agent": "agent:web_researcher",
 }
 
 WORKER_AGENT_ALIASES = {
     "agent:rag_analyst": ("agent:6", "agent.rag_retriever", "agent.rag_analyst", "builtin-rag-reader", "builtin-rag-agent", "builtin-rag-analyst"),
     "agent:pdf_reader": ("agent:7", "agent.pdf_analyst", "agent.pdf_reader", "builtin-pdf-reader", "builtin-pdf-agent", "builtin-pdf-analyst"),
     "agent:table_analyst": ("agent:8", "agent.table_analyst", "builtin-table-analyzer", "builtin-structured-data-agent", "builtin-table-analyst"),
+    "agent:web_researcher": ("agent.web_researcher", "agent.web_research", "builtin-web-researcher", "builtin-web-agent", "builtin-web-search-agent"),
 }
 
 

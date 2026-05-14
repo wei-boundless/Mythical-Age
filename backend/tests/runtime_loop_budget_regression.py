@@ -90,6 +90,33 @@ def test_budget_counter_ignores_missing_handle_repair_retry() -> None:
     assert _delegation_request_counts_against_budget(previous, current_request=current, result=result) is False
 
 
+def test_budget_counter_ignores_missing_handle_repair_retry_with_file_paths() -> None:
+    previous = _request(
+        "req-1",
+        instruction="读取两份 PDF。",
+        goal_alignment="aligned",
+    )
+    current = _request(
+        "req-2",
+        instruction="读取两份 PDF。",
+        goal_alignment="aligned",
+        input_payload={"file_paths": ["knowledge/AI Knowledge/report.pdf"]},
+    )
+    result = AgentDelegationResult(
+        result_id="delegation:result:req-1",
+        request_id="req-1",
+        task_run_id="taskrun-1",
+        parent_agent_run_ref="agrun:main",
+        child_agent_run_ref="agrun:child",
+        target_agent_id="agent:pdf_reader",
+        status="failed",
+        summary="需要先确认要阅读的 PDF 文件。",
+        limitations=("missing_object_handle",),
+    )
+
+    assert _delegation_request_counts_against_budget(previous, current_request=current, result=result) is False
+
+
 def test_stale_runtime_summary_filters_limit_language() -> None:
     assert _is_stale_runtime_operational_summary("委派被限流，无法读取 PDF 第二部分的具体内容。")
     assert _is_stale_runtime_operational_summary("本轮运行预算达到上限，所以先停止继续调用工具。")

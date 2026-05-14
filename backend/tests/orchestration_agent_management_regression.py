@@ -29,6 +29,7 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
         "agent:rag_analyst",
         "agent:pdf_reader",
         "agent:table_analyst",
+        "agent:web_researcher",
     }
     builtin_agents = [item for item in agents if item.agent_id in builtin_ids]
 
@@ -41,7 +42,7 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
     assert builtin_ids.issubset(profile_by_agent)
     assert all(profile_by_agent[agent_id].lifecycle_policy == "system_builtin" for agent_id in builtin_ids)
     assert profile_by_agent["agent:0"].can_delegate_to_agents is True
-    assert profile_by_agent["agent:0"].allowed_delegate_agent_ids == ("agent:rag_analyst", "agent:pdf_reader", "agent:table_analyst")
+    assert profile_by_agent["agent:0"].allowed_delegate_agent_ids == ("agent:rag_analyst", "agent:pdf_reader", "agent:table_analyst", "agent:web_researcher")
     assert "op.delegate_to_agent" in profile_by_agent["agent:0"].allowed_operations
     assert profile_by_agent["agent:rag_analyst"].allowed_operations == ("op.model_response", "op.mcp_retrieval", "op.memory_read")
     assert profile_by_agent["agent:rag_analyst"].can_delegate_to_agents is False
@@ -60,15 +61,20 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
         "op.read_file",
     )
     assert profile_by_agent["agent:table_analyst"].can_delegate_to_agents is False
+    assert profile_by_agent["agent:web_researcher"].allowed_operations == ("op.model_response", "op.web_search", "op.fetch_url")
+    assert profile_by_agent["agent:web_researcher"].can_delegate_to_agents is False
 
 
 def test_builtin_specialist_agent_aliases_resolve_to_registered_ids():
     assert normalize_agent_id("agent.rag_retriever") == "agent:rag_analyst"
     assert normalize_agent_id("agent.pdf_analyst") == "agent:pdf_reader"
     assert normalize_agent_id("agent.table_analyst") == "agent:table_analyst"
+    assert normalize_agent_id("agent.web_researcher") == "agent:web_researcher"
+    assert normalize_agent_id("agent:9") == "agent:9"
     assert "agent.rag_retriever" in agent_id_aliases("agent:rag_analyst")
     assert "agent.pdf_analyst" in agent_id_aliases("agent:pdf_reader")
     assert "agent.table_analyst" in agent_id_aliases("agent:table_analyst")
+    assert "builtin-web-researcher" in agent_id_aliases("agent:web_researcher")
 
 
 def test_builtin_agent_upsert_and_runtime_profile_updates_follow_regular_management(tmp_path):

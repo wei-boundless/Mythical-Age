@@ -164,12 +164,19 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
             task_family="search",
             task_mode="information_search",
             output_schema={"final_answer": {"type": "string", "required": True}},
-            required_operations=("op.model_response", "op.web_search", "op.fetch_url"),
+            required_operations=("op.model_response",),
             step_blueprints=(
                 _step("search_information", "搜索信息", "execute", required_operations=("op.web_search",)),
                 _step("summarize_sources", "汇总来源", "finalize"),
             ),
-            metadata={"workflow_id": "workflow.general.main_conversation"},
+            metadata={
+                "workflow_id": "workflow.general.main_conversation",
+                "execution_strategy": "delegate_preferred",
+                "delegate_target_agent_id": "agent:web_researcher",
+                "delegate_target_agent_category": "worker_sub_agent",
+                "delegation_kind": "web_research",
+                "fallback_operation": "op.web_search",
+            },
         ),
         TaskTemplate(
             template_id="template.memory.recall_answer",

@@ -69,6 +69,33 @@ def test_delegation_executor_blocks_when_parent_cannot_delegate(tmp_path) -> Non
     assert "parent_delegation_not_authorized" in result["blocked_reasons"]
 
 
+def test_delegation_executor_blocks_target_disabled_by_search_policy(tmp_path) -> None:
+    executor = AgentDelegationExecutor(tmp_path)
+    request = AgentDelegationRequest(
+        request_id="delegation:req:search-policy",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref="agrun:taskrun:test:main",
+        source_agent_id="agent:0",
+        target_agent_id="agent:web_researcher",
+        delegation_kind="web_research",
+        instruction="请联网核验最新资料。",
+        input_payload={"question": "test"},
+        diagnostics={"allowed_search_sources": ["rag", "local_files"]},
+    )
+    parent_run = AgentRun(
+        agent_run_id="agrun:taskrun:test:main",
+        task_run_id="taskrun:test",
+        agent_id="agent:0",
+        agent_profile_id="main_interactive_agent",
+        status="running",
+    )
+
+    result = executor.validate_request(request, parent_agent_run=parent_run)
+
+    assert "target_agent_blocked_by_search_policy" in result["blocked_reasons"]
+
+
 def test_delegation_executor_blocks_nested_delegation(tmp_path) -> None:
     executor = AgentDelegationExecutor(tmp_path)
     request = AgentDelegationRequest(
@@ -137,6 +164,37 @@ def test_delegation_executor_resolves_builtin_alias_and_kind_to_registered_worke
 
     assert normalized_by_alias.target_agent_id == "agent:table_analyst"
     assert normalized_by_alias.diagnostics["resolved_target_agent_id"] == "agent:table_analyst"
+
+    by_web_kind = AgentDelegationRequest(
+        request_id="delegation:req:web-kind",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref=parent_run.agent_run_id,
+        source_agent_id="agent:0",
+        target_agent_id="",
+        delegation_kind="web_research",
+        instruction="请检索公开网页来源。",
+        input_payload={"query": "official release notes"},
+    )
+    normalized_by_web_kind = executor._normalize_request_target(by_web_kind, parent_agent_run=parent_run)
+
+    assert normalized_by_web_kind.target_agent_id == "agent:web_researcher"
+    assert normalized_by_web_kind.diagnostics["resolved_target_agent_id"] == "agent:web_researcher"
+
+    by_web_alias = AgentDelegationRequest(
+        request_id="delegation:req:web-alias",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref=parent_run.agent_run_id,
+        source_agent_id="agent:0",
+        target_agent_id="builtin-web-researcher",
+        delegation_kind="",
+        instruction="请检索公开网页来源。",
+        input_payload={"query": "official release notes"},
+    )
+    normalized_by_web_alias = executor._normalize_request_target(by_web_alias, parent_agent_run=parent_run)
+
+    assert normalized_by_web_alias.target_agent_id == "agent:web_researcher"
 
 
 def test_delegation_executor_runs_child_agent_through_profile_authorized_specialist_path(tmp_path) -> None:

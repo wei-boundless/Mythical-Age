@@ -627,17 +627,21 @@ def _collect_task_signals(
     workspace_search_request = _looks_like_workspace_search_request(lowered)
     business_dataset_request = _looks_like_business_dataset_request(lowered)
     faq_shape = _looks_like_faq_problem(lowered)
-    external_requirement = bool(explicit_urls) or _contains_any(
-        lowered,
-        ("联网", "官网", "官方文档", "official docs", "web search", "上网", "网上查", "look it up", "news"),
-    )
     official_source_requirement = bool(explicit_urls) or _contains_any(
         lowered,
-        ("官网", "官方文档", "official docs", "official"),
+        ("官网", "官方", "官方文档", "权威来源", "一手来源", "official docs", "official"),
+    )
+    official_external_context = official_source_requirement and _contains_any(
+        lowered,
+        ("公告", "发布", "更新", "来源", "时间", "最近", "近期", "最新", "recent", "release", "update"),
+    )
+    external_requirement = bool(explicit_urls) or official_external_context or _contains_any(
+        lowered,
+        ("联网", "官网", "官方文档", "web search", "上网", "网上查", "look it up", "news"),
     )
     freshness_requirement = _contains_any(
         lowered,
-        ("今年", "现在", "目前", "还在", "最新", "最新状态", "实时", "today", "latest", "current", "currently", "recent"),
+        ("今年", "现在", "目前", "还在", "最新", "最新状态", "实时", "最近", "近期", "today", "latest", "current", "currently", "recent"),
     )
     weather_domain = _contains_any(
         lowered,

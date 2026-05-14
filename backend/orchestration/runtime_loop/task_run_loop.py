@@ -13,6 +13,11 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from capability_system import build_default_operation_registry
 from capability_system.local_mcp_registry import get_local_mcp_unit, get_local_mcp_unit_for_template
+from capability_system.search_policy import (
+    normalize_search_policy,
+    operation_allowed_by_search_policy,
+    tool_allowed_by_search_policy,
+)
 from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration.resource_gate import OperationGate, OperationGatePipelineContext
@@ -620,16 +625,21 @@ class TaskRunLoop:
         tool_runtime_executor: Any | None = None,
         tool_instances: list[Any] | None = None,
         agent_runtime_profile: Any | None = None,
+        search_policy: list[str] | None = None,
     ):
         """Run the current single-agent lane inside the TaskRunLoop trace spine."""
 
+        allowed_search_sources = normalize_search_policy(search_policy)
         chain_runtime = agent_runtime_chain.build_runtime(
             session_id=session_id,
             task_id=task_id,
             turn_id=str(dict(task_selection or {}).get("turn_id") or ""),
             message=user_message,
             source=source,
-            task_selection=dict(task_selection or {}),
+            task_selection={
+                **dict(task_selection or {}),
+                "search_policy": sorted(allowed_search_sources),
+            },
             agent_runtime_profile=agent_runtime_profile,
         )
         task_operation = dict(chain_runtime.get("task_operation") or {})
@@ -680,9 +690,22 @@ class TaskRunLoop:
             handoff_policy=str(graph_payload.get("handoff_policy") or ""),
             failure_policy=str(graph_payload.get("conflict_resolution_policy") or ""),
             merge_policy=str(graph_payload.get("output_merge_policy") or ""),
-            diagnostics={"runtime_channel": "single_agent_runtime"},
+            diagnostics={
+                "runtime_channel": "single_agent_runtime",
+                "search_policy": list(search_policy) if search_policy is not None else None,
+                "allowed_search_sources": sorted(allowed_search_sources),
+            },
         )
         state = start.loop_state
+        search_policy_event = self.event_log.append(
+            state.task_run_id,
+            "search_policy_resolved",
+            payload={
+                "search_policy": list(search_policy) if search_policy is not None else None,
+                "allowed_sources": sorted(allowed_search_sources),
+            },
+        )
+        yield {"type": "runtime_loop_event", "event": search_policy_event.to_dict()}
         yield {
             "type": "runtime_loop_started",
             "task_run": start.task_run.to_dict(),
@@ -873,6 +896,7 @@ class TaskRunLoop:
             query_understanding=query_understanding,
             selected_template_payload=selected_template_payload,
             task_operation=task_operation,
+            allowed_search_sources=allowed_search_sources,
         ):
             mcp_outcome = await self._run_template_mcp_phase(
                 task_run_id=state.task_run_id,
@@ -885,6 +909,7 @@ class TaskRunLoop:
                 task_contract_ref=task_contract_ref,
                 runtime_task_ledger=runtime_task_ledger,
                 state=state,
+                allowed_search_sources=allowed_search_sources,
             )
             runtime_task_ledger = mcp_outcome["ledger"]
             state = mcp_outcome["state"]
@@ -1123,7 +1148,11 @@ class TaskRunLoop:
             root_dir=self.root_dir,
             safety_envelope=task_safety_envelope,
         )
-        runtime_tool_instances = self._tool_instances_for_resource_policy(tool_instances, resource_policy)
+        runtime_tool_instances = self._tool_instances_for_resource_policy(
+            tool_instances,
+            resource_policy,
+            allowed_search_sources=allowed_search_sources,
+        )
         directive_event = self.event_log.append(
             state.task_run_id,
             "runtime_directive_issued",
@@ -1312,6 +1341,7 @@ class TaskRunLoop:
                     model_response_executor=model_response_executor,
                     tool_runtime_executor=tool_runtime_executor,
                     event=event,
+                    allowed_search_sources=allowed_search_sources,
                 )
                 for runtime_event in runtime_events:
                     if runtime_event.event_type == "tool_call_requested":
@@ -1690,6 +1720,7 @@ class TaskRunLoop:
                     model_response_executor=model_response_executor,
                     tool_runtime_executor=tool_runtime_executor,
                     event=event,
+                    allowed_search_sources=allowed_search_sources,
                 )
                 for runtime_event in runtime_events:
                     if runtime_event.event_type == "executor_observation_received":
@@ -2083,6 +2114,7 @@ class TaskRunLoop:
                         model_response_executor=model_response_executor,
                         tool_runtime_executor=tool_runtime_executor,
                         event=event,
+                        allowed_search_sources=allowed_search_sources,
                     )
                     for runtime_event in runtime_events:
                         if runtime_event.event_type == "executor_observation_received":
@@ -4519,9 +4551,16 @@ class TaskRunLoop:
             return record, events, "deny_auto_replay"
         return record, events, "dispatch"
 
-    def _tool_instances_for_resource_policy(self, tool_instances: list[Any] | None, resource_policy: Any) -> list[Any]:
+    def _tool_instances_for_resource_policy(
+        self,
+        tool_instances: list[Any] | None,
+        resource_policy: Any,
+        *,
+        allowed_search_sources: set[str] | None = None,
+    ) -> list[Any]:
         from capability_system.tool_authorization import build_authorized_tool_set
 
+        allowed_sources = allowed_search_sources if allowed_search_sources is not None else normalize_search_policy(None)
         allowed_operations = {
             self.operation_gate.registry.normalize_id(operation_id)
             for operation_id in [
@@ -4535,7 +4574,14 @@ class TaskRunLoop:
             allowed_operations=allowed_operations,
             runtime_lane="main_runtime",
         )
-        return list(authorized.instances)
+        filtered: list[Any] = []
+        for tool in list(authorized.instances):
+            tool_name = str(getattr(tool, "name", "") or "").strip()
+            definition = self.tool_authorization_index.definitions_by_name.get(tool_name)
+            if definition is not None and not tool_allowed_by_search_policy(definition, allowed_sources):
+                continue
+            filtered.append(tool)
+        return filtered
 
     def _should_run_template_mcp_phase(
         self,
@@ -4543,6 +4589,7 @@ class TaskRunLoop:
         query_understanding: dict[str, Any],
         selected_template_payload: dict[str, Any],
         task_operation: dict[str, Any],
+        allowed_search_sources: set[str],
     ) -> bool:
         operation_requirement = dict(task_operation.get("operation_requirement") or {})
         resolution = dict(dict(operation_requirement.get("metadata") or {}).get("runtime_operation_resolution") or {})
@@ -4550,10 +4597,18 @@ class TaskRunLoop:
             return False
         template_id = str(selected_template_payload.get("template_id") or "").strip()
         if get_local_mcp_unit_for_template(template_id) is not None:
-            return True
+            unit = get_local_mcp_unit_for_template(template_id)
+            return operation_allowed_by_search_policy(
+                str(getattr(unit, "operation_id", "") or ""),
+                allowed_search_sources,
+            )
         source_kind = str(query_understanding.get("source_kind") or "").strip()
         resolution = capability_resolution_view(query_understanding)
-        return resolution.preferred_skill == "rag-skill" and source_kind == "knowledge_base"
+        return (
+            resolution.preferred_skill == "rag-skill"
+            and source_kind == "knowledge_base"
+            and operation_allowed_by_search_policy("op.mcp_retrieval", allowed_search_sources)
+        )
 
     def _rebuild_context_policy_with_retrieval(
         self,
@@ -4592,6 +4647,7 @@ class TaskRunLoop:
         task_contract_ref: str,
         runtime_task_ledger: TaskRunLedger | None,
         state: RuntimeLoopState,
+        allowed_search_sources: set[str],
     ) -> dict[str, Any]:
         events: list[dict[str, Any]] = []
         result_refs: list[str] = []
@@ -4615,6 +4671,27 @@ class TaskRunLoop:
             query_understanding=query_understanding,
             selected_template_payload=selected_template_payload,
         )
+        if not operation_allowed_by_search_policy(operation_id, allowed_search_sources):
+            blocked_event = self.event_log.append(
+                task_run_id,
+                "template_mcp_blocked_by_search_policy",
+                payload={
+                    "mcp_route": mcp_route,
+                    "operation_id": operation_id,
+                    "allowed_sources": sorted(allowed_search_sources),
+                },
+                refs={"task_contract_ref": task_contract_ref, "operation_id": operation_id},
+            )
+            events.append({"type": "runtime_loop_event", "event": blocked_event.to_dict()})
+            return {
+                "events": events,
+                "ledger": runtime_task_ledger,
+                "state": state,
+                "result_refs": result_refs,
+                "main_context": main_context,
+                "task_summary_refs": task_summary_refs,
+                "retrieval_results": retrieval_results,
+            }
         retrieval_event = self.event_log.append(
             task_run_id,
             "executor_started",
@@ -4814,6 +4891,7 @@ class TaskRunLoop:
         parent_agent_run_ref: str,
         source_agent_id: str,
         user_message: str,
+        allowed_search_sources: set[str] | None = None,
     ) -> AgentDelegationRequest:
         tool_call = dict(action_request.payload.get("tool_call") or {})
         tool_args = dict(tool_call.get("args") or {})
@@ -4823,6 +4901,7 @@ class TaskRunLoop:
         diagnostics = {
             "tool_call_id": str(tool_call.get("id") or ""),
             "operation_id": str(action_request.operation_id or ""),
+            "allowed_search_sources": sorted(allowed_search_sources or normalize_search_policy(None)),
             "goal_alignment": _classify_delegation_goal_alignment(
                 user_message=user_message,
                 instruction=instruction,
@@ -4860,6 +4939,7 @@ class TaskRunLoop:
         model_response_executor: Any,
         tool_runtime_executor: Any | None,
         event: dict[str, Any],
+        allowed_search_sources: set[str] | None = None,
     ):
         event_type = str(event.get("type") or "")
         if event_type == "runtime_directive":
@@ -4927,6 +5007,53 @@ class TaskRunLoop:
                     definitions_by_name=self.tool_authorization_index.definitions_by_name,
                 )
             )
+            allowed_sources = allowed_search_sources if allowed_search_sources is not None else normalize_search_policy(None)
+            if not operation_allowed_by_search_policy(operation_id, allowed_sources):
+                tool_call = dict(action_request.payload.get("tool_call") or {})
+                tool_name = str(action_request.payload.get("tool_name") or "")
+                blocked_observation = build_tool_result_observation(
+                    task_run_id=task_run_id,
+                    request_ref=action_request.request_id,
+                    directive_ref=action_request.directive_ref,
+                    tool_name=tool_name,
+                    tool_call_id=str(tool_call.get("id") or action_request.request_id),
+                    tool_args=dict(tool_call.get("args") or {}),
+                    result="工具调用被本轮权限开关阻止：当前来源未授权。",
+                )
+                context_record = runtime_context_manager.record_observation(blocked_observation)
+                return [
+                    requested_event,
+                    self.event_log.append(
+                        task_run_id,
+                        "tool_call_blocked_by_search_policy",
+                        payload={
+                            "operation_id": operation_id,
+                            "tool_name": tool_name,
+                            "allowed_sources": sorted(allowed_sources),
+                            "observation": blocked_observation.to_dict(),
+                            "context_record": context_record.to_dict(),
+                        },
+                        refs={
+                            "action_request_ref": action_request.request_id,
+                            "operation_id": operation_id,
+                            "observation_ref": blocked_observation.observation_id,
+                        },
+                    ),
+                    self.event_log.append(
+                        task_run_id,
+                        "executor_observation_received",
+                        payload={
+                            "observation": blocked_observation.to_dict(),
+                            "context_record": context_record.to_dict(),
+                            "source": blocked_observation.source,
+                            "content_chars": blocked_observation.content_chars,
+                        },
+                        refs={
+                            "action_request_ref": action_request.request_id,
+                            "observation_ref": blocked_observation.observation_id,
+                        },
+                    ),
+                ]
             descriptor = self.operation_gate.registry.get_operation(operation_id)
             tool_directive, tool_policy = build_tool_request_runtime_adoption(
                 action_request=action_request,
@@ -5025,6 +5152,7 @@ class TaskRunLoop:
                         parent_agent_run_ref=parent_agent_run.agent_run_id,
                         source_agent_id=parent_agent_run.agent_id,
                         user_message=user_message,
+                        allowed_search_sources=allowed_search_sources,
                     )
                     delegated = await self._delegation_executor().execute(
                         request=delegation_request,

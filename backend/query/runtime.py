@@ -183,6 +183,7 @@ class QueryRuntime:
                     tool_runtime_executor=self.tool_runtime_executor,
                     tool_instances=self._all_tool_instances(),
                     agent_runtime_profile=agent_runtime_profile,
+                    search_policy=list(request.search_policy) if request.search_policy is not None else None,
                 ):
                     yield event
         except Exception as exc:
@@ -211,7 +212,12 @@ class QueryRuntime:
                 }
             )
         async for event in self.astream(
-            QueryRequest(session_id=session_id, message=message, history=history)
+            QueryRequest(
+                session_id=session_id,
+                message=message,
+                history=history,
+                search_policy=list(search_policy) if search_policy is not None else None,
+            )
         ):
             yield event
 

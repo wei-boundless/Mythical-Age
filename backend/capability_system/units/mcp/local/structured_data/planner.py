@@ -138,10 +138,6 @@ class StructuredDataPlanner:
             return str(semantic_hints["analysis_type_hint"])
         wants_location_breakdown = self._wants_location_breakdown(lowered, df)
 
-        if any(token in lowered for token in ("列名", "字段", "结构", "schema", "columns", "表头")):
-            return "schema_preview"
-        if any(token in lowered for token in ("总数", "总行数", "多少行", "行数", "多少条", "几条", "多少人", "多少商品", "row count")):
-            return "row_count"
         if state_kind == "non_shortage" and wants_location_breakdown and self._looks_like_complete_non_shortage_query(lowered):
             return "inventory_no_gap_groups"
         if state_kind == "non_shortage" and wants_location_breakdown:
@@ -152,6 +148,10 @@ class StructuredDataPlanner:
             return "top_n"
         if state_kind == "shortage":
             return "inventory_shortage"
+        if any(token in lowered for token in ("列名", "字段", "结构", "schema", "columns", "表头")):
+            return "schema_preview"
+        if any(token in lowered for token in ("总数", "总行数", "多少行", "行数", "多少条", "几条", "多少人", "多少商品", "row count")):
+            return "row_count"
         if any(token in lowered for token in ("前三", "前五", "前十", "top 3", "top3", "top 5", "top5", "top 10", "top10", "排名", "排行")):
             return "top_n"
         if any(token in lowered for token in ("最高", "最大", "最低", "最小", "谁", "哪个")):

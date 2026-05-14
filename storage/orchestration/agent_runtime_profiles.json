@@ -63,7 +63,8 @@
       "allowed_delegate_agent_ids": [
         "agent:rag_analyst",
         "agent:pdf_reader",
-        "agent:table_analyst"
+        "agent:table_analyst",
+        "agent:web_researcher"
       ],
       "allowed_delegate_agent_categories": [
         "worker_sub_agent"
@@ -490,6 +491,69 @@
         "worker_kind": "structured_data_analysis",
         "delegation_kind": "table_analysis",
         "legacy_agent_id": "agent:8"
+      }
+    },
+    {
+      "agent_profile_id": "web_research_agent",
+      "agent_id": "agent:web_researcher",
+      "allowed_task_modes": [
+        "web_research",
+        "information_search",
+        "current_information_lookup",
+        "evidence_lookup"
+      ],
+      "allowed_runtime_lanes": [
+        "web_research_delegate",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "tool",
+        "runtime_contracts",
+        "artifact_refs"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "WebEvidenceResearchResult",
+        "ExternalSourceEvidenceSummary"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "metadata": {
+        "worker_kind": "web_research",
+        "delegation_kind": "web_research",
+        "delegation_kinds": [
+          "web_research",
+          "external_web_lookup",
+          "current_information_lookup",
+          "official_source_lookup"
+        ]
       }
     }
   ]

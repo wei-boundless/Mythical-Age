@@ -7,10 +7,12 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from capability_system.search_policy import agent_allowed_by_search_policy, normalize_search_policy
 from execution.model_runtime import stringify_content
 from orchestration.agent_identity import normalize_agent_id
 from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from soul.projection_store import get_projection_card
 
 from .child_agent_runtime_executor import ChildAgentRuntimeExecutor
 from .delegation_graph_adapter import DelegationGraphAdapter
@@ -183,6 +185,13 @@ class AgentDelegationExecutor:
 
     def validate_request(self, request: AgentDelegationRequest, *, parent_agent_run: AgentRun) -> dict[str, Any]:
         reasons: list[str] = []
+        allowed_search_sources = normalize_search_policy(
+            list(dict(request.diagnostics or {}).get("allowed_search_sources") or [])
+            if "allowed_search_sources" in dict(request.diagnostics or {})
+            else None
+        )
+        if not agent_allowed_by_search_policy(request.target_agent_id, allowed_search_sources):
+            reasons.append("target_agent_blocked_by_search_policy")
         parent_profile = self.runtime_registry.get_profile(parent_agent_run.agent_id)
         if parent_profile is None:
             reasons.append("parent_runtime_profile_missing")
@@ -332,12 +341,14 @@ class AgentDelegationExecutor:
     def build_child_runtime_context(self, request: AgentDelegationRequest, *, child_agent_run: AgentRun) -> dict[str, Any]:
         profile = self.runtime_registry.get_profile(request.target_agent_id)
         agent = self.agent_registry.get_agent(request.target_agent_id)
+        projection_card = _child_projection_card(self.root_dir, agent)
         return {
             "request": request.to_dict(),
             "agent_run": child_agent_run.to_dict(),
             "agent": agent.to_dict() if agent is not None else {},
             "runtime_profile": profile.to_dict() if profile is not None else {},
-            "system_prompt": _child_system_prompt(agent, profile),
+            "projection_card": projection_card,
+            "system_prompt": _child_system_prompt(agent, profile, projection_card=projection_card),
             "user_message": _child_user_message(request),
         }
 
@@ -402,6 +413,12 @@ class AgentDelegationExecutor:
             if reason not in limitations and normalized_status in {"failed", "invalid_output"}:
                 limitations.append(str(reason))
         diagnostics = dict(child_payload.get("diagnostics") or {})
+        evidence_packet = dict(diagnostics.get("agent_evidence_packet") or {})
+        if evidence_packet:
+            diagnostics["agent_evidence_shadow_readiness"] = _agent_evidence_shadow_readiness(
+                packet=evidence_packet,
+                summary=summary,
+            )
         diagnostics["quality_gate"] = quality
         return AgentDelegationResult(
             result_id=f"delegation:result:{request.request_id.split(':')[-1]}",
@@ -517,20 +534,48 @@ class AgentDelegationExecutor:
         return events
 
 
-def _child_system_prompt(agent: Any | None, profile: Any | None) -> str:
+def _child_projection_card(root_dir: Path, agent: Any | None) -> dict[str, Any]:
+    projection_id = str(getattr(agent, "default_projection_id", "") or "").strip()
+    if not projection_id:
+        return {}
+    return dict(get_projection_card(_soul_base_dir(root_dir), projection_id) or {})
+
+
+def _soul_base_dir(root_dir: Path) -> Path:
+    resolved = Path(root_dir)
+    if (resolved / "soul" / "projections").exists():
+        return resolved
+    if (resolved / "backend" / "soul" / "projections").exists():
+        return resolved / "backend"
+    return resolved
+
+
+def _child_system_prompt(agent: Any | None, profile: Any | None, *, projection_card: dict[str, Any] | None = None) -> str:
     description = str(getattr(agent, "description", "") or "").strip()
     operations = ", ".join(str(item) for item in tuple(getattr(profile, "allowed_operations", ()) or ()))
-    return "\n".join(
+    projection = dict(projection_card or {})
+    identity_anchor = str(projection.get("identity_anchor") or "").strip()
+    projection_prompt = str(projection.get("projection_prompt") or "").strip()
+    lines: list[str] = []
+    if identity_anchor:
+        lines.append(identity_anchor)
+    else:
+        lines.append(description or "你是一名受限子 Agent，只负责完成委派给你的边界化任务。")
+    if projection_prompt:
+        lines.append(projection_prompt)
+    lines.extend(
         [
-            description or "你是一名受限子 Agent，只负责完成委派给你的边界化任务。",
-            "你只返回摘要、证据引用、产物引用、置信度和限制说明。",
-            "你不负责替主 Agent 做最终回答。",
+            "## 协作边界",
+            "你服务于主 Agent 的委派任务。你要把专业材料整理成主 Agent 可以判断和收口的结果。",
+            "你不负责替主 Agent 做最终面向用户的表达，也不要扩大任务范围。",
+            "你只返回已经完成的结果、证据引用、产物引用、置信度和限制说明。",
             f"你可使用的操作范围是：{operations or '仅模型响应'}。",
             "不要输出执行计划、伪工具调用语法或“我将调用某工具”的描述。",
-            "如果已经拿到结果，直接返回结果；如果无法执行，直接说明失败原因和限制。",
-            "如果信息不足或能力不可用，请明确写入 limitations，不要假装完成。",
+            "如果已经拿到结果，直接整理结果；如果无法执行，直接说明失败原因和限制。",
+            "如果信息不足或能力不可用，请明确写入限制和缺口，不要假装完成。",
         ]
     )
+    return "\n\n".join(part for part in lines if str(part).strip())
 
 
 def _child_user_message(request: AgentDelegationRequest) -> str:
@@ -559,24 +604,71 @@ def _delegation_request_counts_against_budget(
         return False
     previous_payload = dict(previous_request.input_payload or {})
     current_payload = dict(current_request.input_payload or {})
-    previous_path = str(
-        previous_payload.get("file_path")
-        or previous_payload.get("path")
-        or previous_payload.get("active_pdf")
-        or previous_payload.get("active_dataset")
-        or ""
-    ).strip()
-    current_path = str(
-        current_payload.get("file_path")
-        or current_payload.get("path")
-        or current_payload.get("active_pdf")
-        or current_payload.get("active_dataset")
-        or ""
-    ).strip()
+    previous_path = _delegation_payload_primary_path(previous_payload)
+    current_path = _delegation_payload_primary_path(current_payload)
     limitations = tuple(getattr(result, "limitations", ()) or ())
     if limitations == ("missing_object_handle",) and current_path and not previous_path:
         return False
     return True
+
+
+def _delegation_payload_primary_path(payload: dict[str, Any]) -> str:
+    direct = str(
+        payload.get("file_path")
+        or payload.get("path")
+        or payload.get("active_pdf")
+        or payload.get("active_dataset")
+        or ""
+    ).strip()
+    if direct:
+        return direct
+    for key in ("file_paths", "paths", "active_pdfs", "active_datasets"):
+        values = payload.get(key)
+        if isinstance(values, (list, tuple)):
+            for item in values:
+                value = str(item or "").strip()
+                if value:
+                    return value
+        elif isinstance(values, str) and values.strip():
+            return values.strip()
+    return ""
+
+
+def _agent_evidence_shadow_readiness(*, packet: dict[str, Any], summary: str) -> dict[str, Any]:
+    facts = list(packet.get("facts") or [])
+    evidence = list(packet.get("evidence") or [])
+    hints = list(packet.get("hints") or [])
+    unknowns = list(packet.get("unknowns") or [])
+    limits = list(packet.get("limits") or [])
+    confidence = str(packet.get("confidence") or "unknown")
+    fact_count = len(facts)
+    evidence_count = len(evidence)
+    unknown_count = len(unknowns)
+    limit_count = len(limits)
+    evidence_sufficient = fact_count > 0 and evidence_count > 0 and confidence in {"high", "medium"}
+    if evidence_sufficient and not unknowns:
+        recommendation = "main_agent_can_reason_from_facts"
+    elif evidence_sufficient:
+        recommendation = "main_agent_can_reason_from_facts_with_caveats"
+    elif hints:
+        recommendation = "main_agent_should_treat_child_answer_as_hint_only"
+    else:
+        recommendation = "main_agent_should_request_or_recover_evidence"
+    return {
+        "mode": "shadow_only",
+        "packet_id": str(packet.get("packet_id") or ""),
+        "domain": str(packet.get("domain") or "other"),
+        "evidence_sufficient": evidence_sufficient,
+        "fact_count": fact_count,
+        "evidence_count": evidence_count,
+        "hint_count": len(hints),
+        "unknown_count": unknown_count,
+        "limit_count": limit_count,
+        "confidence": confidence,
+        "summary_is_primary_path": True,
+        "summary_chars": len(str(summary or "")),
+        "recommendation": recommendation,
+    }
 
 
 def validate_delegation_result_quality(
@@ -618,7 +710,20 @@ def validate_delegation_result_quality(
     if any(marker.casefold() in lowered for marker in pseudo_tool_markers) and not (evidence_refs or artifact_refs):
         reasons.append("pseudo_tool_text_without_execution_refs")
     specialist_kind = str(request.delegation_kind or "").strip()
-    if specialist_kind in {"pdf", "pdf_reading", "table_analysis", "structured_data", "structured_data_lookup", "retrieval", "evidence_lookup"}:
+    if specialist_kind in {
+        "pdf",
+        "pdf_reading",
+        "table_analysis",
+        "structured_data",
+        "structured_data_lookup",
+        "retrieval",
+        "evidence_lookup",
+        "web",
+        "web_research",
+        "external_web_lookup",
+        "current_information_lookup",
+        "official_source_lookup",
+    }:
         if not (evidence_refs or artifact_refs or limitations):
             reasons.append("specialist_result_without_refs_or_limitations")
     status = "pass"
@@ -654,4 +759,6 @@ def _delegation_kinds_from_profile(profile: Any) -> tuple[str, ...]:
         inferred.append("pdf_reading")
     if "op.mcp_structured_data" in operations:
         inferred.append("structured_data_lookup")
+    if "op.web_search" in operations:
+        inferred.append("web_research")
     return tuple(inferred or ["bounded_analysis"])

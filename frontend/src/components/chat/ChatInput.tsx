@@ -44,7 +44,7 @@ export function ChatInput({
           <p className="archive-section-head__eyebrow">输入</p>
           <p className="chat-input-panel__note text-sm">输入问题、任务目标或协调指令。</p>
         </div>
-        <div className="chat-search-policy chat-search-policy--corner" aria-label="对话级搜索权限">
+        <div className="chat-search-policy chat-search-policy--corner" aria-label="本轮能力权限">
           {SEARCH_POLICY_OPTIONS.map((option) => {
             const enabled = searchPolicy[option.id];
             return (
@@ -95,7 +95,7 @@ export function ChatInput({
       />
       <div className="chat-input-panel__footer mt-2 flex items-center justify-between gap-3">
         <p className="chat-input-panel__hint text-sm">
-          当前开关会约束本轮可用来源与权限范围。
+          当前开关会约束本轮可装载能力与可委派子Agent。
         </p>
         <button
           className="action-button action-button--primary navbar-action-button disabled:cursor-not-allowed disabled:opacity-50"

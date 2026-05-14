@@ -1,4 +1,15 @@
 from evidence.adapter import build_evidence_envelope_from_retrieval
+from evidence.agent_evidence_packet import (
+    AgentEvidenceFact,
+    AgentEvidenceHint,
+    AgentEvidenceItem,
+    AgentEvidenceLimit,
+    AgentEvidencePacket,
+    AgentEvidenceUnknown,
+    build_agent_evidence_packet_from_mcp_payload,
+    build_agent_evidence_packet_from_web_payload,
+    visible_packet_summary,
+)
 from evidence.graph import EvidenceArtifactGraph, result_handle_from_payload, subset_handle_from_payload
 from evidence.mcp_models import (
     CanonicalResult,
@@ -38,6 +49,12 @@ from evidence.table_materializer import MaterializedTable, TableMaterializer
 __all__ = [
     "BindingCandidate",
     "BindingCandidateStore",
+    "AgentEvidenceFact",
+    "AgentEvidenceHint",
+    "AgentEvidenceItem",
+    "AgentEvidenceLimit",
+    "AgentEvidencePacket",
+    "AgentEvidenceUnknown",
     "CanonicalResult",
     "DatasetCandidate",
     "DocumentCandidate",
@@ -66,6 +83,8 @@ __all__ = [
     "MCPTaskStatus",
     "OFFICIAL_A2A_PROTOCOL_VERSION",
     "agent_id_for_mcp_route",
+    "build_agent_evidence_packet_from_mcp_payload",
+    "build_agent_evidence_packet_from_web_payload",
     "build_evidence_envelope_from_retrieval",
     "request_agent_id",
     "result_agent_id",
@@ -73,4 +92,5 @@ __all__ = [
     "stream_event_type_from_mcp_status",
     "subset_handle_from_payload",
     "task_status_from_mcp_status",
+    "visible_packet_summary",
 ]

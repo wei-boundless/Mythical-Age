@@ -272,6 +272,7 @@ def test_delegate_preferred_templates_mount_delegate_operation_for_main_agent() 
         ("请帮我检索知识库里和向量召回有关的结论。", {"route": "rag", "execution_posture": "direct_rag"}, "op.mcp_retrieval", "agent:rag_analyst"),
         ("请读取这个 PDF 文档并总结前三页要点。", {"route": "pdf"}, "op.mcp_pdf", "agent:pdf_reader"),
         ("请分析这份表格数据并给我趋势结论。", {"route": "structured_data"}, "op.mcp_structured_data", "agent:table_analyst"),
+        ("帮我联网查 OpenAI API 最新更新，并说明来源。", {"route": "realtime_network"}, "op.web_search", "agent:web_researcher"),
     ]
     for user_goal, understanding, fallback_operation, target_agent_id in scenarios:
         task_bundle = build_task_execution_assembly_bundle(

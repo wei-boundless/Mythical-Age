@@ -197,6 +197,31 @@ def main() -> None:
     assert "数据源：inventory.xlsx" in no_gap_answer
     assert "没有完全没有缺口的仓库" in no_gap_answer
 
+    verbose_no_gap_result = _run(
+        structured.run(
+            MCPRequest(
+                request_id="sheet:inventory-no-gap-warehouse-verbose",
+                query=(
+                    "读取 knowledge/E-commerce Data/inventory.xlsx 全部数据。\n\n"
+                    "任务：找出哪些仓库完全没有库存缺口。\n\n"
+                    "缺口定义：stock_on_hand < reorder_level 即为有缺口。完全没有缺口的仓库，"
+                    "是指该仓库下所有 SKU 的 stock_on_hand 都 >= reorder_level。\n\n"
+                    "请按以下步骤：\n"
+                    "1. 读取全部 200 行数据\n"
+                    "2. 按 warehouse 分组\n"
+                    "3. 对每个仓库，检查是否存在任何一行 stock_on_hand < reorder_level\n"
+                    "4. 列出所有完全没有缺口的仓库名称\n"
+                    "5. 如果没有这样的仓库，直接说\"没有\"\n"
+                ),
+                bindings={"active_dataset": "knowledge/E-commerce Data/inventory.xlsx"},
+            )
+        )
+    )
+    assert verbose_no_gap_result.canonical_result is not None
+    verbose_no_gap_answer = verbose_no_gap_result.canonical_result.answer
+    assert "没有完全没有缺口的仓库" in verbose_no_gap_answer
+    assert "总行数" not in verbose_no_gap_answer
+
     sales_result = _run(
         structured.run(
             MCPRequest(
