@@ -46,18 +46,18 @@ function refCount(manifest: ContractManifest | null) {
 export function ContractOverviewPanel({
   contractSpecs,
   selectedTask,
-  selectedCoordination,
+  selectedTaskGraph,
   selectedNodeId,
 }: {
   contractSpecs: ContractSpec[];
   selectedTask: SpecificTaskRecord | null;
-  selectedCoordination: TaskGraphRecord | null;
+  selectedTaskGraph: TaskGraphRecord | null;
   selectedNodeId: string;
 }) {
   const [loading, setLoading] = useState("");
   const [error, setError] = useState("");
   const [workflowManifest, setWorkflowManifest] = useState<ContractManifest | null>(null);
-  const [coordinationManifest, setCoordinationManifest] = useState<ContractManifest | null>(null);
+  const [taskGraphManifest, setTaskGraphManifest] = useState<ContractManifest | null>(null);
   const [assembly, setAssembly] = useState<RuntimeAssembly | null>(null);
 
   const byKind = useMemo(() => {
@@ -92,12 +92,12 @@ export function ContractOverviewPanel({
     }
   }
 
-  async function previewCoordinationManifest() {
-    if (!selectedCoordination?.graph_id) return;
-    setLoading("coordination-manifest");
+  async function previewTaskGraphManifest() {
+    if (!selectedTaskGraph?.graph_id) return;
+    setLoading("task-graph-manifest");
     setError("");
     try {
-      setCoordinationManifest(await compileTaskSystemTaskGraphContractManifest(selectedCoordination.graph_id));
+      setTaskGraphManifest(await compileTaskSystemTaskGraphContractManifest(selectedTaskGraph.graph_id));
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "任务图契约预检失败");
     } finally {
@@ -106,11 +106,11 @@ export function ContractOverviewPanel({
   }
 
   async function previewNodeAssembly() {
-    if (!selectedCoordination?.graph_id || !selectedNodeId) return;
+    if (!selectedTaskGraph?.graph_id || !selectedNodeId) return;
     setLoading("node-assembly");
     setError("");
     try {
-      setAssembly(await buildTaskSystemTaskGraphNodeRuntimeAssembly(selectedCoordination.graph_id, selectedNodeId));
+      setAssembly(await buildTaskSystemTaskGraphNodeRuntimeAssembly(selectedTaskGraph.graph_id, selectedNodeId));
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "节点 RuntimeAssembly 预览失败");
     } finally {
@@ -155,19 +155,19 @@ export function ContractOverviewPanel({
           <TaskSystemToolbarButton disabled={!selectedTask || Boolean(loading)} onClick={() => void previewWorkflowAssembly()}>
             {loading === "workflow-assembly" ? <Loader2 size={14} /> : <PackageCheck size={14} />}单任务装配
           </TaskSystemToolbarButton>
-          <TaskSystemToolbarButton disabled={!selectedCoordination || Boolean(loading)} onClick={() => void previewCoordinationManifest()}>
-            {loading === "coordination-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}任务图清单
+          <TaskSystemToolbarButton disabled={!selectedTaskGraph || Boolean(loading)} onClick={() => void previewTaskGraphManifest()}>
+            {loading === "task-graph-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}任务图清单
           </TaskSystemToolbarButton>
-          <TaskSystemToolbarButton disabled={!selectedCoordination || !selectedNodeId || Boolean(loading)} onClick={() => void previewNodeAssembly()}>
+          <TaskSystemToolbarButton disabled={!selectedTaskGraph || !selectedNodeId || Boolean(loading)} onClick={() => void previewNodeAssembly()}>
             {loading === "node-assembly" ? <Loader2 size={14} /> : <PackageCheck size={14} />}节点装配
           </TaskSystemToolbarButton>
         </div>
         <div className="boundary-kv">
           <p><span>单任务</span><strong>{selectedTask?.task_title || "未选择"}</strong></p>
-          <p><span>任务图</span><strong>{selectedCoordination?.title || "未选择"}</strong></p>
+          <p><span>任务图</span><strong>{selectedTaskGraph?.title || "未选择"}</strong></p>
           <p><span>选中节点</span><strong>{selectedNodeId || "未选择"}</strong></p>
           <p><span>单任务契约清单</span><strong>{workflowManifest ? `${refCount(workflowManifest)} 引用 / ${workflowManifest.issues.length} 问题` : "未生成"}</strong></p>
-          <p><span>任务图契约清单</span><strong>{coordinationManifest ? `${refCount(coordinationManifest)} 引用 / ${coordinationManifest.issues.length} 问题` : "未生成"}</strong></p>
+          <p><span>任务图契约清单</span><strong>{taskGraphManifest ? `${refCount(taskGraphManifest)} 引用 / ${taskGraphManifest.issues.length} 问题` : "未生成"}</strong></p>
           <p><span>运行装配</span><strong>{assembly?.assembly_id || "未生成"}</strong></p>
         </div>
       </aside>
@@ -176,7 +176,7 @@ export function ContractOverviewPanel({
         <header><strong>预览详情</strong></header>
         <textarea
           readOnly
-          value={JSON.stringify({ workflowManifest, coordinationManifest, assembly }, null, 2)}
+          value={JSON.stringify({ workflowManifest, taskGraphManifest, assembly }, null, 2)}
         />
       </aside>
     </section>

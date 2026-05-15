@@ -2030,7 +2030,16 @@ class TaskFlowRegistry:
     def derive_coordination_task_view_from_graph(self, graph: TaskGraphDefinition) -> CoordinationTaskDefinition:
         records_by_task_id = {record.task_id: record for record in self.list_specific_task_records()}
         metadata = dict(graph.metadata or {})
-        coordinator_agent_id = str(dict(graph.runtime_policy or {}).get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
+        runtime_policy = dict(graph.runtime_policy or {})
+        continuation_policy = {
+            **dict(metadata.get("continuation_policy") or {}),
+        }
+        human_gate_mode = str(runtime_policy.get("human_gate_mode") or "").strip()
+        if human_gate_mode and "human_gate_mode" not in continuation_policy:
+            continuation_policy["human_gate_mode"] = human_gate_mode
+        if continuation_policy:
+            metadata["continuation_policy"] = continuation_policy
+        coordinator_agent_id = str(runtime_policy.get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
         task_family = str(graph.task_family or metadata.get("task_family") or "").strip()
         domain_id = str(graph.domain_id or metadata.get("domain_id") or (f"domain.{task_family}" if task_family else "")).strip()
         stored_nodes = tuple(node.to_dict() for node in graph.nodes)
@@ -2047,10 +2056,10 @@ class TaskFlowRegistry:
             domain_id = f"domain.{task_family}"
         participant_agent_ids = self._resolve_coordination_participants(
             coordinator_agent_id=coordinator_agent_id,
-            agent_group_id=str(dict(graph.runtime_policy or {}).get("agent_group_id") or metadata.get("agent_group_id") or ""),
+            agent_group_id=str(runtime_policy.get("agent_group_id") or metadata.get("agent_group_id") or ""),
             participant_agent_ids=tuple(
                 str(value)
-                for value in list(dict(graph.runtime_policy or {}).get("participant_agent_ids") or metadata.get("participant_agent_ids") or [])
+                for value in list(runtime_policy.get("participant_agent_ids") or metadata.get("participant_agent_ids") or [])
                 if str(value)
             ),
         )
@@ -2080,11 +2089,11 @@ class TaskFlowRegistry:
         return CoordinationTaskDefinition(
             graph_id=graph.graph_id,
             title=str(graph.title or ""),
-            coordination_mode=str(dict(graph.runtime_policy or {}).get("coordination_mode") or metadata.get("coordination_mode") or "review_merge"),
+            coordination_mode=str(runtime_policy.get("coordination_mode") or metadata.get("coordination_mode") or "review_merge"),
             coordinator_agent_id=coordinator_agent_id,
             task_family=task_family,
             domain_id=domain_id,
-            agent_group_id=str(dict(graph.runtime_policy or {}).get("agent_group_id") or metadata.get("agent_group_id") or ""),
+            agent_group_id=str(runtime_policy.get("agent_group_id") or metadata.get("agent_group_id") or ""),
             participant_agent_ids=participant_agent_ids,
             topology_template_id=str(metadata.get("topology_template_id") or ""),
             shared_context_policy=str(dict(graph.context_policy or {}).get("shared_context_policy") or "explicit_refs_only"),

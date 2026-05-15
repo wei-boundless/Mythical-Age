@@ -1,6 +1,7 @@
 import type {
   OrchestrationSnapshot,
   RetrievalResult,
+  TaskGraphRunMonitorView,
   RuntimeLoopTaskRunLiveMonitor,
   SessionSummary,
   SystemGraphOverlay,
@@ -117,7 +118,8 @@ export type StoreState = {
   systemGraphOverlay: SystemGraphOverlay | null;
   memoryInspectorTarget: MemoryInspectorTarget | null;
   orchestrationSnapshot: OrchestrationSnapshot | null;
-  coordinationLiveMonitor: RuntimeLoopTaskRunLiveMonitor | null;
+  taskGraphLiveMonitor: RuntimeLoopTaskRunLiveMonitor | null;
+  taskGraphRunMonitor: TaskGraphRunMonitorView | null;
   orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
   taskSelection: TaskSelectionState | null;
 };
@@ -144,7 +146,7 @@ export type StoreActions = {
   setMemoryInspectorTarget: (target: MemoryInspectorTarget | null) => void;
   setOrchestrationInspectorTarget: (target: OrchestrationInspectorTarget | null) => void;
   setOrchestrationSnapshot: (snapshot: OrchestrationSnapshot | null) => void;
-  resumeCoordinationRun: (coordinationRunId: string, payload?: Record<string, unknown>) => Promise<void>;
+  resumeTaskGraphRun: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;
   setTaskSelection: (selection: TaskSelectionState | null) => void;
 };
 

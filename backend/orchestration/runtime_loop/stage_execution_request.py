@@ -23,6 +23,9 @@ class StageExecutionRequest:
     a2a_payload: dict[str, Any] = field(default_factory=dict)
     message: str = ""
     artifact_root: str = ""
+    artifact_policy: dict[str, Any] = field(default_factory=dict)
+    artifact_targets: tuple[dict[str, Any], ...] = ()
+    output_contract_id: str = ""
     expected_outputs: tuple[dict[str, Any], ...] = ()
     working_memory_refs: tuple[str, ...] = ()
     idempotency_key: str = ""
@@ -61,6 +64,8 @@ class StageExecutionRequest:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["expected_outputs"] = [dict(item) for item in self.expected_outputs]
+        payload["artifact_policy"] = dict(self.artifact_policy)
+        payload["artifact_targets"] = [dict(item) for item in self.artifact_targets]
         payload["a2a_payload"] = dict(self.a2a_payload)
         payload["runtime_assembly"] = dict(self.runtime_assembly)
         payload["working_memory_refs"] = list(self.working_memory_refs)
@@ -84,6 +89,9 @@ class StageExecutionRequest:
             a2a_payload=dict(payload.get("a2a_payload") or {}),
             message=str(payload.get("message") or ""),
             artifact_root=str(payload.get("artifact_root") or ""),
+            artifact_policy=dict(payload.get("artifact_policy") or {}),
+            artifact_targets=tuple(dict(item) for item in list(payload.get("artifact_targets") or []) if isinstance(item, dict)),
+            output_contract_id=str(payload.get("output_contract_id") or ""),
             expected_outputs=tuple(dict(item) for item in list(payload.get("expected_outputs") or []) if isinstance(item, dict)),
             working_memory_refs=tuple(str(item).strip() for item in list(payload.get("working_memory_refs") or []) if str(item).strip()),
             idempotency_key=str(payload.get("idempotency_key") or ""),

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from orchestration.agent_runtime_models import AgentRuntimeProfile
 from orchestration.runtime_loop import (
     RuntimeContextManager,
@@ -9,6 +11,7 @@ from orchestration.runtime_loop import (
     build_node_runtime_assembly,
     build_single_agent_runtime_assembly,
 )
+from orchestration.agent_runtime_chain import _memory_request_profile_for_context_assembly
 from orchestration.runtime_loop.contract_compiler_models import (
     CompiledAcceptanceContract,
     CompiledEdgeHandoffContract,
@@ -138,6 +141,63 @@ def test_node_runtime_assembly_hides_main_history_and_links_handoff_packet() -> 
     assert payload["handoff_packets"][0]["contract_refs"] == ["contract.test.handoff"]
 
 
+def test_node_runtime_assembly_carries_conversation_memory_suppression_policy() -> None:
+    manifest = ContractManifest(
+        manifest_id="contract-manifest:test",
+        manifest_kind="coordination",
+        graph_id="graph.test",
+        node_contracts=(
+            CompiledNodeContract(
+                node_id="worker",
+                title="工作节点",
+                node_type="subtask",
+                task_id="task.test.worker",
+                agent_id="agent:test",
+                metadata={
+                    "context_visibility_policy": {
+                        "conversation_memory": "hidden",
+                        "suppress_conversation_memory": True,
+                    },
+                },
+            ),
+        ),
+    )
+    assembly = build_node_runtime_assembly(
+        manifest=manifest,
+        node_id="worker",
+        agent_profile=AgentRuntimeProfile(agent_profile_id="test_profile", agent_id="agent:test"),
+    )
+
+    policy = assembly.to_dict()["diagnostics"]["context_assembly_policy"]
+
+    assert policy["main_session_history"] == "hidden"
+    assert policy["conversation_memory"] == "hidden"
+    assert policy["suppress_conversation_memory"] is True
+
+
+def test_context_assembly_policy_filters_conversation_memory_layer() -> None:
+    profile = {
+        "requested_memory_layers": ["conversation", "state", "long_term"],
+        "allow_long_term_memory": True,
+    }
+    runtime_assembly = {
+        "diagnostics": {
+            "context_assembly_policy": {
+                "suppress_conversation_memory": True,
+            },
+        },
+    }
+
+    filtered = _memory_request_profile_for_context_assembly(
+        profile,
+        task_selection={"stage_execution_request": {"runtime_assembly": runtime_assembly}},
+    )
+
+    assert filtered["requested_memory_layers"] == ["state", "long_term"]
+    assert filtered["allow_long_term_memory"] is False
+    assert filtered["conversation_memory_suppressed"] is True
+
+
 def test_runtime_context_manager_uses_assembly_visibility_to_hide_history() -> None:
     manager = RuntimeContextManager(lambda **_: "base prompt")
     history = [{"role": "user", "content": "old user"}, {"role": "assistant", "content": "old answer"}]
@@ -256,16 +316,63 @@ def test_task_run_loop_starts_task_graph_with_real_dispatch_plan(tmp_path: Path)
     trace = TaskRunLoop(tmp_path, backend_dir=Path("backend")).get_trace(result.task_run.task_run_id)
     assert result.coordination_run is not None
     assert result.task_run.diagnostics["task_graph_run"] is True
-    dispatch_plan = result.task_run.diagnostics["agent_dispatch_plan"]
-    assert dispatch_plan["diagnostics"]["node_count"] == 2
-    assert dispatch_plan["ready_node_ids"] == ["collect"]
-    assert dispatch_plan["blocked_node_ids"] == ["review"]
+    dispatch_plan_summary = result.task_run.diagnostics["agent_dispatch_plan_summary"]
+    assert result.task_run.diagnostics["agent_dispatch_plan_ref"].startswith("rtobj:dispatch_plans:")
+    assert dispatch_plan_summary["record_count"] == 2
+    assert dispatch_plan_summary["ready_node_ids"] == ["collect"]
+    assert dispatch_plan_summary["blocked_node_ids"] == ["review"]
     stage_request = result.loop_state.diagnostics["stage_execution_request"]
     assert stage_request["stage_id"] == "collect"
     assert stage_request["task_ref"] == "task.test.collect"
     assert stage_request["runtime_assembly"]["node_id"] == "collect"
     assert trace is not None
     assert trace["coordination_runs"][0]["graph_ref"] == graph.graph_id
+
+
+def test_task_run_loop_rejects_legacy_task_graph_fallback_when_langgraph_support_missing(tmp_path: Path, monkeypatch) -> None:
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.no_legacy_fallback",
+        title="禁止旧续推回退",
+        graph_kind="multi_agent",
+        publish_state="published",
+        entry_node_id="collect",
+        output_node_id="review",
+        runtime_policy={"coordinator_agent_id": "agent:coordinator"},
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="collect",
+                node_type="agent",
+                title="资料整理",
+                task_id="task.test.collect",
+                agent_id="agent:collector",
+            ),
+            TaskGraphNodeDefinition(
+                node_id="review",
+                node_type="agent",
+                title="审核",
+                task_id="task.test.review",
+                agent_id="agent:reviewer",
+            ),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="collect_to_review",
+                source_node_id="collect",
+                target_node_id="review",
+                payload_contract_id="contract.collect.review",
+            ),
+        ),
+    )
+    runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
+    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    monkeypatch.setattr(loop.langgraph_coordination_runtime, "supports", lambda coordination_run: False)
+
+    with pytest.raises(RuntimeError, match="legacy initialization fallback was removed"):
+        loop.start_task_graph_run(
+            session_id="session:test",
+            graph=graph,
+            runtime_spec=runtime_spec,
+        )
 
 
 def test_runtime_assembly_includes_working_memory_sections_when_provided() -> None:

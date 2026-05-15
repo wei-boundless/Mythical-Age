@@ -114,6 +114,7 @@ def build_node_runtime_assembly(
     node_projection_id = str(getattr(node, "projection_id", "") or "").strip()
     agent_default_projection_id = str(getattr(agent_profile, "default_projection_id", "") or "").strip()
     resolved_projection_id = node_projection_id or agent_default_projection_id
+    context_assembly_policy = _context_assembly_policy_from_node(node)
     sections = (
         RuntimeContextSection(
             section_id="coordination_task_state",
@@ -192,6 +193,7 @@ def build_node_runtime_assembly(
             "explicit_input_keys": sorted(str(key) for key in dict(explicit_inputs or {}).keys()),
             **working_diag,
             **task_durable_diag,
+            "context_assembly_policy": context_assembly_policy,
             "context_sections_requested": [item.section_id for item in sections],
             "context_sections_visible": [item.section_id for item in visible_sections],
             "context_sections_hidden_by_profile": hidden_sections,
@@ -306,6 +308,33 @@ def _context_section_aliases(section_id: str, profile_key: str) -> set[str]:
     aliases.update(alias_map.get(str(section_id or "").strip(), set()))
     aliases.discard("")
     return aliases
+
+
+def _context_assembly_policy_from_node(node: Any) -> dict[str, Any]:
+    metadata = dict(getattr(node, "metadata", {}) or {})
+    visibility = dict(metadata.get("context_visibility_policy") or {})
+    memory_read = dict(metadata.get("memory_read_policy") or {})
+    conversation_memory = str(
+        visibility.get("conversation_memory")
+        or visibility.get("conversation_memory_policy")
+        or memory_read.get("conversation_memory")
+        or memory_read.get("conversation_memory_policy")
+        or ""
+    ).strip()
+    suppress_conversation = conversation_memory in {
+        "hidden",
+        "disabled",
+        "off",
+        "none",
+        "no_conversation",
+        "suppress",
+        "suppress_conversation",
+    } or bool(visibility.get("suppress_conversation_memory") or memory_read.get("suppress_conversation_memory"))
+    return {
+        "main_session_history": "hidden",
+        "suppress_conversation_memory": suppress_conversation,
+        "conversation_memory": "hidden" if suppress_conversation else "profile_default",
+    }
 
 
 def _stable_assembly_id(kind: str, manifest_ref: str, subject: str, payload: dict[str, Any]) -> str:

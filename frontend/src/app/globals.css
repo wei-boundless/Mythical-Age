@@ -16912,6 +16912,202 @@ html[data-soul="xuannv"] .soul-portrait__label {
   line-height: 1.55;
 }
 
+.task-graph-topology-page {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.22fr) minmax(0, 1fr) minmax(210px, 0.26fr);
+  gap: 0.58rem;
+  min-height: 560px;
+  padding: 0.62rem;
+}
+
+.task-graph-topology-rail,
+.task-graph-topology-inspector {
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.task-graph-topology-panel {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.022);
+  padding: 0.58rem;
+}
+
+.task-graph-topology-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  min-width: 0;
+  color: var(--color-text);
+}
+
+.task-graph-topology-panel__head svg {
+  color: var(--color-soul);
+  flex: 0 0 auto;
+}
+
+.task-graph-topology-panel__head strong {
+  font-size: 0.76rem;
+}
+
+.task-graph-topology-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.34rem;
+}
+
+.task-graph-topology-actions--stacked {
+  grid-template-columns: 1fr;
+}
+
+.task-graph-topology-actions button,
+.task-graph-topology-task-list button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  min-height: 2rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-soul) 7%, rgba(255, 255, 255, 0.026));
+  color: var(--color-text-soft);
+  cursor: pointer;
+  font-size: 0.69rem;
+  font-weight: 780;
+  padding: 0.38rem 0.45rem;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.task-graph-topology-actions button:hover:not(:disabled),
+.task-graph-topology-task-list button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-soul) 46%, var(--color-border));
+  background: color-mix(in srgb, var(--color-soul) 13%, rgba(255, 255, 255, 0.03));
+  color: var(--color-text);
+}
+
+.task-graph-topology-actions button:disabled,
+.task-graph-topology-task-list button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.task-graph-topology-task-list {
+  display: grid;
+  gap: 0.34rem;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.task-graph-topology-task-list button {
+  display: grid;
+  justify-content: stretch;
+  justify-items: start;
+  text-align: left;
+}
+
+.task-graph-topology-task-list button span,
+.task-graph-topology-task-list button small,
+.task-graph-topology-selection strong,
+.task-graph-topology-selection small {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-topology-task-list button small,
+.task-graph-topology-task-list p,
+.task-graph-topology-selection span,
+.task-graph-topology-selection small {
+  color: var(--color-text-muted);
+  font-size: 0.62rem;
+}
+
+.task-graph-topology-canvas-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.018);
+  overflow: hidden;
+}
+
+.task-graph-topology-canvas-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.55rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  padding: 0.55rem 0.65rem;
+}
+
+.task-graph-topology-canvas-head > div:first-child {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.task-graph-topology-canvas-head span {
+  color: var(--color-text-soft);
+  font-size: 0.62rem;
+  font-weight: 820;
+  text-transform: uppercase;
+}
+
+.task-graph-topology-canvas-head strong {
+  color: var(--color-text);
+  font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-topology-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+  justify-content: flex-end;
+}
+
+.task-graph-topology-metrics span {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-text-soft);
+  font-size: 0.61rem;
+  padding: 0.18rem 0.38rem;
+  text-transform: none;
+}
+
+.task-graph-topology-viewport {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.task-graph-topology-selection {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 10%, var(--color-border));
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.12);
+  padding: 0.45rem 0.5rem;
+}
+
+.task-graph-topology-selection strong {
+  color: var(--color-text);
+  font-size: 0.78rem;
+}
+
 .task-graph-form-grid {
   display: grid;
   gap: 0.62rem;

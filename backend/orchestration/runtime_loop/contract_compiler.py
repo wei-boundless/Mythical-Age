@@ -248,7 +248,12 @@ def compile_coordination_contract_manifest(
                 output_contract_id=output_contract_id,
                 contract_refs=tuple(ref for ref in (input_contract_id, output_contract_id, *explicit_node_contract_refs) if ref),
                 source_refs=(graph_ref, node.task_id),
-                metadata={"role": node.role, "explicit_node_contract_refs": explicit_node_contract_refs},
+                metadata={
+                    "role": node.role,
+                    "explicit_node_contract_refs": explicit_node_contract_refs,
+                    "context_visibility_policy": dict(getattr(node, "context_visibility_policy", {}) or {}),
+                    "memory_read_policy": dict(getattr(node, "memory_read_policy", {}) or {}),
+                },
             )
         )
         profile = profiles_by_agent.get(node.agent_id)

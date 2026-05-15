@@ -6,11 +6,14 @@ import { CheckCircle2, MessageSquareShare, PlayCircle, RefreshCw, Save, Send, Tr
 import {
   compileTaskSystemTaskGraphRuntimeSpec,
   getOrchestrationRuntimeLoopTrace,
-  resumeOrchestrationCoordinationRun,
+  taskGraphRunIdOf,
+  taskGraphRunsFromTrace,
+  latestTaskGraphRunFromTrace,
+  resumeOrchestrationTaskGraphRun,
   startTaskGraphRuntimeLoopRun,
   stopOrchestrationTaskRun,
-  type CoordinationGraphSpec,
   type RuntimeLoopTaskRunTrace,
+  type TaskGraphRuntimeSpec,
 } from "@/lib/api";
 import { TaskSystemToolbarButton } from "./TaskSystemWorkbenchUi";
 import { isTaskGraphPublishedState, taskGraphPublishStateLabel, type TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
@@ -68,7 +71,7 @@ export function TaskGraphPublishRunPage({
   publishState: TaskGraphPublishStateV2;
   saving: string;
 }) {
-  const [runtimeSpec, setRuntimeSpec] = useState<CoordinationGraphSpec | null>(null);
+  const [runtimeSpec, setRuntimeSpec] = useState<TaskGraphRuntimeSpec | null>(null);
   const [runtimeSpecError, setRuntimeSpecError] = useState("");
   const [runtimeSpecLoading, setRuntimeSpecLoading] = useState(false);
   const [taskRunId, setTaskRunId] = useState("");
@@ -81,6 +84,7 @@ export function TaskGraphPublishRunPage({
   const [stopLoading, setStopLoading] = useState(false);
   const published = isTaskGraphPublishedState(publishState);
   const latestRunStatus = String(runTrace?.task_run?.status ?? "").trim();
+  const taskGraphRuns = taskGraphRunsFromTrace(runTrace);
   const runStatusLabel = latestRunStatus || (publishState === "run_bound" ? "bound" : published ? "ready" : "draft");
   const schedulerSummary = buildTaskGraphSchedulerSummary(schedulerStateFromTrace(runTrace));
   const preflightReport = buildTaskGraphPreflightReport({
@@ -143,16 +147,17 @@ export function TaskGraphPublishRunPage({
     }
   }
 
-  async function resumeLatestCoordinationRun() {
-    const coordinationRunId = String(runTrace?.coordination_runs?.[0]?.coordination_run_id ?? runTrace?.coordination_runs?.[0]?.run_id ?? "");
-    if (!coordinationRunId) {
-      setRunTraceError("当前 trace 没有可续跑的 coordination run。");
+  async function resumeLatestTaskGraphRun() {
+    const latestTaskGraphRun = latestTaskGraphRunFromTrace(runTrace);
+    const taskGraphRunId = taskGraphRunIdOf(latestTaskGraphRun);
+    if (!taskGraphRunId) {
+      setRunTraceError("当前 trace 没有可续跑的任务图运行。");
       return;
     }
     setResumeLoading(true);
     setRunTraceError("");
     try {
-      await resumeOrchestrationCoordinationRun(coordinationRunId, { source: "task_graph_studio", task_graph_id: graphId });
+      await resumeOrchestrationTaskGraphRun(taskGraphRunId, { source: "task_graph_studio", task_graph_id: graphId });
       await loadRunTrace();
     } catch (error) {
       setRunTraceError(error instanceof Error ? error.message : "续跑失败");
@@ -172,7 +177,7 @@ export function TaskGraphPublishRunPage({
       await stopOrchestrationTaskRun(taskRunId.trim(), {
         reason: "user_aborted",
         message: "TaskGraph Studio 手动停止运行",
-        coordination_run_id: String(runTrace?.coordination_runs?.[0]?.coordination_run_id ?? ""),
+        coordination_run_id: taskGraphRunIdOf(latestTaskGraphRunFromTrace(runTrace)),
       });
       await loadRunTrace();
     } catch (error) {
@@ -212,10 +217,10 @@ export function TaskGraphPublishRunPage({
         <article className="boundary-card">
           <header><strong>发布动作</strong></header>
           <div className="boundary-actions">
-            <TaskSystemToolbarButton disabled={saving === "coordination"} onClick={onSave}>
+            <TaskSystemToolbarButton disabled={saving === "task-graph"} onClick={onSave}>
               <Save size={15} />保存草稿
             </TaskSystemToolbarButton>
-            <TaskSystemToolbarButton disabled={!preflightReport.valid || saving === "coordination"} onClick={onPublish} variant="primary">
+            <TaskSystemToolbarButton disabled={!preflightReport.valid || saving === "task-graph"} onClick={onPublish} variant="primary">
               <Send size={15} />发布可运行
             </TaskSystemToolbarButton>
             <TaskSystemToolbarButton onClick={onSendToChat}>
@@ -234,7 +239,7 @@ export function TaskGraphPublishRunPage({
             <TaskSystemToolbarButton disabled={!taskRunId || stopLoading} onClick={() => void stopLatestRun()}>
               <TriangleAlert size={15} />停止运行
             </TaskSystemToolbarButton>
-            <TaskSystemToolbarButton disabled={!taskRunId || resumeLoading} onClick={() => void resumeLatestCoordinationRun()}>
+            <TaskSystemToolbarButton disabled={!taskRunId || resumeLoading} onClick={() => void resumeLatestTaskGraphRun()}>
               <RefreshCw size={15} />断点重连
             </TaskSystemToolbarButton>
           </div>
@@ -250,7 +255,7 @@ export function TaskGraphPublishRunPage({
           </div>
           <div className="task-graph-note">
             <strong>{published ? (publishState === "run_bound" ? "当前图已绑定运行" : "可创建真实运行") : "发布后才能创建运行"}</strong>
-            <span>创建运行会调用后端 TaskGraph 运行入口，生成真实 TaskRun、CoordinationRun、checkpoint 和 trace。</span>
+            <span>创建运行会调用后端 TaskGraph 运行入口，生成真实 TaskRun、TaskGraphRun、checkpoint 和 trace。</span>
           </div>
         </article>
       </section>
@@ -321,8 +326,8 @@ export function TaskGraphPublishRunPage({
           <TaskSystemToolbarButton disabled={!graphId || !published || !preflightReport.valid || runStartLoading} onClick={() => void startRun()}>
             <PlayCircle size={15} />创建新运行
           </TaskSystemToolbarButton>
-          <TaskSystemToolbarButton disabled={!runTrace || resumeLoading} onClick={() => void resumeLatestCoordinationRun()}>
-            <PlayCircle size={15} />续跑最近协调运行
+          <TaskSystemToolbarButton disabled={!runTrace || resumeLoading} onClick={() => void resumeLatestTaskGraphRun()}>
+            <PlayCircle size={15} />续跑最近任务图运行
           </TaskSystemToolbarButton>
         </div>
         {runTrace ? (
@@ -330,7 +335,7 @@ export function TaskGraphPublishRunPage({
             <div className="task-graph-mini-kv">
               <p><span>TaskRun</span><strong>{String(runTrace.task_run?.task_run_id ?? runTrace.task_run?.run_id ?? taskRunId)}</strong></p>
               <p><span>状态</span><strong>{String(runTrace.task_run?.status ?? "unknown")}</strong></p>
-              <p><span>Coordination</span><strong>{runTrace.coordination_runs.length}</strong></p>
+              <p><span>TaskGraphRun</span><strong>{taskGraphRuns.length}</strong></p>
               <p><span>事件</span><strong>{runTrace.event_count}</strong></p>
               <p><span>Checkpoint</span><strong>{runTrace.latest_checkpoint ? "存在" : "无"}</strong></p>
             </div>
@@ -368,7 +373,7 @@ export function TaskGraphPublishRunPage({
             ) : (
               <div className="task-graph-note">
                 <strong>尚无 TaskGraph 调度视图</strong>
-                <span>新运行会在 coordination diagnostics 中写入 shadow scheduler state，用于观察 phase、node 和 edge 的调度判断。</span>
+                <span>新运行会在任务图运行 diagnostics 中写入 shadow scheduler state，用于观察 phase、node 和 edge 的调度判断。</span>
               </div>
             )}
             <details className="task-graph-runtime-spec-details">
@@ -376,7 +381,7 @@ export function TaskGraphPublishRunPage({
               <pre>{JSON.stringify({
                 task_run: runTrace.task_run,
                 latest_checkpoint: runTrace.latest_checkpoint,
-                coordination_runs: runTrace.coordination_runs,
+                task_graph_runs: taskGraphRuns,
               }, null, 2)}</pre>
             </details>
           </div>

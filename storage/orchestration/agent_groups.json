@@ -16,6 +16,37 @@
       },
       "authority": "orchestration.agent_group",
       "allowed_coordination_task_ids": []
+    },
+    {
+      "group_id": "group.writing.simple_novel",
+      "title": "写作组",
+      "group_kind": "coordination_team",
+      "coordinator_agent_id": "agent:0",
+      "member_agent_ids": [
+        "agent:writing_simple_creator",
+        "agent:writing_simple_reviewer",
+        "agent:writing_memory_steward",
+        "agent:writing_final_assembler"
+      ],
+      "description": "执行简易版长篇小说完整生产流程。",
+      "default_topology_template_ids": [
+        "topology.writing.simple_novel"
+      ],
+      "default_communication_protocol_ids": [
+        "protocol.writing.simple_novel"
+      ],
+      "allowed_task_graph_ids": [
+        "graph.writing.simple_novel"
+      ],
+      "lifecycle_state": "enabled",
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "design_doc": "docs/系统规划/108-写作组简易长篇小说任务图配置设计书-20260516.md"
+      },
+      "authority": "orchestration.agent_group",
+      "allowed_coordination_task_ids": [
+        "graph.writing.simple_novel"
+      ]
     }
   ]
 }

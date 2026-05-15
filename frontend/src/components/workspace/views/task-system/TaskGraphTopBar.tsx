@@ -59,10 +59,10 @@ export function TaskGraphTopBar({
         </article>
       </div>
       <div className="task-graph-studio-topbar__actions">
-        <TaskSystemToolbarButton disabled={saving === "coordination"} onClick={onSave}>
+        <TaskSystemToolbarButton disabled={saving === "task-graph"} onClick={onSave}>
           <Save size={15} />保存草稿
         </TaskSystemToolbarButton>
-        <TaskSystemToolbarButton disabled={!valid || saving === "coordination"} onClick={onPublish} variant="primary">
+        <TaskSystemToolbarButton disabled={!valid || saving === "task-graph"} onClick={onPublish} variant="primary">
           {published ? <CheckCircle2 size={15} /> : <Send size={15} />}
           发布可运行
         </TaskSystemToolbarButton>

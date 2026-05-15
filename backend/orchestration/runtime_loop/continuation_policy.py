@@ -28,6 +28,21 @@ class CoordinationStageContract:
     on_success: str = "advance"
     on_failure: str = "fail_closed"
     retry_policy: dict[str, Any] = field(default_factory=dict)
+    agent_id: str = ""
+    runtime_lane: str = ""
+    role: str = ""
+    title: str = ""
+    input_contract_id: str = ""
+    output_contract_id: str = ""
+    projection_id: str = ""
+    node_type: str = ""
+    memory_read_policy: dict[str, Any] = field(default_factory=dict)
+    memory_writeback_policy: dict[str, Any] = field(default_factory=dict)
+    dynamic_memory_read_policy: dict[str, Any] = field(default_factory=dict)
+    review_gate_policy: dict[str, Any] = field(default_factory=dict)
+    human_gate_policy: dict[str, Any] = field(default_factory=dict)
+    artifact_policy: dict[str, Any] = field(default_factory=dict)
+    artifact_targets: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -42,6 +57,21 @@ class CoordinationStageContract:
             "on_success": self.on_success,
             "on_failure": self.on_failure,
             "retry_policy": dict(self.retry_policy),
+            "agent_id": self.agent_id,
+            "runtime_lane": self.runtime_lane,
+            "role": self.role,
+            "title": self.title,
+            "input_contract_id": self.input_contract_id,
+            "output_contract_id": self.output_contract_id,
+            "projection_id": self.projection_id,
+            "node_type": self.node_type,
+            "memory_read_policy": dict(self.memory_read_policy),
+            "memory_writeback_policy": dict(self.memory_writeback_policy),
+            "dynamic_memory_read_policy": dict(self.dynamic_memory_read_policy),
+            "review_gate_policy": dict(self.review_gate_policy),
+            "human_gate_policy": dict(self.human_gate_policy),
+            "artifact_policy": dict(self.artifact_policy),
+            "artifact_targets": [dict(item) for item in self.artifact_targets],
         }
 
 
@@ -52,6 +82,7 @@ class CoordinationContinuationPolicy:
     max_auto_steps: int = 100
     stop_on_missing_required_input: bool = True
     terminal_policy: str = "terminal_node_or_stop_condition"
+    human_gate_mode: str = "manual_required"
     human_gate_stage_ids: tuple[str, ...] = ()
     retry_budget: dict[str, int] = field(default_factory=dict)
 
@@ -62,6 +93,7 @@ class CoordinationContinuationPolicy:
             "max_auto_steps": self.max_auto_steps,
             "stop_on_missing_required_input": self.stop_on_missing_required_input,
             "terminal_policy": self.terminal_policy,
+            "human_gate_mode": self.human_gate_mode,
             "human_gate_stage_ids": list(self.human_gate_stage_ids),
             "retry_budget": dict(self.retry_budget),
         }
@@ -80,6 +112,7 @@ class CoordinationContinuationPolicy:
             max_auto_steps=max(1, int(raw.get("max_auto_steps") or 100)),
             stop_on_missing_required_input=bool(raw.get("stop_on_missing_required_input", True) is True),
             terminal_policy=str(raw.get("terminal_policy") or "terminal_node_or_stop_condition"),
+            human_gate_mode=str(raw.get("human_gate_mode") or raw.get("human_gate_default_mode") or "manual_required"),
             human_gate_stage_ids=tuple(str(item) for item in list(raw.get("human_gate_stage_ids") or []) if str(item)),
             retry_budget=retry_budget,
         )
@@ -122,6 +155,21 @@ def parse_stage_contracts(
                 on_success=str(raw.get("on_success") or "advance").strip(),
                 on_failure=str(raw.get("on_failure") or "fail_closed").strip(),
                 retry_policy=dict(raw.get("retry_policy") or {}),
+                agent_id=str(raw.get("agent_id") or node.get("agent_id") or "").strip(),
+                runtime_lane=str(raw.get("runtime_lane") or node.get("runtime_lane") or node.get("lane") or "").strip(),
+                role=str(raw.get("role") or node.get("role") or "").strip(),
+                title=str(raw.get("title") or node.get("title") or stage_id).strip(),
+                input_contract_id=str(raw.get("input_contract_id") or node.get("input_contract_id") or "").strip(),
+                output_contract_id=str(raw.get("output_contract_id") or node.get("output_contract_id") or node.get("node_contract_id") or "").strip(),
+                projection_id=str(raw.get("projection_id") or node.get("projection_id") or "").strip(),
+                node_type=str(raw.get("node_type") or node.get("node_type") or "").strip(),
+                memory_read_policy=dict(raw.get("memory_read_policy") or node.get("memory_read_policy") or {}),
+                memory_writeback_policy=dict(raw.get("memory_writeback_policy") or node.get("memory_writeback_policy") or {}),
+                dynamic_memory_read_policy=dict(raw.get("dynamic_memory_read_policy") or node.get("dynamic_memory_read_policy") or {}),
+                review_gate_policy=dict(raw.get("review_gate_policy") or node.get("review_gate_policy") or {}),
+                human_gate_policy=dict(raw.get("human_gate_policy") or node.get("human_gate_policy") or {}),
+                artifact_policy=_artifact_policy_from_node({**node, **raw}),
+                artifact_targets=tuple(_artifact_targets_from_node({**node, **raw})),
             )
         )
     return tuple(contracts)
@@ -191,6 +239,21 @@ def derive_stage_contracts_from_graph(
                 on_success="advance",
                 on_failure=_derived_failure_policy(node),
                 retry_policy=dict(node.get("retry_policy") or dict(node.get("loop_policy") or {})),
+                agent_id=str(node.get("agent_id") or "").strip(),
+                runtime_lane=str(node.get("runtime_lane") or node.get("lane") or "").strip(),
+                role=str(node.get("role") or node.get("work_posture") or "").strip(),
+                title=str(node.get("title") or node_id).strip(),
+                input_contract_id=str(node.get("input_contract_id") or "").strip(),
+                output_contract_id=str(node.get("output_contract_id") or node.get("node_contract_id") or "").strip(),
+                projection_id=str(node.get("projection_id") or "").strip(),
+                node_type=str(node.get("node_type") or "").strip(),
+                memory_read_policy=dict(node.get("memory_read_policy") or {}),
+                memory_writeback_policy=dict(node.get("memory_writeback_policy") or {}),
+                dynamic_memory_read_policy=dict(node.get("dynamic_memory_read_policy") or {}),
+                review_gate_policy=dict(node.get("review_gate_policy") or {}),
+                human_gate_policy=dict(node.get("human_gate_policy") or {}),
+                artifact_policy=_artifact_policy_from_node(node),
+                artifact_targets=tuple(_artifact_targets_from_node(node)),
             )
         )
     return tuple(contracts)
@@ -334,6 +397,37 @@ def _stage_input_key(source_node_id: str, edge: dict[str, Any]) -> str:
     if contract_ref:
         return f"{contract_ref}:artifact_refs"
     return f"{source_node_id}:artifact_refs"
+
+
+def _artifact_policy_from_node(node: dict[str, Any]) -> dict[str, Any]:
+    policy = dict(node.get("artifact_policy") or {})
+    target = str(node.get("artifact_target") or node.get("output_path") or policy.get("artifact_target") or "").strip()
+    if target:
+        policy.setdefault("enabled", True)
+        policy.setdefault("required", True)
+        policy.setdefault("source", "task_graph_node")
+        policy["artifact_target"] = target
+        policy.setdefault(
+            "artifacts",
+            [
+                {
+                    "path": target,
+                    "required": True,
+                    "content_source": "final_content",
+                    "fallback_to_full_content": True,
+                }
+            ],
+        )
+    return policy
+
+
+def _artifact_targets_from_node(node: dict[str, Any]) -> list[dict[str, Any]]:
+    targets = [dict(item) for item in list(node.get("artifact_targets") or []) if isinstance(item, dict)]
+    policy = _artifact_policy_from_node(node)
+    target = str(policy.get("artifact_target") or "").strip()
+    if target and not any(str(item.get("path") or "") == target for item in targets):
+        targets.append({"path": target, "required": bool(policy.get("required", True)), "source": "task_graph_node"})
+    return targets
 
 
 def _derived_gate_policy(node: dict[str, Any]) -> str:

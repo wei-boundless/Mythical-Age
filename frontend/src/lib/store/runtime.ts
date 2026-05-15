@@ -4,13 +4,14 @@ import {
   loadFile,
   createSession,
   deleteSession,
+  getTaskGraphRunMonitor,
   getOrchestrationRuntimeLoopSessionLiveMonitor,
   getRagMode,
   getSessionHistory,
   getSessionTokens,
   listSessions,
   listSkills,
-  resumeOrchestrationCoordinationRun,
+  resumeOrchestrationTaskGraphRun,
   renameSession,
   saveFile,
   setRagMode,
@@ -113,8 +114,8 @@ export class WorkspaceRuntime {
       setOrchestrationSnapshot: (snapshot) => {
         this.setOrchestrationSnapshot(snapshot);
       },
-      resumeCoordinationRun: async (coordinationRunId, payload) => {
-        await this.resumeCoordinationRun(coordinationRunId, payload);
+      resumeTaskGraphRun: async (taskGraphRunId, payload) => {
+        await this.resumeTaskGraphRun(taskGraphRunId, payload);
       },
       setTaskSelection: (selection) => {
         this.setTaskSelection(selection);
@@ -246,7 +247,8 @@ export class WorkspaceRuntime {
       ...prev,
       messages: streamState.messages,
       orchestrationSnapshot: streamState.orchestrationSnapshot,
-      coordinationLiveMonitor: null,
+      taskGraphLiveMonitor: null,
+      taskGraphRunMonitor: null,
       activeStreamSessionIds,
       isStreaming: activeStreamSessionIds.length > 0,
     }));
@@ -293,7 +295,8 @@ export class WorkspaceRuntime {
       currentSessionId: sessionId,
       messages: [],
       orchestrationSnapshot: null,
-      coordinationLiveMonitor: null,
+      taskGraphLiveMonitor: null,
+      taskGraphRunMonitor: null,
       tokenStats: null
     }));
     this.startOrchestrationMonitorPolling(sessionId);
@@ -309,7 +312,8 @@ export class WorkspaceRuntime {
         currentSessionId: sessionId,
         messages: streamingCache.messages,
         orchestrationSnapshot: streamingCache.orchestrationSnapshot,
-        coordinationLiveMonitor: null,
+        taskGraphLiveMonitor: null,
+        taskGraphRunMonitor: null,
         tokenStats: null
       }));
       return;
@@ -319,7 +323,8 @@ export class WorkspaceRuntime {
       currentSessionId: sessionId,
       messages: [],
       orchestrationSnapshot: null,
-      coordinationLiveMonitor: null,
+      taskGraphLiveMonitor: null,
+      taskGraphRunMonitor: null,
       tokenStats: null
     }));
     await this.refreshSessionDetails(sessionId);
@@ -347,7 +352,8 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({
       ...prev,
       orchestrationSnapshot: null,
-      coordinationLiveMonitor: prev.coordinationLiveMonitor,
+      taskGraphLiveMonitor: prev.taskGraphLiveMonitor,
+      taskGraphRunMonitor: prev.taskGraphRunMonitor,
       orchestrationInspectorTarget: prev.orchestrationInspectorTarget?.source === "live-session"
         ? null
         : prev.orchestrationInspectorTarget,
@@ -519,13 +525,20 @@ export class WorkspaceRuntime {
     if (!targetMessage || targetMessage.role !== "user" || targetMessage.sourceIndex === undefined) {
       return;
     }
+    const lastEditableUserMessage = [...state.messages]
+      .reverse()
+      .find((message) => message.role === "user" && message.sourceIndex !== undefined);
+    if (lastEditableUserMessage?.id !== messageId) {
+      return;
+    }
     const visibleMessageIndex = state.messages.findIndex((message) => message.id === messageId);
     await truncateSessionMessages(sessionId, targetMessage.sourceIndex);
     this.store.setState((prev) => ({
       ...prev,
       messages: visibleMessageIndex > -1 ? prev.messages.slice(0, visibleMessageIndex) : prev.messages,
       orchestrationSnapshot: null,
-      coordinationLiveMonitor: null,
+      taskGraphLiveMonitor: null,
+      taskGraphRunMonitor: null,
       tokenStats: null
     }));
     await this.sendMessage(nextValue);
@@ -791,12 +804,12 @@ export class WorkspaceRuntime {
     }
   }
 
-  private async resumeCoordinationRun(coordinationRunId: string, payload?: Record<string, unknown>) {
-    const runId = coordinationRunId.trim();
+  private async resumeTaskGraphRun(taskGraphRunId: string, payload?: Record<string, unknown>) {
+    const runId = taskGraphRunId.trim();
     if (!runId) {
       return;
     }
-    await resumeOrchestrationCoordinationRun(runId, payload ?? {});
+    await resumeOrchestrationTaskGraphRun(runId, payload ?? {});
     const sessionId = this.store.getState().currentSessionId;
     if (sessionId) {
       await this.hydrateLatestOrchestrationSnapshot(sessionId);
@@ -807,21 +820,27 @@ export class WorkspaceRuntime {
     const targetSessionId = sessionId.trim();
     const requestId = ++this.orchestrationHydrateRequest;
     if (!targetSessionId) {
-      this.store.setState((prev) => ({ ...prev, coordinationLiveMonitor: null }));
+      this.store.setState((prev) => ({ ...prev, taskGraphLiveMonitor: null, taskGraphRunMonitor: null }));
       return;
     }
     try {
       const liveMonitor = await getOrchestrationRuntimeLoopSessionLiveMonitor(targetSessionId);
       if (!liveMonitor.monitor) {
         if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
-          this.store.setState((prev) => ({ ...prev, coordinationLiveMonitor: null }));
+          this.store.setState((prev) => ({ ...prev, taskGraphLiveMonitor: null, taskGraphRunMonitor: null }));
         }
         return;
+      }
+      const taskRunId = String(liveMonitor.monitor.task_run?.task_run_id ?? "").trim();
+      let taskGraphRunMonitor = this.store.getState().taskGraphRunMonitor;
+      if (taskRunId) {
+        taskGraphRunMonitor = await getTaskGraphRunMonitor(taskRunId);
       }
       if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
         this.store.setState((prev) => ({
           ...prev,
-          coordinationLiveMonitor: liveMonitor.monitor,
+          taskGraphLiveMonitor: liveMonitor.monitor,
+          taskGraphRunMonitor,
         }));
       }
     } catch {

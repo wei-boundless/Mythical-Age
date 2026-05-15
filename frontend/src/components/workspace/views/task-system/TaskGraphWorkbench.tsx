@@ -19,30 +19,25 @@ import type { TaskGraphPreflightIssue } from "./taskGraphPreflight";
 import type { TaskGraphWorkbenchProps } from "./taskGraphTypes";
 
 export function TaskGraphWorkbench({
-  legacyDrafts,
-  taskGraphDraft,
   taskGraphDraftV2,
   saveTaskGraphStack,
-  duplicateTaskGraphDraft,
   sendTaskGraphToChat,
   applyTaskGraphTemplate,
   addTaskGraphTaskNode,
   addTaskGraphRoleNode,
   addTaskGraphNode,
-  addTaskGraphEdge,
   reverseTaskGraphEdge,
-  cycleTaskGraphEdgeMode,
   removeTaskGraphEdge,
   addTaskGraphSuccessorNode,
-  cycleTaskGraphNodeRole,
   removeTaskGraphNode,
+  updateTaskGraphContextPolicy,
+  updateTaskGraphDraft,
   updateTaskGraphNode,
   updateTaskGraphEdge,
-  setTaskGraphPublished,
-  setCoordinationDraft,
-  setTopologyDraft,
-  setProtocolDraft,
-  selectedTaskGraphSpec,
+  updateTaskGraphMetadata,
+  updateTaskGraphPublishState,
+  updateTaskGraphRuntimePolicy,
+  updateTaskGraphWorkingMemoryPolicy,
   activeGraphNodes,
   activeGraphEdges,
   ...rest
@@ -54,13 +49,7 @@ export function TaskGraphWorkbench({
   const publishState = taskGraphDraftV2.publish_state;
   const published = isTaskGraphPublishedState(publishState);
   const updateEditorPublishState = (nextState: TaskGraphPublishStateV2) => {
-    setCoordinationDraft((current) => ({
-      ...current,
-      metadata: {
-        ...asRecord(current.metadata),
-        editor_publish_state: nextState,
-      },
-    }));
+    updateTaskGraphPublishState(nextState);
   };
   const handleSaveDraft = () => {
     const nextState: TaskGraphPublishStateV2 = published ? publishState : "saved";
@@ -73,81 +62,16 @@ export function TaskGraphWorkbench({
     void saveTaskGraphStack(true, nextState);
   };
   const updateTaskGraph = (patch: Partial<typeof taskGraphDraftV2>) => {
-    setCoordinationDraft((current) => {
-      const metadata = asRecord(current.metadata);
-      return {
-        ...current,
-        title: patch.title ?? current.title,
-        graph_kind: patch.graph_kind ?? current.graph_kind,
-        metadata: {
-          ...metadata,
-          entry_node_id: patch.entry_node_id ?? metadata.entry_node_id,
-          output_node_id: patch.output_node_id ?? metadata.output_node_id,
-          graph_contract_id: patch.graph_contract_id ?? metadata.graph_contract_id,
-        },
-      };
-    });
-  };
-  const updateTaskGraphMetadata = (patch: Record<string, unknown>) => {
-    setCoordinationDraft((current) => ({
-      ...current,
-      metadata: {
-        ...asRecord(current.metadata),
-        ...patch,
-      },
-    }));
+    updateTaskGraphDraft(patch);
   };
   const updateRuntimePolicy = (patch: Partial<typeof taskGraphDraftV2.runtime_policy>) => {
-    setCoordinationDraft((current) => {
-      const metadata = asRecord(current.metadata);
-      return {
-        ...current,
-        coordinator_agent_id: patch.coordinator_agent_id ?? current.coordinator_agent_id,
-        participant_agent_ids: patch.participant_agent_ids ?? current.participant_agent_ids,
-        agent_group_id: patch.agent_group_id ?? current.agent_group_id,
-        coordination_mode: patch.coordination_mode ?? current.coordination_mode,
-        metadata: {
-          ...metadata,
-          runtime_policy: {
-            ...asRecord(metadata.runtime_policy),
-            ...patch,
-          },
-        },
-      };
-    });
+    updateTaskGraphRuntimePolicy(patch);
   };
   const updateContextPolicy = (patch: Partial<typeof taskGraphDraftV2.context_policy>) => {
-    setCoordinationDraft((current) => {
-      const metadata = asRecord(current.metadata);
-      return {
-        ...current,
-        shared_context_policy: patch.shared_context_policy ?? current.shared_context_policy,
-        memory_sharing_policy: patch.memory_sharing_policy ?? current.memory_sharing_policy,
-        handoff_policy: String(patch.handoff_policy ?? current.handoff_policy),
-        metadata: {
-          ...metadata,
-          context_policy: {
-            ...asRecord(metadata.context_policy),
-            ...patch,
-          },
-        },
-      };
-    });
+    updateTaskGraphContextPolicy(patch);
   };
   const updateWorkingMemoryPolicy = (patch: Partial<typeof taskGraphDraftV2.working_memory_policy>) => {
-    setCoordinationDraft((current) => {
-      const metadata = asRecord(current.metadata);
-      return {
-        ...current,
-        metadata: {
-          ...metadata,
-          working_memory_policy: {
-            ...asRecord(metadata.working_memory_policy),
-            ...patch,
-          },
-        },
-      };
-    });
+    updateTaskGraphWorkingMemoryPolicy(patch);
   };
   const repairPreflightIssue = (issue: TaskGraphPreflightIssue) => {
     if (
@@ -190,33 +114,26 @@ export function TaskGraphWorkbench({
     if (activeLayer === "topology") {
       return (
         <TaskGraphTopologyPage
-          {...rest}
           activeGraphEdges={activeGraphEdges}
           activeGraphNodes={activeGraphNodes}
-          addTaskGraphEdge={addTaskGraphEdge}
           addTaskGraphNode={addTaskGraphNode}
           addTaskGraphRoleNode={addTaskGraphRoleNode}
           addTaskGraphSuccessorNode={addTaskGraphSuccessorNode}
           addTaskGraphTaskNode={addTaskGraphTaskNode}
-          applyTaskGraphTemplate={applyTaskGraphTemplate}
-          cycleTaskGraphEdgeMode={cycleTaskGraphEdgeMode}
-          cycleTaskGraphNodeRole={cycleTaskGraphNodeRole}
-          duplicateTaskGraphDraft={duplicateTaskGraphDraft}
-          legacyDrafts={legacyDrafts}
+          handleTopologyNodeClick={rest.handleTopologyNodeClick}
+          linkingFromNodeId={rest.linkingFromNodeId}
           removeTaskGraphEdge={removeTaskGraphEdge}
           removeTaskGraphNode={removeTaskGraphNode}
           reverseTaskGraphEdge={reverseTaskGraphEdge}
-          saveTaskGraphStack={saveTaskGraphStack}
-          selectedTaskGraphSpec={selectedTaskGraphSpec}
-          sendTaskGraphToChat={sendTaskGraphToChat}
-          setCoordinationDraft={setCoordinationDraft}
-          setProtocolDraft={setProtocolDraft}
-          setTaskGraphPublished={setTaskGraphPublished}
-          setTopologyDraft={setTopologyDraft}
-          taskGraphDirty={rest.taskGraphDirty}
-          taskGraphDraft={taskGraphDraft}
-          updateTaskGraphEdge={updateTaskGraphEdge}
-          updateTaskGraphNode={updateTaskGraphNode}
+          selectedDomainTasks={rest.selectedDomainTasks}
+          selectedGraphEdge={rest.selectedGraphEdge}
+          selectedGraphEdgeId={rest.selectedGraphEdgeId}
+          selectedGraphNode={rest.selectedGraphNode}
+          selectedGraphNodeId={rest.selectedGraphNodeId}
+          setLinkingFromNodeId={rest.setLinkingFromNodeId}
+          setSelectedGraphEdgeId={rest.setSelectedGraphEdgeId}
+          setSelectedGraphNodeId={rest.setSelectedGraphNodeId}
+          taskGraphDraftV2={taskGraphDraftV2}
         />
       );
     }

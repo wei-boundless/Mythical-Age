@@ -67,10 +67,7 @@ from .action_request import (
 )
 from .checkpoint import RuntimeCheckpoint, RuntimeCheckpointStore
 from .coordination_flow import (
-    advance_coordination_flow_state,
     build_coordination_flow_state,
-    build_coordination_node_status_map,
-    finalize_coordination_flow_state,
 )
 from .context_manager import RuntimeContextManager
 from .execution_record import (
@@ -83,7 +80,8 @@ from .execution_record import (
 )
 from .event_log import RuntimeEventLog
 from .loop_control import RuntimeLoopLimits, check_runtime_loop_control
-from .langgraph_coordination_runner import LangGraphCoordinationRunner
+from .langgraph_checkpoint_adapter import LangGraphCheckpointStoreAdapter
+from .runtime_object_store import RuntimeObjectStore
 from .artifact_refs import ArtifactRefIndex, collect_task_result_output_refs, dedupe_refs as dedupe_artifact_refs
 from .agent_delegation_executor import AgentDelegationExecutor
 from .langgraph_coordination_runtime import LangGraphCoordinationRuntime, LangGraphCoordinationRuntimeResult
@@ -181,7 +179,14 @@ class TaskRunLoop:
         self.checkpoints = RuntimeCheckpointStore(self.root_dir)
         self.execution_store = RuntimeExecutionStore(self.root_dir)
         self.state_index = RuntimeStateIndex(self.root_dir)
-        self.trace_reader = RuntimeLoopTraceReader(self.state_index, self.event_log, self.checkpoints)
+        self.runtime_objects = RuntimeObjectStore(self.root_dir)
+        self.coordination_checkpoints = LangGraphCheckpointStoreAdapter(self.root_dir)
+        self.trace_reader = RuntimeLoopTraceReader(
+            self.state_index,
+            self.event_log,
+            self.checkpoints,
+            self.coordination_checkpoints,
+        )
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
         self.limits = limits or RuntimeLoopLimits()
         self.tool_authorization_index = self._build_tool_authorization_index()
@@ -189,9 +194,9 @@ class TaskRunLoop:
         self.agent_registry = AgentRegistry(self.backend_dir)
         self.agent_runtime_registry = AgentRuntimeRegistry(self.backend_dir)
         self.worker_agent_factory = WorkerAgentFactory(self.backend_dir)
-        self.langgraph_coordination_runner = LangGraphCoordinationRunner()
         self.langgraph_coordination_runtime = LangGraphCoordinationRuntime(
             root_dir=self.root_dir,
+            registry_base_dir=self.backend_dir,
             state_index=self.state_index,
             event_log=self.event_log,
             task_flow_registry=self.task_flow_registry,
@@ -220,6 +225,12 @@ class TaskRunLoop:
 
     def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
         return self.trace_reader.get_task_run_live_monitor(task_run_id)
+
+    def get_task_graph_run_monitor(self, task_run_id: str) -> dict[str, Any] | None:
+        return self.trace_reader.get_task_graph_run_monitor(task_run_id)
+
+    def get_coordination_run_monitor(self, coordination_run_id: str) -> dict[str, Any] | None:
+        return self.trace_reader.get_coordination_run_monitor(coordination_run_id)
 
     def get_trace(
         self,
@@ -505,6 +516,16 @@ class TaskRunLoop:
         """Create a durable runtime-loop run from a first-class TaskGraphDefinition."""
         runtime_policy = dict(graph.runtime_policy or {})
         coordinator_agent_id = str(runtime_spec.coordinator_agent_id or runtime_policy.get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
+        graph_definition_ref = self.runtime_objects.put_json_once(
+            "task_graph_definitions",
+            f"{session_id}:{task_id or graph.graph_id}:{graph.graph_id}",
+            graph.to_dict(),
+        )
+        graph_runtime_spec_ref = self.runtime_objects.put_json_once(
+            "task_graph_runtime_specs",
+            f"{session_id}:{task_id or graph.graph_id}:{graph.graph_id}",
+            runtime_spec.to_dict(),
+        )
         graph_payload = _dispatch_graph_payload_from_task_graph_runtime_spec(
             graph=graph,
             runtime_spec=runtime_spec,
@@ -541,14 +562,18 @@ class TaskRunLoop:
                 "task_graph_id": graph.graph_id,
                 "task_graph_title": graph.title,
                 "task_graph_publish_state": graph.publish_state,
-                "task_graph_definition": graph.to_dict(),
-                "task_graph_runtime_spec": runtime_spec.to_dict(),
+                "task_graph_definition_ref": graph_definition_ref,
+                "task_graph_runtime_spec_ref": graph_runtime_spec_ref,
                 "task_graph_runtime_spec_valid": runtime_spec.valid,
                 **dict(diagnostics or {}),
             },
         )
-        if start.coordination_run is None or not self.langgraph_coordination_runtime.supports(start.coordination_run):
+        if start.coordination_run is None:
             return start
+        if not self.langgraph_coordination_runtime.supports(start.coordination_run):
+            raise RuntimeError(
+                "TaskGraph coordination run is missing LangGraph stage contracts; legacy initialization fallback was removed."
+            )
         initialized = self.langgraph_coordination_runtime.initialize(
             coordination_run=start.coordination_run,
             event_task_run_id=start.task_run.task_run_id,
@@ -1927,6 +1952,7 @@ class TaskRunLoop:
                                 yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
                         elif observation.get("observation_type") == "executor_error":
                             terminal_reason = "executor_failed"
+                            observation_payload = dict(observation.get("payload") or {})
                             current_step = current_task_step_run(runtime_task_ledger)
                             if (
                                 runtime_task_ledger is not None
@@ -1934,7 +1960,7 @@ class TaskRunLoop:
                                 and current_step.status == "running"
                                 and current_step.executor_type in {"tool", "mcp", "agent"}
                             ):
-                                error_text = str(dict(observation.get("payload") or {}).get("error") or "executor_failed")
+                                error_text = str(observation_payload.get("error") or "executor_failed")
                                 runtime_task_ledger = fail_task_run_step(
                                     runtime_task_ledger,
                                     step_id=current_step.step_id,
@@ -1969,25 +1995,38 @@ class TaskRunLoop:
                                     state,
                                     runtime_task_ledger,
                                     result_refs=result_refs,
-                                    diagnostics={"last_step_transition": "executor_error_observation"},
+                                    diagnostics={
+                                        "last_step_transition": "executor_error_observation",
+                                        "last_error": {
+                                            "message": error_text,
+                                            "code": str(observation_payload.get("code") or ""),
+                                            "provider": str(observation_payload.get("provider") or ""),
+                                            "model": str(observation_payload.get("model") or ""),
+                                            "detail": str(observation_payload.get("detail") or ""),
+                                            "source": str(observation.get("source") or ""),
+                                            "observation_ref": observation_ref,
+                                            "step_id": current_step.step_id,
+                                        },
+                                    },
                                 )
                                 checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
                                 yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
                     elif runtime_event.event_type == "loop_error":
                         terminal_reason = "executor_failed"
+                        runtime_error = str(runtime_event.payload.get("error") or "executor_failed")
+                        runtime_observation = dict(runtime_event.payload.get("observation") or {})
+                        runtime_observation_payload = dict(runtime_observation.get("payload") or {})
                         current_step = current_task_step_run(runtime_task_ledger)
                         if (
                             runtime_task_ledger is not None
                             and current_step is not None
                             and current_step.status == "running"
-                            and current_step.executor_type in {"tool", "mcp", "agent"}
                         ):
-                            error_text = str(runtime_event.payload.get("error") or "executor_failed")
                             runtime_task_ledger = fail_task_run_step(
                                 runtime_task_ledger,
                                 step_id=current_step.step_id,
                                 completed_at=time.time(),
-                                failure_reason=error_text,
+                                failure_reason=runtime_error,
                                 diagnostics={"transition_reason": "loop_error"},
                             )
                             failed_step = find_task_step_run(runtime_task_ledger, current_step.step_id)
@@ -2011,7 +2050,19 @@ class TaskRunLoop:
                                 state,
                                 runtime_task_ledger,
                                 result_refs=result_refs,
-                                diagnostics={"last_step_transition": "loop_error"},
+                                diagnostics={
+                                    "last_step_transition": "loop_error",
+                                    "last_error": {
+                                        "message": runtime_error,
+                                        "code": str(runtime_observation_payload.get("code") or ""),
+                                        "provider": str(runtime_observation_payload.get("provider") or ""),
+                                        "model": str(runtime_observation_payload.get("model") or ""),
+                                        "detail": str(runtime_observation_payload.get("detail") or ""),
+                                        "source": str(runtime_event.payload.get("answer_source") or runtime_observation.get("source") or ""),
+                                        "observation_ref": str(runtime_event.refs.get("observation_ref") or ""),
+                                        "step_id": current_step.step_id,
+                                    },
+                                },
                             )
                             checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
                             yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
@@ -2753,6 +2804,16 @@ class TaskRunLoop:
         if task_record_for_artifacts is not None:
             task_ref_for_artifacts = str(getattr(task_record_for_artifacts, "task_id", "") or task_ref_for_artifacts)
             task_policy_for_artifacts = dict(task_record_for_artifacts.task_policy or {})
+        stage_execution_request = dict(dict(current_turn_context or {}).get("stage_execution_request") or {})
+        stage_artifact_policy = dict(stage_execution_request.get("artifact_policy") or {})
+        if stage_artifact_policy:
+            task_policy_for_artifacts = {
+                **task_policy_for_artifacts,
+                "artifact_policy": {
+                    **dict(task_policy_for_artifacts.get("artifact_policy") or {}),
+                    **stage_artifact_policy,
+                },
+            }
         try:
             artifact_materialization = materialize_task_artifacts(
                 workspace_root=_workspace_root_from_runtime_root(self.root_dir),
@@ -2764,6 +2825,9 @@ class TaskRunLoop:
                 user_message=user_message,
                 explicit_inputs=explicit_inputs,
                 task_policy=task_policy_for_artifacts,
+                task_status=terminal_state.status,
+                terminal_reason=terminal_state.terminal_reason,
+                task_diagnostics=dict(terminal_state.diagnostics or {}),
             )
         except Exception as exc:
             artifact_materialization = MaterializedTaskArtifacts(
@@ -2969,7 +3033,17 @@ class TaskRunLoop:
                         coordination_task=graph_record,
                         task_ref=task_contract_ref or start_task_run.task_id,
                     )
-                output_refs = self._collect_task_result_output_refs(dict(task_result or {}))
+                all_output_refs = self._collect_task_result_output_refs(dict(task_result or {}))
+                current_stage_request = dict(dict(current_turn_context or {}).get("stage_execution_request") or {})
+                requires_file_artifact_refs = bool(
+                    dict(current_stage_request.get("artifact_policy") or {}).get("enabled")
+                    or current_stage_request.get("artifact_targets")
+                )
+                output_refs = [
+                    ref
+                    for ref in all_output_refs
+                    if str(ref or "").startswith("artifact:")
+                ] if requires_file_artifact_refs else all_output_refs
                 task_result_ref = str(dict(task_result or {}).get("result_id") or agent_run_result.agent_run_result_id)
                 ready_event = TaskResultReadyEvent(
                     event_type="task_result_ready",
@@ -2979,7 +3053,7 @@ class TaskRunLoop:
                     task_ref=task_contract_ref or start_task_run.task_id,
                     task_result_ref=task_result_ref,
                     artifact_refs=tuple(output_refs),
-                    accepted=terminal_state.status == "completed",
+                    accepted=terminal_state.status == "completed" and (bool(output_refs) if requires_file_artifact_refs else True),
                     agent_run_result_ref=agent_run_result.agent_run_result_id,
                     diagnostics={
                         "terminal_reason": terminal_state.terminal_reason,
@@ -3034,153 +3108,9 @@ class TaskRunLoop:
                     )
                 )
                 return FinishedTaskRunResult(events=tuple(events), continuation_payload=continuation_payload)
-            raw_flow_state = dict(target_coordination_run.diagnostics.get("coordination_flow") or {})
-            next_task_ref = self._next_coordination_subtask_ref(
-                coordination_task=graph_record,
-                flow_state=raw_flow_state,
+            raise RuntimeError(
+                f"Legacy coordination continuation path was removed for unsupported coordination run: {target_coordination_run.coordination_run_id}"
             )
-            is_continuous_progression = coordination_mode == "continuous_delivery" and terminal_state.status == "completed"
-            if is_continuous_progression and str(next_task_ref or "").strip():
-                finalized_flow = advance_coordination_flow_state(
-                    raw_flow_state,
-                    final_result_ref=agent_run_result.agent_run_result_id,
-                    next_task_ref=next_task_ref,
-                )
-                unresolved_issue_refs = ()
-                continuous_progression_active = True
-            else:
-                finalized_flow, unresolved_issue_refs = finalize_coordination_flow_state(
-                    raw_flow_state,
-                    accepted=terminal_state.status == "completed",
-                    final_result_ref=agent_run_result.agent_run_result_id,
-                )
-                continuous_progression_active = False
-            finalized_node_status_map = build_coordination_node_status_map(finalized_flow)
-            merge_result = CoordinationMergeResult(
-                merge_result_id=f"coordmerge:{target_coordination_run.coordination_run_id}",
-                coordination_run_id=target_coordination_run.coordination_run_id,
-                task_run_id=target_coordination_run.task_run_id,
-                merge_policy=target_coordination_run.merge_policy or "coordinator_final_merge",
-                final_result_ref=agent_run_result.agent_run_result_id,
-                accepted=False if continuous_progression_active else terminal_state.status == "completed",
-                unresolved_issue_refs=unresolved_issue_refs,
-                created_at=time.time(),
-                diagnostics={
-                    "terminal_reason": terminal_state.terminal_reason,
-                    "final_agent_run_result_ref": agent_run_result.agent_run_result_id,
-                    "coordination_flow": finalized_flow,
-                    "coordination_mode": coordination_mode,
-                    "next_task_ref": next_task_ref,
-                    "continuous_progression": continuous_progression_active,
-                },
-            )
-            self.state_index.upsert_coordination_merge_result(merge_result)
-            events.append(self.event_log.append(
-                start_task_run.task_run_id,
-                "coordination_merge_result_created",
-                payload={"coordination_merge_result": merge_result.to_dict()},
-                refs={"coordination_merge_result_ref": merge_result.merge_result_id},
-            ))
-            if finalized_flow:
-                events.append(self.event_log.append(
-                    start_task_run.task_run_id,
-                    "coordination_flow_advanced" if continuous_progression_active else "coordination_flow_finalized",
-                    payload={"coordination_flow": finalized_flow},
-                    refs={"coordination_run_ref": target_coordination_run.coordination_run_id},
-                ))
-            current_node_runs = self.state_index.list_coordination_node_runs(target_coordination_run.coordination_run_id)
-            for node_run in current_node_runs:
-                node_flow = dict(finalized_node_status_map.get(node_run.node_id) or {})
-                updated_node_run = CoordinationNodeRun(
-                    node_run_id=node_run.node_run_id,
-                    coordination_run_id=node_run.coordination_run_id,
-                    task_run_id=node_run.task_run_id,
-                    node_id=node_run.node_id,
-                    role=node_run.role,
-                    assigned_agent_id=node_run.assigned_agent_id,
-                    assigned_agent_run_ref=node_run.assigned_agent_run_ref,
-                    status=str(node_flow.get("node_run_status") or node_run.status),
-                    handoff_count=node_run.handoff_count,
-                    latest_handoff_ref=node_run.latest_handoff_ref,
-                    created_at=node_run.created_at,
-                    updated_at=time.time(),
-                    diagnostics={
-                        **dict(node_run.diagnostics),
-                        "stage_id": str(node_flow.get("stage_id") or node_run.diagnostics.get("stage_id") or ""),
-                        "message_type": str(node_flow.get("message_type") or node_run.diagnostics.get("message_type") or ""),
-                        "stage_status": str(node_flow.get("stage_status") or node_run.diagnostics.get("stage_status") or ""),
-                    },
-                )
-                self.state_index.upsert_coordination_node_run(updated_node_run)
-                events.append(self.event_log.append(
-                    start_task_run.task_run_id,
-                    "coordination_node_run_updated",
-                    payload={"coordination_node_run": updated_node_run.to_dict()},
-                    refs={"coordination_node_run_ref": updated_node_run.node_run_id},
-                ))
-            self.state_index.upsert_coordination_run(
-                CoordinationRun(
-                    coordination_run_id=target_coordination_run.coordination_run_id,
-                    task_run_id=target_coordination_run.task_run_id,
-                    graph_ref=target_coordination_run.graph_ref,
-                    coordinator_agent_id=target_coordination_run.coordinator_agent_id,
-                    topology_template_id=target_coordination_run.topology_template_id,
-                    communication_protocol_id=target_coordination_run.communication_protocol_id,
-                    handoff_policy=target_coordination_run.handoff_policy,
-                    failure_policy=target_coordination_run.failure_policy,
-                    merge_policy=target_coordination_run.merge_policy,
-                    status=(
-                        "running"
-                        if continuous_progression_active and str(finalized_flow.get("current_stage_id") or "").strip()
-                        else ("completed" if terminal_state.status == "completed" else "failed")
-                    ),
-                    latest_checkpoint_ref=str(checkpoint_event.refs.get("checkpoint_ref") or ""),
-                    latest_merge_result_ref=merge_result.merge_result_id,
-                    created_at=target_coordination_run.created_at,
-                    updated_at=time.time(),
-                    diagnostics={
-                        **dict(target_coordination_run.diagnostics),
-                        "terminal_reason": terminal_state.terminal_reason,
-                        "coordination_flow": finalized_flow,
-                        "worker_spawn_summary": worker_spawn_summary,
-                        "next_task_ref": next_task_ref,
-                        "continuous_progression": continuous_progression_active,
-                    },
-                )
-            )
-            coordination_terminal_status = (
-                "running"
-                if continuous_progression_active and str(finalized_flow.get("current_stage_id") or "").strip()
-                else ("completed" if terminal_state.status == "completed" else "failed")
-            )
-            if coordination_terminal_status in {"completed", "failed"}:
-                self._sync_task_graph_root_terminal_objects(
-                    root_task_run_id=target_coordination_run.task_run_id,
-                    coordination_run_id=target_coordination_run.coordination_run_id,
-                    status=coordination_terminal_status,
-                    terminal_reason="completed" if coordination_terminal_status == "completed" else "internal_error",
-                    merge_result_ref=merge_result.merge_result_id,
-                )
-            if (
-                continuous_progression_active
-                and str(finalized_flow.get("current_stage_id") or "").strip()
-                and str(next_task_ref or "").strip()
-            ):
-                continuation_payload = self._build_continuous_delivery_payload(
-                    session_id=start_task_run.session_id,
-                    coordination_run_id=target_coordination_run.coordination_run_id,
-                    current_task_run_id=start_task_run.task_run_id,
-                    current_task_id=start_task_run.task_id,
-                    current_task_ref=task_contract_ref or start_task_run.task_id,
-                    next_task_ref=next_task_ref,
-                    finalized_flow=finalized_flow,
-                    task_result=dict(task_result or {}),
-                    task_spec_payload=dict(task_spec_payload or {}),
-                    current_turn_context=dict(current_turn_context or {}),
-                    user_message=user_message,
-                    final_content=final_content,
-                    agent_run_result_id=agent_run_result.agent_run_result_id,
-                )
         self.state_index.upsert_task_run(
             TaskRun(
                 task_run_id=start_task_run.task_run_id,
@@ -3540,13 +3470,9 @@ class TaskRunLoop:
         events.extend(spawn_events)
 
         if current_coordination_run is not None and not self.langgraph_coordination_runtime.supports(current_coordination_run):
-            coordination_events = self._sync_coordination_runtime_objects(
-                task_run_id=start_result.task_run.task_run_id,
-                coordinator_agent_run=updated_agent_run,
-                coordination_run=current_coordination_run,
-                communication_protocol_payload=communication_protocol_payload,
+            raise RuntimeError(
+                f"Legacy coordination runtime sync path was removed: {current_coordination_run.coordination_run_id}"
             )
-            events.extend(coordination_events)
         return tuple(events)
 
     def _sync_worker_spawn_runtime_objects(
@@ -3794,320 +3720,12 @@ class TaskRunLoop:
             )
         return events, coordination_run
 
-    def _sync_coordination_runtime_objects(
-        self,
-        *,
-        task_run_id: str,
-        coordinator_agent_run: AgentRun,
-        coordination_run: CoordinationRun,
-        communication_protocol_payload: dict[str, Any],
-        ) -> tuple[Any, ...]:
-        events: list[Any] = []
-        existing_node_runs = {item.node_id: item for item in self.state_index.list_coordination_node_runs(coordination_run.coordination_run_id)}
-        existing_agent_runs = {item.agent_run_id: item for item in self.state_index.list_task_agent_runs(task_run_id)}
-        coordination_flow = dict(coordination_run.diagnostics.get("coordination_flow") or {})
-        node_status_map = build_coordination_node_status_map(coordination_flow)
-        emitted_stage_ids: set[str] = set()
-        protocol_message_types = tuple(str(item).strip() for item in list(communication_protocol_payload.get("message_types") or []) if str(item).strip())
-        handoff_message_type = protocol_message_types[0] if protocol_message_types else "structured_handoff"
-        worker_nodes: list[dict[str, Any]] = []
-        for item in self.state_index.list_task_worker_spawn_results(task_run_id):
-            if item.status != "spawned":
-                continue
-            worker_nodes.append(
-                {
-                    "node_id": f"worker_{item.spawned_agent_id.replace(':', '_')}",
-                    "agent_id": item.spawned_agent_id,
-                    "lane": "",
-                    "role": "worker_participant",
-                }
-            )
-        graph_spec = _runtime_spec_from_payload(dict(coordination_run.diagnostics.get("task_graph_runtime_spec") or {}))
-        graph_result = (
-            self.langgraph_coordination_runner.run(
-                task_run_id=task_run_id,
-                coordination_run_id=coordination_run.coordination_run_id,
-                graph_spec=graph_spec,
-            )
-            if graph_spec is not None
-            else None
-        )
-        nodes = (
-            [dict(item) for item in list(graph_result.graph_spec.get("nodes") or [])]
-            if graph_result is not None
-            else []
-        )
-        if not nodes:
-            nodes = [
-                {
-                    "node_id": "coordinator",
-                    "agent_id": coordinator_agent_run.agent_id,
-                    "lane": coordinator_agent_run.runtime_lane,
-                    "role": "coordinator",
-                }
-            ]
-            nodes.extend(worker_nodes)
-        node_agent_run_by_node_id: dict[str, AgentRun] = {}
-        for index, node in enumerate(nodes, start=1):
-            node_id = str(node.get("node_id") or f"node_{index}").strip()
-            assigned_agent_id = str(node.get("agent_id") or "").strip() or coordinator_agent_run.agent_id
-            role = str(node.get("role") or ("coordinator" if assigned_agent_id == coordinator_agent_run.agent_id else "participant")).strip()
-            runtime_lane = str(node.get("lane") or "").strip()
-            if assigned_agent_id == coordinator_agent_run.agent_id:
-                assigned_agent_run = coordinator_agent_run
-            else:
-                assigned_agent_run = next(
-                    (
-                        item
-                        for item in existing_agent_runs.values()
-                        if item.agent_id == assigned_agent_id and item.parent_agent_run_ref == coordinator_agent_run.agent_run_id
-                    ),
-                    None,
-                )
-                if assigned_agent_run is None:
-                    runtime_profile = self.agent_runtime_registry.get_profile(assigned_agent_id)
-                    assigned_agent_run = AgentRun(
-                        agent_run_id=f"agrun:{task_run_id}:participant:{node_id}",
-                        task_run_id=task_run_id,
-                        agent_id=assigned_agent_id,
-                        agent_profile_id=(
-                            runtime_profile.agent_profile_id
-                            if runtime_profile is not None
-                            else f"{assigned_agent_id.removeprefix('agent:').replace(':', '_')}_runtime"
-                        ),
-                        role=role,
-                        spawn_mode="coordination_participant",
-                        context_scope=coordinator_agent_run.context_scope,
-                        runtime_lane=runtime_lane or coordinator_agent_run.runtime_lane,
-                        parent_agent_run_ref=coordinator_agent_run.agent_run_id,
-                        coordination_run_ref=coordination_run.coordination_run_id,
-                        status="pending",
-                        created_at=time.time(),
-                        updated_at=time.time(),
-                        diagnostics={"node_id": node_id, "autocreated": True},
-                    )
-                    self.state_index.upsert_agent_run(assigned_agent_run)
-                    events.append(
-                        self.event_log.append(
-                            task_run_id,
-                            "agent_run_created",
-                            payload={"agent_run": assigned_agent_run.to_dict()},
-                            refs={"agent_run_ref": assigned_agent_run.agent_run_id},
-                        )
-                    )
-            node_agent_run_by_node_id[node_id] = assigned_agent_run
-            if node_id not in existing_node_runs:
-                node_flow = dict(node_status_map.get(node_id) or {})
-                node_run = CoordinationNodeRun(
-                    node_run_id=f"coordnode:{coordination_run.coordination_run_id}:{node_id}",
-                    coordination_run_id=coordination_run.coordination_run_id,
-                    task_run_id=task_run_id,
-                    node_id=node_id,
-                    role=role,
-                    assigned_agent_id=assigned_agent_run.agent_id,
-                    assigned_agent_run_ref=assigned_agent_run.agent_run_id,
-                    status=str(node_flow.get("node_run_status") or ("pending" if role != "coordinator" else "running")),
-                    created_at=time.time(),
-                    updated_at=time.time(),
-                    diagnostics={
-                        "lane": runtime_lane or assigned_agent_run.runtime_lane,
-                        "coordination_engine": "langgraph" if graph_result is not None else "legacy",
-                        "graph_node_type": str(node.get("node_type") or ""),
-                        "graph_task_id": str(node.get("task_id") or ""),
-                        **(
-                            {
-                                "stage_id": str(node_flow.get("stage_id") or ""),
-                                "message_type": str(node_flow.get("message_type") or ""),
-                                "stage_status": str(node_flow.get("stage_status") or ""),
-                            }
-                            if node_flow
-                            else {}
-                        ),
-                    },
-                )
-                self.state_index.upsert_coordination_node_run(node_run)
-                events.append(
-                    self.event_log.append(
-                        task_run_id,
-                        "coordination_node_run_created",
-                        payload={"coordination_node_run": node_run.to_dict()},
-                        refs={"coordination_node_run_ref": node_run.node_run_id},
-                    )
-                )
-                stage_id = str(node_flow.get("stage_id") or "").strip()
-                if stage_id and stage_id not in emitted_stage_ids:
-                    events.append(
-                        self.event_log.append(
-                            task_run_id,
-                            "coordination_stage_updated",
-                            payload={
-                                "stage": {
-                                    "stage_id": stage_id,
-                                    "node_id": node_id,
-                                    "message_type": str(node_flow.get("message_type") or ""),
-                                    "status": str(node_flow.get("stage_status") or ""),
-                                }
-                            },
-                            refs={"coordination_run_ref": coordination_run.coordination_run_id},
-                        )
-                    )
-                    emitted_stage_ids.add(stage_id)
-            else:
-                existing = existing_node_runs[node_id]
-                node_flow = dict(node_status_map.get(node_id) or {})
-                target_status = str(node_flow.get("node_run_status") or existing.status)
-                target_stage_id = str(node_flow.get("stage_id") or existing.diagnostics.get("stage_id") or "")
-                target_message_type = str(node_flow.get("message_type") or existing.diagnostics.get("message_type") or "")
-                target_stage_status = str(node_flow.get("stage_status") or existing.diagnostics.get("stage_status") or "")
-                if (
-                    target_status != existing.status
-                    or target_stage_id != str(existing.diagnostics.get("stage_id") or "")
-                    or target_stage_status != str(existing.diagnostics.get("stage_status") or "")
-                ):
-                    updated = CoordinationNodeRun(
-                        node_run_id=existing.node_run_id,
-                        coordination_run_id=existing.coordination_run_id,
-                        task_run_id=existing.task_run_id,
-                        node_id=existing.node_id,
-                        role=existing.role,
-                        assigned_agent_id=existing.assigned_agent_id,
-                        assigned_agent_run_ref=existing.assigned_agent_run_ref,
-                        status=target_status,
-                        handoff_count=existing.handoff_count,
-                        latest_handoff_ref=existing.latest_handoff_ref,
-                        created_at=existing.created_at,
-                        updated_at=time.time(),
-                        diagnostics={
-                            **dict(existing.diagnostics),
-                            "coordination_engine": "langgraph" if graph_result is not None else str(existing.diagnostics.get("coordination_engine") or "legacy"),
-                            "stage_id": target_stage_id,
-                            "message_type": target_message_type,
-                            "stage_status": target_stage_status,
-                        },
-                    )
-                    self.state_index.upsert_coordination_node_run(updated)
-                    events.append(
-                        self.event_log.append(
-                            task_run_id,
-                            "coordination_node_run_updated",
-                            payload={"coordination_node_run": updated.to_dict()},
-                            refs={"coordination_node_run_ref": updated.node_run_id},
-                        )
-                    )
-                if target_stage_id and target_stage_id not in emitted_stage_ids:
-                    events.append(
-                        self.event_log.append(
-                            task_run_id,
-                            "coordination_stage_updated",
-                            payload={
-                                "stage": {
-                                    "stage_id": target_stage_id,
-                                    "node_id": node_id,
-                                    "message_type": target_message_type,
-                                    "status": target_stage_status,
-                                }
-                            },
-                            refs={"coordination_run_ref": coordination_run.coordination_run_id},
-                        )
-                    )
-                    emitted_stage_ids.add(target_stage_id)
-        existing_handoffs = {
-            item.handoff_id: item
-            for item in self.state_index.list_coordination_handoffs(coordination_run.coordination_run_id)
-        }
-        edges = (
-            [dict(item) for item in list(graph_result.graph_spec.get("edges") or [])]
-            if graph_result is not None
-            else list(topology_template.get("edges") or [])
-        )
-        if not edges and len(node_agent_run_by_node_id) > 1:
-            for node_id, agent_run in node_agent_run_by_node_id.items():
-                if node_id == "coordinator":
-                    continue
-                edges.append({"from": node_id, "to": "coordinator", "policy": coordination_run.handoff_policy or "filtered_handoff"})
-        for index, edge in enumerate(edges, start=1):
-            source_node_id = str(edge.get("from") or edge.get("source_node_id") or edge.get("source") or "").strip()
-            target_node_id = str(edge.get("to") or edge.get("target_node_id") or edge.get("target") or "").strip()
-            source_agent_run = node_agent_run_by_node_id.get(source_node_id)
-            target_agent_run = node_agent_run_by_node_id.get(target_node_id)
-            if source_agent_run is None or target_agent_run is None:
-                continue
-            handoff_id = f"handoff:{coordination_run.coordination_run_id}:{index}"
-            if handoff_id in existing_handoffs:
-                continue
-            handoff = AgentHandoffEnvelope(
-                handoff_id=handoff_id,
-                task_run_id=task_run_id,
-                coordination_run_id=coordination_run.coordination_run_id,
-                source_agent_run_ref=source_agent_run.agent_run_id,
-                target_agent_run_ref=target_agent_run.agent_run_id,
-                protocol_id=coordination_run.communication_protocol_id,
-                message_type=handoff_message_type,
-                payload_ref=f"handoff_payload:{handoff_id}",
-                ack_state="pending",
-                created_at=time.time(),
-                diagnostics={
-                    "handoff_policy": str(edge.get("policy") or edge.get("mode") or coordination_run.handoff_policy or ""),
-                    "coordination_engine": "langgraph" if graph_result is not None else "legacy",
-                    "edge_mode": str(edge.get("mode") or edge.get("policy") or ""),
-                },
-            )
-            self.state_index.upsert_handoff_envelope(handoff)
-            events.append(
-                self.event_log.append(
-                    task_run_id,
-                    "handoff_envelope_created",
-                    payload={"handoff_envelope": handoff.to_dict()},
-                    refs={"handoff_ref": handoff.handoff_id},
-                )
-            )
-        if graph_result is not None:
-            self.state_index.upsert_coordination_run(
-                CoordinationRun(
-                    coordination_run_id=coordination_run.coordination_run_id,
-                    task_run_id=coordination_run.task_run_id,
-                    graph_ref=coordination_run.graph_ref,
-                    coordinator_agent_id=coordination_run.coordinator_agent_id,
-                    topology_template_id=coordination_run.topology_template_id,
-                    communication_protocol_id=coordination_run.communication_protocol_id,
-                    handoff_policy=coordination_run.handoff_policy,
-                    failure_policy=coordination_run.failure_policy,
-                    merge_policy=coordination_run.merge_policy,
-                    status=coordination_run.status,
-                    latest_checkpoint_ref=coordination_run.latest_checkpoint_ref,
-                    latest_merge_result_ref=coordination_run.latest_merge_result_ref,
-                    created_at=coordination_run.created_at,
-                    updated_at=time.time(),
-                    diagnostics={
-                        **dict(coordination_run.diagnostics),
-                        "coordination_engine": "langgraph",
-                        "coordination_graph_spec": graph_result.graph_spec,
-                        "langgraph_diagnostics": dict(graph_result.diagnostics),
-                    },
-                )
-            )
-        return tuple(events)
-
     def _resolve_topology_template(self, template_id: str) -> dict[str, Any]:
         target = str(template_id or "").strip()
         if not target:
             return {}
         match = next((item for item in self.task_flow_registry.list_topology_templates() if item.template_id == target), None)
         return match.to_dict() if match is not None else {}
-
-    @staticmethod
-    def _next_coordination_subtask_ref(*, coordination_task: Any | None, flow_state: dict[str, Any]) -> str:
-        stages = [dict(item) for item in list(flow_state.get("stages") or []) if isinstance(item, dict)]
-        if stages:
-            current_index = next(
-                (index for index, stage in enumerate(stages) if str(stage.get("status") or "").strip() == "running"),
-                -1,
-            )
-            next_stage = stages[current_index + 1] if current_index >= 0 and current_index + 1 < len(stages) else {}
-            next_stage_task_ref = str(next_stage.get("task_ref") or "").strip()
-            return next_stage_task_ref
-        subtask_refs = tuple(getattr(coordination_task, "subtask_refs", ()) or ()) if coordination_task is not None else ()
-        return str(subtask_refs[0] or "").strip() if subtask_refs else ""
 
     @staticmethod
     def _stage_id_for_task_ref(*, coordination_task: Any | None, task_ref: str) -> str:
@@ -4125,18 +3743,6 @@ class TaskRunLoop:
             if str(contract.get("task_ref") or "").strip() == target:
                 return str(contract.get("stage_id") or "").strip()
         return ""
-
-    @staticmethod
-    def _stage_contract_from_flow(flow_state: dict[str, Any], stage_id: str) -> dict[str, Any]:
-        target = str(stage_id or "").strip()
-        if not target:
-            return {}
-        for stage in list(dict(flow_state or {}).get("stages") or []):
-            if not isinstance(stage, dict):
-                continue
-            if str(stage.get("stage_id") or "").strip() == target:
-                return dict(stage)
-        return {}
 
     def _artifact_root_from_context_or_events(
         self,
@@ -4165,195 +3771,6 @@ class TaskRunLoop:
             if artifact_root.startswith(workspace_posix + "/"):
                 artifact_root = artifact_root[len(workspace_posix) + 1 :]
         return artifact_root
-
-    def _build_continuous_delivery_payload(
-        self,
-        *,
-        session_id: str,
-        coordination_run_id: str,
-        current_task_run_id: str,
-        current_task_id: str,
-        current_task_ref: str,
-        next_task_ref: str,
-        finalized_flow: dict[str, Any],
-        task_result: dict[str, Any],
-        task_spec_payload: dict[str, Any],
-        current_turn_context: dict[str, Any],
-        user_message: str,
-        final_content: str,
-        agent_run_result_id: str,
-    ) -> dict[str, Any]:
-        next_stage_id = str(finalized_flow.get("current_stage_id") or "").strip()
-        if not next_stage_id or not str(next_task_ref or "").strip():
-            return {}
-        stage_contract = self._stage_contract_from_flow(finalized_flow, next_stage_id)
-        workspace_root = _workspace_root_from_runtime_root(self.root_dir)
-        artifact_root = str(
-            current_turn_context.get("artifact_root")
-            or current_turn_context.get("workspace_root")
-            or dict(current_turn_context.get("explicit_inputs") or {}).get("artifact_root")
-            or dict(current_turn_context.get("explicit_inputs") or {}).get("workspace_root")
-            or ""
-        ).strip()
-        if not artifact_root:
-            write_paths = _successful_write_file_paths(
-                root_dir=self.root_dir,
-                event_log_events=[item.to_dict() for item in self.event_log.list_events(current_task_run_id)],
-            )
-            if write_paths:
-                artifact_root = str(Path(write_paths[0]["absolute_path"]).parent.as_posix())
-        if artifact_root:
-            artifact_root = artifact_root.replace("\\", "/").rstrip("/")
-            workspace_posix = workspace_root.as_posix().rstrip("/")
-            if artifact_root.startswith(workspace_posix + "/"):
-                artifact_root = artifact_root[len(workspace_posix) + 1 :]
-        explicit_inputs = self._build_continuation_explicit_inputs(
-            current_task_ref=current_task_ref,
-            next_task_ref=next_task_ref,
-            task_result=task_result,
-            current_turn_context=current_turn_context,
-            artifact_root=artifact_root,
-            final_content=final_content,
-            agent_run_result_id=agent_run_result_id,
-            stage_contract=stage_contract,
-        )
-        next_turn_context = {
-            **{
-                key: value
-                for key, value in current_turn_context.items()
-                if key
-                not in {
-                    "selected_task_id",
-                    "task_id",
-                    "specific_task_id",
-                    "task_assignment_id",
-                    "turn_id",
-                    "explicit_inputs",
-                    "projection_id",
-                    "selected_projection_id",
-                    "agent_id",
-                }
-                and value not in ("", None, [], {})
-            },
-            "authority": str(current_turn_context.get("authority") or "context.current_turn"),
-            "selected_task_id": next_task_ref,
-            "task_id": next_task_ref,
-            "coordination_run_id": coordination_run_id,
-            "continuation_from_task_run_id": current_task_run_id,
-            "continuation_from_task_id": current_task_id,
-            "continuation_from_task_ref": current_task_ref,
-            "continuation_stage_id": next_stage_id,
-            "stage_contract": stage_contract,
-            "stage_id": next_stage_id,
-            "execution_mode": str(current_turn_context.get("execution_mode") or "single"),
-            "explicit_inputs": explicit_inputs,
-        }
-        stage_agent_id = str(stage_contract.get("agent_id") or "").strip()
-        if stage_agent_id:
-            next_turn_context["agent_id"] = stage_agent_id
-        stage_projection_id = str(stage_contract.get("projection_id") or "").strip()
-        if stage_projection_id:
-            next_turn_context["projection_id"] = stage_projection_id
-            next_turn_context["selected_projection_id"] = stage_projection_id
-        next_message = self._build_continuation_user_message(
-            next_task_ref=next_task_ref,
-            next_stage_id=next_stage_id,
-            original_user_message=user_message,
-            final_content=final_content,
-            explicit_inputs=explicit_inputs,
-            stage_contract=stage_contract,
-        )
-        return {
-            "session_id": session_id,
-            "coordination_run_id": coordination_run_id,
-            "current_task_run_id": current_task_run_id,
-            "next_task_ref": next_task_ref,
-            "next_stage_id": next_stage_id,
-            "task_selection": {"selected_task_id": next_task_ref, "task_id": next_task_ref},
-            "current_turn_context": next_turn_context,
-            "message": next_message,
-            "suppress_done": True,
-        }
-
-    def _build_continuation_explicit_inputs(
-        self,
-        *,
-        current_task_ref: str,
-        next_task_ref: str,
-        task_result: dict[str, Any],
-        current_turn_context: dict[str, Any],
-        artifact_root: str,
-        final_content: str,
-        agent_run_result_id: str,
-        stage_contract: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
-        if artifact_root:
-            explicit_inputs.setdefault("artifact_root", artifact_root)
-            explicit_inputs.setdefault("workspace_root", artifact_root)
-        output_refs = self._collect_task_result_output_refs(task_result)
-        result_id = str(task_result.get("result_id") or "").strip()
-        if result_id:
-            explicit_inputs.setdefault("upstream_task_result_ref", result_id)
-        explicit_inputs.setdefault("upstream_agent_run_result_ref", str(agent_run_result_id or ""))
-        explicit_inputs.setdefault("upstream_task_ref", str(current_task_ref or ""))
-        explicit_inputs.setdefault("upstream_output_refs", output_refs)
-        explicit_inputs.setdefault("upstream_final_content", str(final_content or ""))
-        explicit_inputs["upstream_output_refs"] = self._dedupe_refs(explicit_inputs.get("upstream_output_refs") or [])
-        return explicit_inputs
-
-    def _build_continuation_user_message(
-        self,
-        *,
-        next_task_ref: str,
-        next_stage_id: str,
-        original_user_message: str,
-        final_content: str,
-        explicit_inputs: dict[str, Any],
-        stage_contract: dict[str, Any] | None = None,
-    ) -> str:
-        artifact_root = str(explicit_inputs.get("artifact_root") or "").strip()
-        contract = dict(stage_contract or {})
-        title = str(contract.get("title") or next_stage_id or next_task_ref).strip()
-        artifact_paths = [
-            str(item.get("path") or item.get("naming_rule") or "").strip()
-            for item in list(contract.get("artifact_requirements") or contract.get("artifact_targets") or [])
-            if isinstance(item, dict) and str(item.get("path") or item.get("naming_rule") or "").strip()
-        ]
-        instructions = [
-            str(item).strip()
-            for item in list(contract.get("instructions") or contract.get("stage_instructions") or [])
-            if str(item).strip()
-        ]
-        lines = [
-            f"本轮工作：{title}。",
-            "请直接完成本轮创作或编辑产物，不要写寒暄、等待补充、工作过程说明或系统说明。",
-            "只使用用户给定的硬设定作为不可违背边界；边界之外由你按本轮职责自由发挥。",
-        ]
-        chapter_index = _safe_int(explicit_inputs.get("chapter_index"), 0)
-        if chapter_index > 0:
-            lines.append(
-                f"当前章节：第{chapter_index}章。"
-                f"本章目标约{_safe_int(explicit_inputs.get('chapter_target_words'), 5000)}字；"
-                f"全书目标约{_safe_int(explicit_inputs.get('target_words'), 1000000)}字；"
-                f"当前已完成约{_safe_int(explicit_inputs.get('current_words'), 0)}字。"
-            )
-        user_seed = _explicit_project_brief(explicit_inputs)
-        if user_seed:
-            lines.append("用户硬设定：")
-            lines.append(user_seed)
-        if artifact_paths:
-            lines.append("目标文本：" + "、".join(artifact_paths) + "。")
-        if instructions:
-            lines.append("写作要求：")
-            lines.extend(f"- {item}" for item in instructions)
-        if artifact_root:
-            lines.append(f"保存位置：{artifact_root}")
-        if original_user_message:
-            lines.append(f"原始用户要求：{original_user_message}")
-        if final_content:
-            lines.append(f"可参考的上轮内容：{final_content[:400]}")
-        return "\n".join(lines)
 
     async def _continue_coordination_delivery_stream(
         self,

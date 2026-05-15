@@ -157,7 +157,39 @@
           "role": "world_designer_a",
           "projection_id": "projection.writing_team.long_novel.world_designer_a"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "world/world_proposal_a.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "world/world_proposal_a.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -165,7 +197,8 @@
         "task_id": "task.writing_team.long_novel.world_designer_a",
         "projection_id": "projection.writing_team.long_novel.world_designer_a",
         "source_flow_id": "flow.writing_team.long_novel.world_designer_a",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -209,7 +242,39 @@
           "role": "world_designer_b",
           "projection_id": "projection.writing_team.long_novel.world_designer_b"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "world/world_proposal_b.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "world/world_proposal_b.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -217,7 +282,8 @@
         "task_id": "task.writing_team.long_novel.world_designer_b",
         "projection_id": "projection.writing_team.long_novel.world_designer_b",
         "source_flow_id": "flow.writing_team.long_novel.world_designer_b",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -227,7 +293,7 @@
       "task_mode": "world_judge",
       "description": "长篇小说写作团队节点任务：世界观裁判",
       "enabled": true,
-      "input_contract_id": "contract.writing_team.long_novel.world_proposal_b",
+      "input_contract_id": "contract.writing_team.long_novel.world_judge_input",
       "output_contract_id": "contract.writing_team.long_novel.world_judgement",
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing_team.long_novel.world_judge",
@@ -261,7 +327,39 @@
           "role": "world_judge",
           "projection_id": "projection.writing_team.long_novel.world_judge"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "reviews/world_judgement.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/world_judgement.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -269,7 +367,8 @@
         "task_id": "task.writing_team.long_novel.world_judge",
         "projection_id": "projection.writing_team.long_novel.world_judge",
         "source_flow_id": "flow.writing_team.long_novel.world_judge",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -313,7 +412,39 @@
           "role": "memory_steward",
           "projection_id": "projection.writing_team.long_novel.memory_commit_world"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "memory/world_commit.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/world_commit.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -321,7 +452,8 @@
         "task_id": "task.writing_team.long_novel.memory_commit_world",
         "projection_id": "projection.writing_team.long_novel.memory_commit_world",
         "source_flow_id": "flow.writing_team.long_novel.memory_commit_world",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -365,7 +497,39 @@
           "role": "outline_designer_a",
           "projection_id": "projection.writing_team.long_novel.outline_designer_a"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "outline/outline_proposal_a.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "outline/outline_proposal_a.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -373,7 +537,8 @@
         "task_id": "task.writing_team.long_novel.outline_designer_a",
         "projection_id": "projection.writing_team.long_novel.outline_designer_a",
         "source_flow_id": "flow.writing_team.long_novel.outline_designer_a",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -417,7 +582,39 @@
           "role": "outline_designer_b",
           "projection_id": "projection.writing_team.long_novel.outline_designer_b"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "outline/outline_proposal_b.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "outline/outline_proposal_b.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -425,7 +622,8 @@
         "task_id": "task.writing_team.long_novel.outline_designer_b",
         "projection_id": "projection.writing_team.long_novel.outline_designer_b",
         "source_flow_id": "flow.writing_team.long_novel.outline_designer_b",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -469,7 +667,39 @@
           "role": "outline_judge",
           "projection_id": "projection.writing_team.long_novel.outline_judge"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "reviews/outline_judgement.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/outline_judgement.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -477,7 +707,8 @@
         "task_id": "task.writing_team.long_novel.outline_judge",
         "projection_id": "projection.writing_team.long_novel.outline_judge",
         "source_flow_id": "flow.writing_team.long_novel.outline_judge",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -521,7 +752,39 @@
           "role": "memory_steward",
           "projection_id": "projection.writing_team.long_novel.memory_commit_outline"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "memory/outline_commit.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/outline_commit.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -529,7 +792,8 @@
         "task_id": "task.writing_team.long_novel.memory_commit_outline",
         "projection_id": "projection.writing_team.long_novel.memory_commit_outline",
         "source_flow_id": "flow.writing_team.long_novel.memory_commit_outline",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -573,7 +837,39 @@
           "role": "character_designer_a",
           "projection_id": "projection.writing_team.long_novel.character_designer_a"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "characters/character_proposal_a.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "characters/character_proposal_a.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -581,7 +877,8 @@
         "task_id": "task.writing_team.long_novel.character_designer_a",
         "projection_id": "projection.writing_team.long_novel.character_designer_a",
         "source_flow_id": "flow.writing_team.long_novel.character_designer_a",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -625,7 +922,39 @@
           "role": "character_designer_b",
           "projection_id": "projection.writing_team.long_novel.character_designer_b"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "characters/character_proposal_b.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "characters/character_proposal_b.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -633,7 +962,8 @@
         "task_id": "task.writing_team.long_novel.character_designer_b",
         "projection_id": "projection.writing_team.long_novel.character_designer_b",
         "source_flow_id": "flow.writing_team.long_novel.character_designer_b",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -677,7 +1007,39 @@
           "role": "character_judge",
           "projection_id": "projection.writing_team.long_novel.character_judge"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "reviews/character_judgement.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/character_judgement.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -685,7 +1047,8 @@
         "task_id": "task.writing_team.long_novel.character_judge",
         "projection_id": "projection.writing_team.long_novel.character_judge",
         "source_flow_id": "flow.writing_team.long_novel.character_judge",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -729,7 +1092,39 @@
           "role": "memory_steward",
           "projection_id": "projection.writing_team.long_novel.memory_commit_character"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "memory/character_commit.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/character_commit.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -737,7 +1132,8 @@
         "task_id": "task.writing_team.long_novel.memory_commit_character",
         "projection_id": "projection.writing_team.long_novel.memory_commit_character",
         "source_flow_id": "flow.writing_team.long_novel.memory_commit_character",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -781,7 +1177,39 @@
           "role": "chapter_planner",
           "projection_id": "projection.writing_team.long_novel.chapter_plan"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "chapters/chapter_plan.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "chapters/chapter_plan.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -789,7 +1217,8 @@
         "task_id": "task.writing_team.long_novel.chapter_plan",
         "projection_id": "projection.writing_team.long_novel.chapter_plan",
         "source_flow_id": "flow.writing_team.long_novel.chapter_plan",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -833,7 +1262,39 @@
           "role": "writer_a_draft",
           "projection_id": "projection.writing_team.long_novel.writer_a_draft"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "chapters/writer_a_draft.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "chapters/writer_a_draft.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -841,7 +1302,8 @@
         "task_id": "task.writing_team.long_novel.writer_a_draft",
         "projection_id": "projection.writing_team.long_novel.writer_a_draft",
         "source_flow_id": "flow.writing_team.long_novel.writer_a_draft",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -885,7 +1347,39 @@
           "role": "writer_b_review",
           "projection_id": "projection.writing_team.long_novel.writer_b_review"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "reviews/writer_b_review.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/writer_b_review.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -893,7 +1387,8 @@
         "task_id": "task.writing_team.long_novel.writer_b_review",
         "projection_id": "projection.writing_team.long_novel.writer_b_review",
         "source_flow_id": "flow.writing_team.long_novel.writer_b_review",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -937,7 +1432,39 @@
           "role": "writer_a_revision",
           "projection_id": "projection.writing_team.long_novel.writer_a_revision"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "chapters/writer_a_revision.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "chapters/writer_a_revision.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -945,7 +1472,8 @@
         "task_id": "task.writing_team.long_novel.writer_a_revision",
         "projection_id": "projection.writing_team.long_novel.writer_a_revision",
         "source_flow_id": "flow.writing_team.long_novel.writer_a_revision",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -989,7 +1517,39 @@
           "role": "writer_b_final_candidate",
           "projection_id": "projection.writing_team.long_novel.writer_b_final_candidate"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "chapters/writer_b_final_candidate.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "chapters/writer_b_final_candidate.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -997,7 +1557,8 @@
         "task_id": "task.writing_team.long_novel.writer_b_final_candidate",
         "projection_id": "projection.writing_team.long_novel.writer_b_final_candidate",
         "source_flow_id": "flow.writing_team.long_novel.writer_b_final_candidate",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -1041,7 +1602,39 @@
           "role": "novel_quality_judge",
           "projection_id": "projection.writing_team.long_novel.novel_quality_judge"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "reviews/novel_quality_judge.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/novel_quality_judge.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -1049,7 +1642,8 @@
         "task_id": "task.writing_team.long_novel.novel_quality_judge",
         "projection_id": "projection.writing_team.long_novel.novel_quality_judge",
         "source_flow_id": "flow.writing_team.long_novel.novel_quality_judge",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -1093,7 +1687,39 @@
           "role": "deviation_router",
           "projection_id": "projection.writing_team.long_novel.world_deviation_router"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "repairs/world_deviation_route.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "repairs/world_deviation_route.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -1101,7 +1727,8 @@
         "task_id": "task.writing_team.long_novel.world_deviation_router",
         "projection_id": "projection.writing_team.long_novel.world_deviation_router",
         "source_flow_id": "flow.writing_team.long_novel.world_deviation_router",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -1145,7 +1772,39 @@
           "role": "world_repair_a",
           "projection_id": "projection.writing_team.long_novel.world_repair_a"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "repairs/world_repair_a.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "repairs/world_repair_a.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -1153,7 +1812,8 @@
         "task_id": "task.writing_team.long_novel.world_repair_a",
         "projection_id": "projection.writing_team.long_novel.world_repair_a",
         "source_flow_id": "flow.writing_team.long_novel.world_repair_a",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -1197,7 +1857,39 @@
           "role": "world_repair_b",
           "projection_id": "projection.writing_team.long_novel.world_repair_b"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "repairs/world_repair_b.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "repairs/world_repair_b.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -1205,7 +1897,8 @@
         "task_id": "task.writing_team.long_novel.world_repair_b",
         "projection_id": "projection.writing_team.long_novel.world_repair_b",
         "source_flow_id": "flow.writing_team.long_novel.world_repair_b",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -1249,7 +1942,39 @@
           "role": "deviation_router",
           "projection_id": "projection.writing_team.long_novel.outline_deviation_router"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "repairs/outline_deviation_route.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "repairs/outline_deviation_route.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -1257,7 +1982,8 @@
         "task_id": "task.writing_team.long_novel.outline_deviation_router",
         "projection_id": "projection.writing_team.long_novel.outline_deviation_router",
         "source_flow_id": "flow.writing_team.long_novel.outline_deviation_router",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -1301,7 +2027,39 @@
           "role": "outline_repair_a",
           "projection_id": "projection.writing_team.long_novel.outline_repair_a"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "repairs/outline_repair_a.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "repairs/outline_repair_a.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -1309,7 +2067,8 @@
         "task_id": "task.writing_team.long_novel.outline_repair_a",
         "projection_id": "projection.writing_team.long_novel.outline_repair_a",
         "source_flow_id": "flow.writing_team.long_novel.outline_repair_a",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -1353,7 +2112,39 @@
           "role": "outline_repair_b",
           "projection_id": "projection.writing_team.long_novel.outline_repair_b"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "repairs/outline_repair_b.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "repairs/outline_repair_b.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -1361,7 +2152,8 @@
         "task_id": "task.writing_team.long_novel.outline_repair_b",
         "projection_id": "projection.writing_team.long_novel.outline_repair_b",
         "source_flow_id": "flow.writing_team.long_novel.outline_repair_b",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -1405,7 +2197,39 @@
           "role": "deviation_router",
           "projection_id": "projection.writing_team.long_novel.character_deviation_router"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "repairs/character_deviation_route.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "repairs/character_deviation_route.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -1413,7 +2237,8 @@
         "task_id": "task.writing_team.long_novel.character_deviation_router",
         "projection_id": "projection.writing_team.long_novel.character_deviation_router",
         "source_flow_id": "flow.writing_team.long_novel.character_deviation_router",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -1457,7 +2282,39 @@
           "role": "character_repair_a",
           "projection_id": "projection.writing_team.long_novel.character_repair_a"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "repairs/character_repair_a.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "repairs/character_repair_a.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -1465,7 +2322,8 @@
         "task_id": "task.writing_team.long_novel.character_repair_a",
         "projection_id": "projection.writing_team.long_novel.character_repair_a",
         "source_flow_id": "flow.writing_team.long_novel.character_repair_a",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -1509,7 +2367,39 @@
           "role": "character_repair_b",
           "projection_id": "projection.writing_team.long_novel.character_repair_b"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "repairs/character_repair_b.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "repairs/character_repair_b.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -1517,7 +2407,8 @@
         "task_id": "task.writing_team.long_novel.character_repair_b",
         "projection_id": "projection.writing_team.long_novel.character_repair_b",
         "source_flow_id": "flow.writing_team.long_novel.character_repair_b",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -1561,7 +2452,39 @@
           "role": "memory_steward",
           "projection_id": "projection.writing_team.long_novel.memory_commit_chapter"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "memory/chapter_commit.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/chapter_commit.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -1569,7 +2492,8 @@
         "task_id": "task.writing_team.long_novel.memory_commit_chapter",
         "projection_id": "projection.writing_team.long_novel.memory_commit_chapter",
         "source_flow_id": "flow.writing_team.long_novel.memory_commit_chapter",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
       }
     },
     {
@@ -1613,7 +2537,39 @@
           "role": "memory_steward",
           "projection_id": "projection.writing_team.long_novel.memory_finalize"
         },
-        "runtime_limits": {}
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts",
+          "artifact_target": "memory/finalize.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/finalize.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": true
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.write_file",
+            "op.edit_file",
+            "op.shell",
+            "op.python_repl",
+            "op.memory_write_candidate",
+            "op.delegate_to_agent",
+            "op.rag_search",
+            "op.web_search"
+          ]
+        }
       },
       "metadata": {
         "managed_by": "codex_writing_team_full_plan",
@@ -1621,7 +2577,2632 @@
         "task_id": "task.writing_team.long_novel.memory_finalize",
         "projection_id": "projection.writing_team.long_novel.memory_finalize",
         "source_flow_id": "flow.writing_team.long_novel.memory_finalize",
-        "package_template": "writing_team_long_novel"
+        "package_template": "writing_team_long_novel",
+        "configuration_closure": "artifact_policy_bound_20260515"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.project_brief",
+      "task_title": "项目启动包",
+      "task_family": "writing_simple_novel",
+      "task_mode": "project_brief",
+      "description": "写作组简易长篇小说节点任务：项目启动包",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.user_goal",
+      "output_contract_id": "contract.writing.simple_novel.project_brief",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.project_brief",
+      "default_workflow_id": "workflow.writing.simple_novel.project_brief",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.project_brief",
+          "execution_chain_type": "coordination_node",
+          "role": "creator",
+          "projection_id": "projection.writing.simple_novel.project_brief",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "project_brief.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "project_brief.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.project_brief",
+        "projection_id": "projection.writing.simple_novel.project_brief",
+        "source_flow_id": "flow.writing.simple_novel.project_brief",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.world_candidate",
+      "task_title": "世界观候选",
+      "task_family": "writing_simple_novel",
+      "task_mode": "world_candidate",
+      "description": "写作组简易长篇小说节点任务：世界观候选",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.world_input",
+      "output_contract_id": "contract.writing.simple_novel.world_candidate",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.world_candidate",
+      "default_workflow_id": "workflow.writing.simple_novel.world_candidate",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.world_candidate",
+          "execution_chain_type": "coordination_node",
+          "role": "creator",
+          "projection_id": "projection.writing.simple_novel.world_creator",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "world/world_candidate.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "world/world_candidate.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.world_candidate",
+        "projection_id": "projection.writing.simple_novel.world_creator",
+        "source_flow_id": "flow.writing.simple_novel.world_candidate",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.world_review",
+      "task_title": "世界观审核",
+      "task_family": "writing_simple_novel",
+      "task_mode": "world_review",
+      "description": "写作组简易长篇小说节点任务：世界观审核",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.world_review_input",
+      "output_contract_id": "contract.writing.simple_novel.world_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.world_review",
+      "default_workflow_id": "workflow.writing.simple_novel.world_review",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.world_review",
+          "execution_chain_type": "coordination_node",
+          "role": "reviewer",
+          "projection_id": "projection.writing.simple_novel.world_reviewer",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "reviews/world_review.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/world_review.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.world_review",
+        "projection_id": "projection.writing.simple_novel.world_reviewer",
+        "source_flow_id": "flow.writing.simple_novel.world_review",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_commit_world",
+      "task_title": "世界观 canon 写入",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_commit_world",
+      "description": "写作组简易长篇小说节点任务：世界观 canon 写入",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.world_review",
+      "output_contract_id": "contract.writing.simple_novel.world_canon_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.memory_commit_world",
+      "default_workflow_id": "workflow.writing.simple_novel.memory_commit_world",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.memory_commit_world",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "memory/world_canon_commit.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/world_canon_commit.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.memory_commit_world",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_flow_id": "flow.writing.simple_novel.memory_commit_world",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.outline_candidate",
+      "task_title": "大纲候选",
+      "task_family": "writing_simple_novel",
+      "task_mode": "outline_candidate",
+      "description": "写作组简易长篇小说节点任务：大纲候选",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.outline_input",
+      "output_contract_id": "contract.writing.simple_novel.outline_candidate",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.outline_candidate",
+      "default_workflow_id": "workflow.writing.simple_novel.outline_candidate",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.outline_candidate",
+          "execution_chain_type": "coordination_node",
+          "role": "creator",
+          "projection_id": "projection.writing.simple_novel.outline_creator",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "outline/outline_candidate.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "outline/outline_candidate.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.outline_candidate",
+        "projection_id": "projection.writing.simple_novel.outline_creator",
+        "source_flow_id": "flow.writing.simple_novel.outline_candidate",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.outline_review",
+      "task_title": "大纲审核",
+      "task_family": "writing_simple_novel",
+      "task_mode": "outline_review",
+      "description": "写作组简易长篇小说节点任务：大纲审核",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.outline_review_input",
+      "output_contract_id": "contract.writing.simple_novel.outline_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.outline_review",
+      "default_workflow_id": "workflow.writing.simple_novel.outline_review",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.outline_review",
+          "execution_chain_type": "coordination_node",
+          "role": "reviewer",
+          "projection_id": "projection.writing.simple_novel.outline_reviewer",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "reviews/outline_review.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/outline_review.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.outline_review",
+        "projection_id": "projection.writing.simple_novel.outline_reviewer",
+        "source_flow_id": "flow.writing.simple_novel.outline_review",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_commit_outline",
+      "task_title": "大纲 canon 写入",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_commit_outline",
+      "description": "写作组简易长篇小说节点任务：大纲 canon 写入",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.outline_review",
+      "output_contract_id": "contract.writing.simple_novel.outline_canon_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.memory_commit_outline",
+      "default_workflow_id": "workflow.writing.simple_novel.memory_commit_outline",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.memory_commit_outline",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "memory/outline_canon_commit.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/outline_canon_commit.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.memory_commit_outline",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_flow_id": "flow.writing.simple_novel.memory_commit_outline",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.character_candidate",
+      "task_title": "人物候选",
+      "task_family": "writing_simple_novel",
+      "task_mode": "character_candidate",
+      "description": "写作组简易长篇小说节点任务：人物候选",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.character_input",
+      "output_contract_id": "contract.writing.simple_novel.character_candidate",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.character_candidate",
+      "default_workflow_id": "workflow.writing.simple_novel.character_candidate",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.character_candidate",
+          "execution_chain_type": "coordination_node",
+          "role": "creator",
+          "projection_id": "projection.writing.simple_novel.character_creator",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "characters/character_candidate.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "characters/character_candidate.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.character_candidate",
+        "projection_id": "projection.writing.simple_novel.character_creator",
+        "source_flow_id": "flow.writing.simple_novel.character_candidate",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.character_review",
+      "task_title": "人物审核",
+      "task_family": "writing_simple_novel",
+      "task_mode": "character_review",
+      "description": "写作组简易长篇小说节点任务：人物审核",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.character_review_input",
+      "output_contract_id": "contract.writing.simple_novel.character_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.character_review",
+      "default_workflow_id": "workflow.writing.simple_novel.character_review",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.character_review",
+          "execution_chain_type": "coordination_node",
+          "role": "reviewer",
+          "projection_id": "projection.writing.simple_novel.character_reviewer",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "reviews/character_review.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/character_review.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.character_review",
+        "projection_id": "projection.writing.simple_novel.character_reviewer",
+        "source_flow_id": "flow.writing.simple_novel.character_review",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_commit_character",
+      "task_title": "人物 canon 写入",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_commit_character",
+      "description": "写作组简易长篇小说节点任务：人物 canon 写入",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.character_review",
+      "output_contract_id": "contract.writing.simple_novel.character_canon_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.memory_commit_character",
+      "default_workflow_id": "workflow.writing.simple_novel.memory_commit_character",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.memory_commit_character",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "memory/character_canon_commit.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/character_canon_commit.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.memory_commit_character",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_flow_id": "flow.writing.simple_novel.memory_commit_character",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.chapter_plan_candidate",
+      "task_title": "分章规划候选",
+      "task_family": "writing_simple_novel",
+      "task_mode": "chapter_plan_candidate",
+      "description": "写作组简易长篇小说节点任务：分章规划候选",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.chapter_plan_input",
+      "output_contract_id": "contract.writing.simple_novel.chapter_plan_candidate",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.chapter_plan_candidate",
+      "default_workflow_id": "workflow.writing.simple_novel.chapter_plan_candidate",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.chapter_plan_candidate",
+          "execution_chain_type": "coordination_node",
+          "role": "creator",
+          "projection_id": "projection.writing.simple_novel.chapter_plan_creator",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "chapter_plan/chapter_plan_candidate.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "chapter_plan/chapter_plan_candidate.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.chapter_plan_candidate",
+        "projection_id": "projection.writing.simple_novel.chapter_plan_creator",
+        "source_flow_id": "flow.writing.simple_novel.chapter_plan_candidate",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.chapter_plan_review",
+      "task_title": "分章规划审核",
+      "task_family": "writing_simple_novel",
+      "task_mode": "chapter_plan_review",
+      "description": "写作组简易长篇小说节点任务：分章规划审核",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.chapter_plan_review_input",
+      "output_contract_id": "contract.writing.simple_novel.chapter_plan_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.chapter_plan_review",
+      "default_workflow_id": "workflow.writing.simple_novel.chapter_plan_review",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.chapter_plan_review",
+          "execution_chain_type": "coordination_node",
+          "role": "reviewer",
+          "projection_id": "projection.writing.simple_novel.chapter_plan_reviewer",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "reviews/chapter_plan_review.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/chapter_plan_review.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.chapter_plan_review",
+        "projection_id": "projection.writing.simple_novel.chapter_plan_reviewer",
+        "source_flow_id": "flow.writing.simple_novel.chapter_plan_review",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_commit_chapter_plan",
+      "task_title": "分章 canon 写入",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_commit_chapter_plan",
+      "description": "写作组简易长篇小说节点任务：分章 canon 写入",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.chapter_plan_review",
+      "output_contract_id": "contract.writing.simple_novel.chapter_plan_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.memory_commit_chapter_plan",
+      "default_workflow_id": "workflow.writing.simple_novel.memory_commit_chapter_plan",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.memory_commit_chapter_plan",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "memory/chapter_plan_commit.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/chapter_plan_commit.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.memory_commit_chapter_plan",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_flow_id": "flow.writing.simple_novel.memory_commit_chapter_plan",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.chapter_draft",
+      "task_title": "当前章节正文候选",
+      "task_family": "writing_simple_novel",
+      "task_mode": "chapter_draft",
+      "description": "写作组简易长篇小说节点任务：当前章节正文候选",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.chapter_draft_input",
+      "output_contract_id": "contract.writing.simple_novel.chapter_draft",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.chapter_draft",
+      "default_workflow_id": "workflow.writing.simple_novel.chapter_draft",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.chapter_draft",
+          "execution_chain_type": "coordination_node",
+          "role": "creator",
+          "projection_id": "projection.writing.simple_novel.chapter_writer",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "chapters/chapter_{chapter_index:03d}/draft_round_{round_index:03d}.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "chapters/chapter_{chapter_index:03d}/draft_round_{round_index:03d}.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.chapter_draft",
+        "projection_id": "projection.writing.simple_novel.chapter_writer",
+        "source_flow_id": "flow.writing.simple_novel.chapter_draft",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.chapter_review",
+      "task_title": "当前章节审核",
+      "task_family": "writing_simple_novel",
+      "task_mode": "chapter_review",
+      "description": "写作组简易长篇小说节点任务：当前章节审核",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.chapter_review_input",
+      "output_contract_id": "contract.writing.simple_novel.chapter_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.chapter_review",
+      "default_workflow_id": "workflow.writing.simple_novel.chapter_review",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.chapter_review",
+          "execution_chain_type": "coordination_node",
+          "role": "reviewer",
+          "projection_id": "projection.writing.simple_novel.chapter_reviewer",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "reviews/chapters/chapter_{chapter_index:03d}/review_round_{round_index:03d}.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/chapters/chapter_{chapter_index:03d}/review_round_{round_index:03d}.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.chapter_review",
+        "projection_id": "projection.writing.simple_novel.chapter_reviewer",
+        "source_flow_id": "flow.writing.simple_novel.chapter_review",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_commit_chapter",
+      "task_title": "章节写入",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_commit_chapter",
+      "description": "写作组简易长篇小说节点任务：章节写入",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.chapter_review",
+      "output_contract_id": "contract.writing.simple_novel.chapter_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.memory_commit_chapter",
+      "default_workflow_id": "workflow.writing.simple_novel.memory_commit_chapter",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.memory_commit_chapter",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "memory/chapters/chapter_{chapter_index:03d}/commit_round_{round_index:03d}.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/chapters/chapter_{chapter_index:03d}/commit_round_{round_index:03d}.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.memory_commit_chapter",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_flow_id": "flow.writing.simple_novel.memory_commit_chapter",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.chapter_progress_router",
+      "task_title": "章节推进判断",
+      "task_family": "writing_simple_novel",
+      "task_mode": "chapter_progress_router",
+      "description": "写作组简易长篇小说节点任务：章节推进判断",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.chapter_commit",
+      "output_contract_id": "contract.writing.simple_novel.chapter_progress_decision",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.chapter_progress_router",
+      "default_workflow_id": "workflow.writing.simple_novel.chapter_progress_router",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.chapter_progress_router",
+          "execution_chain_type": "coordination_node",
+          "role": "router",
+          "projection_id": "projection.writing.simple_novel.chapter_progress_router",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "routing/chapters/chapter_{chapter_index:03d}/progress_round_{round_index:03d}.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "routing/chapters/chapter_{chapter_index:03d}/progress_round_{round_index:03d}.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.chapter_progress_router",
+        "projection_id": "projection.writing.simple_novel.chapter_progress_router",
+        "source_flow_id": "flow.writing.simple_novel.chapter_progress_router",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.world_repair_candidate",
+      "task_title": "世界观专项修复候选",
+      "task_family": "writing_simple_novel",
+      "task_mode": "world_repair_candidate",
+      "description": "写作组简易长篇小说节点任务：世界观专项修复候选",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.world_repair_input",
+      "output_contract_id": "contract.writing.simple_novel.world_candidate",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.world_repair_candidate",
+      "default_workflow_id": "workflow.writing.simple_novel.world_repair_candidate",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.world_repair_candidate",
+          "execution_chain_type": "coordination_node",
+          "role": "creator",
+          "projection_id": "projection.writing.simple_novel.world_repair_creator",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "repairs/world_repair_candidate.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "repairs/world_repair_candidate.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.world_repair_candidate",
+        "projection_id": "projection.writing.simple_novel.world_repair_creator",
+        "source_flow_id": "flow.writing.simple_novel.world_repair_candidate",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.world_repair_review",
+      "task_title": "世界观专项修复审核",
+      "task_family": "writing_simple_novel",
+      "task_mode": "world_repair_review",
+      "description": "写作组简易长篇小说节点任务：世界观专项修复审核",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.world_review_input",
+      "output_contract_id": "contract.writing.simple_novel.world_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.world_repair_review",
+      "default_workflow_id": "workflow.writing.simple_novel.world_repair_review",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.world_repair_review",
+          "execution_chain_type": "coordination_node",
+          "role": "reviewer",
+          "projection_id": "projection.writing.simple_novel.world_reviewer",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "reviews/world_repair_review.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/world_repair_review.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.world_repair_review",
+        "projection_id": "projection.writing.simple_novel.world_reviewer",
+        "source_flow_id": "flow.writing.simple_novel.world_repair_review",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.outline_repair_candidate",
+      "task_title": "大纲专项修复候选",
+      "task_family": "writing_simple_novel",
+      "task_mode": "outline_repair_candidate",
+      "description": "写作组简易长篇小说节点任务：大纲专项修复候选",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.outline_repair_input",
+      "output_contract_id": "contract.writing.simple_novel.outline_candidate",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.outline_repair_candidate",
+      "default_workflow_id": "workflow.writing.simple_novel.outline_repair_candidate",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.outline_repair_candidate",
+          "execution_chain_type": "coordination_node",
+          "role": "creator",
+          "projection_id": "projection.writing.simple_novel.outline_repair_creator",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "repairs/outline_repair_candidate.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "repairs/outline_repair_candidate.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.outline_repair_candidate",
+        "projection_id": "projection.writing.simple_novel.outline_repair_creator",
+        "source_flow_id": "flow.writing.simple_novel.outline_repair_candidate",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.outline_repair_review",
+      "task_title": "大纲专项修复审核",
+      "task_family": "writing_simple_novel",
+      "task_mode": "outline_repair_review",
+      "description": "写作组简易长篇小说节点任务：大纲专项修复审核",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.outline_review_input",
+      "output_contract_id": "contract.writing.simple_novel.outline_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.outline_repair_review",
+      "default_workflow_id": "workflow.writing.simple_novel.outline_repair_review",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.outline_repair_review",
+          "execution_chain_type": "coordination_node",
+          "role": "reviewer",
+          "projection_id": "projection.writing.simple_novel.outline_reviewer",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "reviews/outline_repair_review.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/outline_repair_review.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.outline_repair_review",
+        "projection_id": "projection.writing.simple_novel.outline_reviewer",
+        "source_flow_id": "flow.writing.simple_novel.outline_repair_review",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.character_repair_candidate",
+      "task_title": "人物专项修复候选",
+      "task_family": "writing_simple_novel",
+      "task_mode": "character_repair_candidate",
+      "description": "写作组简易长篇小说节点任务：人物专项修复候选",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.character_repair_input",
+      "output_contract_id": "contract.writing.simple_novel.character_candidate",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.character_repair_candidate",
+      "default_workflow_id": "workflow.writing.simple_novel.character_repair_candidate",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.character_repair_candidate",
+          "execution_chain_type": "coordination_node",
+          "role": "creator",
+          "projection_id": "projection.writing.simple_novel.character_repair_creator",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "repairs/character_repair_candidate.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "repairs/character_repair_candidate.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.character_repair_candidate",
+        "projection_id": "projection.writing.simple_novel.character_repair_creator",
+        "source_flow_id": "flow.writing.simple_novel.character_repair_candidate",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.character_repair_review",
+      "task_title": "人物专项修复审核",
+      "task_family": "writing_simple_novel",
+      "task_mode": "character_repair_review",
+      "description": "写作组简易长篇小说节点任务：人物专项修复审核",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.character_review_input",
+      "output_contract_id": "contract.writing.simple_novel.character_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.character_repair_review",
+      "default_workflow_id": "workflow.writing.simple_novel.character_repair_review",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.character_repair_review",
+          "execution_chain_type": "coordination_node",
+          "role": "reviewer",
+          "projection_id": "projection.writing.simple_novel.character_reviewer",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "reviews/character_repair_review.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/character_repair_review.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.character_repair_review",
+        "projection_id": "projection.writing.simple_novel.character_reviewer",
+        "source_flow_id": "flow.writing.simple_novel.character_repair_review",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.final_assemble",
+      "task_title": "交付包整编",
+      "task_family": "writing_simple_novel",
+      "task_mode": "final_assemble",
+      "description": "写作组简易长篇小说节点任务：交付包整编",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.final_assemble_input",
+      "output_contract_id": "contract.writing.simple_novel.final_manuscript",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.final_assemble",
+      "default_workflow_id": "workflow.writing.simple_novel.final_assemble",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.final_assemble",
+          "execution_chain_type": "coordination_node",
+          "role": "final_assembler",
+          "projection_id": "projection.writing.simple_novel.final_assembler",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "delivery/delivery_manifest.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "delivery/delivery_manifest.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.final_assemble",
+        "projection_id": "projection.writing.simple_novel.final_assembler",
+        "source_flow_id": "flow.writing.simple_novel.final_assemble",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.final_review",
+      "task_title": "最终交付审核",
+      "task_family": "writing_simple_novel",
+      "task_mode": "final_review",
+      "description": "写作组简易长篇小说节点任务：最终交付审核",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.final_review_input",
+      "output_contract_id": "contract.writing.simple_novel.final_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.final_review",
+      "default_workflow_id": "workflow.writing.simple_novel.final_review",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.final_review",
+          "execution_chain_type": "coordination_node",
+          "role": "reviewer",
+          "projection_id": "projection.writing.simple_novel.final_reviewer",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "reviews/final_review.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "reviews/final_review.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.final_review",
+        "projection_id": "projection.writing.simple_novel.final_reviewer",
+        "source_flow_id": "flow.writing.simple_novel.final_review",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_finalize",
+      "task_title": "任务收尾归档",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_finalize",
+      "description": "写作组简易长篇小说节点任务：任务收尾归档",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.final_review",
+      "output_contract_id": "contract.writing.simple_novel.delivery_package",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.memory_finalize",
+      "default_workflow_id": "workflow.writing.simple_novel.memory_finalize",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.memory_finalize",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "memory/delivery_package.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/delivery_package.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.memory_finalize",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_flow_id": "flow.writing.simple_novel.memory_finalize",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.human_review_handoff",
+      "task_title": "人工接管",
+      "task_family": "writing_simple_novel",
+      "task_mode": "general_task",
+      "description": "写作组简易长篇小说节点任务：人工接管",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.human_review_input",
+      "output_contract_id": "contract.writing.simple_novel.human_review_packet",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.human_review_handoff",
+      "default_workflow_id": "workflow.writing.simple_novel.human_review_handoff",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.human_review_handoff",
+          "execution_chain_type": "coordination_node",
+          "role": "human",
+          "projection_id": "hebo__primary",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "handoff/human_review_packet.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "handoff/human_review_packet.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.human_review_handoff",
+        "projection_id": "hebo__primary",
+        "source_flow_id": "flow.writing.simple_novel.human_review_handoff",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.fail_closed",
+      "task_title": "失败关闭",
+      "task_family": "writing_simple_novel",
+      "task_mode": "fail_closed",
+      "description": "写作组简易长篇小说节点任务：失败关闭",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.failure_input",
+      "output_contract_id": "contract.writing.simple_novel.failure_report",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.fail_closed",
+      "default_workflow_id": "workflow.writing.simple_novel.fail_closed",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.fail_closed",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "failure/failure_report.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "failure/failure_report.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.fail_closed",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_flow_id": "flow.writing.simple_novel.fail_closed",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_index_read",
+      "task_title": "记忆库读出",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_index_read",
+      "description": "写作组简易长篇小说节点任务：记忆库读出",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.memory_read_request",
+      "output_contract_id": "contract.writing.simple_novel.memory_pack",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.memory_index_read",
+      "default_workflow_id": "workflow.writing.simple_novel.memory_index_read",
+      "default_projection_policy": "projection_not_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "system_memory",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.memory_index_read",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_system",
+          "projection_id": "",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "memory/index_read_receipt.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/index_read_receipt.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.memory_index_read",
+        "projection_id": "",
+        "source_flow_id": "flow.writing.simple_novel.memory_index_read",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_index_write",
+      "task_title": "记忆库写入",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_index_write",
+      "description": "写作组简易长篇小说节点任务：记忆库写入",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.memory_write_request",
+      "output_contract_id": "contract.writing.simple_novel.memory_write_receipt",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.memory_index_write",
+      "default_workflow_id": "workflow.writing.simple_novel.memory_index_write",
+      "default_projection_policy": "projection_not_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "system_memory",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.memory_index_write",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_system",
+          "projection_id": "",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "memory/index_write_receipt.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/index_write_receipt.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.memory_index_write",
+        "projection_id": "",
+        "source_flow_id": "flow.writing.simple_novel.memory_index_write",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_index_lock",
+      "task_title": "记忆库写入锁",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_index_lock",
+      "description": "写作组简易长篇小说节点任务：记忆库写入锁",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.memory_write_request",
+      "output_contract_id": "contract.writing.simple_novel.memory_lock_receipt",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.memory_index_lock",
+      "default_workflow_id": "workflow.writing.simple_novel.memory_index_lock",
+      "default_projection_policy": "projection_not_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "system_memory",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.memory_index_lock",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_system",
+          "projection_id": "",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "memory/index_lock_receipt.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/index_lock_receipt.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.memory_index_lock",
+        "projection_id": "",
+        "source_flow_id": "flow.writing.simple_novel.memory_index_lock",
+        "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_index_release",
+      "task_title": "记忆库解锁",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_index_release",
+      "description": "写作组简易长篇小说节点任务：记忆库解锁",
+      "enabled": true,
+      "input_contract_id": "contract.writing.simple_novel.memory_lock_receipt",
+      "output_contract_id": "contract.writing.simple_novel.memory_release_receipt",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.simple_novel.memory_index_release",
+      "default_workflow_id": "workflow.writing.simple_novel.memory_index_release",
+      "default_projection_policy": "projection_not_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "system_memory",
+          "memory_scope_hint": "writing_simple_novel",
+          "workflow_steps": [
+            {
+              "step_id": "memory_read",
+              "title": "读取授权记忆包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "memory_write",
+              "title": "写入候选/审核/commit 结果"
+            }
+          ],
+          "task_resource_kind": "task.writing.simple_novel.memory_index_release",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_system",
+          "projection_id": "",
+          "memory_closed_loop": true
+        },
+        "runtime_limits": {},
+        "artifact_policy": {
+          "enabled": true,
+          "required": true,
+          "source": "task_graph_node",
+          "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+          "subdir_template": "{session_id}",
+          "artifact_target": "memory/index_release_receipt.md",
+          "storage_policy": "task_artifact_ref",
+          "artifacts": [
+            {
+              "path": "memory/index_release_receipt.md",
+              "required": true,
+              "content_source": "final_content",
+              "fallback_to_full_content": false
+            }
+          ]
+        },
+        "operation_policy": {
+          "allowed_operations": [
+            "op.model_response",
+            "op.memory_read"
+          ],
+          "blocked_operations": [
+            "op.shell",
+            "op.python_repl",
+            "op.delegate_to_agent",
+            "op.web_search"
+          ]
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "domain_id": "domain.writing.simple_novel",
+        "task_id": "task.writing.simple_novel.memory_index_release",
+        "projection_id": "",
+        "source_flow_id": "flow.writing.simple_novel.memory_index_release",
+        "package_template": "writing_simple_novel"
       }
     },
     {

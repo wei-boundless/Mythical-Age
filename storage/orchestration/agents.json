@@ -772,6 +772,106 @@
         ],
         "system_key": "worker_pool"
       }
+    },
+    {
+      "agent_id": "agent:writing_simple_creator",
+      "agent_name": "写作组创作者",
+      "display_name": "写作组创作者",
+      "agent_category": "worker_sub_agent",
+      "profile_type": "worker_sub_agent",
+      "interface_target": "task_graph_node_runtime",
+      "description": "生成项目启动包、世界观、大纲、人物、分章、章节正文和专项修复候选。",
+      "enabled": true,
+      "builtin": false,
+      "editable": true,
+      "default_soul_id": "hebo",
+      "default_projection_id": "projection.writing.simple_novel.project_brief",
+      "created_at": 1778877788.2980099,
+      "updated_at": 1778877788.2980099,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "task_family": "writing_simple_novel",
+        "definition_source": "task_graph_assembly",
+        "source_task_graph_refs": [
+          "graph.writing.simple_novel"
+        ],
+        "system_key": "worker_pool"
+      }
+    },
+    {
+      "agent_id": "agent:writing_simple_reviewer",
+      "agent_name": "写作组审核员",
+      "display_name": "写作组审核员",
+      "agent_category": "worker_sub_agent",
+      "profile_type": "worker_sub_agent",
+      "interface_target": "task_graph_node_runtime",
+      "description": "审核每个候选并输出有限裁决、问题台账和下一步要求。",
+      "enabled": true,
+      "builtin": false,
+      "editable": true,
+      "default_soul_id": "hebo",
+      "default_projection_id": "projection.writing.simple_novel.world_reviewer",
+      "created_at": 1778877788.2980099,
+      "updated_at": 1778877788.2980099,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "task_family": "writing_simple_novel",
+        "definition_source": "task_graph_assembly",
+        "source_task_graph_refs": [
+          "graph.writing.simple_novel"
+        ],
+        "system_key": "worker_pool"
+      }
+    },
+    {
+      "agent_id": "agent:writing_memory_steward",
+      "agent_name": "写作组记忆管家",
+      "display_name": "写作组记忆管家",
+      "agent_category": "worker_sub_agent",
+      "profile_type": "worker_sub_agent",
+      "interface_target": "task_graph_node_runtime",
+      "description": "在 pass 后写入 canon、章节 commit、交付包和归档索引。",
+      "enabled": true,
+      "builtin": false,
+      "editable": true,
+      "default_soul_id": "hebo",
+      "default_projection_id": "projection.writing.simple_novel.memory_steward",
+      "created_at": 1778877788.2980099,
+      "updated_at": 1778877788.2980099,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "task_family": "writing_simple_novel",
+        "definition_source": "task_graph_assembly",
+        "source_task_graph_refs": [
+          "graph.writing.simple_novel"
+        ],
+        "system_key": "worker_pool"
+      }
+    },
+    {
+      "agent_id": "agent:writing_final_assembler",
+      "agent_name": "写作组交付包整编者",
+      "display_name": "写作组交付包整编者",
+      "agent_category": "worker_sub_agent",
+      "profile_type": "worker_sub_agent",
+      "interface_target": "task_graph_node_runtime",
+      "description": "基于 manifest、章节文件引用和摘要整理交付包。",
+      "enabled": true,
+      "builtin": false,
+      "editable": true,
+      "default_soul_id": "hebo",
+      "default_projection_id": "projection.writing.simple_novel.final_assembler",
+      "created_at": 1778877788.2980099,
+      "updated_at": 1778877788.2980099,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "task_family": "writing_simple_novel",
+        "definition_source": "task_graph_assembly",
+        "source_task_graph_refs": [
+          "graph.writing.simple_novel"
+        ],
+        "system_key": "worker_pool"
+      }
     }
   ]
 }

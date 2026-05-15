@@ -49,6 +49,10 @@ function edgeTarget(edge: Record<string, unknown>) {
   return stringValue(edge.target_node_id ?? edge.to ?? edge.target);
 }
 
+function recordValue(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 function pushIssue(
   issues: TaskGraphPreflightIssue[],
   issue: Omit<TaskGraphPreflightIssue, "issue_id"> & { issue_id?: string },
@@ -77,6 +81,8 @@ export function buildTaskGraphPreflightReport({
   const issues: TaskGraphPreflightIssue[] = [];
   const nodeIds = nodes.map((node, index) => stringValue(node.node_id ?? node.id ?? `node_${index + 1}`));
   const nodeIdSet = new Set(nodeIds.filter(Boolean));
+  const continuationPolicy = recordValue(metadata?.continuation_policy);
+  const humanGateMode = stringValue(continuationPolicy.human_gate_mode);
 
   if (!nodes.length) {
     pushIssue(issues, {
@@ -139,6 +145,8 @@ export function buildTaskGraphPreflightReport({
 
     const role = stringValue(node.role ?? node.work_posture ?? node.node_type);
     const agentId = stringValue(node.agent_id);
+    const executionMode = stringValue(node.execution_mode || "sync");
+    const humanGatePolicy = recordValue(node.human_gate_policy);
     if (!agentId && role !== "memory" && role !== "manual_gate") {
       pushIssue(issues, {
         severity: "warning",
@@ -195,7 +203,28 @@ export function buildTaskGraphPreflightReport({
         source: "frontend.preflight.artifact",
       });
     }
+    if (executionMode === "manual_gate" && !Object.keys(humanGatePolicy).length) {
+      pushIssue(issues, {
+        severity: "error",
+        scope: "node",
+        target_id: nodeId,
+        title: "人工门控缺少策略",
+        detail: "manual_gate 节点必须配置 human_gate_policy，明确触发条件和是否阻塞。",
+        source: "frontend.preflight.human_gate",
+      });
+    }
   });
+
+  if (nodes.some((node) => stringValue(node.execution_mode) === "manual_gate") && !humanGateMode) {
+    pushIssue(issues, {
+      severity: "warning",
+      scope: "runtime",
+      target_id: "",
+      title: "人工接管缺少图级策略",
+      detail: "请在任务蓝图的全局策略中配置人工接管策略，避免运行时隐式等待人工处理。",
+      source: "frontend.preflight.human_gate",
+    });
+  }
 
   edges.forEach((edge, index) => {
     const edgeId = stringValue(edge.edge_id ?? edge.id ?? `edge_${index + 1}`);

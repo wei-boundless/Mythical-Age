@@ -39,6 +39,9 @@ def materialize_task_artifacts(
     user_message: str,
     explicit_inputs: dict[str, Any],
     task_policy: dict[str, Any],
+    task_status: str = "",
+    terminal_reason: str = "",
+    task_diagnostics: dict[str, Any] | None = None,
 ) -> MaterializedTaskArtifacts:
     artifact_policy = dict(task_policy.get("artifact_policy") or {})
     if not artifact_policy.get("enabled"):
@@ -75,17 +78,20 @@ def materialize_task_artifacts(
     (artifact_root / "debug").mkdir(parents=True, exist_ok=True)
 
     sections = _split_markdown_sections(final_content)
+    diagnostics_payload = dict(task_diagnostics or {})
+    failed_empty_run = str(task_status or "").strip().lower() == "failed" and not str(final_content or "").strip()
     created: list[str] = []
     skipped: list[str] = []
 
-    project_brief = _project_brief_markdown(explicit_inputs=explicit_inputs, user_message=user_message)
-    if project_brief.strip():
-        _write_text(artifact_root / "00_project_brief.md", project_brief)
-        created.append("00_project_brief.md")
-    else:
-        skipped.append("00_project_brief.md")
-
     artifact_specs = _artifact_specs(artifact_policy)
+    if _should_materialize_project_brief(task_ref=task_ref, artifact_specs=artifact_specs):
+        project_brief = _project_brief_markdown(explicit_inputs=explicit_inputs, user_message=user_message)
+        if project_brief.strip():
+            target = _write_text_preserving_existing(artifact_root / "00_project_brief.md", project_brief)
+            created.append(_relative_or_absolute(target, artifact_root))
+        else:
+            skipped.append("00_project_brief.md")
+
     for spec in artifact_specs:
         relative_path = _render_artifact_path(str(spec.get("path") or "").strip(), explicit_inputs)
         if not relative_path or relative_path == "00_project_brief.md":
@@ -95,7 +101,7 @@ def materialize_task_artifacts(
             continue
         content = _content_for_artifact_spec(spec, sections, final_content, explicit_inputs)
         if not content.strip():
-            if spec.get("required"):
+            if spec.get("required") and not failed_empty_run:
                 content = _required_missing_content(relative_path, final_content)
             else:
                 skipped.append(relative_path)
@@ -107,8 +113,8 @@ def materialize_task_artifacts(
             skipped.append(relative_path)
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        _write_text(target, content)
-        created.append(relative_path)
+        target = _write_text_preserving_existing(target, content)
+        created.append(_relative_or_absolute(target, artifact_root))
 
     report = _run_report(
         task_run_id=task_run_id,
@@ -118,11 +124,17 @@ def materialize_task_artifacts(
         artifact_root=_relative_or_absolute(artifact_root, workspace),
         created_files=created,
         skipped_files=skipped,
+        task_status=task_status,
+        terminal_reason=terminal_reason,
+        task_diagnostics=diagnostics_payload,
     )
-    report_path = artifact_root / "debug" / "run_report_001.md"
-    _write_text(report_path, report)
-    if "debug/run_report_001.md" not in created:
-        created.append("debug/run_report_001.md")
+    report_path = _write_text_preserving_existing(
+        artifact_root / "debug" / f"run_report_{_safe_slug(task_ref or task_run_id)}.md",
+        report,
+    )
+    report_relative_path = _relative_or_absolute(report_path, artifact_root)
+    if report_relative_path not in created:
+        created.append(report_relative_path)
 
     artifact_refs = tuple(f"artifact:{_relative_or_absolute(artifact_root / item, workspace)}" for item in created)
     return MaterializedTaskArtifacts(
@@ -135,6 +147,8 @@ def materialize_task_artifacts(
             "status": "created",
             "created_count": len(created),
             "skipped_count": len(skipped),
+            "task_status": task_status,
+            "terminal_reason": terminal_reason,
             "source": "task_policy.artifact_policy",
         },
     )
@@ -144,6 +158,16 @@ def _artifact_specs(policy: dict[str, Any]) -> list[dict[str, Any]]:
     specs = [dict(item) for item in list(policy.get("artifacts") or []) if isinstance(item, dict)]
     if specs:
         return specs
+    artifact_target = str(policy.get("artifact_target") or policy.get("output_path") or "").strip()
+    if artifact_target:
+        return [
+            {
+                "path": artifact_target,
+                "required": bool(policy.get("required", True)),
+                "content_source": "final_content",
+                "fallback_to_full_content": True,
+            }
+        ]
     return [
         {"path": "01_project_bible.md", "section_keys": ["项目总纲", "Project Brief"], "required": True},
         {"path": "02_world_bible.md", "section_keys": ["世界规则", "World Rules"], "required": True},
@@ -175,6 +199,17 @@ def _artifact_specs(policy: dict[str, Any]) -> list[dict[str, Any]]:
             "required": True,
         },
     ]
+
+
+def _should_materialize_project_brief(*, task_ref: str, artifact_specs: list[dict[str, Any]]) -> bool:
+    normalized_task_ref = str(task_ref or "").strip().lower()
+    if normalized_task_ref.endswith("project_brief"):
+        return True
+    for spec in artifact_specs:
+        normalized_path = str(spec.get("path") or "").replace("\\", "/").strip().lower()
+        if normalized_path in {"project_brief.md", "00_project_brief.md"}:
+            return True
+    return False
 
 
 def _resolve_artifact_root(workspace: Path, value: str) -> Path:
@@ -230,10 +265,17 @@ def _render_artifact_path(path_template: str, explicit_inputs: dict[str, Any]) -
         "chapter_index": chapter_index,
         "chapter_index_padded": f"{chapter_index:03d}",
         "chapter_file_prefix": str(explicit_inputs.get("chapter_file_prefix") or f"chapter_{chapter_index:03d}"),
+        "round_index": _safe_int(
+            explicit_inputs.get("round_index")
+            or explicit_inputs.get("revision_round")
+            or explicit_inputs.get("attempt_index"),
+            1,
+        ),
     }
     rendered = template
     for key, value in values.items():
-        rendered = rendered.replace("{" + key + ":03d}", f"{chapter_index:03d}")
+        padded_value = f"{int(value):03d}" if isinstance(value, int) else str(value)
+        rendered = rendered.replace("{" + key + ":03d}", padded_value)
         rendered = rendered.replace("{" + key + "}", str(value))
     return rendered
 
@@ -283,6 +325,8 @@ def _content_for_artifact_spec(
         if str(item).strip()
     ]
     path = str(spec.get("path") or "")
+    if str(spec.get("content_source") or "").strip() == "final_content":
+        return str(final_content or "").strip()
     if "chapter_" in path:
         if path.endswith("_plan.md"):
             keys.extend(["写作准备", "章节规划", "章节准备", "Chapter Plan"])
@@ -368,7 +412,11 @@ def _run_report(
     artifact_root: str,
     created_files: list[str],
     skipped_files: list[str],
+    task_status: str,
+    terminal_reason: str,
+    task_diagnostics: dict[str, Any],
 ) -> str:
+    last_error = dict(task_diagnostics.get("last_error") or {})
     lines = [
         "# 长篇小说任务运行报告",
         "",
@@ -376,12 +424,29 @@ def _run_report(
         f"- session_id: `{session_id}`",
         f"- task_ref: `{task_ref}`",
         f"- coordination_run_id: `{coordination_run_id or '无'}`",
+        f"- task_status: `{task_status or 'unknown'}`",
+        f"- terminal_reason: `{terminal_reason or 'none'}`",
         f"- artifact_root: `{artifact_root}`",
         f"- generated_at: `{time.strftime('%Y-%m-%d %H:%M:%S')}`",
         "",
+    ]
+    if last_error:
+        lines.extend([
+            "## 失败诊断",
+            "",
+            f"- message: `{str(last_error.get('message') or '')}`",
+            f"- code: `{str(last_error.get('code') or '') or 'unknown'}`",
+            f"- provider: `{str(last_error.get('provider') or '') or 'unknown'}`",
+            f"- model: `{str(last_error.get('model') or '') or 'unknown'}`",
+            f"- step_id: `{str(last_error.get('step_id') or '') or 'unknown'}`",
+        ])
+        detail = str(last_error.get("detail") or "").strip()
+        if detail:
+            lines.extend(["", "```text", detail, "```", ""])
+    lines.extend([
         "## 已生成产物",
         "",
-    ]
+    ])
     lines.extend(f"- `{item}`" for item in created_files)
     if skipped_files:
         lines.extend(["", "## 未生成或跳过", ""])
@@ -393,6 +458,30 @@ def _run_report(
 
 def _write_text(path: Path, content: str) -> None:
     path.write_text(str(content or "").strip() + "\n", encoding="utf-8")
+
+
+def _write_text_preserving_existing(path: Path, content: str) -> Path:
+    normalized = str(content or "").strip() + "\n"
+    if path.exists():
+        try:
+            if path.read_text(encoding="utf-8") == normalized:
+                return path
+        except OSError:
+            pass
+        path = _versioned_path(path)
+    path.write_text(normalized, encoding="utf-8")
+    return path
+
+
+def _versioned_path(path: Path) -> Path:
+    parent = path.parent
+    stem = path.stem
+    suffix = path.suffix
+    for index in range(2, 10000):
+        candidate = parent / f"{stem}_v{index:03d}{suffix}"
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(f"too many artifact versions for {path}")
 
 
 def _relative_or_absolute(path: Path, workspace: Path) -> str:

@@ -1,11 +1,11 @@
 "use client";
 
 import { MessageSquare, Network } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
-import { CoordinationRunPanel } from "@/components/chat/CoordinationRunPanel";
+import { TaskGraphRunMonitorPanel } from "@/components/task-graph-monitor/TaskGraphRunMonitorPanel";
 import { SoulPortrait } from "@/components/soul/SoulPortrait";
 import { useAppStore } from "@/lib/store";
 
@@ -29,14 +29,14 @@ export function ChatPanel() {
     activeStreamSessionIds,
     currentSessionId,
     tokenStats,
-    coordinationLiveMonitor,
+    taskGraphLiveMonitor,
+    taskGraphRunMonitor,
     soulOptions,
     activeSoulKey,
     searchPolicy,
     toggleSearchPolicySource,
     taskSelection,
     setTaskSelection,
-    resumeCoordinationRun,
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
   const coordinationWasActiveRef = useRef(false);
@@ -44,7 +44,16 @@ export function ChatPanel() {
   const activeSoul =
     soulOptions.find((soul) => soul.key === activeSoulKey) ?? soulOptions[0] ?? null;
   const currentSessionStreaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
-  const coordinationActive = Boolean(taskSelection?.mode === "coordination" || coordinationLiveMonitor?.has_coordination);
+  const taskGraphActive = Boolean(taskSelection?.mode === "coordination" || taskGraphRunMonitor || taskGraphLiveMonitor?.has_coordination);
+  const lastEditableUserMessageId = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message.role === "user" && message.sourceIndex !== undefined) {
+        return message.id;
+      }
+    }
+    return null;
+  }, [messages]);
 
   useEffect(() => {
     if (activePage === "conversation") {
@@ -53,28 +62,28 @@ export function ChatPanel() {
   }, [messages, activePage]);
 
   useEffect(() => {
-    if (currentSessionStreaming && coordinationActive) {
+    if (currentSessionStreaming && taskGraphActive) {
       setActivePage("monitor");
     }
-  }, [currentSessionStreaming, coordinationActive]);
+  }, [currentSessionStreaming, taskGraphActive]);
 
   useEffect(() => {
     if (taskSelection?.mode === "coordination") {
       setActivePage("monitor");
       return;
     }
-    if (!taskSelection && !coordinationActive) {
+    if (!taskSelection && !taskGraphActive) {
       setActivePage("conversation");
     }
-  }, [coordinationActive, taskSelection]);
+  }, [taskGraphActive, taskSelection]);
 
   useEffect(() => {
-    const justActivated = coordinationActive && !coordinationWasActiveRef.current;
+    const justActivated = taskGraphActive && !coordinationWasActiveRef.current;
     if (justActivated) {
       setActivePage("monitor");
     }
-    coordinationWasActiveRef.current = coordinationActive;
-  }, [coordinationActive]);
+    coordinationWasActiveRef.current = taskGraphActive;
+  }, [taskGraphActive]);
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col gap-4">
@@ -95,8 +104,8 @@ export function ChatPanel() {
               type="button"
             >
               <Network size={16} />
-              协调监控
-              {coordinationActive ? <span className="chat-page-tabs__signal" /> : null}
+              任务图监控
+              {taskGraphActive ? <span className="chat-page-tabs__signal" /> : null}
             </button>
           </div>
           <div className="metric-pill mono chat-panel-metric">
@@ -126,7 +135,7 @@ export function ChatPanel() {
             {messages.map((message) => (
               <ChatMessage
                 assistantName={activeSoul?.name ?? "河伯"}
-                canEdit={!currentSessionStreaming && message.role === "user" && message.sourceIndex !== undefined}
+                canEdit={!currentSessionStreaming && message.id === lastEditableUserMessageId}
                 content={message.content}
                 id={message.id}
                 key={message.id}
@@ -142,10 +151,7 @@ export function ChatPanel() {
         ) : (
           <div className="chat-run-page">
             <div className="chat-monitor-stage">
-              <CoordinationRunPanel
-                liveMonitor={coordinationLiveMonitor}
-                onResumeCoordinationRun={resumeCoordinationRun}
-              />
+              <TaskGraphRunMonitorPanel monitor={taskGraphRunMonitor} />
             </div>
           </div>
         )}

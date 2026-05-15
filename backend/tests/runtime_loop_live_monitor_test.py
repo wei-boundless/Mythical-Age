@@ -110,6 +110,7 @@ def test_trace_reader_builds_live_monitor_from_latest_runtime_state(tmp_path) ->
         event_offset=12,
     )
 
+    state_index.read_snapshot = lambda: (_ for _ in ()).throw(AssertionError("full snapshot should not be used"))  # type: ignore[method-assign]
     monitor = reader.get_session_live_monitor("session:test")
 
     assert monitor["latest_task_run_id"] == task_run.task_run_id
@@ -119,3 +120,42 @@ def test_trace_reader_builds_live_monitor_from_latest_runtime_state(tmp_path) ->
     assert monitor["monitor"]["coordination_run"]["langgraph_runtime_state"]["running_nodes"] == ["world_design"]
     assert monitor["monitor"]["coordination_run"]["coordination_graph_spec"]["coordination_task_id"] == "coord.longform.live"
     assert monitor["monitor"]["coordination_run"]["node_runs"][0]["node_id"] == "world_design"
+
+
+def test_session_live_view_preserves_coordination_pointer_after_root_task_update(tmp_path) -> None:
+    state_index = RuntimeStateIndex(tmp_path)
+    task_run = TaskRun(
+        task_run_id="taskrun:test:root",
+        session_id="sessiontest",
+        task_id="task.longform.live",
+        status="running",
+        created_at=100.0,
+        updated_at=110.0,
+    )
+    state_index.upsert_task_run(task_run)
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:test:root",
+        task_run_id=task_run.task_run_id,
+        coordinator_agent_id="agent:showrunner",
+        graph_ref="graph.longform.live",
+        status="running",
+        created_at=101.0,
+        updated_at=111.0,
+    )
+    state_index.upsert_coordination_run(coordination_run)
+    state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run.task_run_id,
+            session_id=task_run.session_id,
+            task_id=task_run.task_id,
+            status="aborted",
+            created_at=task_run.created_at,
+            updated_at=120.0,
+            terminal_reason="user_aborted",
+        )
+    )
+
+    live_view = state_index._read_session_live_view("sessiontest")
+    assert live_view["latest_task_run_id"] == "taskrun:test:root"
+    assert live_view["latest_coordination_task_run_id"] == "taskrun:test:root"
+    assert live_view["latest_coordination_run_id"] == "coordrun:test:root"

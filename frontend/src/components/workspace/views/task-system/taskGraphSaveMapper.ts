@@ -2,11 +2,9 @@ import type { TaskGraphRecord } from "@/lib/api";
 
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import { asRecord, stringListOf } from "./taskGraphDraftV2";
-import type { LegacyTaskGraphStack } from "./taskGraphTypes";
 
 export type BuildTaskGraphUpsertPayloadInput = {
   taskGraphDraft: TaskGraphDraftV2;
-  legacyDrafts: LegacyTaskGraphStack;
   domain_id: string;
   task_family: string;
   task_id: string;
@@ -31,15 +29,17 @@ function subtaskRefsFromNodes(nodes: Array<Record<string, unknown>>): string[] {
   return stringListOf(nodes.map((node) => String(node.task_id ?? ""))).filter((taskRef) => taskRef.startsWith("task."));
 }
 
+function communicationModesFromEdges(edges: Array<Record<string, unknown>>): string[] {
+  return stringListOf(edges.map((edge) => String(edge.mode ?? edge.edge_type ?? "")));
+}
+
 export function buildTaskGraphUpsertPayload({
   taskGraphDraft,
-  legacyDrafts,
   domain_id,
   task_family,
   task_id,
   publish_state,
 }: BuildTaskGraphUpsertPayloadInput): TaskGraphRecord {
-  const { coordinationDraft, protocolDraft, topologyDraft } = legacyDrafts;
   const metadata = asRecord(taskGraphDraft.metadata);
   const coordinatorAgentId = String(taskGraphDraft.runtime_policy.coordinator_agent_id ?? "agent:0").trim() || "agent:0";
   const explicitParticipants = stringListOf(taskGraphDraft.runtime_policy.participant_agent_ids);
@@ -53,8 +53,13 @@ export function buildTaskGraphUpsertPayload({
     participant_agent_ids,
     agent_group_id: String(taskGraphDraft.runtime_policy.agent_group_id ?? ""),
     coordination_mode: String(taskGraphDraft.runtime_policy.coordination_mode ?? "review_merge"),
+    human_gate_mode: String(taskGraphDraft.runtime_policy.human_gate_mode ?? "manual_required"),
     working_memory_profile_id: workingMemoryProfileId || undefined,
   });
+  const continuationPolicy = {
+    ...asRecord(metadata.continuation_policy),
+    human_gate_mode: String(taskGraphDraft.runtime_policy.human_gate_mode ?? "manual_required"),
+  };
   const context_policy = compactRecord({
     ...asRecord(taskGraphDraft.context_policy),
     shared_context_policy: String(taskGraphDraft.context_policy.shared_context_policy ?? "explicit_refs_only"),
@@ -72,7 +77,7 @@ export function buildTaskGraphUpsertPayload({
     nodes: taskGraphDraft.nodes,
     edges: taskGraphDraft.edges,
     graph_contract_id: taskGraphDraft.graph_contract_id,
-    default_protocol_id: taskGraphDraft.default_protocol_id || protocolDraft.protocol_id,
+    default_protocol_id: taskGraphDraft.default_protocol_id,
     working_memory_policy_profile_id: workingMemoryProfileId,
     working_memory_policy: asRecord(taskGraphDraft.working_memory_policy),
     runtime_policy,
@@ -81,16 +86,17 @@ export function buildTaskGraphUpsertPayload({
     enabled: publish_state === "published",
     metadata: compactRecord({
       ...metadata,
-      protocol_id: taskGraphDraft.default_protocol_id || protocolDraft.protocol_id,
-      topology_template_id: String(metadata.topology_template_id ?? coordinationDraft.topology_template_id ?? topologyDraft.template_id ?? ""),
+      protocol_id: taskGraphDraft.default_protocol_id || String(metadata.protocol_id ?? ""),
+      topology_template_id: String(metadata.topology_template_id ?? ""),
       task_family,
       domain_id,
       task_id,
-      handoff_policy: String(taskGraphDraft.context_policy.handoff_policy ?? coordinationDraft.handoff_policy ?? ""),
-      conflict_resolution_policy: String(metadata.conflict_resolution_policy ?? coordinationDraft.conflict_resolution_policy ?? ""),
-      output_merge_policy: String(metadata.output_merge_policy ?? coordinationDraft.output_merge_policy ?? ""),
+      handoff_policy: String(taskGraphDraft.context_policy.handoff_policy ?? metadata.handoff_policy ?? ""),
+      conflict_resolution_policy: String(metadata.conflict_resolution_policy ?? ""),
+      output_merge_policy: String(metadata.output_merge_policy ?? ""),
+      continuation_policy: continuationPolicy,
       business_communication_modes: stringListOf(
-        metadata.business_communication_modes ?? coordinationDraft.communication_modes ?? [],
+        metadata.business_communication_modes ?? communicationModesFromEdges(taskGraphDraft.edges),
       ),
       subtask_refs: Array.from(new Set([...(stringListOf(metadata.subtask_refs)), ...subtaskRefsFromNodes(taskGraphDraft.nodes)])),
     }),

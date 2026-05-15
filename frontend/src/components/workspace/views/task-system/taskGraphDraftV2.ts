@@ -1,7 +1,5 @@
 import type { TaskGraphEdgeRecord, TaskGraphNodeRecord, TaskGraphRecord } from "@/lib/api";
 
-import type { LegacyTaskGraphStack } from "./taskGraphTypes";
-
 export type TaskGraphPublishStateV2 = "draft" | "saved" | "preflight_passed" | "published" | "run_bound" | "archived";
 
 export type TaskGraphRuntimePolicyDraftV2 = Record<string, unknown> & {
@@ -9,6 +7,7 @@ export type TaskGraphRuntimePolicyDraftV2 = Record<string, unknown> & {
   participant_agent_ids: string[];
   agent_group_id: string;
   coordination_mode: string;
+  human_gate_mode?: string;
 };
 
 export type TaskGraphContextPolicyDraftV2 = Record<string, unknown> & {
@@ -147,6 +146,43 @@ export function taskGraphPublishStateLabel(state: unknown): string {
   return "草稿";
 }
 
+export function emptyTaskGraphDraftV2(): TaskGraphDraftV2 {
+  return {
+    graph_id: "graph.draft",
+    title: "任务图",
+    domain_id: "",
+    task_family: "",
+    task_id: "",
+    graph_kind: "multi_agent",
+    entry_node_id: "",
+    output_node_id: "",
+    nodes: [],
+    edges: [],
+    graph_contract_id: "",
+    default_protocol_id: "",
+    runtime_policy: {
+      coordinator_agent_id: "agent:0",
+      participant_agent_ids: [],
+      agent_group_id: "",
+      coordination_mode: "review_merge",
+      human_gate_mode: "manual_required",
+    },
+    context_policy: {
+      shared_context_policy: "explicit_refs_only",
+      memory_sharing_policy: "isolated_by_default",
+    },
+    working_memory_policy_profile_id: "",
+    working_memory_policy: {},
+    publish_state: "draft",
+    metadata: {},
+    ui_state: {
+      selected_node_id: "",
+      selected_edge_id: "",
+      active_layer: "blueprint",
+    },
+  };
+}
+
 export function taskGraphRecordToDraftV2(graph: TaskGraphRecord): TaskGraphDraftV2 {
   const metadata = asRecord(graph.metadata);
   const {
@@ -198,6 +234,7 @@ export function taskGraphRecordToDraftV2(graph: TaskGraphRecord): TaskGraphDraft
       participant_agent_ids: stringListOf(runtimePolicy.participant_agent_ids ?? metadata.participant_agent_ids),
       agent_group_id: String(runtimePolicy.agent_group_id ?? metadata.agent_group_id ?? ""),
       coordination_mode: String(runtimePolicy.coordination_mode ?? metadata.coordination_mode ?? "review_merge"),
+      human_gate_mode: String(runtimePolicy.human_gate_mode ?? asRecord(metadata.continuation_policy).human_gate_mode ?? "manual_required"),
     },
     context_policy: {
       ...contextPolicy,
@@ -213,73 +250,6 @@ export function taskGraphRecordToDraftV2(graph: TaskGraphRecord): TaskGraphDraft
     working_memory_policy: workingMemoryPolicy,
     publish_state: normalizeTaskGraphPublishState(metadata.editor_publish_state ?? graph.publish_state, graph.enabled),
     metadata: metadataRemainder,
-    ui_state: {
-      selected_node_id: boundaries.entry_node_id,
-      selected_edge_id: "",
-      active_layer: "blueprint",
-    },
-  };
-}
-
-export function legacyStackToTaskGraphDraftV2({
-  coordinationDraft,
-  topologyDraft,
-  protocolDraft,
-}: LegacyTaskGraphStack): TaskGraphDraftV2 {
-  const metadata = asRecord(coordinationDraft.metadata);
-  const runtimeMetadata = asRecord(metadata.runtime_policy);
-  const contextMetadata = asRecord(metadata.context_policy);
-  const nodes = (topologyDraft.nodes?.length ? topologyDraft.nodes : coordinationDraft.graph_nodes ?? []) as TaskGraphNodeRecord[];
-  const edges = (topologyDraft.edges?.length ? topologyDraft.edges : coordinationDraft.graph_edges ?? []) as TaskGraphEdgeRecord[];
-  const boundaries = inferTaskGraphBoundaryNodes(nodes, edges, {
-    fallback_entry_node_id: String(metadata.entry_node_id ?? ""),
-    fallback_output_node_id: String(metadata.output_node_id ?? ""),
-  });
-  const {
-    entry_node_id: _legacyEntryNodeId,
-    output_node_id: _legacyOutputNodeId,
-    graph_contract_id: _legacyGraphContractId,
-    runtime_policy: _legacyRuntimePolicy,
-    context_policy: _legacyContextPolicy,
-    working_memory_policy: _legacyWorkingMemoryPolicy,
-    working_memory_policy_profile_id: _legacyWorkingMemoryProfileId,
-    ...metadataRemainder
-  } = metadata;
-
-  return {
-    graph_id: coordinationDraft.graph_id || coordinationDraft.coordination_task_id || topologyDraft.template_id || "graph.draft",
-    title: coordinationDraft.title || topologyDraft.title || "任务图",
-    domain_id: coordinationDraft.domain_id || String(topologyDraft.metadata?.domain_id ?? metadata.domain_id ?? ""),
-    task_family: coordinationDraft.task_family || String(metadata.task_family ?? topologyDraft.metadata?.task_family ?? ""),
-    task_id: String(metadata.task_id ?? topologyDraft.metadata?.task_id ?? ""),
-    graph_kind: coordinationDraft.graph_kind ?? (nodes.length <= 1 ? "single_agent" : "multi_agent"),
-    entry_node_id: boundaries.entry_node_id,
-    output_node_id: boundaries.output_node_id,
-    nodes,
-    edges,
-    graph_contract_id: String(metadata.graph_contract_id ?? ""),
-    default_protocol_id: coordinationDraft.protocol_id || protocolDraft.protocol_id || String(metadata.protocol_id ?? ""),
-    runtime_policy: {
-      ...runtimeMetadata,
-      coordinator_agent_id: String(runtimeMetadata.coordinator_agent_id ?? coordinationDraft.coordinator_agent_id ?? "agent:0") || "agent:0",
-      participant_agent_ids: stringListOf(runtimeMetadata.participant_agent_ids ?? coordinationDraft.participant_agent_ids),
-      agent_group_id: String(runtimeMetadata.agent_group_id ?? coordinationDraft.agent_group_id ?? ""),
-      coordination_mode: String(runtimeMetadata.coordination_mode ?? coordinationDraft.coordination_mode ?? "review_merge"),
-    },
-    context_policy: {
-      ...contextMetadata,
-      shared_context_policy: String(contextMetadata.shared_context_policy ?? coordinationDraft.shared_context_policy ?? "explicit_refs_only"),
-      memory_sharing_policy: String(contextMetadata.memory_sharing_policy ?? coordinationDraft.memory_sharing_policy ?? "isolated_by_default"),
-      handoff_policy: String(contextMetadata.handoff_policy ?? coordinationDraft.handoff_policy ?? "filtered_handoff"),
-    },
-    working_memory_policy_profile_id: String(metadata.working_memory_policy_profile_id ?? runtimeMetadata.working_memory_profile_id ?? ""),
-    working_memory_policy: asRecord(metadata.working_memory_policy),
-    publish_state: normalizeTaskGraphPublishState(metadata.editor_publish_state, coordinationDraft.enabled && topologyDraft.enabled && protocolDraft.enabled),
-    metadata: {
-      ...metadataRemainder,
-      topology_template_id: coordinationDraft.topology_template_id || topologyDraft.template_id,
-      protocol_id: protocolDraft.protocol_id,
-    },
     ui_state: {
       selected_node_id: boundaries.entry_node_id,
       selected_edge_id: "",

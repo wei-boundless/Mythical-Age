@@ -39,6 +39,7 @@ from .continuation_policy import (
 )
 from .coordination_trace_adapter import CoordinationTraceAdapter
 from .langgraph_checkpoint_adapter import LangGraphCheckpointStoreAdapter
+from .runtime_object_store import RuntimeObjectStore
 from .models import CoordinationRun
 from .runtime_assembly_builder import build_node_runtime_assembly
 from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
@@ -98,8 +99,25 @@ class LangGraphCoordinationRuntimeResult:
         request = self.stage_execution_request
         runtime_assembly = dict(request.runtime_assembly or {})
         projection_id = str(runtime_assembly.get("projection_id") or "").strip()
+        inherited_context = {
+            key: value
+            for key, value in dict(current_turn_context or {}).items()
+            if key
+            not in {
+                "user_message",
+                "current_user_message",
+                "task_id",
+                "selected_task_id",
+                "agent_id",
+                "projection_id",
+                "selected_projection_id",
+                "continuation_stage_id",
+                "stage_execution_request",
+                "a2a_payload",
+            }
+        }
         turn_context = {
-            **dict(current_turn_context or {}),
+            **inherited_context,
             "selected_task_id": request.task_ref,
             "task_id": request.task_ref,
             "agent_id": request.agent_id,
@@ -140,12 +158,18 @@ class LangGraphCoordinationRuntime:
         self,
         *,
         root_dir: Any,
+        registry_base_dir: Any | None = None,
         state_index: Any,
         event_log: Any,
         task_flow_registry: Any,
         trace_reader: Any,
     ) -> None:
         self.root_dir = root_dir
+        self.registry_base_dir = Path(
+            registry_base_dir
+            or getattr(task_flow_registry, "base_dir", "")
+            or root_dir
+        )
         self.state_index = state_index
         self.event_log = event_log
         self.task_flow_registry = task_flow_registry
@@ -153,6 +177,7 @@ class LangGraphCoordinationRuntime:
         self.artifact_refs = ArtifactRefIndex(state_index=state_index, trace_reader=trace_reader)
         self.input_binder = ContinuationInputBinder(self.artifact_refs)
         self.checkpoints = LangGraphCheckpointStoreAdapter(root_dir)
+        self.runtime_objects = RuntimeObjectStore(root_dir)
         self.trace_adapter = CoordinationTraceAdapter(state_index=state_index, event_log=event_log)
         self.working_memory = WorkingMemoryService(_working_memory_root_for_runtime(root_dir))
         self.working_memory_finalizer = WorkingMemoryFinalizer(self.working_memory)
@@ -168,7 +193,9 @@ class LangGraphCoordinationRuntime:
         return derive(task_graph)
 
     def _resolve_task_graph_definition(self, coordination_run: CoordinationRun):
-        snapshot = dict(coordination_run.diagnostics.get("task_graph_definition") or {})
+        diagnostics = dict(coordination_run.diagnostics or {})
+        definition_ref = str(diagnostics.get("task_graph_definition_ref") or "").strip()
+        snapshot = self.runtime_objects.get_object(definition_ref) if definition_ref else {}
         if snapshot:
             return task_graph_from_dict(snapshot)
         target = str(coordination_run.graph_ref or "").strip()
@@ -360,11 +387,14 @@ class LangGraphCoordinationRuntime:
         if not stage_id:
             return {"diagnostics": {**dict(state.get("diagnostics") or {}), "accept_warning": "missing_stage_id"}}
         contract = dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {})
-        artifact_refs = [
+        raw_refs = [
             str(item)
             for item in list(event.get("artifact_refs") or [])
             if str(item)
         ]
+        requires_file_artifact_refs = _contract_requires_file_artifact_refs(contract)
+        artifact_refs = [item for item in raw_refs if item.startswith("artifact:")] if requires_file_artifact_refs else raw_refs
+        trace_refs = [item for item in raw_refs if not item.startswith("artifact:")] if requires_file_artifact_refs else []
         output_mappings = [dict(item) for item in list(contract.get("output_mappings") or []) if isinstance(item, dict)]
         mapped_outputs: dict[str, Any] = {}
         for mapping in output_mappings:
@@ -379,8 +409,13 @@ class LangGraphCoordinationRuntime:
             "task_result_ref": str(event.get("task_result_ref") or ""),
             "agent_run_result_ref": str(event.get("agent_run_result_ref") or ""),
             "artifact_refs": artifact_refs,
+            "trace_refs": trace_refs,
             "outputs": mapped_outputs,
-            "accepted": bool(event.get("accepted") is True),
+            "accepted": bool(event.get("accepted") is True) and _required_artifact_outputs_satisfied(
+                output_mappings,
+                artifact_refs,
+                requires_file_artifact_refs=requires_file_artifact_refs,
+            ),
         }
         working_memory_operations = list(state.get("working_memory_operations") or [])
         if bool(event.get("accepted") is True):
@@ -411,7 +446,11 @@ class LangGraphCoordinationRuntime:
             if commit_operation:
                 working_memory_operations.append(commit_operation)
         node_statuses = dict(state.get("node_statuses") or {})
-        accepted = bool(event.get("accepted") is True)
+        accepted = bool(event.get("accepted") is True) and _required_artifact_outputs_satisfied(
+            output_mappings,
+            artifact_refs,
+            requires_file_artifact_refs=requires_file_artifact_refs,
+        )
         retry_counts = dict(state.get("retry_counts") or {})
         retry_stage_id = ""
         terminal_status = ""
@@ -421,7 +460,7 @@ class LangGraphCoordinationRuntime:
             retry_counts[stage_id] = int(retry_counts.get(stage_id) or 0) + 1
             node_statuses[stage_id] = "pending"
             retry_stage_id = stage_id
-        elif _human_gate_required(contract):
+        elif _human_gate_required(contract, state=state):
             node_statuses[stage_id] = "waiting_for_human"
             terminal_status = "waiting_for_human"
         else:
@@ -720,6 +759,9 @@ class LangGraphCoordinationRuntime:
                 explicit_inputs=explicit_inputs,
             ),
             artifact_root=str(explicit_inputs.get("artifact_root") or ""),
+            artifact_policy=dict(contract.get("artifact_policy") or {}),
+            artifact_targets=tuple(dict(item) for item in list(contract.get("artifact_targets") or []) if isinstance(item, dict)),
+            output_contract_id=str(contract.get("output_contract_id") or ""),
             expected_outputs=tuple(dict(item) for item in list(contract.get("output_mappings") or []) if isinstance(item, dict)),
             working_memory_refs=tuple(_working_memory_refs_from_context(working_memory_context)),
         )
@@ -1027,7 +1069,8 @@ class LangGraphCoordinationRuntime:
                     ],
                 },
             }
-        graph_spec_payload = dict(coordination_run.diagnostics.get("task_graph_runtime_spec") or {})
+        runtime_spec_ref = str(dict(coordination_run.diagnostics or {}).get("task_graph_runtime_spec_ref") or "").strip()
+        graph_spec_payload = self.runtime_objects.get_object(runtime_spec_ref) if runtime_spec_ref else {}
         graph_spec = (
             _runtime_spec_from_payload(graph_spec_payload)
             if graph_spec_payload
@@ -1069,12 +1112,12 @@ class LangGraphCoordinationRuntime:
         if not current_stage and order:
             current_stage = order[0]
         manifest = compile_coordination_contract_manifest(
-            contract_registry=TaskContractRegistry(self.root_dir),
+            contract_registry=TaskContractRegistry(self.registry_base_dir),
             coordination_task=coordination_task,
             graph_spec=graph_spec,
             specific_tasks=specific_tasks,
             communication_protocol=communication_protocol,
-            agent_profiles=tuple(AgentRuntimeRegistry(self.root_dir).list_profiles()),
+            agent_profiles=tuple(AgentRuntimeRegistry(self.registry_base_dir).list_profiles()),
         )
         manifest_payload = manifest.to_dict()
         node_contracts = {
@@ -1180,7 +1223,7 @@ class LangGraphCoordinationRuntime:
         )
 
     def _agent_profile_for(self, agent_id: str) -> Any:
-        return AgentRuntimeRegistry(self.root_dir).get_profile(agent_id)
+        return AgentRuntimeRegistry(self.registry_base_dir).get_profile(agent_id)
 
 
 def _contract_payload(contract: CoordinationStageContract, *, topology_nodes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1197,24 +1240,53 @@ def _contract_payload(contract: CoordinationStageContract, *, topology_nodes: li
     payload["runtime_lane"] = str(node.get("lane") or node.get("runtime_lane") or "")
     payload["role"] = str(node.get("role") or "")
     payload["title"] = str(node.get("title") or contract.stage_id)
+    payload["input_contract_id"] = str(node.get("input_contract_id") or payload.get("input_contract_id") or "")
     payload["output_contract_id"] = str(node.get("output_contract_id") or node.get("node_contract_id") or "")
     payload["projection_id"] = str(node.get("projection_id") or "")
     for key in (
         "artifact_targets",
         "artifact_requirements",
+        "artifact_policy",
+        "artifact_target",
+        "output_path",
         "instructions",
         "stage_instructions",
         "node_type",
         "memory_read_policy",
         "memory_writeback_policy",
         "dynamic_memory_read_policy",
+        "review_gate_policy",
+        "human_gate_policy",
         "loop_kind",
         "chapter_scoped",
         "title_template",
         "loop_route_policy",
     ):
-        if key in node and key not in payload:
+        if key in node and (key not in payload or payload.get(key) in ("", None, [], {})):
             payload[key] = node[key]
+    artifact_policy = dict(payload.get("artifact_policy") or {})
+    artifact_target = str(payload.get("artifact_target") or payload.get("output_path") or artifact_policy.get("artifact_target") or "").strip()
+    if artifact_target:
+        artifact_policy.setdefault("enabled", True)
+        artifact_policy.setdefault("required", True)
+        artifact_policy.setdefault("source", "task_graph_node")
+        artifact_policy["artifact_target"] = artifact_target
+        artifact_policy.setdefault(
+            "artifacts",
+            [
+                {
+                    "path": artifact_target,
+                    "required": True,
+                    "content_source": "final_content",
+                    "fallback_to_full_content": True,
+                }
+            ],
+        )
+        payload["artifact_policy"] = artifact_policy
+        targets = [dict(item) for item in list(payload.get("artifact_targets") or []) if isinstance(item, dict)]
+        if not any(str(item.get("path") or "") == artifact_target for item in targets):
+            targets.append({"path": artifact_target, "required": True, "source": "task_graph_node"})
+        payload["artifact_targets"] = targets
     return payload
 
 
@@ -1311,6 +1383,29 @@ def _working_memory_refs_from_context(context: dict[str, Any]) -> list[str]:
             if str(ref).strip() and str(ref).strip() not in refs:
                 refs.append(str(ref).strip())
     return refs
+
+
+def _contract_requires_file_artifact_refs(contract: dict[str, Any]) -> bool:
+    artifact_policy = dict(contract.get("artifact_policy") or {})
+    return bool(artifact_policy.get("enabled") or contract.get("artifact_targets") or contract.get("artifact_target") or contract.get("output_path"))
+
+
+def _required_artifact_outputs_satisfied(
+    output_mappings: list[dict[str, Any]],
+    artifact_refs: list[str],
+    *,
+    requires_file_artifact_refs: bool,
+) -> bool:
+    if not requires_file_artifact_refs:
+        return True
+    requires_artifact = any(
+        item.get("required") is True and str(item.get("output_key") or "").endswith(":artifact_refs")
+        for item in output_mappings
+        if isinstance(item, dict)
+    )
+    if not requires_artifact:
+        return True
+    return bool(artifact_refs)
 
 
 def _filter_working_memory_refs_for_handoff(refs: list[str], policy: dict[str, Any], service: WorkingMemoryService) -> list[str]:
@@ -1632,6 +1727,7 @@ def _contract_from_payload(payload: dict[str, Any]) -> CoordinationStageContract
         on_success=str(payload.get("on_success") or "advance"),
         on_failure=str(payload.get("on_failure") or "fail_closed"),
         retry_policy=dict(payload.get("retry_policy") or {}),
+        human_gate_policy=dict(payload.get("human_gate_policy") or {}),
     )
 
 
@@ -1659,10 +1755,16 @@ def _retry_allowed(*, contract: dict[str, Any], retry_counts: dict[str, Any], st
     return int(retry_counts.get(stage_id) or 0) < limit
 
 
-def _human_gate_required(contract: dict[str, Any]) -> bool:
+def _human_gate_required(contract: dict[str, Any], *, state: dict[str, Any] | None = None) -> bool:
     gate_policy = str(contract.get("gate_policy") or "").strip()
     on_failure = str(contract.get("on_failure") or "").strip()
     human_gate_policy = dict(contract.get("human_gate_policy") or {})
+    mode = str(human_gate_policy.get("mode") or "").strip()
+    if state is not None:
+        continuation_policy = dict(dict(state.get("diagnostics") or {}).get("continuation_policy") or {})
+        mode = mode or str(continuation_policy.get("human_gate_mode") or "").strip()
+    if mode in {"disabled", "off", "auto_continue", "non_blocking"}:
+        return False
     return (
         gate_policy in {"human_gate", "manual_review", "human_review", "wait_for_human"}
         or on_failure in {"human_gate", "manual_review", "human_review", "wait_for_human"}

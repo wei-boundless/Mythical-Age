@@ -458,8 +458,9 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
     assert updated is not None
     flow = dict(updated.diagnostics.get("coordination_flow") or {})
     assert flow["current_stage_id"] == "novel_bible"
-    runtime_state = dict(updated.diagnostics.get("langgraph_runtime_state") or {})
-    assert runtime_state["contract_manifest_ref"].startswith("contract-manifest:coordination:")
+    assert "langgraph_runtime_state" not in updated.diagnostics
+    runtime_state = runtime.checkpoints.get_state(thread_id="coordrun:test")
+    assert dict(runtime_state["diagnostics"])["contract_manifest_ref"].startswith("contract-manifest:coordination:")
     assert "project_scope" in runtime_state["completed_nodes"]
 
 
@@ -676,7 +677,8 @@ def test_langgraph_coordination_runtime_routes_ready_nodes_before_join(tmp_path)
 
     updated = state_index.get_coordination_run("coordrun:diamond")
     assert updated is not None
-    runtime_state = dict(updated.diagnostics.get("langgraph_runtime_state") or {})
+    assert "langgraph_runtime_state" not in updated.diagnostics
+    runtime_state = runtime.checkpoints.get_state(thread_id="coordrun:diamond")
     assert runtime_state["completed_nodes"] == ["a", "b", "c"]
     assert runtime_state["running_nodes"] == ["d"]
 
@@ -857,8 +859,51 @@ def test_langgraph_coordination_runtime_enters_human_gate_when_policy_requires(t
     assert result.state["contract_status"]["node_status"]["a"]["status"] == "human_gate"
     updated = state_index.get_coordination_run("coordrun:diamond")
     assert updated is not None
-    runtime_state = dict(updated.diagnostics.get("langgraph_runtime_state") or {})
+    assert "langgraph_runtime_state" not in updated.diagnostics
+    runtime_state = runtime.checkpoints.get_state(thread_id="coordrun:diamond")
     assert runtime_state["human_gate"]["status"] == "waiting"
+
+
+def test_langgraph_coordination_runtime_does_not_block_human_gate_when_auto_continue(tmp_path) -> None:
+    runtime, _, coordination_run = _diamond_runtime(tmp_path)
+    runtime.task_flow_registry.coordination.metadata["continuation_policy"] = {"human_gate_mode": "auto_continue"}
+    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
+    stage_contracts[0]["on_failure"] = "human_gate"
+    stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
+
+    result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            accepted=False,
+        ),
+    )
+
+    assert result.stage_execution_request is None
+    assert result.state["terminal_status"] == "failed"
+    assert result.state["failed_nodes"] == ["a"]
+    assert result.state["human_gate"] == {}
+
+
+def test_langgraph_coordination_runtime_preserves_node_human_gate_policy_in_contract(tmp_path) -> None:
+    runtime, _, coordination_run = _diamond_runtime(tmp_path)
+    node = runtime.task_flow_registry.coordination.graph_nodes[0]
+    node["human_gate_policy"] = {"enabled": True, "mode": "non_blocking", "trigger_verdict": "human_review_required"}
+    contracts = runtime._contracts_for_run(
+        coordination_run=coordination_run,
+        coordination_task=runtime.task_flow_registry.coordination,
+    )
+
+    assert contracts[0].human_gate_policy == {
+        "enabled": True,
+        "mode": "non_blocking",
+        "trigger_verdict": "human_review_required",
+    }
 
 
 def test_langgraph_coordination_runtime_human_gate_approve_routes_next(tmp_path) -> None:

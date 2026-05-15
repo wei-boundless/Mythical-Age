@@ -1,3 +1,5 @@
+import { latestTaskGraphRunFromTrace, type RuntimeLoopTaskRunTrace, type TaskGraphRuntimeSpec } from "../../../../lib/api";
+
 export type TaskGraphSchedulerSummary = {
   available: boolean;
   graph_id: string;
@@ -39,13 +41,13 @@ function asNumberRecord(value: unknown): Record<string, number> {
   );
 }
 
-export function schedulerStateFromRuntimeSpec(runtimeSpec: { diagnostics?: Record<string, unknown> } | null | undefined) {
+export function schedulerStateFromRuntimeSpec(runtimeSpec: TaskGraphRuntimeSpec | { diagnostics?: Record<string, unknown> } | null | undefined) {
   return asRecord(asRecord(runtimeSpec?.diagnostics).scheduler_support);
 }
 
-export function schedulerStateFromTrace(trace: { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
-  const coordinationRun = trace?.coordination_runs?.[0];
-  const diagnostics = asRecord(coordinationRun?.diagnostics);
+export function schedulerStateFromTrace(trace: RuntimeLoopTaskRunTrace | { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
+  const taskGraphRun = latestTaskGraphRunFromTrace(trace);
+  const diagnostics = asRecord(taskGraphRun?.diagnostics);
   const runtimeState = asRecord(diagnostics.langgraph_runtime_state);
   return {
     ...asRecord(runtimeState.task_graph_scheduler_state),

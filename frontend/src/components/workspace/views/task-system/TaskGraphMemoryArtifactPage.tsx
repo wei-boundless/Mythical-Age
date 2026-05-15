@@ -21,6 +21,13 @@ function listText(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean).join("\n") : "";
 }
 
+function contextPolicyWithoutConversationMemory(policy: Record<string, unknown>) {
+  const next = { ...policy };
+  delete next.conversation_memory;
+  delete next.suppress_conversation_memory;
+  return next;
+}
+
 function memoryOperation(node: Record<string, unknown>) {
   const metadata = asRecord(node.metadata);
   const explicit = String(metadata.operation ?? "").trim();
@@ -101,9 +108,13 @@ export function TaskGraphMemoryArtifactPage({
             const nodeId = String(node.node_id ?? "");
             const readPolicy = asRecord(node.memory_read_policy);
             const writePolicy = asRecord(node.memory_writeback_policy);
+            const contextPolicy = asRecord(node.context_visibility_policy);
             const nodeArtifactPolicy = asRecord(node.artifact_policy);
             const nodeMetadata = asRecord(node.metadata);
             const isMemoryResourceNode = ["memory", "memory_resource", "memory_read", "memory_write", "memory_handoff", "memory_commit", "memory_finalize"].includes(String(node.node_type ?? ""));
+            const conversationMemoryPolicy = contextPolicy.suppress_conversation_memory === true || contextPolicy.conversation_memory === "hidden"
+              ? "hidden"
+              : "profile_default";
             return (
               <article className="task-graph-node-policy-row" key={nodeId || `node_${index}`}>
                 <div className="task-graph-node-policy-row__identity">
@@ -128,6 +139,20 @@ export function TaskGraphMemoryArtifactPage({
                   onChange={(value) => updateTaskGraphNode(nodeId, { memory_read_policy: { ...readPolicy, scope: value } })}
                   options={WORKING_MEMORY_SCOPE_OPTIONS}
                   value={String(readPolicy.scope ?? "node_scope")}
+                />
+                <TaskSystemSelectField
+                  formatOption={(value) => value === "hidden" ? "屏蔽会话记忆" : "按角色配置"}
+                  label="会话记忆"
+                  onChange={(value) => {
+                    const restPolicy = contextPolicyWithoutConversationMemory(contextPolicy);
+                    updateTaskGraphNode(nodeId, {
+                      context_visibility_policy: value === "hidden"
+                        ? { ...restPolicy, conversation_memory: "hidden", suppress_conversation_memory: true }
+                        : restPolicy,
+                    });
+                  }}
+                  options={["profile_default", "hidden"]}
+                  value={conversationMemoryPolicy}
                 />
                 <TaskSystemField label="可读 Kind">
                   <textarea

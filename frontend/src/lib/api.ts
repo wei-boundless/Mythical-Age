@@ -665,7 +665,7 @@ export type RuntimeAssembly = {
   diagnostics: Record<string, unknown>;
 };
 
-export type CoordinationGraphSpec = {
+export type TaskGraphRuntimeSpec = {
   graph_id: string;
   coordination_task_id?: string;
   domain_id: string;
@@ -827,10 +827,6 @@ export type ContractSpecUpsertPayload = ContractSpec;
 
 export type TaskGraphUpsertPayload = TaskGraphRecord;
 
-export type TopologyTemplateUpsertPayload = TopologyTemplate;
-
-export type TaskCommunicationProtocolUpsertPayload = TaskCommunicationProtocol;
-
 export type TaskAgentConnectionOverview = {
   authority: string;
   profiles: AgentTaskConnectionProfile[];
@@ -872,24 +868,9 @@ export type TaskSystemOverview = {
   };
   task_graph_management?: {
     task_graphs: TaskGraphRecord[];
-    task_graph_specs?: CoordinationGraphSpec[];
+    task_graph_specs?: TaskGraphRuntimeSpec[];
     topology_templates?: TopologyTemplate[];
     communication_protocols?: TaskCommunicationProtocol[];
-    a2a?: {
-      protocol_version: string;
-      transport: string;
-      protocol_locked: boolean;
-      agent_cards: Array<Record<string, unknown>>;
-      message_types: string[];
-      part_types: string[];
-      task_states: string[];
-    };
-  };
-  coordination_management: {
-    task_graphs?: TaskGraphRecord[];
-    coordination_graph_specs?: CoordinationGraphSpec[];
-    topology_templates: TopologyTemplate[];
-    communication_protocols: TaskCommunicationProtocol[];
     a2a?: {
       protocol_version: string;
       transport: string;
@@ -1465,6 +1446,124 @@ export type RuntimeLoopTaskRunLiveMonitor = {
   updated_at: number;
 };
 
+export type TaskGraphRunMonitorNode = {
+  node_id: string;
+  title: string;
+  node_type: string;
+  task_id: string;
+  agent_id: string;
+  phase_id: string;
+  sequence_index: number;
+  status: string;
+  artifact_refs: string[];
+  last_result_ref: string;
+};
+
+export type TaskGraphRunMonitorEdge = {
+  edge_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  edge_type: string;
+  payload_contract_id: string;
+  status: string;
+};
+
+export type TaskGraphRunMonitorIssue = {
+  severity: string;
+  code: string;
+  message: string;
+  target_id: string;
+};
+
+export type TaskGraphRunMonitorView = {
+  authority: "task_graph.run_monitor" | string;
+  source: string;
+  session_id: string;
+  task_run_id: string;
+  coordination_run_id: string;
+  graph: {
+    graph_id: string;
+    title: string;
+    node_count: number;
+    edge_count: number;
+  };
+  runtime: {
+    status: string;
+    terminal_status: string;
+    terminal_reason: string;
+    failure?: {
+      message: string;
+      detail: string;
+      code: string;
+      provider: string;
+      model: string;
+      source: string;
+      step_id: string;
+      observation_ref: string;
+    };
+    active_node_id: string;
+    active_task_ref: string;
+    last_event_offset: number;
+    event_count: number;
+    checkpoint_ref: string;
+    checkpoint_updated_at: number;
+    task_checkpoint_ref: string;
+    updated_at: number;
+  };
+  topology: {
+    nodes: TaskGraphRunMonitorNode[];
+    edges: TaskGraphRunMonitorEdge[];
+  };
+  state: {
+    node_statuses: Record<string, string>;
+    edge_statuses: Record<string, string>;
+    ready_node_ids: string[];
+    running_node_ids: string[];
+    completed_node_ids: string[];
+    failed_node_ids: string[];
+    blocked_node_ids: string[];
+    waiting_node_ids: string[];
+  };
+  artifacts: Array<Record<string, unknown>>;
+  memory_operations: Array<Record<string, unknown>>;
+  stage_results: Array<Record<string, unknown>>;
+  current_stage_execution_request: Record<string, unknown>;
+  health: {
+    valid: boolean;
+    issues: TaskGraphRunMonitorIssue[];
+  };
+};
+
+export function taskGraphRunsFromTrace(trace: { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
+  return Array.isArray(trace?.coordination_runs) ? trace.coordination_runs : [];
+}
+
+export function taskGraphRunIdsFromTrace(trace: { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
+  return taskGraphRunsFromTrace(trace)
+    .map((item) => taskGraphRunIdOf(item))
+    .filter(Boolean);
+}
+
+export function latestTaskGraphRunFromTrace(trace: { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
+  return taskGraphRunsFromTrace(trace)[0] ?? null;
+}
+
+export function taskGraphRunIdOf(run: Record<string, unknown> | null | undefined) {
+  return String(run?.coordination_run_id ?? run?.run_id ?? "").trim();
+}
+
+export function taskGraphRunFromLiveMonitor(liveMonitor: { coordination_run?: Record<string, unknown> | null } | null | undefined) {
+  return liveMonitor?.coordination_run ?? null;
+}
+
+export function taskGraphRunIdFromLiveMonitor(liveMonitor: { coordination_run?: Record<string, unknown> | null } | null | undefined) {
+  return taskGraphRunIdOf(taskGraphRunFromLiveMonitor(liveMonitor));
+}
+
+export function hasTaskGraphLiveRun(liveMonitor: { has_coordination?: boolean } | null | undefined) {
+  return Boolean(liveMonitor?.has_coordination);
+}
+
 export type RuntimeLoopSessionLiveMonitor = {
   authority: string;
   session_id: string;
@@ -1490,7 +1589,7 @@ export type TaskGraphRunStartResult = {
   task_run: Record<string, unknown>;
   coordination_run: Record<string, unknown> | null;
   checkpoint: Record<string, unknown>;
-  runtime_spec: CoordinationGraphSpec;
+  runtime_spec: TaskGraphRuntimeSpec;
   stage_execution_request: Record<string, unknown> | null;
   trace: RuntimeLoopTaskRunTrace | null;
   events: Array<Record<string, unknown>>;
@@ -3108,6 +3207,18 @@ export async function getOrchestrationRuntimeLoopTaskRunLiveMonitor(taskRunId: s
   );
 }
 
+export async function getTaskGraphRunMonitor(taskRunId: string) {
+  return request<TaskGraphRunMonitorView>(
+    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/task-graph-monitor`
+  );
+}
+
+export async function getCoordinationRunTaskGraphMonitor(coordinationRunId: string) {
+  return request<TaskGraphRunMonitorView>(
+    `/orchestration/coordination-runs/${encodeURIComponent(coordinationRunId)}/task-graph-monitor`
+  );
+}
+
 export async function startTaskGraphRuntimeLoopRun(
   graphId: string,
   payload: {
@@ -3127,8 +3238,8 @@ export async function startTaskGraphRuntimeLoopRun(
   );
 }
 
-export async function resumeOrchestrationCoordinationRun(
-  coordinationRunId: string,
+export async function resumeOrchestrationTaskGraphRun(
+  taskGraphRunId: string,
   resumePayload: Record<string, unknown>
 ) {
   return request<{
@@ -3139,7 +3250,7 @@ export async function resumeOrchestrationCoordinationRun(
     stage_execution_request: Record<string, unknown> | null;
     events: Array<Record<string, unknown>>;
   }>(
-    `/orchestration/coordination-runs/${encodeURIComponent(coordinationRunId)}/resume`,
+    `/orchestration/coordination-runs/${encodeURIComponent(taskGraphRunId)}/resume`,
     {
       method: "POST",
       body: JSON.stringify({ resume_payload: resumePayload }),
@@ -3376,12 +3487,6 @@ export async function compileTaskSystemWorkflowContractManifest(workflowId: stri
   );
 }
 
-export async function compileTaskSystemCoordinationContractManifest(coordinationTaskId: string) {
-  return request<ContractManifest>(
-    `/tasks/contract-manifests/coordination/${encodeURIComponent(coordinationTaskId)}`
-  );
-}
-
 export async function compileTaskSystemTaskGraphContractManifest(graphId: string) {
   return request<ContractManifest>(
     `/tasks/contract-manifests/task-graphs/${encodeURIComponent(graphId)}`
@@ -3389,7 +3494,7 @@ export async function compileTaskSystemTaskGraphContractManifest(graphId: string
 }
 
 export async function compileTaskSystemTaskGraphRuntimeSpec(graphId: string) {
-  return request<CoordinationGraphSpec>(
+  return request<TaskGraphRuntimeSpec>(
     `/tasks/runtime-specs/task-graphs/${encodeURIComponent(graphId)}`
   );
 }
@@ -3398,12 +3503,6 @@ export async function buildTaskSystemWorkflowRuntimeAssembly(workflowId: string,
   const params = new URLSearchParams({ task_id: taskId });
   return request<RuntimeAssembly>(
     `/tasks/runtime-assemblies/workflows/${encodeURIComponent(workflowId)}?${params.toString()}`
-  );
-}
-
-export async function buildTaskSystemNodeRuntimeAssembly(coordinationTaskId: string, nodeId: string) {
-  return request<RuntimeAssembly>(
-    `/tasks/runtime-assemblies/coordination/${encodeURIComponent(coordinationTaskId)}/nodes/${encodeURIComponent(nodeId)}`
   );
 }
 
@@ -3482,23 +3581,6 @@ export async function upsertTaskSystemTaskGraph(graphId: string, payload: TaskGr
   return request<TaskSystemOverview>(`/tasks/task-graphs/${encodeURIComponent(graphId)}`, {
     method: "PUT",
     body: JSON.stringify(payload),
-  });
-}
-
-export async function upsertTaskSystemTopologyTemplate(templateId: string, payload: TopologyTemplateUpsertPayload) {
-  return request<TaskSystemOverview>(`/tasks/topology-templates/${encodeURIComponent(templateId)}`, {
-    method: "PUT",
-    body: JSON.stringify(payload)
-  });
-}
-
-export async function upsertTaskSystemCommunicationProtocol(
-  protocolId: string,
-  payload: TaskCommunicationProtocolUpsertPayload
-) {
-  return request<TaskSystemOverview>(`/tasks/communication-protocols/${encodeURIComponent(protocolId)}`, {
-    method: "PUT",
-    body: JSON.stringify(payload)
   });
 }
 

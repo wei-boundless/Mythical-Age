@@ -49,14 +49,19 @@ class AgentRuntimeChainAssembler:
             raise ValueError(
                 "TaskGraph node agent profile mismatch: "
                 f"requested {selected_agent_id}, got {getattr(effective_agent_runtime_profile, 'agent_id', '')}"
-            )
+        )
         memory_intent = analyze_memory_intent(message)
+        initial_memory_request_profile = _memory_request_profile_for_context_assembly(
+            {},
+            task_selection=task_selection_payload,
+        )
         memory_payload = self.build_memory_runtime_view_payload(
             task_id=task_id,
             agent_id=str(getattr(effective_agent_runtime_profile, "agent_id", "") or "agent:0"),
             session_id=session_id,
             message=message,
             memory_intent=memory_intent,
+            memory_request_profile=initial_memory_request_profile,
         )
         active_bindings = _active_bindings_from_memory_payload(memory_payload)
         query_understanding = analyze_query_understanding(
@@ -117,6 +122,12 @@ class AgentRuntimeChainAssembler:
         context_payload: dict[str, Any] = {}
         task_operation: dict[str, Any] = dict(task_bundle)
         memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
+        memory_request_profile = _memory_request_profile_for_context_assembly(
+            memory_request_profile,
+            task_selection=task_selection_payload,
+            current_turn_context=current_turn_context_payload,
+        )
+        task_operation["task_memory_request_profile"] = memory_request_profile
         memory_payload = self.build_memory_runtime_view_payload(
             task_id=task_id,
             agent_id=str(getattr(effective_agent_runtime_profile, "agent_id", "") or "agent:0"),
@@ -293,6 +304,48 @@ def _active_bindings_from_memory_payload(memory_payload: dict[str, Any]) -> dict
         if value not in ("", [], {}, None):
             result[key] = value
     return result
+
+
+def _memory_request_profile_for_context_assembly(
+    memory_request_profile: dict[str, Any],
+    *,
+    task_selection: dict[str, Any] | None = None,
+    current_turn_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    policy = _context_assembly_policy_from_payloads(task_selection, current_turn_context)
+    if not bool(policy.get("suppress_conversation_memory")):
+        return dict(memory_request_profile or {})
+    profile = dict(memory_request_profile or {})
+    requested_layers = [
+        str(item).strip()
+        for item in list(profile.get("requested_memory_layers") or [])
+        if str(item).strip() and str(item).strip() != "conversation"
+    ]
+    if not requested_layers:
+        requested_layers = ["state"]
+    profile["requested_memory_layers"] = requested_layers
+    profile["allow_long_term_memory"] = False
+    profile["conversation_memory_suppressed"] = True
+    metadata = dict(profile.get("metadata") or {})
+    metadata["context_assembly_policy"] = "suppress_conversation_memory"
+    profile["metadata"] = metadata
+    return profile
+
+
+def _context_assembly_policy_from_payloads(*payloads: dict[str, Any] | None) -> dict[str, Any]:
+    for payload in payloads:
+        policy = _context_assembly_policy_from_payload(payload)
+        if policy:
+            return policy
+    return {}
+
+
+def _context_assembly_policy_from_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
+    item = dict(payload or {})
+    stage_request = dict(item.get("stage_execution_request") or {})
+    runtime_assembly = dict(item.get("runtime_assembly") or stage_request.get("runtime_assembly") or {})
+    diagnostics = dict(runtime_assembly.get("diagnostics") or {})
+    return dict(runtime_assembly.get("context_assembly_policy") or diagnostics.get("context_assembly_policy") or {})
 
 
 def _task_operation_allows_retrieval(task_operation: dict[str, Any]) -> bool:

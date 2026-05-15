@@ -71,7 +71,25 @@
           "phase_id": "phase.foundation_world",
           "sequence_index": 1,
           "execution_mode": "parallel",
-          "dispatch_group": "phase.foundation_world"
+          "dispatch_group": "phase.foundation_world",
+          "artifact_target": "world/world_proposal_a.md",
+          "output_path": "world/world_proposal_a.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "world/world_proposal_a.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "world/world_proposal_a.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "world_designer_b",
@@ -85,7 +103,25 @@
           "phase_id": "phase.foundation_world",
           "sequence_index": 1,
           "execution_mode": "parallel",
-          "dispatch_group": "phase.foundation_world"
+          "dispatch_group": "phase.foundation_world",
+          "artifact_target": "world/world_proposal_b.md",
+          "output_path": "world/world_proposal_b.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "world/world_proposal_b.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "world/world_proposal_b.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "world_judge",
@@ -99,7 +135,25 @@
           "phase_id": "phase.foundation_world",
           "sequence_index": 2,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "reviews/world_judgement.md",
+          "output_path": "reviews/world_judgement.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "reviews/world_judgement.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/world_judgement.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "memory_commit_world",
@@ -113,7 +167,25 @@
           "phase_id": "phase.foundation_world",
           "sequence_index": 3,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "memory/world_commit.md",
+          "output_path": "memory/world_commit.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "memory/world_commit.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "memory/world_commit.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "outline_designer_a",
@@ -127,7 +199,25 @@
           "phase_id": "phase.foundation_outline",
           "sequence_index": 1,
           "execution_mode": "parallel",
-          "dispatch_group": "phase.foundation_outline"
+          "dispatch_group": "phase.foundation_outline",
+          "artifact_target": "outline/outline_proposal_a.md",
+          "output_path": "outline/outline_proposal_a.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "outline/outline_proposal_a.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "outline/outline_proposal_a.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "outline_designer_b",
@@ -141,7 +231,25 @@
           "phase_id": "phase.foundation_outline",
           "sequence_index": 1,
           "execution_mode": "parallel",
-          "dispatch_group": "phase.foundation_outline"
+          "dispatch_group": "phase.foundation_outline",
+          "artifact_target": "outline/outline_proposal_b.md",
+          "output_path": "outline/outline_proposal_b.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "outline/outline_proposal_b.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "outline/outline_proposal_b.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "outline_judge",
@@ -155,7 +263,25 @@
           "phase_id": "phase.foundation_outline",
           "sequence_index": 2,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "reviews/outline_judgement.md",
+          "output_path": "reviews/outline_judgement.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "reviews/outline_judgement.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/outline_judgement.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "memory_commit_outline",
@@ -169,7 +295,25 @@
           "phase_id": "phase.foundation_outline",
           "sequence_index": 3,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "memory/outline_commit.md",
+          "output_path": "memory/outline_commit.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "memory/outline_commit.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "memory/outline_commit.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "character_designer_a",
@@ -183,7 +327,25 @@
           "phase_id": "phase.foundation_character",
           "sequence_index": 1,
           "execution_mode": "parallel",
-          "dispatch_group": "phase.foundation_character"
+          "dispatch_group": "phase.foundation_character",
+          "artifact_target": "characters/character_proposal_a.md",
+          "output_path": "characters/character_proposal_a.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "characters/character_proposal_a.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "characters/character_proposal_a.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "character_designer_b",
@@ -197,7 +359,25 @@
           "phase_id": "phase.foundation_character",
           "sequence_index": 1,
           "execution_mode": "parallel",
-          "dispatch_group": "phase.foundation_character"
+          "dispatch_group": "phase.foundation_character",
+          "artifact_target": "characters/character_proposal_b.md",
+          "output_path": "characters/character_proposal_b.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "characters/character_proposal_b.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "characters/character_proposal_b.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "character_judge",
@@ -211,7 +391,25 @@
           "phase_id": "phase.foundation_character",
           "sequence_index": 2,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "reviews/character_judgement.md",
+          "output_path": "reviews/character_judgement.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "reviews/character_judgement.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/character_judgement.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "memory_commit_character",
@@ -225,7 +423,25 @@
           "phase_id": "phase.foundation_character",
           "sequence_index": 3,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "memory/character_commit.md",
+          "output_path": "memory/character_commit.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "memory/character_commit.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "memory/character_commit.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "chapter_plan",
@@ -239,7 +455,25 @@
           "phase_id": "phase.chapter_planning",
           "sequence_index": 1,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "chapters/chapter_plan.md",
+          "output_path": "chapters/chapter_plan.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "chapters/chapter_plan.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "chapters/chapter_plan.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "writer_a_draft",
@@ -253,7 +487,25 @@
           "phase_id": "phase.chapter_production",
           "sequence_index": 1,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "chapters/writer_a_draft.md",
+          "output_path": "chapters/writer_a_draft.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "chapters/writer_a_draft.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "chapters/writer_a_draft.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "writer_b_review",
@@ -267,7 +519,25 @@
           "phase_id": "phase.chapter_production",
           "sequence_index": 2,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "reviews/writer_b_review.md",
+          "output_path": "reviews/writer_b_review.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "reviews/writer_b_review.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/writer_b_review.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "writer_a_revision",
@@ -281,7 +551,25 @@
           "phase_id": "phase.chapter_production",
           "sequence_index": 3,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "chapters/writer_a_revision.md",
+          "output_path": "chapters/writer_a_revision.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "chapters/writer_a_revision.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "chapters/writer_a_revision.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "writer_b_final_candidate",
@@ -295,7 +583,25 @@
           "phase_id": "phase.chapter_production",
           "sequence_index": 4,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "chapters/writer_b_final_candidate.md",
+          "output_path": "chapters/writer_b_final_candidate.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "chapters/writer_b_final_candidate.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "chapters/writer_b_final_candidate.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "novel_quality_judge",
@@ -309,7 +615,25 @@
           "phase_id": "phase.review_gate",
           "sequence_index": 1,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "reviews/novel_quality_judge.md",
+          "output_path": "reviews/novel_quality_judge.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "reviews/novel_quality_judge.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/novel_quality_judge.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "world_deviation_router",
@@ -323,7 +647,25 @@
           "phase_id": "phase.deviation_repair",
           "sequence_index": 1,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "repairs/world_deviation_route.md",
+          "output_path": "repairs/world_deviation_route.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "repairs/world_deviation_route.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "repairs/world_deviation_route.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "world_repair_a",
@@ -337,7 +679,25 @@
           "phase_id": "phase.deviation_repair",
           "sequence_index": 2,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "repairs/world_repair_a.md",
+          "output_path": "repairs/world_repair_a.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "repairs/world_repair_a.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "repairs/world_repair_a.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "world_repair_b",
@@ -351,7 +711,25 @@
           "phase_id": "phase.deviation_repair",
           "sequence_index": 2,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "repairs/world_repair_b.md",
+          "output_path": "repairs/world_repair_b.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "repairs/world_repair_b.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "repairs/world_repair_b.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "outline_deviation_router",
@@ -365,7 +743,25 @@
           "phase_id": "phase.deviation_repair",
           "sequence_index": 1,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "repairs/outline_deviation_route.md",
+          "output_path": "repairs/outline_deviation_route.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "repairs/outline_deviation_route.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "repairs/outline_deviation_route.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "outline_repair_a",
@@ -379,7 +775,25 @@
           "phase_id": "phase.deviation_repair",
           "sequence_index": 2,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "repairs/outline_repair_a.md",
+          "output_path": "repairs/outline_repair_a.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "repairs/outline_repair_a.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "repairs/outline_repair_a.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "outline_repair_b",
@@ -393,7 +807,25 @@
           "phase_id": "phase.deviation_repair",
           "sequence_index": 2,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "repairs/outline_repair_b.md",
+          "output_path": "repairs/outline_repair_b.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "repairs/outline_repair_b.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "repairs/outline_repair_b.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "character_deviation_router",
@@ -407,7 +839,25 @@
           "phase_id": "phase.deviation_repair",
           "sequence_index": 1,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "repairs/character_deviation_route.md",
+          "output_path": "repairs/character_deviation_route.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "repairs/character_deviation_route.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "repairs/character_deviation_route.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "character_repair_a",
@@ -421,7 +871,25 @@
           "phase_id": "phase.deviation_repair",
           "sequence_index": 2,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "repairs/character_repair_a.md",
+          "output_path": "repairs/character_repair_a.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "repairs/character_repair_a.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "repairs/character_repair_a.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "character_repair_b",
@@ -435,7 +903,25 @@
           "phase_id": "phase.deviation_repair",
           "sequence_index": 2,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "repairs/character_repair_b.md",
+          "output_path": "repairs/character_repair_b.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "repairs/character_repair_b.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "repairs/character_repair_b.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "memory_commit_chapter",
@@ -449,7 +935,25 @@
           "phase_id": "phase.memory_commit",
           "sequence_index": 1,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "memory/chapter_commit.md",
+          "output_path": "memory/chapter_commit.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "memory/chapter_commit.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "memory/chapter_commit.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         },
         {
           "node_id": "memory_finalize",
@@ -463,7 +967,25 @@
           "phase_id": "phase.memory_commit",
           "sequence_index": 2,
           "execution_mode": "sync",
-          "dispatch_group": ""
+          "dispatch_group": "",
+          "artifact_target": "memory/finalize.md",
+          "output_path": "memory/finalize.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts",
+            "artifact_target": "memory/finalize.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "memory/finalize.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          }
         }
       ],
       "edges": [
@@ -472,287 +994,697 @@
           "source_node_id": "world_designer_a",
           "target_node_id": "world_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.world_proposal_a"
+          "payload_contract_id": "contract.writing_team.long_novel.world_proposal_a",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.world_b.world_judge",
           "source_node_id": "world_designer_b",
           "target_node_id": "world_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.world_proposal_b"
+          "payload_contract_id": "contract.writing_team.long_novel.world_proposal_b",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.world_judge.memory_commit_world",
           "source_node_id": "world_judge",
           "target_node_id": "memory_commit_world",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.world_judgement"
+          "payload_contract_id": "contract.writing_team.long_novel.world_judgement",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.memory_world.outline_a",
           "source_node_id": "memory_commit_world",
           "target_node_id": "outline_designer_a",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_world"
+          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_world",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.memory_world.outline_b",
           "source_node_id": "memory_commit_world",
           "target_node_id": "outline_designer_b",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_world"
+          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_world",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.outline_a.outline_judge",
           "source_node_id": "outline_designer_a",
           "target_node_id": "outline_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.outline_proposal_a"
+          "payload_contract_id": "contract.writing_team.long_novel.outline_proposal_a",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.outline_b.outline_judge",
           "source_node_id": "outline_designer_b",
           "target_node_id": "outline_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.outline_proposal_b"
+          "payload_contract_id": "contract.writing_team.long_novel.outline_proposal_b",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.outline_judge.memory_commit_outline",
           "source_node_id": "outline_judge",
           "target_node_id": "memory_commit_outline",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.outline_judgement"
+          "payload_contract_id": "contract.writing_team.long_novel.outline_judgement",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.memory_outline.character_a",
           "source_node_id": "memory_commit_outline",
           "target_node_id": "character_designer_a",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_outline"
+          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_outline",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.memory_outline.character_b",
           "source_node_id": "memory_commit_outline",
           "target_node_id": "character_designer_b",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_outline"
+          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_outline",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.character_a.character_judge",
           "source_node_id": "character_designer_a",
           "target_node_id": "character_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.character_proposal_a"
+          "payload_contract_id": "contract.writing_team.long_novel.character_proposal_a",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.character_b.character_judge",
           "source_node_id": "character_designer_b",
           "target_node_id": "character_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.character_proposal_b"
+          "payload_contract_id": "contract.writing_team.long_novel.character_proposal_b",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.character_judge.memory_commit_character",
           "source_node_id": "character_judge",
           "target_node_id": "memory_commit_character",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.character_judgement"
+          "payload_contract_id": "contract.writing_team.long_novel.character_judgement",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.memory_character.chapter_plan",
           "source_node_id": "memory_commit_character",
           "target_node_id": "chapter_plan",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_character"
+          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_character",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.chapter_plan.writer_a_draft",
           "source_node_id": "chapter_plan",
           "target_node_id": "writer_a_draft",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.chapter_plan"
+          "payload_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.writer_a_draft.writer_b_review",
           "source_node_id": "writer_a_draft",
           "target_node_id": "writer_b_review",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.writer_a_draft"
+          "payload_contract_id": "contract.writing_team.long_novel.writer_a_draft",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.writer_b_review.writer_a_revision",
           "source_node_id": "writer_b_review",
           "target_node_id": "writer_a_revision",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.writer_b_review"
+          "payload_contract_id": "contract.writing_team.long_novel.writer_b_review",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.writer_a_revision.writer_b_final_candidate",
           "source_node_id": "writer_a_revision",
           "target_node_id": "writer_b_final_candidate",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.writer_a_revision"
+          "payload_contract_id": "contract.writing_team.long_novel.writer_a_revision",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.writer_b_final_candidate.novel_quality_judge",
           "source_node_id": "writer_b_final_candidate",
           "target_node_id": "novel_quality_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.writer_b_final_candidate"
+          "payload_contract_id": "contract.writing_team.long_novel.writer_b_final_candidate",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.novel_quality_judge.writer_a_revision",
           "source_node_id": "novel_quality_judge",
           "target_node_id": "writer_a_revision",
           "mode": "review_feedback",
-          "payload_contract_id": "contract.writing_team.long_novel.novel_quality_judge"
+          "payload_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.novel_quality_judge.chapter_plan",
           "source_node_id": "novel_quality_judge",
           "target_node_id": "chapter_plan",
           "mode": "review_feedback",
-          "payload_contract_id": "contract.writing_team.long_novel.novel_quality_judge"
+          "payload_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.novel_quality_judge.world_router",
           "source_node_id": "novel_quality_judge",
           "target_node_id": "world_deviation_router",
           "mode": "review_feedback",
-          "payload_contract_id": "contract.writing_team.long_novel.novel_quality_judge"
+          "payload_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.world_router.repair_a",
           "source_node_id": "world_deviation_router",
           "target_node_id": "world_repair_a",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.world_deviation_route"
+          "payload_contract_id": "contract.writing_team.long_novel.world_deviation_route",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.world_router.repair_b",
           "source_node_id": "world_deviation_router",
           "target_node_id": "world_repair_b",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.world_deviation_route"
+          "payload_contract_id": "contract.writing_team.long_novel.world_deviation_route",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.world_repair_a.world_judge",
           "source_node_id": "world_repair_a",
           "target_node_id": "world_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.world_repair_a"
+          "payload_contract_id": "contract.writing_team.long_novel.world_repair_a",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.world_repair_b.world_judge",
           "source_node_id": "world_repair_b",
           "target_node_id": "world_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.world_repair_b"
+          "payload_contract_id": "contract.writing_team.long_novel.world_repair_b",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.novel_quality_judge.outline_router",
           "source_node_id": "novel_quality_judge",
           "target_node_id": "outline_deviation_router",
           "mode": "review_feedback",
-          "payload_contract_id": "contract.writing_team.long_novel.novel_quality_judge"
+          "payload_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.outline_router.repair_a",
           "source_node_id": "outline_deviation_router",
           "target_node_id": "outline_repair_a",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.outline_deviation_route"
+          "payload_contract_id": "contract.writing_team.long_novel.outline_deviation_route",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.outline_router.repair_b",
           "source_node_id": "outline_deviation_router",
           "target_node_id": "outline_repair_b",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.outline_deviation_route"
+          "payload_contract_id": "contract.writing_team.long_novel.outline_deviation_route",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.outline_repair_a.outline_judge",
           "source_node_id": "outline_repair_a",
           "target_node_id": "outline_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.outline_repair_a"
+          "payload_contract_id": "contract.writing_team.long_novel.outline_repair_a",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.outline_repair_b.outline_judge",
           "source_node_id": "outline_repair_b",
           "target_node_id": "outline_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.outline_repair_b"
+          "payload_contract_id": "contract.writing_team.long_novel.outline_repair_b",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.novel_quality_judge.character_router",
           "source_node_id": "novel_quality_judge",
           "target_node_id": "character_deviation_router",
           "mode": "review_feedback",
-          "payload_contract_id": "contract.writing_team.long_novel.novel_quality_judge"
+          "payload_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.character_router.repair_a",
           "source_node_id": "character_deviation_router",
           "target_node_id": "character_repair_a",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.character_deviation_route"
+          "payload_contract_id": "contract.writing_team.long_novel.character_deviation_route",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.character_router.repair_b",
           "source_node_id": "character_deviation_router",
           "target_node_id": "character_repair_b",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.character_deviation_route"
+          "payload_contract_id": "contract.writing_team.long_novel.character_deviation_route",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.character_repair_a.character_judge",
           "source_node_id": "character_repair_a",
           "target_node_id": "character_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.character_repair_a"
+          "payload_contract_id": "contract.writing_team.long_novel.character_repair_a",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.character_repair_b.character_judge",
           "source_node_id": "character_repair_b",
           "target_node_id": "character_judge",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.character_repair_b"
+          "payload_contract_id": "contract.writing_team.long_novel.character_repair_b",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.memory_world.chapter_plan",
           "source_node_id": "memory_commit_world",
           "target_node_id": "chapter_plan",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_world"
+          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_world",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.memory_outline.chapter_plan",
           "source_node_id": "memory_commit_outline",
           "target_node_id": "chapter_plan",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_outline"
+          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_outline",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.memory_character.chapter_plan.repair",
           "source_node_id": "memory_commit_character",
           "target_node_id": "chapter_plan",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_character"
+          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_character",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.novel_quality_judge.memory_commit_chapter",
           "source_node_id": "novel_quality_judge",
           "target_node_id": "memory_commit_chapter",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.novel_quality_judge"
+          "payload_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         },
         {
           "edge_id": "edge.memory_commit_chapter.memory_finalize",
           "source_node_id": "memory_commit_chapter",
           "target_node_id": "memory_finalize",
           "mode": "structured_handoff",
-          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_chapter"
+          "payload_contract_id": "contract.writing_team.long_novel.memory_commit_chapter",
+          "artifact_ref_policy": {
+            "allowed_prefixes": [
+              "artifact:"
+            ],
+            "reject_prefixes": [
+              "rtobs:",
+              "output_boundary:",
+              "commit_gate:"
+            ]
+          }
         }
       ],
       "handoff_rules": [],
@@ -764,7 +1696,1378 @@
         "managed_by": "codex_writing_team_rebuild",
         "task_family": "writing_team_long_novel",
         "domain_id": "domain.writing_team.long_novel",
-        "graph_id": "graph.writing_team.long_novel"
+        "graph_id": "graph.writing_team.long_novel",
+        "configuration_closure": "full_29_node_artifact_memory_20260515"
+      }
+    },
+    {
+      "template_id": "topology.writing.simple_novel",
+      "title": "写作组简易长篇小说拓扑",
+      "nodes": [
+        {
+          "node_id": "project_brief",
+          "node_type": "agent_role",
+          "title": "项目启动包",
+          "task_id": "task.writing.simple_novel.project_brief",
+          "agent_id": "agent:writing_simple_creator",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.project_brief",
+          "phase_id": "phase.start",
+          "sequence_index": 1,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.start",
+          "artifact_target": "project_brief.md",
+          "output_path": "project_brief.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "project_brief.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "project_brief.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "world_candidate",
+          "node_type": "agent_role",
+          "title": "世界观候选",
+          "task_id": "task.writing.simple_novel.world_candidate",
+          "agent_id": "agent:writing_simple_creator",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.world_creator",
+          "phase_id": "phase.world",
+          "sequence_index": 10,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.world",
+          "artifact_target": "world/world_candidate.md",
+          "output_path": "world/world_candidate.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "world/world_candidate.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "world/world_candidate.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "world_review",
+          "node_type": "review_gate",
+          "title": "世界观审核",
+          "task_id": "task.writing.simple_novel.world_review",
+          "agent_id": "agent:writing_simple_reviewer",
+          "role": "reviewer",
+          "work_posture": "reviewer",
+          "projection_id": "projection.writing.simple_novel.world_reviewer",
+          "phase_id": "phase.world",
+          "sequence_index": 20,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.world",
+          "artifact_target": "reviews/world_review.md",
+          "output_path": "reviews/world_review.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "reviews/world_review.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/world_review.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "memory_commit_world",
+          "node_type": "memory_commit",
+          "title": "世界观 canon 写入",
+          "task_id": "task.writing.simple_novel.memory_commit_world",
+          "agent_id": "agent:writing_memory_steward",
+          "role": "memory_steward",
+          "work_posture": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "phase_id": "phase.world",
+          "sequence_index": 30,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.world",
+          "artifact_target": "memory/world_canon_commit.md",
+          "output_path": "memory/world_canon_commit.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "memory/world_canon_commit.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "memory/world_canon_commit.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "outline_candidate",
+          "node_type": "agent_role",
+          "title": "大纲候选",
+          "task_id": "task.writing.simple_novel.outline_candidate",
+          "agent_id": "agent:writing_simple_creator",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.outline_creator",
+          "phase_id": "phase.outline",
+          "sequence_index": 40,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.outline",
+          "artifact_target": "outline/outline_candidate.md",
+          "output_path": "outline/outline_candidate.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "outline/outline_candidate.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "outline/outline_candidate.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "outline_review",
+          "node_type": "review_gate",
+          "title": "大纲审核",
+          "task_id": "task.writing.simple_novel.outline_review",
+          "agent_id": "agent:writing_simple_reviewer",
+          "role": "reviewer",
+          "work_posture": "reviewer",
+          "projection_id": "projection.writing.simple_novel.outline_reviewer",
+          "phase_id": "phase.outline",
+          "sequence_index": 50,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.outline",
+          "artifact_target": "reviews/outline_review.md",
+          "output_path": "reviews/outline_review.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "reviews/outline_review.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/outline_review.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "memory_commit_outline",
+          "node_type": "memory_commit",
+          "title": "大纲 canon 写入",
+          "task_id": "task.writing.simple_novel.memory_commit_outline",
+          "agent_id": "agent:writing_memory_steward",
+          "role": "memory_steward",
+          "work_posture": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "phase_id": "phase.outline",
+          "sequence_index": 60,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.outline",
+          "artifact_target": "memory/outline_canon_commit.md",
+          "output_path": "memory/outline_canon_commit.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "memory/outline_canon_commit.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "memory/outline_canon_commit.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "character_candidate",
+          "node_type": "agent_role",
+          "title": "人物候选",
+          "task_id": "task.writing.simple_novel.character_candidate",
+          "agent_id": "agent:writing_simple_creator",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.character_creator",
+          "phase_id": "phase.character",
+          "sequence_index": 70,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.character",
+          "artifact_target": "characters/character_candidate.md",
+          "output_path": "characters/character_candidate.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "characters/character_candidate.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "characters/character_candidate.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "character_review",
+          "node_type": "review_gate",
+          "title": "人物审核",
+          "task_id": "task.writing.simple_novel.character_review",
+          "agent_id": "agent:writing_simple_reviewer",
+          "role": "reviewer",
+          "work_posture": "reviewer",
+          "projection_id": "projection.writing.simple_novel.character_reviewer",
+          "phase_id": "phase.character",
+          "sequence_index": 80,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.character",
+          "artifact_target": "reviews/character_review.md",
+          "output_path": "reviews/character_review.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "reviews/character_review.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/character_review.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "memory_commit_character",
+          "node_type": "memory_commit",
+          "title": "人物 canon 写入",
+          "task_id": "task.writing.simple_novel.memory_commit_character",
+          "agent_id": "agent:writing_memory_steward",
+          "role": "memory_steward",
+          "work_posture": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "phase_id": "phase.character",
+          "sequence_index": 90,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.character",
+          "artifact_target": "memory/character_canon_commit.md",
+          "output_path": "memory/character_canon_commit.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "memory/character_canon_commit.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "memory/character_canon_commit.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "chapter_plan_candidate",
+          "node_type": "agent_role",
+          "title": "分章规划候选",
+          "task_id": "task.writing.simple_novel.chapter_plan_candidate",
+          "agent_id": "agent:writing_simple_creator",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.chapter_plan_creator",
+          "phase_id": "phase.chapter_plan",
+          "sequence_index": 100,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.chapter_plan",
+          "artifact_target": "chapter_plan/chapter_plan_candidate.md",
+          "output_path": "chapter_plan/chapter_plan_candidate.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "chapter_plan/chapter_plan_candidate.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "chapter_plan/chapter_plan_candidate.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "chapter_plan_review",
+          "node_type": "review_gate",
+          "title": "分章规划审核",
+          "task_id": "task.writing.simple_novel.chapter_plan_review",
+          "agent_id": "agent:writing_simple_reviewer",
+          "role": "reviewer",
+          "work_posture": "reviewer",
+          "projection_id": "projection.writing.simple_novel.chapter_plan_reviewer",
+          "phase_id": "phase.chapter_plan",
+          "sequence_index": 110,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.chapter_plan",
+          "artifact_target": "reviews/chapter_plan_review.md",
+          "output_path": "reviews/chapter_plan_review.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "reviews/chapter_plan_review.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/chapter_plan_review.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "memory_commit_chapter_plan",
+          "node_type": "memory_commit",
+          "title": "分章 canon 写入",
+          "task_id": "task.writing.simple_novel.memory_commit_chapter_plan",
+          "agent_id": "agent:writing_memory_steward",
+          "role": "memory_steward",
+          "work_posture": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "phase_id": "phase.chapter_plan",
+          "sequence_index": 120,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.chapter_plan",
+          "artifact_target": "memory/chapter_plan_commit.md",
+          "output_path": "memory/chapter_plan_commit.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "memory/chapter_plan_commit.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "memory/chapter_plan_commit.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "chapter_draft",
+          "node_type": "agent_role",
+          "title": "当前章节正文候选",
+          "task_id": "task.writing.simple_novel.chapter_draft",
+          "agent_id": "agent:writing_simple_creator",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.chapter_writer",
+          "phase_id": "phase.chapter_loop",
+          "sequence_index": 130,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.chapter_loop",
+          "artifact_target": "chapters/chapter_{chapter_index:03d}/draft_round_{round_index:03d}.md",
+          "output_path": "chapters/chapter_{chapter_index:03d}/draft_round_{round_index:03d}.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "chapters/chapter_{chapter_index:03d}/draft_round_{round_index:03d}.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "chapters/chapter_{chapter_index:03d}/draft_round_{round_index:03d}.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "chapter_review",
+          "node_type": "review_gate",
+          "title": "当前章节审核",
+          "task_id": "task.writing.simple_novel.chapter_review",
+          "agent_id": "agent:writing_simple_reviewer",
+          "role": "reviewer",
+          "work_posture": "reviewer",
+          "projection_id": "projection.writing.simple_novel.chapter_reviewer",
+          "phase_id": "phase.chapter_loop",
+          "sequence_index": 140,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.chapter_loop",
+          "artifact_target": "reviews/chapters/chapter_{chapter_index:03d}/review_round_{round_index:03d}.md",
+          "output_path": "reviews/chapters/chapter_{chapter_index:03d}/review_round_{round_index:03d}.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "reviews/chapters/chapter_{chapter_index:03d}/review_round_{round_index:03d}.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/chapters/chapter_{chapter_index:03d}/review_round_{round_index:03d}.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "memory_commit_chapter",
+          "node_type": "memory_commit",
+          "title": "章节写入",
+          "task_id": "task.writing.simple_novel.memory_commit_chapter",
+          "agent_id": "agent:writing_memory_steward",
+          "role": "memory_steward",
+          "work_posture": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "phase_id": "phase.chapter_loop",
+          "sequence_index": 150,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.chapter_loop",
+          "artifact_target": "memory/chapters/chapter_{chapter_index:03d}/commit_round_{round_index:03d}.md",
+          "output_path": "memory/chapters/chapter_{chapter_index:03d}/commit_round_{round_index:03d}.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "memory/chapters/chapter_{chapter_index:03d}/commit_round_{round_index:03d}.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "memory/chapters/chapter_{chapter_index:03d}/commit_round_{round_index:03d}.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "chapter_progress_router",
+          "node_type": "agent_role",
+          "title": "章节推进判断",
+          "task_id": "task.writing.simple_novel.chapter_progress_router",
+          "agent_id": "agent:writing_simple_reviewer",
+          "role": "router",
+          "work_posture": "router",
+          "projection_id": "projection.writing.simple_novel.chapter_progress_router",
+          "phase_id": "phase.chapter_loop",
+          "sequence_index": 160,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.chapter_loop",
+          "artifact_target": "routing/chapters/chapter_{chapter_index:03d}/progress_round_{round_index:03d}.md",
+          "output_path": "routing/chapters/chapter_{chapter_index:03d}/progress_round_{round_index:03d}.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "routing/chapters/chapter_{chapter_index:03d}/progress_round_{round_index:03d}.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "routing/chapters/chapter_{chapter_index:03d}/progress_round_{round_index:03d}.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "world_repair_candidate",
+          "node_type": "agent_role",
+          "title": "世界观专项修复候选",
+          "task_id": "task.writing.simple_novel.world_repair_candidate",
+          "agent_id": "agent:writing_simple_creator",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.world_repair_creator",
+          "phase_id": "phase.repair",
+          "sequence_index": 210,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.repair",
+          "artifact_target": "repairs/world_repair_candidate.md",
+          "output_path": "repairs/world_repair_candidate.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "repairs/world_repair_candidate.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "repairs/world_repair_candidate.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "world_repair_review",
+          "node_type": "review_gate",
+          "title": "世界观专项修复审核",
+          "task_id": "task.writing.simple_novel.world_repair_review",
+          "agent_id": "agent:writing_simple_reviewer",
+          "role": "reviewer",
+          "work_posture": "reviewer",
+          "projection_id": "projection.writing.simple_novel.world_reviewer",
+          "phase_id": "phase.repair",
+          "sequence_index": 220,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.repair",
+          "artifact_target": "reviews/world_repair_review.md",
+          "output_path": "reviews/world_repair_review.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "reviews/world_repair_review.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/world_repair_review.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "outline_repair_candidate",
+          "node_type": "agent_role",
+          "title": "大纲专项修复候选",
+          "task_id": "task.writing.simple_novel.outline_repair_candidate",
+          "agent_id": "agent:writing_simple_creator",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.outline_repair_creator",
+          "phase_id": "phase.repair",
+          "sequence_index": 230,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.repair",
+          "artifact_target": "repairs/outline_repair_candidate.md",
+          "output_path": "repairs/outline_repair_candidate.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "repairs/outline_repair_candidate.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "repairs/outline_repair_candidate.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "outline_repair_review",
+          "node_type": "review_gate",
+          "title": "大纲专项修复审核",
+          "task_id": "task.writing.simple_novel.outline_repair_review",
+          "agent_id": "agent:writing_simple_reviewer",
+          "role": "reviewer",
+          "work_posture": "reviewer",
+          "projection_id": "projection.writing.simple_novel.outline_reviewer",
+          "phase_id": "phase.repair",
+          "sequence_index": 240,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.repair",
+          "artifact_target": "reviews/outline_repair_review.md",
+          "output_path": "reviews/outline_repair_review.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "reviews/outline_repair_review.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/outline_repair_review.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "character_repair_candidate",
+          "node_type": "agent_role",
+          "title": "人物专项修复候选",
+          "task_id": "task.writing.simple_novel.character_repair_candidate",
+          "agent_id": "agent:writing_simple_creator",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.character_repair_creator",
+          "phase_id": "phase.repair",
+          "sequence_index": 250,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.repair",
+          "artifact_target": "repairs/character_repair_candidate.md",
+          "output_path": "repairs/character_repair_candidate.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "repairs/character_repair_candidate.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "repairs/character_repair_candidate.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "character_repair_review",
+          "node_type": "review_gate",
+          "title": "人物专项修复审核",
+          "task_id": "task.writing.simple_novel.character_repair_review",
+          "agent_id": "agent:writing_simple_reviewer",
+          "role": "reviewer",
+          "work_posture": "reviewer",
+          "projection_id": "projection.writing.simple_novel.character_reviewer",
+          "phase_id": "phase.repair",
+          "sequence_index": 260,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.repair",
+          "artifact_target": "reviews/character_repair_review.md",
+          "output_path": "reviews/character_repair_review.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "reviews/character_repair_review.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/character_repair_review.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "final_assemble",
+          "node_type": "agent_role",
+          "title": "交付包整编",
+          "task_id": "task.writing.simple_novel.final_assemble",
+          "agent_id": "agent:writing_final_assembler",
+          "role": "final_assembler",
+          "work_posture": "final_assembler",
+          "projection_id": "projection.writing.simple_novel.final_assembler",
+          "phase_id": "phase.final",
+          "sequence_index": 300,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.final",
+          "artifact_target": "delivery/delivery_manifest.md",
+          "output_path": "delivery/delivery_manifest.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "delivery/delivery_manifest.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "delivery/delivery_manifest.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "final_review",
+          "node_type": "review_gate",
+          "title": "最终交付审核",
+          "task_id": "task.writing.simple_novel.final_review",
+          "agent_id": "agent:writing_simple_reviewer",
+          "role": "reviewer",
+          "work_posture": "reviewer",
+          "projection_id": "projection.writing.simple_novel.final_reviewer",
+          "phase_id": "phase.final",
+          "sequence_index": 310,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.final",
+          "artifact_target": "reviews/final_review.md",
+          "output_path": "reviews/final_review.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "reviews/final_review.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "reviews/final_review.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "memory_finalize",
+          "node_type": "memory_finalize",
+          "title": "任务收尾归档",
+          "task_id": "task.writing.simple_novel.memory_finalize",
+          "agent_id": "agent:writing_memory_steward",
+          "role": "memory_steward",
+          "work_posture": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "phase_id": "phase.final",
+          "sequence_index": 320,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.final",
+          "artifact_target": "memory/delivery_package.md",
+          "output_path": "memory/delivery_package.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "memory/delivery_package.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "memory/delivery_package.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "human_review_handoff",
+          "node_type": "manual_gate",
+          "title": "人工接管",
+          "task_id": "task.writing.simple_novel.human_review_handoff",
+          "agent_id": "agent:0",
+          "role": "human",
+          "work_posture": "human",
+          "projection_id": "hebo__primary",
+          "phase_id": "phase.terminal",
+          "sequence_index": 900,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.terminal",
+          "artifact_target": "handoff/human_review_packet.md",
+          "output_path": "handoff/human_review_packet.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "handoff/human_review_packet.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "handoff/human_review_packet.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        },
+        {
+          "node_id": "fail_closed",
+          "node_type": "memory_finalize",
+          "title": "失败关闭",
+          "task_id": "task.writing.simple_novel.fail_closed",
+          "agent_id": "agent:writing_memory_steward",
+          "role": "memory_steward",
+          "work_posture": "memory_steward",
+          "projection_id": "projection.writing.simple_novel.memory_steward",
+          "phase_id": "phase.terminal",
+          "sequence_index": 910,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.terminal",
+          "artifact_target": "failure/failure_report.md",
+          "output_path": "failure/failure_report.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifact_target": "failure/failure_report.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "failure/failure_report.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          }
+        }
+      ],
+      "edges": [
+        {
+          "edge_id": "edge.project.world",
+          "source_node_id": "project_brief",
+          "target_node_id": "world_candidate",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.project_brief"
+        },
+        {
+          "edge_id": "edge.world.review",
+          "source_node_id": "world_candidate",
+          "target_node_id": "world_review",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.world_candidate"
+        },
+        {
+          "edge_id": "edge.world_review.commit",
+          "source_node_id": "world_review",
+          "target_node_id": "memory_commit_world",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.world_review"
+        },
+        {
+          "edge_id": "edge.world_commit.outline",
+          "source_node_id": "memory_commit_world",
+          "target_node_id": "outline_candidate",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.world_canon_commit"
+        },
+        {
+          "edge_id": "edge.outline.review",
+          "source_node_id": "outline_candidate",
+          "target_node_id": "outline_review",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.outline_candidate"
+        },
+        {
+          "edge_id": "edge.outline_review.commit",
+          "source_node_id": "outline_review",
+          "target_node_id": "memory_commit_outline",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.outline_review"
+        },
+        {
+          "edge_id": "edge.outline_commit.character",
+          "source_node_id": "memory_commit_outline",
+          "target_node_id": "character_candidate",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.outline_canon_commit"
+        },
+        {
+          "edge_id": "edge.character.review",
+          "source_node_id": "character_candidate",
+          "target_node_id": "character_review",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.character_candidate"
+        },
+        {
+          "edge_id": "edge.character_review.commit",
+          "source_node_id": "character_review",
+          "target_node_id": "memory_commit_character",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.character_review"
+        },
+        {
+          "edge_id": "edge.character_commit.chapter_plan",
+          "source_node_id": "memory_commit_character",
+          "target_node_id": "chapter_plan_candidate",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.character_canon_commit"
+        },
+        {
+          "edge_id": "edge.chapter_plan.review",
+          "source_node_id": "chapter_plan_candidate",
+          "target_node_id": "chapter_plan_review",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.chapter_plan_candidate"
+        },
+        {
+          "edge_id": "edge.chapter_plan_review.commit",
+          "source_node_id": "chapter_plan_review",
+          "target_node_id": "memory_commit_chapter_plan",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.chapter_plan_review"
+        },
+        {
+          "edge_id": "edge.chapter_plan_commit.draft",
+          "source_node_id": "memory_commit_chapter_plan",
+          "target_node_id": "chapter_draft",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.chapter_plan_commit"
+        },
+        {
+          "edge_id": "edge.chapter_draft.review",
+          "source_node_id": "chapter_draft",
+          "target_node_id": "chapter_review",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.chapter_draft"
+        },
+        {
+          "edge_id": "edge.chapter_review.commit",
+          "source_node_id": "chapter_review",
+          "target_node_id": "memory_commit_chapter",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.chapter_review"
+        },
+        {
+          "edge_id": "edge.chapter_commit.router",
+          "source_node_id": "memory_commit_chapter",
+          "target_node_id": "chapter_progress_router",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.chapter_commit"
+        },
+        {
+          "edge_id": "edge.router.next_chapter",
+          "source_node_id": "chapter_progress_router",
+          "target_node_id": "chapter_draft",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.chapter_progress_decision"
+        },
+        {
+          "edge_id": "edge.router.final",
+          "source_node_id": "chapter_progress_router",
+          "target_node_id": "final_assemble",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.chapter_progress_decision"
+        },
+        {
+          "edge_id": "edge.final.review",
+          "source_node_id": "final_assemble",
+          "target_node_id": "final_review",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.final_manuscript"
+        },
+        {
+          "edge_id": "edge.final_review.finalize",
+          "source_node_id": "final_review",
+          "target_node_id": "memory_finalize",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.final_review"
+        },
+        {
+          "edge_id": "edge.world_review.revise",
+          "source_node_id": "world_review",
+          "target_node_id": "world_candidate",
+          "mode": "revision_request",
+          "payload_contract_id": "contract.writing.simple_novel.world_review"
+        },
+        {
+          "edge_id": "edge.outline_review.revise",
+          "source_node_id": "outline_review",
+          "target_node_id": "outline_candidate",
+          "mode": "revision_request",
+          "payload_contract_id": "contract.writing.simple_novel.outline_review"
+        },
+        {
+          "edge_id": "edge.character_review.revise",
+          "source_node_id": "character_review",
+          "target_node_id": "character_candidate",
+          "mode": "revision_request",
+          "payload_contract_id": "contract.writing.simple_novel.character_review"
+        },
+        {
+          "edge_id": "edge.chapter_plan_review.revise",
+          "source_node_id": "chapter_plan_review",
+          "target_node_id": "chapter_plan_candidate",
+          "mode": "revision_request",
+          "payload_contract_id": "contract.writing.simple_novel.chapter_plan_review"
+        },
+        {
+          "edge_id": "edge.chapter_review.revise",
+          "source_node_id": "chapter_review",
+          "target_node_id": "chapter_draft",
+          "mode": "revision_request",
+          "payload_contract_id": "contract.writing.simple_novel.chapter_review"
+        },
+        {
+          "edge_id": "edge.final_review.revise",
+          "source_node_id": "final_review",
+          "target_node_id": "final_assemble",
+          "mode": "revision_request",
+          "payload_contract_id": "contract.writing.simple_novel.final_review"
+        },
+        {
+          "edge_id": "edge.world_review.repair_world",
+          "source_node_id": "world_review",
+          "target_node_id": "world_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.outline_review.repair_world",
+          "source_node_id": "outline_review",
+          "target_node_id": "world_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.outline_review.repair_outline",
+          "source_node_id": "outline_review",
+          "target_node_id": "outline_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.character_review.repair_world",
+          "source_node_id": "character_review",
+          "target_node_id": "world_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.character_review.repair_outline",
+          "source_node_id": "character_review",
+          "target_node_id": "outline_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.character_review.repair_character",
+          "source_node_id": "character_review",
+          "target_node_id": "character_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.chapter_plan_review.repair_world",
+          "source_node_id": "chapter_plan_review",
+          "target_node_id": "world_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.chapter_plan_review.repair_outline",
+          "source_node_id": "chapter_plan_review",
+          "target_node_id": "outline_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.chapter_plan_review.repair_character",
+          "source_node_id": "chapter_plan_review",
+          "target_node_id": "character_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.chapter_review.repair_world",
+          "source_node_id": "chapter_review",
+          "target_node_id": "world_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.chapter_review.repair_outline",
+          "source_node_id": "chapter_review",
+          "target_node_id": "outline_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.chapter_review.repair_character",
+          "source_node_id": "chapter_review",
+          "target_node_id": "character_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.final_review.repair_world",
+          "source_node_id": "final_review",
+          "target_node_id": "world_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.final_review.repair_outline",
+          "source_node_id": "final_review",
+          "target_node_id": "outline_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.final_review.repair_character",
+          "source_node_id": "final_review",
+          "target_node_id": "character_repair_candidate",
+          "mode": "repair_route",
+          "payload_contract_id": "contract.writing.simple_novel.repair_request"
+        },
+        {
+          "edge_id": "edge.world_repair.review",
+          "source_node_id": "world_repair_candidate",
+          "target_node_id": "world_repair_review",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.world_candidate"
+        },
+        {
+          "edge_id": "edge.world_repair_review.commit",
+          "source_node_id": "world_repair_review",
+          "target_node_id": "memory_commit_world",
+          "mode": "canon_commit",
+          "payload_contract_id": "contract.writing.simple_novel.world_review"
+        },
+        {
+          "edge_id": "edge.outline_repair.review",
+          "source_node_id": "outline_repair_candidate",
+          "target_node_id": "outline_repair_review",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.outline_candidate"
+        },
+        {
+          "edge_id": "edge.outline_repair_review.commit",
+          "source_node_id": "outline_repair_review",
+          "target_node_id": "memory_commit_outline",
+          "mode": "canon_commit",
+          "payload_contract_id": "contract.writing.simple_novel.outline_review"
+        },
+        {
+          "edge_id": "edge.character_repair.review",
+          "source_node_id": "character_repair_candidate",
+          "target_node_id": "character_repair_review",
+          "mode": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.character_candidate"
+        },
+        {
+          "edge_id": "edge.character_repair_review.commit",
+          "source_node_id": "character_repair_review",
+          "target_node_id": "memory_commit_character",
+          "mode": "canon_commit",
+          "payload_contract_id": "contract.writing.simple_novel.character_review"
+        },
+        {
+          "edge_id": "edge.world_review.human",
+          "source_node_id": "world_review",
+          "target_node_id": "human_review_handoff",
+          "mode": "human_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.human_review_input"
+        },
+        {
+          "edge_id": "edge.world_review.fail",
+          "source_node_id": "world_review",
+          "target_node_id": "fail_closed",
+          "mode": "fail_closed",
+          "payload_contract_id": "contract.writing.simple_novel.failure_input"
+        },
+        {
+          "edge_id": "edge.outline_review.human",
+          "source_node_id": "outline_review",
+          "target_node_id": "human_review_handoff",
+          "mode": "human_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.human_review_input"
+        },
+        {
+          "edge_id": "edge.outline_review.fail",
+          "source_node_id": "outline_review",
+          "target_node_id": "fail_closed",
+          "mode": "fail_closed",
+          "payload_contract_id": "contract.writing.simple_novel.failure_input"
+        },
+        {
+          "edge_id": "edge.character_review.human",
+          "source_node_id": "character_review",
+          "target_node_id": "human_review_handoff",
+          "mode": "human_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.human_review_input"
+        },
+        {
+          "edge_id": "edge.character_review.fail",
+          "source_node_id": "character_review",
+          "target_node_id": "fail_closed",
+          "mode": "fail_closed",
+          "payload_contract_id": "contract.writing.simple_novel.failure_input"
+        },
+        {
+          "edge_id": "edge.chapter_plan_review.human",
+          "source_node_id": "chapter_plan_review",
+          "target_node_id": "human_review_handoff",
+          "mode": "human_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.human_review_input"
+        },
+        {
+          "edge_id": "edge.chapter_plan_review.fail",
+          "source_node_id": "chapter_plan_review",
+          "target_node_id": "fail_closed",
+          "mode": "fail_closed",
+          "payload_contract_id": "contract.writing.simple_novel.failure_input"
+        },
+        {
+          "edge_id": "edge.chapter_review.human",
+          "source_node_id": "chapter_review",
+          "target_node_id": "human_review_handoff",
+          "mode": "human_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.human_review_input"
+        },
+        {
+          "edge_id": "edge.chapter_review.fail",
+          "source_node_id": "chapter_review",
+          "target_node_id": "fail_closed",
+          "mode": "fail_closed",
+          "payload_contract_id": "contract.writing.simple_novel.failure_input"
+        },
+        {
+          "edge_id": "edge.final_review.human",
+          "source_node_id": "final_review",
+          "target_node_id": "human_review_handoff",
+          "mode": "human_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.human_review_input"
+        },
+        {
+          "edge_id": "edge.final_review.fail",
+          "source_node_id": "final_review",
+          "target_node_id": "fail_closed",
+          "mode": "fail_closed",
+          "payload_contract_id": "contract.writing.simple_novel.failure_input"
+        },
+        {
+          "edge_id": "edge.chapter_progress_router.human",
+          "source_node_id": "chapter_progress_router",
+          "target_node_id": "human_review_handoff",
+          "mode": "human_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.human_review_input"
+        },
+        {
+          "edge_id": "edge.chapter_progress_router.fail",
+          "source_node_id": "chapter_progress_router",
+          "target_node_id": "fail_closed",
+          "mode": "fail_closed",
+          "payload_contract_id": "contract.writing.simple_novel.failure_input"
+        }
+      ],
+      "handoff_rules": [],
+      "join_policy": "explicit_join",
+      "failure_policy": "fail_closed",
+      "terminal_policy": "coordinator_terminal",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "task_family": "writing_simple_novel",
+        "domain_id": "domain.writing.simple_novel",
+        "graph_id": "graph.writing.simple_novel"
       }
     }
   ]

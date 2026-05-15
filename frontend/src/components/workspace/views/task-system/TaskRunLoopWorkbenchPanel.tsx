@@ -80,21 +80,21 @@ function includes(value: string[] | undefined, item: string) {
 
 function readinessRows({
   selectedTask,
-  selectedCoordination,
+  selectedTaskGraph,
   executionDraft,
   memoryDraft,
   workflowAssembly,
   nodeAssembly,
 }: {
   selectedTask: SpecificTaskRecord | null;
-  selectedCoordination: TaskGraphRecord | null;
+  selectedTaskGraph: TaskGraphRecord | null;
   executionDraft: TaskExecutionPolicy;
   memoryDraft: TaskMemoryRequestProfile;
   workflowAssembly: RuntimeAssembly | null;
   nodeAssembly: RuntimeAssembly | null;
 }) {
   const hasTask = Boolean(selectedTask?.task_id);
-  const hasGraphLoop = Boolean(selectedCoordination?.graph_id) || executionDraft.execution_chain_type === "graph_run_loop";
+  const hasGraphLoop = Boolean(selectedTaskGraph?.graph_id) || executionDraft.execution_chain_type === "graph_run_loop";
   const hasLongTermRead = includes(memoryDraft.requested_memory_layers, "long_term") && memoryDraft.allow_long_term_memory;
   const hasState = includes(memoryDraft.requested_memory_layers, "state");
   const hasWorking = includes(memoryDraft.requested_memory_layers, "working") && Boolean(memoryDraft.allow_working_memory);
@@ -113,40 +113,40 @@ function readinessRows({
 
 export function TaskRunLoopWorkbenchPanel({
   selectedTask,
-  selectedCoordination,
+  selectedTaskGraph,
   executionDraft,
   setExecutionDraft,
   memoryDraft,
   setMemoryDraft,
-  coordinationMemorySharingPolicy,
-  setCoordinationMemorySharingPolicy,
-  coordinationSharedContextPolicy,
-  setCoordinationSharedContextPolicy,
+  taskGraphMemorySharingPolicy,
+  setTaskGraphMemorySharingPolicy,
+  taskGraphSharedContextPolicy,
+  setTaskGraphSharedContextPolicy,
   workflowAssembly,
   nodeAssembly,
   saveTaskStack,
-  saveCoordinationStack,
+  saveTaskGraphStack,
   saving,
 }: {
   selectedTask: SpecificTaskRecord | null;
-  selectedCoordination: TaskGraphRecord | null;
+  selectedTaskGraph: TaskGraphRecord | null;
   executionDraft: TaskExecutionPolicy;
   setExecutionDraft: (next: TaskExecutionPolicy) => void;
   memoryDraft: TaskMemoryRequestProfile;
   setMemoryDraft: (next: TaskMemoryRequestProfile) => void;
-  coordinationMemorySharingPolicy: string;
-  setCoordinationMemorySharingPolicy: (value: string) => void;
-  coordinationSharedContextPolicy: string;
-  setCoordinationSharedContextPolicy: (value: string) => void;
+  taskGraphMemorySharingPolicy: string;
+  setTaskGraphMemorySharingPolicy: (value: string) => void;
+  taskGraphSharedContextPolicy: string;
+  setTaskGraphSharedContextPolicy: (value: string) => void;
   workflowAssembly: RuntimeAssembly | null;
   nodeAssembly: RuntimeAssembly | null;
   saveTaskStack: () => Promise<void>;
-  saveCoordinationStack: (published?: boolean) => Promise<void>;
+  saveTaskGraphStack: (published?: boolean) => Promise<void>;
   saving: string;
 }) {
   const rows = readinessRows({
     selectedTask,
-    selectedCoordination,
+    selectedTaskGraph,
     executionDraft,
     memoryDraft,
     workflowAssembly,
@@ -167,14 +167,14 @@ export function TaskRunLoopWorkbenchPanel({
         <header>
           <div className="boundary-identity-stack">
             <span>运行循环 / 记忆支持</span>
-            <strong>{selectedCoordination?.title || selectedTask?.task_title || "未选择任务"}</strong>
+            <strong>{selectedTaskGraph?.title || selectedTask?.task_title || "未选择任务"}</strong>
             <small>RunLoop 定义、记忆请求、上下文连续性与写回策略</small>
           </div>
           <div className="boundary-actions">
             <TaskSystemToolbarButton disabled={saving === "task-stack"} onClick={() => { void saveTaskStack(); }} variant="primary">
               <Save size={15} />保存任务运行配置
             </TaskSystemToolbarButton>
-            <TaskSystemToolbarButton disabled={saving === "coordination" || !selectedCoordination} onClick={() => { void saveCoordinationStack(false); }}>
+            <TaskSystemToolbarButton disabled={saving === "task-graph" || !selectedTaskGraph} onClick={() => { void saveTaskGraphStack(false); }}>
               <Save size={15} />保存图上下文策略
             </TaskSystemToolbarButton>
           </div>
@@ -421,28 +421,28 @@ export function TaskRunLoopWorkbenchPanel({
 
       <section className="task-runloop-workbench__grid task-runloop-workbench__grid--wide">
         <section className="boundary-card">
-          <header><strong>多 Agent 上下文策略</strong><span>{selectedCoordination?.graph_id || "未选择任务图"}</span></header>
+          <header><strong>多 Agent 上下文策略</strong><span>{selectedTaskGraph?.graph_id || "未选择任务图"}</span></header>
           <div className="boundary-form">
             <TaskSystemSelectField
               label="共享上下文"
-              value={coordinationSharedContextPolicy}
+              value={taskGraphSharedContextPolicy}
               options={SHARED_CONTEXT_POLICIES}
-              onChange={setCoordinationSharedContextPolicy}
+              onChange={setTaskGraphSharedContextPolicy}
               formatOption={label}
             />
             <TaskSystemSelectField
               label="记忆共享"
-              value={coordinationMemorySharingPolicy}
+              value={taskGraphMemorySharingPolicy}
               options={MEMORY_SHARING_POLICIES}
-              onChange={setCoordinationMemorySharingPolicy}
+              onChange={setTaskGraphMemorySharingPolicy}
               formatOption={label}
             />
           </div>
           <div className="boundary-kv">
-            <p><span>图运行模式</span><strong>{String(selectedCoordination?.runtime_policy?.coordination_mode ?? "") ? label(String(selectedCoordination?.runtime_policy?.coordination_mode ?? "")) : "未选择"}</strong></p>
-            <p><span>节点数</span><strong>{selectedCoordination?.nodes?.length ?? 0}</strong></p>
-            <p><span>共享上下文</span><strong>{String(selectedCoordination?.context_policy?.shared_context_policy ?? "") || "未配置"}</strong></p>
-            <p><span>记忆共享</span><strong>{String(selectedCoordination?.context_policy?.memory_sharing_policy ?? "") || "未配置"}</strong></p>
+            <p><span>图运行模式</span><strong>{String(selectedTaskGraph?.runtime_policy?.coordination_mode ?? "") ? label(String(selectedTaskGraph?.runtime_policy?.coordination_mode ?? "")) : "未选择"}</strong></p>
+            <p><span>节点数</span><strong>{selectedTaskGraph?.nodes?.length ?? 0}</strong></p>
+            <p><span>共享上下文</span><strong>{String(selectedTaskGraph?.context_policy?.shared_context_policy ?? "") || "未配置"}</strong></p>
+            <p><span>记忆共享</span><strong>{String(selectedTaskGraph?.context_policy?.memory_sharing_policy ?? "") || "未配置"}</strong></p>
           </div>
         </section>
 

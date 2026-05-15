@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import Any
 from dataclasses import asdict
@@ -25,8 +26,84 @@ from orchestration.delegation_catalog import DelegationCatalogBuilder
 from understanding import analyze_memory_intent
 from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
+from sessions import InvalidSessionId, validate_session_id
 
 router = APIRouter()
+
+
+async def _execute_stage_request_in_background(
+    *,
+    runtime: Any,
+    session_id: str,
+    source: str,
+    stage_execution_request: Any,
+    current_turn_context: dict[str, Any] | None = None,
+) -> None:
+    continuation_payload = LangGraphCoordinationRuntimeResult(
+        stage_execution_request=stage_execution_request,
+    ).continuation_payload(
+        session_id=session_id,
+        current_turn_context=dict(current_turn_context or {}),
+    )
+    if not continuation_payload:
+        return
+    async for _event in runtime.query_runtime.task_run_loop._continue_coordination_delivery_stream(
+        session_id=session_id,
+        history=runtime.query_runtime.session_manager.load_session_for_agent(
+            session_id,
+            include_compressed_context=False,
+        ),
+        source=source,
+        agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
+        model_response_executor=runtime.query_runtime.model_response_executor,
+        runtime_context_manager=runtime.query_runtime.runtime_context_manager,
+        stage_projection_cycle=None,
+        memory_intent=analyze_memory_intent(stage_execution_request.message),
+        assistant_message_committer=lambda _payload: None,
+        tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
+        tool_instances=runtime.query_runtime._all_tool_instances(),
+        agent_runtime_profile=runtime.query_runtime.agent_runtime_registry.get_profile(stage_execution_request.agent_id),
+        continuation_payload=continuation_payload,
+    ):
+        pass
+
+
+def _schedule_stage_execution_background(
+    *,
+    runtime: Any,
+    session_id: str,
+    source: str,
+    stage_execution_request: Any,
+    current_turn_context: dict[str, Any] | None = None,
+) -> None:
+    async def runner() -> None:
+        try:
+            await _execute_stage_request_in_background(
+                runtime=runtime,
+                session_id=session_id,
+                source=source,
+                stage_execution_request=stage_execution_request,
+                current_turn_context=current_turn_context,
+            )
+        except Exception as exc:
+            runtime.query_runtime.task_run_loop.event_log.append(
+                stage_execution_request.root_task_run_id,
+                "coordination_stage_background_execution_failed",
+                payload={
+                    "coordination_run_id": stage_execution_request.coordination_run_id,
+                    "stage_id": stage_execution_request.stage_id,
+                    "task_ref": stage_execution_request.task_ref,
+                    "error": str(exc),
+                    "error_type": exc.__class__.__name__,
+                    "source": source,
+                },
+                refs={
+                    "coordination_run_ref": stage_execution_request.coordination_run_id,
+                    "stage_id": stage_execution_request.stage_id,
+                },
+            )
+
+    asyncio.create_task(runner())
 
 
 class BehaviorDryRunRequest(BaseModel):
@@ -101,6 +178,11 @@ class CoordinationRunResumeRequest(BaseModel):
     resume_payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class CoordinationRunContinueRequest(BaseModel):
+    source: str = Field(default="orchestration.coordination_run_continue_api", max_length=180)
+    current_turn_context: dict[str, Any] = Field(default_factory=dict)
+
+
 class TaskRunStopRequest(BaseModel):
     reason: str = Field(default="user_aborted", max_length=120)
     message: str = Field(default="", max_length=500)
@@ -108,7 +190,7 @@ class TaskRunStopRequest(BaseModel):
 
 
 class TaskGraphRunStartRequest(BaseModel):
-    session_id: str = Field(default="session:task_graph_studio", max_length=180)
+    session_id: str = Field(default="task_graph_studio", max_length=180)
     task_id: str = Field(default="", max_length=180)
     initial_inputs: dict[str, Any] = Field(default_factory=dict)
     require_published: bool = True
@@ -659,6 +741,15 @@ async def get_runtime_loop_task_run_live_monitor(task_run_id: str) -> dict[str, 
     return monitor
 
 
+@router.get("/orchestration/runtime-loop/task-runs/{task_run_id}/task-graph-monitor")
+async def get_runtime_loop_task_graph_run_monitor(task_run_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    monitor = runtime.query_runtime.task_run_loop.get_task_graph_run_monitor(task_run_id)
+    if monitor is None:
+        raise HTTPException(status_code=404, detail="TaskGraph run monitor not found")
+    return monitor
+
+
 @router.post("/orchestration/runtime-loop/task-graphs/{graph_id}/start")
 async def start_task_graph_runtime_loop_run(
     graph_id: str,
@@ -688,7 +779,11 @@ async def start_task_graph_runtime_loop_run(
                 "issues": blocking_issues,
             },
         )
-    session_id = payload.session_id.strip() or "session:task_graph_studio"
+    session_id = payload.session_id.strip() or "task_graph_studio"
+    try:
+        session_id = validate_session_id(session_id or "task_graph_studio")
+    except InvalidSessionId as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     start = runtime.query_runtime.task_run_loop.start_task_graph_run(
         session_id=session_id,
         task_id=payload.task_id.strip(),
@@ -703,41 +798,25 @@ async def start_task_graph_runtime_loop_run(
     stage_execution_request = dict(start.loop_state.diagnostics.get("stage_execution_request") or {})
     initial_stage_execution_events: list[dict[str, Any]] = []
     initial_stage_execution_error: dict[str, Any] | None = None
+    initial_stage_execution_background = False
     if payload.execute_initial_stage and stage_execution_request:
         from orchestration.runtime_loop.stage_execution_request import StageExecutionRequest
 
         request = StageExecutionRequest.from_dict(stage_execution_request)
-        continuation_payload = LangGraphCoordinationRuntimeResult(
-            stage_execution_request=request,
-        ).continuation_payload(
-            session_id=session_id,
-            current_turn_context={
-                "authority": "context.task_graph_start",
-                "task_graph_id": graph.graph_id,
-                "selected_graph_id": graph.graph_id,
-                "explicit_inputs": dict(payload.initial_inputs or {}),
-            },
-        )
         try:
-            async for event in runtime.query_runtime.task_run_loop._continue_coordination_delivery_stream(
+            _schedule_stage_execution_background(
+                runtime=runtime,
                 session_id=session_id,
-                history=runtime.query_runtime.session_manager.load_session_for_agent(
-                    session_id,
-                    include_compressed_context=False,
-                ),
                 source="orchestration.runtime_loop.task_graph_start_api",
-                agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
-                model_response_executor=runtime.query_runtime.model_response_executor,
-                runtime_context_manager=runtime.query_runtime.runtime_context_manager,
-                stage_projection_cycle=None,
-                memory_intent=analyze_memory_intent(request.message),
-                assistant_message_committer=lambda _payload: None,
-                tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
-                tool_instances=runtime.query_runtime._all_tool_instances(),
-                agent_runtime_profile=runtime.query_runtime.agent_runtime_registry.get_profile(request.agent_id),
-                continuation_payload=continuation_payload,
-            ):
-                initial_stage_execution_events.append(dict(event))
+                stage_execution_request=request,
+                current_turn_context={
+                    "authority": "context.task_graph_start",
+                    "task_graph_id": graph.graph_id,
+                    "selected_graph_id": graph.graph_id,
+                    "explicit_inputs": dict(payload.initial_inputs or {}),
+                },
+            )
+            initial_stage_execution_background = True
         except Exception as exc:
             initial_stage_execution_error = {
                 "error": str(exc),
@@ -756,6 +835,7 @@ async def start_task_graph_runtime_loop_run(
         "initial_stage_execution_events": initial_stage_execution_events,
         "initial_stage_execution_event_count": len(initial_stage_execution_events),
         "initial_stage_execution_error": initial_stage_execution_error,
+        "initial_stage_execution_background": initial_stage_execution_background,
         "trace": (
             runtime.query_runtime.task_run_loop.get_trace(start.task_run.task_run_id)
             if payload.include_trace
@@ -763,6 +843,15 @@ async def start_task_graph_runtime_loop_run(
         ),
         "events": [dict(item) for item in start.events],
     }
+
+
+@router.get("/orchestration/coordination-runs/{coordination_run_id}/task-graph-monitor")
+async def get_coordination_run_task_graph_monitor(coordination_run_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    monitor = runtime.query_runtime.task_run_loop.get_coordination_run_monitor(coordination_run_id)
+    if monitor is None:
+        raise HTTPException(status_code=404, detail="CoordinationRun task graph monitor not found")
+    return monitor
 
 
 @router.post("/orchestration/coordination-runs/{coordination_run_id}/resume")
@@ -793,6 +882,54 @@ async def resume_coordination_run(
             event.to_dict() if hasattr(event, "to_dict") else dict(event)
             for event in result.events
         ],
+    }
+
+
+@router.post("/orchestration/coordination-runs/{coordination_run_id}/continue-current-stage")
+async def continue_coordination_current_stage(
+    coordination_run_id: str,
+    payload: CoordinationRunContinueRequest,
+) -> dict[str, Any]:
+    from orchestration.runtime_loop.stage_execution_request import StageExecutionRequest
+
+    runtime = require_runtime()
+    coordination_run = runtime.query_runtime.task_run_loop.state_index.get_coordination_run(coordination_run_id)
+    if coordination_run is None:
+        raise HTTPException(status_code=404, detail="CoordinationRun not found")
+    state = runtime.query_runtime.task_run_loop.langgraph_coordination_runtime.checkpoints.get_state(
+        thread_id=coordination_run_id,
+    )
+    if not state:
+        raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
+    request_payload = dict(state.get("stage_execution_request") or {})
+    if not request_payload:
+        raise HTTPException(status_code=409, detail="CoordinationRun has no current stage execution request")
+    request = StageExecutionRequest.from_dict(request_payload)
+    task_run = runtime.query_runtime.task_run_loop.state_index.get_task_run(coordination_run.task_run_id)
+    session_id = str(getattr(task_run, "session_id", "") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=409, detail="CoordinationRun root TaskRun has no session_id")
+    current_turn_context = {
+        "authority": "context.coordination_run_continue",
+        "coordination_run_id": coordination_run_id,
+        "task_graph_id": coordination_run.graph_ref,
+        "selected_graph_id": coordination_run.graph_ref,
+        **dict(payload.current_turn_context or {}),
+    }
+    _schedule_stage_execution_background(
+        runtime=runtime,
+        session_id=session_id,
+        source=payload.source or "orchestration.coordination_run_continue_api",
+        stage_execution_request=request,
+        current_turn_context=current_turn_context,
+    )
+    return {
+        "authority": "orchestration.coordination_run_continue_current_stage",
+        "coordination_run_id": coordination_run_id,
+        "task_run_id": coordination_run.task_run_id,
+        "session_id": session_id,
+        "stage_execution_request": request.to_dict(),
+        "background_started": True,
     }
 
 

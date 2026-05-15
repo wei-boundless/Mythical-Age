@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildTaskGraphSchedulerSummary, schedulerStateFromTrace } from "./taskGraphRuntimeView";
 
 describe("taskGraphRuntimeView", () => {
-  it("extracts scheduler state from coordination run diagnostics", () => {
+  it("extracts scheduler state from task graph run diagnostics", () => {
     const raw = {
       authority: "task_system.task_graph_scheduler_state",
       graph_id: "graph.test",

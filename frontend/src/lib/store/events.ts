@@ -1,4 +1,6 @@
-import type {
+import {
+  taskGraphRunIdsFromTrace,
+  type
   OrchestrationEdge,
   OrchestrationNode,
   OrchestrationSnapshot,
@@ -411,9 +413,7 @@ export function buildSnapshotFromRuntimeLoopTrace(trace: RuntimeLoopTaskRunTrace
     ...(snapshot as OrchestrationSnapshot),
     source: "runtime-trace",
     task_run_id: String(taskRun["task_run_id"] ?? ""),
-    coordination_run_ids: (trace.coordination_runs ?? [])
-      .map((item) => String(item?.coordination_run_id ?? "").trim())
-      .filter(Boolean),
+    coordination_run_ids: taskGraphRunIdsFromTrace(trace),
     execution_mode: String((taskRun["diagnostics"] as Record<string, unknown> | undefined)?.["execution_mode"] ?? snapshot.execution_mode),
     route: String(taskRun["task_id"] ?? snapshot.route),
     summary: `已载入 TaskRun ${String(taskRun["task_run_id"] ?? "").trim() || "-"}`,

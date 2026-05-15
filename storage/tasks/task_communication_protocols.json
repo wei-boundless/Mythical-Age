@@ -32,11 +32,14 @@
         "message/send",
         "task/status",
         "task/artifact",
-        "task/review_feedback"
+        "task/review_feedback",
+        "task/revision_request",
+        "task/canon_update"
       ],
       "payload_contracts": [
         "contract.writing_team.long_novel.world_proposal_a",
         "contract.writing_team.long_novel.world_proposal_b",
+        "contract.writing_team.long_novel.world_judge_input",
         "contract.writing_team.long_novel.world_judgement",
         "contract.writing_team.long_novel.memory_commit_world",
         "contract.writing_team.long_novel.outline_proposal_a",
@@ -67,13 +70,21 @@
       ],
       "signal_rules": [
         "judge_controls_memory_commit",
-        "repair_required_routes_to_author_plan_or_deviation_subgraph"
+        "repair_required_routes_to_author_plan_or_deviation_subgraph",
+        "world_judge_controls_world_canon_promotion",
+        "chapter_progress_feedback_can_route_to_world_repair"
       ],
       "handoff_rules": [
         "structured_artifact_refs_only",
         "no_raw_agent_dialogue",
         "summary_before_full_text",
-        "no_unapproved_memory_commit"
+        "no_unapproved_memory_commit",
+        "artifact_refs_must_use_artifact_prefix",
+        "runtime_trace_refs_are_not_artifacts",
+        "judge_nodes_require_all_declared_upstream_artifacts",
+        "world_creators_do_not_receive_conversation_memory",
+        "world_judge_receives_structured_review_memory_only",
+        "world_canon_updates_require_pass_verdict"
       ],
       "ack_policy": "explicit_ack",
       "timeout_policy": "fail_closed",
@@ -82,7 +93,107 @@
       "metadata": {
         "managed_by": "codex_writing_team_rebuild",
         "task_family": "writing_team_long_novel",
-        "domain_id": "domain.writing_team.long_novel"
+        "domain_id": "domain.writing_team.long_novel",
+        "configuration_closure": "world_phase_static_config_20260516",
+        "world_phase_protocol": {
+          "creator_memory": "no_conversation_memory",
+          "judge_memory": "structured_review_continuity",
+          "canon_update": "memory_commit_world_only_after_pass",
+          "progress_feedback_route": "novel_quality_judge_to_world_deviation_router"
+        }
+      },
+      "authority": "task_system.task_communication_protocol"
+    },
+    {
+      "protocol_id": "protocol.writing.simple_novel",
+      "title": "写作组简易长篇小说通信协议",
+      "message_types": [
+        "message/send",
+        "task/status",
+        "task/artifact",
+        "task/review_feedback",
+        "task/revision_request",
+        "task/canon_update",
+        "task/memory_read",
+        "task/memory_write",
+        "task/memory_lock"
+      ],
+      "payload_contracts": [
+        "contract.writing.simple_novel.user_goal",
+        "contract.writing.simple_novel.project_brief",
+        "contract.writing.simple_novel.world_input",
+        "contract.writing.simple_novel.world_candidate",
+        "contract.writing.simple_novel.world_review_input",
+        "contract.writing.simple_novel.world_review",
+        "contract.writing.simple_novel.world_canon_commit",
+        "contract.writing.simple_novel.outline_input",
+        "contract.writing.simple_novel.outline_candidate",
+        "contract.writing.simple_novel.outline_review_input",
+        "contract.writing.simple_novel.outline_review",
+        "contract.writing.simple_novel.outline_canon_commit",
+        "contract.writing.simple_novel.character_input",
+        "contract.writing.simple_novel.character_candidate",
+        "contract.writing.simple_novel.character_review_input",
+        "contract.writing.simple_novel.character_review",
+        "contract.writing.simple_novel.character_canon_commit",
+        "contract.writing.simple_novel.chapter_plan_input",
+        "contract.writing.simple_novel.chapter_plan_candidate",
+        "contract.writing.simple_novel.chapter_plan_review_input",
+        "contract.writing.simple_novel.chapter_plan_review",
+        "contract.writing.simple_novel.chapter_plan_commit",
+        "contract.writing.simple_novel.chapter_draft_input",
+        "contract.writing.simple_novel.chapter_draft",
+        "contract.writing.simple_novel.chapter_review_input",
+        "contract.writing.simple_novel.chapter_review",
+        "contract.writing.simple_novel.chapter_commit",
+        "contract.writing.simple_novel.chapter_progress_decision",
+        "contract.writing.simple_novel.repair_request",
+        "contract.writing.simple_novel.world_repair_input",
+        "contract.writing.simple_novel.outline_repair_input",
+        "contract.writing.simple_novel.character_repair_input",
+        "contract.writing.simple_novel.final_assemble_input",
+        "contract.writing.simple_novel.final_manuscript",
+        "contract.writing.simple_novel.final_review_input",
+        "contract.writing.simple_novel.final_review",
+        "contract.writing.simple_novel.delivery_package",
+        "contract.writing.simple_novel.human_review_input",
+        "contract.writing.simple_novel.human_review_packet",
+        "contract.writing.simple_novel.failure_input",
+        "contract.writing.simple_novel.failure_report",
+        "contract.writing.simple_novel.memory_read_request",
+        "contract.writing.simple_novel.memory_pack",
+        "contract.writing.simple_novel.memory_write_request",
+        "contract.writing.simple_novel.memory_write_receipt",
+        "contract.writing.simple_novel.memory_lock_receipt",
+        "contract.writing.simple_novel.memory_release_receipt",
+        "contract.writing.simple_novel.graph"
+      ],
+      "signal_rules": [
+        "memory_pack_required_before_business_node",
+        "candidate_ref_required_before_review",
+        "pass_required_before_memory_commit",
+        "canon_commit_requires_lock_and_receipt",
+        "repair_returns_to_trigger_node",
+        "final_assemble_uses_manifest_not_full_text"
+      ],
+      "handoff_rules": [
+        "structured_artifact_refs_only",
+        "no_raw_agent_dialogue",
+        "memory_pack_refs_only",
+        "no_unapproved_memory_commit",
+        "candidate_outputs_are_not_canon",
+        "chapter_full_text_not_handed_as_global_context",
+        "delivery_manifest_not_full_text_context"
+      ],
+      "ack_policy": "explicit_ack",
+      "timeout_policy": "fail_closed",
+      "error_signal_policy": "raise_to_coordinator",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "task_family": "writing_simple_novel",
+        "domain_id": "domain.writing.simple_novel",
+        "memory_node_required": true
       },
       "authority": "task_system.task_communication_protocol"
     }

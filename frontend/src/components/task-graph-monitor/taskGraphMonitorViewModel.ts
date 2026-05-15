@@ -1,0 +1,209 @@
+import type {
+  TaskGraphRunMonitorEdge,
+  TaskGraphRunMonitorNode,
+  TaskGraphRunMonitorView,
+} from "@/lib/api";
+
+export type TaskGraphMonitorNodeView = {
+  id: string;
+  title: string;
+  agentLabel: string;
+  role: string;
+  nodeKind: string;
+  status: string;
+  taskId: string;
+  artifactRefs: string[];
+  resultRef: string;
+};
+
+export type TaskGraphMonitorEdgeView = {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+  status: string;
+  contractId: string;
+};
+
+export type TaskGraphMonitorMemoryOperationView = {
+  key: string;
+  operation: string;
+  nodeId: string;
+  edgeId: string;
+  status: string;
+  refs: string[];
+};
+
+export type TaskGraphMonitorViewModel = {
+  hasSignal: boolean;
+  title: string;
+  graphId: string;
+  taskRunId: string;
+  coordinationRunId: string;
+  status: string;
+  terminalReason: string;
+  failureMessage: string;
+  failureDetail: string;
+  failureCode: string;
+  failureProvider: string;
+  failureModel: string;
+  failureStepId: string;
+  activeNodeId: string;
+  activeTaskRef: string;
+  eventCount: number;
+  nodeCount: number;
+  edgeCount: number;
+  completedCount: number;
+  runningCount: number;
+  blockedCount: number;
+  failedCount: number;
+  nodes: TaskGraphMonitorNodeView[];
+  edges: TaskGraphMonitorEdgeView[];
+  artifacts: Array<Record<string, unknown>>;
+  memoryOperations: TaskGraphMonitorMemoryOperationView[];
+  stageResults: Array<Record<string, unknown>>;
+  healthValid: boolean;
+  healthIssues: Array<{ severity: string; code: string; message: string; targetId: string }>;
+};
+
+function text(value: unknown, fallback = "") {
+  const next = String(value ?? "").trim();
+  return next || fallback;
+}
+
+function stringArray(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.trim() ? [value.trim()] : [];
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map((item) => text(item)).filter(Boolean);
+}
+
+function statusLabel(status: string) {
+  if (status === "completed" || status === "success" || status === "satisfied") return "完成";
+  if (status === "running") return "运行中";
+  if (status === "failed") return "失败";
+  if (status === "blocked") return "阻塞";
+  if (status === "waiting" || status === "waiting_for_human" || status === "human_gate") return "等待确认";
+  if (status === "ready" || status === "pending_retry") return "就绪";
+  if (status === "pending" || status === "idle") return "待执行";
+  return status || "待执行";
+}
+
+function nodeKind(node: TaskGraphRunMonitorNode) {
+  const raw = text(node.node_type).toLowerCase();
+  if (raw.includes("memory")) return "memory";
+  if (raw.includes("review") || raw.includes("gate")) return "review";
+  if (raw.includes("artifact")) return "artifact";
+  return raw || "task";
+}
+
+function nodeView(node: TaskGraphRunMonitorNode): TaskGraphMonitorNodeView {
+  const id = text(node.node_id);
+  return {
+    id,
+    title: text(node.title, id),
+    agentLabel: text(node.agent_id, "待分派"),
+    role: text(node.node_type, "task"),
+    nodeKind: nodeKind(node),
+    status: text(node.status, "pending"),
+    taskId: text(node.task_id),
+    artifactRefs: stringArray(node.artifact_refs),
+    resultRef: text(node.last_result_ref),
+  };
+}
+
+function edgeView(edge: TaskGraphRunMonitorEdge): TaskGraphMonitorEdgeView {
+  const from = text(edge.source_node_id);
+  const to = text(edge.target_node_id);
+  return {
+    id: text(edge.edge_id, `${from}->${to}`),
+    from,
+    to,
+    label: text(edge.edge_type) || text(edge.payload_contract_id) || "交接",
+    status: text(edge.status, "idle"),
+    contractId: text(edge.payload_contract_id),
+  };
+}
+
+function isRealtimeCommunicationEdge(edge: TaskGraphMonitorEdgeView) {
+  return [
+    "running",
+    "waiting",
+    "waiting_for_human",
+    "human_gate",
+    "failed",
+    "pending_retry",
+  ].includes(edge.status);
+}
+
+function memoryOperationView(item: Record<string, unknown>, index: number): TaskGraphMonitorMemoryOperationView {
+  const operation = text(item.operation);
+  const nodeId = text(item.node_id) || text(item.stage_id);
+  const edgeId = text(item.edge_id);
+  return {
+    key: `${operation}:${nodeId || edgeId || index}`,
+    operation,
+    nodeId,
+    edgeId,
+    status: text(item.status, "completed"),
+    refs: stringArray(item.refs),
+  };
+}
+
+export function buildTaskGraphMonitorViewModel(monitor: TaskGraphRunMonitorView | null | undefined): TaskGraphMonitorViewModel {
+  const nodes = (monitor?.topology?.nodes ?? []).map(nodeView).filter((node) => node.id);
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const topologyEdges = (monitor?.topology?.edges ?? [])
+    .map(edgeView)
+    .filter((edge) => edge.from && edge.to && nodeIds.has(edge.from) && nodeIds.has(edge.to));
+  const edges = topologyEdges.filter(isRealtimeCommunicationEdge);
+  const status = text(monitor?.runtime?.status, "unknown");
+  const activeNodeId =
+    text(monitor?.runtime?.active_node_id)
+    || nodes.find((node) => node.status === "running")?.id
+    || "";
+
+  return {
+    hasSignal: Boolean(monitor && (nodes.length || text(monitor.graph?.graph_id))),
+    title: text(monitor?.graph?.title, "当前没有任务图运行"),
+    graphId: text(monitor?.graph?.graph_id),
+    taskRunId: text(monitor?.task_run_id),
+    coordinationRunId: text(monitor?.coordination_run_id),
+    status,
+    terminalReason: text(monitor?.runtime?.terminal_reason),
+    failureMessage: text(monitor?.runtime?.failure?.message),
+    failureDetail: text(monitor?.runtime?.failure?.detail),
+    failureCode: text(monitor?.runtime?.failure?.code),
+    failureProvider: text(monitor?.runtime?.failure?.provider),
+    failureModel: text(monitor?.runtime?.failure?.model),
+    failureStepId: text(monitor?.runtime?.failure?.step_id),
+    activeNodeId,
+    activeTaskRef: text(monitor?.runtime?.active_task_ref),
+    eventCount: Number(monitor?.runtime?.event_count ?? 0),
+    nodeCount: Number(monitor?.graph?.node_count ?? nodes.length),
+    edgeCount: Number(monitor?.graph?.edge_count ?? edges.length),
+    completedCount: nodes.filter((node) => node.status === "completed" || node.status === "success").length,
+    runningCount: nodes.filter((node) => node.status === "running").length,
+    blockedCount: nodes.filter((node) => ["blocked", "waiting", "waiting_for_human", "human_gate"].includes(node.status)).length,
+    failedCount: nodes.filter((node) => node.status === "failed").length,
+    nodes,
+    edges,
+    artifacts: monitor?.artifacts ?? [],
+    memoryOperations: (monitor?.memory_operations ?? []).map(memoryOperationView),
+    stageResults: monitor?.stage_results ?? [],
+    healthValid: monitor?.health?.valid !== false,
+    healthIssues: (monitor?.health?.issues ?? []).map((issue) => ({
+      severity: text(issue.severity),
+      code: text(issue.code),
+      message: text(issue.message),
+      targetId: text(issue.target_id),
+    })),
+  };
+}
+
+export function taskGraphMonitorStatusLabel(status: string) {
+  return statusLabel(status);
+}

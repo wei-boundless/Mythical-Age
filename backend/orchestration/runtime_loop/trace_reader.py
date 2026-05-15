@@ -6,8 +6,10 @@ from typing import Any
 from .checkpoint import RuntimeCheckpointStore
 from .event_log import RuntimeEventLog
 from .events import RuntimeEvent
+from .langgraph_checkpoint_adapter import LangGraphCheckpointStoreAdapter
 from .models import CoordinationRun, TaskRun
 from .state_index import RuntimeStateIndex
+from .task_graph_run_monitor import build_task_graph_run_monitor_view
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,6 +19,7 @@ class RuntimeLoopTraceReader:
     state_index: RuntimeStateIndex
     event_log: RuntimeEventLog
     checkpoints: RuntimeCheckpointStore
+    coordination_checkpoints: LangGraphCheckpointStoreAdapter | None = None
 
     def list_session_task_runs(self, session_id: str) -> dict[str, Any]:
         task_runs = sorted(
@@ -32,17 +35,23 @@ class RuntimeLoopTraceReader:
         }
 
     def get_session_live_monitor(self, session_id: str) -> dict[str, Any]:
-        task_runs = sorted(
-            self.state_index.list_session_task_runs(session_id),
-            key=lambda item: item.updated_at,
-            reverse=True,
-        )
-        latest = task_runs[0] if task_runs else None
+        state_snapshot = self.state_index.read_session_monitor_snapshot(session_id)
+        task_runs = _session_task_run_payloads(state_snapshot, session_id)
+        latest = _pick_session_monitor_task_run_payload(task_runs, state_snapshot)
+        monitor_index = dict(state_snapshot.get("monitor_index") or {})
+        task_run_count = int(monitor_index.get("task_run_count") or len(task_runs))
         return {
             "session_id": session_id,
-            "task_run_count": len(task_runs),
-            "latest_task_run_id": latest.task_run_id if latest is not None else "",
-            "monitor": self.get_task_run_live_monitor(latest.task_run_id) if latest is not None else None,
+            "task_run_count": task_run_count,
+            "latest_task_run_id": str(latest.get("task_run_id") or "") if latest is not None else "",
+            "monitor": (
+                self._get_task_run_live_monitor_from_snapshot(
+                    str(latest.get("task_run_id") or ""),
+                    state_snapshot=state_snapshot,
+                )
+                if latest is not None
+                else None
+            ),
             "authority": "orchestration.runtime_loop_live_monitor",
         }
 
@@ -50,51 +59,131 @@ class RuntimeLoopTraceReader:
         task_run = self.state_index.get_task_run(task_run_id)
         if task_run is None:
             return None
-        checkpoint = self.checkpoints.load_latest(task_run_id)
-        coordination_runs = sorted(
-            self.state_index.list_task_coordination_runs(task_run_id),
-            key=lambda item: item.updated_at,
-            reverse=True,
+        return self._get_task_run_live_monitor_from_snapshot(
+            task_run_id,
+            state_snapshot=self.state_index.read_session_monitor_snapshot(task_run.session_id),
         )
-        active_coordination_run = _pick_coordination_run(coordination_runs)
+
+    def get_task_graph_run_monitor(self, task_run_id: str) -> dict[str, Any] | None:
+        task_run = self.state_index.get_task_run(task_run_id)
+        if task_run is None:
+            return None
+        coordination_run = _pick_coordination_run(self.state_index.list_task_coordination_runs(task_run_id))
+        if coordination_run is None:
+            task_checkpoint = self.checkpoints.load_latest(task_run_id)
+            return build_task_graph_run_monitor_view(
+                task_run=task_run.to_dict(),
+                coordination_run=None,
+                coordination_state={},
+                task_checkpoint=task_checkpoint.to_dict() if task_checkpoint is not None else None,
+                event_count=len(self.event_log.list_events(task_run_id)),
+                source="task_run",
+            )
+        return self.get_coordination_run_monitor(coordination_run.coordination_run_id)
+
+    def get_coordination_run_monitor(self, coordination_run_id: str) -> dict[str, Any] | None:
+        coordination_run = self.state_index.get_coordination_run(coordination_run_id)
+        if coordination_run is None:
+            return None
+        task_run = self.state_index.get_task_run(coordination_run.task_run_id)
+        if task_run is None:
+            return None
+        task_checkpoint = self.checkpoints.load_latest(task_run.task_run_id)
+        coordination_checkpoint = (
+            self.coordination_checkpoints.get_checkpoint(thread_id=coordination_run_id)
+            if self.coordination_checkpoints is not None
+            else None
+        )
+        coordination_state = dict(coordination_checkpoint.state) if coordination_checkpoint is not None else {}
+        return build_task_graph_run_monitor_view(
+            task_run=task_run.to_dict(),
+            coordination_run=coordination_run.to_dict(),
+            coordination_state=coordination_state,
+            coordination_checkpoint=coordination_checkpoint.to_dict() if coordination_checkpoint is not None else None,
+            task_checkpoint=task_checkpoint.to_dict() if task_checkpoint is not None else None,
+            event_count=len(self.event_log.list_events(task_run.task_run_id)),
+            source="coordination_run",
+        )
+
+    def _get_task_run_live_monitor_from_snapshot(
+        self,
+        task_run_id: str,
+        *,
+        state_snapshot: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        task_run_payload = dict((state_snapshot.get("task_runs") or {}).get(task_run_id) or {})
+        task_run = _task_run_from_payload_summary(task_run_payload)
+        if task_run is None:
+            return None
+        checkpoint = self.checkpoints.load_latest(task_run_id)
+        coordination_runs = _task_coordination_run_payloads(state_snapshot, task_run_id)
+        active_coordination_run = _pick_coordination_run_payload(coordination_runs)
         coordination_view = None
         if active_coordination_run is not None:
-            node_runs = sorted(
-                self.state_index.list_coordination_node_runs(active_coordination_run.coordination_run_id),
-                key=lambda item: (item.updated_at, item.node_id),
-                reverse=False,
+            active_coordination_run_id = str(active_coordination_run.get("coordination_run_id") or "")
+            node_runs = _coordination_node_run_payloads(state_snapshot, active_coordination_run_id)
+            handoffs = _coordination_handoff_payloads(state_snapshot, active_coordination_run_id)
+            merge_result = _latest_coordination_merge_result_payload(state_snapshot, active_coordination_run_id)
+            diagnostics = dict(active_coordination_run.get("diagnostics") or {})
+            coordination_checkpoint = (
+                self.coordination_checkpoints.get_checkpoint(
+                    thread_id=active_coordination_run_id,
+                )
+                if self.coordination_checkpoints is not None
+                else None
             )
-            handoffs = sorted(
-                self.state_index.list_coordination_handoffs(active_coordination_run.coordination_run_id),
-                key=lambda item: item.created_at,
-                reverse=False,
+            coordination_state = (
+                dict(coordination_checkpoint.state)
+                if coordination_checkpoint is not None
+                else dict(diagnostics.get("langgraph_runtime_state_summary") or {})
             )
-            merge_result = self.state_index.get_latest_coordination_merge_result(active_coordination_run.coordination_run_id)
-            diagnostics = dict(active_coordination_run.diagnostics or {})
             coordination_view = {
-                **active_coordination_run.to_dict(),
-                "coordination_flow": dict(diagnostics.get("coordination_flow") or {}),
-                "langgraph_runtime_state": dict(diagnostics.get("langgraph_runtime_state") or {}),
-                "task_graph_scheduler_state": dict(diagnostics.get("task_graph_scheduler_state") or {}),
-                "coordination_graph_spec": dict(diagnostics.get("coordination_graph_spec") or {}),
-                "node_runs": [item.to_dict() for item in node_runs],
-                "handoff_envelopes": [item.to_dict() for item in handoffs],
-                "latest_merge_result": merge_result.to_dict() if merge_result is not None else None,
+                "coordination_run": _coordination_run_payload_summary(active_coordination_run),
+                "coordination_flow": _coordination_flow_summary(dict(diagnostics.get("coordination_flow") or {})),
+                "langgraph_runtime_state": _langgraph_state_summary(coordination_state),
+                "task_graph_scheduler_state": _scheduler_state_summary(
+                    dict(
+                        coordination_state.get("task_graph_scheduler_state")
+                        or dict(coordination_state.get("diagnostics") or {}).get("task_graph_scheduler_state")
+                        or diagnostics.get("task_graph_scheduler_state")
+                        or {}
+                    )
+                ),
+                "coordination_graph_spec": _coordination_graph_spec_summary(
+                    dict(
+                        dict(coordination_state.get("diagnostics") or {}).get("coordination_graph_spec")
+                        or diagnostics.get("coordination_graph_spec")
+                        or diagnostics.get("coordination_graph_spec_summary")
+                        or {}
+                    )
+                ),
+                "coordination_checkpoint": (
+                    {
+                        "checkpoint_id": coordination_checkpoint.checkpoint_id,
+                        "thread_id": coordination_checkpoint.thread_id,
+                        "created_at": coordination_checkpoint.created_at,
+                    }
+                    if coordination_checkpoint is not None
+                    else None
+                ),
+                "node_runs": [_node_run_payload_summary(item) for item in node_runs],
+                "handoff_envelopes": [_handoff_payload_summary(item) for item in handoffs[-30:]],
+                "latest_merge_result": _merge_result_payload_summary(merge_result) if merge_result is not None else None,
             }
         loop_state = checkpoint.loop_state.to_dict() if checkpoint is not None else {}
         return {
-            "task_run": task_run.to_dict(),
-            "latest_checkpoint": checkpoint.to_dict() if checkpoint is not None else None,
-            "loop_state": loop_state,
+            "task_run": task_run,
+            "latest_checkpoint": _checkpoint_summary(checkpoint) if checkpoint is not None else None,
+            "loop_state": _loop_state_summary(loop_state),
             "coordination_run": coordination_view,
             "has_coordination": coordination_view is not None,
-            "status": str(task_run.status or loop_state.get("status") or "unknown"),
-            "terminal_reason": str(task_run.terminal_reason or loop_state.get("terminal_reason") or ""),
+            "status": str(task_run.get("status") or loop_state.get("status") or "unknown"),
+            "terminal_reason": str(task_run.get("terminal_reason") or loop_state.get("terminal_reason") or ""),
             "updated_at": float(
                 max(
-                    task_run.updated_at or 0.0,
+                    float(task_run.get("updated_at") or 0.0),
                     checkpoint.created_at if checkpoint is not None else 0.0,
-                    active_coordination_run.updated_at if active_coordination_run is not None else 0.0,
+                    float(active_coordination_run.get("updated_at") or 0.0) if active_coordination_run is not None else 0.0,
                 )
             ),
             "authority": "orchestration.runtime_loop_live_monitor",
@@ -164,6 +253,23 @@ class RuntimeLoopTraceReader:
             "authority": "orchestration.runtime_loop_trace_reader",
         }
 
+    def _task_run_summary_without_checkpoint(self, task_run: TaskRun) -> dict[str, Any]:
+        return {
+            "task_run_id": task_run.task_run_id,
+            "session_id": task_run.session_id,
+            "task_id": task_run.task_id,
+            "agent_id": task_run.agent_id,
+            "agent_profile_id": task_run.agent_profile_id,
+            "runtime_lane": task_run.runtime_lane,
+            "status": task_run.status,
+            "terminal_reason": task_run.terminal_reason,
+            "graph_ref": str(dict(task_run.diagnostics or {}).get("graph_ref") or ""),
+            "coordination_run_ref": str(dict(task_run.diagnostics or {}).get("coordination_run_ref") or ""),
+            "created_at": task_run.created_at,
+            "updated_at": task_run.updated_at,
+            "authority": task_run.authority,
+        }
+
     def _task_run_summary(self, task_run: TaskRun) -> dict[str, Any]:
         events = self.event_log.list_events(task_run.task_run_id)
         checkpoint = self.checkpoints.load_latest(task_run.task_run_id)
@@ -177,6 +283,340 @@ class RuntimeLoopTraceReader:
             "latest_event_type": events[-1].event_type if events else "",
             "latest_checkpoint": checkpoint.to_dict() if checkpoint is not None else None,
         }
+
+
+def _checkpoint_summary(checkpoint: Any) -> dict[str, Any]:
+    return {
+        "checkpoint_id": checkpoint.checkpoint_id,
+        "task_run_id": checkpoint.task_run_id,
+        "event_offset": checkpoint.event_offset,
+        "created_at": checkpoint.created_at,
+        "checksum": checkpoint.checksum,
+        "execution_summary": dict(checkpoint.execution_summary or {}),
+        "runtime_objects_summary": dict(checkpoint.runtime_objects_summary or {}),
+        "authority": checkpoint.authority,
+    }
+
+
+def _loop_state_summary(loop_state: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(loop_state.get("diagnostics") or {})
+    stage_request = dict(diagnostics.get("stage_execution_request") or {})
+    return {
+        "task_run_id": str(loop_state.get("task_run_id") or ""),
+        "status": str(loop_state.get("status") or ""),
+        "transition": str(loop_state.get("transition") or ""),
+        "terminal_reason": str(loop_state.get("terminal_reason") or ""),
+        "turn_count": int(loop_state.get("turn_count") or 0),
+        "step_count": int(loop_state.get("step_count") or 0),
+        "current_step_id": str(loop_state.get("current_step_id") or ""),
+        "agent_id": str(loop_state.get("agent_id") or ""),
+        "runtime_lane": str(loop_state.get("runtime_lane") or ""),
+        "projection_ref": str(loop_state.get("projection_ref") or ""),
+        "result_ref_count": len(list(loop_state.get("result_refs") or [])),
+        "diagnostics": {
+            "task_graph_run": bool(diagnostics.get("task_graph_run") is True),
+            "task_graph_id": str(diagnostics.get("task_graph_id") or ""),
+            "langgraph_coordination_initialized": bool(
+                diagnostics.get("langgraph_coordination_initialized") is True
+            ),
+            "langgraph_checkpoint_ref": str(diagnostics.get("langgraph_checkpoint_ref") or ""),
+            "active_stage_id": str(stage_request.get("stage_id") or ""),
+        },
+        "authority": str(loop_state.get("authority") or "orchestration.runtime_loop_state"),
+    }
+
+
+def _coordination_run_summary(coordination_run: CoordinationRun) -> dict[str, Any]:
+    return {
+        "coordination_run_id": coordination_run.coordination_run_id,
+        "task_run_id": coordination_run.task_run_id,
+        "graph_ref": coordination_run.graph_ref,
+        "coordinator_agent_id": coordination_run.coordinator_agent_id,
+        "topology_template_id": coordination_run.topology_template_id,
+        "communication_protocol_id": coordination_run.communication_protocol_id,
+        "status": coordination_run.status,
+        "terminal_reason": str(dict(coordination_run.diagnostics or {}).get("terminal_reason") or ""),
+        "created_at": coordination_run.created_at,
+        "updated_at": coordination_run.updated_at,
+        "authority": coordination_run.authority,
+    }
+
+
+def _coordination_flow_summary(flow: dict[str, Any]) -> dict[str, Any]:
+    stages = list(flow.get("stages") or [])
+    return {
+        "current_stage_id": str(flow.get("current_stage_id") or ""),
+        "stage_count": len(stages),
+        "completed_stage_count": sum(
+            1 for item in stages if str(dict(item).get("status") or "") == "completed"
+        ),
+        "running_stage_ids": [
+            str(dict(item).get("stage_id") or "")
+            for item in stages
+            if str(dict(item).get("status") or "") == "running"
+        ],
+        "blocked_stage_count": sum(
+            1 for item in stages if str(dict(item).get("status") or "") == "blocked"
+        ),
+        "accepted": bool(flow.get("accepted") is True),
+    }
+
+
+def _langgraph_state_summary(state: dict[str, Any]) -> dict[str, Any]:
+    stage_results = dict(state.get("stage_results") or {})
+    return {
+        "active_stage_id": str(state.get("active_stage_id") or ""),
+        "active_node_id": str(state.get("active_node_id") or ""),
+        "ready_nodes": list(state.get("ready_nodes") or []),
+        "running_nodes": list(state.get("running_nodes") or []),
+        "completed_nodes": list(state.get("completed_nodes") or []),
+        "failed_nodes": list(state.get("failed_nodes") or []),
+        "blocked_node_count": len(list(state.get("blocked_nodes") or [])),
+        "terminal_status": str(state.get("terminal_status") or ""),
+        "stage_result_count": len(stage_results),
+        "stage_results": {
+            stage_id: {
+                "status": str(dict(result).get("status") or ""),
+                "artifact_refs": [
+                    ref
+                    for ref in list(dict(result).get("artifact_refs") or [])
+                    if str(ref).startswith("artifact:")
+                ],
+                "trace_ref_count": len(list(dict(result).get("trace_refs") or [])),
+            }
+            for stage_id, result in stage_results.items()
+        },
+        "artifact_refs": [
+            dict(item)
+            for item in list(state.get("artifact_refs") or [])
+            if str(dict(item).get("ref") or dict(item).get("artifact_ref") or "").startswith("artifact:")
+        ][-50:],
+        "working_memory_operation_count": len(list(state.get("working_memory_operations") or [])),
+    }
+
+
+def _scheduler_state_summary(state: dict[str, Any]) -> dict[str, Any]:
+    node_statuses = dict(state.get("node_statuses") or {})
+    return {
+        "node_count": len(node_statuses),
+        "ready_nodes": list(state.get("ready_nodes") or []),
+        "running_nodes": list(state.get("running_nodes") or []),
+        "completed_nodes": list(state.get("completed_nodes") or []),
+        "failed_nodes": list(state.get("failed_nodes") or []),
+        "blocked_node_count": len(list(state.get("blocked_nodes") or [])),
+        "node_statuses": node_statuses,
+    }
+
+
+def _coordination_graph_spec_summary(spec: dict[str, Any]) -> dict[str, Any]:
+    nodes = list(spec.get("nodes") or [])
+    edges = list(spec.get("edges") or [])
+    return {
+        "graph_id": str(spec.get("graph_id") or ""),
+        "coordination_task_id": str(spec.get("coordination_task_id") or ""),
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "nodes": [
+            {
+                "node_id": str(dict(item).get("node_id") or ""),
+                "title": str(dict(item).get("title") or ""),
+                "role": str(dict(item).get("role") or ""),
+                "agent_id": str(dict(item).get("agent_id") or ""),
+            }
+            for item in nodes
+        ],
+        "edges": [
+            {
+                "edge_id": str(dict(item).get("edge_id") or ""),
+                "from_node_id": str(dict(item).get("from_node_id") or ""),
+                "to_node_id": str(dict(item).get("to_node_id") or ""),
+                "label": str(dict(item).get("label") or ""),
+            }
+            for item in edges
+        ],
+    }
+
+
+def _node_run_summary(node_run: Any) -> dict[str, Any]:
+    payload = node_run.to_dict()
+    return {
+        "node_run_id": str(payload.get("node_run_id") or ""),
+        "node_id": str(payload.get("node_id") or ""),
+        "assigned_agent_id": str(payload.get("assigned_agent_id") or ""),
+        "assigned_agent_run_ref": str(payload.get("assigned_agent_run_ref") or ""),
+        "status": str(payload.get("status") or ""),
+        "input_refs": list(payload.get("input_refs") or []),
+        "output_refs": [
+            ref for ref in list(payload.get("output_refs") or []) if str(ref).startswith("artifact:")
+        ],
+        "created_at": float(payload.get("created_at") or 0.0),
+        "updated_at": float(payload.get("updated_at") or 0.0),
+    }
+
+
+def _handoff_summary(handoff: Any) -> dict[str, Any]:
+    payload = handoff.to_dict()
+    return {
+        "handoff_id": str(payload.get("handoff_id") or ""),
+        "source_agent_run_ref": str(payload.get("source_agent_run_ref") or ""),
+        "target_agent_run_ref": str(payload.get("target_agent_run_ref") or ""),
+        "protocol_id": str(payload.get("protocol_id") or ""),
+        "message_type": str(payload.get("message_type") or ""),
+        "ack_state": str(payload.get("ack_state") or ""),
+        "created_at": float(payload.get("created_at") or 0.0),
+    }
+
+
+def _merge_result_summary(merge_result: Any) -> dict[str, Any]:
+    payload = merge_result.to_dict()
+    return {
+        "merge_result_id": str(payload.get("merge_result_id") or ""),
+        "merge_policy": str(payload.get("merge_policy") or ""),
+        "accepted": bool(payload.get("accepted") is True),
+        "final_result_ref": str(payload.get("final_result_ref") or ""),
+        "created_at": float(payload.get("created_at") or 0.0),
+    }
+
+
+def _session_task_run_payloads(state_snapshot: dict[str, Any], session_id: str) -> list[dict[str, Any]]:
+    task_runs = dict(state_snapshot.get("task_runs") or {})
+    ids = list((state_snapshot.get("sessions") or {}).get(session_id) or [])
+    payloads = [dict(task_runs[item]) for item in ids if isinstance(task_runs.get(item), dict)]
+    return sorted(payloads, key=lambda item: float(item.get("updated_at") or 0.0), reverse=True)
+
+
+def _task_coordination_run_payloads(state_snapshot: dict[str, Any], task_run_id: str) -> list[dict[str, Any]]:
+    coordination_runs = dict(state_snapshot.get("coordination_runs") or {})
+    ids = list((state_snapshot.get("task_coordination_runs") or {}).get(task_run_id) or [])
+    payloads = [dict(coordination_runs[item]) for item in ids if isinstance(coordination_runs.get(item), dict)]
+    return sorted(payloads, key=lambda item: float(item.get("updated_at") or 0.0), reverse=True)
+
+
+def _coordination_node_run_payloads(state_snapshot: dict[str, Any], coordination_run_id: str) -> list[dict[str, Any]]:
+    node_runs = dict(state_snapshot.get("coordination_node_runs") or {})
+    ids = list((state_snapshot.get("coordination_node_run_index") or {}).get(coordination_run_id) or [])
+    payloads = [dict(node_runs[item]) for item in ids if isinstance(node_runs.get(item), dict)]
+    return sorted(
+        payloads,
+        key=lambda item: (float(item.get("updated_at") or 0.0), str(item.get("node_id") or "")),
+        reverse=False,
+    )
+
+
+def _coordination_handoff_payloads(state_snapshot: dict[str, Any], coordination_run_id: str) -> list[dict[str, Any]]:
+    handoffs = dict(state_snapshot.get("handoff_envelopes") or {})
+    ids = list((state_snapshot.get("coordination_handoffs") or {}).get(coordination_run_id) or [])
+    payloads = [dict(handoffs[item]) for item in ids if isinstance(handoffs.get(item), dict)]
+    return sorted(payloads, key=lambda item: float(item.get("created_at") or 0.0), reverse=False)
+
+
+def _latest_coordination_merge_result_payload(
+    state_snapshot: dict[str, Any],
+    coordination_run_id: str,
+) -> dict[str, Any] | None:
+    results = [
+        dict(item)
+        for item in dict(state_snapshot.get("coordination_merge_results") or {}).values()
+        if isinstance(item, dict) and str(item.get("coordination_run_id") or "") == coordination_run_id
+    ]
+    if not results:
+        return None
+    return sorted(results, key=lambda item: float(item.get("created_at") or 0.0), reverse=True)[0]
+
+
+def _pick_session_monitor_task_run_payload(
+    task_runs: list[dict[str, Any]],
+    state_snapshot: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not task_runs:
+        return None
+    task_coordination_runs = dict(state_snapshot.get("task_coordination_runs") or {})
+    for item in task_runs:
+        if list(task_coordination_runs.get(str(item.get("task_run_id") or "")) or []):
+            return item
+    return task_runs[0]
+
+
+def _pick_coordination_run_payload(coordination_runs: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not coordination_runs:
+        return None
+    for status in ("running", "waiting", "pending"):
+        for item in coordination_runs:
+            if str(item.get("status") or "") == status:
+                return item
+    return coordination_runs[0]
+
+
+def _task_run_from_payload_summary(payload: dict[str, Any]) -> dict[str, Any] | None:
+    if not payload:
+        return None
+    diagnostics = dict(payload.get("diagnostics") or {})
+    return {
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "session_id": str(payload.get("session_id") or ""),
+        "task_id": str(payload.get("task_id") or ""),
+        "agent_id": str(payload.get("agent_id") or ""),
+        "agent_profile_id": str(payload.get("agent_profile_id") or ""),
+        "runtime_lane": str(payload.get("runtime_lane") or ""),
+        "status": str(payload.get("status") or ""),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+        "graph_ref": str(diagnostics.get("graph_ref") or ""),
+        "coordination_run_ref": str(diagnostics.get("coordination_run_ref") or ""),
+        "created_at": float(payload.get("created_at") or 0.0),
+        "updated_at": float(payload.get("updated_at") or 0.0),
+        "authority": str(payload.get("authority") or ""),
+    }
+
+
+def _coordination_run_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "coordination_run_id": str(payload.get("coordination_run_id") or ""),
+        "task_run_id": str(payload.get("task_run_id") or ""),
+        "coordinator_agent_id": str(payload.get("coordinator_agent_id") or ""),
+        "graph_ref": str(payload.get("graph_ref") or ""),
+        "status": str(payload.get("status") or ""),
+        "terminal_reason": str(payload.get("terminal_reason") or ""),
+        "created_at": float(payload.get("created_at") or 0.0),
+        "updated_at": float(payload.get("updated_at") or 0.0),
+    }
+
+
+def _node_run_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "node_run_id": str(payload.get("node_run_id") or ""),
+        "node_id": str(payload.get("node_id") or ""),
+        "assigned_agent_id": str(payload.get("assigned_agent_id") or ""),
+        "assigned_agent_run_ref": str(payload.get("assigned_agent_run_ref") or ""),
+        "status": str(payload.get("status") or ""),
+        "input_refs": list(payload.get("input_refs") or []),
+        "output_refs": [
+            ref for ref in list(payload.get("output_refs") or []) if str(ref).startswith("artifact:")
+        ],
+        "created_at": float(payload.get("created_at") or 0.0),
+        "updated_at": float(payload.get("updated_at") or 0.0),
+    }
+
+
+def _handoff_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "handoff_id": str(payload.get("handoff_id") or ""),
+        "source_agent_run_ref": str(payload.get("source_agent_run_ref") or ""),
+        "target_agent_run_ref": str(payload.get("target_agent_run_ref") or ""),
+        "protocol_id": str(payload.get("protocol_id") or ""),
+        "message_type": str(payload.get("message_type") or ""),
+        "ack_state": str(payload.get("ack_state") or ""),
+        "created_at": float(payload.get("created_at") or 0.0),
+    }
+
+
+def _merge_result_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "merge_result_id": str(payload.get("merge_result_id") or ""),
+        "merge_policy": str(payload.get("merge_policy") or ""),
+        "accepted": bool(payload.get("accepted") is True),
+        "final_result_ref": str(payload.get("final_result_ref") or ""),
+        "created_at": float(payload.get("created_at") or 0.0),
+    }
 
 
 def _event_view(
@@ -209,6 +649,15 @@ def _pick_coordination_run(coordination_runs: list[CoordinationRun]) -> Coordina
             if item.status == status:
                 return item
     return coordination_runs[0]
+
+
+def _pick_session_monitor_task_run(task_runs: list[TaskRun], state_index: RuntimeStateIndex) -> TaskRun | None:
+    if not task_runs:
+        return None
+    for item in task_runs:
+        if state_index.list_task_coordination_runs(item.task_run_id):
+            return item
+    return task_runs[0]
 
 
 def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:

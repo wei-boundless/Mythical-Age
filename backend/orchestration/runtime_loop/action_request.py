@@ -97,14 +97,23 @@ def build_model_response_observation(task_run_id: str, event: dict[str, Any]) ->
 
 
 def build_executor_error_observation(task_run_id: str, event: dict[str, Any]) -> RuntimeObservation:
+    error = str(event.get("error") or "")
+    code = str(event.get("code") or "")
+    provider = str(event.get("provider") or "")
+    model = str(event.get("model") or "")
+    detail = str(event.get("detail") or "")
     return RuntimeObservation(
         observation_id=f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
         task_run_id=task_run_id,
         observation_type="executor_error",
         source=str(event.get("answer_source") or "runtime_executor"),
-        content_chars=len(str(event.get("error") or "")),
+        content_chars=len(error),
         payload={
-            "error": str(event.get("error") or ""),
+            "error": error,
+            "code": code,
+            "provider": provider,
+            "model": model,
+            "detail": detail,
             "answer_source": str(event.get("answer_source") or ""),
         },
         needs_model_followup=False,

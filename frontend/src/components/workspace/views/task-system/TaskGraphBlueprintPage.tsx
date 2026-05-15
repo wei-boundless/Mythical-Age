@@ -122,6 +122,17 @@ export function TaskGraphBlueprintPage({
                 value={taskGraphDraft.runtime_policy.agent_group_id}
               />
             </TaskSystemField>
+            <TaskSystemSelectField
+              formatOption={taskSystemOptionLabel}
+              label="人工接管策略"
+              onChange={(value) => updateRuntimePolicy({ human_gate_mode: value })}
+              options={["manual_required", "auto_continue", "non_blocking", "disabled"]}
+              value={String(taskGraphDraft.runtime_policy.human_gate_mode ?? "manual_required")}
+            />
+          </div>
+          <div className="task-graph-note">
+            <strong>人工接管由任务图装配决定</strong>
+            <span>选择“人工确认后继续”时，人工门控会阻塞运行；选择“自动继续”或“非阻塞记录”时，运行时不会因为人工接管停住。</span>
           </div>
         </article>
       </section>
