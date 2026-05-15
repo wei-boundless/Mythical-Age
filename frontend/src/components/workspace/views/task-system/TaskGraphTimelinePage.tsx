@@ -35,7 +35,6 @@ export function TaskGraphTimelinePage({
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
 }) {
   const metadata = asRecord(taskGraphDraft.metadata);
-  const timelinePolicy = asRecord(metadata.timeline_policy);
   const phaseDefinitions = coordinationPhaseDefinitions(metadata, activeGraphNodes);
   const timelineIssues = buildTimelinePreflightIssues(activeGraphNodes, activeGraphEdges, metadata);
   const issueByPhase = new Map<string, typeof timelineIssues>();
@@ -48,15 +47,6 @@ export function TaskGraphTimelinePage({
     ...phase,
     issues: [...phase.issues, ...(issueByPhase.get(phase.phase.phase_id) ?? [])],
   }));
-
-  const updateTimelinePolicy = (patch: Record<string, unknown>) => {
-    updateTaskGraphMetadata({
-      timeline_policy: {
-        ...timelinePolicy,
-        ...patch,
-      },
-    });
-  };
 
   const updatePhaseDefinition = (phaseId: string, patch: Record<string, unknown>) => {
     const currentPhases = coordinationPhaseDefinitions(metadata, activeGraphNodes);
@@ -83,35 +73,12 @@ export function TaskGraphTimelinePage({
 
       <section className="task-graph-form-grid">
         <article className="boundary-card">
-          <header><strong>图级时序策略</strong></header>
+          <header><strong>阶段主数据</strong></header>
           <div className="boundary-form">
-            <TaskSystemSelectField
-              formatOption={taskSystemOptionLabel}
-              label="调度模式"
-              onChange={(value) => updateTimelinePolicy({ scheduling_mode: value })}
-              options={["phase_sequence", "phase_then_sequence_index", "parallel"]}
-              value={String(timelinePolicy.scheduling_mode ?? "phase_then_sequence_index")}
-            />
-            <TaskSystemSelectField
-              formatOption={taskSystemOptionLabel}
-              label="阶段退出条件"
-              onChange={(value) => updateTimelinePolicy({ phase_exit_condition: value })}
-              options={["all_blocking_nodes_complete", "review_gate_passed", "manual_release"]}
-              value={String(timelinePolicy.phase_exit_condition ?? "all_blocking_nodes_complete")}
-            />
-            <TaskSystemField label="最大循环次数">
-              <input
-                min={0}
-                onChange={(event) => updateTimelinePolicy({ max_loop_attempts: Number(event.target.value || 0) })}
-                type="number"
-                value={Number(timelinePolicy.max_loop_attempts ?? 2)}
-              />
-            </TaskSystemField>
             <TaskSystemField label="阶段列表">
               <textarea
                 onChange={(event) => {
                   const phaseIds = splitList(event.target.value);
-                  updateTimelinePolicy({ phase_ids: phaseIds });
                   const currentDefinitions = coordinationPhaseDefinitions(metadata, activeGraphNodes);
                   const byId = new Map(currentDefinitions.map((phase) => [phase.phase_id, phase]));
                   updateTaskGraphMetadata({
@@ -122,6 +89,10 @@ export function TaskGraphTimelinePage({
                 value={phaseDefinitions.map((phase) => phase.phase_id).join("\n")}
               />
             </TaskSystemField>
+          </div>
+          <div className="task-graph-note">
+            <strong>运行时序以节点为准</strong>
+            <span>真实调度消费节点 phase、sequence、execution、wait 和 join；图级 timeline_policy 不再作为运行主数据。</span>
           </div>
         </article>
 

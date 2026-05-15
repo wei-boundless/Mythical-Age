@@ -9,6 +9,7 @@ from orchestration.runtime_loop.stage_execution_request import TaskResultReadyEv
 from orchestration.runtime_loop.state_index import RuntimeStateIndex
 from tasks import TaskContractRegistry
 from tasks.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol, TopologyTemplate
+from orchestration.runtime_loop.continuation_policy import parse_stage_contracts
 
 
 class _Trace:
@@ -163,6 +164,9 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
     assert continuation["current_turn_context"]["a2a_payload"]["message"]["metadata"]["target_stage_id"] == "novel_bible"
     assert result.stage_execution_request.runtime_assembly["authority"] == "orchestration.node_runtime_assembly"
     assert result.stage_execution_request.a2a_payload["message"]["metadata"]["runtime_assembly_ref"]
+    scheduler_state = dict(dict(result.state["diagnostics"]).get("task_graph_scheduler_state") or {})
+    assert scheduler_state["authority"] == "task_system.task_graph_scheduler_state"
+    assert scheduler_state["mode"] == "active"
     updated = state_index.get_coordination_run("coordrun:test")
     assert updated is not None
     flow = dict(updated.diagnostics.get("coordination_flow") or {})
@@ -385,6 +389,107 @@ def test_langgraph_coordination_runtime_routes_ready_nodes_before_join(tmp_path)
     assert runtime_state["running_nodes"] == ["d"]
 
 
+class _SequencedRegistry:
+    def __init__(self) -> None:
+        self.tasks = (
+            SpecificTaskRecord(task_id="task.test.a", task_title="A", task_family="test", task_mode="task_execution"),
+            SpecificTaskRecord(task_id="task.test.b", task_title="B", task_family="test", task_mode="task_execution"),
+            SpecificTaskRecord(task_id="task.test.c", task_title="C", task_family="test", task_mode="task_execution"),
+        )
+        self.coordination = CoordinationTaskDefinition(
+            graph_id="graph.test.sequence",
+            title="测试显式时序",
+            coordination_mode="pipeline",
+            coordinator_agent_id="agent:0",
+            task_family="test",
+            topology_template_id="topology.test.sequence",
+            graph_nodes=(
+                {"node_id": "a", "agent_id": "agent:0", "task_id": "task.test.a", "role": "coordinator", "phase_id": "phase.write", "sequence_index": 1},
+                {"node_id": "b", "agent_id": "agent:0", "task_id": "task.test.b", "role": "participant", "phase_id": "phase.write", "sequence_index": 2},
+                {"node_id": "c", "agent_id": "agent:0", "task_id": "task.test.c", "role": "participant", "phase_id": "phase.write", "sequence_index": 3},
+            ),
+            graph_edges=(),
+            metadata={
+                "stage_contracts": [
+                    {"stage_id": "a", "task_ref": "task.test.a", "node_id": "a"},
+                    {"stage_id": "b", "task_ref": "task.test.b", "node_id": "b"},
+                    {"stage_id": "c", "task_ref": "task.test.c", "node_id": "c"},
+                ],
+            },
+        )
+        self.topology = TopologyTemplate(
+            template_id="topology.test.sequence",
+            title="测试显式时序",
+            nodes=self.coordination.graph_nodes,
+            edges=self.coordination.graph_edges,
+            enabled=True,
+        )
+        self.protocol = TaskCommunicationProtocol(
+            protocol_id="protocol.test.sequence",
+            title="官方 A2A 时序测试协议",
+            message_types=("message/send",),
+            enabled=True,
+        )
+
+    def resolve_graph_task_view(self, graph_id: str):
+        return self.coordination if graph_id == self.coordination.graph_id else None
+
+    def get_topology_template(self, template_id: str):
+        return self.topology if template_id == self.topology.template_id else None
+
+    def get_task_communication_protocol(self, protocol_id: str):
+        return self.protocol if protocol_id == self.protocol.protocol_id else None
+
+    def list_specific_task_records(self):
+        return list(self.tasks)
+
+
+def test_langgraph_coordination_runtime_uses_scheduler_sequence_gate(tmp_path) -> None:
+    registry = _SequencedRegistry()
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:sequence",
+        task_run_id="taskrun:sequence",
+        graph_ref="graph.test.sequence",
+        coordinator_agent_id="agent:0",
+        topology_template_id="topology.test.sequence",
+        communication_protocol_id="protocol.test.sequence",
+        status="running",
+        diagnostics={"coordination_flow": {"current_stage_id": "a"}},
+    )
+    state_index.upsert_coordination_run(coordination_run)
+
+    result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:sequence",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            accepted=True,
+        ),
+    )
+
+    assert result.stage_execution_request is not None
+    assert result.stage_execution_request.stage_id == "b"
+    assert result.state["running_nodes"] == ["b"]
+    assert result.state["ready_nodes"] == []
+    assert result.state["blocked_nodes"] == ["c"]
+    scheduler_state = dict(dict(result.state["diagnostics"]).get("task_graph_scheduler_state") or {})
+    c_state = next(item for item in scheduler_state["node_states"] if item["node_id"] == "c")
+    assert "sequence_wait:2" in c_state["blocked_reasons"]
+
+
 def test_langgraph_coordination_runtime_blocks_when_required_input_missing(tmp_path) -> None:
     runtime, _, coordination_run = _diamond_runtime(tmp_path)
 
@@ -545,3 +650,44 @@ def test_langgraph_coordination_runtime_human_gate_reject_fails_closed(tmp_path)
     assert result.state["terminal_status"] == "failed"
     assert result.state["failed_nodes"] == ["a"]
     assert result.state["contract_status"]["node_status"]["a"]["status"] == "failed"
+
+
+def test_parse_stage_contracts_derives_from_graph_nodes_when_metadata_is_missing() -> None:
+    coordination_task = CoordinationTaskDefinition(
+        graph_id="graph.test.derived_contracts",
+        title="测试派生契约",
+        coordination_mode="pipeline",
+        coordinator_agent_id="agent:0",
+        task_family="test",
+        topology_template_id="topology.test.derived_contracts",
+        graph_nodes=(
+            {
+                "node_id": "a",
+                "agent_id": "agent:a",
+                "task_id": "task.test.a",
+                "output_contract_id": "contract.test.a",
+            },
+            {
+                "node_id": "b",
+                "agent_id": "agent:b",
+                "task_id": "task.test.b",
+                "input_contract_id": "contract.test.a",
+                "output_contract_id": "contract.test.b",
+            },
+        ),
+        graph_edges=(
+            {
+                "edge_id": "a_b",
+                "from": "a",
+                "to": "b",
+                "payload_contract_id": "contract.test.a",
+            },
+        ),
+    )
+
+    contracts = parse_stage_contracts(coordination_task=coordination_task, topology_nodes=list(coordination_task.graph_nodes), topology_edges=list(coordination_task.graph_edges))
+
+    assert [contract.stage_id for contract in contracts] == ["a", "b"]
+    assert contracts[1].required_inputs == ("contract.test.a:artifact_refs",)
+    assert contracts[1].input_bindings[0]["source_stage_id"] == "a"
+    assert contracts[1].output_mappings[0]["output_key"] == "contract.test.b:artifact_refs"

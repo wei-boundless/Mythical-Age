@@ -1,6 +1,310 @@
 {
   "assignments": [
     {
+      "task_id": "task.writing_team.long_novel.world_design",
+      "task_title": "世界观设计",
+      "task_kind": "specific_task",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "world_designer",
+      "flow_id": "flow.writing_team.long_novel.world_design",
+      "workflow_id": "workflow.writing_team.long_novel.world_design",
+      "workflow_file_ref": "workflow:workflow.writing_team.long_novel.world_design",
+      "projection_id": "projection.writing_team.long_novel.world_designer",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.world_brief",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "world_designer",
+        "projection_id": "projection.writing_team.long_novel.world_designer"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "package_template": "writing_team_long_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing_team.long_novel.world_review",
+      "task_title": "世界观审核",
+      "task_kind": "specific_task",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "world_reviewer",
+      "flow_id": "flow.writing_team.long_novel.world_review",
+      "workflow_id": "workflow.writing_team.long_novel.world_review",
+      "workflow_file_ref": "workflow:workflow.writing_team.long_novel.world_review",
+      "projection_id": "projection.writing_team.long_novel.world_reviewer",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.world_review",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "world_reviewer",
+        "projection_id": "projection.writing_team.long_novel.world_reviewer"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "package_template": "writing_team_long_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing_team.long_novel.outline_design",
+      "task_title": "大纲设计",
+      "task_kind": "specific_task",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "outline_designer",
+      "flow_id": "flow.writing_team.long_novel.outline_design",
+      "workflow_id": "workflow.writing_team.long_novel.outline_design",
+      "workflow_file_ref": "workflow:workflow.writing_team.long_novel.outline_design",
+      "projection_id": "projection.writing_team.long_novel.outline_designer",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.outline_brief",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "outline_designer",
+        "projection_id": "projection.writing_team.long_novel.outline_designer"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "package_template": "writing_team_long_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing_team.long_novel.outline_review",
+      "task_title": "大纲审核",
+      "task_kind": "specific_task",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "outline_reviewer",
+      "flow_id": "flow.writing_team.long_novel.outline_review",
+      "workflow_id": "workflow.writing_team.long_novel.outline_review",
+      "workflow_file_ref": "workflow:workflow.writing_team.long_novel.outline_review",
+      "projection_id": "projection.writing_team.long_novel.outline_reviewer",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.outline_review",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "outline_reviewer",
+        "projection_id": "projection.writing_team.long_novel.outline_reviewer"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "package_template": "writing_team_long_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing_team.long_novel.character_design",
+      "task_title": "人物设定",
+      "task_kind": "specific_task",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "character_designer",
+      "flow_id": "flow.writing_team.long_novel.character_design",
+      "workflow_id": "workflow.writing_team.long_novel.character_design",
+      "workflow_file_ref": "workflow:workflow.writing_team.long_novel.character_design",
+      "projection_id": "projection.writing_team.long_novel.character_designer",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.character_sheet",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "character_designer",
+        "projection_id": "projection.writing_team.long_novel.character_designer"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "package_template": "writing_team_long_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing_team.long_novel.chapter_plan",
+      "task_title": "章节细纲",
+      "task_kind": "specific_task",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "chapter_planner",
+      "flow_id": "flow.writing_team.long_novel.chapter_plan",
+      "workflow_id": "workflow.writing_team.long_novel.chapter_plan",
+      "workflow_file_ref": "workflow:workflow.writing_team.long_novel.chapter_plan",
+      "projection_id": "projection.writing_team.long_novel.chapter_planner",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.chapter_plan",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "chapter_planner",
+        "projection_id": "projection.writing_team.long_novel.chapter_planner"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "package_template": "writing_team_long_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing_team.long_novel.chapter_draft",
+      "task_title": "章节正文候选稿",
+      "task_kind": "specific_task",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "chapter_writer",
+      "flow_id": "flow.writing_team.long_novel.chapter_draft",
+      "workflow_id": "workflow.writing_team.long_novel.chapter_draft",
+      "workflow_file_ref": "workflow:workflow.writing_team.long_novel.chapter_draft",
+      "projection_id": "projection.writing_team.long_novel.chapter_writer_a",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.chapter_draft",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "chapter_writer",
+        "projection_id": "projection.writing_team.long_novel.chapter_writer_a",
+        "parallel_projection_instances": [
+          "projection.writing_team.long_novel.chapter_writer_a",
+          "projection.writing_team.long_novel.chapter_writer_b"
+        ]
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "package_template": "writing_team_long_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing_team.long_novel.chapter_review",
+      "task_title": "章节互审",
+      "task_kind": "specific_task",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "chapter_reviewer",
+      "flow_id": "flow.writing_team.long_novel.chapter_review",
+      "workflow_id": "workflow.writing_team.long_novel.chapter_review",
+      "workflow_file_ref": "workflow:workflow.writing_team.long_novel.chapter_review",
+      "projection_id": "projection.writing_team.long_novel.chapter_reviewer",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.chapter_review",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "chapter_reviewer",
+        "projection_id": "projection.writing_team.long_novel.chapter_reviewer"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "package_template": "writing_team_long_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing_team.long_novel.quality_gate",
+      "task_title": "质量门",
+      "task_kind": "specific_task",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "quality_gate",
+      "flow_id": "flow.writing_team.long_novel.quality_gate",
+      "workflow_id": "workflow.writing_team.long_novel.quality_gate",
+      "workflow_file_ref": "workflow:workflow.writing_team.long_novel.quality_gate",
+      "projection_id": "projection.writing_team.long_novel.quality_gate",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.quality_gate",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "quality_gate",
+        "projection_id": "projection.writing_team.long_novel.quality_gate"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "package_template": "writing_team_long_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing_team.long_novel.memory_commit",
+      "task_title": "资产入库",
+      "task_kind": "specific_task",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "memory_steward",
+      "flow_id": "flow.writing_team.long_novel.memory_commit",
+      "workflow_id": "workflow.writing_team.long_novel.memory_commit",
+      "workflow_file_ref": "workflow:workflow.writing_team.long_novel.memory_commit",
+      "projection_id": "projection.writing_team.long_novel.memory_steward",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.memory_commit",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "memory_steward",
+        "projection_id": "projection.writing_team.long_novel.memory_steward"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "package_template": "writing_team_long_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
       "task_id": "task.000001",
       "task_title": "TaskGraph 收尾验证任务",
       "task_kind": "specific_task",

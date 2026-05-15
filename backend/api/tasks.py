@@ -125,8 +125,7 @@ def _strip_task_graph_prompt_metadata(
         existing_migration = cleaned.get("legacy_prompt_migration")
         cleaned["legacy_prompt_migration"] = {
             **(existing_migration if isinstance(existing_migration, dict) else {}),
-            **legacy_values,
-            "role_prompt": str(legacy_values.get("role_prompt") or prompt or "").strip(),
+            "legacy_field_names": sorted(str(key) for key in legacy_values.keys()),
             "projection_id": projection_id,
             "migration_status": migration_status,
         }

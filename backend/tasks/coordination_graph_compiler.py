@@ -109,6 +109,12 @@ def compile_task_graph_definition_runtime_spec(
             task_by_id=task_by_id,
         )
     )
+    scheduler_support = _scheduler_support_report(
+        graph=graph,
+        nodes=nodes,
+        edges=edges,
+    )
+    validation_issues.extend(_runtime_issues_from_scheduler_support(scheduler_support))
     return TaskGraphRuntimeSpec(
         graph_id=graph.graph_id,
         graph_ref=graph.graph_id,
@@ -135,6 +141,7 @@ def compile_task_graph_definition_runtime_spec(
             "artifact_policy": dict(graph_metadata.get("artifact_policy") or {}),
             "timeline_policy": dict(graph_metadata.get("timeline_policy") or {}),
             "phase_definitions": list(graph_metadata.get("phase_definitions") or []),
+            "scheduler_support": scheduler_support,
         },
     )
 
@@ -348,6 +355,140 @@ def _runtime_issue_from_task_graph_issue(issue: TaskGraphValidationIssue) -> Tas
     )
 
 
+def _scheduler_support_report(
+    *,
+    graph: TaskGraphDefinition,
+    nodes: list[TaskGraphRuntimeNode],
+    edges: list[TaskGraphRuntimeEdge],
+) -> dict[str, Any]:
+    supported: list[dict[str, Any]] = []
+    unsupported: list[dict[str, Any]] = []
+    partial: list[dict[str, Any]] = []
+
+    def mark(
+        *,
+        scope: str,
+        ref_id: str,
+        field: str,
+        value: Any,
+        status: str,
+        reason: str,
+    ) -> None:
+        item = {
+            "scope": scope,
+            "ref_id": ref_id,
+            "field": field,
+            "value": value,
+            "status": status,
+            "reason": reason,
+        }
+        if status == "supported":
+            supported.append(item)
+        elif status == "partial":
+            partial.append(item)
+        else:
+            unsupported.append(item)
+
+    metadata = dict(graph.metadata or {})
+    if metadata.get("timeline_policy"):
+        mark(
+            scope="graph",
+            ref_id=graph.graph_id,
+            field="metadata.timeline_policy",
+            value=dict(metadata.get("timeline_policy") or {}),
+            status="unsupported",
+            reason="当前 LangGraph runtime 仍按拓扑依赖推进，尚未按图级 timeline_policy 控制 phase/sequence。",
+        )
+    if metadata.get("phase_definitions"):
+        mark(
+            scope="graph",
+            ref_id=graph.graph_id,
+            field="metadata.phase_definitions",
+            value="configured",
+            status="partial",
+            reason="阶段定义已进入 RuntimeSpec diagnostics 和前端预检，但运行调度尚未按 phase exit policy 推进。",
+        )
+
+    for node in nodes:
+        if node.execution_mode == "sync":
+            mark(scope="node", ref_id=node.node_id, field="execution_mode", value=node.execution_mode, status="supported", reason="同步节点可按拓扑依赖顺序执行。")
+        elif node.execution_mode in {"parallel", "background", "barrier", "manual_gate"}:
+            mark(scope="node", ref_id=node.node_id, field="execution_mode", value=node.execution_mode, status="partial", reason="该执行模式已有模型和预检，但运行调度只部分消费其状态语义。")
+        else:
+            mark(scope="node", ref_id=node.node_id, field="execution_mode", value=node.execution_mode, status="unsupported", reason="当前调度器未实现该执行模式。")
+
+        if node.wait_policy in {"wait_all_upstream_completed", "wait_required_contracts"}:
+            mark(scope="node", ref_id=node.node_id, field="wait_policy", value=node.wait_policy, status="supported", reason="运行层已按上游完成和输入绑定阻塞节点。")
+        elif node.wait_policy in {"wait_any_upstream_completed", "fire_and_continue", "manual_release"}:
+            mark(scope="node", ref_id=node.node_id, field="wait_policy", value=node.wait_policy, status="supported", reason="TaskGraphSchedulerState 已消费该等待策略并参与 ready/blocked 判断。")
+        else:
+            mark(scope="node", ref_id=node.node_id, field="wait_policy", value=node.wait_policy, status="unsupported", reason="当前 ready/blocked 判断尚未完整消费该 wait_policy。")
+
+        if node.join_policy == "all_success":
+            mark(scope="node", ref_id=node.node_id, field="join_policy", value=node.join_policy, status="supported", reason="当前拓扑依赖等价于 all_success。")
+        elif node.join_policy in {"allow_partial_with_issues", "coordinator_decides"}:
+            mark(scope="node", ref_id=node.node_id, field="join_policy", value=node.join_policy, status="supported", reason="TaskGraphSchedulerState 已支持上游全部终态后的部分成功汇聚。")
+        else:
+            mark(scope="node", ref_id=node.node_id, field="join_policy", value=node.join_policy, status="unsupported", reason="当前调度器尚未实现该 join_policy。")
+
+        if node.phase_id:
+            mark(scope="node", ref_id=node.node_id, field="phase_id", value=node.phase_id, status="supported", reason="TaskGraphSchedulerState 已按 active phase gate 控制节点 ready/blocked。")
+        if node.sequence_index:
+            mark(scope="node", ref_id=node.node_id, field="sequence_index", value=node.sequence_index, status="supported", reason="TaskGraphSchedulerState 已按 phase 内 active sequence 控制节点 ready/blocked。")
+        if node.timeline_group_id:
+            mark(scope="node", ref_id=node.node_id, field="timeline_group_id", value=node.timeline_group_id, status="partial", reason="并行组已保留到 RuntimeSpec，但运行调度尚未按 timeline_group_id 同步启动。")
+        if node.review_gate_policy:
+            mark(scope="node", ref_id=node.node_id, field="review_gate_policy", value="configured", status="partial", reason="审核门策略已保留，但运行层仍主要依赖 stage contract / human gate 处理验收。")
+        if node.loop_policy:
+            mark(scope="node", ref_id=node.node_id, field="loop_policy", value="configured", status="partial", reason="节点循环策略已保留，但通用 TaskGraph loop 调度尚未实现。")
+
+    for edge in edges:
+        if edge.wait_policy:
+            status = "partial" if edge.wait_policy in {"wait_all_upstream_completed", "wait_required_contracts"} else "unsupported"
+            mark(scope="edge", ref_id=edge.edge_id, field="wait_policy", value=edge.wait_policy, status=status, reason="边级等待策略已保留，但当前运行调度主要按目标节点上游完成状态推进。")
+        if edge.ack_required or edge.ack_policy:
+            mark(scope="edge", ref_id=edge.edge_id, field="ack_policy", value=edge.ack_policy, status="partial", reason="ack 策略已进入 RuntimeSpec/A2A payload，但下游 ready/blocked 尚未严格等待边 ack 状态。")
+        if edge.failure_propagation_policy != "fail_downstream":
+            mark(scope="edge", ref_id=edge.edge_id, field="failure_propagation_policy", value=edge.failure_propagation_policy, status="unsupported", reason="当前调度器尚未实现边级失败传播策略。")
+        if edge.result_delivery_policy != "contract_payload_and_refs":
+            mark(scope="edge", ref_id=edge.edge_id, field="result_delivery_policy", value=edge.result_delivery_policy, status="partial", reason="结果投递策略已保留，但运行视图和 handoff 状态尚未完整区分不同投递方式。")
+        timeout_policy = str(dict(edge.metadata or {}).get("timeout_policy") or "")
+        if timeout_policy and timeout_policy != "fail_closed":
+            mark(scope="edge", ref_id=edge.edge_id, field="timeout_policy", value=timeout_policy, status="unsupported", reason="当前调度器尚未实现边级 timeout policy。")
+
+    return {
+        "authority": "task_system.scheduler_support_report",
+        "runtime": "langgraph_coordination_runtime",
+        "mode": "support_matrix",
+        "supported": supported,
+        "partial": partial,
+        "unsupported": unsupported,
+        "supported_count": len(supported),
+        "partial_count": len(partial),
+        "unsupported_count": len(unsupported),
+    }
+
+
+def _runtime_issues_from_scheduler_support(report: dict[str, Any]) -> list[TaskGraphRuntimeValidationIssue]:
+    issues: list[TaskGraphRuntimeValidationIssue] = []
+    for item in [*list(report.get("partial") or []), *list(report.get("unsupported") or [])]:
+        scope = str(item.get("scope") or "")
+        ref_id = str(item.get("ref_id") or "")
+        field = str(item.get("field") or "")
+        status = str(item.get("status") or "")
+        reason = str(item.get("reason") or "")
+        issues.append(
+            TaskGraphRuntimeValidationIssue(
+                code=f"scheduler_policy_{status}",
+                message=f"{field} 当前调度支持状态为 {status}：{reason}",
+                severity="warning",
+                node_id=ref_id if scope == "node" else "",
+                edge_id=ref_id if scope == "edge" else "",
+            )
+        )
+    return issues
+
+
 def _validate_runtime_graph_for_tasks(
     *,
     graph: TaskGraphDefinition,
@@ -415,10 +556,32 @@ def _normalize_nodes(
                 projection_id=str(raw.get("projection_id") or raw.get("projection_overlay_id") or "").strip(),
                 task_id=task_id,
                 task_family=str(raw.get("task_family") or getattr(task, "task_family", "") or coordination_task.task_family).strip(),
+                execution_mode=str(raw.get("execution_mode") or "sync").strip() or "sync",
+                wait_policy=str(raw.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed",
+                join_policy=str(raw.get("join_policy") or "all_success").strip() or "all_success",
+                dispatch_group=str(raw.get("dispatch_group") or "").strip(),
+                phase_id=str(raw.get("phase_id") or "").strip(),
+                sequence_index=int(raw.get("sequence_index") or 0),
+                timeline_group_id=str(raw.get("timeline_group_id") or "").strip(),
+                blocks_phase_exit=bool(raw.get("blocks_phase_exit", True)),
+                context_visibility_policy=dict(raw.get("context_visibility_policy") or {}),
+                memory_read_policy=dict(raw.get("memory_read_policy") or {}),
+                memory_writeback_policy=dict(raw.get("memory_writeback_policy") or {}),
+                dynamic_memory_read_policy=dict(raw.get("dynamic_memory_read_policy") or {}),
+                artifact_policy=dict(raw.get("artifact_policy") or {}),
+                review_gate_policy=dict(raw.get("review_gate_policy") or {}),
+                loop_policy=dict(raw.get("loop_policy") or {}),
                 metadata={
                     key: value
                     for key, value in raw.items()
-                    if key not in {"node_id", "id", "title", "label", "node_type", "role", "agent_id", "lane", "runtime_lane", "projection_id", "projection_overlay_id", "task_id", "subtask_ref", "task_family"}
+                    if key not in {
+                        "node_id", "id", "title", "label", "node_type", "role", "agent_id", "lane", "runtime_lane",
+                        "projection_id", "projection_overlay_id", "task_id", "subtask_ref", "task_family",
+                        "execution_mode", "wait_policy", "join_policy", "dispatch_group", "phase_id", "sequence_index",
+                        "timeline_group_id", "blocks_phase_exit", "context_visibility_policy", "memory_read_policy",
+                        "memory_writeback_policy", "dynamic_memory_read_policy", "artifact_policy", "review_gate_policy",
+                        "loop_policy",
+                    }
                 },
             )
         )

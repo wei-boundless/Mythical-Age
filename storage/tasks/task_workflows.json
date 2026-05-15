@@ -34,6 +34,446 @@
         "managed_by": "task_system",
         "task_resource": "general_conversation"
       }
+    },
+    {
+      "workflow_id": "workflow.writing_team.long_novel.world_design",
+      "title": "世界观设计工作流",
+      "task_mode": "world_designer",
+      "compatible_projection_ids": [
+        "projection.writing_team.long_novel.world_designer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_handoff",
+          "title": "读取上游交接"
+        },
+        {
+          "step_id": "produce_artifact",
+          "title": "产出本节点交付物"
+        },
+        {
+          "step_id": "handoff_result",
+          "title": "按契约交接结果"
+        }
+      ],
+      "input_boundary": "UserMessage",
+      "output_boundary": "contract.writing_team.long_novel.world_brief",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported"
+      ],
+      "required_evidence_refs": [
+        "upstream_artifact_refs",
+        "review_decisions_when_available"
+      ],
+      "output_contract_id": "contract.writing_team.long_novel.world_brief",
+      "prompt": "你是一名世界观设计师。\n你只负责提出可支撑长篇小说持续写作的世界规则、历史背景、力量边界和开放问题。\n你不负责写章节正文，也不负责替审核员裁定设定是否通过。\n你必须输出世界观候选方案、关键依据、风险点和需要后续审核的问题。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_family": "writing_team_long_novel",
+        "task_id": "task.writing_team.long_novel.world_design",
+        "flow_id": "flow.writing_team.long_novel.world_design",
+        "projection_id": "projection.writing_team.long_novel.world_designer"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing_team.long_novel.world_review",
+      "title": "世界观审核工作流",
+      "task_mode": "world_reviewer",
+      "compatible_projection_ids": [
+        "projection.writing_team.long_novel.world_reviewer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_handoff",
+          "title": "读取上游交接"
+        },
+        {
+          "step_id": "produce_artifact",
+          "title": "产出本节点交付物"
+        },
+        {
+          "step_id": "handoff_result",
+          "title": "按契约交接结果"
+        }
+      ],
+      "input_boundary": "contract.writing_team.long_novel.world_brief",
+      "output_boundary": "contract.writing_team.long_novel.world_review",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported"
+      ],
+      "required_evidence_refs": [
+        "upstream_artifact_refs",
+        "review_decisions_when_available"
+      ],
+      "output_contract_id": "contract.writing_team.long_novel.world_review",
+      "prompt": "你是一名世界观审核员。\n你只负责判断世界观设定是否完整、一致、可支撑后续人物、大纲和章节写作。\n你不负责扩写世界观，也不负责替创作者新增未经请求的设定。\n你必须给出通过或返修裁决、问题清单、依据和允许进入下一阶段的条件。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_family": "writing_team_long_novel",
+        "task_id": "task.writing_team.long_novel.world_review",
+        "flow_id": "flow.writing_team.long_novel.world_review",
+        "projection_id": "projection.writing_team.long_novel.world_reviewer"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing_team.long_novel.outline_design",
+      "title": "大纲设计工作流",
+      "task_mode": "outline_designer",
+      "compatible_projection_ids": [
+        "projection.writing_team.long_novel.outline_designer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_handoff",
+          "title": "读取上游交接"
+        },
+        {
+          "step_id": "produce_artifact",
+          "title": "产出本节点交付物"
+        },
+        {
+          "step_id": "handoff_result",
+          "title": "按契约交接结果"
+        }
+      ],
+      "input_boundary": "contract.writing_team.long_novel.world_review",
+      "output_boundary": "contract.writing_team.long_novel.outline_brief",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported"
+      ],
+      "required_evidence_refs": [
+        "upstream_artifact_refs",
+        "review_decisions_when_available"
+      ],
+      "output_contract_id": "contract.writing_team.long_novel.outline_brief",
+      "prompt": "你是一名长篇大纲设计师。\n你只负责根据已通过的世界观设计主线、分卷结构、阶段目标和关键转折。\n你不负责写章节正文，也不负责推翻已通过世界观。\n你必须输出大纲结构、阶段目标、关键冲突、伏笔安排和待审核风险。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_family": "writing_team_long_novel",
+        "task_id": "task.writing_team.long_novel.outline_design",
+        "flow_id": "flow.writing_team.long_novel.outline_design",
+        "projection_id": "projection.writing_team.long_novel.outline_designer"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing_team.long_novel.outline_review",
+      "title": "大纲审核工作流",
+      "task_mode": "outline_reviewer",
+      "compatible_projection_ids": [
+        "projection.writing_team.long_novel.outline_reviewer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_handoff",
+          "title": "读取上游交接"
+        },
+        {
+          "step_id": "produce_artifact",
+          "title": "产出本节点交付物"
+        },
+        {
+          "step_id": "handoff_result",
+          "title": "按契约交接结果"
+        }
+      ],
+      "input_boundary": "contract.writing_team.long_novel.outline_brief",
+      "output_boundary": "contract.writing_team.long_novel.outline_review",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported"
+      ],
+      "required_evidence_refs": [
+        "upstream_artifact_refs",
+        "review_decisions_when_available"
+      ],
+      "output_contract_id": "contract.writing_team.long_novel.outline_review",
+      "prompt": "你是一名长篇大纲审核员。\n你只负责判断大纲是否能支撑长篇推进、人物成长和章节生产。\n你不负责重写大纲，也不负责降低结构标准。\n你必须输出通过或返修裁决、结构风险、修正目标和可进入章节规划的条件。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_family": "writing_team_long_novel",
+        "task_id": "task.writing_team.long_novel.outline_review",
+        "flow_id": "flow.writing_team.long_novel.outline_review",
+        "projection_id": "projection.writing_team.long_novel.outline_reviewer"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing_team.long_novel.character_design",
+      "title": "人物设定工作流",
+      "task_mode": "character_designer",
+      "compatible_projection_ids": [
+        "projection.writing_team.long_novel.character_designer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_handoff",
+          "title": "读取上游交接"
+        },
+        {
+          "step_id": "produce_artifact",
+          "title": "产出本节点交付物"
+        },
+        {
+          "step_id": "handoff_result",
+          "title": "按契约交接结果"
+        }
+      ],
+      "input_boundary": "contract.writing_team.long_novel.outline_review",
+      "output_boundary": "contract.writing_team.long_novel.character_sheet",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported"
+      ],
+      "required_evidence_refs": [
+        "upstream_artifact_refs",
+        "review_decisions_when_available"
+      ],
+      "output_contract_id": "contract.writing_team.long_novel.character_sheet",
+      "prompt": "你是一名人物设定设计师。\n你只负责设计主要人物、关系、动机、弱点、成长线和与大纲的绑定关系。\n你不负责写章节正文，也不负责绕开世界观和大纲限制。\n你必须输出人物表、关系图说明、冲突来源、成长节点和未决问题。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_family": "writing_team_long_novel",
+        "task_id": "task.writing_team.long_novel.character_design",
+        "flow_id": "flow.writing_team.long_novel.character_design",
+        "projection_id": "projection.writing_team.long_novel.character_designer"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing_team.long_novel.chapter_plan",
+      "title": "章节细纲工作流",
+      "task_mode": "chapter_planner",
+      "compatible_projection_ids": [
+        "projection.writing_team.long_novel.chapter_planner"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_handoff",
+          "title": "读取上游交接"
+        },
+        {
+          "step_id": "produce_artifact",
+          "title": "产出本节点交付物"
+        },
+        {
+          "step_id": "handoff_result",
+          "title": "按契约交接结果"
+        }
+      ],
+      "input_boundary": "contract.writing_team.long_novel.character_sheet",
+      "output_boundary": "contract.writing_team.long_novel.chapter_plan",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported"
+      ],
+      "required_evidence_refs": [
+        "upstream_artifact_refs",
+        "review_decisions_when_available"
+      ],
+      "output_contract_id": "contract.writing_team.long_novel.chapter_plan",
+      "prompt": "你是一名章节规划师。\n你只负责把通过审核的世界观、大纲和人物设定转成当前章节的目标、场景顺序、冲突和伏笔。\n你不负责写正文，也不负责忽略质量门返修意见。\n你必须输出章节目标、场景列表、人物状态、冲突推进、伏笔和写作约束。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_family": "writing_team_long_novel",
+        "task_id": "task.writing_team.long_novel.chapter_plan",
+        "flow_id": "flow.writing_team.long_novel.chapter_plan",
+        "projection_id": "projection.writing_team.long_novel.chapter_planner"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing_team.long_novel.chapter_draft",
+      "title": "章节正文候选稿工作流",
+      "task_mode": "chapter_writer",
+      "compatible_projection_ids": [
+        "projection.writing_team.long_novel.chapter_writer_a"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_handoff",
+          "title": "读取上游交接"
+        },
+        {
+          "step_id": "produce_artifact",
+          "title": "产出本节点交付物"
+        },
+        {
+          "step_id": "handoff_result",
+          "title": "按契约交接结果"
+        }
+      ],
+      "input_boundary": "contract.writing_team.long_novel.chapter_plan",
+      "output_boundary": "contract.writing_team.long_novel.chapter_draft",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported"
+      ],
+      "required_evidence_refs": [
+        "upstream_artifact_refs",
+        "review_decisions_when_available"
+      ],
+      "output_contract_id": "contract.writing_team.long_novel.chapter_draft",
+      "prompt": "你是一名章节写作者。\n你只负责根据章节细纲写出正文候选稿，并保留关键创作取舍说明。\n你不负责审核自己，也不负责改写章节目标。\n你必须输出章节正文候选稿、使用的设定依据和仍需审稿人判断的问题。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_family": "writing_team_long_novel",
+        "task_id": "task.writing_team.long_novel.chapter_draft",
+        "flow_id": "flow.writing_team.long_novel.chapter_draft",
+        "projection_id": "projection.writing_team.long_novel.chapter_writer_a"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing_team.long_novel.chapter_review",
+      "title": "章节互审工作流",
+      "task_mode": "chapter_reviewer",
+      "compatible_projection_ids": [
+        "projection.writing_team.long_novel.chapter_reviewer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_handoff",
+          "title": "读取上游交接"
+        },
+        {
+          "step_id": "produce_artifact",
+          "title": "产出本节点交付物"
+        },
+        {
+          "step_id": "handoff_result",
+          "title": "按契约交接结果"
+        }
+      ],
+      "input_boundary": "contract.writing_team.long_novel.chapter_draft",
+      "output_boundary": "contract.writing_team.long_novel.chapter_review",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported"
+      ],
+      "required_evidence_refs": [
+        "upstream_artifact_refs",
+        "review_decisions_when_available"
+      ],
+      "output_contract_id": "contract.writing_team.long_novel.chapter_review",
+      "prompt": "你是一名章节审稿人。\n你只负责审查章节候选稿是否满足章节目标、人物状态、世界观约束和叙事节奏。\n你不负责替写作者扩写正文，也不负责无依据地偏向某个候选稿。\n你必须输出通过或返修建议、问题定位、候选稿比较和建议采用方向。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_family": "writing_team_long_novel",
+        "task_id": "task.writing_team.long_novel.chapter_review",
+        "flow_id": "flow.writing_team.long_novel.chapter_review",
+        "projection_id": "projection.writing_team.long_novel.chapter_reviewer"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing_team.long_novel.quality_gate",
+      "title": "质量门工作流",
+      "task_mode": "quality_gate",
+      "compatible_projection_ids": [
+        "projection.writing_team.long_novel.quality_gate"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_handoff",
+          "title": "读取上游交接"
+        },
+        {
+          "step_id": "produce_artifact",
+          "title": "产出本节点交付物"
+        },
+        {
+          "step_id": "handoff_result",
+          "title": "按契约交接结果"
+        }
+      ],
+      "input_boundary": "contract.writing_team.long_novel.chapter_review",
+      "output_boundary": "contract.writing_team.long_novel.quality_gate",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported"
+      ],
+      "required_evidence_refs": [
+        "upstream_artifact_refs",
+        "review_decisions_when_available"
+      ],
+      "output_contract_id": "contract.writing_team.long_novel.quality_gate",
+      "prompt": "你是一名长篇小说质量门审核员。\n你只负责基于章节审稿结果裁决当前章节是否通过、需要返修或应阻塞。\n你不负责写正文，也不负责跳过未解决的阻塞问题。\n你必须输出 pass、repair_required 或 blocked 裁决、阻塞问题、返修目标和是否允许入库。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_family": "writing_team_long_novel",
+        "task_id": "task.writing_team.long_novel.quality_gate",
+        "flow_id": "flow.writing_team.long_novel.quality_gate",
+        "projection_id": "projection.writing_team.long_novel.quality_gate"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing_team.long_novel.memory_commit",
+      "title": "资产入库工作流",
+      "task_mode": "memory_steward",
+      "compatible_projection_ids": [
+        "projection.writing_team.long_novel.memory_steward"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_handoff",
+          "title": "读取上游交接"
+        },
+        {
+          "step_id": "produce_artifact",
+          "title": "产出本节点交付物"
+        },
+        {
+          "step_id": "handoff_result",
+          "title": "按契约交接结果"
+        }
+      ],
+      "input_boundary": "contract.writing_team.long_novel.quality_gate",
+      "output_boundary": "contract.writing_team.long_novel.memory_commit",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported"
+      ],
+      "required_evidence_refs": [
+        "upstream_artifact_refs",
+        "review_decisions_when_available"
+      ],
+      "output_contract_id": "contract.writing_team.long_novel.memory_commit",
+      "prompt": "你是一名写作资产管理员。\n你只负责把已通过质量门的世界观、人物、大纲、章节摘要和引用写入长期资产。\n你不负责写新剧情，也不负责入库未通过审核的内容。\n你必须输出入库条目、来源引用、变更摘要和后续章节可读取建议。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_family": "writing_team_long_novel",
+        "task_id": "task.writing_team.long_novel.memory_commit",
+        "flow_id": "flow.writing_team.long_novel.memory_commit",
+        "projection_id": "projection.writing_team.long_novel.memory_steward"
+      }
     }
   ]
 }

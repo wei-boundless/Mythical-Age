@@ -1384,9 +1384,10 @@ export function TaskSystemView() {
     const subtaskId = String(metadata.task_id ?? "").trim();
     setTaskSelection({
       selected_task_id: subtaskId,
+      coordination_task_id: graph.graph_id,
       domain_id: domain?.domain_id || graph.domain_id || "",
       label: graph.title,
-      mode: "single_task",
+      mode: "coordination",
     });
     setWorkspaceView("chat");
     setNotice(`已将任务图“${graph.title}”带入主会话。`);

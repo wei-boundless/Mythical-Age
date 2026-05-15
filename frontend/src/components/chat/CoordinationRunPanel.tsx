@@ -874,6 +874,16 @@ export function CoordinationRunPanel({
   const outputCountLabel = model.outputs.length ? `${model.outputs.length} 条输出` : "暂无输出";
   const artifactCountLabel = model.artifacts.length ? `${model.artifacts.length} 个产物` : "暂无产物";
   const contractRuntime = model.contractRuntime;
+  const totalNodes = model.nodes.length;
+  const runningCount = model.nodes.filter((node) => node.status === "running").length;
+  const completedCount = model.nodes.filter((node) => node.status === "completed" || node.status === "success" || node.status === "satisfied").length;
+  const blockedCount = model.nodes.filter((node) => node.status === "blocked" || node.status === "failed" || node.status === "waiting_for_human" || node.status === "human_gate").length;
+  const progressPercent = totalNodes ? Math.round((completedCount / totalNodes) * 100) : 0;
+  const compactSummary = selectedNode
+    ? `${selectedNode.title} · ${statusLabel(selectedNode.status)}`
+    : currentNode
+      ? `${currentNode.title} · ${statusLabel(currentNode.status)}`
+      : "等待启动";
   const contractStatusLabel = contractRuntime.manifestRef
     ? contractRuntime.valid ? "Manifest 有效" : "Manifest 有问题"
     : "未接入契约";
@@ -991,10 +1001,44 @@ export function CoordinationRunPanel({
         ) : null}
       </header>
 
+      <section className="coordination-overview-strip" aria-label="运行总览">
+        <article className="coordination-overview-card coordination-overview-card--active">
+          <span>当前节点</span>
+          <strong>{currentNode ? currentNode.title : "等待启动"}</strong>
+          <em>{compactSummary}</em>
+        </article>
+        <article className="coordination-overview-card">
+          <span>总节点</span>
+          <strong>{totalNodes}</strong>
+          <em>运行中 {runningCount} · 完成 {completedCount}</em>
+        </article>
+        <article className="coordination-overview-card">
+          <span>进度</span>
+          <strong>{progressPercent}%</strong>
+          <em>阻塞 {blockedCount} · 输出 {model.outputs.length}</em>
+        </article>
+      </section>
+
+      <section className="coordination-workflow-strip" aria-label="工作流状态条">
+        <div className="coordination-workflow-strip__head">
+          <span>工作流</span>
+          <em>按当前运行态滚动展示各节点状态</em>
+        </div>
+        <div className="coordination-workflow-strip__rail">
+          {model.nodes.map((node) => (
+            <article className={`coordination-workflow-step coordination-workflow-step--${node.status}`} key={node.id}>
+              <span>{node.id}</span>
+              <strong>{node.title}</strong>
+              <em>{statusLabel(node.status)}</em>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <section className="coordination-topology-shell" aria-label="协调任务拓扑">
         <div className="coordination-topology-shell__head">
           <span>执行拓扑</span>
-          <p className="coordination-topology-shell__hint">球点代表 Agent，发光节点表示当前正在工作</p>
+          <p className="coordination-topology-shell__hint">实时显示当前节点与交接状态，选中节点可查看局部运行细节</p>
         </div>
         <div className="coordination-topology-viewport">
           <CoordinationTopologyGraph

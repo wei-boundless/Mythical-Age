@@ -1,6 +1,530 @@
 {
   "specific_task_records": [
     {
+      "task_id": "task.writing_team.long_novel.world_design",
+      "task_title": "世界观设计",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "world_designer",
+      "description": "长篇小说写作团队节点任务：世界观设计",
+      "enabled": true,
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.world_brief",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.world_design",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_design",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "world_designer",
+          "projection_id": "projection.writing_team.long_novel.world_designer"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.world_design",
+        "projection_id": "projection.writing_team.long_novel.world_designer",
+        "source_flow_id": "flow.writing_team.long_novel.world_design",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.world_review",
+      "task_title": "世界观审核",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "world_reviewer",
+      "description": "长篇小说写作团队节点任务：世界观审核",
+      "enabled": true,
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.world_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.world_review",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_review",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "world_reviewer",
+          "projection_id": "projection.writing_team.long_novel.world_reviewer"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.world_review",
+        "projection_id": "projection.writing_team.long_novel.world_reviewer",
+        "source_flow_id": "flow.writing_team.long_novel.world_review",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.outline_design",
+      "task_title": "大纲设计",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "outline_designer",
+      "description": "长篇小说写作团队节点任务：大纲设计",
+      "enabled": true,
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.outline_brief",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.outline_design",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_design",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "outline_designer",
+          "projection_id": "projection.writing_team.long_novel.outline_designer"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.outline_design",
+        "projection_id": "projection.writing_team.long_novel.outline_designer",
+        "source_flow_id": "flow.writing_team.long_novel.outline_design",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.outline_review",
+      "task_title": "大纲审核",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "outline_reviewer",
+      "description": "长篇小说写作团队节点任务：大纲审核",
+      "enabled": true,
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.outline_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.outline_review",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_review",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "outline_reviewer",
+          "projection_id": "projection.writing_team.long_novel.outline_reviewer"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.outline_review",
+        "projection_id": "projection.writing_team.long_novel.outline_reviewer",
+        "source_flow_id": "flow.writing_team.long_novel.outline_review",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.character_design",
+      "task_title": "人物设定",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "character_designer",
+      "description": "长篇小说写作团队节点任务：人物设定",
+      "enabled": true,
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.character_sheet",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.character_design",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_design",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "character_designer",
+          "projection_id": "projection.writing_team.long_novel.character_designer"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_design",
+        "projection_id": "projection.writing_team.long_novel.character_designer",
+        "source_flow_id": "flow.writing_team.long_novel.character_design",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.chapter_plan",
+      "task_title": "章节细纲",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "chapter_planner",
+      "description": "长篇小说写作团队节点任务：章节细纲",
+      "enabled": true,
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.chapter_plan",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.chapter_plan",
+      "default_workflow_id": "workflow.writing_team.long_novel.chapter_plan",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "chapter_planner",
+          "projection_id": "projection.writing_team.long_novel.chapter_planner"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.chapter_plan",
+        "projection_id": "projection.writing_team.long_novel.chapter_planner",
+        "source_flow_id": "flow.writing_team.long_novel.chapter_plan",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.chapter_draft",
+      "task_title": "章节正文候选稿",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "chapter_writer",
+      "description": "长篇小说写作团队节点任务：章节正文候选稿",
+      "enabled": true,
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.chapter_draft",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.chapter_draft",
+      "default_workflow_id": "workflow.writing_team.long_novel.chapter_draft",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "chapter_writer",
+          "projection_id": "projection.writing_team.long_novel.chapter_writer_a",
+          "parallel_projection_instances": [
+            "projection.writing_team.long_novel.chapter_writer_a",
+            "projection.writing_team.long_novel.chapter_writer_b"
+          ]
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.chapter_draft",
+        "projection_id": "projection.writing_team.long_novel.chapter_writer_a",
+        "source_flow_id": "flow.writing_team.long_novel.chapter_draft",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.chapter_review",
+      "task_title": "章节互审",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "chapter_reviewer",
+      "description": "长篇小说写作团队节点任务：章节互审",
+      "enabled": true,
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.chapter_review",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.chapter_review",
+      "default_workflow_id": "workflow.writing_team.long_novel.chapter_review",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "chapter_reviewer",
+          "projection_id": "projection.writing_team.long_novel.chapter_reviewer"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.chapter_review",
+        "projection_id": "projection.writing_team.long_novel.chapter_reviewer",
+        "source_flow_id": "flow.writing_team.long_novel.chapter_review",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.quality_gate",
+      "task_title": "质量门",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "quality_gate",
+      "description": "长篇小说写作团队节点任务：质量门",
+      "enabled": true,
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.quality_gate",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.quality_gate",
+      "default_workflow_id": "workflow.writing_team.long_novel.quality_gate",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "quality_gate",
+          "projection_id": "projection.writing_team.long_novel.quality_gate"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.quality_gate",
+        "projection_id": "projection.writing_team.long_novel.quality_gate",
+        "source_flow_id": "flow.writing_team.long_novel.quality_gate",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.memory_commit",
+      "task_title": "资产入库",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "memory_steward",
+      "description": "长篇小说写作团队节点任务：资产入库",
+      "enabled": true,
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.memory_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.memory_commit",
+      "default_workflow_id": "workflow.writing_team.long_novel.memory_commit",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_steward",
+          "projection_id": "projection.writing_team.long_novel.memory_steward"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.memory_commit",
+        "projection_id": "projection.writing_team.long_novel.memory_steward",
+        "source_flow_id": "flow.writing_team.long_novel.memory_commit",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
       "task_id": "task.000001",
       "task_title": "TaskGraph 收尾验证任务",
       "task_family": "general",

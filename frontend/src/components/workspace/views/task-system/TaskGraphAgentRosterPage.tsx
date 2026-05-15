@@ -25,6 +25,12 @@ function parseList(text: string) {
     .filter(Boolean);
 }
 
+function legacyFieldNames(value: unknown): string[] {
+  const record = asRecord(value);
+  const next = record.legacy_field_names;
+  return Array.isArray(next) ? next.map((item) => String(item)).filter(Boolean) : [];
+}
+
 export function TaskGraphAgentRosterPage({
   activeGraphNodes,
   a2aCatalog,
@@ -193,10 +199,10 @@ export function TaskGraphAgentRosterPage({
                 <TaskSystemField label="节点职责 Projection">
                   <input readOnly value={String(node.projection_id ?? node.projection_overlay_id ?? "未绑定")} />
                 </TaskSystemField>
-                {String(nodeMetadata.role_prompt ?? "").trim() ? (
+                {legacyFieldNames(nodeMetadata.legacy_prompt_migration).length > 0 ? (
                   <div className="task-graph-note">
                     <strong>Legacy Prompt 待迁移</strong>
-                    <span>该节点仍有旧 Prompt 文本，请到职责与交接页生成并绑定投影。</span>
+                    <span>该节点仍有旧职责字段，请到职责与交接页生成并绑定投影。</span>
                   </div>
                 ) : null}
               </article>

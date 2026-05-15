@@ -451,7 +451,7 @@ function nodeContractId(node: Record<string, unknown> | null) {
 }
 
 function edgeContractId(edge: Record<string, unknown> | null) {
-  return String(edge?.contract_id ?? "").trim();
+  return String(edge?.payload_contract_id ?? edge?.contract_id ?? "").trim();
 }
 
 export function graphNodeLabel(node: Record<string, unknown>, index: number) {

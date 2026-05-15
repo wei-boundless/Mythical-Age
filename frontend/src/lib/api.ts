@@ -1464,6 +1464,7 @@ export type TaskGraphRunStartResult = {
   coordination_run: Record<string, unknown> | null;
   checkpoint: Record<string, unknown>;
   runtime_spec: CoordinationGraphSpec;
+  stage_execution_request: Record<string, unknown> | null;
   trace: RuntimeLoopTaskRunTrace | null;
   events: Array<Record<string, unknown>>;
 };
@@ -3096,6 +3097,29 @@ export async function resumeOrchestrationCoordinationRun(
     {
       method: "POST",
       body: JSON.stringify({ resume_payload: resumePayload }),
+    }
+  );
+}
+
+export async function stopOrchestrationTaskRun(
+  taskRunId: string,
+  payload: {
+    reason?: string;
+    message?: string;
+    coordination_run_id?: string;
+  } = {}
+) {
+  return request<{
+    authority: string;
+    task_run_id: string;
+    reason: string;
+    checkpoint_ref: string;
+    event_ref: string;
+  }>(
+    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/stop`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
     }
   );
 }

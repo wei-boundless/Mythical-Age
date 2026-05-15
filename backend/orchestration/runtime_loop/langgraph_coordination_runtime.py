@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import operator
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields as dataclass_fields
 from typing import Annotated, Any, TypedDict
 
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from langgraph.graph import END, START, StateGraph
 
 from tasks import TaskContractRegistry
-from tasks.coordination_graph_compiler import compile_task_graph_runtime_spec
+from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec, compile_task_graph_runtime_spec
+from tasks.coordination_graph_models import TaskGraphRuntimeEdge, TaskGraphRuntimeNode, TaskGraphRuntimeSpec
 
 from .a2a_stage_payload import build_stage_execution_a2a_payload
 from .artifact_refs import ArtifactRefIndex, collect_task_result_output_refs
@@ -29,6 +30,7 @@ from .continuation_policy import (
     CoordinationStageContract,
     contract_by_stage,
     parse_stage_contracts,
+    derive_stage_contracts_from_graph,
     validate_stage_contracts,
 )
 from .coordination_trace_adapter import CoordinationTraceAdapter
@@ -36,6 +38,7 @@ from .langgraph_checkpoint_adapter import LangGraphCheckpointStoreAdapter
 from .models import CoordinationRun
 from .runtime_assembly_builder import build_node_runtime_assembly
 from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
+from .task_graph_scheduler import bootstrap_scheduler_state
 
 
 class CoordinationRuntimeState(TypedDict, total=False):
@@ -149,6 +152,15 @@ class LangGraphCoordinationRuntime:
 
     def _resolve_task_graph_view(self, coordination_run: CoordinationRun):
         return self.task_flow_registry.resolve_graph_task_view(coordination_run.graph_ref)
+
+    def _resolve_task_graph_definition(self, coordination_run: CoordinationRun):
+        target = str(coordination_run.graph_ref or "").strip()
+        if not target:
+            return None
+        get_task_graph = getattr(self.task_flow_registry, "get_task_graph", None)
+        if not callable(get_task_graph):
+            return None
+        return get_task_graph(target)
 
     def supports(self, coordination_run: CoordinationRun) -> bool:
         coordination_task = self._resolve_task_graph_view(coordination_run)
@@ -452,17 +464,17 @@ class LangGraphCoordinationRuntime:
         if not order:
             return {"terminal_status": "blocked", "missing_required_inputs": ["stage_order"]}
         if str(state.get("terminal_status") or "") == "waiting_for_human":
-            return _runtime_node_sets(
+            return _scheduler_node_sets(
                 order=order,
                 node_statuses=dict(state.get("node_statuses") or {}),
-                edge_contracts=dict(state.get("edge_contracts") or {}),
+                state=state,
                 terminal_status="waiting_for_human",
             )
         if str(state.get("terminal_status") or "") == "failed":
-            return _runtime_node_sets(
+            return _scheduler_node_sets(
                 order=order,
                 node_statuses=dict(state.get("node_statuses") or {}),
-                edge_contracts=dict(state.get("edge_contracts") or {}),
+                state=state,
                 terminal_status="failed",
             )
         node_statuses = dict(state.get("node_statuses") or {})
@@ -471,7 +483,11 @@ class LangGraphCoordinationRuntime:
             contracts = dict(state.get("stage_contracts") or {})
             contract = dict(contracts.get(retry_stage_id) or {})
             node_statuses[retry_stage_id] = "running"
-            next_sets = _runtime_node_sets(order=order, node_statuses=node_statuses, edge_contracts=dict(state.get("edge_contracts") or {}))
+            next_sets = _scheduler_node_sets(
+                order=order,
+                node_statuses=node_statuses,
+                state=state,
+            )
             diagnostics = dict(state.get("diagnostics") or {})
             diagnostics.pop("retry_stage_id", None)
             return {
@@ -482,9 +498,13 @@ class LangGraphCoordinationRuntime:
                 "node_statuses": node_statuses,
                 "terminal_status": "",
                 "missing_required_inputs": [],
-                "diagnostics": diagnostics,
+                "diagnostics": {**dict(next_sets.get("diagnostics") or {}), **diagnostics},
             }
-        sets = _runtime_node_sets(order=order, node_statuses=node_statuses, edge_contracts=dict(state.get("edge_contracts") or {}))
+        sets = _scheduler_node_sets(
+            order=order,
+            node_statuses=node_statuses,
+            state=state,
+        )
         ready = list(sets.get("ready_nodes") or [])
         if not ready and sets.get("terminal_status"):
             return sets
@@ -503,7 +523,11 @@ class LangGraphCoordinationRuntime:
         contracts = dict(state.get("stage_contracts") or {})
         contract = dict(contracts.get(next_stage) or {})
         node_statuses[next_stage] = "running"
-        next_sets = _runtime_node_sets(order=order, node_statuses=node_statuses, edge_contracts=dict(state.get("edge_contracts") or {}))
+        next_sets = _scheduler_node_sets(
+            order=order,
+            node_statuses=node_statuses,
+            state=state,
+        )
         return {
             **next_sets,
             "active_stage_id": next_stage,
@@ -554,10 +578,10 @@ class LangGraphCoordinationRuntime:
                 "terminal_status": "blocked",
                 "node_statuses": node_statuses,
                 "contract_status": contract_status,
-                **_runtime_node_sets(
+                **_scheduler_node_sets(
                     order=[str(item) for item in list(state.get("stage_order") or []) if str(item)],
                     node_statuses=node_statuses,
-                    edge_contracts=dict(state.get("edge_contracts") or {}),
+                    state=state,
                     terminal_status="blocked",
                 ),
                 "diagnostics": {**dict(state.get("diagnostics") or {}), "binding": dict(binding.diagnostics)},
@@ -688,11 +712,20 @@ class LangGraphCoordinationRuntime:
         topology_template = self.task_flow_registry.get_topology_template(coordination_run.topology_template_id)
         communication_protocol = self.task_flow_registry.get_task_communication_protocol(coordination_run.communication_protocol_id)
         specific_tasks = tuple(self.task_flow_registry.list_specific_task_records())
-        graph_spec = compile_task_graph_runtime_spec(
-            coordination_task=coordination_task,
-            specific_tasks=specific_tasks,
-            topology_template=topology_template,
-            communication_protocol=communication_protocol,
+        task_graph = self._resolve_task_graph_definition(coordination_run)
+        graph_spec = (
+            compile_task_graph_definition_runtime_spec(
+                graph=task_graph,
+                specific_tasks=specific_tasks,
+                communication_protocol=communication_protocol,
+            )
+            if task_graph is not None
+            else compile_task_graph_runtime_spec(
+                coordination_task=coordination_task,
+                specific_tasks=specific_tasks,
+                topology_template=topology_template,
+                communication_protocol=communication_protocol,
+            )
         )
         topology_nodes = _merge_runtime_nodes(
             compiled_nodes=[node.to_dict() for node in graph_spec.nodes],
@@ -750,7 +783,12 @@ class LangGraphCoordinationRuntime:
                 node_statuses[stage_id] = "running"
             else:
                 node_statuses[stage_id] = "pending"
-        runtime_sets = _runtime_node_sets(order=order, node_statuses=node_statuses, edge_contracts=edge_contracts)
+        scheduler_state = bootstrap_scheduler_state(
+            runtime_spec=graph_spec,
+            node_statuses=node_statuses,
+            terminal_status="blocked" if issues else "",
+            mode="active",
+        )
         return {
             "coordination_run_id": coordination_run.coordination_run_id,
             "root_task_run_id": coordination_run.task_run_id,
@@ -764,11 +802,11 @@ class LangGraphCoordinationRuntime:
             "contract_status": _initial_contract_status(manifest_payload),
             "node_contracts": node_contracts,
             "edge_contracts": edge_contracts,
-            "ready_nodes": list(runtime_sets.get("ready_nodes") or []),
-            "blocked_nodes": list(runtime_sets.get("blocked_nodes") or []),
-            "running_nodes": list(runtime_sets.get("running_nodes") or []),
-            "completed_nodes": list(runtime_sets.get("completed_nodes") or []),
-            "failed_nodes": list(runtime_sets.get("failed_nodes") or []),
+            "ready_nodes": list(scheduler_state.ready_node_ids),
+            "blocked_nodes": list(scheduler_state.blocked_node_ids),
+            "running_nodes": list(scheduler_state.running_node_ids),
+            "completed_nodes": list(scheduler_state.completed_node_ids),
+            "failed_nodes": list(scheduler_state.failed_node_ids),
             "handoff_packets": [],
             "acceptance_results": {},
             "node_statuses": node_statuses,
@@ -797,6 +835,8 @@ class LangGraphCoordinationRuntime:
                     "handoff_policy": str(coordination_run.handoff_policy or ""),
                 },
                 "coordination_graph_spec": graph_spec.to_dict(),
+                "task_graph_scheduler_state": scheduler_state.to_dict(),
+                "task_graph_runtime_source": "task_graph_definition" if task_graph is not None else "legacy_coordination_view",
                 "contract_manifest_ref": manifest.manifest_id,
                 "contract_manifest_valid": manifest.valid,
                 "contract_manifest_issue_count": len(manifest.issues),
@@ -812,7 +852,19 @@ class LangGraphCoordinationRuntime:
     def _contracts_for_run(self, *, coordination_run: CoordinationRun, coordination_task: Any) -> tuple[CoordinationStageContract, ...]:
         topology_template = self.task_flow_registry.get_topology_template(coordination_run.topology_template_id)
         topology_nodes = [dict(item) for item in list(getattr(topology_template, "nodes", ()) or [])]
-        return parse_stage_contracts(coordination_task=coordination_task, topology_nodes=topology_nodes)
+        topology_edges = [dict(item) for item in list(getattr(topology_template, "edges", ()) or [])]
+        contracts = parse_stage_contracts(
+            coordination_task=coordination_task,
+            topology_nodes=topology_nodes,
+            topology_edges=topology_edges,
+        )
+        if contracts:
+            return contracts
+        return derive_stage_contracts_from_graph(
+            coordination_task=coordination_task,
+            topology_nodes=topology_nodes,
+            topology_edges=topology_edges,
+        )
 
     def _agent_profile_for(self, agent_id: str) -> Any:
         return AgentRuntimeRegistry(self.root_dir).get_profile(agent_id)
@@ -1293,55 +1345,97 @@ def _topological_stage_order(nodes: list[dict[str, Any]], edges: list[dict[str, 
     return resolved if len(resolved) == len(node_ids) else node_ids
 
 
-def _runtime_node_sets(
+def _scheduler_node_sets(
     *,
     order: list[str],
     node_statuses: dict[str, str],
-    edge_contracts: dict[str, dict[str, Any]],
+    state: dict[str, Any],
     terminal_status: str = "",
 ) -> dict[str, Any]:
-    completed = [node for node in order if node_statuses.get(node) == "completed"]
-    failed = [node for node in order if node_statuses.get(node) == "failed"]
-    running = [node for node in order if node_statuses.get(node) == "running"]
-    waiting = [node for node in order if node_statuses.get(node) in {"waiting_for_human", "human_gate"}]
-    completed_set = set(completed)
-    failed_set = set(failed)
-    running_set = set(running)
-    waiting_set = set(waiting)
-    incoming: dict[str, list[str]] = {node: [] for node in order}
-    for edge in edge_contracts.values():
-        source = str(edge.get("source_node_id") or "").strip()
-        target = str(edge.get("target_node_id") or "").strip()
-        if source and target and target in incoming:
-            incoming[target].append(source)
-    ready: list[str] = []
-    blocked: list[str] = []
-    for node in order:
-        status = str(node_statuses.get(node) or "pending")
-        if node in completed_set or node in failed_set or node in running_set or node in waiting_set:
-            continue
-        required_sources = incoming.get(node) or []
-        if all(source in completed_set for source in required_sources):
-            ready.append(node)
-        else:
-            blocked.append(node)
-    resolved_terminal = terminal_status
-    if not resolved_terminal:
-        if failed:
-            resolved_terminal = "failed"
-        elif waiting:
-            resolved_terminal = "waiting_for_human"
-        elif order and len(completed) == len(order):
-            resolved_terminal = "completed"
+    runtime_spec = _runtime_spec_from_state(state)
+    if runtime_spec is None:
+        blocked_nodes = [node for node in order if node_statuses.get(node) not in {"completed", "failed"}]
+        return {
+            "ready_nodes": [],
+            "blocked_nodes": blocked_nodes,
+            "running_nodes": [node for node in order if node_statuses.get(node) == "running"],
+            "waiting_nodes": [
+                node
+                for node in order
+                if node_statuses.get(node) in {"waiting_for_human", "human_gate", "waiting"}
+            ],
+            "completed_nodes": [node for node in order if node_statuses.get(node) == "completed"],
+            "failed_nodes": [node for node in order if node_statuses.get(node) == "failed"],
+            "terminal_status": terminal_status or "blocked",
+            "missing_required_inputs": ["coordination_graph_spec"],
+            "diagnostics": {
+                **dict(state.get("diagnostics") or {}),
+                "scheduler_authority": "task_graph_scheduler_state",
+                "scheduler_error": "missing_coordination_graph_spec",
+            },
+        }
+    scheduler_state = bootstrap_scheduler_state(
+        runtime_spec=runtime_spec,
+        node_statuses=node_statuses,
+        terminal_status=terminal_status,
+        mode="active",
+    )
     return {
-        "ready_nodes": ready,
-        "blocked_nodes": blocked,
-        "running_nodes": running,
-        "waiting_nodes": waiting,
-        "completed_nodes": completed,
-        "failed_nodes": failed,
-        "terminal_status": resolved_terminal,
+        "ready_nodes": list(scheduler_state.ready_node_ids),
+        "blocked_nodes": list(scheduler_state.blocked_node_ids),
+        "running_nodes": list(scheduler_state.running_node_ids),
+        "waiting_nodes": [
+            node_id
+            for node_id, status in node_statuses.items()
+            if str(status) in {"waiting_for_human", "human_gate", "waiting"}
+        ],
+        "completed_nodes": list(scheduler_state.completed_node_ids),
+        "failed_nodes": list(scheduler_state.failed_node_ids),
+        "terminal_status": scheduler_state.terminal_status,
+        "diagnostics": {
+            **dict(state.get("diagnostics") or {}),
+            "task_graph_scheduler_state": scheduler_state.to_dict(),
+            "scheduler_authority": "task_graph_scheduler_state",
+        },
     }
+
+
+def _runtime_spec_from_state(state: dict[str, Any]) -> TaskGraphRuntimeSpec | None:
+    payload = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+    if not payload:
+        return None
+    try:
+        return TaskGraphRuntimeSpec(
+            graph_id=str(payload.get("graph_id") or ""),
+            domain_id=str(payload.get("domain_id") or ""),
+            task_family=str(payload.get("task_family") or ""),
+            coordinator_agent_id=str(payload.get("coordinator_agent_id") or ""),
+            graph_ref=str(payload.get("graph_ref") or payload.get("graph_id") or ""),
+            agent_group_id=str(payload.get("agent_group_id") or ""),
+            nodes=tuple(
+                _dataclass_from_payload(TaskGraphRuntimeNode, item)
+                for item in list(payload.get("nodes") or [])
+                if isinstance(item, dict)
+            ),
+            edges=tuple(
+                _dataclass_from_payload(TaskGraphRuntimeEdge, item)
+                for item in list(payload.get("edges") or [])
+                if isinstance(item, dict)
+            ),
+            subtask_refs=tuple(str(item) for item in list(payload.get("subtask_refs") or []) if str(item)),
+            communication_modes=tuple(str(item) for item in list(payload.get("communication_modes") or []) if str(item)),
+            start_node_ids=tuple(str(item) for item in list(payload.get("start_node_ids") or []) if str(item)),
+            terminal_node_ids=tuple(str(item) for item in list(payload.get("terminal_node_ids") or []) if str(item)),
+            issues=(),
+            diagnostics=dict(payload.get("diagnostics") or {}),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def _dataclass_from_payload(model_type: Any, payload: dict[str, Any]) -> Any:
+    allowed = {item.name for item in dataclass_fields(model_type)}
+    return model_type(**{key: value for key, value in dict(payload or {}).items() if key in allowed})
 
 
 def _initial_contract_status(manifest: dict[str, Any]) -> dict[str, Any]:

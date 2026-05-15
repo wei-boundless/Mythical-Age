@@ -767,10 +767,13 @@ def _select_task_graph(
     current_turn_context: dict[str, Any] | None = None,
 ):
     current_turn_payload = dict(current_turn_context or {})
+    if _is_stage_execution_turn(current_turn_payload):
+        return None
     explicit_refs = (
         current_turn_payload.get("graph_id"),
         current_turn_payload.get("selected_graph_id"),
         current_turn_payload.get("task_graph_id"),
+        current_turn_payload.get("coordination_task_id"),
     )
     for ref in explicit_refs:
         target = str(ref or "").strip()
@@ -804,3 +807,17 @@ def _select_task_graph(
             None,
         )
     return None
+
+
+def _is_stage_execution_turn(current_turn_payload: dict[str, Any]) -> bool:
+    if not current_turn_payload:
+        return False
+    if str(current_turn_payload.get("continuation_stage_id") or "").strip():
+        return True
+    if dict(current_turn_payload.get("stage_execution_request") or {}):
+        return True
+    if str(current_turn_payload.get("coordination_run_id") or "").strip():
+        return True
+    if dict(current_turn_payload.get("task_result_ready_event") or {}):
+        return True
+    return False

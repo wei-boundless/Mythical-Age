@@ -45,6 +45,11 @@ export function TaskGraphContractQualityPage({
   const graphContractId = String(taskGraphDraft.graph_contract_id ?? "");
   const contractIds = contractSpecs.map((item) => item.contract_id);
 
+  const contractOptions = (...currentIds: string[]) => {
+    const current = currentIds.map((item) => String(item ?? "").trim()).filter(Boolean);
+    return Array.from(new Set([...current, ...contractIds]));
+  };
+
   const formatContract = (contractId: string) => {
     const contract = contractSpecs.find((item) => item.contract_id === contractId);
     return contract ? `${contractTitle(contract)} · ${contractId}` : contractId || "未绑定";
@@ -68,7 +73,7 @@ export function TaskGraphContractQualityPage({
                 value={graphContractId}
               >
                 <option value="">未绑定</option>
-                {contractIds.map((contractId) => (
+                {contractOptions(graphContractId).map((contractId) => (
                   <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
                 ))}
               </select>
@@ -107,7 +112,7 @@ export function TaskGraphContractQualityPage({
                     value={String(node.node_contract_id ?? node.contract_id ?? "")}
                   >
                     <option value="">未绑定</option>
-                    {contractIds.map((contractId) => (
+                    {contractOptions(String(node.node_contract_id ?? node.contract_id ?? "")).map((contractId) => (
                       <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
                     ))}
                   </select>
@@ -118,7 +123,7 @@ export function TaskGraphContractQualityPage({
                     value={String(node.input_contract_id ?? "")}
                   >
                     <option value="">未绑定</option>
-                    {contractIds.map((contractId) => (
+                    {contractOptions(String(node.input_contract_id ?? "")).map((contractId) => (
                       <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
                     ))}
                   </select>
@@ -129,7 +134,7 @@ export function TaskGraphContractQualityPage({
                     value={String(node.output_contract_id ?? "")}
                   >
                     <option value="">未绑定</option>
-                    {contractIds.map((contractId) => (
+                    {contractOptions(String(node.output_contract_id ?? "")).map((contractId) => (
                       <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
                     ))}
                   </select>
@@ -157,7 +162,7 @@ export function TaskGraphContractQualityPage({
                     value={String(edge.payload_contract_id ?? edge.contract_id ?? "")}
                   >
                     <option value="">未绑定</option>
-                    {contractIds.map((contractId) => (
+                    {contractOptions(String(edge.payload_contract_id ?? edge.contract_id ?? "")).map((contractId) => (
                       <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
                     ))}
                   </select>

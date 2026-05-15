@@ -8,6 +8,7 @@ import {
   getOrchestrationRuntimeLoopTrace,
   resumeOrchestrationCoordinationRun,
   startTaskGraphRuntimeLoopRun,
+  stopOrchestrationTaskRun,
   type CoordinationGraphSpec,
   type RuntimeLoopTaskRunTrace,
 } from "@/lib/api";
@@ -15,6 +16,7 @@ import { TaskSystemToolbarButton } from "./TaskSystemWorkbenchUi";
 import { isTaskGraphPublishedState, taskGraphPublishStateLabel, type TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
 import { buildTaskGraphPreflightReport } from "./taskGraphPreflight";
 import type { TaskGraphPreflightIssue } from "./taskGraphPreflight";
+import { buildTaskGraphSchedulerSummary, schedulerStateFromTrace } from "./taskGraphRuntimeView";
 
 function listText(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean).join(" / ") : "";
@@ -76,9 +78,11 @@ export function TaskGraphPublishRunPage({
   const [runStartLoading, setRunStartLoading] = useState(false);
   const [runSessionId, setRunSessionId] = useState("session:task_graph_studio");
   const [resumeLoading, setResumeLoading] = useState(false);
+  const [stopLoading, setStopLoading] = useState(false);
   const published = isTaskGraphPublishedState(publishState);
   const latestRunStatus = String(runTrace?.task_run?.status ?? "").trim();
   const runStatusLabel = latestRunStatus || (publishState === "run_bound" ? "bound" : published ? "ready" : "draft");
+  const schedulerSummary = buildTaskGraphSchedulerSummary(schedulerStateFromTrace(runTrace));
   const preflightReport = buildTaskGraphPreflightReport({
     dirty,
     editorIssueCount,
@@ -157,6 +161,27 @@ export function TaskGraphPublishRunPage({
     }
   }
 
+  async function stopLatestRun() {
+    if (!taskRunId.trim()) {
+      setRunTraceError("当前没有可停止的 TaskRun。");
+      return;
+    }
+    setStopLoading(true);
+    setRunTraceError("");
+    try {
+      await stopOrchestrationTaskRun(taskRunId.trim(), {
+        reason: "user_aborted",
+        message: "TaskGraph Studio 手动停止运行",
+        coordination_run_id: String(runTrace?.coordination_runs?.[0]?.coordination_run_id ?? ""),
+      });
+      await loadRunTrace();
+    } catch (error) {
+      setRunTraceError(error instanceof Error ? error.message : "停止失败");
+    } finally {
+      setStopLoading(false);
+    }
+  }
+
   return (
     <section className="task-graph-studio-page">
       <header className="task-graph-studio-page__head">
@@ -205,6 +230,12 @@ export function TaskGraphPublishRunPage({
               variant="primary"
             >
               <PlayCircle size={15} />创建运行
+            </TaskSystemToolbarButton>
+            <TaskSystemToolbarButton disabled={!taskRunId || stopLoading} onClick={() => void stopLatestRun()}>
+              <TriangleAlert size={15} />停止运行
+            </TaskSystemToolbarButton>
+            <TaskSystemToolbarButton disabled={!taskRunId || resumeLoading} onClick={() => void resumeLatestCoordinationRun()}>
+              <RefreshCw size={15} />断点重连
             </TaskSystemToolbarButton>
           </div>
         </article>
@@ -303,6 +334,43 @@ export function TaskGraphPublishRunPage({
               <p><span>事件</span><strong>{runTrace.event_count}</strong></p>
               <p><span>Checkpoint</span><strong>{runTrace.latest_checkpoint ? "存在" : "无"}</strong></p>
             </div>
+            {schedulerSummary.available ? (
+              <section className="task-graph-runtime-spec-panel">
+                <header><strong>TaskGraph 调度视图</strong><span>{schedulerSummary.mode || "shadow"}</span></header>
+                <div className="task-graph-mini-kv">
+                  <p><span>Phase</span><strong>{schedulerSummary.phase_count}</strong></p>
+                  <p><span>Ready</span><strong>{schedulerSummary.ready_node_ids.length}</strong></p>
+                  <p><span>Blocked</span><strong>{schedulerSummary.blocked_node_ids.length}</strong></p>
+                  <p><span>Running</span><strong>{schedulerSummary.running_node_ids.length}</strong></p>
+                  <p><span>Done</span><strong>{schedulerSummary.completed_node_ids.length}</strong></p>
+                  <p><span>Terminal</span><strong>{schedulerSummary.terminal_status || "-"}</strong></p>
+                </div>
+                <div className="task-graph-note">
+                  <strong>当前 active phase：{schedulerSummary.active_phase_ids.join(" / ") || "-"}</strong>
+                  <span>当前时序点：{Object.entries(schedulerSummary.active_sequence_by_phase).map(([phase, value]) => `${phase}=T${value}`).join(" / ") || "-"}</span>
+                </div>
+                <div className="task-graph-preflight-list">
+                  {schedulerSummary.phase_states.slice(0, 6).map((phase) => (
+                    <article className="task-graph-preflight-row" key={String(phase.phase_id ?? phase.id)}>
+                      <span className="task-graph-preflight-row__severity task-graph-preflight-row__severity--info">
+                        {String(phase.status ?? "phase")}
+                      </span>
+                      <div>
+                        <strong>{String(phase.phase_id ?? "phase")}</strong>
+                        <span>ready {Array.isArray(phase.ready_node_ids) ? phase.ready_node_ids.length : 0} / blocked {Array.isArray(phase.blocked_node_ids) ? phase.blocked_node_ids.length : 0}</span>
+                      </div>
+                      <em>{Array.isArray(phase.node_ids) ? phase.node_ids.length : 0} nodes</em>
+                      <small>scheduler.phase</small>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <div className="task-graph-note">
+                <strong>尚无 TaskGraph 调度视图</strong>
+                <span>新运行会在 coordination diagnostics 中写入 shadow scheduler state，用于观察 phase、node 和 edge 的调度判断。</span>
+              </div>
+            )}
             <details className="task-graph-runtime-spec-details">
               <summary>Trace JSON</summary>
               <pre>{JSON.stringify({

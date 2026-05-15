@@ -101,7 +101,13 @@ class CoordinationTraceAdapter:
                     for item in list(state.get("handoff_packets") or [])[-10:]
                     if isinstance(item, dict)
                 ],
+                "task_graph_scheduler_state": dict(
+                    dict(state.get("diagnostics") or {}).get("task_graph_scheduler_state") or {}
+                ),
             },
+            "task_graph_scheduler_state": dict(
+                dict(state.get("diagnostics") or {}).get("task_graph_scheduler_state") or {}
+            ),
         }
         updated_run = CoordinationRun(
             coordination_run_id=coordination_run.coordination_run_id,
@@ -273,6 +279,8 @@ def _coordination_status_from_state(state: dict[str, Any]) -> str:
     terminal = str(state.get("terminal_status") or "")
     if terminal == "completed":
         return "completed"
+    if terminal == "user_aborted":
+        return "aborted"
     if terminal in {"failed", "blocked"}:
         return "failed"
     if terminal == "waiting_for_human":

@@ -155,19 +155,6 @@ export function TaskGraphWorkbench({
       && issue.scope === "node"
       && issue.target_id
     ) {
-      const node = activeGraphNodes.find((item) => String(item.node_id ?? "") === issue.target_id);
-      const title = String(node?.title ?? node?.label ?? issue.target_id);
-      const role = String(node?.role ?? node?.work_posture ?? "执行者");
-      const metadata = asRecord(node?.metadata);
-      updateTaskGraphNode(issue.target_id, {
-        metadata: {
-          ...metadata,
-          role_identity: metadata.role_identity || `你是一名${title}。`,
-          responsibility_scope: metadata.responsibility_scope || `你只负责以“${role}”身份完成当前节点被分配的任务。`,
-          responsibility_exclusions: metadata.responsibility_exclusions || "你不负责改变任务图结构，也不负责替其他节点完成职责。",
-          definition_of_done: metadata.definition_of_done || "你必须输出可交接的结果、依据和仍需后续节点处理的问题。",
-        },
-      });
       rest.setSelectedGraphNodeId(issue.target_id);
       rest.setSelectedGraphEdgeId("");
       setActiveLayer("responsibility");

@@ -24,6 +24,47 @@
         "managed_by": "codex_smoke"
       },
       "authority": "task_system.task_communication_protocol"
+    },
+    {
+      "protocol_id": "protocol.writing_team.long_novel",
+      "title": "长篇小说写作团队协作协议",
+      "message_types": [
+        "message/send",
+        "task/status",
+        "task/artifact",
+        "task/review_feedback"
+      ],
+      "payload_contracts": [
+        "contract.writing_team.long_novel.world_brief",
+        "contract.writing_team.long_novel.world_review",
+        "contract.writing_team.long_novel.outline_brief",
+        "contract.writing_team.long_novel.outline_review",
+        "contract.writing_team.long_novel.character_sheet",
+        "contract.writing_team.long_novel.chapter_plan",
+        "contract.writing_team.long_novel.chapter_draft",
+        "contract.writing_team.long_novel.chapter_review",
+        "contract.writing_team.long_novel.quality_gate",
+        "contract.writing_team.long_novel.memory_commit"
+      ],
+      "signal_rules": [
+        "quality_gate_controls_memory_commit",
+        "repair_required_returns_to_chapter_plan"
+      ],
+      "handoff_rules": [
+        "structured_artifact_refs_only",
+        "no_raw_agent_dialogue",
+        "summary_before_full_text"
+      ],
+      "ack_policy": "explicit_ack",
+      "timeout_policy": "fail_closed",
+      "error_signal_policy": "raise_to_coordinator",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "task_family": "writing_team_long_novel",
+        "domain_id": "domain.writing_team.long_novel"
+      },
+      "authority": "task_system.task_communication_protocol"
     }
   ]
 }

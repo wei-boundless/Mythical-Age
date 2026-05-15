@@ -89,11 +89,16 @@ def parse_stage_contracts(
     *,
     coordination_task: Any,
     topology_nodes: list[dict[str, Any]] | None = None,
+    topology_edges: list[dict[str, Any]] | None = None,
 ) -> tuple[CoordinationStageContract, ...]:
     metadata = dict(getattr(coordination_task, "metadata", {}) or {})
     raw_contracts = metadata.get("stage_contracts")
     if not isinstance(raw_contracts, list):
-        return ()
+        return derive_stage_contracts_from_graph(
+            coordination_task=coordination_task,
+            topology_nodes=topology_nodes,
+            topology_edges=topology_edges,
+        )
     node_by_stage = _node_by_stage_id(topology_nodes or [])
     contracts: list[CoordinationStageContract] = []
     for raw in raw_contracts:
@@ -117,6 +122,72 @@ def parse_stage_contracts(
                 on_success=str(raw.get("on_success") or "advance").strip(),
                 on_failure=str(raw.get("on_failure") or "fail_closed").strip(),
                 retry_policy=dict(raw.get("retry_policy") or {}),
+            )
+        )
+    return tuple(contracts)
+
+
+def derive_stage_contracts_from_graph(
+    *,
+    coordination_task: Any,
+    topology_nodes: list[dict[str, Any]] | None = None,
+    topology_edges: list[dict[str, Any]] | None = None,
+) -> tuple[CoordinationStageContract, ...]:
+    """Build continuation contracts from TaskGraph nodes when no explicit stage contracts exist."""
+    nodes = _effective_graph_nodes(coordination_task=coordination_task, topology_nodes=topology_nodes)
+    if not nodes:
+        return ()
+    edges = _effective_graph_edges(coordination_task=coordination_task, topology_edges=topology_edges)
+    node_by_id = {
+        str(node.get("node_id") or node.get("id") or "").strip(): dict(node)
+        for node in nodes
+        if str(node.get("node_id") or node.get("id") or "").strip()
+    }
+    incoming_by_target: dict[str, list[dict[str, Any]]] = {}
+    for edge in edges:
+        source = _edge_source(edge)
+        target = _edge_target(edge)
+        if source in node_by_id and target in node_by_id:
+            incoming_by_target.setdefault(target, []).append(dict(edge))
+
+    contracts: list[CoordinationStageContract] = []
+    for node in nodes:
+        node_id = str(node.get("node_id") or node.get("id") or "").strip()
+        if not node_id:
+            continue
+        task_ref = str(node.get("task_id") or node.get("task_ref") or node.get("subtask_ref") or "").strip()
+        if not task_ref:
+            continue
+        input_bindings: list[dict[str, Any]] = []
+        required_inputs: list[str] = []
+        for edge in incoming_by_target.get(node_id, []):
+            source = _edge_source(edge)
+            output_key = _stage_output_key(source, node_by_id.get(source, {}))
+            input_key = _stage_input_key(source, edge)
+            input_bindings.append(
+                {
+                    "source": "stage_output",
+                    "source_stage_id": source,
+                    "output_key": output_key,
+                    "input_key": input_key,
+                    "required": True,
+                }
+            )
+            required_inputs.append(input_key)
+        output_key = _stage_output_key(node_id, node)
+        output_mappings = [{"output_key": output_key, "required": True}]
+        contracts.append(
+            CoordinationStageContract(
+                stage_id=node_id,
+                task_ref=task_ref,
+                node_id=node_id,
+                required_inputs=tuple(dict.fromkeys(required_inputs)),
+                input_bindings=tuple(input_bindings),
+                output_mappings=tuple(output_mappings),
+                gate_policy=_derived_gate_policy(node),
+                on_success="advance",
+                on_failure=_derived_failure_policy(node),
+                retry_policy=dict(node.get("retry_policy") or dict(node.get("loop_policy") or {})),
             )
         )
     return tuple(contracts)
@@ -172,6 +243,90 @@ def _node_by_stage_id(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         if stage_id:
             result[stage_id] = dict(node)
     return result
+
+
+def _effective_graph_nodes(
+    *,
+    coordination_task: Any,
+    topology_nodes: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    task_nodes = [dict(item) for item in list(getattr(coordination_task, "graph_nodes", ()) or []) if isinstance(item, dict)]
+    template_nodes = [dict(item) for item in list(topology_nodes or []) if isinstance(item, dict)]
+    if not task_nodes:
+        return template_nodes
+    if not template_nodes:
+        return task_nodes
+    by_id = {
+        str(item.get("node_id") or item.get("id") or "").strip(): dict(item)
+        for item in template_nodes
+        if str(item.get("node_id") or item.get("id") or "").strip()
+    }
+    merged: list[dict[str, Any]] = []
+    for node in task_nodes:
+        node_id = str(node.get("node_id") or node.get("id") or "").strip()
+        template_node = by_id.get(node_id, {})
+        merged.append({**template_node, **node})
+    known = {str(item.get("node_id") or item.get("id") or "").strip() for item in merged}
+    merged.extend(item for item in template_nodes if str(item.get("node_id") or item.get("id") or "").strip() not in known)
+    return merged
+
+
+def _effective_graph_edges(
+    *,
+    coordination_task: Any,
+    topology_edges: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    task_edges = [dict(item) for item in list(getattr(coordination_task, "graph_edges", ()) or []) if isinstance(item, dict)]
+    return task_edges or [dict(item) for item in list(topology_edges or []) if isinstance(item, dict)]
+
+
+def _edge_source(edge: dict[str, Any]) -> str:
+    return str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "").strip()
+
+
+def _edge_target(edge: dict[str, Any]) -> str:
+    return str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
+
+
+def _contract_ref_from_node(node: dict[str, Any]) -> str:
+    metadata = dict(node.get("metadata") or {}) if isinstance(node.get("metadata"), dict) else {}
+    return str(
+        node.get("output_contract_id")
+        or node.get("node_contract_id")
+        or node.get("contract_id")
+        or metadata.get("output_contract_id")
+        or metadata.get("node_contract_id")
+        or ""
+    ).strip()
+
+
+def _stage_output_key(node_id: str, node: dict[str, Any]) -> str:
+    contract_ref = _contract_ref_from_node(node)
+    if contract_ref:
+        return f"{contract_ref}:artifact_refs"
+    return f"{node_id}:artifact_refs"
+
+
+def _stage_input_key(source_node_id: str, edge: dict[str, Any]) -> str:
+    contract_ref = str(edge.get("payload_contract_id") or edge.get("contract_id") or "").strip()
+    if contract_ref:
+        return f"{contract_ref}:artifact_refs"
+    return f"{source_node_id}:artifact_refs"
+
+
+def _derived_gate_policy(node: dict[str, Any]) -> str:
+    node_type = str(node.get("node_type") or "").strip()
+    review_gate = node.get("review_gate_policy")
+    if node_type == "review_gate" or (isinstance(review_gate, dict) and review_gate):
+        return "review_gate"
+    return ""
+
+
+def _derived_failure_policy(node: dict[str, Any]) -> str:
+    loop_policy = dict(node.get("loop_policy") or {}) if isinstance(node.get("loop_policy"), dict) else {}
+    if loop_policy:
+        return "retry_once" if int(loop_policy.get("max_attempts") or 0) > 0 else "fail_closed"
+    return "fail_closed"
 
 
 def _issue(code: str, message: str, stage_id: str) -> dict[str, str]:

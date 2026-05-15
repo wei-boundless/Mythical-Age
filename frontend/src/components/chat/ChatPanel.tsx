@@ -55,6 +55,16 @@ export function ChatPanel() {
   }, [isStreaming, coordinationActive]);
 
   useEffect(() => {
+    if (taskSelection?.mode === "coordination") {
+      setActivePage("monitor");
+      return;
+    }
+    if (!taskSelection && !coordinationActive) {
+      setActivePage("conversation");
+    }
+  }, [coordinationActive, taskSelection]);
+
+  useEffect(() => {
     const justActivated = coordinationActive && !coordinationWasActiveRef.current;
     if (justActivated) {
       setActivePage("monitor");

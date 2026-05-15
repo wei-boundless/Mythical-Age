@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 from dataclasses import asdict
 
@@ -13,10 +14,12 @@ from orchestration import (
     AgentRegistry,
     AgentRuntimeRegistry,
     ControlKernel,
+    CoordinationRun,
     TaskContract,
     default_worker_agent_blueprints,
     build_base_unit_catalog,
 )
+from orchestration.runtime_loop import TaskRun
 from orchestration.delegation_catalog import DelegationCatalogBuilder
 from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
@@ -94,6 +97,12 @@ class OrchestrationPreviewRequest(BaseModel):
 
 class CoordinationRunResumeRequest(BaseModel):
     resume_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class TaskRunStopRequest(BaseModel):
+    reason: str = Field(default="user_aborted", max_length=120)
+    message: str = Field(default="", max_length=500)
+    coordination_run_id: str = Field(default="", max_length=180)
 
 
 class TaskGraphRunStartRequest(BaseModel):
@@ -678,6 +687,7 @@ async def start_task_graph_runtime_loop_run(
         if payload.include_trace
         else None
     )
+    stage_execution_request = dict(start.loop_state.diagnostics.get("stage_execution_request") or {})
     return {
         "authority": "orchestration.task_graph_run_start",
         "graph_id": graph.graph_id,
@@ -687,6 +697,7 @@ async def start_task_graph_runtime_loop_run(
         "coordination_run": start.coordination_run.to_dict() if start.coordination_run is not None else None,
         "checkpoint": start.checkpoint.to_dict(),
         "runtime_spec": runtime_spec.to_dict(),
+        "stage_execution_request": stage_execution_request or None,
         "trace": trace,
         "events": [dict(item) for item in start.events],
     }
@@ -721,6 +732,116 @@ async def resume_coordination_run(
             for event in result.events
         ],
     }
+
+
+@router.post("/orchestration/runtime-loop/task-runs/{task_run_id}/stop")
+async def stop_task_run(
+    task_run_id: str,
+    payload: TaskRunStopRequest,
+) -> dict[str, Any]:
+    try:
+        runtime = require_runtime()
+        task_run_loop = runtime.query_runtime.task_run_loop
+        state_index = task_run_loop.state_index
+        task_run = state_index.get_task_run(task_run_id)
+        if task_run is None:
+            raise HTTPException(status_code=404, detail="TaskRun not found")
+        coordination_run_id = payload.coordination_run_id.strip()
+        coordination_run = (
+            state_index.get_coordination_run(coordination_run_id)
+            if coordination_run_id
+            else None
+        )
+        checkpoint = task_run_loop.checkpoints.load_latest(task_run_id)
+        if checkpoint is None:
+            raise HTTPException(status_code=409, detail="TaskRun has no checkpoint to stop from")
+        terminal_reason = "user_aborted" if payload.reason.strip() == "user_aborted" else payload.reason.strip() or "user_aborted"
+        loop_state = checkpoint.loop_state.with_status(
+            "aborted",
+            transition="stop_after_final_output",
+            terminal_reason=terminal_reason,
+            diagnostics={
+                **dict(checkpoint.loop_state.diagnostics),
+                "stop_request": {
+                    "reason": terminal_reason,
+                    "message": payload.message.strip(),
+                    "stopped_at": time.time(),
+                },
+            },
+        )
+        checkpoint_event = task_run_loop._write_checkpoint_event(loop_state, event_offset=checkpoint.event_offset)
+        task_run_event = task_run_loop.event_log.append(
+            task_run_id,
+            "task_run_stopped",
+            payload={
+                "task_run_id": task_run_id,
+                "reason": terminal_reason,
+                "message": payload.message.strip(),
+                "coordination_run_id": coordination_run.coordination_run_id if coordination_run is not None else "",
+                "checkpoint_ref": checkpoint_event.refs.get("checkpoint_ref") or checkpoint.checkpoint_id,
+            },
+            refs={
+                "task_run_ref": task_run_id,
+                "checkpoint_ref": checkpoint_event.refs.get("checkpoint_ref") or checkpoint.checkpoint_id,
+                "coordination_run_ref": coordination_run.coordination_run_id if coordination_run is not None else "",
+            },
+        )
+        state_index.upsert_task_run(
+            TaskRun(
+                task_run_id=task_run.task_run_id,
+                session_id=task_run.session_id,
+                task_id=task_run.task_id,
+                task_contract_ref=task_run.task_contract_ref,
+                owner_agent_seat_id=task_run.owner_agent_seat_id,
+                agent_id=task_run.agent_id,
+                agent_profile_id=task_run.agent_profile_id,
+                runtime_lane=task_run.runtime_lane,
+                status="aborted",
+                created_at=task_run.created_at,
+                updated_at=time.time(),
+                latest_event_offset=checkpoint_event.offset,
+                latest_checkpoint_ref=str(checkpoint_event.refs.get("checkpoint_ref") or checkpoint.checkpoint_id),
+                terminal_reason=terminal_reason,  # type: ignore[arg-type]
+                diagnostics={
+                    **dict(task_run.diagnostics),
+                    "stop_request": {"reason": terminal_reason, "message": payload.message.strip()},
+                },
+            )
+        )
+        if coordination_run is not None:
+            state_index.upsert_coordination_run(
+                CoordinationRun(
+                    coordination_run_id=coordination_run.coordination_run_id,
+                    task_run_id=coordination_run.task_run_id,
+                    graph_ref=coordination_run.graph_ref,
+                    coordinator_agent_id=coordination_run.coordinator_agent_id,
+                    topology_template_id=coordination_run.topology_template_id,
+                    communication_protocol_id=coordination_run.communication_protocol_id,
+                    handoff_policy=coordination_run.handoff_policy,
+                    failure_policy=coordination_run.failure_policy,
+                    merge_policy=coordination_run.merge_policy,
+                    status="aborted",
+                    latest_checkpoint_ref=str(checkpoint_event.refs.get("checkpoint_ref") or checkpoint.checkpoint_id),
+                    latest_merge_result_ref=coordination_run.latest_merge_result_ref,
+                    created_at=coordination_run.created_at,
+                    updated_at=time.time(),
+                    diagnostics={
+                        **dict(coordination_run.diagnostics),
+                        "stop_request": {"reason": terminal_reason, "message": payload.message.strip()},
+                    },
+                )
+            )
+        return {
+            "authority": "orchestration.task_run_stop",
+            "task_run_id": task_run_id,
+            "reason": terminal_reason,
+            "checkpoint_ref": str(checkpoint_event.refs.get("checkpoint_ref") or checkpoint.checkpoint_id),
+            "event_ref": task_run_event.event_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"task_run_stop_failed: {exc}") from exc
 
 
 @router.put("/orchestration/plan-mode")

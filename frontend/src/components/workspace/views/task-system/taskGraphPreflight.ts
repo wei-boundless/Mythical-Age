@@ -33,6 +33,7 @@ export type BuildTaskGraphPreflightReportInput = {
   runtimeSpec?: {
     valid?: boolean;
     issues?: Array<Record<string, unknown>>;
+    diagnostics?: Record<string, unknown>;
   } | null;
 };
 
@@ -152,19 +153,25 @@ export function buildTaskGraphPreflightReport({
     const metadata = node.metadata && typeof node.metadata === "object" && !Array.isArray(node.metadata)
       ? node.metadata as Record<string, unknown>
       : {};
-    const rolePrompt = stringValue(metadata.role_prompt);
     const projectionId = stringValue(node.projection_id ?? node.projection_overlay_id);
-    if (!projectionId && rolePrompt) {
+    const legacyMigration = metadata.legacy_prompt_migration && typeof metadata.legacy_prompt_migration === "object" && !Array.isArray(metadata.legacy_prompt_migration)
+      ? metadata.legacy_prompt_migration as Record<string, unknown>
+      : {};
+    const legacyFieldNames = Array.isArray(legacyMigration.legacy_field_names)
+      ? legacyMigration.legacy_field_names.map((value) => stringValue(value)).filter(Boolean)
+      : [];
+    const migrationStatus = stringValue(legacyMigration.migration_status);
+    if (!projectionId && legacyFieldNames.length > 0) {
       pushIssue(issues, {
         severity: "warning",
         scope: "node",
         target_id: nodeId,
-        title: "节点 Prompt 仍在 TaskGraph 内部",
-        detail: "该节点已有 legacy prompt 文本，但尚未迁移为投影系统中的 Projection。",
+        title: "节点职责尚未绑定投影",
+        detail: "该节点已有旧职责字段待迁移，但尚未迁移为投影系统中的 Projection。",
         source: "frontend.preflight.projection_binding",
       });
     }
-    if (!projectionId && !rolePrompt && agentId) {
+    if (!projectionId && legacyFieldNames.length === 0 && agentId) {
       pushIssue(issues, {
         severity: "info",
         scope: "node",
@@ -260,14 +267,16 @@ export function buildTaskGraphPreflightReport({
 
   (runtimeSpec?.issues ?? []).forEach((issue, index) => {
     const severity = stringValue(issue.severity) === "warning" ? "warning" : stringValue(issue.severity) === "info" ? "info" : "error";
+    const code = stringValue(issue.code);
+    const isSchedulerSupportIssue = code.startsWith("scheduler_policy_");
     pushIssue(issues, {
-      issue_id: `runtime:${stringValue(issue.code) || index}`,
+      issue_id: `runtime:${code || index}:${stringValue(issue.edge_id ?? issue.node_id)}`,
       severity,
-      scope: stringValue(issue.edge_id) ? "edge" : stringValue(issue.node_id) ? "node" : "runtime",
+      scope: stringValue(issue.edge_id) ? "edge" : stringValue(issue.node_id) ? "node" : isSchedulerSupportIssue ? "graph" : "runtime",
       target_id: stringValue(issue.edge_id ?? issue.node_id),
-      title: stringValue(issue.code) || "运行规范问题",
+      title: code || "运行规范问题",
       detail: stringValue(issue.message) || "后端 runtime spec 返回了未命名问题。",
-      source: "backend.runtime_spec",
+      source: isSchedulerSupportIssue ? "backend.scheduler_support" : "backend.runtime_spec",
     });
   });
 

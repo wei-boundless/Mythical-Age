@@ -373,6 +373,54 @@ def test_task_graph_definition_compiles_direct_runtime_spec_with_policy_diagnost
     assert review.review_gate_policy["is_review_gate"] is True
     assert edge.payload_contract_id == "contract.story.payload"
     assert edge.working_memory_handoff_policy["carry_kinds"] == ["draft_artifact"]
+    scheduler_support = spec.diagnostics["scheduler_support"]
+    assert scheduler_support["authority"] == "task_system.scheduler_support_report"
+    assert scheduler_support["partial_count"] > 0
+    assert any(item["field"] == "phase_id" for item in scheduler_support["supported"])
+    assert any(item["field"] == "sequence_index" for item in scheduler_support["supported"])
+    assert any(issue.code == "scheduler_policy_partial" for issue in spec.issues)
+
+
+def test_task_graph_runtime_spec_reports_unsupported_scheduler_policy(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.scheduler_support",
+        title="调度支持矩阵图",
+        graph_kind="multi_agent",
+        nodes=(
+            {
+                "node_id": "a",
+                "node_type": "agent",
+                "agent_id": "agent:a",
+                "execution_mode": "sync",
+            },
+            {
+                "node_id": "b",
+                "node_type": "agent",
+                "agent_id": "agent:b",
+                "wait_policy": "wait_any_upstream_completed",
+                "join_policy": "quorum",
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "a_b",
+                "source_node_id": "a",
+                "target_node_id": "b",
+                "failure_propagation_policy": "isolate_failure",
+            },
+        ),
+    )
+
+    spec = compile_task_graph_definition_runtime_spec(graph=graph)
+    scheduler_support = spec.diagnostics["scheduler_support"]
+
+    unsupported_fields = {item["field"] for item in scheduler_support["unsupported"]}
+    assert "join_policy" in unsupported_fields
+    assert "failure_propagation_policy" in unsupported_fields
+    supported_fields = {item["field"] for item in scheduler_support["supported"]}
+    assert "wait_policy" in supported_fields
+    assert any(issue.code == "scheduler_policy_unsupported" and issue.severity == "warning" for issue in spec.issues)
 
 
 def test_task_graph_dispatch_policy_fails_closed_for_invalid_or_unsafe_modes() -> None:

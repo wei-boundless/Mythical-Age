@@ -24,14 +24,15 @@
       }
     },
     {
-      "domain_id": "domain.longform_novel",
-      "task_family": "longform_novel_writing",
-      "title": "长篇小说创作",
-      "description": "面向多章节、多角色、多设定连续性的长篇小说生产任务域。",
+      "domain_id": "domain.writing_team.long_novel",
+      "task_family": "writing_team_long_novel",
+      "title": "长篇小说写作团队",
+      "description": "面向世界观、人物、大纲、章节、审校、入库的连续多 Agent 写作任务域。",
       "enabled": true,
-      "sort_order": 260,
+      "sort_order": 255,
       "metadata": {
-        "derived": true
+        "managed_by": "codex_writing_team_rebuild",
+        "assembly_doc": "docs/系统规划/86-长篇小说写作团队任务图重新装配流程记录-20260515.md"
       }
     },
     {

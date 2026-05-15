@@ -96,6 +96,33 @@ def test_delegation_executor_blocks_target_disabled_by_search_policy(tmp_path) -
     assert "target_agent_blocked_by_search_policy" in result["blocked_reasons"]
 
 
+def test_delegation_executor_treats_empty_search_policy_as_no_sources(tmp_path) -> None:
+    executor = AgentDelegationExecutor(tmp_path)
+    request = AgentDelegationRequest(
+        request_id="delegation:req:empty-search-policy",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref="agrun:taskrun:test:main",
+        source_agent_id="agent:0",
+        target_agent_id="agent:web_researcher",
+        delegation_kind="web_research",
+        instruction="请联网核验最新资料。",
+        input_payload={"question": "test"},
+        diagnostics={"allowed_search_sources": []},
+    )
+    parent_run = AgentRun(
+        agent_run_id="agrun:taskrun:test:main",
+        task_run_id="taskrun:test",
+        agent_id="agent:0",
+        agent_profile_id="main_interactive_agent",
+        status="running",
+    )
+
+    result = executor.validate_request(request, parent_agent_run=parent_run)
+
+    assert "target_agent_blocked_by_search_policy" in result["blocked_reasons"]
+
+
 def test_delegation_executor_blocks_nested_delegation(tmp_path) -> None:
     executor = AgentDelegationExecutor(tmp_path)
     request = AgentDelegationRequest(

@@ -258,6 +258,10 @@ def test_task_run_loop_starts_task_graph_with_real_dispatch_plan(tmp_path: Path)
     assert dispatch_plan["diagnostics"]["node_count"] == 2
     assert dispatch_plan["ready_node_ids"] == ["collect"]
     assert dispatch_plan["blocked_node_ids"] == ["review"]
+    stage_request = result.loop_state.diagnostics["stage_execution_request"]
+    assert stage_request["stage_id"] == "collect"
+    assert stage_request["task_ref"] == "task.test.collect"
+    assert stage_request["runtime_assembly"]["node_id"] == "collect"
     assert trace is not None
     assert trace["coordination_runs"][0]["graph_ref"] == graph.graph_id
 

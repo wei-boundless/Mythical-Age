@@ -222,23 +222,23 @@ export function CoordinationTopologyGraph({
     endY: 0,
   });
   const topology = buildCoordinationTopologyLayout(nodes, edges, currentNodeId, currentHandoffKey);
-  const haloRadius = topology.dense ? 22 : topology.compact ? 26 : 30;
-  const surfaceRadius = topology.dense ? 14 : topology.compact ? 17 : 20;
-  const agentLabelY = topology.dense ? -42 : topology.compact ? -48 : -56;
-  const titleY = topology.dense ? 38 : topology.compact ? 44 : 52;
-  const glyphY = topology.dense ? 4 : 5;
-  const nodeToolsY = topology.dense ? 50 : topology.compact ? 58 : 68;
-  const nodeToolsX = topology.dense ? -54 : -66;
-  const nodeToolsWidth = topology.dense ? 108 : 132;
-  const edgeToolsWidth = topology.dense ? 112 : 132;
+  const haloRadius = topology.dense ? 17 : topology.compact ? 20 : 24;
+  const surfaceRadius = topology.dense ? 11 : topology.compact ? 14 : 17;
+  const agentLabelY = topology.dense ? -32 : topology.compact ? -38 : -46;
+  const titleY = topology.dense ? 30 : topology.compact ? 35 : 42;
+  const glyphY = topology.dense ? 3 : 4;
+  const nodeToolsY = topology.dense ? 36 : topology.compact ? 44 : 54;
+  const nodeToolsX = topology.dense ? -44 : -54;
+  const nodeToolsWidth = topology.dense ? 90 : 108;
+  const edgeToolsWidth = topology.dense ? 92 : 110;
   const edgeToolsHalfWidth = edgeToolsWidth / 2;
   const nodeLayoutById = new Map(topology.nodes.map((node) => [node.id, node]));
   const frameLayouts = frames
     .map((frame) => {
       const frameNodes = frame.nodeIds.map((nodeId) => nodeLayoutById.get(nodeId)).filter((node): node is TopologyNodeLayout => Boolean(node));
       if (!frameNodes.length) return null;
-      const paddingX = topology.dense ? 54 : topology.compact ? 64 : 78;
-      const paddingY = topology.dense ? 58 : topology.compact ? 70 : 82;
+      const paddingX = topology.dense ? 40 : topology.compact ? 50 : 64;
+      const paddingY = topology.dense ? 44 : topology.compact ? 56 : 68;
       const minX = Math.min(...frameNodes.map((node) => node.x)) - paddingX;
       const maxX = Math.max(...frameNodes.map((node) => node.x)) + paddingX;
       const minY = Math.min(...frameNodes.map((node) => node.y)) - paddingY;
@@ -441,21 +441,21 @@ export function CoordinationTopologyGraph({
                   <rect
                     className={`coordination-topology-node-halo coordination-topology-node-halo--memory ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`}
                     filter={current ? "url(#coordination-node-glow)" : undefined}
-                    height={haloRadius * 1.62}
-                    rx="8"
-                    width={haloRadius * 1.62}
-                    x={-haloRadius * 0.81}
-                    y={-haloRadius * 0.81}
+                  height={haloRadius * 1.54}
+                  rx="6"
+                  width={haloRadius * 1.54}
+                  x={-haloRadius * 0.77}
+                  y={-haloRadius * 0.77}
                   />
                   <rect
                     className={`coordination-topology-node-surface coordination-topology-node-surface--memory ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`}
-                    height={surfaceRadius * 1.72}
-                    rx="6"
-                    width={surfaceRadius * 1.72}
-                    x={-surfaceRadius * 0.86}
-                    y={-surfaceRadius * 0.86}
+                    height={surfaceRadius * 1.62}
+                    rx="5"
+                    width={surfaceRadius * 1.62}
+                    x={-surfaceRadius * 0.81}
+                    y={-surfaceRadius * 0.81}
                   />
-                  <rect className="coordination-topology-node-core coordination-topology-node-core--memory" height={Math.max(12, surfaceRadius * 0.9)} rx="4" width={Math.max(12, surfaceRadius * 0.9)} x={-Math.max(12, surfaceRadius * 0.9) / 2} y={-Math.max(12, surfaceRadius * 0.9) / 2} />
+                  <rect className="coordination-topology-node-core coordination-topology-node-core--memory" height={Math.max(8, surfaceRadius * 0.82)} rx="3" width={Math.max(8, surfaceRadius * 0.82)} x={-Math.max(8, surfaceRadius * 0.82) / 2} y={-Math.max(8, surfaceRadius * 0.82) / 2} />
                 </>
               ) : (
                 <>
@@ -467,7 +467,7 @@ export function CoordinationTopologyGraph({
                     r={haloRadius}
                   />
                   <circle className={`coordination-topology-node-surface ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`} cx="0" cy="0" r={surfaceRadius} />
-                  <circle className="coordination-topology-node-core" cx="0" cy="0" r={Math.max(7, surfaceRadius * 0.48)} />
+                  <circle className="coordination-topology-node-core" cx="0" cy="0" r={Math.max(5, surfaceRadius * 0.42)} />
                 </>
               )}
               <text className={`coordination-topology-node-glyph ${topology.compact ? "is-compact" : ""}`} textAnchor="middle" x="0" y={glyphY}>

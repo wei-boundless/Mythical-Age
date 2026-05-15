@@ -32,6 +32,7 @@ describe("task graph templates", () => {
       expect(String(metadata.responsibility_scope ?? "")).toContain("你只负责");
       expect(String(metadata.responsibility_exclusions ?? "")).toContain("你不负责");
       expect(metadata.role_prompt).toBeUndefined();
+      expect(metadata.legacy_prompt_migration).toBeUndefined();
     }
   });
 
@@ -80,5 +81,29 @@ describe("task graph templates", () => {
     expect(draft.metadata.review_policy).toMatchObject({ strength: "strict", require_human_confirmation: true });
     expect((draft.nodes[0].metadata as Record<string, unknown>).template_prompt_context).toContain("当前任务意图：形成投资决策简报");
     expect((draft.nodes[0].metadata as Record<string, unknown>).agent_binding_source).toBe("template_parameter");
+  });
+
+  it("generates a clean long-novel writing team draft with structural refs only", () => {
+    const draft = buildTaskGraphTemplateDraft({
+      template_id: "writing_team_long_novel",
+      task_family: "writing_team_long_novel",
+      loop_count: 4,
+    });
+
+    expect(draft.nodes).toHaveLength(11);
+    expect(draft.edges).toHaveLength(13);
+    expect(draft.entry_node_id).toBe("world_design");
+    expect(draft.output_node_id).toBe("memory_commit");
+    expect(draft.metadata.assembly_namespace).toBe("writing_team_long_novel");
+    expect(draft.metadata.loop_policy).toMatchObject({ max_attempts: 4 });
+    expect(draft.edges.some((edge) => edge.edge_id === "edge.quality_gate.chapter_plan")).toBe(true);
+
+    for (const node of draft.nodes) {
+      expect(String(node.task_id ?? "")).toMatch(/^task\.writing_team\.long_novel\./);
+      expect(String(node.projection_id ?? "")).toMatch(/^projection\.writing_team\.long_novel\./);
+      expect(String(node.output_contract_id ?? "")).toMatch(/^contract\.writing_team\.long_novel\./);
+      expect((node.metadata as Record<string, unknown>).role_prompt).toBeUndefined();
+      expect((node.metadata as Record<string, unknown>).legacy_prompt_migration).toBeUndefined();
+    }
   });
 });

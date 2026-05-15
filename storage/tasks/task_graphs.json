@@ -377,6 +377,2532 @@
       "issues": [],
       "valid": true,
       "subtask_refs": []
+    },
+    {
+      "graph_id": "graph.writing_team.long_novel",
+      "title": "长篇小说写作团队任务图",
+      "domain_id": "domain.writing_team.long_novel",
+      "task_family": "writing_team_long_novel",
+      "graph_kind": "coordination",
+      "entry_node_id": "world_design",
+      "output_node_id": "memory_commit",
+      "nodes": [
+        {
+          "node_id": "world_design",
+          "node_type": "agent_role",
+          "title": "世界观设计",
+          "task_id": "task.writing_team.long_novel.world_design",
+          "agent_id": "agent:world_designer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "world_designer",
+          "node_contract_id": "contract.writing_team.long_novel.world_brief",
+          "input_contract_id": "UserMessage",
+          "output_contract_id": "contract.writing_team.long_novel.world_brief",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.world_designer",
+          "projection_overlay_id": "projection.writing_team.long_novel.world_designer",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.foundation",
+          "sequence_index": 1,
+          "timeline_group_id": "phase.foundation",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "world/world_brief.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "world/world_brief.md",
+          "output_path": "world/world_brief.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "world_review",
+          "node_type": "review_gate",
+          "title": "世界观审核",
+          "task_id": "task.writing_team.long_novel.world_review",
+          "agent_id": "agent:world_reviewer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "world_reviewer",
+          "node_contract_id": "contract.writing_team.long_novel.world_review",
+          "input_contract_id": "contract.writing_team.long_novel.world_brief",
+          "output_contract_id": "contract.writing_team.long_novel.world_review",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.world_reviewer",
+          "projection_overlay_id": "projection.writing_team.long_novel.world_reviewer",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.foundation",
+          "sequence_index": 2,
+          "timeline_group_id": "phase.foundation",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {
+            "is_review_gate": true,
+            "gate_kind": "quality_gate"
+          },
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "reviews/world_review.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "reviews/world_review.md",
+          "output_path": "reviews/world_review.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "outline_design",
+          "node_type": "agent_role",
+          "title": "大纲设计",
+          "task_id": "task.writing_team.long_novel.outline_design",
+          "agent_id": "agent:outline_designer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "outline_designer",
+          "node_contract_id": "contract.writing_team.long_novel.outline_brief",
+          "input_contract_id": "contract.writing_team.long_novel.world_review",
+          "output_contract_id": "contract.writing_team.long_novel.outline_brief",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.outline_designer",
+          "projection_overlay_id": "projection.writing_team.long_novel.outline_designer",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.foundation",
+          "sequence_index": 3,
+          "timeline_group_id": "phase.foundation",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "outline/outline_brief.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "outline/outline_brief.md",
+          "output_path": "outline/outline_brief.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "outline_review",
+          "node_type": "review_gate",
+          "title": "大纲审核",
+          "task_id": "task.writing_team.long_novel.outline_review",
+          "agent_id": "agent:outline_reviewer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "outline_reviewer",
+          "node_contract_id": "contract.writing_team.long_novel.outline_review",
+          "input_contract_id": "contract.writing_team.long_novel.outline_brief",
+          "output_contract_id": "contract.writing_team.long_novel.outline_review",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.outline_reviewer",
+          "projection_overlay_id": "projection.writing_team.long_novel.outline_reviewer",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.foundation",
+          "sequence_index": 4,
+          "timeline_group_id": "phase.foundation",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {
+            "is_review_gate": true,
+            "gate_kind": "quality_gate"
+          },
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "reviews/outline_review.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "reviews/outline_review.md",
+          "output_path": "reviews/outline_review.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "character_design",
+          "node_type": "agent_role",
+          "title": "人物设定",
+          "task_id": "task.writing_team.long_novel.character_design",
+          "agent_id": "agent:character_designer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "character_designer",
+          "node_contract_id": "contract.writing_team.long_novel.character_sheet",
+          "input_contract_id": "contract.writing_team.long_novel.outline_review",
+          "output_contract_id": "contract.writing_team.long_novel.character_sheet",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.character_designer",
+          "projection_overlay_id": "projection.writing_team.long_novel.character_designer",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.foundation",
+          "sequence_index": 5,
+          "timeline_group_id": "phase.foundation",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "characters/character_sheet.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "characters/character_sheet.md",
+          "output_path": "characters/character_sheet.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "chapter_plan",
+          "node_type": "agent_role",
+          "title": "章节细纲",
+          "task_id": "task.writing_team.long_novel.chapter_plan",
+          "agent_id": "agent:chapter_planner",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "chapter_planner",
+          "node_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "input_contract_id": "contract.writing_team.long_novel.character_sheet",
+          "output_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.chapter_planner",
+          "projection_overlay_id": "projection.writing_team.long_novel.chapter_planner",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.chapter_planning",
+          "sequence_index": 1,
+          "timeline_group_id": "phase.chapter_planning",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "chapters/chapter_plan.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "chapters/chapter_plan.md",
+          "output_path": "chapters/chapter_plan.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "chapter_writer_a",
+          "node_type": "agent_role",
+          "title": "章节写作者 A",
+          "task_id": "task.writing_team.long_novel.chapter_draft",
+          "agent_id": "agent:chapter_writer_a",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "chapter_writer",
+          "node_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "input_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "output_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.chapter_writer_a",
+          "projection_overlay_id": "projection.writing_team.long_novel.chapter_writer_a",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.chapter_drafting",
+          "sequence_index": 1,
+          "timeline_group_id": "phase.chapter_drafting",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "chapters/chapter_draft_a.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "chapters/chapter_draft_a.md",
+          "output_path": "chapters/chapter_draft_a.md",
+          "execution_mode": "parallel",
+          "dispatch_group": "chapter_draft_candidates",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "chapter_writer_b",
+          "node_type": "agent_role",
+          "title": "章节写作者 B",
+          "task_id": "task.writing_team.long_novel.chapter_draft",
+          "agent_id": "agent:chapter_writer_b",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "chapter_writer",
+          "node_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "input_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "output_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.chapter_writer_b",
+          "projection_overlay_id": "projection.writing_team.long_novel.chapter_writer_b",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.chapter_drafting",
+          "sequence_index": 1,
+          "timeline_group_id": "phase.chapter_drafting",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "chapters/chapter_draft_b.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "chapters/chapter_draft_b.md",
+          "output_path": "chapters/chapter_draft_b.md",
+          "execution_mode": "parallel",
+          "dispatch_group": "chapter_draft_candidates",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "chapter_review",
+          "node_type": "review_gate",
+          "title": "章节互审",
+          "task_id": "task.writing_team.long_novel.chapter_review",
+          "agent_id": "agent:chapter_reviewer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "chapter_reviewer",
+          "node_contract_id": "contract.writing_team.long_novel.chapter_review",
+          "input_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "output_contract_id": "contract.writing_team.long_novel.chapter_review",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.chapter_reviewer",
+          "projection_overlay_id": "projection.writing_team.long_novel.chapter_reviewer",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.review_gate",
+          "sequence_index": 1,
+          "timeline_group_id": "phase.review_gate",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {
+            "is_review_gate": true,
+            "gate_kind": "quality_gate"
+          },
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "reviews/chapter_review.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "reviews/chapter_review.md",
+          "output_path": "reviews/chapter_review.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "allow_partial_with_issues",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "quality_gate",
+          "node_type": "review_gate",
+          "title": "质量门",
+          "task_id": "task.writing_team.long_novel.quality_gate",
+          "agent_id": "agent:quality_gate_reviewer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "quality_gate",
+          "node_contract_id": "contract.writing_team.long_novel.quality_gate",
+          "input_contract_id": "contract.writing_team.long_novel.chapter_review",
+          "output_contract_id": "contract.writing_team.long_novel.quality_gate",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.quality_gate",
+          "projection_overlay_id": "projection.writing_team.long_novel.quality_gate",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.review_gate",
+          "sequence_index": 2,
+          "timeline_group_id": "phase.review_gate",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {
+            "mode": "repair_loop",
+            "repair_target_node_id": "chapter_plan",
+            "max_attempts": 3,
+            "exit_condition": "quality_gate_passed_or_human_stop"
+          },
+          "review_gate_policy": {
+            "is_review_gate": true,
+            "gate_kind": "quality_gate"
+          },
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "reviews/quality_gate.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "reviews/quality_gate.md",
+          "output_path": "reviews/quality_gate.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "memory_commit",
+          "node_type": "memory",
+          "title": "资产入库",
+          "task_id": "task.writing_team.long_novel.memory_commit",
+          "agent_id": "agent:memory_steward",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "memory_steward",
+          "node_contract_id": "contract.writing_team.long_novel.memory_commit",
+          "input_contract_id": "contract.writing_team.long_novel.quality_gate",
+          "output_contract_id": "contract.writing_team.long_novel.memory_commit",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.memory_steward",
+          "projection_overlay_id": "projection.writing_team.long_novel.memory_steward",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {
+            "writable_kinds": [
+              "approved_world",
+              "approved_outline",
+              "approved_character",
+              "chapter_summary",
+              "review_decision"
+            ],
+            "writable_scopes": [
+              "project_scope"
+            ]
+          },
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.memory_commit",
+          "sequence_index": 1,
+          "timeline_group_id": "phase.memory_commit",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "memory/memory_commit.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "memory/memory_commit.md",
+          "output_path": "memory/memory_commit.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "edge_id": "edge.world_design.world_review",
+          "source_node_id": "world_design",
+          "target_node_id": "world_review",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.world_brief",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "世界观方案进入审核",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.world_review.outline_design",
+          "source_node_id": "world_review",
+          "target_node_id": "outline_design",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.world_review",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "通过的世界观交接给大纲设计",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.outline_design.outline_review",
+          "source_node_id": "outline_design",
+          "target_node_id": "outline_review",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.outline_brief",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "大纲方案进入审核",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.world_review.character_design",
+          "source_node_id": "world_review",
+          "target_node_id": "character_design",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.world_review",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "世界观约束交接给人物设计",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.outline_review.chapter_plan",
+          "source_node_id": "outline_review",
+          "target_node_id": "chapter_plan",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.outline_review",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "通过的大纲交接给章节规划",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.character_design.chapter_plan",
+          "source_node_id": "character_design",
+          "target_node_id": "chapter_plan",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.character_sheet",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "人物设定交接给章节规划",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.chapter_plan.writer_a",
+          "source_node_id": "chapter_plan",
+          "target_node_id": "chapter_writer_a",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "章节细纲交接给写作者 A",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.chapter_plan.writer_b",
+          "source_node_id": "chapter_plan",
+          "target_node_id": "chapter_writer_b",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "章节细纲交接给写作者 B",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.writer_a.chapter_review",
+          "source_node_id": "chapter_writer_a",
+          "target_node_id": "chapter_review",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "候选稿 A 进入互审",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.writer_b.chapter_review",
+          "source_node_id": "chapter_writer_b",
+          "target_node_id": "chapter_review",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "候选稿 B 进入互审",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.chapter_review.quality_gate",
+          "source_node_id": "chapter_review",
+          "target_node_id": "quality_gate",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.chapter_review",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "互审结果进入质量门",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.quality_gate.chapter_plan",
+          "source_node_id": "quality_gate",
+          "target_node_id": "chapter_plan",
+          "edge_type": "review_feedback",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.quality_gate",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "allow_partial",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "质量门返修回章节规划",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.quality_gate.memory_commit",
+          "source_node_id": "quality_gate",
+          "target_node_id": "memory_commit",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.quality_gate",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "通过资产进入入库",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        }
+      ],
+      "graph_contract_id": "contract.writing_team.long_novel.quality_gate",
+      "default_protocol_id": "protocol.writing_team.long_novel",
+      "working_memory_policy_profile_id": "wmprofile.writing_team.long_novel",
+      "working_memory_policy": {
+        "enabled": true,
+        "default_scope": "graph_scope",
+        "dynamic_read_default": "runloop_approved"
+      },
+      "runtime_policy": {
+        "coordination_mode": "pipeline",
+        "coordinator_agent_id": "agent:0",
+        "agent_group_id": "group.writing_team.long_novel",
+        "participant_agent_ids": [
+          "agent:world_designer",
+          "agent:world_reviewer",
+          "agent:outline_designer",
+          "agent:outline_reviewer",
+          "agent:character_designer",
+          "agent:chapter_planner",
+          "agent:chapter_writer_a",
+          "agent:chapter_writer_b",
+          "agent:chapter_reviewer",
+          "agent:quality_gate_reviewer",
+          "agent:memory_steward"
+        ],
+        "default_execution_mode": "sync",
+        "default_wait_policy": "wait_all_upstream_completed",
+        "default_join_policy": "all_success",
+        "working_memory_profile_id": "wmprofile.writing_team.long_novel"
+      },
+      "context_policy": {
+        "shared_context_policy": "explicit_refs_only",
+        "memory_sharing_policy": "isolated_by_default",
+        "handoff_policy": "filtered_handoff"
+      },
+      "publish_state": "published",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_family": "writing_team_long_novel",
+        "package_template": "writing_team_long_novel",
+        "topology_template_id": "topology.writing_team.long_novel",
+        "protocol_id": "protocol.writing_team.long_novel",
+        "communication_modes": [
+          "structured_handoff",
+          "review_feedback"
+        ],
+        "subtask_refs": [
+          "task.writing_team.long_novel.world_design",
+          "task.writing_team.long_novel.world_review",
+          "task.writing_team.long_novel.outline_design",
+          "task.writing_team.long_novel.outline_review",
+          "task.writing_team.long_novel.character_design",
+          "task.writing_team.long_novel.chapter_plan",
+          "task.writing_team.long_novel.chapter_draft",
+          "task.writing_team.long_novel.chapter_review",
+          "task.writing_team.long_novel.quality_gate",
+          "task.writing_team.long_novel.memory_commit"
+        ],
+        "phase_definitions": [
+          {
+            "phase_id": "phase.foundation",
+            "title": "基础设定",
+            "sequence_index": 1,
+            "node_ids": [
+              "world_design",
+              "world_review",
+              "outline_design",
+              "outline_review",
+              "character_design"
+            ],
+            "exit_policy": {
+              "kind": "all_blocking_nodes_complete"
+            }
+          },
+          {
+            "phase_id": "phase.chapter_planning",
+            "title": "章节规划",
+            "sequence_index": 2,
+            "node_ids": [
+              "chapter_plan"
+            ],
+            "exit_policy": {
+              "kind": "all_blocking_nodes_complete"
+            }
+          },
+          {
+            "phase_id": "phase.chapter_drafting",
+            "title": "章节候选稿",
+            "sequence_index": 3,
+            "node_ids": [
+              "chapter_writer_a",
+              "chapter_writer_b"
+            ],
+            "exit_policy": {
+              "kind": "all_blocking_nodes_complete"
+            }
+          },
+          {
+            "phase_id": "phase.review_gate",
+            "title": "审稿与质量门",
+            "sequence_index": 4,
+            "node_ids": [
+              "chapter_review",
+              "quality_gate"
+            ],
+            "exit_policy": {
+              "kind": "quality_gate_pass_or_repair"
+            }
+          },
+          {
+            "phase_id": "phase.memory_commit",
+            "title": "资产入库",
+            "sequence_index": 5,
+            "node_ids": [
+              "memory_commit"
+            ],
+            "exit_policy": {
+              "kind": "all_blocking_nodes_complete"
+            }
+          }
+        ],
+        "timeline_frames": [
+          {
+            "frame_id": "frame.phase.foundation",
+            "frame_type": "phase_frame",
+            "title": "基础设定",
+            "phase_id": "phase.foundation",
+            "sequence_index": 1,
+            "node_ids": [
+              "world_design",
+              "world_review",
+              "outline_design",
+              "outline_review",
+              "character_design"
+            ],
+            "edge_ids": []
+          },
+          {
+            "frame_id": "frame.phase.chapter_planning",
+            "frame_type": "phase_frame",
+            "title": "章节规划",
+            "phase_id": "phase.chapter_planning",
+            "sequence_index": 2,
+            "node_ids": [
+              "chapter_plan"
+            ],
+            "edge_ids": []
+          },
+          {
+            "frame_id": "frame.phase.chapter_drafting",
+            "frame_type": "phase_frame",
+            "title": "章节候选稿",
+            "phase_id": "phase.chapter_drafting",
+            "sequence_index": 3,
+            "node_ids": [
+              "chapter_writer_a",
+              "chapter_writer_b"
+            ],
+            "edge_ids": []
+          },
+          {
+            "frame_id": "frame.phase.review_gate",
+            "frame_type": "phase_frame",
+            "title": "审稿与质量门",
+            "phase_id": "phase.review_gate",
+            "sequence_index": 4,
+            "node_ids": [
+              "chapter_review",
+              "quality_gate"
+            ],
+            "edge_ids": []
+          },
+          {
+            "frame_id": "frame.phase.memory_commit",
+            "frame_type": "phase_frame",
+            "title": "资产入库",
+            "phase_id": "phase.memory_commit",
+            "sequence_index": 5,
+            "node_ids": [
+              "memory_commit"
+            ],
+            "edge_ids": []
+          }
+        ],
+        "loop_policy": {
+          "max_attempts": 3,
+          "exit_condition": "quality_gate_passed_or_human_stop"
+        },
+        "artifact_policy": {
+          "artifact_type": "markdown_project_assets",
+          "require_artifact_refs": true
+        },
+        "handoff_policy": "filtered_handoff",
+        "conflict_resolution_policy": "coordinator_review",
+        "output_merge_policy": "coordinator_final_merge"
+      },
+      "authority": "task_system.task_graph_definition",
+      "graph_nodes": [
+        {
+          "node_id": "world_design",
+          "node_type": "agent_role",
+          "title": "世界观设计",
+          "task_id": "task.writing_team.long_novel.world_design",
+          "agent_id": "agent:world_designer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "world_designer",
+          "node_contract_id": "contract.writing_team.long_novel.world_brief",
+          "input_contract_id": "UserMessage",
+          "output_contract_id": "contract.writing_team.long_novel.world_brief",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.world_designer",
+          "projection_overlay_id": "projection.writing_team.long_novel.world_designer",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.foundation",
+          "sequence_index": 1,
+          "timeline_group_id": "phase.foundation",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "world/world_brief.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "world/world_brief.md",
+          "output_path": "world/world_brief.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "world_review",
+          "node_type": "review_gate",
+          "title": "世界观审核",
+          "task_id": "task.writing_team.long_novel.world_review",
+          "agent_id": "agent:world_reviewer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "world_reviewer",
+          "node_contract_id": "contract.writing_team.long_novel.world_review",
+          "input_contract_id": "contract.writing_team.long_novel.world_brief",
+          "output_contract_id": "contract.writing_team.long_novel.world_review",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.world_reviewer",
+          "projection_overlay_id": "projection.writing_team.long_novel.world_reviewer",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.foundation",
+          "sequence_index": 2,
+          "timeline_group_id": "phase.foundation",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {
+            "is_review_gate": true,
+            "gate_kind": "quality_gate"
+          },
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "reviews/world_review.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "reviews/world_review.md",
+          "output_path": "reviews/world_review.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "outline_design",
+          "node_type": "agent_role",
+          "title": "大纲设计",
+          "task_id": "task.writing_team.long_novel.outline_design",
+          "agent_id": "agent:outline_designer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "outline_designer",
+          "node_contract_id": "contract.writing_team.long_novel.outline_brief",
+          "input_contract_id": "contract.writing_team.long_novel.world_review",
+          "output_contract_id": "contract.writing_team.long_novel.outline_brief",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.outline_designer",
+          "projection_overlay_id": "projection.writing_team.long_novel.outline_designer",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.foundation",
+          "sequence_index": 3,
+          "timeline_group_id": "phase.foundation",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "outline/outline_brief.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "outline/outline_brief.md",
+          "output_path": "outline/outline_brief.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "outline_review",
+          "node_type": "review_gate",
+          "title": "大纲审核",
+          "task_id": "task.writing_team.long_novel.outline_review",
+          "agent_id": "agent:outline_reviewer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "outline_reviewer",
+          "node_contract_id": "contract.writing_team.long_novel.outline_review",
+          "input_contract_id": "contract.writing_team.long_novel.outline_brief",
+          "output_contract_id": "contract.writing_team.long_novel.outline_review",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.outline_reviewer",
+          "projection_overlay_id": "projection.writing_team.long_novel.outline_reviewer",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.foundation",
+          "sequence_index": 4,
+          "timeline_group_id": "phase.foundation",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {
+            "is_review_gate": true,
+            "gate_kind": "quality_gate"
+          },
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "reviews/outline_review.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "reviews/outline_review.md",
+          "output_path": "reviews/outline_review.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "character_design",
+          "node_type": "agent_role",
+          "title": "人物设定",
+          "task_id": "task.writing_team.long_novel.character_design",
+          "agent_id": "agent:character_designer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "character_designer",
+          "node_contract_id": "contract.writing_team.long_novel.character_sheet",
+          "input_contract_id": "contract.writing_team.long_novel.outline_review",
+          "output_contract_id": "contract.writing_team.long_novel.character_sheet",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.character_designer",
+          "projection_overlay_id": "projection.writing_team.long_novel.character_designer",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.foundation",
+          "sequence_index": 5,
+          "timeline_group_id": "phase.foundation",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "characters/character_sheet.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "characters/character_sheet.md",
+          "output_path": "characters/character_sheet.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "chapter_plan",
+          "node_type": "agent_role",
+          "title": "章节细纲",
+          "task_id": "task.writing_team.long_novel.chapter_plan",
+          "agent_id": "agent:chapter_planner",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "chapter_planner",
+          "node_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "input_contract_id": "contract.writing_team.long_novel.character_sheet",
+          "output_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.chapter_planner",
+          "projection_overlay_id": "projection.writing_team.long_novel.chapter_planner",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.chapter_planning",
+          "sequence_index": 1,
+          "timeline_group_id": "phase.chapter_planning",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "chapters/chapter_plan.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "chapters/chapter_plan.md",
+          "output_path": "chapters/chapter_plan.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "chapter_writer_a",
+          "node_type": "agent_role",
+          "title": "章节写作者 A",
+          "task_id": "task.writing_team.long_novel.chapter_draft",
+          "agent_id": "agent:chapter_writer_a",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "chapter_writer",
+          "node_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "input_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "output_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.chapter_writer_a",
+          "projection_overlay_id": "projection.writing_team.long_novel.chapter_writer_a",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.chapter_drafting",
+          "sequence_index": 1,
+          "timeline_group_id": "phase.chapter_drafting",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "chapters/chapter_draft_a.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "chapters/chapter_draft_a.md",
+          "output_path": "chapters/chapter_draft_a.md",
+          "execution_mode": "parallel",
+          "dispatch_group": "chapter_draft_candidates",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "chapter_writer_b",
+          "node_type": "agent_role",
+          "title": "章节写作者 B",
+          "task_id": "task.writing_team.long_novel.chapter_draft",
+          "agent_id": "agent:chapter_writer_b",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "chapter_writer",
+          "node_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "input_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "output_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.chapter_writer_b",
+          "projection_overlay_id": "projection.writing_team.long_novel.chapter_writer_b",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.chapter_drafting",
+          "sequence_index": 1,
+          "timeline_group_id": "phase.chapter_drafting",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "chapters/chapter_draft_b.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "chapters/chapter_draft_b.md",
+          "output_path": "chapters/chapter_draft_b.md",
+          "execution_mode": "parallel",
+          "dispatch_group": "chapter_draft_candidates",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "chapter_review",
+          "node_type": "review_gate",
+          "title": "章节互审",
+          "task_id": "task.writing_team.long_novel.chapter_review",
+          "agent_id": "agent:chapter_reviewer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "chapter_reviewer",
+          "node_contract_id": "contract.writing_team.long_novel.chapter_review",
+          "input_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "output_contract_id": "contract.writing_team.long_novel.chapter_review",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.chapter_reviewer",
+          "projection_overlay_id": "projection.writing_team.long_novel.chapter_reviewer",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.review_gate",
+          "sequence_index": 1,
+          "timeline_group_id": "phase.review_gate",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {
+            "is_review_gate": true,
+            "gate_kind": "quality_gate"
+          },
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "reviews/chapter_review.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "reviews/chapter_review.md",
+          "output_path": "reviews/chapter_review.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "allow_partial_with_issues",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "quality_gate",
+          "node_type": "review_gate",
+          "title": "质量门",
+          "task_id": "task.writing_team.long_novel.quality_gate",
+          "agent_id": "agent:quality_gate_reviewer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "quality_gate",
+          "node_contract_id": "contract.writing_team.long_novel.quality_gate",
+          "input_contract_id": "contract.writing_team.long_novel.chapter_review",
+          "output_contract_id": "contract.writing_team.long_novel.quality_gate",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.quality_gate",
+          "projection_overlay_id": "projection.writing_team.long_novel.quality_gate",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {},
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.review_gate",
+          "sequence_index": 2,
+          "timeline_group_id": "phase.review_gate",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {
+            "mode": "repair_loop",
+            "repair_target_node_id": "chapter_plan",
+            "max_attempts": 3,
+            "exit_condition": "quality_gate_passed_or_human_stop"
+          },
+          "review_gate_policy": {
+            "is_review_gate": true,
+            "gate_kind": "quality_gate"
+          },
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "reviews/quality_gate.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "reviews/quality_gate.md",
+          "output_path": "reviews/quality_gate.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        },
+        {
+          "node_id": "memory_commit",
+          "node_type": "memory",
+          "title": "资产入库",
+          "task_id": "task.writing_team.long_novel.memory_commit",
+          "agent_id": "agent:memory_steward",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "",
+          "work_posture": "memory_steward",
+          "node_contract_id": "contract.writing_team.long_novel.memory_commit",
+          "input_contract_id": "contract.writing_team.long_novel.quality_gate",
+          "output_contract_id": "contract.writing_team.long_novel.memory_commit",
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {},
+          "projection_id": "projection.writing_team.long_novel.memory_steward",
+          "projection_overlay_id": "projection.writing_team.long_novel.memory_steward",
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "readable_kinds": [
+              "project_brief",
+              "approved_artifact",
+              "review_decision"
+            ],
+            "readable_scopes": [
+              "graph_scope",
+              "project_scope"
+            ]
+          },
+          "memory_writeback_policy": {
+            "writable_kinds": [
+              "approved_world",
+              "approved_outline",
+              "approved_character",
+              "chapter_summary",
+              "review_decision"
+            ],
+            "writable_scopes": [
+              "project_scope"
+            ]
+          },
+          "dynamic_memory_read_policy": {
+            "allow_dynamic_read": true,
+            "max_dynamic_reads_per_node_run": 2
+          },
+          "phase_id": "phase.memory_commit",
+          "sequence_index": 1,
+          "timeline_group_id": "phase.memory_commit",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "review_gate_policy": {},
+          "artifact_policy": {
+            "required": true,
+            "artifact_target": "memory/memory_commit.md",
+            "storage_policy": "task_artifact_ref"
+          },
+          "artifact_target": "memory/memory_commit.md",
+          "output_path": "memory/memory_commit.md",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {
+            "cleanup_on_terminal": true
+          },
+          "metadata": {
+            "managed_by": "codex_writing_team_rebuild",
+            "task_family": "writing_team_long_novel",
+            "domain_id": "domain.writing_team.long_novel",
+            "package_template": "writing_team_long_novel"
+          }
+        }
+      ],
+      "graph_edges": [
+        {
+          "edge_id": "edge.world_design.world_review",
+          "source_node_id": "world_design",
+          "target_node_id": "world_review",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.world_brief",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "世界观方案进入审核",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.world_review.outline_design",
+          "source_node_id": "world_review",
+          "target_node_id": "outline_design",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.world_review",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "通过的世界观交接给大纲设计",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.outline_design.outline_review",
+          "source_node_id": "outline_design",
+          "target_node_id": "outline_review",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.outline_brief",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "大纲方案进入审核",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.world_review.character_design",
+          "source_node_id": "world_review",
+          "target_node_id": "character_design",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.world_review",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "世界观约束交接给人物设计",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.outline_review.chapter_plan",
+          "source_node_id": "outline_review",
+          "target_node_id": "chapter_plan",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.outline_review",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "通过的大纲交接给章节规划",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.character_design.chapter_plan",
+          "source_node_id": "character_design",
+          "target_node_id": "chapter_plan",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.character_sheet",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "人物设定交接给章节规划",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.chapter_plan.writer_a",
+          "source_node_id": "chapter_plan",
+          "target_node_id": "chapter_writer_a",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "章节细纲交接给写作者 A",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.chapter_plan.writer_b",
+          "source_node_id": "chapter_plan",
+          "target_node_id": "chapter_writer_b",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.chapter_plan",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "章节细纲交接给写作者 B",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.writer_a.chapter_review",
+          "source_node_id": "chapter_writer_a",
+          "target_node_id": "chapter_review",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "候选稿 A 进入互审",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.writer_b.chapter_review",
+          "source_node_id": "chapter_writer_b",
+          "target_node_id": "chapter_review",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.chapter_draft",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "候选稿 B 进入互审",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.chapter_review.quality_gate",
+          "source_node_id": "chapter_review",
+          "target_node_id": "quality_gate",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.chapter_review",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "互审结果进入质量门",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.quality_gate.chapter_plan",
+          "source_node_id": "quality_gate",
+          "target_node_id": "chapter_plan",
+          "edge_type": "review_feedback",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.quality_gate",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "allow_partial",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "质量门返修回章节规划",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        },
+        {
+          "edge_id": "edge.quality_gate.memory_commit",
+          "source_node_id": "quality_gate",
+          "target_node_id": "memory_commit",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing_team.long_novel.quality_gate",
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "include_artifact_refs": true
+          },
+          "working_memory_handoff_policy": {
+            "mode": "carry_selected",
+            "carry_kinds": [
+              "artifact_ref",
+              "summary",
+              "review_decision"
+            ],
+            "summary_only": true
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "wait_handoff_ack",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "title": "通过资产进入入库",
+            "managed_by": "codex_writing_team_rebuild"
+          }
+        }
+      ],
+      "issues": [],
+      "valid": true,
+      "subtask_refs": [
+        "task.writing_team.long_novel.world_design",
+        "task.writing_team.long_novel.world_review",
+        "task.writing_team.long_novel.outline_design",
+        "task.writing_team.long_novel.outline_review",
+        "task.writing_team.long_novel.character_design",
+        "task.writing_team.long_novel.chapter_plan",
+        "task.writing_team.long_novel.chapter_draft",
+        "task.writing_team.long_novel.chapter_review",
+        "task.writing_team.long_novel.quality_gate",
+        "task.writing_team.long_novel.memory_commit"
+      ]
     }
   ]
 }

@@ -221,7 +221,10 @@ export function buildTimelinePhases({
     for (const node of phaseNodes) {
       const sequenceIndex = nodeSequenceIndex(node);
       const groupId = nodeTimelineGroupId(node);
-      const stepKey = groupId || `step:${sequenceIndex}`;
+      const nodeId = nodeIdOf(node);
+      const stepKey = groupId
+        ? `${phase.phase_id}:${groupId}:${sequenceIndex}:${nodeId}`
+        : `${phase.phase_id}:step:${sequenceIndex}:${nodeId}`;
       const existing = stepMap.get(stepKey);
       if (existing) {
         existing.nodes.push(node);

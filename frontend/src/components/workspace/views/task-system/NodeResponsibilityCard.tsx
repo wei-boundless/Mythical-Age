@@ -30,25 +30,26 @@ function projectionLabel(
   return soul ? `${title} · ${soul}` : title;
 }
 
-function metadataAfterProjectionBind(metadata: Record<string, unknown>, prompt: string) {
+function metadataAfterProjectionBind(metadata: Record<string, unknown>) {
   const {
-    role_prompt: rolePrompt,
     role_identity: roleIdentity,
     responsibility_scope: responsibilityScope,
     responsibility_exclusions: responsibilityExclusions,
     definition_of_done: definitionOfDone,
     ...rest
   } = metadata;
-  const legacy = {
-    role_prompt: rolePrompt || prompt,
-    role_identity: roleIdentity,
-    responsibility_scope: responsibilityScope,
-    responsibility_exclusions: responsibilityExclusions,
-    definition_of_done: definitionOfDone,
-  };
+  const migratedFieldNames = [
+    roleIdentity ? "role_identity" : "",
+    responsibilityScope ? "responsibility_scope" : "",
+    responsibilityExclusions ? "responsibility_exclusions" : "",
+    definitionOfDone ? "definition_of_done" : "",
+  ].filter(Boolean);
   return {
     ...rest,
-    legacy_prompt_migration: legacy,
+    legacy_prompt_migration: {
+      legacy_field_names: migratedFieldNames,
+      migration_status: "projection_bound",
+    },
   };
 }
 
@@ -87,8 +88,8 @@ export function NodeResponsibilityCard({
       setPromptDraft("");
       return;
     }
-    const legacyPrompt = String(asRecord(selectedGraphNode.metadata).role_prompt ?? "").trim();
-    setPromptDraft(legacyPrompt || buildNodeResponsibilityPrompt(asRecord(selectedGraphNode.metadata)));
+    const prompt = buildNodeResponsibilityPrompt(asRecord(selectedGraphNode.metadata));
+    setPromptDraft(prompt);
   }, [selectedGraphNode, selectedGraphNodeId]);
 
   if (!selectedGraphNode || !selectedGraphNodeId) {
@@ -112,7 +113,10 @@ export function NodeResponsibilityCard({
     });
   };
 
-  const legacyPrompt = String(nodeMetadata.role_prompt ?? "").trim();
+  const legacyMigration = asRecord(nodeMetadata.legacy_prompt_migration);
+  const legacyFieldNames = Array.isArray(legacyMigration.legacy_field_names)
+    ? legacyMigration.legacy_field_names.map((value) => String(value ?? "").trim()).filter(Boolean)
+    : [];
   const projectionId = String(selectedGraphNode.projection_id ?? selectedGraphNode.projection_overlay_id ?? "");
   const projectionOptions = uniqueStrings([
     projectionId,
@@ -131,7 +135,7 @@ export function NodeResponsibilityCard({
         prompt,
       });
       updateTaskGraphNode(selectedGraphNodeId, {
-        metadata: metadataAfterProjectionBind(nodeMetadata, prompt),
+        metadata: metadataAfterProjectionBind(nodeMetadata),
         projection_id: nextProjectionId,
         projection_overlay_id: nextProjectionId,
       });
@@ -154,7 +158,7 @@ export function NodeResponsibilityCard({
         <p><span>角色</span><strong>{String(selectedGraphNode.role ?? selectedGraphNode.work_posture ?? "participant")}</strong></p>
         <p><span>Agent</span><strong>{String(selectedGraphNode.agent_id ?? "未绑定")}</strong></p>
         <p><span>投影</span><strong>{projectionLabel(projectionId, projectionCards)}</strong></p>
-        <p><span>Legacy Prompt</span><strong>{legacyPrompt ? "待迁移" : "无"}</strong></p>
+        <p><span>Legacy Prompt</span><strong>{legacyFieldNames.length > 0 ? "已迁移记录" : "无"}</strong></p>
       </div>
 
       <div className="boundary-form">

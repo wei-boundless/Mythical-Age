@@ -86,7 +86,7 @@ from .loop_control import RuntimeLoopLimits, check_runtime_loop_control
 from .langgraph_coordination_runner import LangGraphCoordinationRunner
 from .artifact_refs import ArtifactRefIndex, collect_task_result_output_refs, dedupe_refs as dedupe_artifact_refs
 from .agent_delegation_executor import AgentDelegationExecutor
-from .langgraph_coordination_runtime import LangGraphCoordinationRuntime
+from .langgraph_coordination_runtime import LangGraphCoordinationRuntime, LangGraphCoordinationRuntimeResult
 from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
 from .task_artifact_materializer import MaterializedTaskArtifacts, materialize_task_artifacts
 from .model_adoption import build_model_response_runtime_adoption
@@ -158,6 +158,10 @@ class TaskRunLoop:
         target = str(graph_ref or "").strip()
         if not target:
             return None
+        if target.startswith("graph."):
+            task_graph = self.task_flow_registry.get_task_graph(target)
+            if task_graph is not None:
+                return self.task_flow_registry.get_graph_task(target)
         return self.task_flow_registry.resolve_graph_task_view(target)
 
     def __init__(
@@ -509,7 +513,7 @@ class TaskRunLoop:
             "working_memory_policy_profile_id": graph.working_memory_policy_profile_id,
             "working_memory_policy": dict(graph.working_memory_policy or {}),
         }
-        return self.start(
+        start = self.start(
             session_id=session_id,
             task_id=task_id or graph.graph_id,
             task_contract_ref=graph.graph_contract_id or graph.graph_id,
@@ -520,6 +524,7 @@ class TaskRunLoop:
             graph_ref=graph.graph_id,
             graph_payload=graph_payload,
             coordinator_agent_id=coordinator_agent_id,
+            topology_template_id=str(graph.metadata.get("topology_template_id") or ""),
             communication_protocol_id=graph.default_protocol_id,
             handoff_policy=str((runtime_spec.communication_modes or ("handoff",))[0]),
             failure_policy=str(runtime_policy.get("failure_policy") or ""),
@@ -533,6 +538,46 @@ class TaskRunLoop:
                 "task_graph_runtime_spec_valid": runtime_spec.valid,
                 **dict(diagnostics or {}),
             },
+        )
+        if start.coordination_run is None or not self.langgraph_coordination_runtime.supports(start.coordination_run):
+            return start
+        initialized = self.langgraph_coordination_runtime.initialize(
+            coordination_run=start.coordination_run,
+            event_task_run_id=start.task_run.task_run_id,
+            inherited_inputs=dict(initial_inputs or {}),
+        )
+        events = [dict(item) for item in start.events]
+        events.extend(
+            event.to_dict() if hasattr(event, "to_dict") else dict(event)
+            for event in initialized.events
+        )
+        refreshed_task_run = self.state_index.get_task_run(start.task_run.task_run_id) or start.task_run
+        refreshed_coordination_run = (
+            self.state_index.get_coordination_run(start.coordination_run.coordination_run_id)
+            or start.coordination_run
+        )
+        state = RuntimeLoopState(
+            **{
+                **start.loop_state.to_dict(),
+                "diagnostics": {
+                    **dict(start.loop_state.diagnostics),
+                    "langgraph_coordination_initialized": True,
+                    "langgraph_checkpoint_ref": initialized.checkpoint_ref,
+                    "stage_execution_request": (
+                        initialized.stage_execution_request.to_dict()
+                        if initialized.stage_execution_request is not None
+                        else {}
+                    ),
+                },
+            }
+        )
+        return TaskRunLoopStartResult(
+            task_run=refreshed_task_run,
+            agent_run=start.agent_run,
+            coordination_run=refreshed_coordination_run,
+            loop_state=state,
+            checkpoint=start.checkpoint,
+            events=tuple(events),
         )
 
     def submit_working_memory_candidates(
@@ -1159,6 +1204,13 @@ class TaskRunLoop:
             payload={
                 "directive": directive.to_dict(),
                 "resource_policy": resource_policy.to_dict(),
+                "search_policy": list(search_policy) if search_policy is not None else None,
+                "allowed_search_sources": sorted(allowed_search_sources),
+                "effective_tool_names": [
+                    str(getattr(tool, "name", "") or "")
+                    for tool in list(runtime_tool_instances)
+                    if str(getattr(tool, "name", "") or "")
+                ],
             },
             refs={
                 "directive_ref": directive.directive_id,
@@ -1170,6 +1222,13 @@ class TaskRunLoop:
             "type": "runtime_directive",
             "directive": directive.to_dict(),
             "resource_policy": resource_policy.to_dict(),
+            "search_policy": list(search_policy) if search_policy is not None else None,
+            "allowed_search_sources": sorted(allowed_search_sources),
+            "effective_tool_names": [
+                str(getattr(tool, "name", "") or "")
+                for tool in list(runtime_tool_instances)
+                if str(getattr(tool, "name", "") or "")
+            ],
         }
         gate_result = self.operation_gate.check(
             "op.model_response",
@@ -4901,7 +4960,9 @@ class TaskRunLoop:
         diagnostics = {
             "tool_call_id": str(tool_call.get("id") or ""),
             "operation_id": str(action_request.operation_id or ""),
-            "allowed_search_sources": sorted(allowed_search_sources or normalize_search_policy(None)),
+            "allowed_search_sources": sorted(
+                allowed_search_sources if allowed_search_sources is not None else normalize_search_policy(None)
+            ),
             "goal_alignment": _classify_delegation_goal_alignment(
                 user_message=user_message,
                 instruction=instruction,
@@ -6792,6 +6853,7 @@ def _compile_agent_dispatch_plan_from_graph_payload(
         background_policy = dict(node.get("background_policy") or {})
         notification_policy = dict(node.get("notification_policy") or {})
         lifecycle_policy = dict(node.get("resource_lifecycle_policy") or {})
+        node_metadata = dict(node.get("metadata") or {}) if isinstance(node.get("metadata"), dict) else {}
         node_upstream = tuple(upstream.get(node_id, ()))
         node_downstream = tuple(downstream.get(node_id, ()))
         status = "ready" if not node_upstream or wait_policy == "fire_and_continue" else "blocked"
@@ -6826,7 +6888,9 @@ def _compile_agent_dispatch_plan_from_graph_payload(
             created_at=now,
             diagnostics={
                 "node_type": str(node.get("node_type") or ""),
-                "output_contract_id": str(node.get("output_contract_id") or node.get("node_contract_id") or ""),
+                "input_contract_id": str(node.get("input_contract_id") or node_metadata.get("input_contract_id") or ""),
+                "output_contract_id": str(node.get("output_contract_id") or node.get("node_contract_id") or node_metadata.get("output_contract_id") or node_metadata.get("node_contract_id") or ""),
+                "projection_id": str(node.get("projection_id") or node_metadata.get("projection_id") or ""),
             },
         )
         records.append(record)
@@ -6905,7 +6969,7 @@ def _dispatch_graph_payload_from_task_graph_runtime_spec(
         "graph_kind": graph.graph_kind,
         "coordinator_agent_id": runtime_spec.coordinator_agent_id,
         "agent_group_id": runtime_spec.agent_group_id,
-        "topology_template_id": "",
+        "topology_template_id": str(graph.metadata.get("topology_template_id") or ""),
         "handoff_policy": str((runtime_spec.communication_modes or ("handoff",))[0]),
         "conflict_resolution_policy": str(dict(graph.runtime_policy or {}).get("failure_policy") or ""),
         "output_merge_policy": str(dict(graph.runtime_policy or {}).get("merge_policy") or ""),

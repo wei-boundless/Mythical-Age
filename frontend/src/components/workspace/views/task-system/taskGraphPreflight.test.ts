@@ -60,6 +60,32 @@ describe("TaskGraph preflight", () => {
     expect(report.issues.some((issue) => issue.source === "backend.runtime_spec")).toBe(true);
   });
 
+  it("labels scheduler support issues separately from generic runtime issues", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [{ node_id: "review", agent_id: "agent:reviewer" }],
+      edges: [],
+      runtimeSpec: {
+        valid: true,
+        issues: [
+          {
+            code: "scheduler_policy_unsupported",
+            message: "join_policy 当前调度器尚未实现。",
+            node_id: "review",
+            severity: "warning",
+          },
+        ],
+      },
+    });
+
+    const issue = report.issues.find((item) => item.title === "scheduler_policy_unsupported");
+    expect(issue?.source).toBe("backend.scheduler_support");
+    expect(issue?.scope).toBe("node");
+    expect(report.valid).toBe(true);
+  });
+
   it("warns when an edge memory handoff policy has no carry shape", () => {
     const report = buildTaskGraphPreflightReport({
       dirty: false,
@@ -116,7 +142,12 @@ describe("TaskGraph preflight", () => {
         {
           node_id: "review",
           agent_id: "agent.review",
-          metadata: { role_prompt: "你是一名审核员。你只负责裁决是否通过。" },
+          metadata: {
+            legacy_prompt_migration: {
+              legacy_field_names: ["role_identity", "responsibility_scope", "definition_of_done"],
+              migration_status: "pending_projection_binding",
+            },
+          },
         },
       ],
       edges: [],

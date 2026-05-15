@@ -1,6 +1,171 @@
 {
   "projection_bindings": [
     {
+      "binding_id": "taskprojbind:task.writing_team.long_novel.world_design",
+      "task_id": "task.writing_team.long_novel.world_design",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing_team.long_novel.world_designer"
+      ],
+      "default_projection_id": "projection.writing_team.long_novel.world_designer",
+      "projection_required": true,
+      "notes": "世界观设计 使用投影系统中的 projection.writing_team.long_novel.world_designer，TaskGraph 只保存引用。",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "role": "world_designer"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.writing_team.long_novel.world_review",
+      "task_id": "task.writing_team.long_novel.world_review",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing_team.long_novel.world_reviewer"
+      ],
+      "default_projection_id": "projection.writing_team.long_novel.world_reviewer",
+      "projection_required": true,
+      "notes": "世界观审核 使用投影系统中的 projection.writing_team.long_novel.world_reviewer，TaskGraph 只保存引用。",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "role": "world_reviewer"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.writing_team.long_novel.outline_design",
+      "task_id": "task.writing_team.long_novel.outline_design",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing_team.long_novel.outline_designer"
+      ],
+      "default_projection_id": "projection.writing_team.long_novel.outline_designer",
+      "projection_required": true,
+      "notes": "大纲设计 使用投影系统中的 projection.writing_team.long_novel.outline_designer，TaskGraph 只保存引用。",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "role": "outline_designer"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.writing_team.long_novel.outline_review",
+      "task_id": "task.writing_team.long_novel.outline_review",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing_team.long_novel.outline_reviewer"
+      ],
+      "default_projection_id": "projection.writing_team.long_novel.outline_reviewer",
+      "projection_required": true,
+      "notes": "大纲审核 使用投影系统中的 projection.writing_team.long_novel.outline_reviewer，TaskGraph 只保存引用。",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "role": "outline_reviewer"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.writing_team.long_novel.character_design",
+      "task_id": "task.writing_team.long_novel.character_design",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing_team.long_novel.character_designer"
+      ],
+      "default_projection_id": "projection.writing_team.long_novel.character_designer",
+      "projection_required": true,
+      "notes": "人物设定 使用投影系统中的 projection.writing_team.long_novel.character_designer，TaskGraph 只保存引用。",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "role": "character_designer"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.writing_team.long_novel.chapter_plan",
+      "task_id": "task.writing_team.long_novel.chapter_plan",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing_team.long_novel.chapter_planner"
+      ],
+      "default_projection_id": "projection.writing_team.long_novel.chapter_planner",
+      "projection_required": true,
+      "notes": "章节细纲 使用投影系统中的 projection.writing_team.long_novel.chapter_planner，TaskGraph 只保存引用。",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "role": "chapter_planner"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.writing_team.long_novel.chapter_draft",
+      "task_id": "task.writing_team.long_novel.chapter_draft",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing_team.long_novel.chapter_writer_a",
+        "projection.writing_team.long_novel.chapter_writer_b"
+      ],
+      "default_projection_id": "projection.writing_team.long_novel.chapter_writer_a",
+      "projection_required": true,
+      "notes": "章节正文候选稿允许写作者 A/B 两个投影实例，TaskGraph 节点分别保存具体引用。",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "role": "chapter_writer",
+        "parallel_projection_instances": [
+          "chapter_writer_a",
+          "chapter_writer_b"
+        ]
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.writing_team.long_novel.chapter_review",
+      "task_id": "task.writing_team.long_novel.chapter_review",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing_team.long_novel.chapter_reviewer"
+      ],
+      "default_projection_id": "projection.writing_team.long_novel.chapter_reviewer",
+      "projection_required": true,
+      "notes": "章节互审 使用投影系统中的 projection.writing_team.long_novel.chapter_reviewer，TaskGraph 只保存引用。",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "role": "chapter_reviewer"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.writing_team.long_novel.quality_gate",
+      "task_id": "task.writing_team.long_novel.quality_gate",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing_team.long_novel.quality_gate"
+      ],
+      "default_projection_id": "projection.writing_team.long_novel.quality_gate",
+      "projection_required": true,
+      "notes": "质量门 使用投影系统中的 projection.writing_team.long_novel.quality_gate，TaskGraph 只保存引用。",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "role": "quality_gate"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.writing_team.long_novel.memory_commit",
+      "task_id": "task.writing_team.long_novel.memory_commit",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing_team.long_novel.memory_steward"
+      ],
+      "default_projection_id": "projection.writing_team.long_novel.memory_steward",
+      "projection_required": true,
+      "notes": "资产入库 使用投影系统中的 projection.writing_team.long_novel.memory_steward，TaskGraph 只保存引用。",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "role": "memory_steward"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
       "binding_id": "taskprojbind:task.000001",
       "task_id": "task.000001",
       "projection_selection_mode": "workflow_compatible_or_task_default",

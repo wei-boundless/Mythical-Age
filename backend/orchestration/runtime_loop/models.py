@@ -55,6 +55,7 @@ CoordinationRunStatus = Literal[
     "waiting",
     "completed",
     "failed",
+    "aborted",
     "killed",
 ]
 
