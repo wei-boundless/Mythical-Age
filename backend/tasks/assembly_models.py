@@ -36,7 +36,6 @@ class TaskExecutionAssembly:
     task_mode: str
     task_kind: str = ""
     task_intent_ref: str = ""
-    template_match_ref: str = ""
     task_spec_ref: str = ""
     bundle_spec_ref: str = ""
     workflow_id: str = ""

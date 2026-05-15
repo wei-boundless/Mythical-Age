@@ -141,6 +141,246 @@ class _Registry:
         return []
 
 
+class _WorkingMemoryRegistry:
+    def __init__(self) -> None:
+        self.tasks = (
+            SpecificTaskRecord(
+                task_id="task.test.source",
+                task_title="Source",
+                task_family="test",
+                task_mode="task_execution",
+                input_contract_id="contract.user_request.basic",
+                output_contract_id="contract.agent_output.markdown",
+            ),
+            SpecificTaskRecord(
+                task_id="task.test.target",
+                task_title="Target",
+                task_family="test",
+                task_mode="task_execution",
+                input_contract_id="contract.user_request.basic",
+                output_contract_id="contract.agent_output.markdown",
+            ),
+        )
+        self.coordination = CoordinationTaskDefinition(
+            graph_id="graph.test.working_memory_runtime",
+            title="工作记忆运行时测试",
+            coordination_mode="pipeline",
+            coordinator_agent_id="agent:0",
+            task_family="test",
+            topology_template_id="topology.test.working_memory_runtime",
+            graph_nodes=(
+                {"node_id": "source", "agent_id": "agent:0", "task_id": "task.test.source", "role": "writer"},
+                {"node_id": "target", "agent_id": "agent:0", "task_id": "task.test.target", "role": "writer"},
+            ),
+            graph_edges=({"edge_id": "source_target", "from": "source", "to": "target", "mode": "structured_handoff"},),
+            metadata={
+                "stage_contracts": [
+                    {"stage_id": "source", "task_ref": "task.test.source", "node_id": "source"},
+                    {"stage_id": "target", "task_ref": "task.test.target", "node_id": "target"},
+                ],
+            },
+        )
+        self.topology = TopologyTemplate(
+            template_id="topology.test.working_memory_runtime",
+            title="工作记忆运行时拓扑",
+            nodes=self.coordination.graph_nodes,
+            edges=self.coordination.graph_edges,
+            enabled=True,
+        )
+        self.protocol = TaskCommunicationProtocol(
+            protocol_id="protocol.test.working_memory_runtime",
+            title="工作记忆 A2A 测试协议",
+            message_types=("message/send",),
+            payload_contracts=("contract.agent_output.markdown",),
+            enabled=True,
+        )
+
+    def get_task_graph(self, graph_id: str):
+        if graph_id != self.coordination.graph_id:
+            return None
+        return TaskGraphDefinition(
+            graph_id=self.coordination.graph_id,
+            title=self.coordination.title,
+            task_family=self.coordination.task_family,
+            graph_kind="multi_agent",
+            nodes=(
+                TaskGraphNodeDefinition(
+                    node_id="source",
+                    node_type="agent",
+                    title="Source",
+                    task_id="task.test.source",
+                    agent_id="agent:0",
+                    work_posture="writer",
+                    memory_writeback_policy={
+                        "writable_kinds": ["approved_world"],
+                        "writable_scopes": ["graph_scope"],
+                        "default_status": "accepted",
+                        "default_visibility": "shared_in_graph",
+                    },
+                ),
+                TaskGraphNodeDefinition(
+                    node_id="target",
+                    node_type="agent",
+                    title="Target",
+                    task_id="task.test.target",
+                    agent_id="agent:0",
+                    work_posture="writer",
+                    memory_read_policy={
+                        "readable_kinds": ["approved_world"],
+                        "readable_scopes": ["graph_scope"],
+                        "max_items": 3,
+                    },
+                ),
+            ),
+            edges=(
+                TaskGraphEdgeDefinition(
+                    edge_id="source_target",
+                    source_node_id="source",
+                    target_node_id="target",
+                    edge_type="structured_handoff",
+                    working_memory_handoff_policy={"carry_kinds": ["approved_world"], "carry_scopes": ["graph_scope"]},
+                ),
+            ),
+            default_protocol_id=self.protocol.protocol_id,
+            working_memory_policy={"memory_sharing_policy": "explicit_graph_scope"},
+            runtime_policy={"coordinator_agent_id": self.coordination.coordinator_agent_id},
+            publish_state="published",
+            enabled=True,
+        )
+
+    def derive_coordination_task_view_from_graph(self, graph):
+        return self.coordination if graph.graph_id == self.coordination.graph_id else None
+
+    def get_topology_template(self, template_id: str):
+        return self.topology if template_id == self.topology.template_id else None
+
+    def get_task_communication_protocol(self, protocol_id: str):
+        return self.protocol if protocol_id == self.protocol.protocol_id else None
+
+    def list_specific_task_records(self):
+        return list(self.tasks)
+
+
+def test_langgraph_coordination_runtime_injects_working_memory_context(tmp_path) -> None:
+    registry = _WorkingMemoryRegistry()
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:wm",
+        task_run_id="taskrun:wm",
+        graph_ref="graph.test.working_memory_runtime",
+        coordinator_agent_id="agent:0",
+        topology_template_id="topology.test.working_memory_runtime",
+        communication_protocol_id="protocol.test.working_memory_runtime",
+        status="running",
+        diagnostics={"coordination_flow": {"current_stage_id": "source"}},
+    )
+    state_index.upsert_coordination_run(coordination_run)
+
+    result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:wm",
+            task_run_id="taskrun:source",
+            stage_id="source",
+            task_ref="task.test.source",
+            task_result_ref="taskresult:source",
+            accepted=True,
+            diagnostics={
+                "working_memory_candidates": [
+                    {
+                        "title": "世界观基线",
+                        "summary": "大泽少年是洪荒时代的主角。",
+                        "kind": "approved_world",
+                        "scope": "graph_scope",
+                        "status": "accepted",
+                        "visibility": "shared_in_graph",
+                    }
+                ]
+            },
+        ),
+    )
+
+    assert result.stage_execution_request is not None
+    assert result.stage_execution_request.stage_id == "target"
+    assert result.stage_execution_request.working_memory_refs
+    assembly = result.stage_execution_request.runtime_assembly
+    assert assembly["diagnostics"]["working_memory_enabled"] is True
+    assert assembly["diagnostics"]["working_memory_required_count"] == 1
+    section_ids = [item["section_id"] for item in assembly["context_sections"]]
+    assert "working_memory.required" in section_ids
+    operations = list(result.state.get("working_memory_operations") or [])
+    assert operations[0]["operation"] == "memory_write"
+    assert operations[0]["candidate_count"] == 1
+    assert operations[1]["operation"] == "memory_handoff"
+    assert operations[1]["status"] == "committed"
+
+
+def test_langgraph_coordination_runtime_commits_working_memory_decisions(tmp_path) -> None:
+    registry = _WorkingMemoryRegistry()
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:wm-commit",
+        task_run_id="taskrun:wm-commit",
+        graph_ref="graph.test.working_memory_runtime",
+        coordinator_agent_id="agent:0",
+        topology_template_id="topology.test.working_memory_runtime",
+        communication_protocol_id="protocol.test.working_memory_runtime",
+        status="running",
+        diagnostics={"coordination_flow": {"current_stage_id": "source"}},
+    )
+    state_index.upsert_coordination_run(coordination_run)
+    item = runtime.working_memory.create_item(
+        task_run_id="taskrun:wm-commit",
+        graph_id="graph.test.working_memory_runtime",
+        owner_node_id="source",
+        node_run_id="taskrun:wm-commit:source",
+        kind="approved_world",
+        scope="graph_scope",
+        status="proposed",
+        visibility="shared_in_graph",
+        title="候选设定",
+        summary="候选设定等待审核。",
+    )
+
+    result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:wm-commit",
+            task_run_id="taskrun:source",
+            stage_id="source",
+            task_ref="task.test.source",
+            task_result_ref="taskresult:source",
+            accepted=True,
+            diagnostics={"working_memory_commit": {"accepted_working_memory_refs": [item.work_memory_id]}},
+        ),
+    )
+
+    committed = runtime.working_memory.get_item(item.work_memory_id)
+    assert committed is not None
+    assert committed.status == "accepted"
+    operations = list(result.state.get("working_memory_operations") or [])
+    assert operations[-1]["operation"] == "memory_commit"
+    assert operations[-1]["accepted_working_memory_refs"] == [item.work_memory_id]
+
+
 def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> None:
     registry = _Registry()
     state_index = RuntimeStateIndex(tmp_path)

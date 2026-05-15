@@ -38,7 +38,6 @@ __all__ = [
     "TaskExecutionAssembly",
     "TaskSpec",
     "TaskIntentContract",
-    "TemplateMatchResult",
     "BundleSpec",
     "BundleItemSpec",
     "TaskBindingRecord",
@@ -57,6 +56,8 @@ __all__ = [
     "TaskTemplate",
     "TaskTemplateRegistry",
     "TaskValidationRule",
+    "ExecutionRecipe",
+    "ExecutionShape",
     "TaskEvent",
     "TaskRecord",
     "TaskResultRef",
@@ -251,17 +252,22 @@ def __getattr__(name: str) -> Any:
         from tasks.template_models import TaskTemplate, TaskValidationRule
 
         return {"TaskTemplate": TaskTemplate, "TaskValidationRule": TaskValidationRule}[name]
+    if name == "ExecutionRecipe":
+        from tasks.execution_recipe_models import ExecutionRecipe
+
+        return ExecutionRecipe
+    if name == "ExecutionShape":
+        from tasks.execution_shape_resolver import ExecutionShape
+
+        return ExecutionShape
     if name == "TaskSpec":
         from tasks.spec_models import TaskSpec
 
         return TaskSpec
-    if name in {"TaskIntentContract", "TemplateMatchResult"}:
-        from tasks.match_contracts import TaskIntentContract, TemplateMatchResult
+    if name == "TaskIntentContract":
+        from tasks.match_contracts import TaskIntentContract
 
-        return {
-            "TaskIntentContract": TaskIntentContract,
-            "TemplateMatchResult": TemplateMatchResult,
-        }[name]
+        return TaskIntentContract
     if name in {"ProjectionSelectionResult", "TaskExecutionAssembly"}:
         from tasks.assembly_models import ProjectionSelectionResult, TaskExecutionAssembly
 

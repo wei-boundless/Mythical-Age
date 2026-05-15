@@ -12,7 +12,7 @@ from typing import Any, Callable
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from capability_system import build_default_operation_registry
-from capability_system.local_mcp_registry import get_local_mcp_unit, get_local_mcp_unit_for_template
+from capability_system.local_mcp_registry import get_local_mcp_unit, get_local_mcp_unit_for_source_kind
 from capability_system.search_policy import (
     normalize_search_policy,
     operation_allowed_by_search_policy,
@@ -47,7 +47,8 @@ from tasks.run_models import (
 )
 from tasks.spec_models import TaskSpec
 from tasks.step_models import StepInputBinding, TaskStepBlueprint
-from tasks.template_models import TaskTemplate, TaskValidationRule
+from tasks.execution_recipe_models import ExecutionRecipe
+from tasks.template_models import TaskValidationRule
 from capability_system.tool_authorization import resolve_tool_operation_id
 from understanding.capability_resolution_view import capability_resolution_view
 
@@ -88,7 +89,7 @@ from .agent_delegation_executor import AgentDelegationExecutor
 from .langgraph_coordination_runtime import LangGraphCoordinationRuntime, LangGraphCoordinationRuntimeResult
 from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
 from .task_artifact_materializer import MaterializedTaskArtifacts, materialize_task_artifacts
-from .model_adoption import build_model_response_runtime_adoption
+from .model_adoption import build_model_response_runtime_adoption, build_runtime_capability_state
 from .models import (
     AgentDispatchPlan,
     AgentDispatchRecord,
@@ -213,6 +214,12 @@ class TaskRunLoop:
 
     def list_session_traces(self, session_id: str) -> dict[str, Any]:
         return self.trace_reader.list_session_task_runs(session_id)
+
+    def get_session_live_monitor(self, session_id: str) -> dict[str, Any]:
+        return self.trace_reader.get_session_live_monitor(session_id)
+
+    def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
+        return self.trace_reader.get_task_run_live_monitor(task_run_id)
 
     def get_trace(
         self,
@@ -675,7 +682,10 @@ class TaskRunLoop:
     ):
         """Run the current single-agent lane inside the TaskRunLoop trace spine."""
 
-        allowed_search_sources = normalize_search_policy(search_policy)
+        allowed_search_sources = _resolve_runtime_search_sources(
+            search_policy=search_policy,
+            task_selection=task_selection,
+        )
         chain_runtime = agent_runtime_chain.build_runtime(
             session_id=session_id,
             task_id=task_id,
@@ -692,8 +702,7 @@ class TaskRunLoop:
         task_operation = dict(chain_runtime.get("task_operation") or {})
         task_contract = dict(task_operation.get("task_contract") or {})
         task_intent_contract = dict(task_operation.get("task_intent_contract") or {})
-        template_match = dict(task_operation.get("template_match") or {})
-        selected_template_payload = dict(task_operation.get("selected_template") or {})
+        selected_recipe_payload = dict(task_operation.get("selected_recipe") or {})
         bundle_spec_payload = dict(task_operation.get("bundle_spec") or {})
         task_spec_payload = dict(task_operation.get("task_spec") or {})
         task_execution_assembly_payload = dict(task_operation.get("task_execution_assembly") or {})
@@ -769,7 +778,7 @@ class TaskRunLoop:
             task_run_id=state.task_run_id,
             task_contract_ref=task_contract_ref,
             task_spec_payload=task_spec_payload,
-            selected_template_payload=selected_template_payload,
+            selected_recipe_payload=selected_recipe_payload,
         )
         if runtime_task_ledger is not None:
             runtime_task_ledger = start_task_run_step(
@@ -783,8 +792,7 @@ class TaskRunLoop:
             payload={
                 "task_contract": task_contract,
                 "task_intent_contract": task_intent_contract,
-                "template_match": template_match,
-                "selected_template": selected_template_payload,
+                "selected_recipe": selected_recipe_payload,
                 "bundle_spec": bundle_spec_payload,
                 "task_spec": task_spec_payload,
                 "task_execution_assembly": task_execution_assembly_payload,
@@ -804,8 +812,7 @@ class TaskRunLoop:
             refs={
                 "task_contract_ref": task_contract_ref,
                 "task_intent_ref": str(task_intent_contract.get("task_intent_id") or ""),
-                "template_match_ref": str(template_match.get("match_id") or ""),
-                "task_template_id": str(selected_template_payload.get("template_id") or ""),
+                "task_template_id": str(selected_recipe_payload.get("template_id") or selected_recipe_payload.get("recipe_id") or ""),
                 "task_spec_ref": str(task_spec_payload.get("task_spec_ref") or ""),
                 "task_execution_assembly_ref": str(task_execution_assembly_payload.get("assembly_id") or ""),
                 "task_projection_binding_ref": str(task_projection_binding_payload.get("binding_id") or ""),
@@ -939,20 +946,20 @@ class TaskRunLoop:
             yield {"type": "runtime_loop_event", "event": current_turn_event.to_dict()}
         query_understanding = dict(task_operation.get("query_understanding") or {})
         retrieval_results: list[dict[str, Any]] | None = None
-        if self._should_run_template_mcp_phase(
+        if self._should_run_recipe_mcp_phase(
             query_understanding=query_understanding,
-            selected_template_payload=selected_template_payload,
+            selected_recipe_payload=selected_recipe_payload,
             task_operation=task_operation,
             allowed_search_sources=allowed_search_sources,
         ):
-            mcp_outcome = await self._run_template_mcp_phase(
+            mcp_outcome = await self._run_recipe_mcp_phase(
                 task_run_id=state.task_run_id,
                 session_id=session_id,
                 task_id=task_id,
                 user_message=user_message,
                 current_turn_context=current_turn_context,
                 query_understanding=query_understanding,
-                selected_template_payload=selected_template_payload,
+                selected_recipe_payload=selected_recipe_payload,
                 task_contract_ref=task_contract_ref,
                 runtime_task_ledger=runtime_task_ledger,
                 state=state,
@@ -978,6 +985,38 @@ class TaskRunLoop:
             refs={"memory_runtime_view_ref": str(memory_view.get("view_id") or "")},
         )
         yield {"type": "runtime_loop_event", "event": memory_event.to_dict()}
+        directive, resource_policy = build_model_response_runtime_adoption(
+            task_operation,
+            operation_registry=self.operation_gate.registry,
+            agent_runtime_profile=agent_runtime_profile,
+        )
+        task_safety_envelope = dict(dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}).get(
+            "safety_envelope",
+            {},
+        )
+        task_safety_validators = build_task_safety_validators(
+            root_dir=self.root_dir,
+            safety_envelope=task_safety_envelope,
+        )
+        runtime_tool_instances = self._tool_instances_for_resource_policy(
+            tool_instances,
+            resource_policy,
+            allowed_search_sources=allowed_search_sources,
+        )
+        runtime_capability_state = build_runtime_capability_state(
+            task_operation,
+            resource_policy=resource_policy,
+            agent_runtime_profile=agent_runtime_profile,
+            visible_tool_names=[
+                str(getattr(tool, "name", "") or "")
+                for tool in list(runtime_tool_instances)
+                if str(getattr(tool, "name", "") or "")
+            ],
+        )
+        effective_runtime_execution_facts = {
+            **dict(runtime_execution_facts or {}),
+            "runtime_capability_state": runtime_capability_state,
+        }
         projection_cycle = stage_projection_cycle or StageProjectionCycle()
         stage_projection = projection_cycle.build_from_orchestration(
             task_id=task_id,
@@ -1009,6 +1048,7 @@ class TaskRunLoop:
                 memory_intent=memory_intent,
                 task_operation=task_operation,
                 retrieval_results=retrieval_results,
+                allowed_search_sources=allowed_search_sources,
             )
             if retrieval_results
             else context_policy
@@ -1022,7 +1062,7 @@ class TaskRunLoop:
             memory_runtime_view=memory_view,
             context_policy_result=effective_context_policy,
             stage_projection_snapshot=stage_projection,
-            runtime_execution_facts=runtime_execution_facts,
+            runtime_execution_facts=effective_runtime_execution_facts,
         )
         context_event = self.event_log.append(
             state.task_run_id,
@@ -1066,7 +1106,7 @@ class TaskRunLoop:
             agent_profile_id=state.agent_profile_id,
             runtime_lane=state.runtime_lane,
             task_agent_binding_ref=state.task_agent_binding_ref,
-            task_template_id=str(selected_template_payload.get("template_id") or ""),
+            task_template_id=str(selected_recipe_payload.get("template_id") or selected_recipe_payload.get("recipe_id") or ""),
             task_spec_ref=str(task_spec_payload.get("task_spec_ref") or ""),
             task_result_ref="",
             skill_workflow_ref=state.skill_workflow_ref,
@@ -1087,7 +1127,7 @@ class TaskRunLoop:
                 "agent_runtime_spec_ref": str(agent_runtime_spec_payload.get("runtime_spec_id") or ""),
                 "context_invariant_checked": True,
                 "context_needs_compaction": invariant_report.needs_compaction,
-                "task_template_id": str(selected_template_payload.get("template_id") or ""),
+                "task_template_id": str(selected_recipe_payload.get("template_id") or selected_recipe_payload.get("recipe_id") or ""),
                 "task_spec_ref": str(task_spec_payload.get("task_spec_ref") or ""),
             },
         )
@@ -1182,24 +1222,6 @@ class TaskRunLoop:
                 yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
             return
 
-        directive, resource_policy = build_model_response_runtime_adoption(
-            task_operation,
-            operation_registry=self.operation_gate.registry,
-            agent_runtime_profile=agent_runtime_profile,
-        )
-        task_safety_envelope = dict(dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}).get(
-            "safety_envelope",
-            {},
-        )
-        task_safety_validators = build_task_safety_validators(
-            root_dir=self.root_dir,
-            safety_envelope=task_safety_envelope,
-        )
-        runtime_tool_instances = self._tool_instances_for_resource_policy(
-            tool_instances,
-            resource_policy,
-            allowed_search_sources=allowed_search_sources,
-        )
         directive_event = self.event_log.append(
             state.task_run_id,
             "runtime_directive_issued",
@@ -1208,6 +1230,7 @@ class TaskRunLoop:
                 "resource_policy": resource_policy.to_dict(),
                 "search_policy": list(search_policy) if search_policy is not None else None,
                 "allowed_search_sources": sorted(allowed_search_sources),
+                "runtime_capability_state": runtime_capability_state,
                 "effective_tool_names": [
                     str(getattr(tool, "name", "") or "")
                     for tool in list(runtime_tool_instances)
@@ -1226,6 +1249,7 @@ class TaskRunLoop:
             "resource_policy": resource_policy.to_dict(),
             "search_policy": list(search_policy) if search_policy is not None else None,
             "allowed_search_sources": sorted(allowed_search_sources),
+            "runtime_capability_state": runtime_capability_state,
             "effective_tool_names": [
                 str(getattr(tool, "name", "") or "")
                 for tool in list(runtime_tool_instances)
@@ -1332,7 +1356,7 @@ class TaskRunLoop:
         final_answer_metadata: dict[str, Any] = {}
         terminal_reason = "completed"
         if final_main_context and self._final_main_context_can_finalize(
-            selected_template_payload=selected_template_payload,
+            selected_recipe_payload=selected_recipe_payload,
             retrieval_results=retrieval_results,
         ):
             final_content = str(final_main_context.get("answer") or "")
@@ -1524,7 +1548,7 @@ class TaskRunLoop:
                                 )
                             )
                             builtin_tool_lane_answer_metadata = None
-                            if _template_allows_tool_observation_finalization(selected_template_payload):
+                            if _recipe_allows_tool_observation_finalization(selected_recipe_payload):
                                 builtin_tool_lane_answer_metadata = _builtin_tool_lane_answer_from_observation(
                                     user_message=user_message,
                                     observation_payload=observation_payload,
@@ -2100,7 +2124,7 @@ class TaskRunLoop:
 
         artifact_validation = _validate_required_artifact_file(
             root_dir=self.root_dir,
-            selected_template_payload=selected_template_payload,
+            selected_recipe_payload=selected_recipe_payload,
             final_content=final_content,
             result_refs=tuple(result_refs),
             event_log_events=[item.to_dict() for item in self.event_log.list_events(state.task_run_id)],
@@ -2108,7 +2132,7 @@ class TaskRunLoop:
         if (
             not artifact_validation["passed"]
             and terminal_reason == "completed"
-            and _requires_write_file_artifact(selected_template_payload)
+            and _requires_write_file_artifact(selected_recipe_payload)
             and tool_runtime_executor is not None
         ):
             repair_tool_instances = [
@@ -2130,7 +2154,7 @@ class TaskRunLoop:
                     user_message=user_message,
                     task_spec_payload=task_spec_payload,
                     final_content=final_content,
-                    selected_template_payload=selected_template_payload,
+                    selected_recipe_payload=selected_recipe_payload,
                 )
                 repair_event = self.event_log.append(
                     state.task_run_id,
@@ -2280,7 +2304,7 @@ class TaskRunLoop:
                         yield event
                 artifact_validation = _validate_required_artifact_file(
                     root_dir=self.root_dir,
-                    selected_template_payload=selected_template_payload,
+                    selected_recipe_payload=selected_recipe_payload,
                     final_content=final_content,
                     result_refs=tuple(result_refs),
                     event_log_events=[item.to_dict() for item in self.event_log.list_events(state.task_run_id)],
@@ -2302,11 +2326,11 @@ class TaskRunLoop:
         if (
             artifact_validation["passed"]
             and terminal_reason == "executor_failed"
-            and _requires_write_file_artifact(selected_template_payload)
+            and _requires_write_file_artifact(selected_recipe_payload)
         ):
             terminal_reason = "completed"
             final_content = _build_artifact_success_fallback_answer(
-                selected_template_payload=selected_template_payload,
+                selected_recipe_payload=selected_recipe_payload,
                 artifact_validation=artifact_validation,
                 final_task_summary_refs=final_task_summary_refs,
                 final_main_context=final_main_context,
@@ -3124,6 +3148,19 @@ class TaskRunLoop:
                     },
                 )
             )
+            coordination_terminal_status = (
+                "running"
+                if continuous_progression_active and str(finalized_flow.get("current_stage_id") or "").strip()
+                else ("completed" if terminal_state.status == "completed" else "failed")
+            )
+            if coordination_terminal_status in {"completed", "failed"}:
+                self._sync_task_graph_root_terminal_objects(
+                    root_task_run_id=target_coordination_run.task_run_id,
+                    coordination_run_id=target_coordination_run.coordination_run_id,
+                    status=coordination_terminal_status,
+                    terminal_reason="completed" if coordination_terminal_status == "completed" else "internal_error",
+                    merge_result_ref=merge_result.merge_result_id,
+                )
             if (
                 continuous_progression_active
                 and str(finalized_flow.get("current_stage_id") or "").strip()
@@ -3170,6 +3207,76 @@ class TaskRunLoop:
             events=tuple(events),
             continuation_payload=continuation_payload,
         )
+
+    def _sync_task_graph_root_terminal_objects(
+        self,
+        *,
+        root_task_run_id: str,
+        coordination_run_id: str,
+        status: str,
+        terminal_reason: str,
+        merge_result_ref: str = "",
+    ) -> None:
+        root_task_run = self.state_index.get_task_run(root_task_run_id)
+        if root_task_run is not None and root_task_run.status not in {"completed", "failed", "aborted"}:
+            self.state_index.upsert_task_run(
+                TaskRun(
+                    task_run_id=root_task_run.task_run_id,
+                    session_id=root_task_run.session_id,
+                    task_id=root_task_run.task_id,
+                    task_contract_ref=root_task_run.task_contract_ref,
+                    owner_agent_seat_id=root_task_run.owner_agent_seat_id,
+                    agent_id=root_task_run.agent_id,
+                    agent_profile_id=root_task_run.agent_profile_id,
+                    runtime_lane=root_task_run.runtime_lane,
+                    status="completed" if status == "completed" else "failed",
+                    created_at=root_task_run.created_at,
+                    updated_at=time.time(),
+                    latest_event_offset=root_task_run.latest_event_offset,
+                    latest_checkpoint_ref=root_task_run.latest_checkpoint_ref,
+                    terminal_reason=terminal_reason,
+                    diagnostics={
+                        **dict(root_task_run.diagnostics),
+                        "task_graph_terminal_sync": {
+                            "coordination_run_id": coordination_run_id,
+                            "coordination_status": status,
+                            "merge_result_ref": merge_result_ref,
+                        },
+                    },
+                )
+            )
+        for agent_run in self.state_index.list_task_agent_runs(root_task_run_id):
+            if agent_run.coordination_run_ref != coordination_run_id:
+                continue
+            if agent_run.status in {"completed", "failed", "killed"}:
+                continue
+            self.state_index.upsert_agent_run(
+                AgentRun(
+                    agent_run_id=agent_run.agent_run_id,
+                    task_run_id=agent_run.task_run_id,
+                    agent_id=agent_run.agent_id,
+                    agent_profile_id=agent_run.agent_profile_id,
+                    role=agent_run.role,
+                    spawn_mode=agent_run.spawn_mode,
+                    context_scope=agent_run.context_scope,
+                    runtime_lane=agent_run.runtime_lane,
+                    parent_agent_run_ref=agent_run.parent_agent_run_ref,
+                    coordination_run_ref=agent_run.coordination_run_ref,
+                    status="completed" if status == "completed" else "failed",
+                    latest_checkpoint_ref=agent_run.latest_checkpoint_ref,
+                    result_ref=agent_run.result_ref or merge_result_ref,
+                    created_at=agent_run.created_at,
+                    updated_at=time.time(),
+                    diagnostics={
+                        **dict(agent_run.diagnostics),
+                        "terminal_reason": terminal_reason,
+                        "task_graph_terminal_sync": {
+                            "coordination_run_id": coordination_run_id,
+                            "coordination_status": status,
+                        },
+                    },
+                )
+            )
 
     def _write_checkpoint_event(self, state: RuntimeLoopState, *, event_offset: int):
         execution_summary = self.execution_store.build_summary(state.task_run_id)
@@ -4231,12 +4338,7 @@ class TaskRunLoop:
                 f"全书目标约{_safe_int(explicit_inputs.get('target_words'), 1000000)}字；"
                 f"当前已完成约{_safe_int(explicit_inputs.get('current_words'), 0)}字。"
             )
-        user_seed = str(
-            explicit_inputs.get("user_seed")
-            or explicit_inputs.get("hard_constraints")
-            or explicit_inputs.get("project_brief")
-            or ""
-        ).strip()
+        user_seed = _explicit_project_brief(explicit_inputs)
         if user_seed:
             lines.append("用户硬设定：")
             lines.append(user_seed)
@@ -4633,11 +4735,11 @@ class TaskRunLoop:
             filtered.append(tool)
         return filtered
 
-    def _should_run_template_mcp_phase(
+    def _should_run_recipe_mcp_phase(
         self,
         *,
         query_understanding: dict[str, Any],
-        selected_template_payload: dict[str, Any],
+        selected_recipe_payload: dict[str, Any],
         task_operation: dict[str, Any],
         allowed_search_sources: set[str],
     ) -> bool:
@@ -4645,14 +4747,18 @@ class TaskRunLoop:
         resolution = dict(dict(operation_requirement.get("metadata") or {}).get("runtime_operation_resolution") or {})
         if str(resolution.get("execution_mode") or "").strip() == "delegate":
             return False
-        template_id = str(selected_template_payload.get("template_id") or "").strip()
-        if get_local_mcp_unit_for_template(template_id) is not None:
-            unit = get_local_mcp_unit_for_template(template_id)
+        source_kind = str(
+            selected_recipe_payload.get("source_kind")
+            or dict(selected_recipe_payload.get("metadata") or {}).get("source_kind")
+            or query_understanding.get("source_kind")
+            or ""
+        ).strip()
+        if get_local_mcp_unit_for_source_kind(source_kind) is not None:
+            unit = get_local_mcp_unit_for_source_kind(source_kind)
             return operation_allowed_by_search_policy(
                 str(getattr(unit, "operation_id", "") or ""),
                 allowed_search_sources,
             )
-        source_kind = str(query_understanding.get("source_kind") or "").strip()
         resolution = capability_resolution_view(query_understanding)
         return (
             resolution.preferred_skill == "rag-skill"
@@ -4669,14 +4775,20 @@ class TaskRunLoop:
         memory_intent: Any | None,
         task_operation: dict[str, Any],
         retrieval_results: list[dict[str, Any]] | None,
+        allowed_search_sources: set[str],
     ) -> dict[str, Any]:
         memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
+        retrieval_allowed = _task_operation_allows_context_retrieval(
+            task_operation=task_operation,
+            allowed_search_sources=allowed_search_sources,
+        )
         context_policy_result = agent_runtime_chain.build_context_policy_result(
             session_id=session_id,
             message=user_message,
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
-            retrieval_results=retrieval_results,
+            retrieval_results=retrieval_results if retrieval_allowed else None,
+            retrieval_allowed=retrieval_allowed,
         )
         if context_policy_result is None:
             return {}
@@ -4684,7 +4796,7 @@ class TaskRunLoop:
             return dict(context_policy_result.to_dict())
         return dict(context_policy_result)
 
-    async def _run_template_mcp_phase(
+    async def _run_recipe_mcp_phase(
         self,
         *,
         task_run_id: str,
@@ -4693,7 +4805,7 @@ class TaskRunLoop:
         user_message: str,
         current_turn_context: dict[str, Any],
         query_understanding: dict[str, Any],
-        selected_template_payload: dict[str, Any],
+        selected_recipe_payload: dict[str, Any],
         task_contract_ref: str,
         runtime_task_ledger: TaskRunLedger | None,
         state: RuntimeLoopState,
@@ -4715,16 +4827,16 @@ class TaskRunLoop:
                 "retrieval_results": retrieval_results,
             }
 
-        mcp_route, operation_id, bindings, constraints, answer_source = self._template_mcp_request_parts(
+        mcp_route, operation_id, bindings, constraints, answer_source = self._recipe_mcp_request_parts(
             user_message=user_message,
             current_turn_context=current_turn_context,
             query_understanding=query_understanding,
-            selected_template_payload=selected_template_payload,
+            selected_recipe_payload=selected_recipe_payload,
         )
         if not operation_allowed_by_search_policy(operation_id, allowed_search_sources):
             blocked_event = self.event_log.append(
                 task_run_id,
-                "template_mcp_blocked_by_search_policy",
+                "recipe_mcp_blocked_by_search_policy",
                 payload={
                     "mcp_route": mcp_route,
                     "operation_id": operation_id,
@@ -4869,16 +4981,21 @@ class TaskRunLoop:
             "retrieval_results": retrieval_results,
         }
 
-    def _template_mcp_request_parts(
+    def _recipe_mcp_request_parts(
         self,
         *,
         user_message: str,
         current_turn_context: dict[str, Any],
         query_understanding: dict[str, Any],
-        selected_template_payload: dict[str, Any],
+        selected_recipe_payload: dict[str, Any],
     ) -> tuple[str, str, dict[str, Any], dict[str, Any], str]:
-        template_id = str(selected_template_payload.get("template_id") or "").strip()
-        unit = get_local_mcp_unit_for_template(template_id)
+        source_kind = str(
+            selected_recipe_payload.get("source_kind")
+            or dict(selected_recipe_payload.get("metadata") or {}).get("source_kind")
+            or query_understanding.get("source_kind")
+            or ""
+        ).strip()
+        unit = get_local_mcp_unit_for_source_kind(source_kind)
         parameters = dict(query_understanding.get("tool_input") or query_understanding.get("parameters") or {})
         bindings: dict[str, Any] = {}
         constraints: dict[str, Any] = {}
@@ -4906,11 +5023,15 @@ class TaskRunLoop:
     def _final_main_context_can_finalize(
         self,
         *,
-        selected_template_payload: dict[str, Any],
+        selected_recipe_payload: dict[str, Any],
         retrieval_results: list[dict[str, Any]] | None,
     ) -> bool:
-        template_id = str(selected_template_payload.get("template_id") or "").strip()
-        unit = get_local_mcp_unit_for_template(template_id)
+        source_kind = str(
+            selected_recipe_payload.get("source_kind")
+            or dict(selected_recipe_payload.get("metadata") or {}).get("source_kind")
+            or ""
+        ).strip()
+        unit = get_local_mcp_unit_for_source_kind(source_kind)
         if unit is not None and unit.route != "retrieval":
             return True
         return bool(retrieval_results)
@@ -5451,17 +5572,17 @@ def _build_initial_task_run_ledger(
     task_run_id: str,
     task_contract_ref: str,
     task_spec_payload: dict[str, Any],
-    selected_template_payload: dict[str, Any],
+    selected_recipe_payload: dict[str, Any],
 ) -> TaskRunLedger | None:
     task_spec = _task_spec_from_payload(task_spec_payload)
-    selected_template = _task_template_from_payload(selected_template_payload)
-    if task_spec is None or selected_template is None:
+    selected_recipe = _recipe_from_payload(selected_recipe_payload)
+    if task_spec is None or selected_recipe is None:
         return None
     return build_task_run_ledger(
         task_run_id=task_run_id,
         task_contract_ref=task_contract_ref,
         task_spec=task_spec,
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
         status="running",
     )
 
@@ -5616,17 +5737,20 @@ def _finalize_runtime_task_run_ledger(
     return finalized, transitions
 
 
-def _template_allows_tool_observation_finalization(selected_template_payload: dict[str, Any]) -> bool:
-    selected_template = _task_template_from_payload(selected_template_payload)
-    if selected_template is None:
+def _recipe_allows_tool_observation_finalization(selected_recipe_payload: dict[str, Any]) -> bool:
+    selected_recipe = _recipe_from_payload(selected_recipe_payload)
+    if selected_recipe is None:
         return True
-    return not _template_requires_model_finalize(selected_template)
+    return not _recipe_requires_model_finalize(selected_recipe)
 
 
-def _template_requires_model_finalize(selected_template: TaskTemplate) -> bool:
+def _recipe_requires_model_finalize(selected_recipe: ExecutionRecipe) -> bool:
+    finalization_policy = dict(getattr(selected_recipe, "finalization_policy", {}) or {})
+    if "requires_model_finalize" in finalization_policy:
+        return bool(finalization_policy.get("requires_model_finalize"))
     return any(
         str(step.executor_type or "") == "model" and str(step.step_kind or "") == "finalize"
-        for step in selected_template.step_blueprints
+        for step in selected_recipe.step_blueprints
     )
 
 
@@ -5650,7 +5774,6 @@ def _task_spec_from_payload(payload: dict[str, Any]) -> TaskSpec | None:
             constraints=dict(payload.get("constraints") or {}),
             current_turn_context_ref=str(payload.get("current_turn_context_ref") or ""),
             task_intent_ref=str(payload.get("task_intent_ref") or ""),
-            template_match_ref=str(payload.get("template_match_ref") or ""),
             bundle_spec_ref=str(payload.get("bundle_spec_ref") or ""),
             bundle_item_ref=str(payload.get("bundle_item_ref") or ""),
             requested_outputs=tuple(str(item) for item in list(payload.get("requested_outputs") or [])),
@@ -5667,16 +5790,18 @@ def _task_spec_from_payload(payload: dict[str, Any]) -> TaskSpec | None:
         return None
 
 
-def _task_template_from_payload(payload: dict[str, Any]) -> TaskTemplate | None:
+def _recipe_from_payload(payload: dict[str, Any]) -> ExecutionRecipe | None:
     if not payload:
         return None
     try:
-        return TaskTemplate(
-            template_id=str(payload.get("template_id") or ""),
+        return ExecutionRecipe(
+            recipe_id=str(payload.get("recipe_id") or payload.get("template_id") or ""),
             title=str(payload.get("title") or ""),
             description=str(payload.get("description") or ""),
+            execution_kind=str(payload.get("execution_kind") or ""),
             task_family=str(payload.get("task_family") or ""),
             task_mode=str(payload.get("task_mode") or ""),
+            source_kind=str(payload.get("source_kind") or ""),
             input_schema=dict(payload.get("input_schema") or {}),
             output_schema=dict(payload.get("output_schema") or {}),
             default_agent_id=str(payload.get("default_agent_id") or "agent:0"),
@@ -5686,9 +5811,13 @@ def _task_template_from_payload(payload: dict[str, Any]) -> TaskTemplate | None:
             optional_operations=tuple(str(item) for item in list(payload.get("optional_operations") or [])),
             step_blueprints=tuple(_task_step_blueprint_from_payload(item) for item in list(payload.get("step_blueprints") or [])),
             validation_rules=tuple(_task_validation_rule_from_payload(item) for item in list(payload.get("validation_rules") or [])),
+            safety_policy=dict(payload.get("safety_policy") or {}),
+            artifact_policy=dict(payload.get("artifact_policy") or {}),
+            finalization_policy=dict(payload.get("finalization_policy") or {}),
             ui_manifest=dict(payload.get("ui_manifest") or {}),
             enabled=bool(payload.get("enabled", True)),
             metadata=dict(payload.get("metadata") or {}),
+            legacy_template_id=str(payload.get("template_id") or ""),
         )
     except ValueError:
         return None
@@ -5777,14 +5906,14 @@ def _runtime_limits_from_task_operation(
 def _validate_required_artifact_file(
     *,
     root_dir: Path,
-    selected_template_payload: dict[str, Any],
+    selected_recipe_payload: dict[str, Any],
     final_content: str,
     result_refs: tuple[str, ...],
     event_log_events: list[dict[str, Any]],
 ) -> dict[str, Any]:
     rules = [
         dict(item)
-        for item in list(selected_template_payload.get("validation_rules") or [])
+        for item in list(selected_recipe_payload.get("validation_rules") or [])
         if str(dict(item).get("validation_kind") or "") == "artifact_file_required"
         and str(dict(item).get("severity") or "") == "error"
     ]
@@ -5810,13 +5939,13 @@ def _validate_required_artifact_file(
     }
 
 
-def _requires_write_file_artifact(selected_template_payload: dict[str, Any]) -> bool:
-    if "op.write_file" not in set(str(item) for item in list(selected_template_payload.get("required_operations") or [])):
+def _requires_write_file_artifact(selected_recipe_payload: dict[str, Any]) -> bool:
+    if "op.write_file" not in set(str(item) for item in list(selected_recipe_payload.get("required_operations") or [])):
         return False
     return any(
         str(dict(item).get("validation_kind") or "") == "artifact_file_required"
         and str(dict(item).get("severity") or "") == "error"
-        for item in list(selected_template_payload.get("validation_rules") or [])
+        for item in list(selected_recipe_payload.get("validation_rules") or [])
         if isinstance(item, dict)
     )
 
@@ -5827,10 +5956,10 @@ def _build_required_artifact_write_messages(
     user_message: str,
     task_spec_payload: dict[str, Any],
     final_content: str,
-    selected_template_payload: dict[str, Any],
+    selected_recipe_payload: dict[str, Any],
 ) -> list[Any]:
     target_path = _required_artifact_target_path(task_spec_payload=task_spec_payload, user_message=user_message)
-    task_title = str(selected_template_payload.get("title") or selected_template_payload.get("task_mode") or "artifact task")
+    task_title = str(selected_recipe_payload.get("title") or selected_recipe_payload.get("task_mode") or "artifact task")
     if target_path:
         path_line = f"目标文件：{target_path}"
     else:
@@ -5858,8 +5987,8 @@ def _build_required_artifact_write_messages(
 
 def _required_artifact_target_path(*, task_spec_payload: dict[str, Any], user_message: str) -> str:
     inputs = dict(task_spec_payload.get("inputs") or {})
-    selected_template = dict(task_spec_payload.get("selected_template") or {})
-    template_metadata = dict(selected_template.get("metadata") or {})
+    selected_recipe = dict(task_spec_payload.get("selected_recipe") or {})
+    template_metadata = dict(selected_recipe.get("metadata") or {})
     tool_input = dict(inputs.get("tool_input") or {})
     for value in (
         tool_input.get("path"),
@@ -5881,7 +6010,7 @@ def _required_artifact_target_path(*, task_spec_payload: dict[str, Any], user_me
         ).strip()
         if artifact_root:
             artifact_root = artifact_root.rstrip("/\\")
-            task_mode = str(selected_template.get("task_mode") or "").strip()
+            task_mode = str(selected_recipe.get("task_mode") or "").strip()
             if task_mode:
                 return f"{artifact_root}/{task_mode}/{default_artifact_name}"
             return f"{artifact_root}/{default_artifact_name}"
@@ -6124,7 +6253,7 @@ def _build_repeated_tool_halt_message(*, tool_observation_count: int = 0) -> str
 
 def _build_artifact_success_fallback_answer(
     *,
-    selected_template_payload: dict[str, Any],
+    selected_recipe_payload: dict[str, Any],
     artifact_validation: dict[str, Any],
     final_task_summary_refs: list[dict[str, Any]],
     final_main_context: dict[str, Any],
@@ -6135,9 +6264,9 @@ def _build_artifact_success_fallback_answer(
         if str(dict(item).get("path") or "").strip()
     ]
     task_title = str(
-        selected_template_payload.get("title")
-        or selected_template_payload.get("task_mode")
-        or selected_template_payload.get("template_id")
+        selected_recipe_payload.get("title")
+        or selected_recipe_payload.get("task_mode")
+        or selected_recipe_payload.get("template_id")
         or "任务"
     ).strip()
     summary = _forced_tool_synthesis_answer(
@@ -6155,6 +6284,29 @@ def _build_artifact_success_fallback_answer(
         lines.append("本轮所需 artifact 已通过 write_file 写入并通过存在性校验。")
     lines.append("模型后续收口阶段中断，但正式产物已经落盘，可基于现有产物继续下一阶段。")
     return "\n".join(lines)
+
+
+def _explicit_project_brief(explicit_inputs: dict[str, Any]) -> str:
+    parts: list[str] = []
+    title = str(explicit_inputs.get("project_title") or explicit_inputs.get("title") or "").strip()
+    if title:
+        parts.append(f"项目名称：{title}")
+    constraints = str(
+        explicit_inputs.get("user_hard_constraints")
+        or explicit_inputs.get("hard_constraints")
+        or explicit_inputs.get("user_seed")
+        or explicit_inputs.get("project_brief")
+        or ""
+    ).strip()
+    if constraints:
+        parts.append(constraints)
+    requested_batch = str(explicit_inputs.get("requested_batch") or "").strip()
+    if requested_batch:
+        parts.append(f"批次目标：{requested_batch}")
+    execution_policy = str(explicit_inputs.get("execution_policy") or "").strip()
+    if execution_policy:
+        parts.append(f"执行边界：{execution_policy}")
+    return "\n".join(parts).strip()
 
 
 def _forced_tool_synthesis_from_available_evidence(
@@ -6661,6 +6813,83 @@ def _extract_page_numbers(value: str) -> list[int]:
         if page > 0 and page not in pages:
             pages.append(page)
     return pages[:12]
+
+
+def _resolve_runtime_search_sources(
+    *,
+    search_policy: list[str] | tuple[str, ...] | set[str] | None,
+    task_selection: dict[str, Any] | None,
+) -> set[str]:
+    if search_policy is not None:
+        return normalize_search_policy(search_policy)
+    selection = dict(task_selection or {})
+    if _selection_is_coordination_task(selection):
+        explicit_policy = _extract_task_search_policy(selection)
+        if explicit_policy is not None:
+            return normalize_search_policy(explicit_policy)
+        return set()
+    return normalize_search_policy(None)
+
+
+def _selection_is_coordination_task(selection: dict[str, Any]) -> bool:
+    if str(selection.get("continuation_stage_id") or "").strip():
+        return True
+    if dict(selection.get("stage_execution_request") or {}):
+        return True
+    if str(selection.get("coordination_run_id") or "").strip():
+        return True
+    runtime_assembly = dict(selection.get("runtime_assembly") or {})
+    if str(runtime_assembly.get("runtime_lane") or "").strip() == "coordination_task":
+        return True
+    return str(selection.get("runtime_lane") or "").strip() == "coordination_task"
+
+
+def _extract_task_search_policy(selection: dict[str, Any]) -> list[str] | tuple[str, ...] | set[str] | None:
+    for key in ("search_policy", "allowed_search_sources"):
+        value = selection.get(key)
+        if isinstance(value, (list, tuple, set)):
+            return value
+    operation_policy = dict(selection.get("operation_policy") or {})
+    for key in ("search_policy", "allowed_search_sources"):
+        value = operation_policy.get(key)
+        if isinstance(value, (list, tuple, set)):
+            return value
+    stage_request = dict(selection.get("stage_execution_request") or {})
+    runtime_assembly = dict(stage_request.get("runtime_assembly") or selection.get("runtime_assembly") or {})
+    permission_policy = dict(runtime_assembly.get("permission_policy") or runtime_assembly.get("resource_policy") or {})
+    for key in ("search_policy", "allowed_search_sources"):
+        value = permission_policy.get(key)
+        if isinstance(value, (list, tuple, set)):
+            return value
+    return None
+
+
+def _task_operation_allows_context_retrieval(
+    *,
+    task_operation: dict[str, Any],
+    allowed_search_sources: set[str],
+) -> bool:
+    if not operation_allowed_by_search_policy("op.mcp_retrieval", allowed_search_sources):
+        return False
+    query_understanding = dict(task_operation.get("query_understanding") or {})
+    if bool(query_understanding.get("should_skip_rag")):
+        return False
+    current_turn = dict(task_operation.get("current_turn_context") or {})
+    if _selection_is_coordination_task(current_turn):
+        return False
+    operation_requirement = dict(task_operation.get("operation_requirement") or {})
+    operations = {
+        str(item or "").strip()
+        for item in [
+            *list(operation_requirement.get("required_operations") or []),
+            *list(operation_requirement.get("skill_required_operations") or []),
+        ]
+        if str(item or "").strip()
+    }
+    if "op.mcp_retrieval" in operations:
+        return True
+    recipe = dict(task_operation.get("selected_recipe") or {})
+    return str(recipe.get("source_kind") or "").strip() in {"knowledge", "retrieval", "knowledge_base"}
 
 
 def _extract_ranked_labels(value: str) -> list[str]:

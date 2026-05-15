@@ -6,7 +6,7 @@ from typing import Any
 from .checkpoint import RuntimeCheckpointStore
 from .event_log import RuntimeEventLog
 from .events import RuntimeEvent
-from .models import TaskRun
+from .models import CoordinationRun, TaskRun
 from .state_index import RuntimeStateIndex
 
 
@@ -29,6 +29,75 @@ class RuntimeLoopTraceReader:
             "task_run_count": len(task_runs),
             "task_runs": [self._task_run_summary(item) for item in task_runs],
             "authority": "orchestration.runtime_loop_trace_reader",
+        }
+
+    def get_session_live_monitor(self, session_id: str) -> dict[str, Any]:
+        task_runs = sorted(
+            self.state_index.list_session_task_runs(session_id),
+            key=lambda item: item.updated_at,
+            reverse=True,
+        )
+        latest = task_runs[0] if task_runs else None
+        return {
+            "session_id": session_id,
+            "task_run_count": len(task_runs),
+            "latest_task_run_id": latest.task_run_id if latest is not None else "",
+            "monitor": self.get_task_run_live_monitor(latest.task_run_id) if latest is not None else None,
+            "authority": "orchestration.runtime_loop_live_monitor",
+        }
+
+    def get_task_run_live_monitor(self, task_run_id: str) -> dict[str, Any] | None:
+        task_run = self.state_index.get_task_run(task_run_id)
+        if task_run is None:
+            return None
+        checkpoint = self.checkpoints.load_latest(task_run_id)
+        coordination_runs = sorted(
+            self.state_index.list_task_coordination_runs(task_run_id),
+            key=lambda item: item.updated_at,
+            reverse=True,
+        )
+        active_coordination_run = _pick_coordination_run(coordination_runs)
+        coordination_view = None
+        if active_coordination_run is not None:
+            node_runs = sorted(
+                self.state_index.list_coordination_node_runs(active_coordination_run.coordination_run_id),
+                key=lambda item: (item.updated_at, item.node_id),
+                reverse=False,
+            )
+            handoffs = sorted(
+                self.state_index.list_coordination_handoffs(active_coordination_run.coordination_run_id),
+                key=lambda item: item.created_at,
+                reverse=False,
+            )
+            merge_result = self.state_index.get_latest_coordination_merge_result(active_coordination_run.coordination_run_id)
+            diagnostics = dict(active_coordination_run.diagnostics or {})
+            coordination_view = {
+                **active_coordination_run.to_dict(),
+                "coordination_flow": dict(diagnostics.get("coordination_flow") or {}),
+                "langgraph_runtime_state": dict(diagnostics.get("langgraph_runtime_state") or {}),
+                "task_graph_scheduler_state": dict(diagnostics.get("task_graph_scheduler_state") or {}),
+                "coordination_graph_spec": dict(diagnostics.get("coordination_graph_spec") or {}),
+                "node_runs": [item.to_dict() for item in node_runs],
+                "handoff_envelopes": [item.to_dict() for item in handoffs],
+                "latest_merge_result": merge_result.to_dict() if merge_result is not None else None,
+            }
+        loop_state = checkpoint.loop_state.to_dict() if checkpoint is not None else {}
+        return {
+            "task_run": task_run.to_dict(),
+            "latest_checkpoint": checkpoint.to_dict() if checkpoint is not None else None,
+            "loop_state": loop_state,
+            "coordination_run": coordination_view,
+            "has_coordination": coordination_view is not None,
+            "status": str(task_run.status or loop_state.get("status") or "unknown"),
+            "terminal_reason": str(task_run.terminal_reason or loop_state.get("terminal_reason") or ""),
+            "updated_at": float(
+                max(
+                    task_run.updated_at or 0.0,
+                    checkpoint.created_at if checkpoint is not None else 0.0,
+                    active_coordination_run.updated_at if active_coordination_run is not None else 0.0,
+                )
+            ),
+            "authority": "orchestration.runtime_loop_live_monitor",
         }
 
     def get_task_run_trace(
@@ -132,6 +201,16 @@ def _event_view(
     return view
 
 
+def _pick_coordination_run(coordination_runs: list[CoordinationRun]) -> CoordinationRun | None:
+    if not coordination_runs:
+        return None
+    for status in ("running", "waiting", "pending"):
+        for item in coordination_runs:
+            if item.status == status:
+                return item
+    return coordination_runs[0]
+
+
 def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
     summary: dict[str, Any] = {"keys": sorted(str(key) for key in payload.keys())}
     if event_type == "context_snapshot_built":
@@ -176,14 +255,14 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
         )
     elif event_type == "task_contract_built":
         contract = dict(payload.get("task_contract") or {})
-        template = dict(payload.get("selected_template") or {})
+        recipe = dict(payload.get("selected_recipe") or {})
         task_spec = dict(payload.get("task_spec") or {})
         task_run_ledger = dict(payload.get("task_run_ledger") or {})
         summary.update(
             {
                 "task_id": str(contract.get("task_id") or ""),
                 "session_id": str(contract.get("session_id") or ""),
-                "template_id": str(contract.get("template_id") or template.get("template_id") or ""),
+                "template_id": str(contract.get("template_id") or recipe.get("template_id") or ""),
                 "task_spec_ref": str(contract.get("task_spec_ref") or task_spec.get("task_spec_ref") or ""),
                 "requested_outputs": list(task_spec.get("requested_outputs") or []),
                 "step_count": len(list(task_run_ledger.get("step_runs") or [])),

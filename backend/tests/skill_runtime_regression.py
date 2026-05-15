@@ -28,11 +28,11 @@ def _assert_bounded_lookup(result, query: str) -> None:
     assert result.execution_posture == "bounded_agent"
     assert result.skill_name is None
     assert result.tool_name is None
-    assert result.task_kind == "knowledge_lookup"
+    assert result.task_kind == "general_conversation"
     assert result.target_object is None
     assert result.candidate_tools == []
     assert result.tool_input == {"query": query}
-    assert "fallback_bounded_lookup" in result.reasons
+    assert "fallback_general_conversation" in result.reasons
 
 
 def main() -> None:
@@ -64,7 +64,7 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert structured.route == "structured_data"
-    assert structured.skill_name is None
+    assert structured.skill_name == "structured-data-analysis"
     assert skill_resolver.resolve(task_frame=structured).name == "structured-data-analysis"
     assert structured.tool_name is None
     assert structured.candidate_tools == []
@@ -78,7 +78,7 @@ def main() -> None:
     )
     assert shortage.route == "structured_data"
     assert shortage.execution_posture == "direct_mcp"
-    assert shortage.skill_name is None
+    assert shortage.skill_name == "structured-data-analysis"
     assert skill_resolver.resolve(task_frame=shortage).name == "structured-data-analysis"
     assert shortage.tool_name is None
     assert shortage.candidate_tools == []
@@ -124,7 +124,7 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert explicit_structured.route == "structured_data"
-    assert explicit_structured.skill_name is None
+    assert explicit_structured.skill_name == "structured-data-analysis"
     assert skill_resolver.resolve(task_frame=explicit_structured).name == "structured-data-analysis"
     assert explicit_structured.tool_name is None
     assert explicit_structured.candidate_tools == []
@@ -154,7 +154,7 @@ def main() -> None:
         tool_registry=tool_registry,
     )
     assert pdf.route == "pdf"
-    assert pdf.skill_name is None
+    assert pdf.skill_name == "pdf-analysis"
     assert skill_resolver.resolve(task_frame=pdf).name == "pdf-analysis"
     assert pdf.tool_name is None
     assert pdf.candidate_tools == []

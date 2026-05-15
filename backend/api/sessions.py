@@ -24,6 +24,10 @@ class GenerateTitleRequest(BaseModel):
     message: str | None = None
 
 
+class TruncateMessagesRequest(BaseModel):
+    message_index: int = Field(..., ge=0)
+
+
 @router.get("/sessions")
 async def list_sessions() -> list[dict[str, Any]]:
     runtime = require_runtime()
@@ -63,6 +67,20 @@ async def get_session_messages(session_id: str) -> dict[str, Any]:
 async def get_session_history(session_id: str) -> dict[str, Any]:
     runtime = require_runtime()
     return runtime.session_manager.get_history(session_id)
+
+
+@router.post("/sessions/{session_id}/messages/truncate")
+async def truncate_session_messages(session_id: str, payload: TruncateMessagesRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        record = runtime.session_manager.truncate_messages_from(session_id, payload.message_index)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        runtime.memory_facade.refresh_session_memory(session_id, record.get("messages", []))
+    except Exception:
+        pass
+    return record
 
 
 @router.post("/sessions/{session_id}/generate-title")

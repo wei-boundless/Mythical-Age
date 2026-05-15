@@ -192,6 +192,11 @@ def select_runtime_task_definitions(
     source_kind = str(understanding.get("source_kind") or "").strip()
     modality = str(understanding.get("modality") or "").strip()
     task_kind = str(understanding.get("task_kind") or "").strip()
+    structural_signals = dict(understanding.get("structural_signals") or {})
+    if structural_signals.get("understanding_aligned_to_explicit_task") or (
+        source_kind == "task_system" and execution_posture == "task_runtime"
+    ):
+        return [definitions["task.final_response"]]
     capability_requests = {
         str(item or "").strip()
         for item in list(understanding.get("capability_requests") or ())
@@ -213,6 +218,8 @@ def select_runtime_task_definitions(
         "workspace_read",
         "workspace_path_search",
         "workspace_text_search",
+        "workspace_write",
+        "workspace_edit",
         "realtime_network",
     } or candidate_tools:
         if source_kind == "workspace" or {"read_file", "search_files"} & candidate_tools:

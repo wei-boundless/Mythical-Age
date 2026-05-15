@@ -117,17 +117,17 @@
       }
     },
     {
-      "task_id": "task.writing_team.long_novel.world_design",
-      "task_title": "世界观设计",
+      "task_id": "task.writing_team.long_novel.world_designer_a",
+      "task_title": "世界观设计师 A",
       "task_family": "writing_team_long_novel",
-      "task_mode": "world_designer",
-      "description": "长篇小说写作团队节点任务：世界观设计",
+      "task_mode": "world_designer_a",
+      "description": "长篇小说写作团队节点任务：世界观设计师 A",
       "enabled": true,
       "input_contract_id": "UserMessage",
-      "output_contract_id": "contract.writing_team.long_novel.world_brief",
+      "output_contract_id": "contract.writing_team.long_novel.world_proposal_a",
       "acceptance_profile_id": "",
-      "default_flow_contract_id": "flow.writing_team.long_novel.world_design",
-      "default_workflow_id": "workflow.writing_team.long_novel.world_design",
+      "default_flow_contract_id": "flow.writing_team.long_novel.world_designer_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_designer_a",
       "default_projection_policy": "task_default_required",
       "task_policy": {
         "safety_policy": {
@@ -154,32 +154,32 @@
           ],
           "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
-          "role": "world_designer",
-          "projection_id": "projection.writing_team.long_novel.world_designer"
+          "role": "world_designer_a",
+          "projection_id": "projection.writing_team.long_novel.world_designer_a"
         },
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.world_design",
-        "projection_id": "projection.writing_team.long_novel.world_designer",
-        "source_flow_id": "flow.writing_team.long_novel.world_design",
+        "task_id": "task.writing_team.long_novel.world_designer_a",
+        "projection_id": "projection.writing_team.long_novel.world_designer_a",
+        "source_flow_id": "flow.writing_team.long_novel.world_designer_a",
         "package_template": "writing_team_long_novel"
       }
     },
     {
-      "task_id": "task.writing_team.long_novel.world_review",
-      "task_title": "世界观审核",
+      "task_id": "task.writing_team.long_novel.world_designer_b",
+      "task_title": "世界观设计师 B",
       "task_family": "writing_team_long_novel",
-      "task_mode": "world_reviewer",
-      "description": "长篇小说写作团队节点任务：世界观审核",
+      "task_mode": "world_designer_b",
+      "description": "长篇小说写作团队节点任务：世界观设计师 B",
       "enabled": true,
       "input_contract_id": "UserMessage",
-      "output_contract_id": "contract.writing_team.long_novel.world_review",
+      "output_contract_id": "contract.writing_team.long_novel.world_proposal_b",
       "acceptance_profile_id": "",
-      "default_flow_contract_id": "flow.writing_team.long_novel.world_review",
-      "default_workflow_id": "workflow.writing_team.long_novel.world_review",
+      "default_flow_contract_id": "flow.writing_team.long_novel.world_designer_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_designer_b",
       "default_projection_policy": "task_default_required",
       "task_policy": {
         "safety_policy": {
@@ -206,32 +206,32 @@
           ],
           "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
-          "role": "world_reviewer",
-          "projection_id": "projection.writing_team.long_novel.world_reviewer"
+          "role": "world_designer_b",
+          "projection_id": "projection.writing_team.long_novel.world_designer_b"
         },
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.world_review",
-        "projection_id": "projection.writing_team.long_novel.world_reviewer",
-        "source_flow_id": "flow.writing_team.long_novel.world_review",
+        "task_id": "task.writing_team.long_novel.world_designer_b",
+        "projection_id": "projection.writing_team.long_novel.world_designer_b",
+        "source_flow_id": "flow.writing_team.long_novel.world_designer_b",
         "package_template": "writing_team_long_novel"
       }
     },
     {
-      "task_id": "task.writing_team.long_novel.outline_design",
-      "task_title": "大纲设计",
+      "task_id": "task.writing_team.long_novel.world_judge",
+      "task_title": "世界观裁判",
       "task_family": "writing_team_long_novel",
-      "task_mode": "outline_designer",
-      "description": "长篇小说写作团队节点任务：大纲设计",
+      "task_mode": "world_judge",
+      "description": "长篇小说写作团队节点任务：世界观裁判",
       "enabled": true,
-      "input_contract_id": "UserMessage",
-      "output_contract_id": "contract.writing_team.long_novel.outline_brief",
+      "input_contract_id": "contract.writing_team.long_novel.world_proposal_b",
+      "output_contract_id": "contract.writing_team.long_novel.world_judgement",
       "acceptance_profile_id": "",
-      "default_flow_contract_id": "flow.writing_team.long_novel.outline_design",
-      "default_workflow_id": "workflow.writing_team.long_novel.outline_design",
+      "default_flow_contract_id": "flow.writing_team.long_novel.world_judge",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_judge",
       "default_projection_policy": "task_default_required",
       "task_policy": {
         "safety_policy": {
@@ -258,32 +258,32 @@
           ],
           "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
-          "role": "outline_designer",
-          "projection_id": "projection.writing_team.long_novel.outline_designer"
+          "role": "world_judge",
+          "projection_id": "projection.writing_team.long_novel.world_judge"
         },
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.outline_design",
-        "projection_id": "projection.writing_team.long_novel.outline_designer",
-        "source_flow_id": "flow.writing_team.long_novel.outline_design",
+        "task_id": "task.writing_team.long_novel.world_judge",
+        "projection_id": "projection.writing_team.long_novel.world_judge",
+        "source_flow_id": "flow.writing_team.long_novel.world_judge",
         "package_template": "writing_team_long_novel"
       }
     },
     {
-      "task_id": "task.writing_team.long_novel.outline_review",
-      "task_title": "大纲审核",
+      "task_id": "task.writing_team.long_novel.memory_commit_world",
+      "task_title": "世界观入库",
       "task_family": "writing_team_long_novel",
-      "task_mode": "outline_reviewer",
-      "description": "长篇小说写作团队节点任务：大纲审核",
+      "task_mode": "memory_steward",
+      "description": "长篇小说写作团队节点任务：世界观入库",
       "enabled": true,
-      "input_contract_id": "UserMessage",
-      "output_contract_id": "contract.writing_team.long_novel.outline_review",
+      "input_contract_id": "contract.writing_team.long_novel.world_judgement",
+      "output_contract_id": "contract.writing_team.long_novel.memory_commit_world",
       "acceptance_profile_id": "",
-      "default_flow_contract_id": "flow.writing_team.long_novel.outline_review",
-      "default_workflow_id": "workflow.writing_team.long_novel.outline_review",
+      "default_flow_contract_id": "flow.writing_team.long_novel.memory_commit_world",
+      "default_workflow_id": "workflow.writing_team.long_novel.memory_commit_world",
       "default_projection_policy": "task_default_required",
       "task_policy": {
         "safety_policy": {
@@ -310,32 +310,32 @@
           ],
           "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
-          "role": "outline_reviewer",
-          "projection_id": "projection.writing_team.long_novel.outline_reviewer"
+          "role": "memory_steward",
+          "projection_id": "projection.writing_team.long_novel.memory_commit_world"
         },
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.outline_review",
-        "projection_id": "projection.writing_team.long_novel.outline_reviewer",
-        "source_flow_id": "flow.writing_team.long_novel.outline_review",
+        "task_id": "task.writing_team.long_novel.memory_commit_world",
+        "projection_id": "projection.writing_team.long_novel.memory_commit_world",
+        "source_flow_id": "flow.writing_team.long_novel.memory_commit_world",
         "package_template": "writing_team_long_novel"
       }
     },
     {
-      "task_id": "task.writing_team.long_novel.character_design",
-      "task_title": "人物设定",
+      "task_id": "task.writing_team.long_novel.outline_designer_a",
+      "task_title": "大纲结构师 A",
       "task_family": "writing_team_long_novel",
-      "task_mode": "character_designer",
-      "description": "长篇小说写作团队节点任务：人物设定",
+      "task_mode": "outline_designer_a",
+      "description": "长篇小说写作团队节点任务：大纲结构师 A",
       "enabled": true,
-      "input_contract_id": "UserMessage",
-      "output_contract_id": "contract.writing_team.long_novel.character_sheet",
+      "input_contract_id": "contract.writing_team.long_novel.memory_commit_world",
+      "output_contract_id": "contract.writing_team.long_novel.outline_proposal_a",
       "acceptance_profile_id": "",
-      "default_flow_contract_id": "flow.writing_team.long_novel.character_design",
-      "default_workflow_id": "workflow.writing_team.long_novel.character_design",
+      "default_flow_contract_id": "flow.writing_team.long_novel.outline_designer_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_designer_a",
       "default_projection_policy": "task_default_required",
       "task_policy": {
         "safety_policy": {
@@ -362,17 +362,381 @@
           ],
           "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
-          "role": "character_designer",
-          "projection_id": "projection.writing_team.long_novel.character_designer"
+          "role": "outline_designer_a",
+          "projection_id": "projection.writing_team.long_novel.outline_designer_a"
         },
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.character_design",
-        "projection_id": "projection.writing_team.long_novel.character_designer",
-        "source_flow_id": "flow.writing_team.long_novel.character_design",
+        "task_id": "task.writing_team.long_novel.outline_designer_a",
+        "projection_id": "projection.writing_team.long_novel.outline_designer_a",
+        "source_flow_id": "flow.writing_team.long_novel.outline_designer_a",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.outline_designer_b",
+      "task_title": "大纲结构师 B",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "outline_designer_b",
+      "description": "长篇小说写作团队节点任务：大纲结构师 B",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.memory_commit_world",
+      "output_contract_id": "contract.writing_team.long_novel.outline_proposal_b",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.outline_designer_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_designer_b",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "outline_designer_b",
+          "projection_id": "projection.writing_team.long_novel.outline_designer_b"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.outline_designer_b",
+        "projection_id": "projection.writing_team.long_novel.outline_designer_b",
+        "source_flow_id": "flow.writing_team.long_novel.outline_designer_b",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.outline_judge",
+      "task_title": "大纲裁判",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "outline_judge",
+      "description": "长篇小说写作团队节点任务：大纲裁判",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.outline_proposal_b",
+      "output_contract_id": "contract.writing_team.long_novel.outline_judgement",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.outline_judge",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_judge",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "outline_judge",
+          "projection_id": "projection.writing_team.long_novel.outline_judge"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.outline_judge",
+        "projection_id": "projection.writing_team.long_novel.outline_judge",
+        "source_flow_id": "flow.writing_team.long_novel.outline_judge",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.memory_commit_outline",
+      "task_title": "大纲入库",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "memory_steward",
+      "description": "长篇小说写作团队节点任务：大纲入库",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.outline_judgement",
+      "output_contract_id": "contract.writing_team.long_novel.memory_commit_outline",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.memory_commit_outline",
+      "default_workflow_id": "workflow.writing_team.long_novel.memory_commit_outline",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_steward",
+          "projection_id": "projection.writing_team.long_novel.memory_commit_outline"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.memory_commit_outline",
+        "projection_id": "projection.writing_team.long_novel.memory_commit_outline",
+        "source_flow_id": "flow.writing_team.long_novel.memory_commit_outline",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.character_designer_a",
+      "task_title": "人物设计师 A",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "character_designer_a",
+      "description": "长篇小说写作团队节点任务：人物设计师 A",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.memory_commit_outline",
+      "output_contract_id": "contract.writing_team.long_novel.character_proposal_a",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.character_designer_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_designer_a",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "character_designer_a",
+          "projection_id": "projection.writing_team.long_novel.character_designer_a"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_designer_a",
+        "projection_id": "projection.writing_team.long_novel.character_designer_a",
+        "source_flow_id": "flow.writing_team.long_novel.character_designer_a",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.character_designer_b",
+      "task_title": "人物设计师 B",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "character_designer_b",
+      "description": "长篇小说写作团队节点任务：人物设计师 B",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.memory_commit_outline",
+      "output_contract_id": "contract.writing_team.long_novel.character_proposal_b",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.character_designer_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_designer_b",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "character_designer_b",
+          "projection_id": "projection.writing_team.long_novel.character_designer_b"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_designer_b",
+        "projection_id": "projection.writing_team.long_novel.character_designer_b",
+        "source_flow_id": "flow.writing_team.long_novel.character_designer_b",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.character_judge",
+      "task_title": "人物裁判",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "character_judge",
+      "description": "长篇小说写作团队节点任务：人物裁判",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.character_proposal_b",
+      "output_contract_id": "contract.writing_team.long_novel.character_judgement",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.character_judge",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_judge",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "character_judge",
+          "projection_id": "projection.writing_team.long_novel.character_judge"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_judge",
+        "projection_id": "projection.writing_team.long_novel.character_judge",
+        "source_flow_id": "flow.writing_team.long_novel.character_judge",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.memory_commit_character",
+      "task_title": "人物入库",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "memory_steward",
+      "description": "长篇小说写作团队节点任务：人物入库",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.character_judgement",
+      "output_contract_id": "contract.writing_team.long_novel.memory_commit_character",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.memory_commit_character",
+      "default_workflow_id": "workflow.writing_team.long_novel.memory_commit_character",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_steward",
+          "projection_id": "projection.writing_team.long_novel.memory_commit_character"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.memory_commit_character",
+        "projection_id": "projection.writing_team.long_novel.memory_commit_character",
+        "source_flow_id": "flow.writing_team.long_novel.memory_commit_character",
         "package_template": "writing_team_long_novel"
       }
     },
@@ -383,7 +747,7 @@
       "task_mode": "chapter_planner",
       "description": "长篇小说写作团队节点任务：章节细纲",
       "enabled": true,
-      "input_contract_id": "UserMessage",
+      "input_contract_id": "contract.writing_team.long_novel.memory_commit_character",
       "output_contract_id": "contract.writing_team.long_novel.chapter_plan",
       "acceptance_profile_id": "",
       "default_flow_contract_id": "flow.writing_team.long_novel.chapter_plan",
@@ -415,31 +779,31 @@
           "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "role": "chapter_planner",
-          "projection_id": "projection.writing_team.long_novel.chapter_planner"
+          "projection_id": "projection.writing_team.long_novel.chapter_plan"
         },
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
         "task_id": "task.writing_team.long_novel.chapter_plan",
-        "projection_id": "projection.writing_team.long_novel.chapter_planner",
+        "projection_id": "projection.writing_team.long_novel.chapter_plan",
         "source_flow_id": "flow.writing_team.long_novel.chapter_plan",
         "package_template": "writing_team_long_novel"
       }
     },
     {
-      "task_id": "task.writing_team.long_novel.chapter_draft",
-      "task_title": "章节正文候选稿",
+      "task_id": "task.writing_team.long_novel.writer_a_draft",
+      "task_title": "作者 A 初稿",
       "task_family": "writing_team_long_novel",
-      "task_mode": "chapter_writer",
-      "description": "长篇小说写作团队节点任务：章节正文候选稿",
+      "task_mode": "writer_a_draft",
+      "description": "长篇小说写作团队节点任务：作者 A 初稿",
       "enabled": true,
-      "input_contract_id": "UserMessage",
-      "output_contract_id": "contract.writing_team.long_novel.chapter_draft",
+      "input_contract_id": "contract.writing_team.long_novel.chapter_plan",
+      "output_contract_id": "contract.writing_team.long_novel.writer_a_draft",
       "acceptance_profile_id": "",
-      "default_flow_contract_id": "flow.writing_team.long_novel.chapter_draft",
-      "default_workflow_id": "workflow.writing_team.long_novel.chapter_draft",
+      "default_flow_contract_id": "flow.writing_team.long_novel.writer_a_draft",
+      "default_workflow_id": "workflow.writing_team.long_novel.writer_a_draft",
       "default_projection_policy": "task_default_required",
       "task_policy": {
         "safety_policy": {
@@ -466,36 +830,32 @@
           ],
           "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
-          "role": "chapter_writer",
-          "projection_id": "projection.writing_team.long_novel.chapter_writer_a",
-          "parallel_projection_instances": [
-            "projection.writing_team.long_novel.chapter_writer_a",
-            "projection.writing_team.long_novel.chapter_writer_b"
-          ]
+          "role": "writer_a_draft",
+          "projection_id": "projection.writing_team.long_novel.writer_a_draft"
         },
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.chapter_draft",
-        "projection_id": "projection.writing_team.long_novel.chapter_writer_a",
-        "source_flow_id": "flow.writing_team.long_novel.chapter_draft",
+        "task_id": "task.writing_team.long_novel.writer_a_draft",
+        "projection_id": "projection.writing_team.long_novel.writer_a_draft",
+        "source_flow_id": "flow.writing_team.long_novel.writer_a_draft",
         "package_template": "writing_team_long_novel"
       }
     },
     {
-      "task_id": "task.writing_team.long_novel.chapter_review",
-      "task_title": "章节互审",
+      "task_id": "task.writing_team.long_novel.writer_b_review",
+      "task_title": "作者 B 审读",
       "task_family": "writing_team_long_novel",
-      "task_mode": "chapter_reviewer",
-      "description": "长篇小说写作团队节点任务：章节互审",
+      "task_mode": "writer_b_review",
+      "description": "长篇小说写作团队节点任务：作者 B 审读",
       "enabled": true,
-      "input_contract_id": "UserMessage",
-      "output_contract_id": "contract.writing_team.long_novel.chapter_review",
+      "input_contract_id": "contract.writing_team.long_novel.writer_a_draft",
+      "output_contract_id": "contract.writing_team.long_novel.writer_b_review",
       "acceptance_profile_id": "",
-      "default_flow_contract_id": "flow.writing_team.long_novel.chapter_review",
-      "default_workflow_id": "workflow.writing_team.long_novel.chapter_review",
+      "default_flow_contract_id": "flow.writing_team.long_novel.writer_b_review",
+      "default_workflow_id": "workflow.writing_team.long_novel.writer_b_review",
       "default_projection_policy": "task_default_required",
       "task_policy": {
         "safety_policy": {
@@ -522,32 +882,32 @@
           ],
           "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
-          "role": "chapter_reviewer",
-          "projection_id": "projection.writing_team.long_novel.chapter_reviewer"
+          "role": "writer_b_review",
+          "projection_id": "projection.writing_team.long_novel.writer_b_review"
         },
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.chapter_review",
-        "projection_id": "projection.writing_team.long_novel.chapter_reviewer",
-        "source_flow_id": "flow.writing_team.long_novel.chapter_review",
+        "task_id": "task.writing_team.long_novel.writer_b_review",
+        "projection_id": "projection.writing_team.long_novel.writer_b_review",
+        "source_flow_id": "flow.writing_team.long_novel.writer_b_review",
         "package_template": "writing_team_long_novel"
       }
     },
     {
-      "task_id": "task.writing_team.long_novel.quality_gate",
-      "task_title": "质量门",
+      "task_id": "task.writing_team.long_novel.writer_a_revision",
+      "task_title": "作者 A 修订",
       "task_family": "writing_team_long_novel",
-      "task_mode": "quality_gate",
-      "description": "长篇小说写作团队节点任务：质量门",
+      "task_mode": "writer_a_revision",
+      "description": "长篇小说写作团队节点任务：作者 A 修订",
       "enabled": true,
-      "input_contract_id": "UserMessage",
-      "output_contract_id": "contract.writing_team.long_novel.quality_gate",
+      "input_contract_id": "contract.writing_team.long_novel.writer_b_review",
+      "output_contract_id": "contract.writing_team.long_novel.writer_a_revision",
       "acceptance_profile_id": "",
-      "default_flow_contract_id": "flow.writing_team.long_novel.quality_gate",
-      "default_workflow_id": "workflow.writing_team.long_novel.quality_gate",
+      "default_flow_contract_id": "flow.writing_team.long_novel.writer_a_revision",
+      "default_workflow_id": "workflow.writing_team.long_novel.writer_a_revision",
       "default_projection_policy": "task_default_required",
       "task_policy": {
         "safety_policy": {
@@ -574,32 +934,604 @@
           ],
           "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
-          "role": "quality_gate",
-          "projection_id": "projection.writing_team.long_novel.quality_gate"
+          "role": "writer_a_revision",
+          "projection_id": "projection.writing_team.long_novel.writer_a_revision"
         },
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.quality_gate",
-        "projection_id": "projection.writing_team.long_novel.quality_gate",
-        "source_flow_id": "flow.writing_team.long_novel.quality_gate",
+        "task_id": "task.writing_team.long_novel.writer_a_revision",
+        "projection_id": "projection.writing_team.long_novel.writer_a_revision",
+        "source_flow_id": "flow.writing_team.long_novel.writer_a_revision",
         "package_template": "writing_team_long_novel"
       }
     },
     {
-      "task_id": "task.writing_team.long_novel.memory_commit",
-      "task_title": "资产入库",
+      "task_id": "task.writing_team.long_novel.writer_b_final_candidate",
+      "task_title": "作者 B 终稿候选",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "writer_b_final_candidate",
+      "description": "长篇小说写作团队节点任务：作者 B 终稿候选",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.writer_a_revision",
+      "output_contract_id": "contract.writing_team.long_novel.writer_b_final_candidate",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.writer_b_final_candidate",
+      "default_workflow_id": "workflow.writing_team.long_novel.writer_b_final_candidate",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "writer_b_final_candidate",
+          "projection_id": "projection.writing_team.long_novel.writer_b_final_candidate"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.writer_b_final_candidate",
+        "projection_id": "projection.writing_team.long_novel.writer_b_final_candidate",
+        "source_flow_id": "flow.writing_team.long_novel.writer_b_final_candidate",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.novel_quality_judge",
+      "task_title": "独立裁判通关",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "novel_quality_judge",
+      "description": "长篇小说写作团队节点任务：独立裁判通关",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.writer_b_final_candidate",
+      "output_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.novel_quality_judge",
+      "default_workflow_id": "workflow.writing_team.long_novel.novel_quality_judge",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "novel_quality_judge",
+          "projection_id": "projection.writing_team.long_novel.novel_quality_judge"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.novel_quality_judge",
+        "projection_id": "projection.writing_team.long_novel.novel_quality_judge",
+        "source_flow_id": "flow.writing_team.long_novel.novel_quality_judge",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.world_deviation_router",
+      "task_title": "世界观偏差路由",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "deviation_router",
+      "description": "长篇小说写作团队节点任务：世界观偏差路由",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+      "output_contract_id": "contract.writing_team.long_novel.world_deviation_route",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.world_deviation_router",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_deviation_router",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "deviation_router",
+          "projection_id": "projection.writing_team.long_novel.world_deviation_router"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.world_deviation_router",
+        "projection_id": "projection.writing_team.long_novel.world_deviation_router",
+        "source_flow_id": "flow.writing_team.long_novel.world_deviation_router",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.world_repair_a",
+      "task_title": "世界观修正 A",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "world_repair_a",
+      "description": "长篇小说写作团队节点任务：世界观修正 A",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.world_deviation_route",
+      "output_contract_id": "contract.writing_team.long_novel.world_repair_a",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.world_repair_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_repair_a",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "world_repair_a",
+          "projection_id": "projection.writing_team.long_novel.world_repair_a"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.world_repair_a",
+        "projection_id": "projection.writing_team.long_novel.world_repair_a",
+        "source_flow_id": "flow.writing_team.long_novel.world_repair_a",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.world_repair_b",
+      "task_title": "世界观修正 B",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "world_repair_b",
+      "description": "长篇小说写作团队节点任务：世界观修正 B",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.world_deviation_route",
+      "output_contract_id": "contract.writing_team.long_novel.world_repair_b",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.world_repair_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_repair_b",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "world_repair_b",
+          "projection_id": "projection.writing_team.long_novel.world_repair_b"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.world_repair_b",
+        "projection_id": "projection.writing_team.long_novel.world_repair_b",
+        "source_flow_id": "flow.writing_team.long_novel.world_repair_b",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.outline_deviation_router",
+      "task_title": "大纲偏差路由",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "deviation_router",
+      "description": "长篇小说写作团队节点任务：大纲偏差路由",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+      "output_contract_id": "contract.writing_team.long_novel.outline_deviation_route",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.outline_deviation_router",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_deviation_router",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "deviation_router",
+          "projection_id": "projection.writing_team.long_novel.outline_deviation_router"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.outline_deviation_router",
+        "projection_id": "projection.writing_team.long_novel.outline_deviation_router",
+        "source_flow_id": "flow.writing_team.long_novel.outline_deviation_router",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.outline_repair_a",
+      "task_title": "大纲修正 A",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "outline_repair_a",
+      "description": "长篇小说写作团队节点任务：大纲修正 A",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.outline_deviation_route",
+      "output_contract_id": "contract.writing_team.long_novel.outline_repair_a",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.outline_repair_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_repair_a",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "outline_repair_a",
+          "projection_id": "projection.writing_team.long_novel.outline_repair_a"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.outline_repair_a",
+        "projection_id": "projection.writing_team.long_novel.outline_repair_a",
+        "source_flow_id": "flow.writing_team.long_novel.outline_repair_a",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.outline_repair_b",
+      "task_title": "大纲修正 B",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "outline_repair_b",
+      "description": "长篇小说写作团队节点任务：大纲修正 B",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.outline_deviation_route",
+      "output_contract_id": "contract.writing_team.long_novel.outline_repair_b",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.outline_repair_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_repair_b",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "outline_repair_b",
+          "projection_id": "projection.writing_team.long_novel.outline_repair_b"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.outline_repair_b",
+        "projection_id": "projection.writing_team.long_novel.outline_repair_b",
+        "source_flow_id": "flow.writing_team.long_novel.outline_repair_b",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.character_deviation_router",
+      "task_title": "人物偏差路由",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "deviation_router",
+      "description": "长篇小说写作团队节点任务：人物偏差路由",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+      "output_contract_id": "contract.writing_team.long_novel.character_deviation_route",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.character_deviation_router",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_deviation_router",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "deviation_router",
+          "projection_id": "projection.writing_team.long_novel.character_deviation_router"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_deviation_router",
+        "projection_id": "projection.writing_team.long_novel.character_deviation_router",
+        "source_flow_id": "flow.writing_team.long_novel.character_deviation_router",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.character_repair_a",
+      "task_title": "人物修正 A",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "character_repair_a",
+      "description": "长篇小说写作团队节点任务：人物修正 A",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.character_deviation_route",
+      "output_contract_id": "contract.writing_team.long_novel.character_repair_a",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.character_repair_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_repair_a",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "character_repair_a",
+          "projection_id": "projection.writing_team.long_novel.character_repair_a"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_repair_a",
+        "projection_id": "projection.writing_team.long_novel.character_repair_a",
+        "source_flow_id": "flow.writing_team.long_novel.character_repair_a",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.character_repair_b",
+      "task_title": "人物修正 B",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "character_repair_b",
+      "description": "长篇小说写作团队节点任务：人物修正 B",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.character_deviation_route",
+      "output_contract_id": "contract.writing_team.long_novel.character_repair_b",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.character_repair_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_repair_b",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "character_repair_b",
+          "projection_id": "projection.writing_team.long_novel.character_repair_b"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_repair_b",
+        "projection_id": "projection.writing_team.long_novel.character_repair_b",
+        "source_flow_id": "flow.writing_team.long_novel.character_repair_b",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.memory_commit_chapter",
+      "task_title": "章节入库",
       "task_family": "writing_team_long_novel",
       "task_mode": "memory_steward",
-      "description": "长篇小说写作团队节点任务：资产入库",
+      "description": "长篇小说写作团队节点任务：章节入库",
       "enabled": true,
-      "input_contract_id": "UserMessage",
-      "output_contract_id": "contract.writing_team.long_novel.memory_commit",
+      "input_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+      "output_contract_id": "contract.writing_team.long_novel.memory_commit_chapter",
       "acceptance_profile_id": "",
-      "default_flow_contract_id": "flow.writing_team.long_novel.memory_commit",
-      "default_workflow_id": "workflow.writing_team.long_novel.memory_commit",
+      "default_flow_contract_id": "flow.writing_team.long_novel.memory_commit_chapter",
+      "default_workflow_id": "workflow.writing_team.long_novel.memory_commit_chapter",
       "default_projection_policy": "task_default_required",
       "task_policy": {
         "safety_policy": {
@@ -627,16 +1559,68 @@
           "task_resource_kind": "",
           "execution_chain_type": "coordination_node",
           "role": "memory_steward",
-          "projection_id": "projection.writing_team.long_novel.memory_steward"
+          "projection_id": "projection.writing_team.long_novel.memory_commit_chapter"
         },
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.memory_commit",
-        "projection_id": "projection.writing_team.long_novel.memory_steward",
-        "source_flow_id": "flow.writing_team.long_novel.memory_commit",
+        "task_id": "task.writing_team.long_novel.memory_commit_chapter",
+        "projection_id": "projection.writing_team.long_novel.memory_commit_chapter",
+        "source_flow_id": "flow.writing_team.long_novel.memory_commit_chapter",
+        "package_template": "writing_team_long_novel"
+      }
+    },
+    {
+      "task_id": "task.writing_team.long_novel.memory_finalize",
+      "task_title": "工作记忆收尾",
+      "task_family": "writing_team_long_novel",
+      "task_mode": "memory_steward",
+      "description": "长篇小说写作团队节点任务：工作记忆收尾",
+      "enabled": true,
+      "input_contract_id": "contract.writing_team.long_novel.memory_commit_chapter",
+      "output_contract_id": "contract.writing_team.long_novel.memory_finalize",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing_team.long_novel.memory_finalize",
+      "default_workflow_id": "workflow.writing_team.long_novel.memory_finalize",
+      "default_projection_policy": "task_default_required",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_team_long_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_handoff",
+              "title": "读取上游交接"
+            },
+            {
+              "step_id": "produce_artifact",
+              "title": "产出本节点交付物"
+            },
+            {
+              "step_id": "handoff_result",
+              "title": "按契约交接结果"
+            }
+          ],
+          "task_resource_kind": "",
+          "execution_chain_type": "coordination_node",
+          "role": "memory_steward",
+          "projection_id": "projection.writing_team.long_novel.memory_finalize"
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.memory_finalize",
+        "projection_id": "projection.writing_team.long_novel.memory_finalize",
+        "source_flow_id": "flow.writing_team.long_novel.memory_finalize",
         "package_template": "writing_team_long_novel"
       }
     },

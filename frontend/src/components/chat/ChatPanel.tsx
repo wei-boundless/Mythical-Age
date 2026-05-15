@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
-import { CoordinationRunPanel, hasCoordinationSignal } from "@/components/chat/CoordinationRunPanel";
+import { CoordinationRunPanel } from "@/components/chat/CoordinationRunPanel";
 import { SoulPortrait } from "@/components/soul/SoulPortrait";
 import { useAppStore } from "@/lib/store";
 
@@ -24,9 +24,12 @@ export function ChatPanel() {
   const {
     messages,
     sendMessage,
-    isStreaming,
+    stopCurrentStream,
+    resendEditedMessage,
+    activeStreamSessionIds,
+    currentSessionId,
     tokenStats,
-    orchestrationSnapshot,
+    coordinationLiveMonitor,
     soulOptions,
     activeSoulKey,
     searchPolicy,
@@ -40,7 +43,8 @@ export function ChatPanel() {
   const [activePage, setActivePage] = useState<ChatPage>("conversation");
   const activeSoul =
     soulOptions.find((soul) => soul.key === activeSoulKey) ?? soulOptions[0] ?? null;
-  const coordinationActive = hasCoordinationSignal(orchestrationSnapshot);
+  const currentSessionStreaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
+  const coordinationActive = Boolean(taskSelection?.mode === "coordination" || coordinationLiveMonitor?.has_coordination);
 
   useEffect(() => {
     if (activePage === "conversation") {
@@ -49,10 +53,10 @@ export function ChatPanel() {
   }, [messages, activePage]);
 
   useEffect(() => {
-    if (isStreaming && coordinationActive) {
+    if (currentSessionStreaming && coordinationActive) {
       setActivePage("monitor");
     }
-  }, [isStreaming, coordinationActive]);
+  }, [currentSessionStreaming, coordinationActive]);
 
   useEffect(() => {
     if (taskSelection?.mode === "coordination") {
@@ -113,7 +117,7 @@ export function ChatPanel() {
                     {activeSoul ? `${activeSoul.name}，正等待您的询问。` : "正等待您的询问。"}
                   </h3>
                   <p className="chat-empty-state__text mt-3 max-w-2xl">
-                    直接输入问题、任务或协调指令即可开始。
+                    直接输入问题、任务或协调任务指令即可开始。
                   </p>
                 </div>
               </div>
@@ -122,8 +126,11 @@ export function ChatPanel() {
             {messages.map((message) => (
               <ChatMessage
                 assistantName={activeSoul?.name ?? "河伯"}
+                canEdit={!currentSessionStreaming && message.role === "user" && message.sourceIndex !== undefined}
                 content={message.content}
+                id={message.id}
                 key={message.id}
+                onResendEdit={resendEditedMessage}
                 retrievals={message.retrievals}
                 role={message.role}
                 stageStatus={message.stageStatus}
@@ -135,15 +142,19 @@ export function ChatPanel() {
         ) : (
           <div className="chat-run-page">
             <div className="chat-monitor-stage">
-              <CoordinationRunPanel onResumeCoordinationRun={resumeCoordinationRun} snapshot={orchestrationSnapshot} />
+              <CoordinationRunPanel
+                liveMonitor={coordinationLiveMonitor}
+                onResumeCoordinationRun={resumeCoordinationRun}
+              />
             </div>
           </div>
         )}
       </div>
 
       <ChatInput
-        disabled={isStreaming}
+        disabled={currentSessionStreaming}
         onSend={sendMessage}
+        onStop={stopCurrentStream}
         onClearTaskSelection={() => setTaskSelection(null)}
         onToggleSearchPolicy={toggleSearchPolicySource}
         searchPolicy={searchPolicy}

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from capability_system.local_mcp_registry import get_local_mcp_primary_template, get_local_mcp_unit_for_template
+from capability_system.local_mcp_registry import get_local_mcp_unit_for_source_kind
 
 from .bundle_models import BundleItemSpec, BundleSpec
 from .definitions import default_task_definitions
@@ -50,7 +50,7 @@ def _resolve_task_workflow(
     flow_registry: TaskFlowRegistry,
     workflow_registry: TaskWorkflowRegistry,
     registered_task: dict[str, Any] | None,
-    selected_template,
+    selected_recipe,
     definitions: list[Any],
     current_turn_context: dict[str, Any],
     task_mode: str,
@@ -72,7 +72,7 @@ def _resolve_task_workflow(
         if workflow is not None:
             return workflow.to_dict()
 
-    linked_flow_id = str(getattr(selected_template, "metadata", {}).get("linked_flow_id") or "").strip()
+    linked_flow_id = str(getattr(selected_recipe, "metadata", {}).get("linked_flow_id") or "").strip()
     if linked_flow_id:
         flow = flow_registry.get_flow(linked_flow_id)
         if flow is not None and flow.default_workflow_id:
@@ -107,10 +107,9 @@ def _build_task_spec(
     task_id: str,
     session_id: str,
     user_goal: str,
-    selected_template,
+    selected_recipe,
     registered_task: dict[str, Any] | None,
     task_intent_contract,
-    template_match,
     bundle_spec,
     definitions: list[Any],
     current_turn_context: dict[str, Any],
@@ -121,7 +120,7 @@ def _build_task_spec(
 ) -> TaskSpec:
     explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
     coordination_request_brief = _build_coordination_request_brief(
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
         user_goal=user_goal,
         current_turn_context=current_turn_context,
         query_understanding=query_understanding,
@@ -129,7 +128,7 @@ def _build_task_spec(
     registered_task_policy = dict((registered_task or {}).get("task_policy") or {})
     task_structure = dict(registered_task_policy.get("task_structure") or {})
     runtime_limits = _resolve_task_runtime_limits(
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
         registered_task_policy=registered_task_policy,
         task_structure=task_structure,
         current_turn_context=current_turn_context,
@@ -140,11 +139,11 @@ def _build_task_spec(
         if isinstance(item, dict)
     ]
     step_input_bindings = _build_step_input_bindings(
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
         current_turn_context=current_turn_context,
         bundle_spec=bundle_spec,
     )
-    requested_outputs = tuple(str(key) for key in dict(selected_template.output_schema or {}).keys()) or ("final_answer",)
+    requested_outputs = tuple(str(key) for key in dict(selected_recipe.output_schema or {}).keys()) or ("final_answer",)
     selected_skill_ids = _dedupe(
         [
             *[
@@ -156,11 +155,11 @@ def _build_task_spec(
             str(active_skill.get("name") or "").strip(),
         ]
     )
-    default_artifact_path = _default_task_artifact_path(selected_template, current_turn_context)
+    default_artifact_path = _default_task_artifact_path(selected_recipe, current_turn_context)
     return TaskSpec(
         task_id=task_id,
         task_spec_ref=f"taskspec:{task_id}",
-        template_id=selected_template.template_id,
+        template_id=selected_recipe.template_id,
         session_id=session_id,
         user_goal=user_goal,
         inputs={
@@ -176,8 +175,6 @@ def _build_task_spec(
             "intent": str(current_turn_context.get("intent") or query_understanding.get("intent") or ""),
             "execution_mode": str(current_turn_context.get("execution_mode") or "single"),
             "confidence": float(current_turn_context.get("confidence") or query_understanding.get("confidence") or 0.0),
-            "template_match_source": str(template_match.match_source or ""),
-            "template_match_reasons": list(template_match.match_reasons),
             "runtime_limits": runtime_limits,
             "candidate_tools": [
                 str(item).strip()
@@ -188,7 +185,6 @@ def _build_task_spec(
         },
         current_turn_context_ref=str(current_turn_context.get("authority") or ""),
         task_intent_ref=str(task_intent_contract.task_intent_id or ""),
-        template_match_ref=str(template_match.match_id or ""),
         bundle_spec_ref=bundle_spec.bundle_id if bundle_spec is not None else "",
         bundle_item_ref=_single_bundle_item_ref(bundle_spec),
         requested_outputs=requested_outputs,
@@ -199,8 +195,8 @@ def _build_task_spec(
     )
 
 
-def _default_task_artifact_path(selected_template, current_turn_context: dict[str, Any]) -> str:
-    template_metadata = dict(getattr(selected_template, "metadata", {}) or {})
+def _default_task_artifact_path(selected_recipe, current_turn_context: dict[str, Any]) -> str:
+    template_metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
     default_artifact_name = str(template_metadata.get("default_artifact_name") or "").strip()
     if not default_artifact_name:
         return ""
@@ -219,7 +215,7 @@ def _default_task_artifact_path(selected_template, current_turn_context: dict[st
     ).strip().rstrip("/\\")
     if not artifact_root:
         return ""
-    task_mode = str(getattr(selected_template, "task_mode", "") or "").strip()
+    task_mode = str(getattr(selected_recipe, "task_mode", "") or "").strip()
     if task_mode:
         return f"{artifact_root}/{task_mode}/{default_artifact_name}"
     return f"{artifact_root}/{default_artifact_name}"
@@ -227,12 +223,12 @@ def _default_task_artifact_path(selected_template, current_turn_context: dict[st
 
 def _build_coordination_request_brief(
     *,
-    selected_template,
+    selected_recipe,
     user_goal: str,
     current_turn_context: dict[str, Any],
     query_understanding: dict[str, Any],
 ) -> dict[str, Any]:
-    template_metadata = dict(getattr(selected_template, "metadata", {}) or {})
+    template_metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
     task_graph_id = str(template_metadata.get("task_graph_id") or template_metadata.get("graph_id") or "").strip()
     graph_ref = str(task_graph_id or "").strip()
     if not graph_ref:
@@ -261,10 +257,10 @@ def _build_coordination_request_brief(
     ]
     return {
         "authority": "task_system.coordination_request_brief",
-        "brief_id": f"coordbrief:{current_turn_context.get('turn_id') or getattr(selected_template, 'template_id', 'template')}",
+        "brief_id": f"coordbrief:{current_turn_context.get('turn_id') or getattr(selected_recipe, 'template_id', 'template')}",
         "task_graph_id": graph_ref,
         "graph_id": graph_ref,
-        "template_id": str(getattr(selected_template, "template_id", "") or ""),
+        "template_id": str(getattr(selected_recipe, "template_id", "") or ""),
         "natural_request": str(user_goal or "").strip(),
         "carrying_policy": "preserve_user_request_as_runtime_brief",
         "planning_policy": "coordinator_agent_interprets_request_inside_stable_workflow",
@@ -281,12 +277,12 @@ def _build_coordination_request_brief(
 
 def _resolve_task_runtime_limits(
     *,
-    selected_template,
+    selected_recipe,
     registered_task_policy: dict[str, Any],
     task_structure: dict[str, Any],
     current_turn_context: dict[str, Any],
 ) -> dict[str, Any]:
-    template_metadata = dict(getattr(selected_template, "metadata", {}) or {})
+    template_metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
     template_limits = dict(template_metadata.get("runtime_limits") or {})
     policy_limits = dict(registered_task_policy.get("runtime_limits") or {})
     structure_limits = dict(task_structure.get("runtime_limits") or {})
@@ -374,13 +370,13 @@ def _resolve_registered_task(
 def _resolve_task_family(
     *,
     registered_task: dict[str, Any] | None,
-    selected_template,
+    selected_recipe,
     definitions: list[Any],
 ) -> str:
     registered_family = str((registered_task or {}).get("task_family") or "").strip()
     if registered_family:
         return registered_family
-    return str(selected_template.task_family or "") or "+".join(
+    return str(selected_recipe.task_family or "") or "+".join(
         _dedupe([definition.task_family for definition in definitions])
     )
 
@@ -388,13 +384,13 @@ def _resolve_task_family(
 def _resolve_task_mode(
     *,
     registered_task: dict[str, Any] | None,
-    selected_template,
+    selected_recipe,
     definitions: list[Any],
 ) -> str:
     registered_mode = str((registered_task or {}).get("task_mode") or "").strip()
     if registered_mode:
         return registered_mode
-    return str(selected_template.task_mode or "") or "+".join(
+    return str(selected_recipe.task_mode or "") or "+".join(
         definition.task_mode for definition in definitions
     )
 
@@ -403,13 +399,13 @@ def _align_runtime_definitions(
     *,
     definitions: list[Any],
     registered_task: dict[str, Any] | None,
-    selected_template,
+    selected_recipe,
 ) -> list[Any]:
     if not registered_task or str(registered_task.get("task_type") or "") != "specific_task":
         return definitions
 
-    template_id = str(getattr(selected_template, "template_id", "") or "")
-    task_mode = str((registered_task or {}).get("task_mode") or getattr(selected_template, "task_mode", "") or "")
+    template_id = str(getattr(selected_recipe, "template_id", "") or "")
+    task_mode = str((registered_task or {}).get("task_mode") or getattr(selected_recipe, "task_mode", "") or "")
     definition_catalog = default_task_definitions()
     if template_id in {"template.dev.workspace_patch", "template.dev.light_web_game", "template.dev.arcade_game_bundle"} or task_mode in {
         "workspace_patch",
@@ -426,13 +422,13 @@ def _align_runtime_definitions(
 def _align_task_binding_with_template(
     binding,
     *,
-    selected_template,
+    selected_recipe,
 ):
     template_operations = {
         str(item).strip()
         for item in [
-            *list(getattr(selected_template, "required_operations", ()) or ()),
-            *list(getattr(selected_template, "optional_operations", ()) or ()),
+            *list(getattr(selected_recipe, "required_operations", ()) or ()),
+            *list(getattr(selected_recipe, "optional_operations", ()) or ()),
         ]
         if str(item).strip()
     }
@@ -459,16 +455,16 @@ def _align_task_binding_with_template(
 def _resolve_operation_approval_policy(
     *,
     merged_binding,
-    selected_template,
+    selected_recipe,
     registered_task: dict[str, Any] | None,
 ) -> str:
-    safety_policy = dict(getattr(selected_template, "safety_policy", {}) or {})
+    safety_policy = dict(getattr(selected_recipe, "safety_policy", {}) or {})
     write_mode = str(safety_policy.get("write_mode") or "").strip()
     if (
         registered_task
         and str(registered_task.get("task_type") or "") == "specific_task"
         and (
-            str(getattr(selected_template, "task_family", "") or "") == "development"
+            str(getattr(selected_recipe, "task_family", "") or "") == "development"
             or write_mode in {"bounded_create", "scoped_patch"}
         )
     ):
@@ -478,11 +474,11 @@ def _resolve_operation_approval_policy(
 
 def _build_task_safety_envelope(
     *,
-    selected_template,
+    selected_recipe,
     registered_task: dict[str, Any] | None,
     current_turn_context: dict[str, Any],
 ) -> dict[str, Any]:
-    template_policy = dict(getattr(selected_template, "safety_policy", {}) or {})
+    template_policy = dict(getattr(selected_recipe, "safety_policy", {}) or {})
     registered_policy = dict((registered_task or {}).get("safety_policy") or {})
     effective_policy = {**template_policy, **registered_policy}
     explicit_target_root = str(
@@ -509,7 +505,7 @@ def _build_task_safety_envelope(
         ],
         "verification_mode": str(effective_policy.get("verification_mode") or "none").strip(),
         "task_id": str((registered_task or {}).get("task_id") or ""),
-        "template_id": str(getattr(selected_template, "template_id", "") or ""),
+        "template_id": str(getattr(selected_recipe, "template_id", "") or ""),
     }
 
 
@@ -536,7 +532,7 @@ def _build_bundle_spec(
                 item_id=str(item.get("item_id") or f"{bundle_id}:item:{ordinal or len(item_specs) + 1}"),
                 ordinal=ordinal,
                 user_text=str(item.get("user_text") or ""),
-                template_id=str(item.get("template_id") or _template_id_for_capability(capability_kind)),
+                template_id=str(item.get("template_id") or ""),
                 capability_kind=capability_kind,
                 required_tool=str(item.get("required_tool") or ""),
                 requested_outputs=tuple(
@@ -576,7 +572,7 @@ def _build_bundle_spec(
 
 def _build_step_input_bindings(
     *,
-    selected_template,
+    selected_recipe,
     current_turn_context: dict[str, Any],
     bundle_spec: BundleSpec | None,
 ) -> tuple[StepInputBinding, ...]:
@@ -602,7 +598,7 @@ def _build_step_input_bindings(
     )
     step_bindings: list[StepInputBinding] = []
     previous_step_id = ""
-    for blueprint in list(getattr(selected_template, "step_blueprints", ()) or ()):
+    for blueprint in list(getattr(selected_recipe, "step_blueprints", ()) or ()):
         blueprint_input_refs = tuple(str(item).strip() for item in list(blueprint.input_refs or ()) if str(item).strip())
         computed_input_refs = list(blueprint_input_refs)
         if bundle_spec is not None:
@@ -613,10 +609,15 @@ def _build_step_input_bindings(
         if previous_step_id:
             private_state_refs.append(f"step_output:{previous_step_id}")
         binding_policy = "inherit_parent_context"
-        if bundle_spec is not None and str(selected_template.template_id or "") != "template.bundle.multi_capability":
+        if bundle_spec is not None and str(selected_recipe.template_id or "") != "template.bundle.multi_capability":
             binding_policy = "bundle_item_private_context"
         output_writebacks = _step_output_writebacks(
-            template_id=str(selected_template.template_id or ""),
+            template_id=str(selected_recipe.template_id or ""),
+            source_kind=str(
+                getattr(selected_recipe, "source_kind", "")
+                or dict(getattr(selected_recipe, "metadata", {}) or {}).get("source_kind")
+                or ""
+            ),
             blueprint=blueprint,
             bundle_spec=bundle_spec,
         )
@@ -637,6 +638,7 @@ def _build_step_input_bindings(
 def _step_output_writebacks(
     *,
     template_id: str,
+    source_kind: str,
     blueprint: TaskStepBlueprint,
     bundle_spec: BundleSpec | None,
 ) -> dict[str, str]:
@@ -646,7 +648,7 @@ def _step_output_writebacks(
             return {"bundle_plan": "runtime.bundle_plan"}
         if step_kind == "finalize":
             return {"final_answer": "task_result.final_answer", "bundle_result_refs": "state.bundle_result_refs"}
-    unit = get_local_mcp_unit_for_template(template_id)
+    unit = get_local_mcp_unit_for_source_kind(source_kind)
     if unit is not None and unit.source_kind in {"pdf", "dataset"}:
         if step_kind == "analyze":
             return {"task_summary_refs": "state.current_result_refs"}
@@ -663,12 +665,3 @@ def _single_bundle_item_ref(bundle_spec: BundleSpec | None) -> str:
     if bundle_spec is None or len(bundle_spec.items) != 1:
         return ""
     return str(bundle_spec.items[0].item_id or "")
-
-
-def _template_id_for_capability(capability: str) -> str:
-    template_id = get_local_mcp_primary_template(capability)
-    if template_id:
-        return template_id
-    if capability in {"weather", "gold_price"}:
-        return "template.search.information_search"
-    return "template.general.main_conversation"

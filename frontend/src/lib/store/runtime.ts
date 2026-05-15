@@ -4,9 +4,8 @@ import {
   loadFile,
   createSession,
   deleteSession,
-  getOrchestrationRuntimeLoopTrace,
+  getOrchestrationRuntimeLoopSessionLiveMonitor,
   getRagMode,
-  listOrchestrationRuntimeLoopTaskRuns,
   getSessionHistory,
   getSessionTokens,
   listSessions,
@@ -16,7 +15,8 @@ import {
   saveFile,
   setRagMode,
   streamChat,
-  switchSoulSystemSeed
+  switchSoulSystemSeed,
+  truncateSessionMessages
 } from "@/lib/api";
 import {
   ACTIVE_SOUL_PATH,
@@ -28,14 +28,23 @@ import {
 } from "@/lib/souls";
 
 import type { Store } from "./core";
-import { buildSnapshotFromRuntimeLoopTrace, reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
+import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
 import type { SearchPolicySource, StoreActions, StoreState, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
 export class WorkspaceRuntime {
   private createSessionPromise: Promise<string> | null = null;
   private sessionDetailsRequest = 0;
+  private orchestrationHydrateRequest = 0;
+  private orchestrationMonitorRequest = 0;
+  private orchestrationMonitorTimer: number | null = null;
+  private orchestrationMonitorSessionId: string | null = null;
+  private orchestrationMonitorInFlight = false;
   private sessionRefreshTimers: number[] = [];
+  private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot">>();
+  private removedStreamingSessionIds = new Set<string>();
+  private streamAbortControllers = new Map<string, AbortController>();
+  private stoppedStreamingSessionIds = new Set<string>();
 
   readonly actions: StoreActions;
 
@@ -52,6 +61,12 @@ export class WorkspaceRuntime {
       },
       sendMessage: async (value) => {
         await this.sendMessage(value);
+      },
+      stopCurrentStream: () => {
+        this.stopCurrentStream();
+      },
+      resendEditedMessage: async (messageId, value) => {
+        await this.resendEditedMessage(messageId, value);
       },
       toggleRagMode: async () => {
         await this.toggleRagMode();
@@ -152,6 +167,7 @@ export class WorkspaceRuntime {
       window.clearTimeout(timer);
     }
     this.sessionRefreshTimers = [];
+    this.stopOrchestrationMonitorPolling();
   }
 
   private scheduleSessionRefreshes(delays: number[] = [1500, 4000]) {
@@ -203,6 +219,39 @@ export class WorkspaceRuntime {
     }));
   }
 
+  private addActiveStreamSession(sessionId: string) {
+    this.store.setState((prev) => {
+      const activeStreamSessionIds = prev.activeStreamSessionIds.includes(sessionId)
+        ? prev.activeStreamSessionIds
+        : [...prev.activeStreamSessionIds, sessionId];
+      return {
+        ...prev,
+        activeStreamSessionIds,
+        isStreaming: activeStreamSessionIds.length > 0,
+      };
+    });
+  }
+
+  private removeActiveStreamSession(prev: StoreState, sessionId: string): StoreState {
+    const activeStreamSessionIds = prev.activeStreamSessionIds.filter((id) => id !== sessionId);
+    return {
+      ...prev,
+      isStreaming: activeStreamSessionIds.length > 0,
+      activeStreamSessionIds,
+    };
+  }
+
+  private applyVisibleStreamState(streamState: StoreState, activeStreamSessionIds: string[]) {
+    this.store.setState((prev) => ({
+      ...prev,
+      messages: streamState.messages,
+      orchestrationSnapshot: streamState.orchestrationSnapshot,
+      coordinationLiveMonitor: null,
+      activeStreamSessionIds,
+      isStreaming: activeStreamSessionIds.length > 0,
+    }));
+  }
+
   private async createFreshSession() {
     if (this.createSessionPromise) {
       return this.createSessionPromise;
@@ -217,6 +266,7 @@ export class WorkspaceRuntime {
         messages: [],
         tokenStats: null
       }));
+      this.startOrchestrationMonitorPolling(created.id);
       return created.id;
     })();
 
@@ -242,13 +292,36 @@ export class WorkspaceRuntime {
       ...prev,
       currentSessionId: sessionId,
       messages: [],
+      orchestrationSnapshot: null,
+      coordinationLiveMonitor: null,
       tokenStats: null
     }));
+    this.startOrchestrationMonitorPolling(sessionId);
     await this.refreshSessions();
   }
 
   private async selectSession(sessionId: string) {
-    this.store.setState((prev) => ({ ...prev, currentSessionId: sessionId }));
+    this.startOrchestrationMonitorPolling(sessionId);
+    const streamingCache = this.streamingSessionCache.get(sessionId);
+    if (this.store.getState().activeStreamSessionIds.includes(sessionId) && streamingCache) {
+      this.store.setState((prev) => ({
+        ...prev,
+        currentSessionId: sessionId,
+        messages: streamingCache.messages,
+        orchestrationSnapshot: streamingCache.orchestrationSnapshot,
+        coordinationLiveMonitor: null,
+        tokenStats: null
+      }));
+      return;
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      currentSessionId: sessionId,
+      messages: [],
+      orchestrationSnapshot: null,
+      coordinationLiveMonitor: null,
+      tokenStats: null
+    }));
     await this.refreshSessionDetails(sessionId);
     await this.hydrateLatestOrchestrationSnapshot(sessionId);
   }
@@ -256,23 +329,62 @@ export class WorkspaceRuntime {
   private async sendMessage(value: string) {
     const trimmed = value.trim();
     const state = this.store.getState();
-    if (!trimmed || state.isStreaming) {
+    if (!trimmed) {
       return;
     }
 
     const sessionId = await this.ensureSession();
+    if (this.store.getState().activeStreamSessionIds.includes(sessionId)) {
+      return;
+    }
+    this.removedStreamingSessionIds.delete(sessionId);
+    this.stoppedStreamingSessionIds.delete(sessionId);
+    const abortController = new AbortController();
+    this.streamAbortControllers.set(sessionId, abortController);
     const ephemeralSystemMessages = [...(state.pendingEphemeralSystemMessages ?? [])];
     const searchPolicy = this.enabledSearchPolicy(state);
     let consumedEphemeralSystemMessages = false;
     this.store.setState((prev) => ({
       ...prev,
       orchestrationSnapshot: null,
+      coordinationLiveMonitor: prev.coordinationLiveMonitor,
       orchestrationInspectorTarget: prev.orchestrationInspectorTarget?.source === "live-session"
         ? null
         : prev.orchestrationInspectorTarget,
     }));
     let transition = startStreamingTurn(this.store.getState(), trimmed);
-    this.store.setState(() => transition.state);
+    const nextSourceIndex = this.nextMessageSourceIndex(this.store.getState().messages);
+    transition = {
+      ...transition,
+      state: {
+        ...transition.state,
+        messages: transition.state.messages.map((message, index, list) =>
+          index === list.length - 2 && message.role === "user"
+            ? { ...message, sourceIndex: nextSourceIndex }
+            : message
+        )
+      }
+    };
+    const activeStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
+      ? this.store.getState().activeStreamSessionIds
+      : [...this.store.getState().activeStreamSessionIds, sessionId];
+    let streamState: StoreState = {
+      ...transition.state,
+      activeStreamSessionIds,
+      isStreaming: activeStreamSessionIds.length > 0,
+    };
+    transition = {
+      ...transition,
+      state: streamState
+    };
+    this.streamingSessionCache.set(sessionId, {
+      messages: streamState.messages,
+      orchestrationSnapshot: streamState.orchestrationSnapshot
+    });
+    this.addActiveStreamSession(sessionId);
+    if (this.store.getState().currentSessionId === sessionId) {
+      this.applyVisibleStreamState(streamState, this.store.getState().activeStreamSessionIds);
+    }
 
     try {
       await streamChat(
@@ -285,46 +397,142 @@ export class WorkspaceRuntime {
         },
         {
           onEvent: (event, data) => {
-            transition = reduceStreamEvent(this.store.getState(), transition.session, event, data);
-            this.store.setState(() => transition.state);
+            if (this.removedStreamingSessionIds.has(sessionId)) {
+              return;
+            }
+            const isCurrentStreamSession = this.store.getState().currentSessionId === sessionId;
+            const baseState = isCurrentStreamSession ? this.store.getState() : streamState;
+            transition = reduceStreamEvent(baseState, transition.session, event, data);
+            const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
+              ? this.store.getState().activeStreamSessionIds
+              : [...this.store.getState().activeStreamSessionIds, sessionId];
+            streamState = {
+              ...transition.state,
+              currentSessionId: sessionId,
+              activeStreamSessionIds: currentActiveStreamSessionIds,
+              isStreaming: currentActiveStreamSessionIds.length > 0,
+            };
+            transition = {
+              ...transition,
+              state: streamState
+            };
+            this.streamingSessionCache.set(sessionId, {
+              messages: streamState.messages,
+              orchestrationSnapshot: streamState.orchestrationSnapshot
+            });
+            if (isCurrentStreamSession) {
+              this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
+            }
           }
-        }
+        },
+        { signal: abortController.signal }
       );
       consumedEphemeralSystemMessages = true;
     } catch (error) {
+      if (this.removedStreamingSessionIds.has(sessionId)) {
+        return;
+      }
+      const streamWasStopped = this.stoppedStreamingSessionIds.has(sessionId) || this.isAbortError(error);
       transition = reduceStreamEvent(
-        this.store.getState(),
+        this.store.getState().currentSessionId === sessionId ? this.store.getState() : streamState,
         transition.session,
-        "error",
-        { error: error instanceof Error ? error.message : "unknown error" }
+        streamWasStopped ? "stopped" : "error",
+        streamWasStopped
+          ? { reason: "user_stopped" }
+          : { error: error instanceof Error ? error.message : "unknown error" }
       );
-      this.store.setState(() => transition.state);
+      const currentActiveStreamSessionIds = this.store.getState().activeStreamSessionIds.includes(sessionId)
+        ? this.store.getState().activeStreamSessionIds
+        : [...this.store.getState().activeStreamSessionIds, sessionId];
+      streamState = {
+        ...transition.state,
+        currentSessionId: sessionId,
+        activeStreamSessionIds: currentActiveStreamSessionIds,
+        isStreaming: currentActiveStreamSessionIds.length > 0,
+      };
+      this.streamingSessionCache.set(sessionId, {
+        messages: streamState.messages,
+        orchestrationSnapshot: streamState.orchestrationSnapshot
+      });
+      if (this.store.getState().currentSessionId === sessionId) {
+        this.applyVisibleStreamState(streamState, currentActiveStreamSessionIds);
+      }
     } finally {
+      this.streamAbortControllers.delete(sessionId);
+      const shouldClearEphemeral = (prev: StoreState) =>
+        consumedEphemeralSystemMessages
+        && ephemeralSystemMessages.length > 0
+        && prev.pendingEphemeralSystemMessages.join("\n") === ephemeralSystemMessages.join("\n");
+      const shouldRestoreEphemeral = (prev: StoreState) =>
+        !consumedEphemeralSystemMessages
+        && ephemeralSystemMessages.length > 0
+        && !prev.pendingEphemeralSystemMessages.length;
       this.store.setState((prev) => {
-        const next = { ...prev, isStreaming: false };
+        const next = this.removeActiveStreamSession(prev, sessionId);
         if (
-          consumedEphemeralSystemMessages
-          && ephemeralSystemMessages.length > 0
-          && prev.pendingEphemeralSystemMessages.join("\n") === ephemeralSystemMessages.join("\n")
+          shouldClearEphemeral(prev)
         ) {
           next.pendingEphemeralSystemMessages = [];
         }
         if (
-          !consumedEphemeralSystemMessages
-          && ephemeralSystemMessages.length > 0
-          && !prev.pendingEphemeralSystemMessages.length
+          shouldRestoreEphemeral(prev)
         ) {
           next.pendingEphemeralSystemMessages = ephemeralSystemMessages;
         }
         return next;
       });
-      if (this.store.getState().currentSessionId === sessionId) {
+      this.streamingSessionCache.delete(sessionId);
+      const streamSessionWasRemoved = this.removedStreamingSessionIds.has(sessionId);
+      const streamSessionWasStopped = this.stoppedStreamingSessionIds.has(sessionId);
+      this.removedStreamingSessionIds.delete(sessionId);
+      this.stoppedStreamingSessionIds.delete(sessionId);
+      if (!streamSessionWasRemoved && !streamSessionWasStopped && this.store.getState().currentSessionId === sessionId) {
         await this.refreshSessionDetails(sessionId);
         await this.hydrateLatestOrchestrationSnapshot(sessionId);
       }
       await this.refreshSessions();
       this.scheduleSessionRefreshes();
     }
+  }
+
+  private stopCurrentStream() {
+    const sessionId = this.store.getState().currentSessionId;
+    if (!sessionId || !this.store.getState().activeStreamSessionIds.includes(sessionId)) {
+      return;
+    }
+    this.stoppedStreamingSessionIds.add(sessionId);
+    this.streamAbortControllers.get(sessionId)?.abort();
+  }
+
+  private isAbortError(error: unknown) {
+    return error instanceof DOMException && error.name === "AbortError";
+  }
+
+  private async resendEditedMessage(messageId: string, value: string) {
+    const nextValue = value.trim();
+    const state = this.store.getState();
+    const sessionId = state.currentSessionId;
+    if (!sessionId || !nextValue || state.activeStreamSessionIds.includes(sessionId)) {
+      return;
+    }
+    const targetMessage = state.messages.find((message) => message.id === messageId);
+    if (!targetMessage || targetMessage.role !== "user" || targetMessage.sourceIndex === undefined) {
+      return;
+    }
+    const visibleMessageIndex = state.messages.findIndex((message) => message.id === messageId);
+    await truncateSessionMessages(sessionId, targetMessage.sourceIndex);
+    this.store.setState((prev) => ({
+      ...prev,
+      messages: visibleMessageIndex > -1 ? prev.messages.slice(0, visibleMessageIndex) : prev.messages,
+      orchestrationSnapshot: null,
+      coordinationLiveMonitor: null,
+      tokenStats: null
+    }));
+    await this.sendMessage(nextValue);
+  }
+
+  private nextMessageSourceIndex(messages: StoreState["messages"]) {
+    return messages.reduce((max, message) => Math.max(max, message.sourceIndex ?? -1), -1) + 1;
   }
 
   private async toggleRagMode() {
@@ -422,6 +630,13 @@ export class WorkspaceRuntime {
 
   private async removeSession(sessionId: string) {
     await deleteSession(sessionId);
+    this.streamingSessionCache.delete(sessionId);
+    this.removedStreamingSessionIds.add(sessionId);
+    this.streamAbortControllers.get(sessionId)?.abort();
+    this.streamAbortControllers.delete(sessionId);
+    this.store.setState((prev) => {
+      return this.removeActiveStreamSession(prev, sessionId);
+    });
     await this.refreshSessions();
     if (this.store.getState().currentSessionId !== sessionId) {
       return;
@@ -443,6 +658,7 @@ export class WorkspaceRuntime {
       ...prev,
       currentSessionId: null,
       messages: [],
+      orchestrationSnapshot: null,
       tokenStats: null
     }));
   }
@@ -518,6 +734,63 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({ ...prev, orchestrationSnapshot: snapshot }));
   }
 
+  private stopOrchestrationMonitorPolling() {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (this.orchestrationMonitorTimer !== null) {
+      window.clearTimeout(this.orchestrationMonitorTimer);
+      this.orchestrationMonitorTimer = null;
+    }
+    this.orchestrationMonitorSessionId = null;
+    this.orchestrationMonitorInFlight = false;
+  }
+
+  private startOrchestrationMonitorPolling(sessionId: string) {
+    const targetSessionId = sessionId.trim();
+    if (typeof window === "undefined" || !targetSessionId) {
+      return;
+    }
+    if (this.orchestrationMonitorTimer !== null) {
+      window.clearTimeout(this.orchestrationMonitorTimer);
+      this.orchestrationMonitorTimer = null;
+    }
+    this.orchestrationMonitorSessionId = targetSessionId;
+    void this.pollOrchestrationMonitor(targetSessionId);
+  }
+
+  private scheduleNextOrchestrationMonitorPoll(sessionId: string, delayMs = 1500) {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (this.orchestrationMonitorTimer !== null) {
+      window.clearTimeout(this.orchestrationMonitorTimer);
+    }
+    this.orchestrationMonitorTimer = window.setTimeout(() => {
+      void this.pollOrchestrationMonitor(sessionId);
+    }, delayMs);
+  }
+
+  private async pollOrchestrationMonitor(sessionId: string) {
+    const targetSessionId = sessionId.trim();
+    if (!targetSessionId || this.orchestrationMonitorSessionId !== targetSessionId) {
+      return;
+    }
+    if (this.orchestrationMonitorInFlight) {
+      this.scheduleNextOrchestrationMonitorPoll(targetSessionId, 800);
+      return;
+    }
+    this.orchestrationMonitorInFlight = true;
+    try {
+      await this.hydrateLatestOrchestrationSnapshot(targetSessionId);
+    } finally {
+      this.orchestrationMonitorInFlight = false;
+      if (this.orchestrationMonitorSessionId === targetSessionId) {
+        this.scheduleNextOrchestrationMonitorPoll(targetSessionId);
+      }
+    }
+  }
+
   private async resumeCoordinationRun(coordinationRunId: string, payload?: Record<string, unknown>) {
     const runId = coordinationRunId.trim();
     if (!runId) {
@@ -532,24 +805,25 @@ export class WorkspaceRuntime {
 
   private async hydrateLatestOrchestrationSnapshot(sessionId: string) {
     const targetSessionId = sessionId.trim();
+    const requestId = ++this.orchestrationHydrateRequest;
     if (!targetSessionId) {
-      this.store.setState((prev) => ({ ...prev, orchestrationSnapshot: null }));
+      this.store.setState((prev) => ({ ...prev, coordinationLiveMonitor: null }));
       return;
     }
     try {
-      const taskRunList = await listOrchestrationRuntimeLoopTaskRuns(targetSessionId);
-      const latestTaskRun = taskRunList.task_runs?.[0];
-      const latestTaskRunId = String(latestTaskRun?.task_run?.task_run_id ?? "").trim();
-      if (!latestTaskRunId) {
-        this.store.setState((prev) => ({ ...prev, orchestrationSnapshot: null }));
+      const liveMonitor = await getOrchestrationRuntimeLoopSessionLiveMonitor(targetSessionId);
+      if (!liveMonitor.monitor) {
+        if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
+          this.store.setState((prev) => ({ ...prev, coordinationLiveMonitor: null }));
+        }
         return;
       }
-      const trace = await getOrchestrationRuntimeLoopTrace(latestTaskRunId, {
-        includePayloads: true,
-        includeModelMessages: false,
-      });
-      const snapshot = buildSnapshotFromRuntimeLoopTrace(trace);
-      this.store.setState((prev) => ({ ...prev, orchestrationSnapshot: snapshot }));
+      if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
+        this.store.setState((prev) => ({
+          ...prev,
+          coordinationLiveMonitor: liveMonitor.monitor,
+        }));
+      }
     } catch {
       // Keep current snapshot on transient runtime-loop query failures.
     }

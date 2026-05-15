@@ -98,6 +98,30 @@ def test_chat_rejects_invalid_session_id_before_streaming() -> None:
         assert response.json() == {"detail": "Invalid session_id"}
 
 
+def test_session_messages_can_be_truncated_for_edit_resend() -> None:
+    with TestClient(app) as client:
+        runtime = app_runtime.require_ready()
+        created = client.post("/api/sessions", json={"title": "Edit resend"})
+        assert created.status_code == 200
+        session_id = created.json()["id"]
+
+        runtime.session_manager.append_messages(
+            session_id,
+            [
+                {"role": "user", "content": "old question"},
+                {"role": "assistant", "content": "old answer"},
+                {"role": "user", "content": "follow up"},
+            ],
+        )
+
+        response = client.post(
+            f"/api/sessions/{session_id}/messages/truncate",
+            json={"message_index": 0},
+        )
+        assert response.status_code == 200
+        assert response.json()["messages"] == []
+
+
 def test_legacy_agent_control_plane_routes_are_removed() -> None:
     with TestClient(app) as client:
         response = client.get("/api/agents/catalog")

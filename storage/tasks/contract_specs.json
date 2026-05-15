@@ -1,19 +1,19 @@
 {
   "contract_specs": [
     {
-      "contract_id": "contract.writing_team.long_novel.world_brief",
-      "title_zh": "世界观设计交付契约",
-      "title_en": "world_brief",
+      "contract_id": "contract.writing_team.long_novel.world_proposal_a",
+      "title_zh": "世界观设计师 A交付契约",
+      "title_en": "world_designer_a",
       "contract_kind": "node_execution",
-      "description": "长篇小说写作团队节点“世界观设计”的结构化交付边界。",
+      "description": "长篇小说写作团队节点“世界观设计师 A”的结构化交付边界。",
       "input_fields": [],
       "output_fields": [
         {
           "field_id": "summary",
-          "title_zh": "摘要",
+          "title_zh": "summary",
           "field_type": "string",
           "required": true,
-          "description": "本节点产物摘要。",
+          "description": "summary。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -21,10 +21,10 @@
         },
         {
           "field_id": "artifact_refs",
-          "title_zh": "产物引用",
+          "title_zh": "artifact_refs",
           "field_type": "array",
           "required": false,
-          "description": "落盘产物或可追踪引用。",
+          "description": "artifact_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "artifact_ref",
@@ -32,10 +32,43 @@
         },
         {
           "field_id": "open_issues",
-          "title_zh": "遗留问题",
+          "title_zh": "open_issues",
           "field_type": "array",
           "required": false,
-          "description": "需要下游处理或人类确认的问题。",
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -44,38 +77,38 @@
       ],
       "acceptance_rules": [
         {
-          "rule_id": "world_brief_has_summary",
+          "rule_id": "world_designer_a_has_summary",
           "title": "必须有摘要",
           "severity": "error",
           "description": "节点产物必须提供可交接摘要。"
         },
         {
-          "rule_id": "world_brief_has_traceable_refs",
+          "rule_id": "world_designer_a_has_traceable_refs",
           "title": "必须可追踪",
           "severity": "warning",
           "description": "重要判断应带有产物引用或依据说明。"
         }
       ],
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel",
-        "role": "world_designer"
+        "role": "world_designer_a"
       }
     },
     {
-      "contract_id": "contract.writing_team.long_novel.world_review",
-      "title_zh": "世界观审核交付契约",
-      "title_en": "world_review",
+      "contract_id": "contract.writing_team.long_novel.world_proposal_b",
+      "title_zh": "世界观设计师 B交付契约",
+      "title_en": "world_designer_b",
       "contract_kind": "node_execution",
-      "description": "长篇小说写作团队节点“世界观审核”的结构化交付边界。",
+      "description": "长篇小说写作团队节点“世界观设计师 B”的结构化交付边界。",
       "input_fields": [],
       "output_fields": [
         {
           "field_id": "summary",
-          "title_zh": "摘要",
+          "title_zh": "summary",
           "field_type": "string",
           "required": true,
-          "description": "本节点产物摘要。",
+          "description": "summary。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -83,10 +116,10 @@
         },
         {
           "field_id": "artifact_refs",
-          "title_zh": "产物引用",
+          "title_zh": "artifact_refs",
           "field_type": "array",
           "required": false,
-          "description": "落盘产物或可追踪引用。",
+          "description": "artifact_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "artifact_ref",
@@ -94,10 +127,43 @@
         },
         {
           "field_id": "open_issues",
-          "title_zh": "遗留问题",
+          "title_zh": "open_issues",
           "field_type": "array",
           "required": false,
-          "description": "需要下游处理或人类确认的问题。",
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -106,38 +172,38 @@
       ],
       "acceptance_rules": [
         {
-          "rule_id": "world_review_has_summary",
+          "rule_id": "world_designer_b_has_summary",
           "title": "必须有摘要",
           "severity": "error",
           "description": "节点产物必须提供可交接摘要。"
         },
         {
-          "rule_id": "world_review_has_traceable_refs",
+          "rule_id": "world_designer_b_has_traceable_refs",
           "title": "必须可追踪",
           "severity": "warning",
           "description": "重要判断应带有产物引用或依据说明。"
         }
       ],
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel",
-        "role": "world_reviewer"
+        "role": "world_designer_b"
       }
     },
     {
-      "contract_id": "contract.writing_team.long_novel.outline_brief",
-      "title_zh": "大纲设计交付契约",
-      "title_en": "outline_brief",
+      "contract_id": "contract.writing_team.long_novel.world_judgement",
+      "title_zh": "世界观裁判交付契约",
+      "title_en": "world_judge",
       "contract_kind": "node_execution",
-      "description": "长篇小说写作团队节点“大纲设计”的结构化交付边界。",
+      "description": "长篇小说写作团队节点“世界观裁判”的结构化交付边界。",
       "input_fields": [],
       "output_fields": [
         {
           "field_id": "summary",
-          "title_zh": "摘要",
+          "title_zh": "summary",
           "field_type": "string",
           "required": true,
-          "description": "本节点产物摘要。",
+          "description": "summary。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -145,10 +211,10 @@
         },
         {
           "field_id": "artifact_refs",
-          "title_zh": "产物引用",
+          "title_zh": "artifact_refs",
           "field_type": "array",
           "required": false,
-          "description": "落盘产物或可追踪引用。",
+          "description": "artifact_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "artifact_ref",
@@ -156,10 +222,120 @@
         },
         {
           "field_id": "open_issues",
-          "title_zh": "遗留问题",
+          "title_zh": "open_issues",
           "field_type": "array",
           "required": false,
-          "description": "需要下游处理或人类确认的问题。",
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "verdict",
+          "title_zh": "verdict",
+          "field_type": "string",
+          "required": false,
+          "description": "verdict。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_total",
+          "title_zh": "score_total",
+          "field_type": "number",
+          "required": false,
+          "description": "score_total。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_breakdown",
+          "title_zh": "score_breakdown",
+          "field_type": "object",
+          "required": false,
+          "description": "score_breakdown。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "pass_line",
+          "title_zh": "pass_line",
+          "field_type": "number",
+          "required": false,
+          "description": "pass_line。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "must_fix",
+          "title_zh": "must_fix",
+          "field_type": "array",
+          "required": false,
+          "description": "must_fix。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "can_keep",
+          "title_zh": "can_keep",
+          "field_type": "array",
+          "required": false,
+          "description": "can_keep。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "repair_target_node_id",
+          "title_zh": "repair_target_node_id",
+          "field_type": "string",
+          "required": false,
+          "description": "repair_target_node_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "memory_commit_allowed",
+          "title_zh": "memory_commit_allowed",
+          "field_type": "boolean",
+          "required": false,
+          "description": "memory_commit_allowed。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "approved_artifact_refs",
+          "title_zh": "approved_artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "approved_artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "rejected_artifact_refs",
+          "title_zh": "rejected_artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "rejected_artifact_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -168,38 +344,38 @@
       ],
       "acceptance_rules": [
         {
-          "rule_id": "outline_brief_has_summary",
+          "rule_id": "world_judge_has_summary",
           "title": "必须有摘要",
           "severity": "error",
           "description": "节点产物必须提供可交接摘要。"
         },
         {
-          "rule_id": "outline_brief_has_traceable_refs",
+          "rule_id": "world_judge_has_traceable_refs",
           "title": "必须可追踪",
           "severity": "warning",
           "description": "重要判断应带有产物引用或依据说明。"
         }
       ],
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel",
-        "role": "outline_designer"
+        "role": "world_judge"
       }
     },
     {
-      "contract_id": "contract.writing_team.long_novel.outline_review",
-      "title_zh": "大纲审核交付契约",
-      "title_en": "outline_review",
+      "contract_id": "contract.writing_team.long_novel.memory_commit_world",
+      "title_zh": "世界观入库交付契约",
+      "title_en": "memory_commit_world",
       "contract_kind": "node_execution",
-      "description": "长篇小说写作团队节点“大纲审核”的结构化交付边界。",
+      "description": "长篇小说写作团队节点“世界观入库”的结构化交付边界。",
       "input_fields": [],
       "output_fields": [
         {
           "field_id": "summary",
-          "title_zh": "摘要",
+          "title_zh": "summary",
           "field_type": "string",
           "required": true,
-          "description": "本节点产物摘要。",
+          "description": "summary。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -207,10 +383,10 @@
         },
         {
           "field_id": "artifact_refs",
-          "title_zh": "产物引用",
+          "title_zh": "artifact_refs",
           "field_type": "array",
           "required": false,
-          "description": "落盘产物或可追踪引用。",
+          "description": "artifact_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "artifact_ref",
@@ -218,10 +394,54 @@
         },
         {
           "field_id": "open_issues",
-          "title_zh": "遗留问题",
+          "title_zh": "open_issues",
           "field_type": "array",
           "required": false,
-          "description": "需要下游处理或人类确认的问题。",
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "committed_refs",
+          "title_zh": "committed_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "committed_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "discarded_refs",
+          "title_zh": "discarded_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "discarded_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "conflict_refs",
+          "title_zh": "conflict_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "conflict_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_read_suggestions",
+          "title_zh": "next_read_suggestions",
+          "field_type": "string",
+          "required": false,
+          "description": "next_read_suggestions。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -230,38 +450,38 @@
       ],
       "acceptance_rules": [
         {
-          "rule_id": "outline_review_has_summary",
+          "rule_id": "memory_commit_world_has_summary",
           "title": "必须有摘要",
           "severity": "error",
           "description": "节点产物必须提供可交接摘要。"
         },
         {
-          "rule_id": "outline_review_has_traceable_refs",
+          "rule_id": "memory_commit_world_has_traceable_refs",
           "title": "必须可追踪",
           "severity": "warning",
           "description": "重要判断应带有产物引用或依据说明。"
         }
       ],
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel",
-        "role": "outline_reviewer"
+        "role": "memory_steward"
       }
     },
     {
-      "contract_id": "contract.writing_team.long_novel.character_sheet",
-      "title_zh": "人物设定交付契约",
-      "title_en": "character_sheet",
+      "contract_id": "contract.writing_team.long_novel.outline_proposal_a",
+      "title_zh": "大纲结构师 A交付契约",
+      "title_en": "outline_designer_a",
       "contract_kind": "node_execution",
-      "description": "长篇小说写作团队节点“人物设定”的结构化交付边界。",
+      "description": "长篇小说写作团队节点“大纲结构师 A”的结构化交付边界。",
       "input_fields": [],
       "output_fields": [
         {
           "field_id": "summary",
-          "title_zh": "摘要",
+          "title_zh": "summary",
           "field_type": "string",
           "required": true,
-          "description": "本节点产物摘要。",
+          "description": "summary。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -269,10 +489,10 @@
         },
         {
           "field_id": "artifact_refs",
-          "title_zh": "产物引用",
+          "title_zh": "artifact_refs",
           "field_type": "array",
           "required": false,
-          "description": "落盘产物或可追踪引用。",
+          "description": "artifact_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "artifact_ref",
@@ -280,10 +500,43 @@
         },
         {
           "field_id": "open_issues",
-          "title_zh": "遗留问题",
+          "title_zh": "open_issues",
           "field_type": "array",
           "required": false,
-          "description": "需要下游处理或人类确认的问题。",
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -292,22 +545,863 @@
       ],
       "acceptance_rules": [
         {
-          "rule_id": "character_sheet_has_summary",
+          "rule_id": "outline_designer_a_has_summary",
           "title": "必须有摘要",
           "severity": "error",
           "description": "节点产物必须提供可交接摘要。"
         },
         {
-          "rule_id": "character_sheet_has_traceable_refs",
+          "rule_id": "outline_designer_a_has_traceable_refs",
           "title": "必须可追踪",
           "severity": "warning",
           "description": "重要判断应带有产物引用或依据说明。"
         }
       ],
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel",
-        "role": "character_designer"
+        "role": "outline_designer_a"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.outline_proposal_b",
+      "title_zh": "大纲结构师 B交付契约",
+      "title_en": "outline_designer_b",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“大纲结构师 B”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "outline_designer_b_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "outline_designer_b_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "outline_designer_b"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.outline_judgement",
+      "title_zh": "大纲裁判交付契约",
+      "title_en": "outline_judge",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“大纲裁判”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "verdict",
+          "title_zh": "verdict",
+          "field_type": "string",
+          "required": false,
+          "description": "verdict。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_total",
+          "title_zh": "score_total",
+          "field_type": "number",
+          "required": false,
+          "description": "score_total。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_breakdown",
+          "title_zh": "score_breakdown",
+          "field_type": "object",
+          "required": false,
+          "description": "score_breakdown。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "pass_line",
+          "title_zh": "pass_line",
+          "field_type": "number",
+          "required": false,
+          "description": "pass_line。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "must_fix",
+          "title_zh": "must_fix",
+          "field_type": "array",
+          "required": false,
+          "description": "must_fix。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "can_keep",
+          "title_zh": "can_keep",
+          "field_type": "array",
+          "required": false,
+          "description": "can_keep。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "repair_target_node_id",
+          "title_zh": "repair_target_node_id",
+          "field_type": "string",
+          "required": false,
+          "description": "repair_target_node_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "memory_commit_allowed",
+          "title_zh": "memory_commit_allowed",
+          "field_type": "boolean",
+          "required": false,
+          "description": "memory_commit_allowed。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "approved_artifact_refs",
+          "title_zh": "approved_artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "approved_artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "rejected_artifact_refs",
+          "title_zh": "rejected_artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "rejected_artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "outline_judge_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "outline_judge_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "outline_judge"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.memory_commit_outline",
+      "title_zh": "大纲入库交付契约",
+      "title_en": "memory_commit_outline",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“大纲入库”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "committed_refs",
+          "title_zh": "committed_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "committed_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "discarded_refs",
+          "title_zh": "discarded_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "discarded_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "conflict_refs",
+          "title_zh": "conflict_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "conflict_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_read_suggestions",
+          "title_zh": "next_read_suggestions",
+          "field_type": "string",
+          "required": false,
+          "description": "next_read_suggestions。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "memory_commit_outline_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "memory_commit_outline_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "memory_steward"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.character_proposal_a",
+      "title_zh": "人物设计师 A交付契约",
+      "title_en": "character_designer_a",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“人物设计师 A”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "character_designer_a_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "character_designer_a_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "character_designer_a"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.character_proposal_b",
+      "title_zh": "人物设计师 B交付契约",
+      "title_en": "character_designer_b",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“人物设计师 B”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "character_designer_b_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "character_designer_b_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "character_designer_b"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.character_judgement",
+      "title_zh": "人物裁判交付契约",
+      "title_en": "character_judge",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“人物裁判”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "verdict",
+          "title_zh": "verdict",
+          "field_type": "string",
+          "required": false,
+          "description": "verdict。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_total",
+          "title_zh": "score_total",
+          "field_type": "number",
+          "required": false,
+          "description": "score_total。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_breakdown",
+          "title_zh": "score_breakdown",
+          "field_type": "object",
+          "required": false,
+          "description": "score_breakdown。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "pass_line",
+          "title_zh": "pass_line",
+          "field_type": "number",
+          "required": false,
+          "description": "pass_line。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "must_fix",
+          "title_zh": "must_fix",
+          "field_type": "array",
+          "required": false,
+          "description": "must_fix。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "can_keep",
+          "title_zh": "can_keep",
+          "field_type": "array",
+          "required": false,
+          "description": "can_keep。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "repair_target_node_id",
+          "title_zh": "repair_target_node_id",
+          "field_type": "string",
+          "required": false,
+          "description": "repair_target_node_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "memory_commit_allowed",
+          "title_zh": "memory_commit_allowed",
+          "field_type": "boolean",
+          "required": false,
+          "description": "memory_commit_allowed。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "approved_artifact_refs",
+          "title_zh": "approved_artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "approved_artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "rejected_artifact_refs",
+          "title_zh": "rejected_artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "rejected_artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "character_judge_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "character_judge_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "character_judge"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.memory_commit_character",
+      "title_zh": "人物入库交付契约",
+      "title_en": "memory_commit_character",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“人物入库”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "committed_refs",
+          "title_zh": "committed_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "committed_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "discarded_refs",
+          "title_zh": "discarded_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "discarded_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "conflict_refs",
+          "title_zh": "conflict_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "conflict_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_read_suggestions",
+          "title_zh": "next_read_suggestions",
+          "field_type": "string",
+          "required": false,
+          "description": "next_read_suggestions。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "memory_commit_character_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "memory_commit_character_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "memory_steward"
       }
     },
     {
@@ -320,10 +1414,10 @@
       "output_fields": [
         {
           "field_id": "summary",
-          "title_zh": "摘要",
+          "title_zh": "summary",
           "field_type": "string",
           "required": true,
-          "description": "本节点产物摘要。",
+          "description": "summary。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -331,10 +1425,10 @@
         },
         {
           "field_id": "artifact_refs",
-          "title_zh": "产物引用",
+          "title_zh": "artifact_refs",
           "field_type": "array",
           "required": false,
-          "description": "落盘产物或可追踪引用。",
+          "description": "artifact_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "artifact_ref",
@@ -342,10 +1436,43 @@
         },
         {
           "field_id": "open_issues",
-          "title_zh": "遗留问题",
+          "title_zh": "open_issues",
           "field_type": "array",
           "required": false,
-          "description": "需要下游处理或人类确认的问题。",
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -367,25 +1494,25 @@
         }
       ],
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel",
         "role": "chapter_planner"
       }
     },
     {
-      "contract_id": "contract.writing_team.long_novel.chapter_draft",
-      "title_zh": "章节正文候选稿交付契约",
-      "title_en": "chapter_draft",
+      "contract_id": "contract.writing_team.long_novel.writer_a_draft",
+      "title_zh": "作者 A 初稿交付契约",
+      "title_en": "writer_a_draft",
       "contract_kind": "node_execution",
-      "description": "长篇小说写作团队节点“章节正文候选稿”的结构化交付边界。",
+      "description": "长篇小说写作团队节点“作者 A 初稿”的结构化交付边界。",
       "input_fields": [],
       "output_fields": [
         {
           "field_id": "summary",
-          "title_zh": "摘要",
+          "title_zh": "summary",
           "field_type": "string",
           "required": true,
-          "description": "本节点产物摘要。",
+          "description": "summary。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -393,10 +1520,10 @@
         },
         {
           "field_id": "artifact_refs",
-          "title_zh": "产物引用",
+          "title_zh": "artifact_refs",
           "field_type": "array",
           "required": false,
-          "description": "落盘产物或可追踪引用。",
+          "description": "artifact_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "artifact_ref",
@@ -404,10 +1531,43 @@
         },
         {
           "field_id": "open_issues",
-          "title_zh": "遗留问题",
+          "title_zh": "open_issues",
           "field_type": "array",
           "required": false,
-          "description": "需要下游处理或人类确认的问题。",
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -416,38 +1576,38 @@
       ],
       "acceptance_rules": [
         {
-          "rule_id": "chapter_draft_has_summary",
+          "rule_id": "writer_a_draft_has_summary",
           "title": "必须有摘要",
           "severity": "error",
           "description": "节点产物必须提供可交接摘要。"
         },
         {
-          "rule_id": "chapter_draft_has_traceable_refs",
+          "rule_id": "writer_a_draft_has_traceable_refs",
           "title": "必须可追踪",
           "severity": "warning",
           "description": "重要判断应带有产物引用或依据说明。"
         }
       ],
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel",
-        "role": "chapter_writer"
+        "role": "writer_a_draft"
       }
     },
     {
-      "contract_id": "contract.writing_team.long_novel.chapter_review",
-      "title_zh": "章节互审交付契约",
-      "title_en": "chapter_review",
+      "contract_id": "contract.writing_team.long_novel.writer_b_review",
+      "title_zh": "作者 B 审读交付契约",
+      "title_en": "writer_b_review",
       "contract_kind": "node_execution",
-      "description": "长篇小说写作团队节点“章节互审”的结构化交付边界。",
+      "description": "长篇小说写作团队节点“作者 B 审读”的结构化交付边界。",
       "input_fields": [],
       "output_fields": [
         {
           "field_id": "summary",
-          "title_zh": "摘要",
+          "title_zh": "summary",
           "field_type": "string",
           "required": true,
-          "description": "本节点产物摘要。",
+          "description": "summary。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -455,10 +1615,10 @@
         },
         {
           "field_id": "artifact_refs",
-          "title_zh": "产物引用",
+          "title_zh": "artifact_refs",
           "field_type": "array",
           "required": false,
-          "description": "落盘产物或可追踪引用。",
+          "description": "artifact_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "artifact_ref",
@@ -466,10 +1626,43 @@
         },
         {
           "field_id": "open_issues",
-          "title_zh": "遗留问题",
+          "title_zh": "open_issues",
           "field_type": "array",
           "required": false,
-          "description": "需要下游处理或人类确认的问题。",
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -478,38 +1671,38 @@
       ],
       "acceptance_rules": [
         {
-          "rule_id": "chapter_review_has_summary",
+          "rule_id": "writer_b_review_has_summary",
           "title": "必须有摘要",
           "severity": "error",
           "description": "节点产物必须提供可交接摘要。"
         },
         {
-          "rule_id": "chapter_review_has_traceable_refs",
+          "rule_id": "writer_b_review_has_traceable_refs",
           "title": "必须可追踪",
           "severity": "warning",
           "description": "重要判断应带有产物引用或依据说明。"
         }
       ],
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel",
-        "role": "chapter_reviewer"
+        "role": "writer_b_review"
       }
     },
     {
-      "contract_id": "contract.writing_team.long_novel.quality_gate",
-      "title_zh": "质量门交付契约",
-      "title_en": "quality_gate",
+      "contract_id": "contract.writing_team.long_novel.writer_a_revision",
+      "title_zh": "作者 A 修订交付契约",
+      "title_en": "writer_a_revision",
       "contract_kind": "node_execution",
-      "description": "长篇小说写作团队节点“质量门”的结构化交付边界。",
+      "description": "长篇小说写作团队节点“作者 A 修订”的结构化交付边界。",
       "input_fields": [],
       "output_fields": [
         {
           "field_id": "summary",
-          "title_zh": "摘要",
+          "title_zh": "summary",
           "field_type": "string",
           "required": true,
-          "description": "本节点产物摘要。",
+          "description": "summary。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -517,10 +1710,10 @@
         },
         {
           "field_id": "artifact_refs",
-          "title_zh": "产物引用",
+          "title_zh": "artifact_refs",
           "field_type": "array",
           "required": false,
-          "description": "落盘产物或可追踪引用。",
+          "description": "artifact_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "artifact_ref",
@@ -528,10 +1721,200 @@
         },
         {
           "field_id": "open_issues",
-          "title_zh": "遗留问题",
+          "title_zh": "open_issues",
           "field_type": "array",
           "required": false,
-          "description": "需要下游处理或人类确认的问题。",
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "writer_a_revision_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "writer_a_revision_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "writer_a_revision"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.writer_b_final_candidate",
+      "title_zh": "作者 B 终稿候选交付契约",
+      "title_en": "writer_b_final_candidate",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“作者 B 终稿候选”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "writer_b_final_candidate_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "writer_b_final_candidate_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "writer_b_final_candidate"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+      "title_zh": "独立裁判通关交付契约",
+      "title_en": "novel_quality_judge",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“独立裁判通关”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -539,78 +1922,155 @@
         },
         {
           "field_id": "verdict",
-          "title_zh": "裁决",
-          "field_type": "enum",
-          "required": true,
-          "description": "pass、repair_required 或 blocked。",
+          "title_zh": "verdict",
+          "field_type": "string",
+          "required": false,
+          "description": "verdict。",
           "default_value": null,
-          "schema": {
-            "enum": [
-              "pass",
-              "repair_required",
-              "blocked"
-            ]
-          },
-          "source_hint": "review_gate",
+          "schema": {},
+          "source_hint": "node_output",
           "visibility": "model_visible"
         },
         {
-          "field_id": "repair_targets",
-          "title_zh": "返修目标",
-          "field_type": "array",
+          "field_id": "score_total",
+          "title_zh": "score_total",
+          "field_type": "number",
           "required": false,
-          "description": "需要返修的节点或产物。",
+          "description": "score_total。",
           "default_value": null,
           "schema": {},
-          "source_hint": "review_gate",
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "score_breakdown",
+          "title_zh": "score_breakdown",
+          "field_type": "object",
+          "required": false,
+          "description": "score_breakdown。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "pass_line",
+          "title_zh": "pass_line",
+          "field_type": "number",
+          "required": false,
+          "description": "pass_line。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "must_fix",
+          "title_zh": "must_fix",
+          "field_type": "array",
+          "required": false,
+          "description": "must_fix。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "can_keep",
+          "title_zh": "can_keep",
+          "field_type": "array",
+          "required": false,
+          "description": "can_keep。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "repair_target_node_id",
+          "title_zh": "repair_target_node_id",
+          "field_type": "string",
+          "required": false,
+          "description": "repair_target_node_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
           "visibility": "model_visible"
         },
         {
           "field_id": "memory_commit_allowed",
-          "title_zh": "允许入库",
+          "title_zh": "memory_commit_allowed",
           "field_type": "boolean",
-          "required": true,
-          "description": "是否允许资产入库。",
-          "default_value": false,
+          "required": false,
+          "description": "memory_commit_allowed。",
+          "default_value": null,
           "schema": {},
-          "source_hint": "review_gate",
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "approved_artifact_refs",
+          "title_zh": "approved_artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "approved_artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "rejected_artifact_refs",
+          "title_zh": "rejected_artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "rejected_artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
           "visibility": "model_visible"
         }
       ],
       "acceptance_rules": [
         {
-          "rule_id": "quality_gate_has_summary",
+          "rule_id": "novel_quality_judge_has_summary",
           "title": "必须有摘要",
           "severity": "error",
           "description": "节点产物必须提供可交接摘要。"
         },
         {
-          "rule_id": "quality_gate_has_traceable_refs",
+          "rule_id": "novel_quality_judge_has_traceable_refs",
           "title": "必须可追踪",
           "severity": "warning",
           "description": "重要判断应带有产物引用或依据说明。"
+        },
+        {
+          "rule_id": "novel_quality_judge_pass_line_85",
+          "title": "通关分数不得低于 85",
+          "severity": "error",
+          "description": "低于 85 分时不得允许入库。"
         }
       ],
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel",
-        "role": "quality_gate"
+        "role": "novel_quality_judge"
       }
     },
     {
-      "contract_id": "contract.writing_team.long_novel.memory_commit",
-      "title_zh": "资产入库交付契约",
-      "title_en": "memory_commit",
+      "contract_id": "contract.writing_team.long_novel.world_deviation_route",
+      "title_zh": "世界观偏差路由交付契约",
+      "title_en": "world_deviation_router",
       "contract_kind": "node_execution",
-      "description": "长篇小说写作团队节点“资产入库”的结构化交付边界。",
+      "description": "长篇小说写作团队节点“世界观偏差路由”的结构化交付边界。",
       "input_fields": [],
       "output_fields": [
         {
           "field_id": "summary",
-          "title_zh": "摘要",
+          "title_zh": "summary",
           "field_type": "string",
           "required": true,
-          "description": "本节点产物摘要。",
+          "description": "summary。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -618,10 +2078,10 @@
         },
         {
           "field_id": "artifact_refs",
-          "title_zh": "产物引用",
+          "title_zh": "artifact_refs",
           "field_type": "array",
           "required": false,
-          "description": "落盘产物或可追踪引用。",
+          "description": "artifact_refs。",
           "default_value": null,
           "schema": {},
           "source_hint": "artifact_ref",
@@ -629,10 +2089,43 @@
         },
         {
           "field_id": "open_issues",
-          "title_zh": "遗留问题",
+          "title_zh": "open_issues",
           "field_type": "array",
           "required": false,
-          "description": "需要下游处理或人类确认的问题。",
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "deviation_type",
+          "title_zh": "deviation_type",
+          "field_type": "string",
+          "required": false,
+          "description": "deviation_type。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "repair_targets",
+          "title_zh": "repair_targets",
+          "field_type": "array",
+          "required": false,
+          "description": "repair_targets。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "route_allowed",
+          "title_zh": "route_allowed",
+          "field_type": "string",
+          "required": false,
+          "description": "route_allowed。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -641,20 +2134,992 @@
       ],
       "acceptance_rules": [
         {
-          "rule_id": "memory_commit_has_summary",
+          "rule_id": "world_deviation_router_has_summary",
           "title": "必须有摘要",
           "severity": "error",
           "description": "节点产物必须提供可交接摘要。"
         },
         {
-          "rule_id": "memory_commit_has_traceable_refs",
+          "rule_id": "world_deviation_router_has_traceable_refs",
           "title": "必须可追踪",
           "severity": "warning",
           "description": "重要判断应带有产物引用或依据说明。"
         }
       ],
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "deviation_router"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.world_repair_a",
+      "title_zh": "世界观修正 A交付契约",
+      "title_en": "world_repair_a",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“世界观修正 A”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "world_repair_a_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "world_repair_a_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "world_repair_a"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.world_repair_b",
+      "title_zh": "世界观修正 B交付契约",
+      "title_en": "world_repair_b",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“世界观修正 B”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "world_repair_b_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "world_repair_b_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "world_repair_b"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.outline_deviation_route",
+      "title_zh": "大纲偏差路由交付契约",
+      "title_en": "outline_deviation_router",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“大纲偏差路由”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "deviation_type",
+          "title_zh": "deviation_type",
+          "field_type": "string",
+          "required": false,
+          "description": "deviation_type。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "repair_targets",
+          "title_zh": "repair_targets",
+          "field_type": "array",
+          "required": false,
+          "description": "repair_targets。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "route_allowed",
+          "title_zh": "route_allowed",
+          "field_type": "string",
+          "required": false,
+          "description": "route_allowed。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "outline_deviation_router_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "outline_deviation_router_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "deviation_router"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.outline_repair_a",
+      "title_zh": "大纲修正 A交付契约",
+      "title_en": "outline_repair_a",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“大纲修正 A”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "outline_repair_a_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "outline_repair_a_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "outline_repair_a"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.outline_repair_b",
+      "title_zh": "大纲修正 B交付契约",
+      "title_en": "outline_repair_b",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“大纲修正 B”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "outline_repair_b_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "outline_repair_b_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "outline_repair_b"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.character_deviation_route",
+      "title_zh": "人物偏差路由交付契约",
+      "title_en": "character_deviation_router",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“人物偏差路由”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "deviation_type",
+          "title_zh": "deviation_type",
+          "field_type": "string",
+          "required": false,
+          "description": "deviation_type。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "repair_targets",
+          "title_zh": "repair_targets",
+          "field_type": "array",
+          "required": false,
+          "description": "repair_targets。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "route_allowed",
+          "title_zh": "route_allowed",
+          "field_type": "string",
+          "required": false,
+          "description": "route_allowed。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "character_deviation_router_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "character_deviation_router_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "deviation_router"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.character_repair_a",
+      "title_zh": "人物修正 A交付契约",
+      "title_en": "character_repair_a",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“人物修正 A”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "character_repair_a_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "character_repair_a_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "character_repair_a"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.character_repair_b",
+      "title_zh": "人物修正 B交付契约",
+      "title_en": "character_repair_b",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“人物修正 B”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "candidate_facts",
+          "title_zh": "candidate_facts",
+          "field_type": "array",
+          "required": false,
+          "description": "candidate_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "risk_notes",
+          "title_zh": "risk_notes",
+          "field_type": "string",
+          "required": false,
+          "description": "risk_notes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_refs",
+          "title_zh": "source_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "source_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "character_repair_b_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "character_repair_b_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "character_repair_b"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.memory_commit_chapter",
+      "title_zh": "章节入库交付契约",
+      "title_en": "memory_commit_chapter",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“章节入库”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "committed_refs",
+          "title_zh": "committed_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "committed_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "discarded_refs",
+          "title_zh": "discarded_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "discarded_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "conflict_refs",
+          "title_zh": "conflict_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "conflict_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_read_suggestions",
+          "title_zh": "next_read_suggestions",
+          "field_type": "string",
+          "required": false,
+          "description": "next_read_suggestions。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "memory_commit_chapter_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "memory_commit_chapter_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel",
+        "role": "memory_steward"
+      }
+    },
+    {
+      "contract_id": "contract.writing_team.long_novel.memory_finalize",
+      "title_zh": "工作记忆收尾交付契约",
+      "title_en": "memory_finalize",
+      "contract_kind": "node_execution",
+      "description": "长篇小说写作团队节点“工作记忆收尾”的结构化交付边界。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": true,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact_ref",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "open_issues",
+          "title_zh": "open_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "open_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "committed_refs",
+          "title_zh": "committed_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "committed_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "discarded_refs",
+          "title_zh": "discarded_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "discarded_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "conflict_refs",
+          "title_zh": "conflict_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "conflict_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_read_suggestions",
+          "title_zh": "next_read_suggestions",
+          "field_type": "string",
+          "required": false,
+          "description": "next_read_suggestions。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "memory_finalize_has_summary",
+          "title": "必须有摘要",
+          "severity": "error",
+          "description": "节点产物必须提供可交接摘要。"
+        },
+        {
+          "rule_id": "memory_finalize_has_traceable_refs",
+          "title": "必须可追踪",
+          "severity": "warning",
+          "description": "重要判断应带有产物引用或依据说明。"
+        }
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel",
         "role": "memory_steward"
       }

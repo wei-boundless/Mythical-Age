@@ -1,10 +1,9 @@
 "use client";
 
 import {
-  GitBranch,
+  Database,
   FileText,
   Network,
-  PackageCheck,
   Sparkles,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -14,7 +13,7 @@ import {
   type CoordinationTopologyEdge,
   type CoordinationTopologyNode,
 } from "@/components/coordination/CoordinationTopologyGraph";
-import type { OrchestrationEvent, OrchestrationSnapshot } from "@/lib/api";
+import type { RuntimeLoopTaskRunLiveMonitor } from "@/lib/api";
 
 type CoordinationNode = CoordinationTopologyNode & {
   role: string;
@@ -40,19 +39,13 @@ type CoordinationArtifact = {
   label: string;
   path: string;
   kind: string;
+  producedBy: string;
 };
 
 type CoordinationOutput = {
   key: string;
   label: string;
   content: string;
-};
-
-type CoordinationStage = {
-  stageId: string;
-  nodeId: string;
-  taskRef: string;
-  status: string;
 };
 
 type CoordinationContractNode = {
@@ -79,6 +72,18 @@ type CoordinationHandoffPreview = {
   contractManifestRef: string;
 };
 
+type CoordinationWorkingMemoryOperation = {
+  key: string;
+  operation: string;
+  stageId: string;
+  nodeId: string;
+  edgeId: string;
+  status: string;
+  refs: string[];
+  transactionRef: string;
+  finalizationRef: string;
+};
+
 type CoordinationContractRuntime = {
   manifestRef: string;
   valid: boolean;
@@ -91,6 +96,7 @@ type CoordinationContractRuntime = {
   failedNodes: string[];
   nodeSummaries: CoordinationContractNode[];
   handoffs: CoordinationHandoffPreview[];
+  workingMemoryOperations: CoordinationWorkingMemoryOperation[];
 };
 
 type CoordinationModel = {
@@ -129,215 +135,37 @@ function text(value: unknown, fallback = "") {
   return next || fallback;
 }
 
-function walk(value: unknown, visitor: (record: Record<string, unknown>) => void, depth = 0) {
-  if (depth > 7) {
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      walk(item, visitor, depth + 1);
-    }
-    return;
-  }
-  const record = asRecord(value);
-  if (!Object.keys(record).length) {
-    return;
-  }
-  visitor(record);
-  for (const item of Object.values(record)) {
-    if (item && typeof item === "object") {
-      walk(item, visitor, depth + 1);
-    }
-  }
-}
-
-function firstString(events: OrchestrationEvent[], keys: string[]) {
-  for (const event of events) {
-    let found = "";
-    walk(event.data, (record) => {
-      if (found) {
-        return;
-      }
-      for (const key of keys) {
-        const value = text(record[key]);
-        if (value) {
-          found = value;
-          return;
-        }
-      }
-    });
-    if (found) {
-      return found;
-    }
-  }
-  return "";
-}
-
-function findArray(events: OrchestrationEvent[], keys: string[]) {
-  let found: unknown[] = [];
-  for (const event of events) {
-    walk(event.data, (record) => {
-      if (found.length) {
-        return;
-      }
-      for (const key of keys) {
-        const value = asArray(record[key]);
-        if (value.length) {
-          found = value;
-          return;
-        }
-      }
-    });
-    if (found.length) {
-      return found;
-    }
-  }
-  return found;
-}
-
-function findRecord(events: OrchestrationEvent[], keys: string[]) {
-  let found: Record<string, unknown> = {};
-  for (const event of events) {
-    walk(event.data, (record) => {
-      if (Object.keys(found).length) {
-        return;
-      }
-      for (const key of keys) {
-        const value = asRecord(record[key]);
-        if (Object.keys(value).length) {
-          found = value;
-          return;
-        }
-      }
-    });
-    if (Object.keys(found).length) {
-      return found;
-    }
-  }
-  return found;
-}
-
-function collectAgentRuns(events: OrchestrationEvent[]) {
-  const byId = new Map<string, Record<string, unknown>>();
-  for (const event of events) {
-    walk(event.data, (record) => {
-      const id = text(record.agent_run_id);
-      if (!id) {
-        return;
-      }
-      const spawnMode = text(record.spawn_mode);
-      const coordinationRef = text(record.coordination_run_ref);
-      const role = text(record.role);
-      if (spawnMode.includes("coordination") || coordinationRef || role === "coordinator") {
-        byId.set(id, record);
-      }
-    });
-  }
-  return Array.from(byId.values());
-}
-
-function collectCoordinationStages(events: OrchestrationEvent[]) {
-  const flow = findRecord(events, ["coordination_flow"]);
-  const stages = asArray(flow.stages)
-    .map((item) => asRecord(item))
-    .map((item): CoordinationStage | null => {
-      const nodeId = text(item.node_id) || text(item.stage_id);
-      const stageId = text(item.stage_id) || nodeId;
-      if (!nodeId && !stageId) {
-        return null;
-      }
-      return {
-        stageId,
-        nodeId,
-        taskRef: text(item.task_ref),
-        status: text(item.status, "pending")
-      };
-    })
-    .filter((item): item is CoordinationStage => Boolean(item));
-  return {
-    flow,
-    stages
-  };
-}
-
-function collectCoordinationNodeRuns(events: OrchestrationEvent[]) {
-  const byId = new Map<string, Record<string, unknown>>();
-  for (const event of events) {
-    walk(event.data, (record) => {
-      const nodeRunId = text(record.node_run_id);
-      const nodeId = text(record.node_id);
-      const coordinationRunId = text(record.coordination_run_id);
-      if (!nodeRunId && !nodeId) {
-        return;
-      }
-      if (!coordinationRunId && !nodeId) {
-        return;
-      }
-      byId.set(nodeRunId || nodeId, record);
-    });
-  }
-  return Array.from(byId.values());
-}
-
-function collectHandoffs(events: OrchestrationEvent[]) {
-  const byId = new Map<string, Record<string, unknown>>();
-  for (const event of events) {
-    walk(event.data, (record) => {
-      const handoff = asRecord(record.handoff_envelope);
-      const sourceAgentRunRef = text(handoff.source_agent_run_ref) || text(record.source_agent_run_ref);
-      const targetAgentRunRef = text(handoff.target_agent_run_ref) || text(record.target_agent_run_ref);
-      const id = text(handoff.handoff_id) || text(record.handoff_id) || (sourceAgentRunRef && targetAgentRunRef ? `${sourceAgentRunRef}->${targetAgentRunRef}` : "");
-      if (!id || !sourceAgentRunRef || !targetAgentRunRef) {
-        return;
-      }
-      byId.set(id, Object.keys(handoff).length ? handoff : record);
-    });
-  }
-  return Array.from(byId.values());
-}
-
-function collectHandoffPackets(events: OrchestrationEvent[]) {
-  const byId = new Map<string, Record<string, unknown>>();
-  for (const event of events) {
-    walk(event.data, (record) => {
-      const packets = asArray(record.handoff_packets).map((item) => asRecord(item));
-      for (const packet of packets) {
-        const sourceNodeId = text(packet.source_node_id);
-        const targetNodeId = text(packet.target_node_id);
-        const a2aTrace = asRecord(packet.a2a_trace);
-        const key =
-          text(packet.handoff_id)
-          || (sourceNodeId && targetNodeId ? `${sourceNodeId}->${targetNodeId}:${text(packet.edge_contract_ref) || text(a2aTrace.message_type)}` : "");
-        if (!key) {
-          continue;
-        }
-        byId.set(key, packet);
-      }
-    });
-  }
-  return Array.from(byId.entries()).map(([key, packet]): CoordinationHandoffPreview => {
-    const a2aTrace = asRecord(packet.a2a_trace);
-    return {
-      key,
-      sourceNodeId: text(packet.source_node_id),
-      targetNodeId: text(packet.target_node_id),
-      messageType: text(packet.message_type) || text(a2aTrace.message_type, "message/send"),
-      status: text(packet.status, "pending"),
-      contractRefs: stringArray(packet.contract_refs || packet.contract_ref || packet.edge_contract_ref),
-      artifactRefs: stringArray(packet.artifact_refs),
-      resultRefs: stringArray(packet.result_refs),
-      runtimeAssemblyRef: text(packet.runtime_assembly_ref),
-      contractManifestRef: text(packet.contract_manifest_ref)
-    };
-  });
-}
-
 function agentLabel(profileId: string, agentId = "") {
   const labels: Record<string, string> = {
     main_interactive_agent: "主 Agent",
+    world_designer: "世界观设计师",
+    world_reviewer: "世界观审核员",
+    outline_designer: "大纲设计师",
+    outline_reviewer: "大纲审核员",
+    character_designer: "人物设定师",
+    chapter_planner: "章节规划师",
+    chapter_draft: "章节写作者",
+    chapter_writer_a: "章节写作者 A",
+    chapter_writer_b: "章节写作者 B",
+    chapter_reviewer: "章节审读员",
+    quality_gate: "质量裁判",
+    quality_gate_reviewer: "质量裁判",
+    memory_commit: "资产管理员",
+    memory_steward: "资产管理员",
   };
-  if (labels[profileId]) {
-    return labels[profileId];
+  const normalizedProfile = profileId
+    .replace(/^agent:/, "")
+    .replace(/^projection\.writing_team\.long_novel\./, "")
+    .replace(/^task\.writing_team\.long_novel\./, "");
+  const normalizedAgent = agentId
+    .replace(/^agent:/, "")
+    .replace(/^projection\.writing_team\.long_novel\./, "")
+    .replace(/^task\.writing_team\.long_novel\./, "");
+  if (labels[normalizedProfile]) {
+    return labels[normalizedProfile];
+  }
+  if (labels[normalizedAgent]) {
+    return labels[normalizedAgent];
   }
   if (profileId) {
     return profileId
@@ -349,6 +177,23 @@ function agentLabel(profileId: string, agentId = "") {
 
 function nodeTitle(nodeId: string, fallback = "") {
   const labels: Record<string, string> = {
+    world_design: "世界观设计",
+    world_review: "世界观审核",
+    outline_design: "大纲设计",
+    outline_review: "大纲审核",
+    character_design: "人物设定",
+    chapter_plan: "章节细纲",
+    chapter_writer_a: "章节写作者 A",
+    chapter_writer_b: "章节写作者 B",
+    chapter_review: "章节互审",
+    chapter_draft: "章节初稿",
+    writer_a_draft: "作者 A 初稿",
+    writer_b_review: "作者 B 审读",
+    writer_a_revision: "作者 A 修订",
+    writer_b_final_candidate: "作者 B 终稿候选",
+    novel_quality_judge: "独立裁判通关",
+    quality_gate: "质量门",
+    memory_commit: "资产入库",
     project_scope: "项目规格锁定",
     batch_plan: "批次规划",
     batch_draft: "批次起草",
@@ -365,7 +210,33 @@ function nodeTitle(nodeId: string, fallback = "") {
   if (labels[nodeId]) {
     return labels[nodeId];
   }
+  const longNovelMatch = nodeId.match(/(?:long_novel|long\.novel)[._-]([a-z0-9_]+)$/i);
+  if (longNovelMatch?.[1] && labels[longNovelMatch[1]]) {
+    return labels[longNovelMatch[1]];
+  }
+  const fallbackMatch = fallback.match(/(?:long_novel|long\.novel)[._-]([a-z0-9_]+)$/i);
+  if (fallbackMatch?.[1] && labels[fallbackMatch[1]]) {
+    return labels[fallbackMatch[1]];
+  }
+  if (/^(task|flow|workflow|projection|contract)[._:-]/i.test(fallback)) {
+    return nodeId.replace(/_/g, " ");
+  }
   return fallback || nodeId.replace(/_/g, " ");
+}
+
+function runtimeScopeLabel(scope: string) {
+  const value = scope.trim();
+  if (!value) {
+    return "全图";
+  }
+  if (value === "graph") {
+    return "全图";
+  }
+  const edgeMatch = value.match(/^edge[._:-]([a-z0-9_]+)[._:-]([a-z0-9_]+)$/i);
+  if (edgeMatch?.[1] && edgeMatch?.[2]) {
+    return `${nodeTitle(edgeMatch[1])} -> ${nodeTitle(edgeMatch[2])}`;
+  }
+  return nodeTitle(value);
 }
 
 function roleLabel(role: string) {
@@ -411,17 +282,33 @@ function compactTaskLabel(value: string) {
   return labels[value] ?? value;
 }
 
-function pushArtifact(bucket: CoordinationArtifact[], seen: Set<string>, path: string, kind: string, label = "") {
+function pushArtifact(
+  bucket: CoordinationArtifact[],
+  seen: Set<string>,
+  path: string,
+  kind: string,
+  label = "",
+  producedBy = "",
+) {
   const normalized = path.trim();
-  if (!normalized || seen.has(`${kind}:${normalized}`)) {
+  if (!normalized) {
     return;
   }
-  seen.add(`${kind}:${normalized}`);
+  const key = `${kind}:${normalized}`;
+  if (seen.has(key)) {
+    const existing = bucket.find((item) => item.key === key);
+    if (existing && (!existing.producedBy || existing.producedBy === "未标注 Agent") && producedBy.trim()) {
+      existing.producedBy = producedBy.trim();
+    }
+    return;
+  }
+  seen.add(key);
   bucket.push({
-    key: `${kind}:${normalized}`,
+    key,
     label: label || normalized.split(/[\\/]/).pop() || normalized,
     path: normalized,
-    kind
+    kind,
+    producedBy: producedBy.trim()
   });
 }
 
@@ -443,20 +330,13 @@ function pushOutput(bucket: CoordinationOutput[], seen: Set<string>, label: stri
   });
 }
 
-function buildContractRuntime(
-  events: OrchestrationEvent[],
+function buildContractRuntimeFromLiveState(
+  runtimeState: Record<string, unknown>,
   nodes: CoordinationNode[],
   fallbackCurrentNodeId: string,
 ): CoordinationContractRuntime {
-  const runtimeState = findRecord(events, ["langgraph_runtime_state"]);
   const contractStatus = asRecord(runtimeState.contract_status);
   const nodeStatus = asRecord(contractStatus.node_status);
-  const issues = asArray(contractStatus.issues)
-    .map((item) => {
-      const issue = asRecord(item);
-      return text(issue.message) || text(issue.issue) || text(item);
-    })
-    .filter(Boolean);
   const nodeTitleById = new Map(nodes.map((node) => [node.id, node.title]));
   const nodeSummaries = Object.entries(nodeStatus)
     .map(([nodeId, raw]): CoordinationContractNode => {
@@ -481,9 +361,17 @@ function buildContractRuntime(
       }
       return left.nodeId.localeCompare(right.nodeId);
     });
+  const issues = asArray(contractStatus.issues)
+    .map((item) => {
+      const issue = asRecord(item);
+      return text(issue.message) || text(issue.issue) || text(item);
+    })
+    .filter(Boolean);
+  const handoffs = asArray(runtimeState.handoff_packets).map((item) => asRecord(item));
+  const workingMemoryOperations = asArray(runtimeState.working_memory_operations).map((item) => asRecord(item));
   return {
     manifestRef: text(runtimeState.contract_manifest_ref) || text(contractStatus.manifest_ref),
-    valid: contractStatus.valid === true || runtimeState.valid === true,
+    valid: contractStatus.valid === true,
     issues,
     readyNodes: stringArray(runtimeState.ready_nodes),
     blockedNodes: stringArray(runtimeState.blocked_nodes),
@@ -492,373 +380,249 @@ function buildContractRuntime(
     completedNodes: stringArray(runtimeState.completed_nodes),
     failedNodes: stringArray(runtimeState.failed_nodes),
     nodeSummaries,
-    handoffs: collectHandoffPackets(events).slice(-6)
+    handoffs: handoffs.slice(-6).map((packet, index): CoordinationHandoffPreview => ({
+      key: text(packet.handoff_id) || `${text(packet.source_node_id)}->${text(packet.target_node_id)}:${index}`,
+      sourceNodeId: text(packet.source_node_id),
+      targetNodeId: text(packet.target_node_id),
+      messageType: text(packet.message_type, "message/send"),
+      status: text(packet.status, "pending"),
+      contractRefs: stringArray(packet.contract_refs || packet.contract_ref || packet.edge_contract_ref),
+      artifactRefs: stringArray(packet.artifact_refs),
+      resultRefs: stringArray(packet.result_refs),
+      runtimeAssemblyRef: text(packet.runtime_assembly_ref),
+      contractManifestRef: text(packet.contract_manifest_ref),
+    })),
+    workingMemoryOperations: workingMemoryOperations.slice(-8).map((operation, index): CoordinationWorkingMemoryOperation => ({
+      key: `${text(operation.operation)}:${text(operation.stage_id) || text(operation.edge_id) || index}`,
+      operation: text(operation.operation),
+      stageId: text(operation.stage_id),
+      nodeId: text(operation.node_id),
+      edgeId: text(operation.edge_id),
+      status: text(operation.status, "completed"),
+      refs: Array.from(new Set([
+        ...stringArray(operation.created_working_memory_refs),
+        ...stringArray(operation.selected_working_memory_refs),
+        ...stringArray(operation.adopted_working_memory_refs),
+        ...stringArray(operation.accepted_working_memory_refs),
+        ...stringArray(operation.discarded_working_memory_refs),
+        ...stringArray(operation.conflict_working_memory_refs),
+      ].filter(Boolean))),
+      transactionRef: text(operation.handoff_transaction_ref),
+      finalizationRef: text(operation.finalization_ref),
+    })),
   };
 }
 
-function buildModel(snapshot: OrchestrationSnapshot | null): CoordinationModel {
-  const events = snapshot?.events ?? [];
-  const coordinationTaskRef = firstString(events, ["coordination_task_ref", "coordination_task_id"]);
-  const rawNodes = findArray(events, ["graph_nodes", "nodes"]);
-  const rawEdges = findArray(events, ["graph_edges", "edges"]);
-  const agentRuns = collectAgentRuns(events);
-  const nodeRuns = collectCoordinationNodeRuns(events);
-  const handoffs = collectHandoffs(events);
-  const runtimeState = findRecord(events, ["langgraph_runtime_state"]);
-  const { flow: flowState, stages: flowStages } = collectCoordinationStages(events);
+function buildModelFromLiveMonitor(liveMonitor: RuntimeLoopTaskRunLiveMonitor): CoordinationModel {
+  const coordinationRun = asRecord(liveMonitor.coordination_run);
+  const flowState = asRecord(coordinationRun.coordination_flow);
+  const runtimeState = asRecord(coordinationRun.langgraph_runtime_state);
+  const graphSpec = asRecord(coordinationRun.coordination_graph_spec);
+  const rawNodes = asArray(graphSpec.nodes).map((item) => asRecord(item));
+  const rawEdges = asArray(graphSpec.edges).map((item) => asRecord(item));
+  const flowStages = asArray(flowState.stages).map((item) => asRecord(item));
+  const nodeRuns = asArray(coordinationRun.node_runs).map((item) => asRecord(item));
+  const handoffs = asArray(coordinationRun.handoff_envelopes).map((item) => asRecord(item));
+  const mergeResult = asRecord(coordinationRun.latest_merge_result);
+  const coordinationTaskRef = text(graphSpec.coordination_task_id) || text(graphSpec.graph_id) || text(coordinationRun.graph_ref);
+
   const statusByNode = new Map<string, string>();
   const agentByNode = new Map<string, string>();
   const nodeRoleById = new Map<string, string>();
-  const runningAgentByNode = new Map<string, string>();
-  const nodeIdByAgentRunId = new Map<string, string>();
-  const currentEdgeKeyCandidates = new Set<string>();
-  const artifacts: CoordinationArtifact[] = [];
-  const outputs: CoordinationOutput[] = [];
-  const artifactSeen = new Set<string>();
-  const outputSeen = new Set<string>();
-  let streamingContent = "";
-  let currentAgentKey = "";
-  let currentHandoffKey = "";
-  const stageById = new Map(flowStages.map((stage) => [stage.stageId, stage]));
-  const stageByNodeId = new Map(flowStages.map((stage) => [stage.nodeId, stage]));
-  const flowCurrentNodeId = text(
-    flowStages.find((stage) => stage.status === "running")?.nodeId
-      || stageById.get(text(flowState.current_stage_id))?.nodeId
-  );
 
   for (const stage of flowStages) {
-    if (!statusByNode.has(stage.nodeId) || stage.status === "running") {
-      statusByNode.set(stage.nodeId, stage.status);
-    }
+    const nodeId = text(stage.node_id) || text(stage.stage_id);
+    if (!nodeId) continue;
+    statusByNode.set(nodeId, text(stage.status, "pending"));
+    nodeRoleById.set(nodeId, roleLabel(text(stage.role) || "participant"));
   }
+  for (const nodeId of stringArray(runtimeState.ready_nodes)) statusByNode.set(nodeId, "ready");
+  for (const nodeId of stringArray(runtimeState.blocked_nodes)) statusByNode.set(nodeId, "blocked");
+  for (const nodeId of stringArray(runtimeState.running_nodes)) statusByNode.set(nodeId, "running");
+  for (const nodeId of stringArray(runtimeState.waiting_nodes)) statusByNode.set(nodeId, "waiting_for_human");
+  for (const nodeId of stringArray(runtimeState.completed_nodes)) if (statusByNode.get(nodeId) !== "running") statusByNode.set(nodeId, "completed");
+  for (const nodeId of stringArray(runtimeState.failed_nodes)) statusByNode.set(nodeId, "failed");
 
-  for (const nodeId of stringArray(runtimeState.ready_nodes)) {
-    if (!statusByNode.has(nodeId)) {
-      statusByNode.set(nodeId, "ready");
-    }
+  for (const nodeRun of nodeRuns) {
+    const nodeId = text(nodeRun.node_id);
+    if (!nodeId) continue;
+    const diagnostics = asRecord(nodeRun.diagnostics);
+    statusByNode.set(nodeId, text(diagnostics.stage_status) || text(nodeRun.status, "pending"));
+    nodeRoleById.set(nodeId, roleLabel(text(nodeRun.role) || "participant"));
   }
-  for (const nodeId of stringArray(runtimeState.blocked_nodes)) {
-    statusByNode.set(nodeId, "blocked");
-  }
-  for (const nodeId of stringArray(runtimeState.running_nodes)) {
-    statusByNode.set(nodeId, "running");
-  }
-  for (const nodeId of stringArray(runtimeState.waiting_nodes)) {
-    statusByNode.set(nodeId, "waiting_for_human");
-  }
-  for (const nodeId of stringArray(runtimeState.completed_nodes)) {
-    if (statusByNode.get(nodeId) !== "running") {
-      statusByNode.set(nodeId, "completed");
-    }
-  }
-  for (const nodeId of stringArray(runtimeState.failed_nodes)) {
-    statusByNode.set(nodeId, "failed");
-  }
-
-  const contractStatus = asRecord(runtimeState.contract_status);
-  const contractNodeStatus = asRecord(contractStatus.node_status);
-  for (const [nodeId, raw] of Object.entries(contractNodeStatus)) {
-    const contractNode = asRecord(raw);
-    const contractState = text(contractNode.status);
-    if (contractState === "satisfied") {
-      if (statusByNode.get(nodeId) !== "running") {
-        statusByNode.set(nodeId, "completed");
-      }
-    } else if (contractState === "failed" || contractState === "blocked") {
-      statusByNode.set(nodeId, contractState);
-    } else if (contractState === "human_gate") {
-      statusByNode.set(nodeId, "waiting_for_human");
-    } else if (contractState === "pending_retry") {
-      statusByNode.set(nodeId, "ready");
-    }
-  }
-
-  for (const run of nodeRuns) {
-    const nodeId = text(run.node_id);
-    if (!nodeId) {
-      continue;
-    }
-    const diagnostics = asRecord(run.diagnostics);
-    statusByNode.set(nodeId, text(diagnostics.stage_status) || text(run.status, "idle"));
-    nodeRoleById.set(nodeId, roleLabel(text(run.role)));
-    const assignedAgentRunRef = text(run.assigned_agent_run_ref);
-    if (assignedAgentRunRef) {
-      nodeIdByAgentRunId.set(assignedAgentRunRef, nodeId);
-    }
-  }
-
-  for (const run of agentRuns) {
-    const diagnostics = asRecord(run.diagnostics);
-    const nodeId = text(diagnostics.node_id) || text(diagnostics.stage_id) || text(run.node_id);
-    if (!nodeId) {
-      continue;
-    }
-    const agentRunId = text(run.agent_run_id);
-    const agentName = agentLabel(text(run.agent_profile_id), text(run.agent_id));
-    const runStatus = text(run.status, "running");
-    if (agentRunId) {
-      nodeIdByAgentRunId.set(agentRunId, nodeId);
-    }
-    if (!statusByNode.has(nodeId) || runStatus === "running") {
-      statusByNode.set(nodeId, runStatus);
-    }
-    if (!agentByNode.has(nodeId) || runStatus === "running") {
-      agentByNode.set(nodeId, agentName);
-    }
-    if (runStatus === "running") {
-      runningAgentByNode.set(nodeId, agentName);
-      currentAgentKey = agentRunId;
-    }
-  }
-
-  const stageNodes = flowStages.map((stage): CoordinationNode => ({
-    id: stage.nodeId,
-    title: nodeTitle(stage.nodeId, compactTaskLabel(stage.taskRef) || stage.stageId),
-    role: nodeRoleById.get(stage.nodeId) || roleLabel("participant"),
-    agentLabel: runningAgentByNode.get(stage.nodeId) || agentByNode.get(stage.nodeId) || "待分派",
-    status: statusByNode.get(stage.nodeId) || stage.status
-  }));
 
   const graphNodes = rawNodes
-    .map((item): CoordinationNode | null => {
-      const node = asRecord(item);
+    .map((node): CoordinationNode | null => {
       const id = text(node.node_id) || text(node.id);
-      if (!id) {
-        return null;
-      }
+      if (!id) return null;
+      const metadata = asRecord(node.metadata);
+      const agentName = agentLabel(text(metadata.projection_id), text(node.agent_id));
+      agentByNode.set(id, agentName);
       return {
         id,
         title: nodeTitle(id, text(node.title) || text(node.label)),
         role: nodeRoleById.get(id) || roleLabel(text(node.role)),
-        agentLabel: runningAgentByNode.get(id) || agentByNode.get(id) || agentLabel(text(node.agent_profile_id), text(node.agent_id)),
-        status: statusByNode.get(id) || text(node.status, "idle")
+        agentLabel: agentName || "待分派",
+        status: statusByNode.get(id) || text(node.status, "idle"),
       };
     })
     .filter((item): item is CoordinationNode => Boolean(item));
 
-  const fallbackNodes = agentRuns
-    .map((run): CoordinationNode | null => {
-      const diagnostics = asRecord(run.diagnostics);
-      const id = text(diagnostics.node_id);
-      if (!id || graphNodes.some((node) => node.id === id) || stageNodes.some((node) => node.id === id)) {
-        return null;
-      }
+  const stageNodes = flowStages
+    .map((stage): CoordinationNode | null => {
+      const nodeId = text(stage.node_id) || text(stage.stage_id);
+      if (!nodeId) return null;
       return {
-        id,
-        title: nodeTitle(id),
-        role: nodeRoleById.get(id) || roleLabel(text(run.role)),
-        agentLabel: runningAgentByNode.get(id) || agentLabel(text(run.agent_profile_id), text(run.agent_id)),
-        status: text(run.status, "running")
+        id: nodeId,
+        title: nodeTitle(nodeId, compactTaskLabel(text(stage.task_ref)) || text(stage.stage_id)),
+        role: nodeRoleById.get(nodeId) || roleLabel(text(stage.role) || "participant"),
+        agentLabel: agentByNode.get(nodeId) || "待分派",
+        status: statusByNode.get(nodeId) || text(stage.status, "pending"),
       };
     })
     .filter((item): item is CoordinationNode => Boolean(item));
 
-  const allNodes =
-    stageNodes.length
-      ? stageNodes
-      : graphNodes.length
-        ? graphNodes
-        : fallbackNodes;
+  const nodes = stageNodes.length ? stageNodes : graphNodes;
+  const nodeIdSet = new Set(nodes.map((node) => node.id));
   const currentNodeId =
-    flowCurrentNodeId ||
-    allNodes.find((node) => node.status === "running")?.id ||
-    stringArray(runtimeState.running_nodes)[0] ||
-    stringArray(runtimeState.blocked_nodes)[0] ||
-    text(events[events.length - 1]?.node_id) ||
-    "";
-  if (!currentAgentKey && currentNodeId) {
-    const currentNodeAgent = agentRuns.find((run) => {
-      const diagnostics = asRecord(run.diagnostics);
-      return (text(diagnostics.node_id) || text(diagnostics.stage_id) || text(run.node_id)) === currentNodeId;
-    });
-    currentAgentKey = text(currentNodeAgent?.agent_run_id);
-  }
-  const nodeIdSet = new Set(allNodes.map((node) => node.id));
-  const flowEdges = flowStages.slice(0, -1).map((stage, index): CoordinationEdge => {
-    const nextStage = flowStages[index + 1];
-    return {
-      id: `flow-${stage.nodeId}-${nextStage.nodeId}-${index}`,
-      from: stage.nodeId,
-      to: nextStage.nodeId,
-      label: compactTaskLabel(nextStage.taskRef) || "阶段交接",
-      status: "idle"
-    };
-  });
+    text(flowState.current_stage_id)
+    || nodes.find((node) => node.status === "running")?.id
+    || stringArray(runtimeState.running_nodes)[0]
+    || stringArray(runtimeState.blocked_nodes)[0]
+    || "";
+
+  const flowEdges = flowStages.slice(0, -1).map((stage, index): CoordinationEdge => ({
+    id: `flow-${text(stage.node_id) || text(stage.stage_id)}-${text(flowStages[index + 1]?.node_id) || text(flowStages[index + 1]?.stage_id)}-${index}`,
+    from: text(stage.node_id) || text(stage.stage_id),
+    to: text(flowStages[index + 1]?.node_id) || text(flowStages[index + 1]?.stage_id),
+    label: compactTaskLabel(text(flowStages[index + 1]?.task_ref)) || "阶段交接",
+    status: "idle",
+  }));
   const graphEdges = rawEdges
-    .map((item, index): CoordinationEdge | null => {
-      const edge = asRecord(item);
+    .map((edge, index): CoordinationEdge | null => {
       const from = text(edge.from) || text(edge.source) || text(edge.from_node_id) || text(edge.source_node_id);
       const to = text(edge.to) || text(edge.target) || text(edge.to_node_id) || text(edge.target_node_id);
-      if (!from || !to || (!nodeIdSet.has(from) && !nodeIdSet.has(to))) {
-        return null;
-      }
+      if (!from || !to || (!nodeIdSet.has(from) && !nodeIdSet.has(to))) return null;
       return {
         id: text(edge.edge_id) || `${from}-${to}-${index}`,
         from,
         to,
         label: compactTaskLabel(text(edge.policy) || text(edge.label) || "交接"),
-        status: "idle"
+        status: "idle",
       };
     })
     .filter((item): item is CoordinationEdge => Boolean(item));
-  const handoffEdges = handoffs
-    .map((handoff, index): CoordinationEdge | null => {
-      const sourceAgentRunRef = text(handoff.source_agent_run_ref);
-      const targetAgentRunRef = text(handoff.target_agent_run_ref);
-      const from = nodeIdByAgentRunId.get(sourceAgentRunRef) || "";
-      const to = nodeIdByAgentRunId.get(targetAgentRunRef) || "";
-      if (!from || !to || (!nodeIdSet.has(from) && !nodeIdSet.has(to))) {
-        return null;
-      }
-      const key = `${from}->${to}`;
-      currentHandoffKey = key;
-      currentEdgeKeyCandidates.add(key);
+  const packetEdges = asArray(runtimeState.handoff_packets)
+    .map((item, index): CoordinationEdge | null => {
+      const packet = asRecord(item);
+      const from = text(packet.source_node_id);
+      const to = text(packet.target_node_id);
+      if (!from || !to || (!nodeIdSet.has(from) && !nodeIdSet.has(to))) return null;
       return {
-        id: text(handoff.handoff_id) || `handoff-${from}-${to}-${index}`,
+        id: text(packet.handoff_id) || `packet-${from}-${to}-${index}`,
         from,
         to,
-        label: compactTaskLabel(text(handoff.message_type) || text(asRecord(handoff.diagnostics).handoff_policy) || "交接"),
-        status: text(handoff.ack_state) === "accepted" ? "completed" : "running"
+        label: compactTaskLabel(text(packet.message_type) || "交接"),
+        status: text(packet.status) === "accepted" ? "completed" : "running",
       };
     })
     .filter((item): item is CoordinationEdge => Boolean(item));
+  const edges = (graphEdges.length ? graphEdges : flowEdges.length ? flowEdges : packetEdges).map((edge) => ({
+    ...edge,
+    status:
+      edge.status !== "idle"
+        ? edge.status
+        : edge.from === currentNodeId || edge.to === currentNodeId
+          ? "running"
+          : statusByNode.get(edge.from) === "completed" && statusByNode.get(edge.to) === "completed"
+            ? "completed"
+            : "idle",
+  }));
 
-  const baseEdges =
-    graphEdges.length
-      ? graphEdges
-      : flowEdges.length
-        ? flowEdges
-        : handoffEdges;
-  const edgeByKey = new Map<string, CoordinationEdge>();
-  const mergedEdges = [...baseEdges, ...handoffEdges];
-  for (const edge of mergedEdges) {
-    const key = `${edge.from}->${edge.to}`;
-    const existing = edgeByKey.get(key);
-    if (!existing || edge.status === "running" || (existing.status === "idle" && edge.status === "completed")) {
-      edgeByKey.set(key, edge);
+  const agents = nodes.map((node, index): CoordinationAgent => ({
+    key: `live-agent:${node.id}:${index + 1}`,
+    label: node.agentLabel || "待分派",
+    role: node.role,
+    nodeTitle: node.title,
+    status: node.status,
+  }));
+
+  const artifacts: CoordinationArtifact[] = [];
+  const artifactSeen = new Set<string>();
+  for (const stage of flowStages) {
+    const nodeId = text(stage.node_id) || text(stage.stage_id);
+    const producer = nodes.find((node) => node.id === nodeId);
+    for (const ref of stringArray(stage.artifact_refs)) {
+      pushArtifact(artifacts, artifactSeen, ref, "artifact_ref", "", producer?.agentLabel || producer?.title || "");
+    }
+    const finalResultRef = text(stage.final_result_ref);
+    if (finalResultRef) {
+      pushArtifact(artifacts, artifactSeen, finalResultRef, "result_ref", "阶段结果", producer?.agentLabel || producer?.title || "");
     }
   }
-  const edges = Array.from(edgeByKey.values()).map((edge) => {
-    const key = `${edge.from}->${edge.to}`;
-    const current = currentEdgeKeyCandidates.has(key)
-      || (edge.from === currentNodeId || edge.to === currentNodeId);
-    return {
-      ...edge,
-      status:
-        edge.status !== "idle"
-          ? edge.status
-          : current
-            ? "running"
-            : statusByNode.get(edge.from) === "completed" && statusByNode.get(edge.to) === "completed"
-              ? "completed"
-              : "idle"
-    };
-  });
+  for (const packet of asArray(runtimeState.handoff_packets).map((item) => asRecord(item))) {
+    for (const ref of [...stringArray(packet.artifact_refs), ...stringArray(packet.result_refs)]) {
+      pushArtifact(artifacts, artifactSeen, ref, "handoff_ref");
+    }
+  }
+  if (text(mergeResult.final_result_ref)) {
+    pushArtifact(artifacts, artifactSeen, text(mergeResult.final_result_ref), "merge_result", "最终结果");
+  }
 
-  const agents = agentRuns.map((run, index): CoordinationAgent => {
-    const diagnostics = asRecord(run.diagnostics);
-    const nodeId = text(diagnostics.node_id) || text(diagnostics.stage_id) || text(run.node_id);
-    return {
-      key: text(run.agent_run_id) || `${text(run.agent_profile_id)}-${index}`,
-      label: agentLabel(text(run.agent_profile_id), text(run.agent_id)),
-      role: roleLabel(text(run.role)),
-      nodeTitle: nodeId ? nodeTitle(nodeId, stageByNodeId.get(nodeId)?.taskRef ? compactTaskLabel(stageByNodeId.get(nodeId)?.taskRef || "") : "") : "协调入口",
-      status: text(run.status, "running")
-    };
-  });
-
-  const snapshotArtifacts = snapshot?.artifacts ?? {};
-  for (const [key, value] of Object.entries(snapshotArtifacts)) {
-    const path = text(value);
-    if (path) {
-      pushArtifact(artifacts, artifactSeen, path, "artifact", key);
+  const outputs: CoordinationOutput[] = [];
+  const outputSeen = new Set<string>();
+  if (text(mergeResult.final_result_ref)) {
+    pushOutput(outputs, outputSeen, "final_result_ref", text(mergeResult.final_result_ref));
+  }
+  for (const stage of flowStages) {
+    const finalResultRef = text(stage.final_result_ref);
+    if (finalResultRef) {
+      pushOutput(outputs, outputSeen, nodeTitle(text(stage.node_id) || text(stage.stage_id)), finalResultRef);
     }
   }
 
-  for (const event of events) {
-    if (event.event === "token") {
-      const fragment = text(asRecord(event.data).content);
-      if (fragment) {
-        streamingContent += fragment;
-      }
-    }
-    walk(event.data, (record) => {
-      const explicitWorkspacePath = text(record.explicit_workspace_path);
-      const artifactPath = text(record.artifact_path);
-      const targetPath = text(record.target_path);
-      const traceUrl = text(record.trace_url);
-      const genericPath = text(record.path);
-      const executorRef = text(record.executor_ref);
-
-      if (explicitWorkspacePath) {
-        pushArtifact(artifacts, artifactSeen, explicitWorkspacePath, executorRef || "write_file");
-      }
-      if (artifactPath) {
-        pushArtifact(artifacts, artifactSeen, artifactPath, "artifact");
-      }
-      if (targetPath) {
-        pushArtifact(artifacts, artifactSeen, targetPath, executorRef || "write_target");
-      }
-      if (traceUrl) {
-        pushArtifact(artifacts, artifactSeen, traceUrl, "trace", "运行轨迹");
-      }
-      if (genericPath && /[\\/]|\.md$|\.json$|\.txt$|\.log$|\.html$|\.css$|\.js$/i.test(genericPath)) {
-        pushArtifact(artifacts, artifactSeen, genericPath, "path");
-      }
-
-      const finalOutputs = asRecord(record.final_outputs);
-      for (const [key, value] of Object.entries(finalOutputs)) {
-        if (typeof value === "string") {
-          pushOutput(outputs, outputSeen, key, value);
-        }
-      }
-
-      const outputRefs = asArray(record.output_refs).map((item) => text(item)).filter(Boolean);
-      outputRefs.forEach((ref, index) => pushArtifact(artifacts, artifactSeen, ref, "output_ref", `输出引用 ${index + 1}`));
-
-      const resultRefs = asArray(record.result_refs).map((item) => text(item)).filter(Boolean);
-      resultRefs.forEach((ref, index) => pushArtifact(artifacts, artifactSeen, ref, "result_ref", `结果引用 ${index + 1}`));
-
-      if (typeof record.final_answer === "string") {
-        pushOutput(outputs, outputSeen, "final_answer", record.final_answer);
-      }
-      if (typeof record.content === "string" && (text(record.answer_channel) || text(record.answer_source))) {
-        pushOutput(outputs, outputSeen, text(record.answer_channel) || "answer", record.content);
-      }
-    });
-  }
-
-  if (streamingContent.trim()) {
-    pushOutput(outputs, outputSeen, "流式内容", streamingContent);
-  }
+  const handoffPackets = asArray(runtimeState.handoff_packets).map((item) => asRecord(item));
+  const currentHandoffKey = handoffPackets.length
+    ? `${text(handoffPackets[handoffPackets.length - 1].source_node_id)}->${text(handoffPackets[handoffPackets.length - 1].target_node_id)}`
+    : "";
 
   return {
-    hasSignal: Boolean(coordinationTaskRef || allNodes.length || agents.length),
+    hasSignal: Boolean(coordinationTaskRef || nodes.length),
     title: coordinationTaskRef ? compactTaskLabel(coordinationTaskRef) : "当前没有协调任务运行",
     currentNodeId,
-    currentAgentKey,
+    currentAgentKey: currentNodeId ? `live-agent:${currentNodeId}` : "",
     currentHandoffKey,
-    nodes: allNodes,
+    nodes,
     edges,
     agents,
     artifacts,
     outputs: outputs.slice(-6),
-    contractRuntime: buildContractRuntime(events, allNodes, currentNodeId)
+    contractRuntime: buildContractRuntimeFromLiveState(runtimeState, nodes, currentNodeId),
   };
 }
 
-export function hasCoordinationSignal(snapshot: OrchestrationSnapshot | null) {
-  return buildModel(snapshot).hasSignal;
-}
 
 export function CoordinationRunPanel({
-  snapshot,
+  liveMonitor,
   onResumeCoordinationRun,
 }: {
-  snapshot: OrchestrationSnapshot | null;
+  liveMonitor?: RuntimeLoopTaskRunLiveMonitor | null;
   onResumeCoordinationRun?: (coordinationRunId: string, payload?: Record<string, unknown>) => Promise<void>;
 }) {
-  const model = useMemo(() => buildModel(snapshot), [snapshot]);
+  const model = useMemo(
+    () => (liveMonitor?.has_coordination ? buildModelFromLiveMonitor(liveMonitor) : buildModelFromLiveMonitor({
+      authority: "orchestration.runtime_loop_live_monitor",
+      task_run: {},
+      latest_checkpoint: null,
+      loop_state: {},
+      coordination_run: null,
+      has_coordination: false,
+      status: "unknown",
+      terminal_reason: "",
+      updated_at: 0,
+    })),
+    [liveMonitor]
+  );
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [selectedEdgeId, setSelectedEdgeId] = useState("");
   const [resuming, setResuming] = useState(false);
@@ -884,36 +648,19 @@ export function CoordinationRunPanel({
     : currentNode
       ? `${currentNode.title} · ${statusLabel(currentNode.status)}`
       : "等待启动";
-  const contractStatusLabel = contractRuntime.manifestRef
-    ? contractRuntime.valid ? "Manifest 有效" : "Manifest 有问题"
-    : "未接入契约";
-  const displayHandoffs = selectedEdge
-    ? contractRuntime.handoffs.filter((handoff) => handoff.sourceNodeId === selectedEdge.from && handoff.targetNodeId === selectedEdge.to)
+  const displayWorkingMemoryOperations = selectedEdge
+    ? contractRuntime.workingMemoryOperations.filter((operation) => operation.edgeId === selectedEdge.id)
     : selectedNode
-      ? contractRuntime.handoffs.filter((handoff) => handoff.sourceNodeId === selectedNode.id || handoff.targetNodeId === selectedNode.id)
-      : contractRuntime.handoffs;
+      ? contractRuntime.workingMemoryOperations.filter((operation) => operation.nodeId === selectedNode.id || operation.stageId === selectedNode.id)
+      : contractRuntime.workingMemoryOperations;
   const activeContractNode =
     contractRuntime.nodeSummaries.find((node) => node.nodeId === selectedNode?.id)
     ?? contractRuntime.nodeSummaries.find((node) => node.nodeId === model.currentNodeId)
     ?? contractRuntime.nodeSummaries.find((node) => node.status === "blocked")
     ?? contractRuntime.nodeSummaries[0]
     ?? null;
-  const contractNodeList = activeContractNode
-    ? [activeContractNode, ...contractRuntime.nodeSummaries.filter((node) => node.nodeId !== activeContractNode.nodeId)].slice(0, 8)
-    : contractRuntime.nodeSummaries.slice(0, 8);
-  const traceCoordinationRunIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const event of snapshot?.events ?? []) {
-      walk(event.data, (record) => {
-        const id = text(record.coordination_run_id) || text(record.coordination_run_ref);
-        if (id) ids.add(id);
-      });
-    }
-    return Array.from(ids);
-  }, [snapshot]);
-  const coordinationRunIds = snapshot?.coordination_run_ids?.length ? snapshot.coordination_run_ids : traceCoordinationRunIds;
-  const activeCoordinationRunId = coordinationRunIds[0] ?? "";
-  const taskRunId = text(snapshot?.task_run_id);
+  const activeCoordinationRunId = text(asRecord(liveMonitor?.coordination_run).coordination_run_id);
+  const taskRunId = text(asRecord(liveMonitor?.task_run).task_run_id);
   const waitingForHuman = Boolean(
     contractRuntime.waitingNodes.length
     || contractRuntime.nodeSummaries.some((node) => node.status === "human_gate" || node.status === "waiting_for_human")
@@ -1019,22 +766,6 @@ export function CoordinationRunPanel({
         </article>
       </section>
 
-      <section className="coordination-workflow-strip" aria-label="工作流状态条">
-        <div className="coordination-workflow-strip__head">
-          <span>工作流</span>
-          <em>按当前运行态滚动展示各节点状态</em>
-        </div>
-        <div className="coordination-workflow-strip__rail">
-          {model.nodes.map((node) => (
-            <article className={`coordination-workflow-step coordination-workflow-step--${node.status}`} key={node.id}>
-              <span>{node.id}</span>
-              <strong>{node.title}</strong>
-              <em>{statusLabel(node.status)}</em>
-            </article>
-          ))}
-        </div>
-      </section>
-
       <section className="coordination-topology-shell" aria-label="协调任务拓扑">
         <div className="coordination-topology-shell__head">
           <span>执行拓扑</span>
@@ -1062,77 +793,25 @@ export function CoordinationRunPanel({
         </div>
       </section>
 
-      <section className="coordination-contract-board" aria-label="契约运行状态">
+      <section className="coordination-contract-board coordination-contract-board--memory" aria-label="工作记忆资源">
         <article className="coordination-output-card coordination-contract-card">
           <div className="coordination-output-card__head">
-            <span><PackageCheck size={14} /> 契约运行状态</span>
-            <strong>{contractStatusLabel}</strong>
-          </div>
-          <div className="coordination-contract-summary">
-            <div>
-              <span>契约清单</span>
-              <strong>{contractRuntime.manifestRef || "等待编译快照"}</strong>
-            </div>
-            <div>
-              <span>就绪</span>
-              <strong>{contractRuntime.readyNodes.length}</strong>
-            </div>
-            <div>
-              <span>阻塞</span>
-              <strong>{contractRuntime.blockedNodes.length}</strong>
-            </div>
-            <div>
-              <span>等待</span>
-              <strong>{contractRuntime.waitingNodes.length}</strong>
-            </div>
-            <div>
-              <span>完成</span>
-              <strong>{contractRuntime.completedNodes.length}</strong>
-            </div>
-            <div>
-              <span>失败</span>
-              <strong>{contractRuntime.failedNodes.length}</strong>
-            </div>
-          </div>
-          <div className="coordination-contract-node-list">
-            {contractNodeList.length ? contractNodeList.map((node) => (
-              <article className={`coordination-contract-node coordination-contract-node--${node.status}`} key={node.nodeId}>
-                <div>
-                  <strong>{node.title}</strong>
-                  <span>{statusLabel(node.status)}</span>
-                </div>
-                <em>{node.contractRefs.length ? node.contractRefs.join(" / ") : "未绑定节点契约"}</em>
-                {node.missingRequiredInputs.length ? (
-                  <p>缺失输入：{node.missingRequiredInputs.join("、")}</p>
-                ) : null}
-              </article>
-            )) : <p className="coordination-contract-empty">当前运行事件里还没有契约状态。</p>}
-          </div>
-          {contractRuntime.issues.length ? (
-            <div className="coordination-contract-issues">
-              {contractRuntime.issues.slice(0, 4).map((issue) => <span key={issue}>{issue}</span>)}
-            </div>
-          ) : null}
-        </article>
-
-        <article className="coordination-output-card coordination-contract-card">
-          <div className="coordination-output-card__head">
-            <span><GitBranch size={14} /> A2A 交接</span>
-            <strong>{displayHandoffs.length ? `${displayHandoffs.length} 个交接包` : "暂无交接"}</strong>
+            <span><Database size={14} /> 工作记忆资源</span>
+            <strong>{displayWorkingMemoryOperations.length ? `${displayWorkingMemoryOperations.length} 个操作` : "暂无操作"}</strong>
           </div>
           <div className="coordination-handoff-list">
-            {displayHandoffs.length ? displayHandoffs.map((handoff) => (
-              <article className="coordination-handoff-item" key={handoff.key}>
+            {displayWorkingMemoryOperations.length ? displayWorkingMemoryOperations.map((operation) => (
+              <article className="coordination-handoff-item" key={operation.key}>
                 <div>
-                  <strong>{handoff.sourceNodeId || "上游"} {"->"} {handoff.targetNodeId || "下游"}</strong>
-                  <span>{handoff.messageType}</span>
+                  <strong>{operation.operation}</strong>
+                  <span>{operation.status}</span>
                 </div>
-                <em>{handoff.contractRefs.length ? handoff.contractRefs.join(" / ") : "默认交接契约"}</em>
-                <small>{handoff.runtimeAssemblyRef || handoff.contractManifestRef || "等待运行引用"}</small>
+                <em>{runtimeScopeLabel(operation.nodeId || operation.stageId || operation.edgeId || "graph")}</em>
+                <small>{operation.refs.length ? operation.refs.join(" / ") : operation.transactionRef || operation.finalizationRef || "等待引用"}</small>
               </article>
             )) : (
               <p className="coordination-contract-empty">
-                {activeContractNode ? `${activeContractNode.title} 还没有产生下游交接。` : "节点完成后会显示最新 A2A 交接包。"}
+                当前运行态还没有工作记忆读写、交接或收尾记录。
               </p>
             )}
           </div>
@@ -1167,7 +846,7 @@ export function CoordinationRunPanel({
               <article className="coordination-output-item coordination-output-item--artifact" key={artifact.key}>
                 <div className="coordination-output-item__meta">
                   <strong>{artifact.label}</strong>
-                  <span>{artifact.kind}</span>
+                  <span>{artifact.kind} · {artifact.producedBy || "未标注 Agent"}</span>
                 </div>
                 <em>{artifact.path}</em>
               </article>

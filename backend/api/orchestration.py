@@ -627,6 +627,12 @@ async def list_runtime_loop_task_runs(session_id: str) -> dict[str, Any]:
     return runtime.query_runtime.task_run_loop.list_session_traces(session_id)
 
 
+@router.get("/orchestration/runtime-loop/sessions/{session_id}/live-monitor")
+async def get_runtime_loop_session_live_monitor(session_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    return runtime.query_runtime.task_run_loop.get_session_live_monitor(session_id)
+
+
 @router.get("/orchestration/runtime-loop/task-runs/{task_run_id}")
 async def get_runtime_loop_trace(
     task_run_id: str,
@@ -642,6 +648,15 @@ async def get_runtime_loop_trace(
     if trace is None:
         raise HTTPException(status_code=404, detail="TaskRun trace not found")
     return trace
+
+
+@router.get("/orchestration/runtime-loop/task-runs/{task_run_id}/live-monitor")
+async def get_runtime_loop_task_run_live_monitor(task_run_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    monitor = runtime.query_runtime.task_run_loop.get_task_run_live_monitor(task_run_id)
+    if monitor is None:
+        raise HTTPException(status_code=404, detail="TaskRun live monitor not found")
+    return monitor
 
 
 @router.post("/orchestration/runtime-loop/task-graphs/{graph_id}/start")

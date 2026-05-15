@@ -62,6 +62,7 @@ class TaskSignals:
     knowledge_source_anchor: str = ""
     knowledge_source_anchor_kind: str = ""
     workspace_read_request: bool = False
+    workspace_write_request: bool = False
     workspace_search_request: bool = False
     business_dataset_request: bool = False
     faq_shape: bool = False
@@ -97,6 +98,7 @@ class TaskSignals:
             "knowledge_source_anchor": self.knowledge_source_anchor,
             "knowledge_source_anchor_kind": self.knowledge_source_anchor_kind,
             "workspace_read_request": self.workspace_read_request,
+            "workspace_write_request": self.workspace_write_request,
             "workspace_search_request": self.workspace_search_request,
             "business_dataset_request": self.business_dataset_request,
             "faq_shape": self.faq_shape,
@@ -197,6 +199,12 @@ def _build_fallback_task_from_signals(
     message: str,
     signals: TaskSignals,
 ) -> TaskUnderstanding:
+    workspace_write_task = _build_bounded_workspace_write_task(
+        message=message,
+        signals=signals,
+    )
+    if workspace_write_task is not None:
+        return workspace_write_task
     workspace_read_task = _build_bounded_workspace_read_task(
         message=message,
         signals=signals,
@@ -215,12 +223,6 @@ def _build_fallback_task_from_signals(
     )
     if bundle_followup_task is not None:
         return bundle_followup_task
-    web_task = _build_bounded_web_task(
-        message=message,
-        signals=signals,
-    )
-    if web_task is not None:
-        return web_task
     dataset_task = _build_bounded_dataset_task(
         message=message,
         signals=signals,
@@ -233,6 +235,12 @@ def _build_fallback_task_from_signals(
     )
     if pdf_task is not None:
         return pdf_task
+    web_task = _build_bounded_web_task(
+        message=message,
+        signals=signals,
+    )
+    if web_task is not None:
+        return web_task
     if signals.skill_authoring_request:
         return _build_bounded_skill_authoring_task(
             message=message,
@@ -265,14 +273,38 @@ def _build_fallback_task_from_signals(
             direct_route_reason="explicit_knowledge_scope",
             signals=signals,
         )
-    return _build_bounded_lookup_task(
+    return _build_general_conversation_task(
         message=message,
-        source_kind="knowledge_base",
-        task_kind="knowledge_lookup",
-        modality="general",
-        confidence=0.42,
-        reasons=["fallback_bounded_lookup"],
         signals=signals,
+        confidence=0.42,
+        reasons=["fallback_general_conversation"],
+    )
+
+
+def _build_general_conversation_task(
+    *,
+    message: str,
+    signals: TaskSignals,
+    task_kind: str = "general_conversation",
+    modality: str = "general",
+    confidence: float,
+    reasons: list[str],
+) -> TaskUnderstanding:
+    return TaskUnderstanding(
+        intent="general_query",
+        source_kind="conversation",
+        task_kind=task_kind,
+        modality=modality,
+        route_hint="agent",
+        preferred_skill=None,
+        capability_requests=[],
+        parameters={"query": message},
+        execution_posture="bounded_agent",
+        direct_route_reason="conversation_fallback",
+        should_skip_rag=True,
+        confidence=confidence,
+        reasons=reasons,
+        structural_signals=signals.to_dict(),
     )
 
 
@@ -329,6 +361,32 @@ def _build_bounded_workspace_read_task(
     return understanding
 
 
+def _build_bounded_workspace_write_task(
+    *,
+    message: str,
+    signals: TaskSignals,
+) -> TaskUnderstanding | None:
+    if not signals.explicit_workspace_path or not signals.workspace_write_request:
+        return None
+    lowered_path = signals.explicit_workspace_path.lower()
+    modality = "code" if lowered_path.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".sh", ".ps1", ".sql")) else "text"
+    understanding = _build_bounded_lookup_task(
+        message=message,
+        source_kind="workspace",
+        task_kind="workspace_file_write",
+        modality=modality,
+        confidence=0.95,
+        reasons=["explicit_workspace_write_anchor"],
+        direct_route_reason="explicit_workspace_write_anchor",
+        route_hint="workspace_write",
+        signals=signals,
+    )
+    understanding.capability_requests = ["workspace_write"]
+    understanding.parameters = {"path": signals.explicit_workspace_path}
+    understanding.candidate_tools = ["write_file"]
+    return understanding
+
+
 def _build_bounded_workspace_search_task(
     *,
     message: str,
@@ -358,7 +416,13 @@ def _build_bounded_web_task(
     message: str,
     signals: TaskSignals,
 ) -> TaskUnderstanding | None:
-    if not (signals.external_requirement or signals.weather_domain or signals.gold_price_domain):
+    if not (
+        signals.external_requirement
+        or signals.official_source_requirement
+        or signals.freshness_requirement
+        or signals.weather_domain
+        or signals.gold_price_domain
+    ):
         return None
     capability_requests: list[str] = []
     reasons: list[str] = []
@@ -378,7 +442,14 @@ def _build_bounded_web_task(
         task_kind = "realtime_lookup"
         modality = "realtime"
         confidence = 0.95
+    if signals.external_requirement or signals.official_source_requirement:
+        reasons.append("explicit_external_constraint")
     capability_requests.append("latest_information")
+    if signals.freshness_requirement and not reasons:
+        reasons.append("freshness_aware_lookup")
+        task_kind = "current_information_lookup"
+        modality = "realtime"
+        confidence = 0.84
     if not reasons:
         reasons.append("explicit_external_constraint")
     understanding = _build_bounded_lookup_task(
@@ -624,6 +695,7 @@ def _collect_task_signals(
         and _looks_like_workspace_read_request(lowered)
         and not _looks_like_workspace_write_request(lowered)
     )
+    workspace_write_request = explicit_workspace_path != "" and _looks_like_workspace_write_request(lowered)
     workspace_search_request = _looks_like_workspace_search_request(lowered)
     business_dataset_request = _looks_like_business_dataset_request(lowered)
     faq_shape = _looks_like_faq_problem(lowered)
@@ -690,7 +762,6 @@ def _collect_task_signals(
         anchor_kinds.append("gold_price_domain")
     if skill_authoring_request:
         anchor_kinds.append("skill_authoring")
-
     signals = TaskSignals(
         explicit_dataset_path=explicit_dataset_path,
         explicit_pdf_path=explicit_pdf_path,
@@ -711,6 +782,7 @@ def _collect_task_signals(
         knowledge_source_anchor=knowledge_source_anchor,
         knowledge_source_anchor_kind=knowledge_source_anchor_kind,
         workspace_read_request=workspace_read_request,
+        workspace_write_request=workspace_write_request,
         workspace_search_request=workspace_search_request,
         business_dataset_request=business_dataset_request,
         faq_shape=faq_shape,
@@ -1096,6 +1168,8 @@ def _build_capability_requests(
         requests.append("document_analysis")
     if signals.explicit_workspace_path and signals.workspace_read_request:
         requests.append("workspace_read")
+    if signals.explicit_workspace_path and signals.workspace_write_request:
+        requests.append("workspace_write")
     if signals.workspace_search_request:
         requests.append("workspace_search")
     if signals.weather_domain:
@@ -1113,7 +1187,7 @@ def _build_capability_requests(
         and "knowledge_lookup" not in requests
         and not any(
             item in requests
-            for item in ("dataset_analysis", "document_analysis", "workspace_read")
+            for item in ("dataset_analysis", "document_analysis", "workspace_read", "workspace_write", "latest_information")
         )
     ):
         requests.insert(0, "knowledge_lookup")

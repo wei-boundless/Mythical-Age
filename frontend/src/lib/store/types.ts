@@ -1,4 +1,11 @@
-import type { OrchestrationSnapshot, RetrievalResult, SessionSummary, SystemGraphOverlay, ToolCall } from "@/lib/api";
+import type {
+  OrchestrationSnapshot,
+  RetrievalResult,
+  RuntimeLoopTaskRunLiveMonitor,
+  SessionSummary,
+  SystemGraphOverlay,
+  ToolCall
+} from "@/lib/api";
 import type { SoulKey, SoulSummary } from "@/lib/souls";
 
 export type Message = {
@@ -8,6 +15,7 @@ export type Message = {
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
   stageStatus?: string;
+  sourceIndex?: number;
 };
 
 export type TokenStats = {
@@ -92,6 +100,7 @@ export type StoreState = {
   currentSessionId: string | null;
   messages: Message[];
   isStreaming: boolean;
+  activeStreamSessionIds: string[];
   ragMode: boolean;
   searchPolicy: SearchPolicyState;
   skills: SkillSummary[];
@@ -108,6 +117,7 @@ export type StoreState = {
   systemGraphOverlay: SystemGraphOverlay | null;
   memoryInspectorTarget: MemoryInspectorTarget | null;
   orchestrationSnapshot: OrchestrationSnapshot | null;
+  coordinationLiveMonitor: RuntimeLoopTaskRunLiveMonitor | null;
   orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
   taskSelection: TaskSelectionState | null;
 };
@@ -117,6 +127,8 @@ export type StoreActions = {
   createNewSession: () => Promise<void>;
   selectSession: (sessionId: string) => Promise<void>;
   sendMessage: (value: string) => Promise<void>;
+  stopCurrentStream: () => void;
+  resendEditedMessage: (messageId: string, value: string) => Promise<void>;
   toggleRagMode: () => Promise<void>;
   toggleSearchPolicySource: (source: SearchPolicySource) => void;
   switchSoul: (key: SoulKey) => Promise<void>;

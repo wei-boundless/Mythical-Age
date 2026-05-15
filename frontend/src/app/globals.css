@@ -1706,8 +1706,43 @@ button:hover {
   opacity: 0.98;
 }
 
-.coordination-topology-arrowhead {
-  fill: currentColor;
+.coordination-topology-edge-arrow {
+  opacity: 0.62;
+  pointer-events: none;
+  transition: opacity 160ms ease, fill 160ms ease, transform 160ms ease;
+}
+
+.coordination-topology-edge-arrow.is-idle {
+  fill: rgba(255, 255, 255, 0.38);
+}
+
+.coordination-topology-edge-arrow.is-complete {
+  fill: color-mix(in srgb, var(--color-soul) 72%, #8affc5 28%);
+}
+
+.coordination-topology-edge-arrow.is-running {
+  fill: #ffd47b;
+  opacity: 0.82;
+}
+
+.coordination-topology-edge-arrow.is-failed {
+  fill: #ff745b;
+  opacity: 0.9;
+}
+
+.coordination-topology-edge-arrow.is-blocked {
+  fill: #ffb86b;
+  opacity: 0.82;
+}
+
+.coordination-topology-edge-arrow.is-ready,
+.coordination-topology-edge-arrow.is-waiting {
+  fill: color-mix(in srgb, var(--color-soul) 58%, white);
+}
+
+.coordination-topology-edge-arrow.is-current,
+.coordination-topology-edge-arrow.is-selected {
+  opacity: 0.95;
 }
 
 .coordination-topology-frames {
@@ -2039,6 +2074,10 @@ button:hover {
   gap: 0.62rem;
 }
 
+.coordination-contract-board--memory {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .coordination-output-card {
   display: grid;
   gap: 0.62rem;
@@ -2098,6 +2137,8 @@ button:hover {
   color: var(--color-soul);
   font-size: 0.66rem;
   font-weight: 900;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .coordination-output-list em {
@@ -9786,6 +9827,14 @@ button:hover {
   flex-wrap: wrap;
 }
 
+.chat-input-panel__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
 .chat-task-selection-bar {
   display: flex;
   align-items: center;
@@ -9835,6 +9884,78 @@ button:hover {
   border-color: color-mix(in srgb, var(--color-soul) 52%, white);
   background: color-mix(in srgb, var(--color-soul) 12%, var(--color-panel-strong));
   color: var(--color-text);
+}
+
+.message-edit-button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.36rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.36rem 0.64rem;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 0.78rem;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.message-edit-button:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(255, 255, 255, 0.14);
+  transform: translateY(-1px);
+}
+
+.message-edit-form {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.message-edit-form__textarea {
+  min-height: 7rem;
+  width: min(34rem, 100%);
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0.9rem;
+  background: rgba(0, 0, 0, 0.18);
+  padding: 0.8rem 0.9rem;
+  color: white;
+  outline: none;
+}
+
+.message-edit-form__textarea:focus {
+  border-color: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.1);
+}
+
+.message-edit-form__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.message-edit-form__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.42rem 0.72rem;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.8rem;
+}
+
+.message-edit-form__button--primary {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+}
+
+.message-edit-form__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .chat-search-policy {
@@ -16409,6 +16530,9 @@ html[data-soul="xuannv"] .soul-portrait__label {
   border-radius: 0;
   background: color-mix(in srgb, var(--color-panel-strong) 94%, #050b11);
   padding: 0.28rem 0.42rem;
+  overflow: visible;
+  position: relative;
+  z-index: 4;
 }
 
 .task-graph-editor-chrome__brand {
@@ -16449,6 +16573,11 @@ html[data-soul="xuannv"] .soul-portrait__label {
   align-items: center;
   gap: 0.38rem;
   min-width: 0;
+  position: relative;
+}
+
+.task-graph-editor-chrome__field--disabled {
+  opacity: 0.7;
 }
 
 .task-graph-editor-chrome__field-label {
@@ -16465,17 +16594,88 @@ html[data-soul="xuannv"] .soul-portrait__label {
   min-width: 0;
 }
 
-.task-graph-editor-chrome__controls select {
+.task-graph-editor-select {
+  min-width: 0;
+  position: relative;
+}
+
+.task-graph-editor-select > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
   width: 100%;
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 22%, var(--color-border));
   border-radius: 0;
   background: transparent;
   color: var(--color-text);
+  cursor: pointer;
   font: inherit;
   font-size: 0.74rem;
   min-width: 0;
   padding: 0.2rem 0.12rem;
+  text-align: left;
+}
+
+.task-graph-editor-select > button:disabled {
+  cursor: not-allowed;
+}
+
+.task-graph-editor-select > button[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-soul) 62%, var(--color-border));
+}
+
+.task-graph-editor-select > button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-editor-select > button i {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid color-mix(in srgb, var(--color-text-soft) 80%, var(--color-soul));
+}
+
+.task-graph-editor-select__menu {
+  position: absolute;
+  top: calc(100% + 0.42rem);
+  left: 0;
+  z-index: 30;
+  display: grid;
+  gap: 0.18rem;
+  width: min(360px, max(100%, 220px));
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 24%, var(--color-border));
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-soul) 7%, transparent), transparent 42%),
+    color-mix(in srgb, var(--color-panel-strong) 96%, #061018);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.36);
+  padding: 0.28rem;
+}
+
+.task-graph-editor-select__option {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  font-size: 0.74rem;
+  line-height: 1.35;
+  padding: 0.46rem 0.52rem;
+  text-align: left;
+}
+
+.task-graph-editor-select__option:hover,
+.task-graph-editor-select__option--active {
+  background: color-mix(in srgb, var(--color-soul) 13%, rgba(255, 255, 255, 0.03));
+  color: var(--color-text);
 }
 
 .task-graph-editor-chrome__status {
@@ -23112,6 +23312,45 @@ html[data-soul="xuannv"] .soul-portrait__label {
   color: #94a3b8;
   font-size: 12px;
   line-height: 1.55;
+}
+
+.task-graph-setup-wizard__form {
+  align-items: start;
+}
+
+.task-graph-setup-wizard__form .boundary-field {
+  align-content: start;
+}
+
+.task-graph-setup-wizard__form .boundary-field input,
+.task-graph-setup-wizard__form .boundary-field select {
+  height: 38px;
+}
+
+.task-graph-setup-wizard__form .boundary-field textarea {
+  min-height: 84px;
+}
+
+.task-graph-setup-wizard__form .boundary-field input::placeholder,
+.task-graph-setup-wizard__form .boundary-field textarea::placeholder {
+  color: color-mix(in srgb, var(--color-text-soft) 66%, transparent);
+}
+
+.task-graph-setup-wizard__form .boundary-field input:focus,
+.task-graph-setup-wizard__form .boundary-field select:focus,
+.task-graph-setup-wizard__form .boundary-field textarea:focus {
+  border-color: color-mix(in srgb, var(--color-soul) 58%, var(--color-border));
+  background: rgba(0, 0, 0, 0.24);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-soul) 12%, transparent);
+}
+
+.task-graph-setup-wizard__form .boundary-field select option {
+  background: #102434;
+  color: var(--color-text);
+}
+
+.task-graph-setup-wizard__form--agents {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .task-graph-template-grid {

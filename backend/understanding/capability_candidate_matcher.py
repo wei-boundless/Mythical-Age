@@ -200,6 +200,8 @@ def _promote_bounded_candidate(
         "workspace_read",
         "workspace_path_search",
         "workspace_text_search",
+        "workspace_write",
+        "workspace_edit",
         "realtime_network",
     }
     if route_hint in tool_route_families or candidate_tools:
@@ -431,7 +433,7 @@ def _build_mcp_candidates(
                 capability_tags=tuple(unit.tags),
                 metadata={
                     "unit_id": unit.unit_id,
-                    "template_ids": list(unit.template_ids),
+                    "capability_kinds": list(unit.capability_kinds),
                     "skill_refs": list(unit.skill_refs),
                     "source_kind": unit.source_kind,
                     "primary_skill_ref": str(unit.skill_refs[0] if unit.skill_refs else "").strip(),

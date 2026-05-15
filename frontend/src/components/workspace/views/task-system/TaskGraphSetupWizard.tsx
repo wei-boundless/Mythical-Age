@@ -66,12 +66,12 @@ export function TaskGraphSetupWizard({
 
       <section className="boundary-card">
         <header><strong>模板参数</strong><span>会写入节点职责、阶段策略和 Agent 绑定来源</span></header>
-        <div className="boundary-form">
-          <label>
+        <div className="boundary-form task-graph-setup-wizard__form">
+          <label className="boundary-field boundary-field--wide">
             <span>任务意图</span>
             <textarea value={taskIntent} onChange={(event) => setTaskIntent(event.target.value)} placeholder="例如：分析上传资料，产出可追溯的决策简报。" />
           </label>
-          <label>
+          <label className="boundary-field">
             <span>输入资料类型</span>
             <select value={inputMaterialType} onChange={(event) => setInputMaterialType(event.target.value as TaskGraphSetupWizardOptions["input_material_type"])}>
               <option value="general">通用资料</option>
@@ -81,7 +81,7 @@ export function TaskGraphSetupWizard({
               <option value="pdf_and_table">PDF + 表格</option>
             </select>
           </label>
-          <label>
+          <label className="boundary-field">
             <span>主要产物</span>
             <select value={artifactType} onChange={(event) => setArtifactType(event.target.value as TaskGraphSetupWizardOptions["artifact_type"])}>
               <option value="markdown_report">Markdown 报告</option>
@@ -90,7 +90,7 @@ export function TaskGraphSetupWizard({
               <option value="decision_brief">决策简报</option>
             </select>
           </label>
-          <label>
+          <label className="boundary-field">
             <span>审核强度</span>
             <select value={reviewStrength} onChange={(event) => setReviewStrength(event.target.value as TaskGraphSetupWizardOptions["review_strength"])}>
               <option value="light">轻量</option>
@@ -98,7 +98,7 @@ export function TaskGraphSetupWizard({
               <option value="strict">严格</option>
             </select>
           </label>
-          <label>
+          <label className="boundary-field">
             <span>循环次数</span>
             <input min={0} type="number" value={loopCount} onChange={(event) => setLoopCount(Number(event.target.value || 0))} />
           </label>
@@ -107,10 +107,10 @@ export function TaskGraphSetupWizard({
             关键阶段需要人工确认
           </label>
         </div>
-        <div className="boundary-form">
-          <label><span>PDF Agent</span><input value={pdfAgentId} onChange={(event) => setPdfAgentId(event.target.value)} /></label>
-          <label><span>表格 Agent</span><input value={tableAgentId} onChange={(event) => setTableAgentId(event.target.value)} /></label>
-          <label><span>RAG Agent</span><input value={ragAgentId} onChange={(event) => setRagAgentId(event.target.value)} /></label>
+        <div className="boundary-form task-graph-setup-wizard__form task-graph-setup-wizard__form--agents">
+          <label className="boundary-field"><span>PDF Agent</span><input value={pdfAgentId} onChange={(event) => setPdfAgentId(event.target.value)} /></label>
+          <label className="boundary-field"><span>表格 Agent</span><input value={tableAgentId} onChange={(event) => setTableAgentId(event.target.value)} /></label>
+          <label className="boundary-field"><span>RAG Agent</span><input value={ragAgentId} onChange={(event) => setRagAgentId(event.target.value)} /></label>
         </div>
       </section>
 

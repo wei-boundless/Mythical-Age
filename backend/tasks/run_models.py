@@ -4,8 +4,8 @@ import time
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Literal
 
+from .execution_recipe_models import ExecutionRecipe
 from .spec_models import TaskSpec
-from .template_models import TaskTemplate
 
 
 TaskStepRunStatus = Literal["pending", "running", "completed", "failed", "skipped"]
@@ -124,26 +124,27 @@ def build_task_run_ledger(
     task_run_id: str,
     task_contract_ref: str,
     task_spec: TaskSpec,
-    selected_template: TaskTemplate,
+    selected_recipe: ExecutionRecipe,
     status: TaskRunLedgerStatus = "running",
     current_step_id: str = "",
     step_runs: tuple[TaskStepRun, ...] | None = None,
     diagnostics: dict[str, Any] | None = None,
 ) -> TaskRunLedger:
-    initial_step_runs = step_runs or tuple(_step_run_from_blueprint(step) for step in selected_template.step_blueprints)
+    initial_step_runs = step_runs or tuple(_step_run_from_blueprint(step) for step in selected_recipe.step_blueprints)
     return TaskRunLedger(
         ledger_id=f"taskrun-ledger:{task_run_id}",
         task_run_id=task_run_id,
         task_id=task_spec.task_id,
         task_spec_ref=task_spec.task_spec_ref,
-        template_id=selected_template.template_id,
+        template_id=selected_recipe.recipe_id,
         status=status,
         current_step_id=current_step_id or (initial_step_runs[0].step_id if initial_step_runs else ""),
         requested_outputs=tuple(task_spec.requested_outputs),
         step_runs=initial_step_runs,
         refs={
             "task_contract_ref": task_contract_ref,
-            "template_id": selected_template.template_id,
+            "template_id": selected_recipe.template_id,
+            "recipe_id": selected_recipe.recipe_id,
         },
         diagnostics=dict(diagnostics or {}),
     )

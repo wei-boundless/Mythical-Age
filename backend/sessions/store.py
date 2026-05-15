@@ -206,6 +206,19 @@ class SessionManager:
             self._write_session(record)
         return appended
 
+    def truncate_messages_from(self, session_id: str, message_index: int) -> dict[str, Any]:
+        target_index = int(message_index)
+        if target_index < 0:
+            raise ValueError("message_index must be >= 0")
+        with self._lock:
+            record = self._read_session_file(session_id)
+            messages = list(record.get("messages") or [])
+            if target_index > len(messages):
+                raise ValueError("message_index is out of range")
+            record["messages"] = messages[:target_index]
+            self._write_session(record)
+        return record
+
     def save_message(
         self,
         session_id: str,

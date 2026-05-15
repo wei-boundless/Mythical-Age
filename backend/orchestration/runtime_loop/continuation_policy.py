@@ -143,11 +143,12 @@ def derive_stage_contracts_from_graph(
         for node in nodes
         if str(node.get("node_id") or node.get("id") or "").strip()
     }
+    node_order = {node_id: index for index, node_id in enumerate(node_by_id.keys())}
     incoming_by_target: dict[str, list[dict[str, Any]]] = {}
     for edge in edges:
         source = _edge_source(edge)
         target = _edge_target(edge)
-        if _is_feedback_edge(edge):
+        if _is_feedback_edge(edge) or _is_backward_edge(source=source, target=target, node_order=node_order):
             continue
         if source in node_by_id and target in node_by_id:
             incoming_by_target.setdefault(target, []).append(dict(edge))
@@ -301,6 +302,12 @@ def _is_feedback_edge(edge: dict[str, Any]) -> bool:
         "repair_feedback",
         "non_blocking_feedback",
     } or loop_role in {"repair", "feedback"}
+
+
+def _is_backward_edge(*, source: str, target: str, node_order: dict[str, int]) -> bool:
+    if source not in node_order or target not in node_order:
+        return False
+    return node_order[source] > node_order[target]
 
 
 def _contract_ref_from_node(node: dict[str, Any]) -> str:

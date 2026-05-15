@@ -69,98 +69,231 @@
       }
     },
     {
-      "flow_id": "flow.writing_team.long_novel.world_design",
-      "task_mode": "world_designer",
+      "flow_id": "flow.writing_team.long_novel.world_designer_a",
+      "task_mode": "world_designer_a",
       "task_family": "writing_team_long_novel",
-      "title": "世界观设计",
+      "title": "世界观设计师 A",
       "input_contract_id": "UserMessage",
-      "output_contract_id": "contract.writing_team.long_novel.world_brief",
-      "default_agent_id": "agent:world_designer",
-      "default_workflow_id": "workflow.writing_team.long_novel.world_design",
+      "output_contract_id": "contract.writing_team.long_novel.world_proposal_a",
+      "default_agent_id": "agent:world_designer_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_designer_a",
       "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_team_long_novel",
       "enabled": true,
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.world_design",
-        "projection_id": "projection.writing_team.long_novel.world_designer"
+        "task_id": "task.writing_team.long_novel.world_designer_a",
+        "projection_id": "projection.writing_team.long_novel.world_designer_a"
       }
     },
     {
-      "flow_id": "flow.writing_team.long_novel.world_review",
-      "task_mode": "world_reviewer",
+      "flow_id": "flow.writing_team.long_novel.world_designer_b",
+      "task_mode": "world_designer_b",
       "task_family": "writing_team_long_novel",
-      "title": "世界观审核",
-      "input_contract_id": "contract.writing_team.long_novel.world_brief",
-      "output_contract_id": "contract.writing_team.long_novel.world_review",
-      "default_agent_id": "agent:world_reviewer",
-      "default_workflow_id": "workflow.writing_team.long_novel.world_review",
+      "title": "世界观设计师 B",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "contract.writing_team.long_novel.world_proposal_b",
+      "default_agent_id": "agent:world_designer_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_designer_b",
       "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_team_long_novel",
       "enabled": true,
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.world_review",
-        "projection_id": "projection.writing_team.long_novel.world_reviewer"
+        "task_id": "task.writing_team.long_novel.world_designer_b",
+        "projection_id": "projection.writing_team.long_novel.world_designer_b"
       }
     },
     {
-      "flow_id": "flow.writing_team.long_novel.outline_design",
-      "task_mode": "outline_designer",
+      "flow_id": "flow.writing_team.long_novel.world_judge",
+      "task_mode": "world_judge",
       "task_family": "writing_team_long_novel",
-      "title": "大纲设计",
-      "input_contract_id": "contract.writing_team.long_novel.world_review",
-      "output_contract_id": "contract.writing_team.long_novel.outline_brief",
-      "default_agent_id": "agent:outline_designer",
-      "default_workflow_id": "workflow.writing_team.long_novel.outline_design",
+      "title": "世界观裁判",
+      "input_contract_id": "contract.writing_team.long_novel.world_proposal_b",
+      "output_contract_id": "contract.writing_team.long_novel.world_judgement",
+      "default_agent_id": "agent:world_judge",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_judge",
       "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_team_long_novel",
       "enabled": true,
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.outline_design",
-        "projection_id": "projection.writing_team.long_novel.outline_designer"
+        "task_id": "task.writing_team.long_novel.world_judge",
+        "projection_id": "projection.writing_team.long_novel.world_judge"
       }
     },
     {
-      "flow_id": "flow.writing_team.long_novel.outline_review",
-      "task_mode": "outline_reviewer",
+      "flow_id": "flow.writing_team.long_novel.memory_commit_world",
+      "task_mode": "memory_steward",
       "task_family": "writing_team_long_novel",
-      "title": "大纲审核",
-      "input_contract_id": "contract.writing_team.long_novel.outline_brief",
-      "output_contract_id": "contract.writing_team.long_novel.outline_review",
-      "default_agent_id": "agent:outline_reviewer",
-      "default_workflow_id": "workflow.writing_team.long_novel.outline_review",
+      "title": "世界观入库",
+      "input_contract_id": "contract.writing_team.long_novel.world_judgement",
+      "output_contract_id": "contract.writing_team.long_novel.memory_commit_world",
+      "default_agent_id": "agent:memory_steward",
+      "default_workflow_id": "workflow.writing_team.long_novel.memory_commit_world",
       "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_team_long_novel",
       "enabled": true,
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.outline_review",
-        "projection_id": "projection.writing_team.long_novel.outline_reviewer"
+        "task_id": "task.writing_team.long_novel.memory_commit_world",
+        "projection_id": "projection.writing_team.long_novel.memory_commit_world"
       }
     },
     {
-      "flow_id": "flow.writing_team.long_novel.character_design",
-      "task_mode": "character_designer",
+      "flow_id": "flow.writing_team.long_novel.outline_designer_a",
+      "task_mode": "outline_designer_a",
       "task_family": "writing_team_long_novel",
-      "title": "人物设定",
-      "input_contract_id": "contract.writing_team.long_novel.outline_review",
-      "output_contract_id": "contract.writing_team.long_novel.character_sheet",
-      "default_agent_id": "agent:character_designer",
-      "default_workflow_id": "workflow.writing_team.long_novel.character_design",
+      "title": "大纲结构师 A",
+      "input_contract_id": "contract.writing_team.long_novel.memory_commit_world",
+      "output_contract_id": "contract.writing_team.long_novel.outline_proposal_a",
+      "default_agent_id": "agent:outline_designer_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_designer_a",
       "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_team_long_novel",
       "enabled": true,
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.character_design",
-        "projection_id": "projection.writing_team.long_novel.character_designer"
+        "task_id": "task.writing_team.long_novel.outline_designer_a",
+        "projection_id": "projection.writing_team.long_novel.outline_designer_a"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.outline_designer_b",
+      "task_mode": "outline_designer_b",
+      "task_family": "writing_team_long_novel",
+      "title": "大纲结构师 B",
+      "input_contract_id": "contract.writing_team.long_novel.memory_commit_world",
+      "output_contract_id": "contract.writing_team.long_novel.outline_proposal_b",
+      "default_agent_id": "agent:outline_designer_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_designer_b",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.outline_designer_b",
+        "projection_id": "projection.writing_team.long_novel.outline_designer_b"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.outline_judge",
+      "task_mode": "outline_judge",
+      "task_family": "writing_team_long_novel",
+      "title": "大纲裁判",
+      "input_contract_id": "contract.writing_team.long_novel.outline_proposal_b",
+      "output_contract_id": "contract.writing_team.long_novel.outline_judgement",
+      "default_agent_id": "agent:outline_judge",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_judge",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.outline_judge",
+        "projection_id": "projection.writing_team.long_novel.outline_judge"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.memory_commit_outline",
+      "task_mode": "memory_steward",
+      "task_family": "writing_team_long_novel",
+      "title": "大纲入库",
+      "input_contract_id": "contract.writing_team.long_novel.outline_judgement",
+      "output_contract_id": "contract.writing_team.long_novel.memory_commit_outline",
+      "default_agent_id": "agent:memory_steward",
+      "default_workflow_id": "workflow.writing_team.long_novel.memory_commit_outline",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.memory_commit_outline",
+        "projection_id": "projection.writing_team.long_novel.memory_commit_outline"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.character_designer_a",
+      "task_mode": "character_designer_a",
+      "task_family": "writing_team_long_novel",
+      "title": "人物设计师 A",
+      "input_contract_id": "contract.writing_team.long_novel.memory_commit_outline",
+      "output_contract_id": "contract.writing_team.long_novel.character_proposal_a",
+      "default_agent_id": "agent:character_designer_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_designer_a",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_designer_a",
+        "projection_id": "projection.writing_team.long_novel.character_designer_a"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.character_designer_b",
+      "task_mode": "character_designer_b",
+      "task_family": "writing_team_long_novel",
+      "title": "人物设计师 B",
+      "input_contract_id": "contract.writing_team.long_novel.memory_commit_outline",
+      "output_contract_id": "contract.writing_team.long_novel.character_proposal_b",
+      "default_agent_id": "agent:character_designer_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_designer_b",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_designer_b",
+        "projection_id": "projection.writing_team.long_novel.character_designer_b"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.character_judge",
+      "task_mode": "character_judge",
+      "task_family": "writing_team_long_novel",
+      "title": "人物裁判",
+      "input_contract_id": "contract.writing_team.long_novel.character_proposal_b",
+      "output_contract_id": "contract.writing_team.long_novel.character_judgement",
+      "default_agent_id": "agent:character_judge",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_judge",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_judge",
+        "projection_id": "projection.writing_team.long_novel.character_judge"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.memory_commit_character",
+      "task_mode": "memory_steward",
+      "task_family": "writing_team_long_novel",
+      "title": "人物入库",
+      "input_contract_id": "contract.writing_team.long_novel.character_judgement",
+      "output_contract_id": "contract.writing_team.long_novel.memory_commit_character",
+      "default_agent_id": "agent:memory_steward",
+      "default_workflow_id": "workflow.writing_team.long_novel.memory_commit_character",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.memory_commit_character",
+        "projection_id": "projection.writing_team.long_novel.memory_commit_character"
       }
     },
     {
@@ -168,7 +301,7 @@
       "task_mode": "chapter_planner",
       "task_family": "writing_team_long_novel",
       "title": "章节细纲",
-      "input_contract_id": "contract.writing_team.long_novel.character_sheet",
+      "input_contract_id": "contract.writing_team.long_novel.memory_commit_character",
       "output_contract_id": "contract.writing_team.long_novel.chapter_plan",
       "default_agent_id": "agent:chapter_planner",
       "default_workflow_id": "workflow.writing_team.long_novel.chapter_plan",
@@ -176,86 +309,314 @@
       "default_memory_scope": "writing_team_long_novel",
       "enabled": true,
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
         "task_id": "task.writing_team.long_novel.chapter_plan",
-        "projection_id": "projection.writing_team.long_novel.chapter_planner"
+        "projection_id": "projection.writing_team.long_novel.chapter_plan"
       }
     },
     {
-      "flow_id": "flow.writing_team.long_novel.chapter_draft",
-      "task_mode": "chapter_writer",
+      "flow_id": "flow.writing_team.long_novel.writer_a_draft",
+      "task_mode": "writer_a_draft",
       "task_family": "writing_team_long_novel",
-      "title": "章节正文候选稿",
+      "title": "作者 A 初稿",
       "input_contract_id": "contract.writing_team.long_novel.chapter_plan",
-      "output_contract_id": "contract.writing_team.long_novel.chapter_draft",
-      "default_agent_id": "agent:chapter_writer_a",
-      "default_workflow_id": "workflow.writing_team.long_novel.chapter_draft",
+      "output_contract_id": "contract.writing_team.long_novel.writer_a_draft",
+      "default_agent_id": "agent:novel_writer_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.writer_a_draft",
       "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_team_long_novel",
       "enabled": true,
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.chapter_draft",
-        "projection_id": "projection.writing_team.long_novel.chapter_writer_a"
+        "task_id": "task.writing_team.long_novel.writer_a_draft",
+        "projection_id": "projection.writing_team.long_novel.writer_a_draft"
       }
     },
     {
-      "flow_id": "flow.writing_team.long_novel.chapter_review",
-      "task_mode": "chapter_reviewer",
+      "flow_id": "flow.writing_team.long_novel.writer_b_review",
+      "task_mode": "writer_b_review",
       "task_family": "writing_team_long_novel",
-      "title": "章节互审",
-      "input_contract_id": "contract.writing_team.long_novel.chapter_draft",
-      "output_contract_id": "contract.writing_team.long_novel.chapter_review",
-      "default_agent_id": "agent:chapter_reviewer",
-      "default_workflow_id": "workflow.writing_team.long_novel.chapter_review",
+      "title": "作者 B 审读",
+      "input_contract_id": "contract.writing_team.long_novel.writer_a_draft",
+      "output_contract_id": "contract.writing_team.long_novel.writer_b_review",
+      "default_agent_id": "agent:novel_writer_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.writer_b_review",
       "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_team_long_novel",
       "enabled": true,
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.chapter_review",
-        "projection_id": "projection.writing_team.long_novel.chapter_reviewer"
+        "task_id": "task.writing_team.long_novel.writer_b_review",
+        "projection_id": "projection.writing_team.long_novel.writer_b_review"
       }
     },
     {
-      "flow_id": "flow.writing_team.long_novel.quality_gate",
-      "task_mode": "quality_gate",
+      "flow_id": "flow.writing_team.long_novel.writer_a_revision",
+      "task_mode": "writer_a_revision",
       "task_family": "writing_team_long_novel",
-      "title": "质量门",
-      "input_contract_id": "contract.writing_team.long_novel.chapter_review",
-      "output_contract_id": "contract.writing_team.long_novel.quality_gate",
-      "default_agent_id": "agent:quality_gate_reviewer",
-      "default_workflow_id": "workflow.writing_team.long_novel.quality_gate",
+      "title": "作者 A 修订",
+      "input_contract_id": "contract.writing_team.long_novel.writer_b_review",
+      "output_contract_id": "contract.writing_team.long_novel.writer_a_revision",
+      "default_agent_id": "agent:novel_writer_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.writer_a_revision",
       "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_team_long_novel",
       "enabled": true,
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.quality_gate",
-        "projection_id": "projection.writing_team.long_novel.quality_gate"
+        "task_id": "task.writing_team.long_novel.writer_a_revision",
+        "projection_id": "projection.writing_team.long_novel.writer_a_revision"
       }
     },
     {
-      "flow_id": "flow.writing_team.long_novel.memory_commit",
+      "flow_id": "flow.writing_team.long_novel.writer_b_final_candidate",
+      "task_mode": "writer_b_final_candidate",
+      "task_family": "writing_team_long_novel",
+      "title": "作者 B 终稿候选",
+      "input_contract_id": "contract.writing_team.long_novel.writer_a_revision",
+      "output_contract_id": "contract.writing_team.long_novel.writer_b_final_candidate",
+      "default_agent_id": "agent:novel_writer_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.writer_b_final_candidate",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.writer_b_final_candidate",
+        "projection_id": "projection.writing_team.long_novel.writer_b_final_candidate"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.novel_quality_judge",
+      "task_mode": "novel_quality_judge",
+      "task_family": "writing_team_long_novel",
+      "title": "独立裁判通关",
+      "input_contract_id": "contract.writing_team.long_novel.writer_b_final_candidate",
+      "output_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+      "default_agent_id": "agent:novel_quality_judge",
+      "default_workflow_id": "workflow.writing_team.long_novel.novel_quality_judge",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.novel_quality_judge",
+        "projection_id": "projection.writing_team.long_novel.novel_quality_judge"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.world_deviation_router",
+      "task_mode": "deviation_router",
+      "task_family": "writing_team_long_novel",
+      "title": "世界观偏差路由",
+      "input_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+      "output_contract_id": "contract.writing_team.long_novel.world_deviation_route",
+      "default_agent_id": "agent:novel_quality_judge",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_deviation_router",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.world_deviation_router",
+        "projection_id": "projection.writing_team.long_novel.world_deviation_router"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.world_repair_a",
+      "task_mode": "world_repair_a",
+      "task_family": "writing_team_long_novel",
+      "title": "世界观修正 A",
+      "input_contract_id": "contract.writing_team.long_novel.world_deviation_route",
+      "output_contract_id": "contract.writing_team.long_novel.world_repair_a",
+      "default_agent_id": "agent:world_designer_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_repair_a",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.world_repair_a",
+        "projection_id": "projection.writing_team.long_novel.world_repair_a"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.world_repair_b",
+      "task_mode": "world_repair_b",
+      "task_family": "writing_team_long_novel",
+      "title": "世界观修正 B",
+      "input_contract_id": "contract.writing_team.long_novel.world_deviation_route",
+      "output_contract_id": "contract.writing_team.long_novel.world_repair_b",
+      "default_agent_id": "agent:world_designer_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.world_repair_b",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.world_repair_b",
+        "projection_id": "projection.writing_team.long_novel.world_repair_b"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.outline_deviation_router",
+      "task_mode": "deviation_router",
+      "task_family": "writing_team_long_novel",
+      "title": "大纲偏差路由",
+      "input_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+      "output_contract_id": "contract.writing_team.long_novel.outline_deviation_route",
+      "default_agent_id": "agent:novel_quality_judge",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_deviation_router",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.outline_deviation_router",
+        "projection_id": "projection.writing_team.long_novel.outline_deviation_router"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.outline_repair_a",
+      "task_mode": "outline_repair_a",
+      "task_family": "writing_team_long_novel",
+      "title": "大纲修正 A",
+      "input_contract_id": "contract.writing_team.long_novel.outline_deviation_route",
+      "output_contract_id": "contract.writing_team.long_novel.outline_repair_a",
+      "default_agent_id": "agent:outline_designer_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_repair_a",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.outline_repair_a",
+        "projection_id": "projection.writing_team.long_novel.outline_repair_a"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.outline_repair_b",
+      "task_mode": "outline_repair_b",
+      "task_family": "writing_team_long_novel",
+      "title": "大纲修正 B",
+      "input_contract_id": "contract.writing_team.long_novel.outline_deviation_route",
+      "output_contract_id": "contract.writing_team.long_novel.outline_repair_b",
+      "default_agent_id": "agent:outline_designer_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.outline_repair_b",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.outline_repair_b",
+        "projection_id": "projection.writing_team.long_novel.outline_repair_b"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.character_deviation_router",
+      "task_mode": "deviation_router",
+      "task_family": "writing_team_long_novel",
+      "title": "人物偏差路由",
+      "input_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+      "output_contract_id": "contract.writing_team.long_novel.character_deviation_route",
+      "default_agent_id": "agent:novel_quality_judge",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_deviation_router",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_deviation_router",
+        "projection_id": "projection.writing_team.long_novel.character_deviation_router"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.character_repair_a",
+      "task_mode": "character_repair_a",
+      "task_family": "writing_team_long_novel",
+      "title": "人物修正 A",
+      "input_contract_id": "contract.writing_team.long_novel.character_deviation_route",
+      "output_contract_id": "contract.writing_team.long_novel.character_repair_a",
+      "default_agent_id": "agent:character_designer_a",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_repair_a",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_repair_a",
+        "projection_id": "projection.writing_team.long_novel.character_repair_a"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.character_repair_b",
+      "task_mode": "character_repair_b",
+      "task_family": "writing_team_long_novel",
+      "title": "人物修正 B",
+      "input_contract_id": "contract.writing_team.long_novel.character_deviation_route",
+      "output_contract_id": "contract.writing_team.long_novel.character_repair_b",
+      "default_agent_id": "agent:character_designer_b",
+      "default_workflow_id": "workflow.writing_team.long_novel.character_repair_b",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.character_repair_b",
+        "projection_id": "projection.writing_team.long_novel.character_repair_b"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.memory_commit_chapter",
       "task_mode": "memory_steward",
       "task_family": "writing_team_long_novel",
-      "title": "资产入库",
-      "input_contract_id": "contract.writing_team.long_novel.quality_gate",
-      "output_contract_id": "contract.writing_team.long_novel.memory_commit",
+      "title": "章节入库",
+      "input_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+      "output_contract_id": "contract.writing_team.long_novel.memory_commit_chapter",
       "default_agent_id": "agent:memory_steward",
-      "default_workflow_id": "workflow.writing_team.long_novel.memory_commit",
+      "default_workflow_id": "workflow.writing_team.long_novel.memory_commit_chapter",
       "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_team_long_novel",
       "enabled": true,
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "domain_id": "domain.writing_team.long_novel",
-        "task_id": "task.writing_team.long_novel.memory_commit",
-        "projection_id": "projection.writing_team.long_novel.memory_steward"
+        "task_id": "task.writing_team.long_novel.memory_commit_chapter",
+        "projection_id": "projection.writing_team.long_novel.memory_commit_chapter"
+      }
+    },
+    {
+      "flow_id": "flow.writing_team.long_novel.memory_finalize",
+      "task_mode": "memory_steward",
+      "task_family": "writing_team_long_novel",
+      "title": "工作记忆收尾",
+      "input_contract_id": "contract.writing_team.long_novel.memory_commit_chapter",
+      "output_contract_id": "contract.writing_team.long_novel.memory_finalize",
+      "default_agent_id": "agent:memory_steward",
+      "default_workflow_id": "workflow.writing_team.long_novel.memory_finalize",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_team_long_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "domain_id": "domain.writing_team.long_novel",
+        "task_id": "task.writing_team.long_novel.memory_finalize",
+        "projection_id": "projection.writing_team.long_novel.memory_finalize"
       }
     }
   ]

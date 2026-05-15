@@ -463,16 +463,16 @@ def _preferred_file_kind(context: dict[str, Any]) -> str:
 def _current_turn_file_work_kind(context: dict[str, Any]) -> str:
     explicit_inputs = dict(context.get("explicit_inputs") or {})
     tool_input = dict(explicit_inputs.get("tool_input") or {})
-    template_id = str(
-        context.get("selected_template_id")
-        or context.get("template_id")
-        or explicit_inputs.get("selected_template_id")
-        or explicit_inputs.get("template_id")
+    source_kind = str(
+        context.get("source_kind")
+        or context.get("selected_source_kind")
+        or explicit_inputs.get("source_kind")
+        or dict(context.get("active_constraints") or {}).get("source_kind")
         or ""
     ).lower()
-    if "structured" in template_id or ".data." in template_id:
+    if source_kind in {"dataset", "structured_data"}:
         return "dataset"
-    if "pdf" in template_id or "document_analysis" in template_id:
+    if source_kind in {"pdf", "document"}:
         return "pdf"
 
     path_hint = _first_present(

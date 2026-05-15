@@ -431,6 +431,7 @@ def test_task_graph_feedback_edge_does_not_block_initial_forward_stage(tmp_path:
         graph_id="graph.test.feedback_loop",
         title="反馈返修图",
         graph_kind="coordination",
+        entry_node_id="plan",
         nodes=(
             {
                 "node_id": "plan",
@@ -491,6 +492,124 @@ def test_task_graph_feedback_edge_does_not_block_initial_forward_stage(tmp_path:
 
     assert scheduler.ready_node_ids == ("plan",)
     assert plan_contract.required_inputs == ()
+
+
+def test_task_graph_backward_repair_edge_does_not_block_first_judge_pass(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.backward_repair",
+        title="返修回裁判图",
+        graph_kind="coordination",
+        nodes=(
+            {
+                "node_id": "proposal_a",
+                "node_type": "agent",
+                "title": "方案 A",
+                "task_id": "task.test.proposal_a",
+                "agent_id": "agent:a",
+            },
+            {
+                "node_id": "proposal_b",
+                "node_type": "agent",
+                "title": "方案 B",
+                "task_id": "task.test.proposal_b",
+                "agent_id": "agent:b",
+            },
+            {
+                "node_id": "judge",
+                "node_type": "review_gate",
+                "title": "裁判",
+                "task_id": "task.test.judge",
+                "agent_id": "agent:judge",
+            },
+            {
+                "node_id": "repair_a",
+                "node_type": "agent",
+                "title": "返修 A",
+                "task_id": "task.test.repair_a",
+                "agent_id": "agent:a",
+            },
+            {
+                "node_id": "repair_b",
+                "node_type": "agent",
+                "title": "返修 B",
+                "task_id": "task.test.repair_b",
+                "agent_id": "agent:b",
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "edge.a.judge",
+                "source_node_id": "proposal_a",
+                "target_node_id": "judge",
+                "payload_contract_id": "contract.proposal_a",
+            },
+            {
+                "edge_id": "edge.b.judge",
+                "source_node_id": "proposal_b",
+                "target_node_id": "judge",
+                "payload_contract_id": "contract.proposal_b",
+            },
+            {
+                "edge_id": "edge.judge.repair_a",
+                "source_node_id": "judge",
+                "target_node_id": "repair_a",
+                "edge_type": "review_feedback",
+                "payload_contract_id": "contract.judge",
+            },
+            {
+                "edge_id": "edge.judge.repair_b",
+                "source_node_id": "judge",
+                "target_node_id": "repair_b",
+                "edge_type": "review_feedback",
+                "payload_contract_id": "contract.judge",
+            },
+            {
+                "edge_id": "edge.repair_a.judge",
+                "source_node_id": "repair_a",
+                "target_node_id": "judge",
+                "payload_contract_id": "contract.repair_a",
+            },
+            {
+                "edge_id": "edge.repair_b.judge",
+                "source_node_id": "repair_b",
+                "target_node_id": "judge",
+                "payload_contract_id": "contract.repair_b",
+            },
+        ),
+    )
+    spec = compile_task_graph_definition_runtime_spec(graph=graph)
+
+    scheduler = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={"proposal_a": "completed", "proposal_b": "completed"},
+        mode="active",
+    )
+    contracts = derive_stage_contracts_from_graph(
+        coordination_task=graph,
+        topology_nodes=[node.to_dict() for node in spec.nodes],
+        topology_edges=[edge.to_dict() for edge in spec.edges],
+    )
+    judge_contract = next(contract for contract in contracts if contract.stage_id == "judge")
+
+    assert "judge" in scheduler.ready_node_ids
+    assert judge_contract.required_inputs == (
+        "contract.proposal_a:artifact_refs",
+        "contract.proposal_b:artifact_refs",
+    )
+
+    after_judge = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={
+            "proposal_a": "completed",
+            "proposal_b": "completed",
+            "judge": "completed",
+        },
+        mode="active",
+    )
+
+    assert "repair_a" not in after_judge.ready_node_ids
+    assert "repair_b" not in after_judge.ready_node_ids
 
 
 def test_task_graph_dispatch_policy_fails_closed_for_invalid_or_unsafe_modes() -> None:

@@ -1,6 +1,6 @@
 "use client";
 
-import { SendHorizonal } from "lucide-react";
+import { SendHorizonal, Square } from "lucide-react";
 import { useState } from "react";
 
 import type { SearchPolicySource, SearchPolicyState, TaskSelectionState } from "@/lib/store/types";
@@ -17,6 +17,7 @@ const SEARCH_POLICY_OPTIONS: Array<{
 export function ChatInput({
   disabled,
   onSend,
+  onStop,
   onToggleSearchPolicy,
   searchPolicy,
   taskSelection,
@@ -24,6 +25,7 @@ export function ChatInput({
 }: {
   disabled: boolean;
   onSend: (value: string) => Promise<void>;
+  onStop: () => void;
   onToggleSearchPolicy: (source: SearchPolicySource) => void;
   searchPolicy: SearchPolicyState;
   taskSelection: TaskSelectionState | null;
@@ -42,7 +44,7 @@ export function ChatInput({
       <div className="archive-section-head mb-2 flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="archive-section-head__eyebrow">输入</p>
-          <p className="chat-input-panel__note text-sm">输入问题、任务目标或协调指令。</p>
+          <p className="chat-input-panel__note text-sm">输入问题、任务目标或协调任务指令。</p>
         </div>
         <div className="chat-search-policy chat-search-policy--corner" aria-label="本轮能力权限">
           {SEARCH_POLICY_OPTIONS.map((option) => {
@@ -97,22 +99,34 @@ export function ChatInput({
         <p className="chat-input-panel__hint text-sm">
           当前开关会约束本轮可装载能力与可委派子Agent。
         </p>
-        <button
-          className="action-button action-button--primary navbar-action-button disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={disabled || !value.trim()}
-          onClick={() => {
-            const nextValue = value.trim();
-            if (!nextValue) {
-              return;
-            }
-            void onSend(nextValue);
-            setValue("");
-          }}
-          type="button"
-        >
-          <SendHorizonal size={16} />
-          发送
-        </button>
+        <div className="chat-input-panel__actions">
+          {disabled ? (
+            <button
+              className="action-button action-button--danger navbar-action-button"
+              onClick={onStop}
+              type="button"
+            >
+              <Square size={15} />
+              停止
+            </button>
+          ) : null}
+          <button
+            className="action-button action-button--primary navbar-action-button disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={disabled || !value.trim()}
+            onClick={() => {
+              const nextValue = value.trim();
+              if (!nextValue) {
+                return;
+              }
+              void onSend(nextValue);
+              setValue("");
+            }}
+            type="button"
+          >
+            <SendHorizonal size={16} />
+            发送
+          </button>
+        </div>
       </div>
     </div>
   );

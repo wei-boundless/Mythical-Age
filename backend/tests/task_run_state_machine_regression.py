@@ -8,19 +8,22 @@ from tasks.run_models import (
     project_task_result_from_ledger,
     start_task_run_step,
 )
+from tasks.execution_recipe_models import ExecutionRecipe
 from tasks.spec_models import TaskSpec
 from tasks.step_models import TaskStepBlueprint
-from tasks.template_models import TaskTemplate
 from orchestration.runtime_loop.task_run_loop import _finalize_runtime_task_run_ledger
 
 
-def _template(*steps: TaskStepBlueprint) -> TaskTemplate:
-    return TaskTemplate(
+def _recipe(*steps: TaskStepBlueprint) -> ExecutionRecipe:
+    return ExecutionRecipe(
+        recipe_id="recipe.test.state_machine",
         template_id="template.test.state_machine",
         title="State Machine Test",
         description="",
+        execution_kind="single_agent",
         task_family="test",
         task_mode="test",
+        source_kind="runtime",
         input_schema={"message": "string"},
         output_schema={"final_answer": "string"},
         required_operations=("op.model_response",),
@@ -40,7 +43,7 @@ def _task_spec() -> TaskSpec:
 
 
 def test_task_result_is_projected_from_runtime_ledger() -> None:
-    template = _template(
+    recipe = _recipe(
         TaskStepBlueprint(
             step_id="step.read",
             title="Read",
@@ -60,7 +63,7 @@ def test_task_result_is_projected_from_runtime_ledger() -> None:
         task_run_id="taskrun:test",
         task_contract_ref="task:test",
         task_spec=_task_spec(),
-        selected_template=template,
+        selected_recipe=recipe,
         status="running",
     )
     ledger = start_task_run_step(ledger, step_id="step.read", started_at=1.0)
@@ -88,7 +91,7 @@ def test_task_result_is_projected_from_runtime_ledger() -> None:
 
 
 def test_terminal_finalize_skips_optional_verify_step() -> None:
-    template = _template(
+    recipe = _recipe(
         TaskStepBlueprint(
             step_id="step.write",
             title="Write",
@@ -116,7 +119,7 @@ def test_terminal_finalize_skips_optional_verify_step() -> None:
         task_run_id="taskrun:test-verify",
         task_contract_ref="task:test-verify",
         task_spec=_task_spec(),
-        selected_template=template,
+        selected_recipe=recipe,
         status="running",
     )
     ledger = start_task_run_step(ledger, step_id="step.write", started_at=1.0)
@@ -144,7 +147,7 @@ def test_terminal_finalize_skips_optional_verify_step() -> None:
 
 
 def test_failure_marks_running_step_failed() -> None:
-    template = _template(
+    recipe = _recipe(
         TaskStepBlueprint(
             step_id="step.answer",
             title="Answer",
@@ -157,7 +160,7 @@ def test_failure_marks_running_step_failed() -> None:
         task_run_id="taskrun:test-fail",
         task_contract_ref="task:test-fail",
         task_spec=_task_spec(),
-        selected_template=template,
+        selected_recipe=recipe,
         status="running",
     )
     ledger = start_task_run_step(ledger, started_at=1.0)

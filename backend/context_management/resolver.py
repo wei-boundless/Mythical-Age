@@ -3,8 +3,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from capability_system.local_mcp_registry import get_local_mcp_primary_template
-
 from .current_turn import BundleItem, CurrentTurnContext, ResolvedBinding
 
 
@@ -244,7 +242,7 @@ class ContextResolver:
                         "task_kind": task_kind,
                         "capability_kind": str(ref.get("capability_kind") or "").strip(),
                         "required_tool": str(ref.get("required_tool") or "").strip(),
-                        "template_id": str(ref.get("template_id") or _template_id_for_capability(str(ref.get("capability_kind") or "").strip())).strip(),
+                        "source_kind": _source_kind_for_capability(str(ref.get("capability_kind") or "").strip()),
                         "key_points": list(ref.get("key_points") or []),
                     },
                 )
@@ -274,7 +272,7 @@ class ContextResolver:
             if not capability:
                 continue
             binding = _binding_for_capability(capability, bindings)
-            template_id = _template_id_for_capability(capability)
+            source_kind = _source_kind_for_capability(capability)
             target_ref = ""
             if binding is not None:
                 target_ref = str(binding.result_handle_id or binding.source_handle_id or binding.identity or "").strip()
@@ -284,7 +282,7 @@ class ContextResolver:
                     ordinal=len(items) + 1,
                     user_text=part,
                     bundle_id=bundle_id,
-                    template_id=template_id,
+                    template_id="",
                     capability_kind=capability,
                     required_tool=tool,
                     requested_outputs=tuple(_requested_outputs_for_capability(capability)),
@@ -295,7 +293,7 @@ class ContextResolver:
                     target_ref=target_ref,
                     target_binding=binding,
                     output_requirement="answer_part",
-                    metadata={"source": "compound_user_message", "bundle_id": bundle_id},
+                    metadata={"source": "compound_user_message", "bundle_id": bundle_id, "source_kind": source_kind},
                 )
             )
         return items if len(items) > 1 else []
@@ -330,13 +328,16 @@ def _capability_for_text(text: str) -> tuple[str, str]:
     return "", ""
 
 
-def _template_id_for_capability(capability: str) -> str:
-    template_id = get_local_mcp_primary_template(capability)
-    if template_id:
-        return template_id
+def _source_kind_for_capability(capability: str) -> str:
+    if capability == "pdf":
+        return "pdf"
+    if capability == "structured_data":
+        return "dataset"
     if capability == "realtime_network":
-        return "template.search.information_search"
-    return "template.chat.general_response"
+        return "external_web"
+    if capability in {"retrieval", "rag"}:
+        return "knowledge"
+    return "knowledge_base"
 
 
 def _requested_outputs_for_capability(capability: str) -> list[str]:
@@ -364,7 +365,7 @@ def _bundle_items_from_followup_bindings(*, task_id: str, bindings: list[Resolve
         bundle_id = str(metadata.get("bundle_id") or f"bundle:{task_id}").strip()
         ordinal = _safe_int(metadata.get("ordinal"))
         item_id = str(metadata.get("item_id") or f"{bundle_id}:item:{ordinal or len(items) + 1}").strip()
-        template_id = str(metadata.get("template_id") or _template_id_for_capability(capability)).strip()
+        source_kind = str(metadata.get("source_kind") or _source_kind_for_capability(capability)).strip()
         followup_target_ref = str(binding.result_handle_id or binding.owner_task_id or binding.identity or "").strip()
         items.append(
             BundleItem(
@@ -372,7 +373,7 @@ def _bundle_items_from_followup_bindings(*, task_id: str, bindings: list[Resolve
                 ordinal=ordinal or len(items) + 1,
                 user_text=user_text,
                 bundle_id=bundle_id,
-                template_id=template_id,
+                template_id="",
                 capability_kind=capability,
                 required_tool=required_tool,
                 requested_outputs=tuple(_requested_outputs_for_capability(capability)),
@@ -381,7 +382,7 @@ def _bundle_items_from_followup_bindings(*, task_id: str, bindings: list[Resolve
                 target_ref=followup_target_ref,
                 target_binding=binding,
                 output_requirement="answer_part",
-                metadata={"source": "bundle_followup_binding", **metadata},
+                metadata={"source": "bundle_followup_binding", "source_kind": source_kind, **metadata},
             )
         )
     return items

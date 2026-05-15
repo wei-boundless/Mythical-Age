@@ -38,6 +38,7 @@ export function getDefaultState(): StoreState {
     currentSessionId: null,
     messages: [],
     isStreaming: false,
+    activeStreamSessionIds: [],
     ragMode: false,
     searchPolicy: {
       rag: false,
@@ -58,6 +59,7 @@ export function getDefaultState(): StoreState {
     systemGraphOverlay: null,
     memoryInspectorTarget: null,
     orchestrationSnapshot: null,
+    coordinationLiveMonitor: null,
     orchestrationInspectorTarget: null,
     taskSelection: null
   };

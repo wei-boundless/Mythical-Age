@@ -380,7 +380,7 @@ export function buildTimelinePreflightIssues(
     if (nodeBlocksPhaseExit(node) && ["async", "background"].includes(String(node.execution_mode ?? "")) && !nodeCompletionPolicy(node)) {
       issues.push({ code: "timeline_blocking_async_completion_missing", message: "阻塞阶段退出的异步/后台节点缺少 completion_policy。", severity: "error", node_id: nodeId });
     }
-    if (String(node.node_type ?? "") === "memory") {
+    if (["memory", "memory_resource", "memory_read", "memory_write", "memory_handoff", "memory_commit", "memory_finalize"].includes(String(node.node_type ?? ""))) {
       const phase = phaseDefinitions.find((item) => item.phase_id === nodePhaseId(node));
       if (!phase?.review_gate_node_id) {
         issues.push({ code: "timeline_memory_without_review_gate", message: "记忆节点所在阶段没有配置审核门。", severity: "warning", node_id: nodeId, phase_id: phase?.phase_id });

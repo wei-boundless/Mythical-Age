@@ -133,6 +133,59 @@ def build_model_response_runtime_adoption(
     return directive, resource_policy
 
 
+def build_runtime_capability_state(
+    task_operation: dict[str, Any],
+    *,
+    resource_policy: ResourcePolicy,
+    agent_runtime_profile: AgentRuntimeProfile | None = None,
+    visible_tool_names: list[str] | tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Describe capability layers without turning them into extra permissions."""
+
+    requested = _requested_operations(task_operation)
+    profile_allowed = sorted(_agent_allowed_operations(agent_runtime_profile))
+    profile_blocked = sorted(_agent_blocked_operations(agent_runtime_profile))
+    adopted = tuple(
+        _dedupe(
+            [
+                *list(resource_policy.allowed_operations),
+                *list(resource_policy.requires_approval_operations),
+                *list(resource_policy.not_executable_operations),
+            ]
+        )
+    )
+    adopted_set = set(adopted)
+    write_ops = {"op.write_file", "op.edit_file"}
+    visible_tools = tuple(_dedupe([str(item or "").strip() for item in visible_tool_names if str(item or "").strip()]))
+    return {
+        "state_id": f"runtime-capability-state:{resource_policy.task_id}",
+        "agent_id": str(getattr(agent_runtime_profile, "agent_id", "") or ""),
+        "agent_profile_id": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
+        "agent_profile_operations": profile_allowed,
+        "agent_profile_blocked_operations": profile_blocked,
+        "turn_requested_operations": list(requested),
+        "turn_adopted_operations": list(adopted),
+        "turn_visible_tools": list(visible_tools),
+        "approval_required_operations": list(resource_policy.requires_approval_operations),
+        "blocked_by_profile_operations": [
+            operation for operation in requested if operation in set(profile_blocked) or operation not in set(profile_allowed)
+        ],
+        "blocked_by_turn_policy_operations": [
+            operation for operation in profile_allowed if operation not in adopted_set and operation != "op.model_response"
+        ],
+        "profile_write_capable": bool(write_ops & set(profile_allowed)) and not bool(write_ops & set(profile_blocked)),
+        "turn_write_operation_adopted": bool(write_ops & adopted_set),
+        "turn_write_tool_visible": any(tool in {"write_file", "edit_file"} for tool in visible_tools),
+        "commit_scope_diagnostics": {
+            "resource_policy_filesystem_write_allowed": bool(
+                dict(resource_policy.diagnostics or {}).get("filesystem_write_allowed")
+            ),
+            "meaning": "This describes the current turn resource policy, not the agent profile capability ceiling.",
+        },
+        "authority": "orchestration.runtime_capability_state",
+    }
+
+
 def _build_runtime_decisions(
     task_operation: dict[str, Any],
     *,

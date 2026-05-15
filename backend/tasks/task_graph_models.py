@@ -25,6 +25,25 @@ NODE_JOIN_POLICIES = {
 }
 EDGE_FAILURE_PROPAGATION_POLICIES = {"fail_downstream", "isolate_failure", "coordinator_decides", "allow_partial"}
 EDGE_RESULT_DELIVERY_POLICIES = {"contract_payload_and_refs", "refs_only", "summary_and_refs", "notification_only"}
+TASK_GRAPH_NODE_TYPES = {
+    "agent",
+    "agent_role",
+    "coordinator",
+    "review_gate",
+    "memory",
+    "input",
+    "output",
+    "tool",
+    "barrier",
+    "manual_gate",
+    "memory_resource",
+    "memory_read",
+    "memory_write",
+    "memory_handoff",
+    "memory_commit",
+    "memory_finalize",
+}
+MEMORY_RESOURCE_OPERATIONS = {"read", "write", "handoff", "commit", "finalize"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,8 +297,18 @@ def validate_task_graph(graph: TaskGraphDefinition) -> tuple[TaskGraphValidation
     for node in graph.nodes:
         if not node.node_id:
             issues.append(TaskGraphValidationIssue(code="node_missing_id", message="节点缺少 node_id"))
+        if node.node_type not in TASK_GRAPH_NODE_TYPES:
+            issues.append(TaskGraphValidationIssue(code="node_type_invalid", message="节点 node_type 不受支持", node_id=node.node_id))
         if node.node_type == "agent" and not node.agent_id and not node.agent_group_id:
             issues.append(TaskGraphValidationIssue(code="agent_node_missing_agent_ref", message="Agent 节点缺少 agent_id 或 agent_group_id", node_id=node.node_id))
+        if node.node_type in {"memory_resource", "memory_read", "memory_write", "memory_handoff", "memory_commit", "memory_finalize"}:
+            operation = str(node.metadata.get("operation") or node.node_type.replace("memory_", "")).strip()
+            if operation not in MEMORY_RESOURCE_OPERATIONS:
+                issues.append(TaskGraphValidationIssue(code="memory_resource_operation_invalid", message="工作记忆资源节点 operation 不受支持", node_id=node.node_id))
+            if operation == "read" and not node.memory_read_policy:
+                issues.append(TaskGraphValidationIssue(code="memory_resource_read_policy_missing", message="工作记忆读取资源节点缺少 memory_read_policy", severity="warning", node_id=node.node_id))
+            if operation == "write" and not node.memory_writeback_policy:
+                issues.append(TaskGraphValidationIssue(code="memory_resource_write_policy_missing", message="工作记忆写入资源节点缺少 memory_writeback_policy", severity="warning", node_id=node.node_id))
         if node.execution_mode not in NODE_EXECUTION_MODES:
             issues.append(TaskGraphValidationIssue(code="node_execution_mode_invalid", message="节点 execution_mode 不受支持", node_id=node.node_id))
         if node.wait_policy not in NODE_WAIT_POLICIES:

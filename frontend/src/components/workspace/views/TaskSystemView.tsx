@@ -84,6 +84,81 @@ import { useAppStore } from "@/lib/store";
 type TaskLayer = "management" | "editor";
 type TaskConfigPanel = "definition" | "contracts" | "preflight" | "runloop";
 type ContractPanel = "library" | "templates" | "bindings" | "manifest";
+type ChromeSelectOption = {
+  value: string;
+  label: string;
+  disabled?: boolean;
+};
+
+function TaskGraphChromeSelect({
+  disabled = false,
+  emptyLabel,
+  label,
+  onChange,
+  options,
+  placeholder,
+  value,
+}: {
+  disabled?: boolean;
+  emptyLabel?: string;
+  label: string;
+  onChange: (value: string) => void;
+  options: ChromeSelectOption[];
+  placeholder: string;
+  value: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.value === value);
+  const displayLabel = selected?.label || emptyLabel || placeholder;
+  const selectableOptions = options.filter((option) => !option.disabled);
+  const isDisabled = disabled || selectableOptions.length === 0;
+
+  return (
+    <label
+      className={isDisabled ? "task-graph-editor-chrome__field task-graph-editor-chrome__field--disabled" : "task-graph-editor-chrome__field"}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setOpen(false);
+        }
+      }}
+    >
+      <span className="task-graph-editor-chrome__field-label">{label}</span>
+      <div className="task-graph-editor-select">
+        <button
+          aria-expanded={open}
+          disabled={isDisabled}
+          onClick={() => setOpen((current) => !current)}
+          type="button"
+        >
+          <span>{displayLabel}</span>
+          <i aria-hidden="true" />
+        </button>
+        {open && !isDisabled ? (
+          <div className="task-graph-editor-select__menu" role="listbox">
+            {options.map((option) => (
+              <button
+                aria-selected={option.value === value}
+                className={option.value === value ? "task-graph-editor-select__option task-graph-editor-select__option--active" : "task-graph-editor-select__option"}
+                disabled={option.disabled}
+                key={option.value || option.label}
+                onClick={() => {
+                  if (!option.disabled) {
+                    onChange(option.value);
+                    setOpen(false);
+                  }
+                }}
+                role="option"
+                type="button"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </label>
+  );
+}
 
 type WorkflowDraft = TaskWorkflowRecord & {
   compatible_projection_ids_text: string;
@@ -1696,7 +1771,7 @@ export function TaskSystemView() {
     };
     const node = {
       node_id: nodeId,
-      node_type: role === "memory" ? "memory" : "agent_role",
+      node_type: role === "memory" ? "memory_resource" : "agent_role",
       task_id: "",
       task_title: "",
       task_family: graphContextFamily,
@@ -1705,6 +1780,11 @@ export function TaskSystemView() {
       work_posture: role,
       label: titleByRole[role] ?? "协作节点",
       title: titleByRole[role] ?? "协作节点",
+      ...(role === "memory" ? {
+        metadata: { operation: "commit" },
+        memory_read_policy: { readable_kinds: ["review_decision"], readable_scopes: ["graph_scope", "project_scope"] },
+        memory_writeback_policy: { writable_kinds: ["review_decision"], writable_scopes: ["project_scope"] },
+      } : {}),
     };
     setTopologyDraft((current) => ({
       ...current,
@@ -2953,40 +3033,37 @@ export function TaskSystemView() {
         <section className="task-system-editor-shell">
           <section className="task-graph-editor-chrome" aria-label="任务图编辑器操作台">
             <div className="task-graph-editor-chrome__controls">
-              <label className="task-graph-editor-chrome__field">
-                <span className="task-graph-editor-chrome__field-label">任务域</span>
-                <select value={editorDomainId} onChange={(event) => selectEditorDomain(event.target.value)}>
-                  <option disabled={visibleDomains.length > 0} value="">{visibleDomains.length ? "选择任务域" : "暂无任务域"}</option>
-                  {visibleDomains.map((domain) => (
-                    <option key={domain.domain_id} value={domain.domain_id}>{domain.title}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="task-graph-editor-chrome__field">
-                <span className="task-graph-editor-chrome__field-label">任务</span>
-                <select disabled={!editorDomain} value={editorTaskId} onChange={(event) => selectTaskForEditor(event.target.value)}>
-                  {!editorDomain ? <option value="">先选择任务域</option> : null}
-                  {editorDomain && !editorDomainTasks.length ? <option value="">当前任务域暂无任务</option> : null}
-                  {editorDomainTasks.map((task) => (
-                    <option key={task.task_id} value={task.task_id}>{task.task_title}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="task-graph-editor-chrome__field">
-                <span className="task-graph-editor-chrome__field-label">图草稿</span>
-                <select disabled={!editorTask} value={editorTaskGraphId} onChange={(event) => {
-                  setEditorTaskGraphId(event.target.value);
+              <TaskGraphChromeSelect
+                emptyLabel={visibleDomains.length ? "选择任务域" : "暂无任务域"}
+                label="任务域"
+                onChange={selectEditorDomain}
+                options={visibleDomains.map((domain) => ({ value: domain.domain_id, label: domain.title }))}
+                placeholder="选择任务域"
+                value={editorDomainId}
+              />
+              <TaskGraphChromeSelect
+                disabled={!editorDomain}
+                emptyLabel={!editorDomain ? "先选择任务域" : editorDomainTasks.length ? "选择任务" : "当前任务域暂无任务"}
+                label="任务"
+                onChange={selectTaskForEditor}
+                options={editorDomainTasks.map((task) => ({ value: task.task_id, label: task.task_title }))}
+                placeholder="选择任务"
+                value={editorTaskId}
+              />
+              <TaskGraphChromeSelect
+                disabled={!editorTask}
+                emptyLabel={!editorTask ? "先打开任务" : editorTaskGraphs.length ? "选择图草稿" : "暂无草稿"}
+                label="图草稿"
+                onChange={(nextValue) => {
+                  setEditorTaskGraphId(nextValue);
                   setSelectedGraphNodeId("");
                   setSelectedGraphEdgeId("");
                   setLinkingFromNodeId("");
-                }}>
-                  {!editorTask ? <option value="">先打开任务</option> : null}
-                  {editorTask && !editorTaskGraphs.length ? <option value="">暂无草稿</option> : null}
-                  {editorTaskGraphs.map((task) => (
-                    <option key={task.graph_id} value={task.graph_id}>{task.title}</option>
-                  ))}
-                </select>
-              </label>
+                }}
+                options={editorTaskGraphs.map((task) => ({ value: task.graph_id, label: task.title }))}
+                placeholder="选择图草稿"
+                value={editorTaskGraphId}
+              />
             </div>
             <div className="task-graph-editor-chrome__status task-graph-editor-chrome__status--context">
               <span className={topologyDirty ? "boundary-status boundary-status--warn" : "boundary-status"}>{topologyDirty ? "拓扑未同步" : "拓扑已同步"}</span>

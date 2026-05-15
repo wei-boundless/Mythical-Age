@@ -1453,6 +1453,35 @@ export type RuntimeLoopTaskRunTrace = {
   latest_checkpoint: Record<string, unknown> | null;
 };
 
+export type RuntimeLoopTaskRunLiveMonitor = {
+  authority: string;
+  task_run: Record<string, unknown>;
+  latest_checkpoint: Record<string, unknown> | null;
+  loop_state: Record<string, unknown>;
+  coordination_run: Record<string, unknown> | null;
+  has_coordination: boolean;
+  status: string;
+  terminal_reason: string;
+  updated_at: number;
+};
+
+export type RuntimeLoopSessionLiveMonitor = {
+  authority: string;
+  session_id: string;
+  task_run_count: number;
+  latest_task_run_id: string;
+  monitor: RuntimeLoopTaskRunLiveMonitor | null;
+};
+
+export type SessionTruncateResponse = {
+  id: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+  compressed_context?: string;
+  messages: SessionHistory["messages"];
+};
+
 export type TaskGraphRunStartResult = {
   authority: string;
   graph_id: string;
@@ -2546,6 +2575,13 @@ export async function getSessionHistory(sessionId: string) {
   return request<SessionHistory>(`/sessions/${sessionId}/history`);
 }
 
+export async function truncateSessionMessages(sessionId: string, messageIndex: number) {
+  return request<SessionTruncateResponse>(`/sessions/${sessionId}/messages/truncate`, {
+    method: "POST",
+    body: JSON.stringify({ message_index: messageIndex })
+  });
+}
+
 export async function getSessionTokens(sessionId: string) {
   return request<{
     system_tokens: number;
@@ -3040,6 +3076,12 @@ export async function listOrchestrationRuntimeLoopTaskRuns(sessionId: string) {
   );
 }
 
+export async function getOrchestrationRuntimeLoopSessionLiveMonitor(sessionId: string) {
+  return request<RuntimeLoopSessionLiveMonitor>(
+    `/orchestration/runtime-loop/sessions/${encodeURIComponent(sessionId)}/live-monitor`
+  );
+}
+
 export async function getOrchestrationRuntimeLoopTrace(
   taskRunId: string,
   options?: {
@@ -3057,6 +3099,12 @@ export async function getOrchestrationRuntimeLoopTrace(
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return request<RuntimeLoopTaskRunTrace>(
     `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}${suffix}`
+  );
+}
+
+export async function getOrchestrationRuntimeLoopTaskRunLiveMonitor(taskRunId: string) {
+  return request<RuntimeLoopTaskRunLiveMonitor>(
+    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/live-monitor`
   );
 }
 
@@ -3677,13 +3725,17 @@ export async function streamChat(
     search_policy?: string[];
     task_selection?: Record<string, unknown>;
   },
-  handlers: StreamHandlers
+  handlers: StreamHandlers,
+  options: {
+    signal?: AbortSignal;
+  } = {}
 ) {
   const response = await fetch(`${getApiBase()}/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
+    signal: options.signal,
     body: JSON.stringify({
       ...payload,
       stream: true

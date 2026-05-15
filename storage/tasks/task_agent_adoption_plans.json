@@ -129,8 +129,8 @@
       "task_privilege": "bounded"
     },
     {
-      "plan_id": "taskadopt:task.writing_team.long_novel.world_design",
-      "task_id": "task.writing_team.long_novel.world_design",
+      "plan_id": "taskadopt:task.writing_team.long_novel.world_designer_a",
+      "task_id": "task.writing_team.long_novel.world_designer_a",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
       "allowed_agent_categories": [
@@ -141,7 +141,7 @@
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
-      "notes": "Writing team rebuild default adoption plan.",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
@@ -152,18 +152,18 @@
         "communication_protocol_id": "",
         "topology_template_id": "",
         "agent_group_id": "",
-        "managed_by": "codex_writing_team_rebuild"
+        "managed_by": "codex_writing_team_full_plan"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.world_design",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.world_designer_a",
       "execution_chain_type": "coordination_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
     },
     {
-      "plan_id": "taskadopt:task.writing_team.long_novel.world_review",
-      "task_id": "task.writing_team.long_novel.world_review",
+      "plan_id": "taskadopt:task.writing_team.long_novel.world_designer_b",
+      "task_id": "task.writing_team.long_novel.world_designer_b",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
       "allowed_agent_categories": [
@@ -174,7 +174,7 @@
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
-      "notes": "Writing team rebuild default adoption plan.",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
@@ -185,18 +185,18 @@
         "communication_protocol_id": "",
         "topology_template_id": "",
         "agent_group_id": "",
-        "managed_by": "codex_writing_team_rebuild"
+        "managed_by": "codex_writing_team_full_plan"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.world_review",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.world_designer_b",
       "execution_chain_type": "coordination_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
     },
     {
-      "plan_id": "taskadopt:task.writing_team.long_novel.outline_design",
-      "task_id": "task.writing_team.long_novel.outline_design",
+      "plan_id": "taskadopt:task.writing_team.long_novel.world_judge",
+      "task_id": "task.writing_team.long_novel.world_judge",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
       "allowed_agent_categories": [
@@ -207,7 +207,7 @@
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
-      "notes": "Writing team rebuild default adoption plan.",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
@@ -218,18 +218,18 @@
         "communication_protocol_id": "",
         "topology_template_id": "",
         "agent_group_id": "",
-        "managed_by": "codex_writing_team_rebuild"
+        "managed_by": "codex_writing_team_full_plan"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.outline_design",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.world_judge",
       "execution_chain_type": "coordination_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
     },
     {
-      "plan_id": "taskadopt:task.writing_team.long_novel.outline_review",
-      "task_id": "task.writing_team.long_novel.outline_review",
+      "plan_id": "taskadopt:task.writing_team.long_novel.memory_commit_world",
+      "task_id": "task.writing_team.long_novel.memory_commit_world",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
       "allowed_agent_categories": [
@@ -240,7 +240,7 @@
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
-      "notes": "Writing team rebuild default adoption plan.",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
@@ -251,18 +251,18 @@
         "communication_protocol_id": "",
         "topology_template_id": "",
         "agent_group_id": "",
-        "managed_by": "codex_writing_team_rebuild"
+        "managed_by": "codex_writing_team_full_plan"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.outline_review",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.memory_commit_world",
       "execution_chain_type": "coordination_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
     },
     {
-      "plan_id": "taskadopt:task.writing_team.long_novel.character_design",
-      "task_id": "task.writing_team.long_novel.character_design",
+      "plan_id": "taskadopt:task.writing_team.long_novel.outline_designer_a",
+      "task_id": "task.writing_team.long_novel.outline_designer_a",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
       "allowed_agent_categories": [
@@ -273,7 +273,7 @@
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
-      "notes": "Writing team rebuild default adoption plan.",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
@@ -284,10 +284,241 @@
         "communication_protocol_id": "",
         "topology_template_id": "",
         "agent_group_id": "",
-        "managed_by": "codex_writing_team_rebuild"
+        "managed_by": "codex_writing_team_full_plan"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.character_design",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.outline_designer_a",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.outline_designer_b",
+      "task_id": "task.writing_team.long_novel.outline_designer_b",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.outline_designer_b",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.outline_judge",
+      "task_id": "task.writing_team.long_novel.outline_judge",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.outline_judge",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.memory_commit_outline",
+      "task_id": "task.writing_team.long_novel.memory_commit_outline",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.memory_commit_outline",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.character_designer_a",
+      "task_id": "task.writing_team.long_novel.character_designer_a",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.character_designer_a",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.character_designer_b",
+      "task_id": "task.writing_team.long_novel.character_designer_b",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.character_designer_b",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.character_judge",
+      "task_id": "task.writing_team.long_novel.character_judge",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.character_judge",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.memory_commit_character",
+      "task_id": "task.writing_team.long_novel.memory_commit_character",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.memory_commit_character",
       "execution_chain_type": "coordination_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
@@ -306,7 +537,7 @@
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
-      "notes": "Writing team rebuild default adoption plan.",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
@@ -317,7 +548,7 @@
         "communication_protocol_id": "",
         "topology_template_id": "",
         "agent_group_id": "",
-        "managed_by": "codex_writing_team_rebuild"
+        "managed_by": "codex_writing_team_full_plan"
       },
       "authority": "task_system.task_execution_policy",
       "execution_policy_id": "taskexecpol:task.writing_team.long_novel.chapter_plan",
@@ -327,8 +558,8 @@
       "task_privilege": "bounded"
     },
     {
-      "plan_id": "taskadopt:task.writing_team.long_novel.chapter_draft",
-      "task_id": "task.writing_team.long_novel.chapter_draft",
+      "plan_id": "taskadopt:task.writing_team.long_novel.writer_a_draft",
+      "task_id": "task.writing_team.long_novel.writer_a_draft",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
       "allowed_agent_categories": [
@@ -339,7 +570,7 @@
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
-      "notes": "Writing team rebuild default adoption plan.",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
@@ -350,18 +581,18 @@
         "communication_protocol_id": "",
         "topology_template_id": "",
         "agent_group_id": "",
-        "managed_by": "codex_writing_team_rebuild"
+        "managed_by": "codex_writing_team_full_plan"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.chapter_draft",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.writer_a_draft",
       "execution_chain_type": "coordination_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
     },
     {
-      "plan_id": "taskadopt:task.writing_team.long_novel.chapter_review",
-      "task_id": "task.writing_team.long_novel.chapter_review",
+      "plan_id": "taskadopt:task.writing_team.long_novel.writer_b_review",
+      "task_id": "task.writing_team.long_novel.writer_b_review",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
       "allowed_agent_categories": [
@@ -372,7 +603,7 @@
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
-      "notes": "Writing team rebuild default adoption plan.",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
@@ -383,18 +614,18 @@
         "communication_protocol_id": "",
         "topology_template_id": "",
         "agent_group_id": "",
-        "managed_by": "codex_writing_team_rebuild"
+        "managed_by": "codex_writing_team_full_plan"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.chapter_review",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.writer_b_review",
       "execution_chain_type": "coordination_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
     },
     {
-      "plan_id": "taskadopt:task.writing_team.long_novel.quality_gate",
-      "task_id": "task.writing_team.long_novel.quality_gate",
+      "plan_id": "taskadopt:task.writing_team.long_novel.writer_a_revision",
+      "task_id": "task.writing_team.long_novel.writer_a_revision",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
       "allowed_agent_categories": [
@@ -405,7 +636,7 @@
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
-      "notes": "Writing team rebuild default adoption plan.",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
@@ -416,18 +647,18 @@
         "communication_protocol_id": "",
         "topology_template_id": "",
         "agent_group_id": "",
-        "managed_by": "codex_writing_team_rebuild"
+        "managed_by": "codex_writing_team_full_plan"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.quality_gate",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.writer_a_revision",
       "execution_chain_type": "coordination_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",
       "task_privilege": "bounded"
     },
     {
-      "plan_id": "taskadopt:task.writing_team.long_novel.memory_commit",
-      "task_id": "task.writing_team.long_novel.memory_commit",
+      "plan_id": "taskadopt:task.writing_team.long_novel.writer_b_final_candidate",
+      "task_id": "task.writing_team.long_novel.writer_b_final_candidate",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
       "allowed_agent_categories": [
@@ -438,7 +669,7 @@
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
-      "notes": "Writing team rebuild default adoption plan.",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
       "metadata": {
         "derived_from": "task_assignment",
         "participant_agent_ids": [],
@@ -449,10 +680,406 @@
         "communication_protocol_id": "",
         "topology_template_id": "",
         "agent_group_id": "",
-        "managed_by": "codex_writing_team_rebuild"
+        "managed_by": "codex_writing_team_full_plan"
       },
       "authority": "task_system.task_execution_policy",
-      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.memory_commit",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.writer_b_final_candidate",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.novel_quality_judge",
+      "task_id": "task.writing_team.long_novel.novel_quality_judge",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.novel_quality_judge",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.world_deviation_router",
+      "task_id": "task.writing_team.long_novel.world_deviation_router",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.world_deviation_router",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.world_repair_a",
+      "task_id": "task.writing_team.long_novel.world_repair_a",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.world_repair_a",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.world_repair_b",
+      "task_id": "task.writing_team.long_novel.world_repair_b",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.world_repair_b",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.outline_deviation_router",
+      "task_id": "task.writing_team.long_novel.outline_deviation_router",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.outline_deviation_router",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.outline_repair_a",
+      "task_id": "task.writing_team.long_novel.outline_repair_a",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.outline_repair_a",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.outline_repair_b",
+      "task_id": "task.writing_team.long_novel.outline_repair_b",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.outline_repair_b",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.character_deviation_router",
+      "task_id": "task.writing_team.long_novel.character_deviation_router",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.character_deviation_router",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.character_repair_a",
+      "task_id": "task.writing_team.long_novel.character_repair_a",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.character_repair_a",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.character_repair_b",
+      "task_id": "task.writing_team.long_novel.character_repair_b",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.character_repair_b",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.memory_commit_chapter",
+      "task_id": "task.writing_team.long_novel.memory_commit_chapter",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.memory_commit_chapter",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
+      "plan_id": "taskadopt:task.writing_team.long_novel.memory_finalize",
+      "task_id": "task.writing_team.long_novel.memory_finalize",
+      "adoption_mode": "adopt_existing",
+      "default_agent_id": "agent:0",
+      "allowed_agent_categories": [
+        "main_agent",
+        "system_management_agent",
+        "worker_sub_agent"
+      ],
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "Writing team full double-creator single-judge adoption plan.",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_team_full_plan"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing_team.long_novel.memory_finalize",
       "execution_chain_type": "coordination_node",
       "runtime_agent_selection_policy": "orchestration_default",
       "task_level": "standard",

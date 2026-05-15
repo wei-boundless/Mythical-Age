@@ -23,7 +23,7 @@ class LocalMCPUnitRecord:
     implementation_module: str
     worker_slot: str
     worker_execution_kind: str
-    template_ids: list[str]
+    capability_kinds: list[str]
     answer_source: str
     followup_binding_key: str
     source_kind: str
@@ -63,7 +63,7 @@ def default_local_mcp_units() -> list[LocalMCPUnitRecord]:
             implementation_module="evidence.retrieval_worker.RetrievalWorker",
             worker_slot="retrieval_worker",
             worker_execution_kind="sync",
-            template_ids=["template.rag.knowledge_answer"],
+            capability_kinds=["retrieval", "rag"],
             answer_source="mcp.retrieval_local",
             followup_binding_key="current_turn_context",
             source_kind="knowledge",
@@ -91,7 +91,7 @@ def default_local_mcp_units() -> list[LocalMCPUnitRecord]:
             implementation_module="evidence.pdf_worker.PDFWorker",
             worker_slot="pdf_worker",
             worker_execution_kind="async",
-            template_ids=["template.pdf.document_analysis"],
+            capability_kinds=["pdf", "document_analysis"],
             answer_source="mcp.pdf_local",
             followup_binding_key="active_pdf",
             source_kind="pdf",
@@ -122,7 +122,7 @@ def default_local_mcp_units() -> list[LocalMCPUnitRecord]:
             implementation_module="evidence.structured_data_worker.StructuredDataWorker",
             worker_slot="structured_data_worker",
             worker_execution_kind="async",
-            template_ids=["template.data.structured_analysis"],
+            capability_kinds=["structured_data", "dataset_analysis"],
             answer_source="mcp.structured_data_local",
             followup_binding_key="active_dataset",
             source_kind="dataset",
@@ -154,14 +154,14 @@ def build_local_mcp_route_map() -> dict[str, LocalMCPUnitRecord]:
     return route_map
 
 
-def build_local_mcp_template_map() -> dict[str, LocalMCPUnitRecord]:
-    template_map: dict[str, LocalMCPUnitRecord] = {}
+def build_local_mcp_capability_map() -> dict[str, LocalMCPUnitRecord]:
+    capability_map: dict[str, LocalMCPUnitRecord] = {}
     for record in default_local_mcp_units():
-        for template_id in list(record.template_ids):
-            key = str(template_id or "").strip()
+        for capability_kind in list(record.capability_kinds):
+            key = str(capability_kind or "").strip()
             if key:
-                template_map[key] = record
-    return template_map
+                capability_map[key] = record
+    return capability_map
 
 
 def build_local_mcp_source_kind_map() -> dict[str, LocalMCPUnitRecord]:
@@ -185,16 +185,9 @@ def get_local_mcp_unit(route_or_alias: str | None) -> LocalMCPUnitRecord | None:
     return build_local_mcp_route_map().get(str(route_or_alias or "").strip())
 
 
-def get_local_mcp_unit_for_template(template_id: str | None) -> LocalMCPUnitRecord | None:
-    return build_local_mcp_template_map().get(str(template_id or "").strip())
+def get_local_mcp_unit_for_capability(capability_kind: str | None) -> LocalMCPUnitRecord | None:
+    return build_local_mcp_capability_map().get(str(capability_kind or "").strip())
 
 
 def get_local_mcp_unit_for_source_kind(source_kind: str | None) -> LocalMCPUnitRecord | None:
     return build_local_mcp_source_kind_map().get(str(source_kind or "").strip())
-
-
-def get_local_mcp_primary_template(route_or_alias: str | None) -> str:
-    unit = get_local_mcp_unit(route_or_alias)
-    if unit is None:
-        return ""
-    return str(unit.template_ids[0] if unit.template_ids else "").strip()

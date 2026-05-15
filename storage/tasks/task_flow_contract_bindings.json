@@ -49,62 +49,146 @@
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.writing_team.long_novel.world_design",
-      "task_id": "task.writing_team.long_novel.world_design",
-      "flow_contract_id": "contract.writing_team.long_novel.world_brief",
+      "binding_id": "taskflowbind:task.writing_team.long_novel.world_designer_a",
+      "task_id": "task.writing_team.long_novel.world_designer_a",
+      "flow_contract_id": "contract.writing_team.long_novel.world_proposal_a",
       "override_policy": "task_default",
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild"
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.writing_team.long_novel.world_review",
-      "task_id": "task.writing_team.long_novel.world_review",
-      "flow_contract_id": "contract.writing_team.long_novel.world_review",
+      "binding_id": "taskflowbind:task.writing_team.long_novel.world_designer_b",
+      "task_id": "task.writing_team.long_novel.world_designer_b",
+      "flow_contract_id": "contract.writing_team.long_novel.world_proposal_b",
       "override_policy": "task_default",
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild"
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.writing_team.long_novel.outline_design",
-      "task_id": "task.writing_team.long_novel.outline_design",
-      "flow_contract_id": "contract.writing_team.long_novel.outline_brief",
+      "binding_id": "taskflowbind:task.writing_team.long_novel.world_judge",
+      "task_id": "task.writing_team.long_novel.world_judge",
+      "flow_contract_id": "contract.writing_team.long_novel.world_judgement",
       "override_policy": "task_default",
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild"
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.writing_team.long_novel.outline_review",
-      "task_id": "task.writing_team.long_novel.outline_review",
-      "flow_contract_id": "contract.writing_team.long_novel.outline_review",
+      "binding_id": "taskflowbind:task.writing_team.long_novel.memory_commit_world",
+      "task_id": "task.writing_team.long_novel.memory_commit_world",
+      "flow_contract_id": "contract.writing_team.long_novel.memory_commit_world",
       "override_policy": "task_default",
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild"
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.writing_team.long_novel.character_design",
-      "task_id": "task.writing_team.long_novel.character_design",
-      "flow_contract_id": "contract.writing_team.long_novel.character_sheet",
+      "binding_id": "taskflowbind:task.writing_team.long_novel.outline_designer_a",
+      "task_id": "task.writing_team.long_novel.outline_designer_a",
+      "flow_contract_id": "contract.writing_team.long_novel.outline_proposal_a",
       "override_policy": "task_default",
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild"
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.outline_designer_b",
+      "task_id": "task.writing_team.long_novel.outline_designer_b",
+      "flow_contract_id": "contract.writing_team.long_novel.outline_proposal_b",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.outline_judge",
+      "task_id": "task.writing_team.long_novel.outline_judge",
+      "flow_contract_id": "contract.writing_team.long_novel.outline_judgement",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.memory_commit_outline",
+      "task_id": "task.writing_team.long_novel.memory_commit_outline",
+      "flow_contract_id": "contract.writing_team.long_novel.memory_commit_outline",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.character_designer_a",
+      "task_id": "task.writing_team.long_novel.character_designer_a",
+      "flow_contract_id": "contract.writing_team.long_novel.character_proposal_a",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.character_designer_b",
+      "task_id": "task.writing_team.long_novel.character_designer_b",
+      "flow_contract_id": "contract.writing_team.long_novel.character_proposal_b",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.character_judge",
+      "task_id": "task.writing_team.long_novel.character_judge",
+      "flow_contract_id": "contract.writing_team.long_novel.character_judgement",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.memory_commit_character",
+      "task_id": "task.writing_team.long_novel.memory_commit_character",
+      "flow_contract_id": "contract.writing_team.long_novel.memory_commit_character",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -116,55 +200,199 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild"
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.writing_team.long_novel.chapter_draft",
-      "task_id": "task.writing_team.long_novel.chapter_draft",
-      "flow_contract_id": "contract.writing_team.long_novel.chapter_draft",
+      "binding_id": "taskflowbind:task.writing_team.long_novel.writer_a_draft",
+      "task_id": "task.writing_team.long_novel.writer_a_draft",
+      "flow_contract_id": "contract.writing_team.long_novel.writer_a_draft",
       "override_policy": "task_default",
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild"
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.writing_team.long_novel.chapter_review",
-      "task_id": "task.writing_team.long_novel.chapter_review",
-      "flow_contract_id": "contract.writing_team.long_novel.chapter_review",
+      "binding_id": "taskflowbind:task.writing_team.long_novel.writer_b_review",
+      "task_id": "task.writing_team.long_novel.writer_b_review",
+      "flow_contract_id": "contract.writing_team.long_novel.writer_b_review",
       "override_policy": "task_default",
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild"
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.writing_team.long_novel.quality_gate",
-      "task_id": "task.writing_team.long_novel.quality_gate",
-      "flow_contract_id": "contract.writing_team.long_novel.quality_gate",
+      "binding_id": "taskflowbind:task.writing_team.long_novel.writer_a_revision",
+      "task_id": "task.writing_team.long_novel.writer_a_revision",
+      "flow_contract_id": "contract.writing_team.long_novel.writer_a_revision",
       "override_policy": "task_default",
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild"
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.writing_team.long_novel.memory_commit",
-      "task_id": "task.writing_team.long_novel.memory_commit",
-      "flow_contract_id": "contract.writing_team.long_novel.memory_commit",
+      "binding_id": "taskflowbind:task.writing_team.long_novel.writer_b_final_candidate",
+      "task_id": "task.writing_team.long_novel.writer_b_final_candidate",
+      "flow_contract_id": "contract.writing_team.long_novel.writer_b_final_candidate",
       "override_policy": "task_default",
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild"
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.novel_quality_judge",
+      "task_id": "task.writing_team.long_novel.novel_quality_judge",
+      "flow_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.world_deviation_router",
+      "task_id": "task.writing_team.long_novel.world_deviation_router",
+      "flow_contract_id": "contract.writing_team.long_novel.world_deviation_route",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.world_repair_a",
+      "task_id": "task.writing_team.long_novel.world_repair_a",
+      "flow_contract_id": "contract.writing_team.long_novel.world_repair_a",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.world_repair_b",
+      "task_id": "task.writing_team.long_novel.world_repair_b",
+      "flow_contract_id": "contract.writing_team.long_novel.world_repair_b",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.outline_deviation_router",
+      "task_id": "task.writing_team.long_novel.outline_deviation_router",
+      "flow_contract_id": "contract.writing_team.long_novel.outline_deviation_route",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.outline_repair_a",
+      "task_id": "task.writing_team.long_novel.outline_repair_a",
+      "flow_contract_id": "contract.writing_team.long_novel.outline_repair_a",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.outline_repair_b",
+      "task_id": "task.writing_team.long_novel.outline_repair_b",
+      "flow_contract_id": "contract.writing_team.long_novel.outline_repair_b",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.character_deviation_router",
+      "task_id": "task.writing_team.long_novel.character_deviation_router",
+      "flow_contract_id": "contract.writing_team.long_novel.character_deviation_route",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.character_repair_a",
+      "task_id": "task.writing_team.long_novel.character_repair_a",
+      "flow_contract_id": "contract.writing_team.long_novel.character_repair_a",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.character_repair_b",
+      "task_id": "task.writing_team.long_novel.character_repair_b",
+      "flow_contract_id": "contract.writing_team.long_novel.character_repair_b",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.memory_commit_chapter",
+      "task_id": "task.writing_team.long_novel.memory_commit_chapter",
+      "flow_contract_id": "contract.writing_team.long_novel.memory_commit_chapter",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing_team.long_novel.memory_finalize",
+      "task_id": "task.writing_team.long_novel.memory_finalize",
+      "flow_contract_id": "contract.writing_team.long_novel.memory_finalize",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
     },

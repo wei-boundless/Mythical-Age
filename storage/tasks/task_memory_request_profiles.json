@@ -81,121 +81,267 @@
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.writing_team.long_novel.world_design",
-      "task_id": "task.writing_team.long_novel.world_design",
+      "profile_id": "taskmem:task.writing_team.long_novel.world_designer_a",
+      "task_id": "task.writing_team.long_novel.world_designer_a",
       "requested_memory_layers": [
         "conversation",
         "project"
       ],
       "requested_topics": [
-        "world",
-        "outline",
-        "character",
-        "chapter",
-        "review"
+        "project_brief",
+        "approved_world",
+        "review_decision"
       ],
       "memory_priority": "normal",
-      "writeback_policy": "task_summary_only",
+      "writeback_policy": "candidate_only",
       "allow_long_term_memory": false,
       "memory_scope_hint": "writing_team_long_novel",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel"
       },
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.writing_team.long_novel.world_review",
-      "task_id": "task.writing_team.long_novel.world_review",
+      "profile_id": "taskmem:task.writing_team.long_novel.world_designer_b",
+      "task_id": "task.writing_team.long_novel.world_designer_b",
       "requested_memory_layers": [
         "conversation",
         "project"
       ],
       "requested_topics": [
-        "world",
-        "outline",
-        "character",
-        "chapter",
-        "review"
+        "project_brief",
+        "approved_world",
+        "review_decision"
       ],
       "memory_priority": "normal",
-      "writeback_policy": "task_summary_only",
+      "writeback_policy": "candidate_only",
       "allow_long_term_memory": false,
       "memory_scope_hint": "writing_team_long_novel",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel"
       },
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.writing_team.long_novel.outline_design",
-      "task_id": "task.writing_team.long_novel.outline_design",
+      "profile_id": "taskmem:task.writing_team.long_novel.world_judge",
+      "task_id": "task.writing_team.long_novel.world_judge",
       "requested_memory_layers": [
         "conversation",
         "project"
       ],
       "requested_topics": [
-        "world",
-        "outline",
-        "character",
-        "chapter",
-        "review"
+        "project_brief",
+        "world_proposal_a",
+        "world_proposal_b",
+        "approved_world"
       ],
       "memory_priority": "normal",
-      "writeback_policy": "task_summary_only",
+      "writeback_policy": "review_decision_only",
       "allow_long_term_memory": false,
       "memory_scope_hint": "writing_team_long_novel",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel"
       },
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.writing_team.long_novel.outline_review",
-      "task_id": "task.writing_team.long_novel.outline_review",
+      "profile_id": "taskmem:task.writing_team.long_novel.memory_commit_world",
+      "task_id": "task.writing_team.long_novel.memory_commit_world",
       "requested_memory_layers": [
         "conversation",
         "project"
       ],
       "requested_topics": [
-        "world",
-        "outline",
-        "character",
-        "chapter",
-        "review"
+        "approved_artifact_refs",
+        "world_judgement"
       ],
       "memory_priority": "normal",
-      "writeback_policy": "task_summary_only",
-      "allow_long_term_memory": false,
+      "writeback_policy": "session_and_durable",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_team_long_novel",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel"
       },
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.writing_team.long_novel.character_design",
-      "task_id": "task.writing_team.long_novel.character_design",
+      "profile_id": "taskmem:task.writing_team.long_novel.outline_designer_a",
+      "task_id": "task.writing_team.long_novel.outline_designer_a",
       "requested_memory_layers": [
         "conversation",
         "project"
       ],
       "requested_topics": [
-        "world",
-        "outline",
-        "character",
-        "chapter",
-        "review"
+        "approved_world",
+        "approved_outline",
+        "review_decision"
       ],
       "memory_priority": "normal",
-      "writeback_policy": "task_summary_only",
+      "writeback_policy": "candidate_only",
       "allow_long_term_memory": false,
       "memory_scope_hint": "writing_team_long_novel",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.outline_designer_b",
+      "task_id": "task.writing_team.long_novel.outline_designer_b",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_world",
+        "approved_outline",
+        "review_decision"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "candidate_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.outline_judge",
+      "task_id": "task.writing_team.long_novel.outline_judge",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_world",
+        "outline_proposal_a",
+        "outline_proposal_b",
+        "approved_outline"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "review_decision_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.memory_commit_outline",
+      "task_id": "task.writing_team.long_novel.memory_commit_outline",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_artifact_refs",
+        "outline_judgement"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "session_and_durable",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.character_designer_a",
+      "task_id": "task.writing_team.long_novel.character_designer_a",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_world",
+        "approved_outline",
+        "approved_character",
+        "review_decision"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "candidate_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.character_designer_b",
+      "task_id": "task.writing_team.long_novel.character_designer_b",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_world",
+        "approved_outline",
+        "approved_character",
+        "review_decision"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "candidate_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.character_judge",
+      "task_id": "task.writing_team.long_novel.character_judge",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_world",
+        "approved_outline",
+        "character_proposal_a",
+        "character_proposal_b"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "review_decision_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.memory_commit_character",
+      "task_id": "task.writing_team.long_novel.memory_commit_character",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_artifact_refs",
+        "character_judgement"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "session_and_durable",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel"
       },
       "authority": "task_system.task_memory_request_profile"
@@ -208,114 +354,382 @@
         "project"
       ],
       "requested_topics": [
-        "world",
-        "outline",
-        "character",
-        "chapter",
-        "review"
+        "approved_world",
+        "approved_outline",
+        "approved_character",
+        "previous_summary",
+        "review_decision"
       ],
       "memory_priority": "normal",
-      "writeback_policy": "task_summary_only",
+      "writeback_policy": "candidate_only",
       "allow_long_term_memory": false,
       "memory_scope_hint": "writing_team_long_novel",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel"
       },
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.writing_team.long_novel.chapter_draft",
-      "task_id": "task.writing_team.long_novel.chapter_draft",
+      "profile_id": "taskmem:task.writing_team.long_novel.writer_a_draft",
+      "task_id": "task.writing_team.long_novel.writer_a_draft",
       "requested_memory_layers": [
         "conversation",
         "project"
       ],
       "requested_topics": [
-        "world",
-        "outline",
-        "character",
-        "chapter",
-        "review"
+        "approved_world",
+        "approved_outline",
+        "approved_character",
+        "chapter_plan",
+        "previous_summary"
       ],
       "memory_priority": "normal",
-      "writeback_policy": "task_summary_only",
+      "writeback_policy": "candidate_only",
       "allow_long_term_memory": false,
       "memory_scope_hint": "writing_team_long_novel",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel"
       },
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.writing_team.long_novel.chapter_review",
-      "task_id": "task.writing_team.long_novel.chapter_review",
+      "profile_id": "taskmem:task.writing_team.long_novel.writer_b_review",
+      "task_id": "task.writing_team.long_novel.writer_b_review",
       "requested_memory_layers": [
         "conversation",
         "project"
       ],
       "requested_topics": [
-        "world",
-        "outline",
-        "character",
-        "chapter",
-        "review"
+        "approved_world",
+        "approved_outline",
+        "approved_character",
+        "chapter_plan",
+        "writer_a_draft"
       ],
       "memory_priority": "normal",
-      "writeback_policy": "task_summary_only",
+      "writeback_policy": "review_note_only",
       "allow_long_term_memory": false,
       "memory_scope_hint": "writing_team_long_novel",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel"
       },
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.writing_team.long_novel.quality_gate",
-      "task_id": "task.writing_team.long_novel.quality_gate",
+      "profile_id": "taskmem:task.writing_team.long_novel.writer_a_revision",
+      "task_id": "task.writing_team.long_novel.writer_a_revision",
       "requested_memory_layers": [
         "conversation",
         "project"
       ],
       "requested_topics": [
-        "world",
-        "outline",
-        "character",
-        "chapter",
-        "review"
+        "approved_world",
+        "approved_outline",
+        "approved_character",
+        "writer_a_draft",
+        "writer_b_review"
       ],
       "memory_priority": "normal",
-      "writeback_policy": "task_summary_only",
+      "writeback_policy": "candidate_only",
       "allow_long_term_memory": false,
       "memory_scope_hint": "writing_team_long_novel",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel"
       },
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.writing_team.long_novel.memory_commit",
-      "task_id": "task.writing_team.long_novel.memory_commit",
+      "profile_id": "taskmem:task.writing_team.long_novel.writer_b_final_candidate",
+      "task_id": "task.writing_team.long_novel.writer_b_final_candidate",
       "requested_memory_layers": [
         "conversation",
         "project"
       ],
       "requested_topics": [
-        "world",
-        "outline",
-        "character",
-        "chapter",
-        "review"
+        "approved_world",
+        "approved_outline",
+        "approved_character",
+        "writer_b_review",
+        "writer_a_revision"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "candidate_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.novel_quality_judge",
+      "task_id": "task.writing_team.long_novel.novel_quality_judge",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_world",
+        "approved_outline",
+        "approved_character",
+        "chapter_plan",
+        "writer_a_draft",
+        "writer_b_review",
+        "writer_a_revision",
+        "writer_b_final_candidate"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "review_decision_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.world_deviation_router",
+      "task_id": "task.writing_team.long_novel.world_deviation_router",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "novel_quality_judge",
+        "approved_world",
+        "chapter_fact"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "review_decision_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.world_repair_a",
+      "task_id": "task.writing_team.long_novel.world_repair_a",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_world",
+        "chapter_fact",
+        "deviation_signal"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "candidate_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.world_repair_b",
+      "task_id": "task.writing_team.long_novel.world_repair_b",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_world",
+        "chapter_fact",
+        "deviation_signal"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "candidate_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.outline_deviation_router",
+      "task_id": "task.writing_team.long_novel.outline_deviation_router",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "novel_quality_judge",
+        "approved_outline",
+        "chapter_fact"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "review_decision_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.outline_repair_a",
+      "task_id": "task.writing_team.long_novel.outline_repair_a",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_outline",
+        "chapter_fact",
+        "deviation_signal"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "candidate_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.outline_repair_b",
+      "task_id": "task.writing_team.long_novel.outline_repair_b",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_outline",
+        "chapter_fact",
+        "deviation_signal"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "candidate_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.character_deviation_router",
+      "task_id": "task.writing_team.long_novel.character_deviation_router",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "novel_quality_judge",
+        "approved_character",
+        "chapter_fact"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "review_decision_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.character_repair_a",
+      "task_id": "task.writing_team.long_novel.character_repair_a",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_character",
+        "chapter_fact",
+        "deviation_signal"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "candidate_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.character_repair_b",
+      "task_id": "task.writing_team.long_novel.character_repair_b",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_character",
+        "chapter_fact",
+        "deviation_signal"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "candidate_only",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.memory_commit_chapter",
+      "task_id": "task.writing_team.long_novel.memory_commit_chapter",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "approved_artifact_refs",
+        "novel_quality_judge"
       ],
       "memory_priority": "normal",
       "writeback_policy": "session_and_durable",
       "allow_long_term_memory": true,
       "memory_scope_hint": "writing_team_long_novel",
       "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
+        "managed_by": "codex_writing_team_full_plan",
+        "task_family": "writing_team_long_novel"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing_team.long_novel.memory_finalize",
+      "task_id": "task.writing_team.long_novel.memory_finalize",
+      "requested_memory_layers": [
+        "conversation",
+        "project"
+      ],
+      "requested_topics": [
+        "working_memory_operations",
+        "approved_artifact_refs",
+        "review_decision"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "session_and_durable",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "writing_team_long_novel",
+      "metadata": {
+        "managed_by": "codex_writing_team_full_plan",
         "task_family": "writing_team_long_novel"
       },
       "authority": "task_system.task_memory_request_profile"

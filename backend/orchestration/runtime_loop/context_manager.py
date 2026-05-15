@@ -556,7 +556,39 @@ def _is_stale_runtime_operational_summary(value: str) -> bool:
 def _render_runtime_execution_block(runtime_execution_facts: dict[str, Any] | None) -> str:
     facts = dict(runtime_execution_facts or {})
     worker_spawn = dict(facts.get("worker_spawn_summary") or {})
+    capability_state = dict(facts.get("runtime_capability_state") or {})
     lines: list[str] = []
+    if capability_state:
+        profile_write_capable = bool(capability_state.get("profile_write_capable"))
+        turn_write_adopted = bool(capability_state.get("turn_write_operation_adopted"))
+        turn_write_visible = bool(capability_state.get("turn_write_tool_visible"))
+        visible_tools = [
+            str(item).strip()
+            for item in list(capability_state.get("turn_visible_tools") or [])
+            if str(item).strip()
+        ]
+        adopted_operations = [
+            str(item).strip()
+            for item in list(capability_state.get("turn_adopted_operations") or [])
+            if str(item).strip()
+        ]
+        lines.extend(
+            [
+                "### Agent Capability Boundary",
+                "这一层说明能力边界，不会给本轮额外授权，也不要求你执行未被当前任务采用的工具。",
+                f"- Agent 配置上限允许文件写入/编辑：{'是' if profile_write_capable else '否'}。",
+                f"- 本轮任务已采用写入/编辑 operation：{'是' if turn_write_adopted else '否'}。",
+                f"- 本轮模型可见写入/编辑工具：{'是' if turn_write_visible else '否'}。",
+                "- 当前可见工具只代表本轮执行面，不能反推出 Agent 的总能力。",
+                "- 历史对话或记忆中的 Assistant 自我能力判断不能覆盖这一运行时能力状态。",
+            ]
+        )
+        if visible_tools:
+            lines.append(f"- 本轮可见工具：{', '.join(visible_tools)}。")
+        else:
+            lines.append("- 本轮没有额外模型可见工具；这只表示当前任务没有采用这些工具。")
+        if adopted_operations:
+            lines.append(f"- 本轮采用 operation：{', '.join(adopted_operations)}。")
     if worker_spawn:
         spawned_agent_ids = [
             str(item).strip()

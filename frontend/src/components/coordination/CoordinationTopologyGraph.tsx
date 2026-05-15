@@ -38,6 +38,9 @@ type TopologyEdgeLayout = CoordinationTopologyEdge & {
   current: boolean;
   toolX: number;
   toolY: number;
+  arrowX: number;
+  arrowY: number;
+  arrowRotation: number;
 };
 
 type TopologyLayout = {
@@ -52,6 +55,39 @@ type TopologyLayout = {
 function shortNodeGlyph(label: string) {
   const compact = label.replace(/\s+/g, "");
   return compact.slice(0, Math.min(2, compact.length)) || "A";
+}
+
+function cubicPoint(
+  t: number,
+  start: { x: number; y: number },
+  controlA: { x: number; y: number },
+  controlB: { x: number; y: number },
+  end: { x: number; y: number },
+) {
+  const inverse = 1 - t;
+  return {
+    x:
+      inverse ** 3 * start.x
+      + 3 * inverse ** 2 * t * controlA.x
+      + 3 * inverse * t ** 2 * controlB.x
+      + t ** 3 * end.x,
+    y:
+      inverse ** 3 * start.y
+      + 3 * inverse ** 2 * t * controlA.y
+      + 3 * inverse * t ** 2 * controlB.y
+      + t ** 3 * end.y,
+  };
+}
+
+function displayNodeAgentLabel(node: CoordinationTopologyNode) {
+  const agentLabel = String(node.agentLabel || "").trim();
+  if (!agentLabel || agentLabel === "待分派" || agentLabel === node.title) {
+    return "";
+  }
+  if (/^task[._-]|^agent[._:-]|_agent$|task[._-]writing/i.test(agentLabel)) {
+    return "";
+  }
+  return agentLabel;
 }
 
 function statusClass(status = "") {
@@ -77,6 +113,31 @@ function statusClass(status = "") {
     return "is-ready";
   }
   return "is-idle";
+}
+
+function statusLabel(status = "") {
+  if (status === "completed" || status === "success" || status === "satisfied") {
+    return "完成";
+  }
+  if (status === "running") {
+    return "运行中";
+  }
+  if (status === "failed") {
+    return "失败";
+  }
+  if (status === "blocked") {
+    return "阻塞";
+  }
+  if (status === "waiting" || status === "waiting_for_human" || status === "human_gate") {
+    return "等待确认";
+  }
+  if (status === "ready" || status === "pending_retry") {
+    return "就绪";
+  }
+  if (status === "pending" || status === "idle") {
+    return "待执行";
+  }
+  return status || "待执行";
 }
 
 export function buildCoordinationTopologyLayout(
@@ -129,7 +190,7 @@ export function buildCoordinationTopologyLayout(
         ...node,
         x,
         y,
-        shortLabel: shortNodeGlyph(node.agentLabel || node.title),
+        shortLabel: shortNodeGlyph(node.title || node.id),
       });
     }
   }
@@ -142,6 +203,12 @@ export function buildCoordinationTopologyLayout(
         return null;
       }
       const middleX = (from.x + to.x) / 2;
+      const start = { x: from.x, y: from.y };
+      const controlA = { x: middleX, y: from.y };
+      const controlB = { x: middleX, y: to.y };
+      const end = { x: to.x, y: to.y };
+      const arrowPoint = cubicPoint(0.68, start, controlA, controlB, end);
+      const arrowTangent = cubicPoint(0.7, start, controlA, controlB, end);
       return {
         ...edge,
         current:
@@ -151,6 +218,9 @@ export function buildCoordinationTopologyLayout(
         path: `M ${from.x} ${from.y} C ${middleX} ${from.y}, ${middleX} ${to.y}, ${to.x} ${to.y}`,
         toolX: middleX,
         toolY: (from.y + to.y) / 2,
+        arrowX: arrowPoint.x,
+        arrowY: arrowPoint.y,
+        arrowRotation: Math.atan2(arrowTangent.y - arrowPoint.y, arrowTangent.x - arrowPoint.x) * 180 / Math.PI,
       };
     })
     .filter((edge): edge is TopologyEdgeLayout => Boolean(edge));
@@ -331,17 +401,6 @@ export function CoordinationTopologyGraph({
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
-        <marker
-          id="coordination-topology-arrow"
-          markerWidth="10"
-          markerHeight="10"
-          refX="9"
-          refY="5"
-          markerUnits="strokeWidth"
-          orient="auto"
-        >
-          <path d="M 0 0 L 10 5 L 0 10 z" className="coordination-topology-arrowhead" />
-        </marker>
       </defs>
       {frameLayouts.length ? (
         <g className="coordination-topology-frames">
@@ -368,7 +427,7 @@ export function CoordinationTopologyGraph({
                   {frame.title}
                 </text>
                 <text className="coordination-topology-frame__meta" x={frame.x + 12} y={frame.y + 36}>
-                  {frame.frameType} · {frame.nodeIds.length} nodes
+                  {frame.frameType} · {frame.nodeIds.length} 个节点
                 </text>
               </g>
             );
@@ -383,13 +442,17 @@ export function CoordinationTopologyGraph({
               <path
                 className={`coordination-topology-edge ${statusClass(edge.status)} ${edge.current ? "is-current" : ""} ${selected ? "is-selected" : ""}`}
                 d={edge.path}
-                markerEnd="url(#coordination-topology-arrow)"
                 onClick={(event) => onSelectEdge?.(edge.id, event)}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
                   onEdgeContextMenu?.(edge.id, event);
                 }}
+              />
+              <path
+                className={`coordination-topology-edge-arrow ${statusClass(edge.status)} ${edge.current ? "is-current" : ""} ${selected ? "is-selected" : ""}`}
+                d="M -4 -3 L 4 0 L -4 3 Z"
+                transform={`translate(${edge.arrowX}, ${edge.arrowY}) rotate(${edge.arrowRotation})`}
               />
               {renderEdgeTools && selected ? (
                 <foreignObject
@@ -415,6 +478,7 @@ export function CoordinationTopologyGraph({
           const linking = node.id === linkingFromNodeId;
           const clickable = Boolean(onSelectNode || onConnectNode);
           const isMemoryNode = node.nodeKind === "memory" || node.role === "memory";
+          const agentLabel = displayNodeAgentLabel(node);
           return (
             <g
               className={clickable ? "coordination-topology-node-group is-clickable" : "coordination-topology-node-group"}
@@ -434,7 +498,7 @@ export function CoordinationTopologyGraph({
               transform={`translate(${node.x}, ${node.y})`}
             >
               <text className={`coordination-topology-agent-label ${topology.compact ? "is-compact" : ""} ${current || selected || linking ? "is-current" : ""}`} textAnchor="middle" x="0" y={agentLabelY}>
-                {node.agentLabel || node.title}
+                {node.title}
               </text>
               {isMemoryNode ? (
                 <>
@@ -474,7 +538,7 @@ export function CoordinationTopologyGraph({
                 {node.shortLabel}
               </text>
               <text className={`coordination-topology-node-title ${topology.compact ? "is-compact" : ""} ${current || selected || linking ? "is-current" : ""}`} textAnchor="middle" x="0" y={titleY}>
-                {node.title}
+                {agentLabel || statusLabel(node.status)}
               </text>
               {renderNodeTools && selected ? (
                 <foreignObject className="coordination-topology-node-tools" height="40" width={nodeToolsWidth} x={nodeToolsX} y={nodeToolsY}>

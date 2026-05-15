@@ -59,9 +59,15 @@ def compile_task_graph_definition_runtime_spec(
     ]
     if not edges and len(nodes) > 1:
         edges = _default_edges(nodes, default_mode=_default_communication_mode(graph, communication_protocol))
-    source_ids = {edge.source_node_id for edge in edges}
-    target_ids = {edge.target_node_id for edge in edges}
     node_ids = [node.node_id for node in nodes]
+    main_dependency_edges = _main_dependency_edges(nodes=nodes, edges=edges)
+    node_order = {node.node_id: index for index, node in enumerate(nodes)}
+    source_ids = {edge.source_node_id for edge in main_dependency_edges}
+    target_ids = {
+        edge.target_node_id
+        for edge in edges
+        if not _is_backward_edge(edge=edge, node_order=node_order)
+    }
     start_node_ids = tuple(
         dict.fromkeys(
             [
@@ -114,6 +120,7 @@ def compile_task_graph_definition_runtime_spec(
         nodes=nodes,
         edges=edges,
     )
+    working_memory_resource_steps = _working_memory_resource_steps(nodes=nodes, edges=edges)
     validation_issues.extend(_runtime_issues_from_scheduler_support(scheduler_support))
     return TaskGraphRuntimeSpec(
         graph_id=graph.graph_id,
@@ -142,6 +149,7 @@ def compile_task_graph_definition_runtime_spec(
             "timeline_policy": dict(graph_metadata.get("timeline_policy") or {}),
             "phase_definitions": list(graph_metadata.get("phase_definitions") or []),
             "scheduler_support": scheduler_support,
+            "working_memory_resource_steps": working_memory_resource_steps,
         },
     )
 
@@ -264,6 +272,39 @@ def _default_communication_mode(
         *([str(item).strip() for item in communication_protocol.message_types] if communication_protocol is not None else []),
     ]
     return next((item for item in modes if item), "handoff")
+
+
+def _main_dependency_edges(
+    *,
+    nodes: list[TaskGraphRuntimeNode],
+    edges: list[TaskGraphRuntimeEdge],
+) -> list[TaskGraphRuntimeEdge]:
+    node_order = {node.node_id: index for index, node in enumerate(nodes)}
+    return [
+        edge
+        for edge in edges
+        if not _is_feedback_or_backward_edge(edge=edge, node_order=node_order)
+    ]
+
+
+def _is_feedback_or_backward_edge(*, edge: TaskGraphRuntimeEdge, node_order: dict[str, int]) -> bool:
+    metadata = dict(edge.metadata or {})
+    mode = str(edge.mode or "").strip()
+    dependency_role = str(metadata.get("dependency_role") or "").strip()
+    loop_role = str(metadata.get("loop_role") or "").strip()
+    if mode in {"review_feedback", "repair_feedback", "conditional_feedback"}:
+        return True
+    if dependency_role in {"feedback", "conditional_feedback", "repair_feedback", "non_blocking_feedback"}:
+        return True
+    if loop_role in {"repair", "feedback"}:
+        return True
+    return _is_backward_edge(edge=edge, node_order=node_order)
+
+
+def _is_backward_edge(*, edge: TaskGraphRuntimeEdge, node_order: dict[str, int]) -> bool:
+    source_index = node_order.get(str(edge.source_node_id or "").strip())
+    target_index = node_order.get(str(edge.target_node_id or "").strip())
+    return source_index is not None and target_index is not None and source_index > target_index
 
 
 def _effective_node_policy(raw_value: str, graph_default: str, *, dataclass_default: str) -> str:
@@ -394,6 +435,52 @@ def _scheduler_support_report(
         "partial_count": len(partial),
         "unsupported_count": len(unsupported),
     }
+
+
+def _working_memory_resource_steps(
+    *,
+    nodes: list[TaskGraphRuntimeNode],
+    edges: list[TaskGraphRuntimeEdge],
+) -> list[dict[str, Any]]:
+    steps: list[dict[str, Any]] = []
+    for node in nodes:
+        if node.memory_read_policy:
+            steps.append(
+                {
+                    "step_id": f"memory_read:{node.node_id}",
+                    "operation": "read",
+                    "owner_node_id": node.node_id,
+                    "before_node_id": node.node_id,
+                    "memory_read_policy": dict(node.memory_read_policy),
+                    "dynamic_memory_read_policy": dict(node.dynamic_memory_read_policy),
+                    "authority": "task_system.working_memory_resource_step",
+                }
+            )
+        if node.memory_writeback_policy:
+            steps.append(
+                {
+                    "step_id": f"memory_write:{node.node_id}",
+                    "operation": "write",
+                    "owner_node_id": node.node_id,
+                    "after_node_id": node.node_id,
+                    "memory_writeback_policy": dict(node.memory_writeback_policy),
+                    "authority": "task_system.working_memory_resource_step",
+                }
+            )
+    for edge in edges:
+        if edge.working_memory_handoff_policy:
+            steps.append(
+                {
+                    "step_id": f"memory_handoff:{edge.edge_id}",
+                    "operation": "handoff",
+                    "edge_id": edge.edge_id,
+                    "source_node_id": edge.source_node_id,
+                    "target_node_id": edge.target_node_id,
+                    "working_memory_handoff_policy": dict(edge.working_memory_handoff_policy),
+                    "authority": "task_system.working_memory_resource_step",
+                }
+            )
+    return steps
 
 
 def _runtime_issues_from_scheduler_support(report: dict[str, Any]) -> list[TaskGraphRuntimeValidationIssue]:

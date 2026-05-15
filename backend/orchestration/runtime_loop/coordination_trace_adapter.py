@@ -38,7 +38,13 @@ class CoordinationTraceAdapter:
             if result:
                 stage["final_result_ref"] = str(result.get("task_result_ref") or result.get("agent_run_result_ref") or "")
                 stage["artifact_refs"] = list(result.get("artifact_refs") or [])
+                stage["working_memory_refs"] = list(result.get("working_memory_refs") or [])
             stages.append(stage)
+        working_memory_operations = [
+            dict(item)
+            for item in list(state.get("working_memory_operations") or [])
+            if isinstance(item, dict)
+        ]
         return {
             "coordination_mode": str(state.get("coordination_mode") or ""),
             "current_stage_id": str(state.get("active_stage_id") or ""),
@@ -55,6 +61,8 @@ class CoordinationTraceAdapter:
             "waiting_nodes": list(state.get("waiting_nodes") or []),
             "completed_nodes": list(state.get("completed_nodes") or []),
             "failed_nodes": list(state.get("failed_nodes") or []),
+            "working_memory_operations": working_memory_operations[-20:],
+            "working_memory_operation_count": len(working_memory_operations),
             "completed_stage_ids": [
                 str(stage.get("stage_id") or "")
                 for stage in stages
@@ -101,6 +109,13 @@ class CoordinationTraceAdapter:
                     for item in list(state.get("handoff_packets") or [])[-10:]
                     if isinstance(item, dict)
                 ],
+                "working_memory_contexts": dict(state.get("working_memory_contexts") or {}),
+                "working_memory_operations": [
+                    dict(item)
+                    for item in list(state.get("working_memory_operations") or [])[-20:]
+                    if isinstance(item, dict)
+                ],
+                "working_memory_operation_count": len(list(state.get("working_memory_operations") or [])),
                 "task_graph_scheduler_state": dict(
                     dict(state.get("diagnostics") or {}).get("task_graph_scheduler_state") or {}
                 ),
@@ -175,6 +190,7 @@ class CoordinationTraceAdapter:
                 "stage_status": str(stage_payload.get("status") or ""),
                 "message_type": str(stage_payload.get("message_type") or ""),
                 "task_ref": str(stage_payload.get("task_ref") or ""),
+                "working_memory_refs": list(stage_payload.get("working_memory_refs") or []),
             }
             node_run = CoordinationNodeRun(
                 node_run_id=(current.node_run_id if current is not None else f"coordnode:{coordination_run.coordination_run_id}:{node_id}"),

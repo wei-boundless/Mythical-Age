@@ -35,25 +35,45 @@
         "task/review_feedback"
       ],
       "payload_contracts": [
-        "contract.writing_team.long_novel.world_brief",
-        "contract.writing_team.long_novel.world_review",
-        "contract.writing_team.long_novel.outline_brief",
-        "contract.writing_team.long_novel.outline_review",
-        "contract.writing_team.long_novel.character_sheet",
+        "contract.writing_team.long_novel.world_proposal_a",
+        "contract.writing_team.long_novel.world_proposal_b",
+        "contract.writing_team.long_novel.world_judgement",
+        "contract.writing_team.long_novel.memory_commit_world",
+        "contract.writing_team.long_novel.outline_proposal_a",
+        "contract.writing_team.long_novel.outline_proposal_b",
+        "contract.writing_team.long_novel.outline_judgement",
+        "contract.writing_team.long_novel.memory_commit_outline",
+        "contract.writing_team.long_novel.character_proposal_a",
+        "contract.writing_team.long_novel.character_proposal_b",
+        "contract.writing_team.long_novel.character_judgement",
+        "contract.writing_team.long_novel.memory_commit_character",
         "contract.writing_team.long_novel.chapter_plan",
-        "contract.writing_team.long_novel.chapter_draft",
-        "contract.writing_team.long_novel.chapter_review",
-        "contract.writing_team.long_novel.quality_gate",
-        "contract.writing_team.long_novel.memory_commit"
+        "contract.writing_team.long_novel.writer_a_draft",
+        "contract.writing_team.long_novel.writer_b_review",
+        "contract.writing_team.long_novel.writer_a_revision",
+        "contract.writing_team.long_novel.writer_b_final_candidate",
+        "contract.writing_team.long_novel.novel_quality_judge",
+        "contract.writing_team.long_novel.world_deviation_route",
+        "contract.writing_team.long_novel.world_repair_a",
+        "contract.writing_team.long_novel.world_repair_b",
+        "contract.writing_team.long_novel.outline_deviation_route",
+        "contract.writing_team.long_novel.outline_repair_a",
+        "contract.writing_team.long_novel.outline_repair_b",
+        "contract.writing_team.long_novel.character_deviation_route",
+        "contract.writing_team.long_novel.character_repair_a",
+        "contract.writing_team.long_novel.character_repair_b",
+        "contract.writing_team.long_novel.memory_commit_chapter",
+        "contract.writing_team.long_novel.memory_finalize"
       ],
       "signal_rules": [
-        "quality_gate_controls_memory_commit",
-        "repair_required_returns_to_chapter_plan"
+        "judge_controls_memory_commit",
+        "repair_required_routes_to_author_plan_or_deviation_subgraph"
       ],
       "handoff_rules": [
         "structured_artifact_refs_only",
         "no_raw_agent_dialogue",
-        "summary_before_full_text"
+        "summary_before_full_text",
+        "no_unapproved_memory_commit"
       ],
       "ack_policy": "explicit_ack",
       "timeout_policy": "fail_closed",

@@ -26,6 +26,8 @@ from .assembly_support import (
 from .bindings import default_task_binding, merge_task_bindings
 from .contracts import build_task_contract
 from .definitions import select_runtime_task_definitions
+from .execution_recipe_builder import build_execution_recipe
+from .execution_shape_resolver import resolve_execution_shape
 from .flow_registry import TaskFlowRegistry
 from .runtime_contracts import SkillRuntimeView, skill_runtime_views_for_refs
 from .template_registry import TaskTemplateRegistry
@@ -73,25 +75,21 @@ def build_task_execution_assembly_bundle(
         query_understanding=query_understanding,
         current_turn_context=current_turn_payload,
     )
-    template_match = template_registry.match_template(
+    execution_shape = resolve_execution_shape(
         task_intent_contract=task_intent_contract,
         query_understanding=query_understanding,
         current_turn_context=current_turn_payload,
         definitions=definitions,
+        registered_task=registered_task,
     )
-    selected_template = template_registry.get_template(template_match.template_id)
-    if selected_template is None:
-        raise ValueError(f"Unknown template selected: {template_match.template_id}")
-    if registered_task:
-        registered_template_id = str(registered_task.get("template_id") or "").strip()
-        if registered_template_id:
-            registered_template = template_registry.get_template(registered_template_id)
-            if registered_template is not None:
-                selected_template = registered_template
+    selected_recipe = build_execution_recipe(
+        base_dir=registry_base_dir,
+        execution_shape=execution_shape,
+    )
     definitions = _align_runtime_definitions(
         definitions=definitions,
         registered_task=registered_task,
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
     )
     bundle_spec = _build_bundle_spec(
         task_id=task_id,
@@ -100,16 +98,16 @@ def build_task_execution_assembly_bundle(
     bindings = [default_task_binding(definition) for definition in definitions]
     merged_binding = _align_task_binding_with_template(
         merge_task_bindings(bindings),
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
     )
     task_family = _resolve_task_family(
         registered_task=registered_task,
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
         definitions=definitions,
     )
     task_mode = _resolve_task_mode(
         registered_task=registered_task,
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
         definitions=definitions,
     )
     task_contract = build_task_contract(
@@ -117,7 +115,7 @@ def build_task_execution_assembly_bundle(
         session_id=session_id,
         user_goal=user_goal,
         source=source,
-        template_id=selected_template.template_id,
+        template_id=selected_recipe.recipe_id,
         task_family=task_family,
         task_mode=task_mode,
         task_spec_ref=f"taskspec:{task_id}",
@@ -128,11 +126,11 @@ def build_task_execution_assembly_bundle(
     )
     runtime_operations = _dedupe(list(runtime_required_operations or ()))
     resolved_runtime_operations = _resolve_template_runtime_operations(
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
         agent_runtime_profile=agent_runtime_profile,
     )
     operation_policy = _resolve_task_operation_policy(
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
         registered_task=registered_task,
         current_turn_context=current_turn_payload,
     )
@@ -189,12 +187,12 @@ def build_task_execution_assembly_bundle(
         skill_required_operations=tuple(skill_operations),
         approval_policy=_resolve_operation_approval_policy(
             merged_binding=merged_binding,
-            selected_template=selected_template,
+            selected_recipe=selected_recipe,
             registered_task=registered_task,
         ),
         review_policy=merged_binding.review_policy,
         safety_envelope=_build_task_safety_envelope(
-            selected_template=selected_template,
+            selected_recipe=selected_recipe,
             registered_task=registered_task,
             current_turn_context=current_turn_payload,
         ),
@@ -205,10 +203,9 @@ def build_task_execution_assembly_bundle(
         task_id=task_id,
         session_id=session_id,
         user_goal=user_goal,
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
         registered_task=registered_task,
         task_intent_contract=task_intent_contract,
-        template_match=template_match,
         bundle_spec=bundle_spec,
         definitions=definitions,
         current_turn_context=current_turn_payload,
@@ -221,7 +218,7 @@ def build_task_execution_assembly_bundle(
         flow_registry=flow_registry,
         workflow_registry=workflow_registry,
         registered_task=registered_task,
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
         definitions=definitions,
         current_turn_context=current_turn_payload,
         task_mode=task_mode,
@@ -244,7 +241,7 @@ def build_task_execution_assembly_bundle(
         task_id=registered_task_id or task_contract.task_id,
         task_family=task_family,
         task_mode=task_mode,
-        selected_template_id=selected_template.template_id,
+        legacy_template_id=selected_recipe.template_id,
         query_understanding=dict(query_understanding or {}),
     )
     projection_selection = _align_projection_selection_with_binding(
@@ -273,9 +270,9 @@ def build_task_execution_assembly_bundle(
             **dict(task_contract_payload.get("bindings") or {}),
             "current_turn": current_turn_payload,
         }
-    task_contract_payload["selected_template_id"] = selected_template.template_id
+    task_contract_payload["legacy_template_id"] = selected_recipe.template_id
     task_contract_payload["task_intent_ref"] = task_intent_contract.task_intent_id
-    task_contract_payload["template_match_ref"] = template_match.match_id
+    task_contract_payload["selected_recipe_id"] = selected_recipe.recipe_id
     task_contract_payload["bundle_spec_ref"] = bundle_spec.bundle_id if bundle_spec is not None else ""
     task_contract_payload["requested_outputs"] = list(task_spec.requested_outputs)
     execution_chain_type = "single_agent_chain"
@@ -293,7 +290,6 @@ def build_task_execution_assembly_bundle(
         task_mode=task_mode,
         task_kind=str((registered_task or {}).get("task_type") or "conversation_entry_policy"),
         task_intent_ref=task_intent_contract.task_intent_id,
-        template_match_ref=template_match.match_id,
         task_spec_ref=task_spec.task_spec_ref,
         bundle_spec_ref=bundle_spec.bundle_id if bundle_spec is not None else "",
         workflow_id=str((task_workflow or {}).get("workflow_id") or ""),
@@ -315,7 +311,10 @@ def build_task_execution_assembly_bundle(
         task_constraints=dict(task_spec.constraints or {}),
         requested_outputs=tuple(task_spec.requested_outputs),
         metadata={
-            "template_id": selected_template.template_id,
+            "template_id": selected_recipe.template_id,
+            "recipe_id": selected_recipe.recipe_id,
+            "execution_kind": selected_recipe.execution_kind,
+            "source_kind": selected_recipe.source_kind,
             "registered_task_id": str((registered_task or {}).get("task_id") or ""),
             "registered_task_type": str((registered_task or {}).get("task_type") or ""),
             "specific_task_title": str(getattr(specific_task_record, "task_title", "") or ""),
@@ -328,10 +327,10 @@ def build_task_execution_assembly_bundle(
             "operation_policy": dict(operation_policy),
             **({"coordination_request_ref": coordination_request_brief.get("brief_id")} if coordination_request_brief else {}),
             "final_answer_requirements": list(
-                dict(getattr(selected_template, "metadata", {}) or {}).get("final_answer_requirements") or []
+                dict(getattr(selected_recipe, "metadata", {}) or {}).get("final_answer_requirements") or []
             ),
             "forbidden_final_states": list(
-                dict(getattr(selected_template, "metadata", {}) or {}).get("forbidden_final_states") or []
+                dict(getattr(selected_recipe, "metadata", {}) or {}).get("forbidden_final_states") or []
             ),
         },
     )
@@ -339,8 +338,8 @@ def build_task_execution_assembly_bundle(
         "task_contract": task_contract_payload,
         "definitions": [definition.to_dict() for definition in definitions],
         "task_intent_contract": task_intent_contract.to_dict(),
-        "template_match": template_match.to_dict(),
-        "selected_template": selected_template.to_dict(),
+        "execution_shape": execution_shape.to_dict(),
+        "selected_recipe": selected_recipe.to_dict(),
         "bundle_spec": bundle_spec.to_dict() if bundle_spec is not None else {},
         "task_spec": task_spec.to_dict(),
         "coordination_request_brief": coordination_request_brief,
@@ -364,7 +363,8 @@ def build_task_execution_assembly_bundle(
         "active_skill": active_skill_payload,
         "status": "assembled",
         "_definitions_obj": definitions,
-        "_selected_template_obj": selected_template,
+        "_selected_template_obj": selected_recipe,
+        "_selected_recipe_obj": selected_recipe,
         "_merged_binding_obj": merged_binding,
         "_task_workflow_obj": task_workflow,
         "_task_spec_obj": task_spec,
@@ -375,16 +375,16 @@ def build_task_execution_assembly_bundle(
 
 def _resolve_template_runtime_operations(
     *,
-    selected_template,
+    selected_recipe,
     agent_runtime_profile: AgentRuntimeProfile | None,
 ) -> dict[str, Any]:
-    metadata = dict(getattr(selected_template, "metadata", {}) or {})
+    metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
     strategy = str(metadata.get("execution_strategy") or "").strip()
     if strategy != "delegate_preferred":
         return {
             "strategy": "direct",
-            "required_operations": tuple(getattr(selected_template, "required_operations", ()) or ()),
-            "optional_operations": tuple(getattr(selected_template, "optional_operations", ()) or ()),
+            "required_operations": tuple(getattr(selected_recipe, "required_operations", ()) or ()),
+            "optional_operations": tuple(getattr(selected_recipe, "optional_operations", ()) or ()),
         }
     fallback_operation = str(metadata.get("fallback_operation") or "").strip()
     target_agent_id = str(metadata.get("delegate_target_agent_id") or "").strip()
@@ -409,7 +409,7 @@ def _resolve_template_runtime_operations(
         "strategy": "delegate_preferred",
         "execution_mode": "direct_fallback",
         "required_operations": tuple(_dedupe(["op.model_response", fallback_operation])),
-        "optional_operations": tuple(getattr(selected_template, "optional_operations", ()) or ()),
+        "optional_operations": tuple(getattr(selected_recipe, "optional_operations", ()) or ()),
         "delegate_target_agent_id": target_agent_id,
         "delegate_target_agent_category": target_agent_category,
         "delegation_kind": str(metadata.get("delegation_kind") or "").strip(),
@@ -460,7 +460,7 @@ def _memory_request_profile_payload(
     task_id: str,
     task_family: str,
     task_mode: str,
-    selected_template_id: str,
+    legacy_template_id: str,
     query_understanding: dict[str, Any],
 ) -> dict[str, Any]:
     payload = memory_request_profile.to_dict() if memory_request_profile is not None else {}
@@ -475,7 +475,7 @@ def _memory_request_profile_payload(
         not payload
         and (
             task_mode in {"short_realtime_lookup", "information_search"}
-            or selected_template_id in {"template.search.short_realtime_lookup", "template.search.information_search"}
+            or legacy_template_id in {"template.search.short_realtime_lookup", "template.search.information_search"}
             or route in {"realtime_network", "search"}
         )
     ):
@@ -497,7 +497,7 @@ def _memory_request_profile_payload(
         not payload
         and (
             task_mode in {"capability_execution", "knowledge_retrieval"}
-            or selected_template_id
+            or legacy_template_id
             in {
                 "template.data.structured_analysis",
                 "template.pdf.document_analysis",
@@ -524,7 +524,7 @@ def _memory_request_profile_payload(
     if (
         task_family == "memory"
         or task_mode == "memory_recall"
-        or selected_template_id == "template.memory.recall_answer"
+        or legacy_template_id == "template.memory.recall_answer"
         or route == "memory"
         or posture == "direct_memory"
     ):
@@ -644,11 +644,11 @@ def _build_projection_selection_result(
 
 def _resolve_task_operation_policy(
     *,
-    selected_template: Any,
+    selected_recipe: Any,
     registered_task: dict[str, Any] | None,
     current_turn_context: dict[str, Any],
 ) -> dict[str, Any]:
-    template_policy = dict(dict(getattr(selected_template, "metadata", {}) or {}).get("operation_policy") or {})
+    template_policy = dict(dict(getattr(selected_recipe, "metadata", {}) or {}).get("operation_policy") or {})
     registered_policy = dict((registered_task or {}).get("task_policy") or {})
     task_operation_policy = dict(registered_policy.get("operation_policy") or {})
     context_policy = dict(current_turn_context.get("operation_policy") or {})

@@ -4,19 +4,16 @@ from pathlib import Path
 from typing import Any
 
 from capability_system import build_default_operation_registry
-from capability_system.local_mcp_registry import get_local_mcp_primary_template, get_local_mcp_unit_for_source_kind
 from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
-from understanding.capability_resolution_view import capability_resolution_view
 
-from .match_contracts import TaskIntentContract, TemplateMatchResult
-from .definitions import TaskDefinition
+from .match_contracts import TaskIntentContract
 from .step_models import TaskStepBlueprint
 from .template_models import TaskTemplate, TaskValidationRule
 
-_PDF_TEMPLATE_ID = get_local_mcp_primary_template("pdf") or "template.pdf.document_analysis"
-_STRUCTURED_DATA_TEMPLATE_ID = get_local_mcp_primary_template("structured_data") or "template.data.structured_analysis"
-_RAG_TEMPLATE_ID = get_local_mcp_primary_template("retrieval") or "template.rag.knowledge_answer"
+_PDF_TEMPLATE_ID = "template.pdf.document_analysis"
+_STRUCTURED_DATA_TEMPLATE_ID = "template.data.structured_analysis"
+_RAG_TEMPLATE_ID = "template.rag.knowledge_answer"
 
 
 def default_task_templates() -> tuple[TaskTemplate, ...]:
@@ -229,12 +226,12 @@ def default_task_templates() -> tuple[TaskTemplate, ...]:
                 "final_answer": {"type": "string", "required": True},
                 "artifact_refs": {"type": "array", "required": False},
             },
-            required_operations=("op.model_response", "op.read_file", "op.search_text", "op.edit_file"),
+            required_operations=("op.model_response", "op.read_file", "op.search_text", "op.write_file", "op.edit_file"),
             optional_operations=("op.search_files", "op.git_diff"),
             step_blueprints=(
                 _step("scope_patch", "锁定补丁范围", "understand"),
                 _step("inspect_code", "阅读相关代码", "analyze", required_operations=("op.read_file", "op.search_text")),
-                _step("apply_patch", "实施受限补丁", "write", required_operations=("op.edit_file",)),
+                _step("apply_patch", "实施受限补丁", "write", required_operations=("op.write_file", "op.edit_file")),
                 _step("verify_patch", "验证变更", "verify"),
                 _step("finalize_patch", "汇报补丁结果", "finalize"),
             ),
@@ -395,6 +392,7 @@ def _step(
         output_contract_id=output_contract_id,
     )
 
+
 class TaskTemplateRegistry:
     def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = Path(base_dir) if base_dir is not None else None
@@ -445,15 +443,6 @@ class TaskTemplateRegistry:
                 ],
             ]
         )
-        candidate_template_ids = _intent_candidate_template_ids(
-            explicit_inputs=explicit_inputs,
-            bundle_items=bundle_items,
-            resolved_bindings=resolved_bindings,
-            capability_requests=capability_requests,
-            user_goal=user_goal,
-            query_understanding=understanding,
-            current_turn_context=current_turn,
-        )
         followup_target_refs = _dedupe(
             [
                 *[
@@ -499,7 +488,6 @@ class TaskTemplateRegistry:
             ),
             followup_target_refs=tuple(followup_target_refs),
             capability_requests=tuple(capability_requests),
-            candidate_template_ids=tuple(candidate_template_ids),
             diagnostics={
                 "execution_mode": str(current_turn.get("execution_mode") or "single"),
                 "bundle_item_count": len(bundle_items),
@@ -514,195 +502,6 @@ class TaskTemplateRegistry:
                 ),
             },
         )
-
-    def match_template(
-        self,
-        *,
-        task_intent_contract: TaskIntentContract,
-        query_understanding: dict[str, Any] | None = None,
-        current_turn_context: dict[str, Any] | None = None,
-        definitions: list[TaskDefinition] | None = None,
-    ) -> TemplateMatchResult:
-        templates = {item.template_id: item for item in self.list_templates()}
-        understanding = dict(query_understanding or {})
-        current_turn = dict(current_turn_context or {})
-        explicit_inputs = dict(task_intent_contract.explicit_inputs or {})
-        definition_ids = {
-            str(item.definition_id or "").strip()
-            for item in list(definitions or [])
-            if isinstance(item, TaskDefinition)
-        }
-        resolution = capability_resolution_view(understanding)
-        effective_route = resolution.route
-        execution_posture = resolution.execution_posture
-        effective_skill = resolution.preferred_skill
-        source_kind = str(understanding.get("source_kind") or "").strip()
-        modality = str(understanding.get("modality") or "").strip()
-        lowered_goal = str(task_intent_contract.user_goal or "").lower()
-        capability_requests = set(task_intent_contract.capability_requests)
-        explicit_template_id = str(explicit_inputs.get("explicit_template_id") or "").strip()
-        followup_target_kind = str(task_intent_contract.diagnostics.get("followup_target_kind") or "").strip()
-
-        match_source = "heuristic_fallback"
-        match_reasons: list[str] = []
-        template_id = ""
-
-        if explicit_template_id and explicit_template_id in templates:
-            template_id = explicit_template_id
-            match_source = "explicit_template"
-            match_reasons.append("explicit_template_id")
-        elif task_intent_contract.execution_intent == "bundle_task":
-            template_id = "template.bundle.multi_capability"
-            match_source = "binding_contract"
-            match_reasons.append("bundle_execution_mode")
-        elif (
-            "flow.health.fix_verification" in lowered_goal
-            or "task.health.fix_verification" in lowered_goal
-            or "workflow.health.fix_verification" in lowered_goal
-        ):
-            template_id = "template.health.fix_verification"
-            match_source = "capability_contract"
-            match_reasons.append("health_fix_verification_goal")
-        elif (
-            "flow.health.case_draft" in lowered_goal
-            or "task.health.case_draft" in lowered_goal
-            or "workflow.health.case_draft" in lowered_goal
-        ):
-            template_id = "template.health.case_draft"
-            match_source = "capability_contract"
-            match_reasons.append("health_case_draft_goal")
-        elif (
-            "flow.health.trace_analysis" in lowered_goal
-            or "task.health.trace_analysis" in lowered_goal
-            or "workflow.health.trace_analysis" in lowered_goal
-        ):
-            template_id = "template.health.trace_analysis"
-            match_source = "capability_contract"
-            match_reasons.append("health_trace_analysis_goal")
-        elif "flow.health.issue_triage" in lowered_goal or "health_issue" in capability_requests:
-            template_id = "template.health.issue_triage"
-            match_source = "capability_contract"
-            match_reasons.append("health_issue_capability")
-        elif task_intent_contract.execution_intent == "bundle_followup_item" and followup_target_kind == "bundle_ordinals":
-            template_id = "template.bundle.multi_capability"
-            match_source = "binding_contract"
-            match_reasons.append("bundle_followup_item")
-        elif execution_posture == "direct_rag" or effective_route == "rag" or effective_skill == "rag-skill":
-            template_id = _RAG_TEMPLATE_ID
-            match_source = "capability_contract"
-            match_reasons.append("rag_execution_posture")
-        elif effective_route == "pdf" or effective_skill == "pdf-analysis":
-            template_id = _PDF_TEMPLATE_ID
-            match_source = "capability_contract"
-            match_reasons.append("pdf_mcp_route")
-        elif effective_route == "structured_data" or effective_skill == "structured-data-analysis":
-            template_id = _STRUCTURED_DATA_TEMPLATE_ID
-            match_source = "capability_contract"
-            match_reasons.append("structured_data_mcp_route")
-        elif effective_route == "search" or "task.information_search" in definition_ids:
-            template_id = "template.search.information_search"
-            match_source = "capability_contract"
-            match_reasons.append("search_route_hint")
-        elif execution_posture == "direct_memory" or effective_route == "memory":
-            template_id = "template.memory.recall_answer"
-            match_source = "capability_contract"
-            match_reasons.append("memory_route")
-        elif effective_route == "realtime_network":
-            template_id = "template.search.information_search"
-            match_source = "capability_contract"
-            match_reasons.append("realtime_network_route")
-        elif effective_route in {"workspace_read", "workspace_path_search", "workspace_text_search"}:
-            template_id = "template.capability.builtin_tool_lane"
-            match_source = "capability_contract"
-            match_reasons.append("builtin_tool_route_family")
-        elif execution_posture == "builtin_tool_lane" or effective_route == "tool":
-            template_id = "template.capability.builtin_tool_lane"
-            match_source = "capability_contract"
-            match_reasons.append("legacy_builtin_tool_lane_route")
-        elif _looks_like_light_web_game(lowered_goal):
-            template_id = "template.dev.light_web_game"
-            match_source = "heuristic_fallback"
-            match_reasons.append("light_web_game_phrase")
-        elif source_kind == "workspace" or "task.task_execution" in definition_ids or "task.local_material_read" in definition_ids:
-            template_id = "template.dev.workspace_patch"
-            match_source = "binding_contract"
-            match_reasons.append("workspace_source_kind")
-        elif task_intent_contract.candidate_template_ids:
-            for candidate_template_id in task_intent_contract.candidate_template_ids:
-                if candidate_template_id in templates:
-                    template_id = candidate_template_id
-                    match_source = "binding_contract"
-                    match_reasons.append(f"candidate_template:{candidate_template_id}")
-                    break
-
-        if not template_id:
-            if modality == "pdf" or explicit_inputs.get("explicit_pdf_path") or explicit_inputs.get("bound_pdf_path"):
-                template_id = _PDF_TEMPLATE_ID
-                match_source = "binding_contract"
-                match_reasons.append("pdf_binding")
-            elif (
-                modality == "table"
-                or source_kind == "dataset"
-                or explicit_inputs.get("explicit_dataset_path")
-                or explicit_inputs.get("bound_dataset_path")
-            ):
-                template_id = _STRUCTURED_DATA_TEMPLATE_ID
-                match_source = "binding_contract"
-                match_reasons.append("dataset_binding")
-
-        if not template_id:
-            template_id = "template.general.main_conversation"
-            match_reasons.append("fallback_general_response")
-
-        template_id = _select_existing_template_id(template_id, templates)
-        selected_template = templates[template_id]
-        return TemplateMatchResult(
-            match_id=f"template-match:{task_intent_contract.task_id}",
-            task_intent_ref=task_intent_contract.task_intent_id,
-            template_id=selected_template.template_id,
-            match_source=match_source,
-            match_reasons=tuple(match_reasons),
-            fallback_used=match_source == "heuristic_fallback",
-            capability_contract=tuple(task_intent_contract.capability_requests),
-            output_contract=tuple(task_intent_contract.requested_outputs),
-            diagnostics={
-                "definition_ids": sorted(definition_ids),
-                "effective_route": effective_route,
-                "execution_posture": execution_posture,
-                "effective_skill": effective_skill,
-                "source_kind": source_kind,
-                "modality": modality,
-                "current_turn_execution_mode": str(current_turn.get("execution_mode") or ""),
-            },
-        )
-
-    def select_template(
-        self,
-        *,
-        session_id: str = "",
-        task_id: str = "",
-        user_goal: str,
-        query_understanding: dict[str, Any] | None = None,
-        current_turn_context: dict[str, Any] | None = None,
-        definitions: list[TaskDefinition] | None = None,
-    ) -> TaskTemplate:
-        task_intent_contract = self.build_task_intent_contract(
-            session_id=session_id or "session",
-            task_id=task_id or "task",
-            user_goal=user_goal,
-            query_understanding=query_understanding,
-            current_turn_context=current_turn_context,
-        )
-        match = self.match_template(
-            task_intent_contract=task_intent_contract,
-            query_understanding=query_understanding,
-            current_turn_context=current_turn_context,
-            definitions=definitions,
-        )
-        template = self.get_template(match.template_id)
-        if template is None:
-            raise ValueError(f"Unknown template selected: {match.template_id}")
-        return template
 
     def build_validation_matrix(self) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
@@ -756,30 +555,6 @@ class TaskTemplateRegistry:
             "authority": "task_system.template_validation_matrix",
             "rows": rows,
         }
-
-
-def _looks_like_light_web_game(text: str) -> bool:
-    return any(token in text for token in ("贪吃蛇", "小游戏", "game", "snake", "html5 game", "web game"))
-
-
-def _select_existing_template_id(template_id: str, templates: dict[str, TaskTemplate]) -> str:
-    target = str(template_id or "").strip()
-    if target in templates:
-        return target
-    aliases = {
-        "template.chat.general_response": "template.general.main_conversation",
-        "template.general.response": "template.general.main_conversation",
-        "template.local.workspace_read": "template.capability.builtin_tool_lane",
-    }
-    alias_target = aliases.get(target, "")
-    if alias_target and alias_target in templates:
-        return alias_target
-    fallback = "template.general.main_conversation"
-    if fallback in templates:
-        return fallback
-    if templates:
-        return next(iter(templates))
-    raise ValueError("no task templates registered")
 
 
 def _execution_intent_from_context(
@@ -838,67 +613,6 @@ def _intent_requested_outputs(
     if "dataset_analysis" in capability_requests:
         return ["final_answer", "task_summary_refs"]
     return ["final_answer"]
-
-
-def _intent_candidate_template_ids(
-    *,
-    explicit_inputs: dict[str, Any],
-    bundle_items: list[dict[str, Any]],
-    resolved_bindings: list[dict[str, Any]],
-    capability_requests: list[str],
-    user_goal: str,
-    query_understanding: dict[str, Any],
-    current_turn_context: dict[str, Any],
-) -> list[str]:
-    candidates: list[str] = []
-    explicit_template_id = str(explicit_inputs.get("explicit_template_id") or "").strip()
-    has_explicit_dataset = bool(explicit_inputs.get("explicit_dataset_path"))
-    has_explicit_pdf = bool(explicit_inputs.get("explicit_pdf_path"))
-    has_bound_dataset = bool(explicit_inputs.get("bound_dataset_path"))
-    has_bound_pdf = bool(explicit_inputs.get("bound_pdf_path"))
-    if explicit_template_id:
-        candidates.append(explicit_template_id)
-    execution_mode = str(current_turn_context.get("execution_mode") or "").strip()
-    if execution_mode == "bundle" or len(bundle_items) > 1:
-        candidates.append("template.bundle.multi_capability")
-    if len(bundle_items) == 1:
-        item_template = str(bundle_items[0].get("template_id") or "").strip()
-        if item_template:
-            candidates.append(item_template)
-    if has_explicit_dataset:
-        candidates.append(_STRUCTURED_DATA_TEMPLATE_ID)
-    if has_explicit_pdf:
-        candidates.append(_PDF_TEMPLATE_ID)
-    for request in capability_requests:
-        if request in {"dataset_analysis", "structured_data"}:
-            candidates.append(_STRUCTURED_DATA_TEMPLATE_ID)
-        if request in {"document_analysis", "pdf"}:
-            candidates.append(_PDF_TEMPLATE_ID)
-        if request in {"weather", "gold_price", "latest_information", "realtime_network"}:
-            candidates.append("template.search.information_search")
-    if has_bound_dataset:
-        candidates.append(_STRUCTURED_DATA_TEMPLATE_ID)
-    if has_bound_pdf:
-        candidates.append(_PDF_TEMPLATE_ID)
-    binding_file_kinds = {
-        str(item.get("file_kind") or "").strip()
-        for item in resolved_bindings
-        if str(item.get("binding_kind") or "").strip() == "source_file"
-    }
-    if "dataset" in binding_file_kinds:
-        dataset_unit = get_local_mcp_unit_for_source_kind("dataset")
-        if dataset_unit is not None and dataset_unit.template_ids:
-            candidates.append(str(dataset_unit.template_ids[0]))
-    if "pdf" in binding_file_kinds:
-        pdf_unit = get_local_mcp_unit_for_source_kind("pdf")
-        if pdf_unit is not None and pdf_unit.template_ids:
-            candidates.append(str(pdf_unit.template_ids[0]))
-    if _looks_like_light_web_game(str(user_goal or "").lower()):
-        candidates.append("template.dev.light_web_game")
-    source_kind = str(query_understanding.get("source_kind") or "").strip()
-    if source_kind == "workspace":
-        candidates.append("template.dev.workspace_patch")
-    return _dedupe(candidates)
 
 
 def _dedupe(values: list[str]) -> list[str]:

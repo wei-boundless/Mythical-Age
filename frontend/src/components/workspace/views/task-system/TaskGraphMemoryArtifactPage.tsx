@@ -21,6 +21,15 @@ function listText(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean).join("\n") : "";
 }
 
+function memoryOperation(node: Record<string, unknown>) {
+  const metadata = asRecord(node.metadata);
+  const explicit = String(metadata.operation ?? "").trim();
+  if (explicit) return explicit;
+  const nodeType = String(node.node_type ?? "");
+  if (nodeType.startsWith("memory_")) return nodeType.replace("memory_", "");
+  return nodeType === "memory_resource" || nodeType === "memory" ? "commit" : "";
+}
+
 function edgeSource(edge: Record<string, unknown>) {
   return String(edge.source_node_id ?? edge.from ?? edge.source ?? "");
 }
@@ -93,12 +102,26 @@ export function TaskGraphMemoryArtifactPage({
             const readPolicy = asRecord(node.memory_read_policy);
             const writePolicy = asRecord(node.memory_writeback_policy);
             const nodeArtifactPolicy = asRecord(node.artifact_policy);
+            const nodeMetadata = asRecord(node.metadata);
+            const isMemoryResourceNode = ["memory", "memory_resource", "memory_read", "memory_write", "memory_handoff", "memory_commit", "memory_finalize"].includes(String(node.node_type ?? ""));
             return (
               <article className="task-graph-node-policy-row" key={nodeId || `node_${index}`}>
                 <div className="task-graph-node-policy-row__identity">
                   <strong>{nodeTitle(node)}</strong>
-                  <span>{nodeId}</span>
+                  <span>{isMemoryResourceNode ? `${nodeId} · resource:${memoryOperation(node) || "commit"}` : nodeId}</span>
                 </div>
+                {isMemoryResourceNode ? (
+                  <TaskSystemSelectField
+                    formatOption={taskSystemOptionLabel}
+                    label="资源操作"
+                    onChange={(value) => updateTaskGraphNode(nodeId, {
+                      node_type: value === "commit" ? "memory_resource" : `memory_${value}`,
+                      metadata: { ...nodeMetadata, operation: value },
+                    })}
+                    options={["read", "write", "handoff", "commit", "finalize"]}
+                    value={memoryOperation(node) || "commit"}
+                  />
+                ) : null}
                 <TaskSystemSelectField
                   formatOption={taskSystemOptionLabel}
                   label="读取范围"

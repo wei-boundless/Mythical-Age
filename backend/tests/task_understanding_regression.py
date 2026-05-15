@@ -57,8 +57,10 @@ def main() -> None:
     assert explicit_dataset.structural_signals["explicit_dataset_path"] == "inventory.xlsx"
 
     generic_followup = analyze_task_understanding("按仓库展开一下")
-    assert generic_followup.source_kind == "knowledge_base"
-    assert generic_followup.task_kind == "knowledge_lookup"
+    assert generic_followup.source_kind == "conversation"
+    assert generic_followup.task_kind == "general_conversation"
+    assert generic_followup.capability_requests == []
+    assert generic_followup.should_skip_rag is True
 
     bound_dataset_followup = analyze_task_understanding(
         "按仓库展开一下",
@@ -173,11 +175,14 @@ def main() -> None:
     assert knowledge.candidate_tools == []
 
     freshness = analyze_task_understanding("他今年还在打比赛吗")
-    assert freshness.route_hint == "agent"
-    assert freshness.execution_posture == "bounded_agent"
-    assert freshness.capability_requests == ["knowledge_lookup", "latest_information"]
-    assert freshness.candidate_tools == []
+    assert freshness.source_kind == "external_web"
+    assert freshness.task_kind == "current_information_lookup"
+    assert freshness.route_hint == "realtime_network"
+    assert freshness.execution_posture == "builtin_tool_lane"
+    assert freshness.capability_requests == ["latest_information"]
+    assert freshness.candidate_tools == ["web_search"]
     assert freshness.preferred_skill is None
+    assert freshness.direct_route_reason == "freshness_aware_lookup"
     assert freshness.structural_signals["freshness_requirement"] is True
 
     weather = analyze_task_understanding("北京今天天气怎么样")
@@ -208,6 +213,21 @@ def main() -> None:
     assert workspace_read.candidate_tools == ["read_file"]
     assert workspace_read.parameters["path"] == "backend/understanding/task_understanding.py"
     assert workspace_read.direct_route_reason == "explicit_workspace_file_anchor"
+
+    runtime_capability = analyze_task_understanding("你不能自己创建文件吗")
+    assert runtime_capability.source_kind == "conversation"
+    assert runtime_capability.task_kind == "general_conversation"
+    assert runtime_capability.route_hint == "agent"
+    assert runtime_capability.capability_requests == []
+    assert runtime_capability.should_skip_rag is True
+
+    workspace_write = analyze_task_understanding("请创建 docs/tmp/test.md，内容是 hello")
+    assert workspace_write.source_kind == "workspace"
+    assert workspace_write.task_kind == "workspace_file_write"
+    assert workspace_write.route_hint == "workspace_write"
+    assert workspace_write.candidate_tools == ["write_file"]
+    assert workspace_write.capability_requests == ["workspace_write"]
+    assert workspace_write.parameters["path"] == "docs/tmp/test.md"
 
     definitions = select_runtime_task_definitions(
         "帮我看一下 inventory.xlsx 里销量前五的有哪些",

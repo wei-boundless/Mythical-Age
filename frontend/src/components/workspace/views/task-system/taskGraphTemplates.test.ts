@@ -90,13 +90,46 @@ describe("task graph templates", () => {
       loop_count: 4,
     });
 
-    expect(draft.nodes).toHaveLength(11);
-    expect(draft.edges).toHaveLength(13);
-    expect(draft.entry_node_id).toBe("world_design");
-    expect(draft.output_node_id).toBe("memory_commit");
+    expect(draft.nodes).toHaveLength(29);
+    expect(draft.edges).toHaveLength(41);
+    expect(draft.entry_node_id).toBe("world_designer_a");
+    expect(draft.output_node_id).toBe("memory_finalize");
     expect(draft.metadata.assembly_namespace).toBe("writing_team_long_novel");
     expect(draft.metadata.loop_policy).toMatchObject({ max_attempts: 4 });
-    expect(draft.edges.some((edge) => edge.edge_id === "edge.quality_gate.chapter_plan")).toBe(true);
+    expect(draft.nodes.map((node) => node.node_id)).toEqual([
+      "world_designer_a",
+      "world_designer_b",
+      "world_judge",
+      "memory_commit_world",
+      "outline_designer_a",
+      "outline_designer_b",
+      "outline_judge",
+      "memory_commit_outline",
+      "character_designer_a",
+      "character_designer_b",
+      "character_judge",
+      "memory_commit_character",
+      "chapter_plan",
+      "writer_a_draft",
+      "writer_b_review",
+      "writer_a_revision",
+      "writer_b_final_candidate",
+      "novel_quality_judge",
+      "world_deviation_router",
+      "world_repair_a",
+      "world_repair_b",
+      "outline_deviation_router",
+      "outline_repair_a",
+      "outline_repair_b",
+      "character_deviation_router",
+      "character_repair_a",
+      "character_repair_b",
+      "memory_commit_chapter",
+      "memory_finalize"
+    ]);
+    expect(draft.edges.some((edge) => edge.edge_id === "edge.novel_quality_judge.writer_a_revision")).toBe(true);
+    expect(draft.edges.some((edge) => edge.edge_id === "edge.novel_quality_judge.world_router")).toBe(true);
+    expect(draft.edges.some((edge) => edge.edge_id === "edge.memory_commit_chapter.memory_finalize")).toBe(true);
 
     for (const node of draft.nodes) {
       expect(String(node.task_id ?? "")).toMatch(/^task\.writing_team\.long_novel\./);

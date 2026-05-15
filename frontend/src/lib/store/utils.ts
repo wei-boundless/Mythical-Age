@@ -88,7 +88,7 @@ export function sanitizeToolCall(toolCall: ToolCall): ToolCall | null {
 
 export function toUiMessages(history: SessionHistory["messages"]) {
   const normalized = history
-    .map<Message | null>((message) => {
+    .map<Message | null>((message, sourceIndex) => {
       const toolCalls = (message.tool_calls ?? [])
         .map(sanitizeToolCall)
         .filter((toolCall): toolCall is ToolCall => Boolean(toolCall));
@@ -104,7 +104,8 @@ export function toUiMessages(history: SessionHistory["messages"]) {
         role: message.role,
         content,
         toolCalls,
-        retrievals: []
+        retrievals: [],
+        sourceIndex
       };
     })
     .filter(Boolean) as Message[];

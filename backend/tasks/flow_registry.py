@@ -29,7 +29,7 @@ from .task_graph_models import (
     TaskGraphDefinition,
     task_graph_from_dict,
 )
-from .template_registry import TaskTemplateRegistry, default_task_templates
+from .template_registry import TaskTemplateRegistry
 from .workflow_registry import TaskWorkflowRegistry
 
 
@@ -132,12 +132,92 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
     return default_health_task_flows()
 
 
-def _health_task_template_ids() -> dict[str, str]:
+def _system_task_specs() -> dict[str, dict[str, Any]]:
     return {
-        "task.health.issue_triage": "template.health.issue_triage",
-        "task.health.trace_analysis": "template.health.trace_analysis",
-        "task.health.case_draft": "template.health.case_draft",
-        "task.health.fix_verification": "template.health.fix_verification",
+        "task.dev.workspace_patch": {
+            "title": "工作区受限补丁",
+            "description": "读取工作区、实施受限补丁并汇报验证状态。",
+            "task_family": "development",
+            "task_mode": "bounded_patch",
+            "workflow_id": "workflow.dev.bounded_patch",
+            "input_contract_id": "WorkspacePatchTaskInput",
+            "output_contract_id": "AssistantFinalAnswer",
+            "safety_policy": {
+                "safety_class": "S1_bounded_patch",
+                "write_mode": "scoped_patch",
+                "forbidden_paths": [".env", ".env.local", ".git", "node_modules"],
+            },
+        },
+        "task.dev.light_web_game": {
+            "title": "轻量网页小游戏",
+            "description": "生成一个可运行、可验证的轻量网页小游戏产物。",
+            "task_family": "development",
+            "task_mode": "light_web_game",
+            "workflow_id": "workflow.dev.light_web_game",
+            "input_contract_id": "LightWebGameTaskInput",
+            "output_contract_id": "LightWebGameResult",
+            "safety_policy": {
+                "safety_class": "S1_bounded_artifact_write",
+                "write_mode": "bounded_create",
+                "default_write_roots": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"],
+                "forbidden_paths": [".env", ".env.local", ".git", "node_modules"],
+            },
+        },
+        "task.dev.arcade_game_bundle": {
+            "title": "复合网页小游戏包",
+            "description": "生成多文件网页小游戏包，并明确入口文件和资源关系。",
+            "task_family": "development",
+            "task_mode": "arcade_game_bundle",
+            "workflow_id": "workflow.dev.arcade_game_bundle",
+            "input_contract_id": "ArcadeGameBundleTaskInput",
+            "output_contract_id": "LightWebGameResult",
+            "safety_policy": {
+                "safety_class": "S1_bounded_artifact_write",
+                "write_mode": "bounded_create",
+                "default_write_roots": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"],
+                "forbidden_paths": [".env", ".env.local", ".git", "node_modules"],
+            },
+        },
+        "task.health.issue_triage": {
+            "title": "健康问题分诊",
+            "description": "读取健康问题和追踪引用，输出归属与分诊建议。",
+            "task_family": "health",
+            "task_mode": "issue_triage",
+            "workflow_id": "workflow.health.issue_triage",
+            "input_contract_id": "HealthIssue",
+            "output_contract_id": "HealthTriageResult",
+            "safety_policy": {},
+        },
+        "task.health.trace_analysis": {
+            "title": "健康链路分析",
+            "description": "读取健康问题与运行链路证据，定位问题节点并给出修复范围建议。",
+            "task_family": "health",
+            "task_mode": "trace_analysis",
+            "workflow_id": "workflow.health.trace_analysis",
+            "input_contract_id": "HealthTrace",
+            "output_contract_id": "HealthTraceAnalysis",
+            "safety_policy": {},
+        },
+        "task.health.case_draft": {
+            "title": "健康用例草案",
+            "description": "围绕健康问题提取复现触发条件并生成验证用例草案。",
+            "task_family": "health",
+            "task_mode": "case_draft",
+            "workflow_id": "workflow.health.case_draft",
+            "input_contract_id": "HealthIssue",
+            "output_contract_id": "HealthCaseDraftProposal",
+            "safety_policy": {},
+        },
+        "task.health.fix_verification": {
+            "title": "健康修复验证",
+            "description": "比较修复前后证据，判断问题是否消失并输出验证建议。",
+            "task_family": "health",
+            "task_mode": "fix_verification",
+            "workflow_id": "workflow.health.fix_verification",
+            "input_contract_id": "HealthIssueWithBeforeAfterTrace",
+            "output_contract_id": "HealthFixVerificationProposal",
+            "safety_policy": {},
+        },
     }
 
 
@@ -150,13 +230,12 @@ def _input_contract_for_task_mode(task_mode: str) -> str:
     }.get(str(task_mode or "").strip(), "UserMessage")
 
 
-def _output_contract_for_template(template: Any) -> str:
-    task_mode = str(getattr(template, "task_mode", "") or "").strip()
+def _output_contract_for_task_mode(task_mode: str) -> str:
     return {
         "light_web_game": "LightWebGameResult",
         "arcade_game_bundle": "LightWebGameResult",
         "issue_triage": "HealthTriageResult",
-    }.get(task_mode, "AssistantFinalAnswer")
+    }.get(str(task_mode or "").strip(), "AssistantFinalAnswer")
 
 
 def _runtime_lane_for_task_mode(task_mode: str) -> str:
@@ -188,36 +267,27 @@ def _memory_scope_for_family(task_family: str) -> str:
 
 def _synthetic_specific_task_record_for_runtime(task_id: str) -> SpecificTaskRecord | None:
     target = str(task_id or "").strip()
-    task_template_ids = {
-        "task.dev.workspace_patch": "template.dev.workspace_patch",
-        "task.dev.light_web_game": "template.dev.light_web_game",
-        "task.dev.arcade_game_bundle": "template.dev.arcade_game_bundle",
-        **_health_task_template_ids(),
-    }
-    template_id = task_template_ids.get(target)
-    if not template_id:
+    spec = _system_task_specs().get(target)
+    if spec is None:
         return None
-    template = next((item for item in default_task_templates() if item.template_id == template_id), None)
-    if template is None:
-        return None
-    workflow_id = str(dict(template.metadata or {}).get("workflow_id") or "").strip()
-    task_mode = str(template.task_mode or "").strip()
-    task_family = str(template.task_family or "").strip()
+    workflow_id = str(spec.get("workflow_id") or "").strip()
+    task_mode = str(spec.get("task_mode") or "").strip()
+    task_family = str(spec.get("task_family") or "").strip()
     return SpecificTaskRecord(
         task_id=target,
-        task_title=str(template.title or target),
+        task_title=str(spec.get("title") or target),
         task_family=task_family,
         task_mode=task_mode,
-        description=str(template.description or template.title or target),
+        description=str(spec.get("description") or spec.get("title") or target),
         enabled=True,
-        input_contract_id=_input_contract_for_task_mode(task_mode),
-        output_contract_id=_output_contract_for_template(template),
+        input_contract_id=str(spec.get("input_contract_id") or _input_contract_for_task_mode(task_mode)),
+        output_contract_id=str(spec.get("output_contract_id") or _output_contract_for_task_mode(task_mode)),
         acceptance_profile_id="",
         default_flow_contract_id=workflow_id.replace("workflow.", "flow.", 1) if workflow_id else f"flow.{target.removeprefix('task.')}",
         default_workflow_id=workflow_id,
         default_projection_policy="workflow_compatible_or_task_default",
         task_policy={
-            "safety_policy": dict(getattr(template, "safety_policy", {}) or {}),
+            "safety_policy": dict(spec.get("safety_policy") or {}),
             "task_structure": {
                 "runtime_lane_hint": _runtime_lane_for_task_mode(task_mode),
                 "memory_scope_hint": _memory_scope_for_family(task_family),
@@ -226,8 +296,7 @@ def _synthetic_specific_task_record_for_runtime(task_id: str) -> SpecificTaskRec
         },
         metadata={
             "managed_by": "task_system",
-            "source": "task_template_registry_runtime_projection",
-            "template_id": template_id,
+            "source": "task_system_runtime_projection",
         },
     )
 
@@ -1406,8 +1475,8 @@ class TaskFlowRegistry:
 
     def _assignment_from_flow(self, flow: TaskFlowDefinition) -> TaskAssignment:
         workflow = self.workflow_registry.get_workflow(flow.default_workflow_id)
-        template = self.template_registry.get_template(str(flow.metadata.get("template_id") or ""))
         task_id = str(flow.metadata.get("task_id") or f"task.{flow.task_family}.{flow.task_mode}").strip()
+        spec = _system_task_specs().get(task_id)
         return TaskAssignment(
             task_id=task_id,
             task_title=flow.title,
@@ -1422,7 +1491,7 @@ class TaskFlowRegistry:
             projection_id="",
             input_contract_id=flow.input_contract_id,
             output_contract_id=flow.output_contract_id,
-            safety_policy=dict(getattr(template, "safety_policy", {}) or {}),
+            safety_policy=dict(spec.get("safety_policy") or {}) if spec is not None else {},
             task_structure={
                 "runtime_lane_hint": flow.default_runtime_lane,
                 "memory_scope_hint": flow.default_memory_scope,

@@ -130,6 +130,7 @@ class AgentRuntimeChainAssembler:
             message=message,
             memory_intent=memory_intent,
             memory_request_profile=memory_request_profile,
+            retrieval_allowed=_task_operation_allows_retrieval(task_operation),
         )
         context_payload = _to_dict(context_policy_result)
         orchestration_bundle = build_orchestration_runtime_bundle(
@@ -211,10 +212,13 @@ class AgentRuntimeChainAssembler:
         memory_request_profile: dict[str, Any] | None = None,
         relevant_memory_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
+        retrieval_allowed: bool = True,
     ):
         builder = getattr(self.memory_facade, "build_memory_context_package", None)
         if not callable(builder):
             return None
+        if not retrieval_allowed:
+            retrieval_results = None
         return builder(
             session_id=session_id,
             pending_user_message=message,
@@ -232,6 +236,7 @@ class AgentRuntimeChainAssembler:
         memory_intent: Any | None = None,
         relevant_memory_notes: list[Any] | None = None,
         retrieval_results: list[dict[str, Any]] | None = None,
+        retrieval_allowed: bool = True,
     ):
         result = self.build_context_policy_result(
             session_id=session_id,
@@ -239,6 +244,7 @@ class AgentRuntimeChainAssembler:
             memory_intent=memory_intent or analyze_memory_intent(pending_user_message or ""),
             relevant_memory_notes=relevant_memory_notes,
             retrieval_results=retrieval_results,
+            retrieval_allowed=retrieval_allowed,
         )
         return getattr(result, "package", result)
 
@@ -289,6 +295,30 @@ def _active_bindings_from_memory_payload(memory_payload: dict[str, Any]) -> dict
     return result
 
 
+def _task_operation_allows_retrieval(task_operation: dict[str, Any]) -> bool:
+    query_understanding = dict(task_operation.get("query_understanding") or {})
+    if bool(query_understanding.get("should_skip_rag")):
+        return False
+    assembly = dict(task_operation.get("task_execution_assembly") or {})
+    if str(assembly.get("runtime_lane") or "").strip() == "coordination_task":
+        return False
+    operation_requirement = dict(task_operation.get("operation_requirement") or {})
+    operations = {
+        str(item or "").strip()
+        for item in [
+            *list(operation_requirement.get("required_operations") or []),
+            *list(operation_requirement.get("skill_required_operations") or []),
+        ]
+        if str(item or "").strip()
+    }
+    if "op.mcp_retrieval" in operations:
+        return True
+    recipe = dict(task_operation.get("selected_recipe") or {})
+    if str(recipe.get("source_kind") or "").strip() in {"knowledge", "retrieval", "knowledge_base"}:
+        return True
+    return False
+
+
 def _align_understanding_with_explicit_task_selection(
     base_dir: Path,
     query_understanding: Any,
@@ -310,8 +340,12 @@ def _align_understanding_with_explicit_task_selection(
     if record is None:
         return query_understanding
 
-    metadata = dict(record.metadata or {})
-    template_id = str(metadata.get("template_id") or "").strip()
+    suppressed_resolution = dict(getattr(query_understanding, "capability_resolution", {}) or {})
+    suppressed_candidates = [
+        dict(item)
+        for item in list(getattr(query_understanding, "candidate_capabilities", []) or [])
+        if isinstance(item, dict)
+    ]
     query_understanding.intent = f"{record.task_mode}_task"
     query_understanding.source_kind = "task_system"
     query_understanding.task_kind = record.task_mode
@@ -324,9 +358,24 @@ def _align_understanding_with_explicit_task_selection(
     query_understanding.tool_name = None
     query_understanding.capability_requests = []
     query_understanding.candidate_tools = []
+    query_understanding.candidate_capabilities = []
     query_understanding.tool_input = {"selected_task_id": selected_task_id}
     query_understanding.should_skip_rag = True
     query_understanding.confidence = 1.0
+    query_understanding.capability_resolution = {
+        "selected_candidate_type": "",
+        "selected_candidate_name": "",
+        "route": "agent",
+        "execution_posture": "task_runtime",
+        "preferred_skill": "",
+        "tool_name": "",
+        "mcp_route": "",
+        "diagnostics": {
+            "selection_source": "explicit_task_selection_override",
+            "suppressed_previous_resolution": suppressed_resolution,
+            "suppressed_candidate_count": len(suppressed_candidates),
+        },
+    }
     query_understanding.reasons = [
         "explicit_task_selection",
         *[reason for reason in list(query_understanding.reasons or []) if reason != "explicit_task_selection"],
@@ -337,8 +386,8 @@ def _align_understanding_with_explicit_task_selection(
             "selected_task_id": selected_task_id,
             "selected_task_family": record.task_family,
             "selected_task_mode": record.task_mode,
-            "selected_template_id": template_id,
             "understanding_aligned_to_explicit_task": True,
+            "suppressed_candidate_capabilities": suppressed_candidates,
         }
     )
     query_understanding.structural_signals = signals

@@ -3,11 +3,14 @@ from __future__ import annotations
 import operator
 import time
 from dataclasses import dataclass, field, fields as dataclass_fields
+from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from langgraph.graph import END, START, StateGraph
 
+from memory_system.working_memory_finalizer import WorkingMemoryFinalizer
+from memory_system.working_memory_service import WorkingMemoryService
 from tasks import TaskContractRegistry
 from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from tasks.coordination_graph_models import TaskGraphRuntimeEdge, TaskGraphRuntimeNode, TaskGraphRuntimeSpec
@@ -76,6 +79,8 @@ class CoordinationRuntimeState(TypedDict, total=False):
     current_event: dict[str, Any]
     stage_execution_request: dict[str, Any]
     a2a_payload: dict[str, Any]
+    working_memory_contexts: dict[str, dict[str, Any]]
+    working_memory_operations: list[dict[str, Any]]
     diagnostics: dict[str, Any]
 
 
@@ -149,6 +154,8 @@ class LangGraphCoordinationRuntime:
         self.input_binder = ContinuationInputBinder(self.artifact_refs)
         self.checkpoints = LangGraphCheckpointStoreAdapter(root_dir)
         self.trace_adapter = CoordinationTraceAdapter(state_index=state_index, event_log=event_log)
+        self.working_memory = WorkingMemoryService(_working_memory_root_for_runtime(root_dir))
+        self.working_memory_finalizer = WorkingMemoryFinalizer(self.working_memory)
         self._app = self._build_app()
 
     def _resolve_task_graph_view(self, coordination_run: CoordinationRun):
@@ -345,8 +352,7 @@ class LangGraphCoordinationRuntime:
         graph.add_edge("complete", END)
         return graph.compile()
 
-    @staticmethod
-    def _stage_accept(state: CoordinationRuntimeState) -> dict[str, Any]:
+    def _stage_accept(self, state: CoordinationRuntimeState) -> dict[str, Any]:
         event = dict(state.get("current_event") or {})
         if str(event.get("event_type") or "") == "human_gate_resumed":
             return _resume_human_gate_state(state=state, event=event)
@@ -376,6 +382,34 @@ class LangGraphCoordinationRuntime:
             "outputs": mapped_outputs,
             "accepted": bool(event.get("accepted") is True),
         }
+        working_memory_operations = list(state.get("working_memory_operations") or [])
+        if bool(event.get("accepted") is True):
+            write_operation = self._submit_stage_working_memory_candidates(
+                state=state,
+                stage_id=stage_id,
+                contract=contract,
+                event=event,
+                artifact_refs=artifact_refs,
+            )
+            if write_operation:
+                stage_results[stage_id]["working_memory_refs"] = list(write_operation.get("created_working_memory_refs") or [])
+                working_memory_operations.append(write_operation)
+                working_memory_operations.extend(
+                    self._resolve_stage_working_memory_handoffs(
+                        state=state,
+                        stage_id=stage_id,
+                        created_working_memory_refs=list(write_operation.get("created_working_memory_refs") or []),
+                        event=event,
+                    )
+                )
+            commit_operation = self._commit_stage_working_memory_decisions(
+                state=state,
+                stage_id=stage_id,
+                contract=contract,
+                event=event,
+            )
+            if commit_operation:
+                working_memory_operations.append(commit_operation)
         node_statuses = dict(state.get("node_statuses") or {})
         accepted = bool(event.get("accepted") is True)
         retry_counts = dict(state.get("retry_counts") or {})
@@ -460,6 +494,7 @@ class LangGraphCoordinationRuntime:
             "contract_status": contract_status,
             "human_gate": human_gate,
             "artifact_refs": artifact_payloads,
+            "working_memory_operations": working_memory_operations,
             "final_result_ref": str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
             "stage_execution_request": {},
             "a2a_payload": {},
@@ -620,6 +655,16 @@ class LangGraphCoordinationRuntime:
         manifest = _manifest_from_payload(dict(state.get("contract_manifest") or {}))
         node_id = str(contract.get("node_id") or stage_id)
         agent_profile = self._agent_profile_for(str(contract.get("agent_id") or ""))
+        working_memory_context = self._select_stage_working_memory_context(
+            state=state,
+            stage_id=stage_id,
+            node_id=node_id,
+            contract=contract,
+        )
+        working_memory_contexts = {
+            **dict(state.get("working_memory_contexts") or {}),
+            **({stage_id: working_memory_context} if working_memory_context else {}),
+        }
         runtime_assembly_payload: dict[str, Any] = {}
         handoff_packets: list[dict[str, Any]] = []
         if manifest is not None:
@@ -629,6 +674,7 @@ class LangGraphCoordinationRuntime:
                     node_id=node_id,
                     agent_profile=agent_profile,
                     explicit_inputs=explicit_inputs,
+                    working_memory_context=working_memory_context,
                 )
                 runtime_assembly_payload = assembly.to_dict()
                 handoff_packets = [dict(item) for item in runtime_assembly_payload.get("handoff_packets") or []]
@@ -675,6 +721,7 @@ class LangGraphCoordinationRuntime:
             ),
             artifact_root=str(explicit_inputs.get("artifact_root") or ""),
             expected_outputs=tuple(dict(item) for item in list(contract.get("output_mappings") or []) if isinstance(item, dict)),
+            working_memory_refs=tuple(_working_memory_refs_from_context(working_memory_context)),
         )
         next_handoff_packets = list(state.get("handoff_packets") or [])
         next_handoff_packets.extend(handoff_packets)
@@ -682,16 +729,254 @@ class LangGraphCoordinationRuntime:
             "stage_execution_request": request.to_dict(),
             "a2a_payload": a2a_payload,
             "handoff_packets": next_handoff_packets,
+            "working_memory_contexts": working_memory_contexts,
             "terminal_status": "",
+        }
+
+    def _select_stage_working_memory_context(
+        self,
+        *,
+        state: CoordinationRuntimeState,
+        stage_id: str,
+        node_id: str,
+        contract: dict[str, Any],
+    ) -> dict[str, Any]:
+        read_policy = dict(contract.get("memory_read_policy") or {})
+        dynamic_policy = dict(contract.get("dynamic_memory_read_policy") or {})
+        graph_policy = dict(dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {}).get("diagnostics") or {}).get("working_memory_policy") or {}
+        graph_policy = dict(graph_policy or {})
+        if not read_policy and not bool(graph_policy.get("auto_read_enabled")):
+            return {}
+        root_task_run_id = str(state.get("root_task_run_id") or "").strip()
+        if not root_task_run_id:
+            return {}
+        request = {
+            **dict(graph_policy.get("default_read_request") or {}),
+            **dict(read_policy.get("read_request") or {}),
+        }
+        if read_policy.get("max_items") and "max_items" not in request:
+            request["max_items"] = read_policy.get("max_items")
+        node_run_id = f"{root_task_run_id}:{stage_id}"
+        selection = self.working_memory.select_for_node(
+            task_run_id=root_task_run_id,
+            graph_id=str(dict(state.get("diagnostics") or {}).get("graph_ref") or dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {}).get("graph_ref") or ""),
+            owner_node_id=node_id,
+            node_run_id=node_run_id,
+            run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
+            reader_agent_id=str(contract.get("agent_id") or ""),
+            node_role=str(contract.get("role") or ""),
+            memory_read_policy=read_policy,
+            dynamic_read_policy=dynamic_policy,
+            request=request,
+            token_budget=int(read_policy.get("token_budget") or graph_policy.get("token_budget") or 0),
+        )
+        return _working_memory_context_from_selection(
+            selection,
+            task_run_id=root_task_run_id,
+            graph_id=str(dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {}).get("graph_ref") or ""),
+            owner_node_id=node_id,
+            node_run_id=node_run_id,
+            run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
+        )
+
+    def _submit_stage_working_memory_candidates(
+        self,
+        *,
+        state: CoordinationRuntimeState,
+        stage_id: str,
+        contract: dict[str, Any],
+        event: dict[str, Any],
+        artifact_refs: list[str],
+    ) -> dict[str, Any]:
+        write_policy = dict(contract.get("memory_writeback_policy") or {})
+        if not write_policy:
+            return {}
+        root_task_run_id = str(state.get("root_task_run_id") or "").strip()
+        if not root_task_run_id:
+            return {}
+        raw_candidates = list(dict(event.get("diagnostics") or {}).get("working_memory_candidates") or [])
+        candidates = [dict(item) for item in raw_candidates if isinstance(item, dict)]
+        if not candidates and artifact_refs and bool(write_policy.get("capture_artifact_refs")):
+            candidates = [
+                {
+                    "title": f"{stage_id} 输出产物",
+                    "summary": f"{stage_id} 已产出 {len(artifact_refs)} 个产物引用，等待后续审核或提交。",
+                    "artifact_refs": artifact_refs,
+                    "kind": _first_policy_value(write_policy, "writable_kinds", "intermediate_result"),
+                    "scope": _first_policy_value(write_policy, "writable_scopes", "node_scope"),
+                }
+            ]
+        if not candidates:
+            return {}
+        created = []
+        node_id = str(contract.get("node_id") or stage_id)
+        node_run_id = f"{root_task_run_id}:{stage_id}"
+        for index, candidate in enumerate(candidates):
+            payload = {
+                "task_run_id": root_task_run_id,
+                "task_id": str(contract.get("task_ref") or event.get("task_ref") or ""),
+                "graph_id": str(dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {}).get("graph_ref") or ""),
+                "owner_node_id": node_id,
+                "owner_node_role": str(contract.get("role") or ""),
+                "node_run_id": node_run_id,
+                "run_attempt_id": str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
+                "stage_id": stage_id,
+                "writer_agent_id": str(contract.get("agent_id") or ""),
+                "kind": _first_policy_value(write_policy, "writable_kinds", str(candidate.get("kind") or "intermediate_result")),
+                "scope": _first_policy_value(write_policy, "writable_scopes", str(candidate.get("scope") or "node_scope")),
+                "status": str(candidate.get("status") or write_policy.get("default_status") or "draft"),
+                "visibility": str(candidate.get("visibility") or write_policy.get("default_visibility") or "private_to_node"),
+                "summary": str(candidate.get("summary") or ""),
+                "title": str(candidate.get("title") or ""),
+                "payload": dict(candidate.get("payload") or {"source_stage_id": stage_id}),
+                "artifact_refs": list(candidate.get("artifact_refs") or artifact_refs),
+                "write_policy": write_policy,
+                "idempotency_key": str(candidate.get("idempotency_key") or f"{root_task_run_id}:{stage_id}:wmwrite:{index}"),
+                "metadata": {
+                    **dict(candidate.get("metadata") or {}),
+                    "operation": "memory_write",
+                    "source_event_task_run_id": str(event.get("task_run_id") or ""),
+                    "source_task_result_ref": str(event.get("task_result_ref") or ""),
+                },
+            }
+            created.append(self.working_memory.create_item(**payload))
+        return {
+            "operation": "memory_write",
+            "stage_id": stage_id,
+            "node_id": node_id,
+            "node_run_id": node_run_id,
+            "created_working_memory_refs": [item.work_memory_id for item in created],
+            "candidate_count": len(created),
+            "status": "completed",
+            "authority": "orchestration.working_memory_resource_node",
+        }
+
+    def _resolve_stage_working_memory_handoffs(
+        self,
+        *,
+        state: CoordinationRuntimeState,
+        stage_id: str,
+        created_working_memory_refs: list[str],
+        event: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        refs = [str(item).strip() for item in list(created_working_memory_refs or []) if str(item).strip()]
+        if not refs:
+            return []
+        root_task_run_id = str(state.get("root_task_run_id") or "").strip()
+        if not root_task_run_id:
+            return []
+        graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+        graph_id = str(graph_spec.get("graph_ref") or graph_spec.get("graph_id") or "")
+        operations: list[dict[str, Any]] = []
+        for edge in [dict(item) for item in list(graph_spec.get("edges") or []) if isinstance(item, dict)]:
+            if str(edge.get("source_node_id") or "") != stage_id:
+                continue
+            policy = dict(edge.get("working_memory_handoff_policy") or {})
+            if not policy:
+                continue
+            target_node_id = str(edge.get("target_node_id") or "").strip()
+            selected_refs = _filter_working_memory_refs_for_handoff(refs, policy, self.working_memory)
+            if not selected_refs:
+                continue
+            transaction = self.working_memory.resolve_handoff_into_working_memory(
+                task_run_id=root_task_run_id,
+                graph_id=graph_id,
+                edge_id=str(edge.get("edge_id") or ""),
+                source_node_run_id=f"{root_task_run_id}:{stage_id}",
+                target_node_run_id=f"{root_task_run_id}:{target_node_id}",
+                handoff_id=f"wmhandoff:{root_task_run_id}:{edge.get('edge_id') or stage_id + ':' + target_node_id}",
+                source_message_hash=str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
+                working_memory_refs=selected_refs,
+                summary=str(policy.get("summary") or f"{stage_id} 工作记忆交接到 {target_node_id}"),
+                metadata={"policy": policy, "operation": "memory_handoff"},
+            )
+            operations.append(
+                {
+                    "operation": "memory_handoff",
+                    "edge_id": str(edge.get("edge_id") or ""),
+                    "source_node_id": stage_id,
+                    "target_node_id": target_node_id,
+                    "handoff_transaction_ref": transaction.transaction_id,
+                    "adopted_working_memory_refs": list(transaction.adopted_work_memory_ids),
+                    "status": transaction.transaction_status,
+                    "authority": "orchestration.working_memory_resource_node",
+                }
+            )
+        return operations
+
+    def _commit_stage_working_memory_decisions(
+        self,
+        *,
+        state: CoordinationRuntimeState,
+        stage_id: str,
+        contract: dict[str, Any],
+        event: dict[str, Any],
+    ) -> dict[str, Any]:
+        diagnostics = dict(event.get("diagnostics") or {})
+        decision_payload = dict(diagnostics.get("working_memory_commit") or diagnostics.get("memory_commit_decision") or {})
+        node_type = str(contract.get("node_type") or "").strip()
+        review_policy = dict(contract.get("review_gate_policy") or {})
+        is_commit_stage = node_type in {"memory", "memory_resource", "memory_commit"} or bool(review_policy.get("commit_working_memory"))
+        if not decision_payload and not is_commit_stage:
+            return {}
+        root_task_run_id = str(state.get("root_task_run_id") or "").strip()
+        if not root_task_run_id:
+            return {}
+        accepted_refs = _decision_refs(decision_payload, "accepted_working_memory_refs", "accept_refs", "accepted_refs")
+        discarded_refs = _decision_refs(decision_payload, "discarded_working_memory_refs", "discard_refs", "discarded_refs")
+        conflict_refs = _decision_refs(decision_payload, "conflict_working_memory_refs", "conflict_refs")
+        if not decision_payload and is_commit_stage:
+            accepted_refs = _stage_working_memory_refs_for_commit(state)
+        if not accepted_refs and not discarded_refs and not conflict_refs:
+            return {}
+        actor_id = str(contract.get("agent_id") or "langgraph_coordination_runtime")
+        accepted: list[str] = []
+        discarded: list[str] = []
+        conflicted: list[str] = []
+        for ref in accepted_refs:
+            item = self.working_memory.accept_item(ref, actor_id=actor_id, metadata={"stage_id": stage_id, "operation": "memory_commit"})
+            accepted.append(item.work_memory_id)
+        for ref in discarded_refs:
+            item = self.working_memory.discard_item(ref, actor_id=actor_id, metadata={"stage_id": stage_id, "operation": "memory_commit"})
+            discarded.append(item.work_memory_id)
+        for ref in conflict_refs:
+            item = self.working_memory.mark_conflict(ref, actor_id=actor_id, metadata={"stage_id": stage_id, "operation": "memory_commit"})
+            conflicted.append(item.work_memory_id)
+        return {
+            "operation": "memory_commit",
+            "stage_id": stage_id,
+            "node_id": str(contract.get("node_id") or stage_id),
+            "accepted_working_memory_refs": accepted,
+            "discarded_working_memory_refs": discarded,
+            "conflict_working_memory_refs": conflicted,
+            "status": "completed",
+            "authority": "orchestration.working_memory_resource_node",
         }
 
     @staticmethod
     def _blocked(state: CoordinationRuntimeState) -> dict[str, Any]:
         return {"terminal_status": str(state.get("terminal_status") or "blocked"), "stage_execution_request": {}, "a2a_payload": {}}
 
-    @staticmethod
-    def _complete(state: CoordinationRuntimeState) -> dict[str, Any]:
-        return {"terminal_status": "completed", "stage_execution_request": {}, "a2a_payload": {}}
+    def _complete(self, state: CoordinationRuntimeState) -> dict[str, Any]:
+        task_run_id = str(state.get("root_task_run_id") or "").strip()
+        operations = list(state.get("working_memory_operations") or [])
+        if task_run_id and not any(str(item.get("operation") or "") == "memory_finalize" for item in operations if isinstance(item, dict)):
+            result = self.working_memory_finalizer.finalize_task_run(
+                task_run_id,
+                actor_id="langgraph_coordination_runtime",
+                terminal_reason="completed",
+                policy={"promotion_strategy": "archive_only"},
+            )
+            operations.append(
+                {
+                    "operation": "memory_finalize",
+                    "task_run_id": task_run_id,
+                    "finalization_ref": result.archive_report_path,
+                    "status": "completed",
+                    "authority": "orchestration.working_memory_resource_node",
+                }
+            )
+        return {"terminal_status": "completed", "stage_execution_request": {}, "a2a_payload": {}, "working_memory_operations": operations}
 
     @staticmethod
     def _route_after_next(state: CoordinationRuntimeState) -> str:
@@ -837,6 +1122,8 @@ class LangGraphCoordinationRuntime:
             "node_statuses": node_statuses,
             "stage_results": {},
             "artifact_refs": [],
+            "working_memory_contexts": {},
+            "working_memory_operations": [],
             "pending_inputs": dict(chapter_loop_state),
             "missing_required_inputs": [],
             "retry_counts": {},
@@ -860,6 +1147,7 @@ class LangGraphCoordinationRuntime:
                     "handoff_policy": str(coordination_run.handoff_policy or ""),
                 },
                 "coordination_graph_spec": graph_spec.to_dict(),
+                "graph_ref": graph_spec.graph_ref or graph_spec.graph_id,
                 "task_graph_scheduler_state": scheduler_state.to_dict(),
                 "task_graph_runtime_source": "task_graph_definition",
                 "contract_manifest_ref": manifest.manifest_id,
@@ -916,6 +1204,10 @@ def _contract_payload(contract: CoordinationStageContract, *, topology_nodes: li
         "artifact_requirements",
         "instructions",
         "stage_instructions",
+        "node_type",
+        "memory_read_policy",
+        "memory_writeback_policy",
+        "dynamic_memory_read_policy",
         "loop_kind",
         "chapter_scoped",
         "title_template",
@@ -931,6 +1223,138 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _working_memory_root_for_runtime(root_dir: Any) -> Path:
+    runtime_root = Path(root_dir).resolve()
+    if runtime_root.name == "runtime_state":
+        return runtime_root.parent / "working_memory"
+    return runtime_root / "working_memory"
+
+
+def _first_policy_value(policy: dict[str, Any], key: str, default: str) -> str:
+    values = [str(item).strip() for item in list(policy.get(key) or []) if str(item).strip()]
+    return values[0] if values else str(default or "").strip()
+
+
+def _working_memory_context_from_selection(
+    selection: dict[str, Any],
+    *,
+    task_run_id: str,
+    graph_id: str,
+    owner_node_id: str,
+    node_run_id: str,
+    run_attempt_id: str,
+) -> dict[str, Any]:
+    required_items = [item for item in list(selection.get("required_items") or []) if hasattr(item, "to_dict")]
+    preferred_items = [item for item in list(selection.get("preferred_items") or []) if hasattr(item, "to_dict")]
+    excluded_items = [item for item in list(selection.get("excluded_items") or []) if hasattr(item, "to_dict")]
+    required_refs = [str(getattr(item, "work_memory_id", "") or "") for item in required_items if str(getattr(item, "work_memory_id", "") or "")]
+    preferred_refs = [str(getattr(item, "work_memory_id", "") or "") for item in preferred_items if str(getattr(item, "work_memory_id", "") or "")]
+    conflict_items = [
+        item
+        for item in [*required_items, *preferred_items]
+        if str(getattr(item, "status", "") or "") == "conflicted" or getattr(item, "conflict_refs", ())
+    ]
+    conflict_refs = [str(getattr(item, "work_memory_id", "") or "") for item in conflict_items if str(getattr(item, "work_memory_id", "") or "")]
+    return {
+        "task_run_id": task_run_id,
+        "graph_id": graph_id,
+        "owner_node_id": owner_node_id,
+        "node_run_id": node_run_id,
+        "run_attempt_id": run_attempt_id,
+        "read_log_id": str(selection.get("read_log_id") or ""),
+        "denied_reason": str(selection.get("denied_reason") or ""),
+        "working_memory.required": {
+            "item_count": len(required_refs),
+            "refs": required_refs,
+            "items": [item.to_dict() for item in required_items],
+            "content_mode": "summary",
+        },
+        "working_memory.preferred": {
+            "item_count": len(preferred_refs),
+            "refs": preferred_refs,
+            "items": [item.to_dict() for item in preferred_items],
+            "content_mode": "summary",
+        },
+        "working_memory.artifact_refs": {
+            "item_count": sum(len(tuple(getattr(item, "artifact_refs", ()) or ())) for item in [*required_items, *preferred_items]),
+            "refs": [
+                ref
+                for item in [*required_items, *preferred_items]
+                for ref in list(getattr(item, "artifact_refs", ()) or ())
+                if str(ref)
+            ],
+            "content_mode": "refs_only",
+        },
+        "working_memory.conflict_warnings": {
+            "item_count": len(conflict_refs),
+            "refs": conflict_refs,
+            "items": [item.to_dict() for item in conflict_items],
+            "content_mode": "summary",
+        },
+        "diagnostics": {
+            **dict(selection.get("diagnostics") or {}),
+            "excluded_refs": [
+                str(getattr(item, "work_memory_id", "") or "")
+                for item in excluded_items
+                if str(getattr(item, "work_memory_id", "") or "")
+            ],
+        },
+    }
+
+
+def _working_memory_refs_from_context(context: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    for section_id in ("working_memory.required", "working_memory.preferred", "working_memory.conflict_warnings"):
+        for ref in list(dict(context.get(section_id) or {}).get("refs") or []):
+            if str(ref).strip() and str(ref).strip() not in refs:
+                refs.append(str(ref).strip())
+    return refs
+
+
+def _filter_working_memory_refs_for_handoff(refs: list[str], policy: dict[str, Any], service: WorkingMemoryService) -> list[str]:
+    explicit = [str(item).strip() for item in list(policy.get("working_memory_refs") or []) if str(item).strip()]
+    if explicit:
+        allowed = set(explicit)
+        refs = [ref for ref in refs if ref in allowed]
+    carry_kinds = {str(item).strip() for item in list(policy.get("carry_kinds") or []) if str(item).strip()}
+    carry_scopes = {str(item).strip() for item in list(policy.get("carry_scopes") or []) if str(item).strip()}
+    filtered: list[str] = []
+    for ref in refs:
+        item = service.get_item(ref)
+        if item is None:
+            continue
+        if carry_kinds and item.kind not in carry_kinds:
+            continue
+        if carry_scopes and item.scope not in carry_scopes:
+            continue
+        filtered.append(ref)
+    limit = _safe_int(policy.get("limit"), 0)
+    selected = [ref for ref in filtered if ref]
+    return selected[:limit] if limit > 0 else selected
+
+
+def _decision_refs(payload: dict[str, Any], *keys: str) -> list[str]:
+    refs: list[str] = []
+    for key in keys:
+        for ref in list(payload.get(key) or []):
+            value = str(ref).strip()
+            if value and value not in refs:
+                refs.append(value)
+    return refs
+
+
+def _stage_working_memory_refs_for_commit(state: CoordinationRuntimeState) -> list[str]:
+    refs: list[str] = []
+    for result in dict(state.get("stage_results") or {}).values():
+        if not isinstance(result, dict):
+            continue
+        for ref in list(result.get("working_memory_refs") or []):
+            value = str(ref).strip()
+            if value and value not in refs:
+                refs.append(value)
+    return refs
 
 
 def _merge_runtime_nodes(*, compiled_nodes: list[dict[str, Any]], configured_nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1132,12 +1556,7 @@ def _stage_execution_message(
             f"全书目标约{target_words or 1000000}字；"
             f"当前已完成约{current_words}字。"
         )
-    user_seed = str(
-        explicit_inputs.get("user_seed")
-        or explicit_inputs.get("hard_constraints")
-        or explicit_inputs.get("project_brief")
-        or ""
-    ).strip()
+    user_seed = _explicit_project_brief(explicit_inputs)
     if user_seed:
         lines.append("用户硬设定：")
         lines.append(user_seed)
@@ -1175,6 +1594,29 @@ def _render_runtime_template(template: str, values: dict[str, Any]) -> str:
     for key, value in replacements.items():
         rendered = rendered.replace("{" + key + "}", str(value))
     return rendered
+
+
+def _explicit_project_brief(explicit_inputs: dict[str, Any]) -> str:
+    parts: list[str] = []
+    title = str(explicit_inputs.get("project_title") or explicit_inputs.get("title") or "").strip()
+    if title:
+        parts.append(f"项目名称：{title}")
+    constraints = str(
+        explicit_inputs.get("user_hard_constraints")
+        or explicit_inputs.get("hard_constraints")
+        or explicit_inputs.get("user_seed")
+        or explicit_inputs.get("project_brief")
+        or ""
+    ).strip()
+    if constraints:
+        parts.append(constraints)
+    requested_batch = str(explicit_inputs.get("requested_batch") or "").strip()
+    if requested_batch:
+        parts.append(f"批次目标：{requested_batch}")
+    execution_policy = str(explicit_inputs.get("execution_policy") or "").strip()
+    if execution_policy:
+        parts.append(f"执行边界：{execution_policy}")
+    return "\n".join(parts).strip()
 
 
 def _contract_from_payload(payload: dict[str, Any]) -> CoordinationStageContract:

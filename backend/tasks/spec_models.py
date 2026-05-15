@@ -18,7 +18,6 @@ class TaskSpec:
     constraints: dict[str, Any] = field(default_factory=dict)
     current_turn_context_ref: str = ""
     task_intent_ref: str = ""
-    template_match_ref: str = ""
     bundle_spec_ref: str = ""
     bundle_item_ref: str = ""
     requested_outputs: tuple[str, ...] = ()

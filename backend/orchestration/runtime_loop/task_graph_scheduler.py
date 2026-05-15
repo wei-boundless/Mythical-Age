@@ -27,16 +27,19 @@ def bootstrap_scheduler_state(
     mode: str = "shadow",
 ) -> TaskGraphSchedulerState:
     statuses = _initial_node_statuses(runtime_spec=runtime_spec, node_statuses=node_statuses)
-    incoming, outgoing = _node_adjacency(runtime_spec.edges)
+    incoming, outgoing = _node_adjacency(runtime_spec.nodes, runtime_spec.edges)
+    optional_node_ids = _optional_feedback_subgraph_nodes(runtime_spec.nodes, runtime_spec.edges)
     completed = {node_id for node_id, status in statuses.items() if status in TERMINAL_COMPLETED}
     failed = {node_id for node_id, status in statuses.items() if status in TERMINAL_FAILED}
     running = {node_id for node_id, status in statuses.items() if status in ACTIVE_STATUSES}
     waiting = {node_id for node_id, status in statuses.items() if status in WAITING_STATUSES}
+    start_node_ids = set(runtime_spec.start_node_ids or ())
     phase_order = _phase_order(runtime_spec.nodes)
     active_phase_ids = _active_phase_ids(
         nodes=runtime_spec.nodes,
         statuses=statuses,
         phase_order=phase_order,
+        optional_node_ids=optional_node_ids,
     )
     active_sequence_by_phase = _active_sequence_by_phase(
         nodes=runtime_spec.nodes,
@@ -63,6 +66,8 @@ def bootstrap_scheduler_state(
             )
             ready = _node_ready(
                 node=node,
+                current_status=status,
+                start_node_ids=start_node_ids,
                 required_sources=required_sources,
                 completed=completed,
                 failed=failed,
@@ -141,6 +146,7 @@ def bootstrap_scheduler_state(
             "phase_count": len(phase_states),
             "active_phase_ids": list(active_phase_ids),
             "active_sequence_by_phase": dict(active_sequence_by_phase),
+            "optional_node_ids": sorted(optional_node_ids),
         },
     )
 
@@ -163,15 +169,19 @@ def _initial_node_statuses(
     }
 
 
-def _node_adjacency(edges: tuple[TaskGraphRuntimeEdge, ...]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+def _node_adjacency(
+    nodes: tuple[TaskGraphRuntimeNode, ...],
+    edges: tuple[TaskGraphRuntimeEdge, ...],
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     incoming: dict[str, list[str]] = defaultdict(list)
     outgoing: dict[str, list[str]] = defaultdict(list)
+    node_order = {node.node_id: index for index, node in enumerate(nodes)}
     for edge in edges:
         source = str(edge.source_node_id or "").strip()
         target = str(edge.target_node_id or "").strip()
         if not source or not target:
             continue
-        if _is_feedback_edge(edge):
+        if _is_feedback_edge(edge) or _is_backward_edge(source=source, target=target, node_order=node_order):
             outgoing[source].append(target)
             continue
         incoming[target].append(source)
@@ -179,9 +189,50 @@ def _node_adjacency(edges: tuple[TaskGraphRuntimeEdge, ...]) -> tuple[dict[str, 
     return dict(incoming), dict(outgoing)
 
 
+def _optional_feedback_subgraph_nodes(
+    nodes: tuple[TaskGraphRuntimeNode, ...],
+    edges: tuple[TaskGraphRuntimeEdge, ...],
+) -> set[str]:
+    node_ids = {node.node_id for node in nodes}
+    node_order = {node.node_id: index for index, node in enumerate(nodes)}
+    forward_outgoing: dict[str, list[str]] = defaultdict(list)
+    for edge in edges:
+        source = str(edge.source_node_id or "").strip()
+        target = str(edge.target_node_id or "").strip()
+        if not source or not target:
+            continue
+        if _is_feedback_edge(edge) or _is_backward_edge(source=source, target=target, node_order=node_order):
+            continue
+        forward_outgoing[source].append(target)
+    roots = {
+        str(edge.target_node_id or "").strip()
+        for edge in edges
+        if _is_feedback_edge(edge)
+        and str(edge.target_node_id or "").strip() in node_ids
+        and not _is_backward_edge(
+            source=str(edge.source_node_id or "").strip(),
+            target=str(edge.target_node_id or "").strip(),
+            node_order=node_order,
+        )
+    }
+    optional: set[str] = set()
+    stack = list(roots)
+    while stack:
+        node_id = stack.pop()
+        if node_id in optional:
+            continue
+        optional.add(node_id)
+        for target in forward_outgoing.get(node_id, ()):
+            if target in node_ids and target not in optional:
+                stack.append(target)
+    return optional
+
+
 def _node_ready(
     *,
     node: TaskGraphRuntimeNode,
+    current_status: str,
+    start_node_ids: set[str],
     required_sources: tuple[str, ...],
     completed: set[str],
     failed: set[str],
@@ -189,7 +240,7 @@ def _node_ready(
     if node.wait_policy == "fire_and_continue":
         return True
     if not required_sources:
-        return True
+        return current_status == "ready" or node.node_id in start_node_ids
     if failed and node.join_policy in {"allow_partial_with_issues", "coordinator_decides"}:
         terminal_sources = completed | failed
         return all(source in terminal_sources for source in required_sources) and any(source in completed for source in required_sources)
@@ -219,6 +270,7 @@ def _active_phase_ids(
     nodes: tuple[TaskGraphRuntimeNode, ...],
     statuses: dict[str, str],
     phase_order: tuple[str, ...],
+    optional_node_ids: set[str],
 ) -> set[str]:
     running_phases = {
         _phase_id(node)
@@ -232,6 +284,9 @@ def _active_phase_ids(
         nodes_by_phase[_phase_id(node)].append(node)
     for phase_id in phase_order:
         phase_nodes = nodes_by_phase.get(phase_id, [])
+        if phase_nodes and all(node.node_id in optional_node_ids for node in phase_nodes):
+            if not any(statuses.get(node.node_id) in ACTIVE_STATUSES | {"ready"} for node in phase_nodes):
+                continue
         if any(statuses.get(node.node_id, "pending") not in TERMINAL_COMPLETED | TERMINAL_FAILED for node in phase_nodes):
             return {phase_id}
     return set(phase_order[:1])
@@ -313,6 +368,12 @@ def _is_feedback_edge(edge: TaskGraphRuntimeEdge) -> bool:
         "repair_feedback",
         "non_blocking_feedback",
     } or loop_role in {"repair", "feedback"}
+
+
+def _is_backward_edge(*, source: str, target: str, node_order: dict[str, int]) -> bool:
+    if source not in node_order or target not in node_order:
+        return False
+    return node_order[source] > node_order[target]
 
 
 def _phase_states(

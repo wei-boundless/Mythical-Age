@@ -1,4 +1,11 @@
-import type { OrchestrationEdge, OrchestrationNode, OrchestrationSnapshot, RetrievalResult, RuntimeLoopTaskRunTrace, ToolCall } from "@/lib/api";
+import type {
+  OrchestrationEdge,
+  OrchestrationNode,
+  OrchestrationSnapshot,
+  RetrievalResult,
+  RuntimeLoopTaskRunTrace,
+  ToolCall
+} from "@/lib/api";
 
 import type { Message, StoreState } from "./types";
 import {
@@ -671,6 +678,17 @@ export function reduceStreamEvent(
         ...message,
         content: message.content || `Request failed: ${String(data.error ?? "unknown error")}`,
         stageStatus: "出错"
+      })),
+      session
+    };
+  }
+
+  if (event === "stopped") {
+    return {
+      state: patchAssistant(stateWithOrchestration, session.assistantId, (message) => ({
+        ...message,
+        content: message.content || "已停止，可修改后重新发送。",
+        stageStatus: "已停止"
       })),
       session
     };
