@@ -91,7 +91,7 @@ def test_working_memory_finalizer_purges_low_value_terminal_items(tmp_path) -> N
         owner_node_id="node_a",
         node_run_id="taskrun:test:node_a",
         writer_agent_id="agent:a",
-        kind="draft_note",
+        kind="scratch_note",
         summary="discard me",
         status="draft",
         scope="node_scope",

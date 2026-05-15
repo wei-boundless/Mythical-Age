@@ -593,7 +593,8 @@ def test_task_run_loop_can_finalize_working_memory_without_durable_promotion(tmp
     result = finalized["result"]
     assert result["artifact_candidate_count"] == 1
     assert result["discarded_count"] == 1
+    assert result["purged_count"] == 1
     assert finalized["event"]["event_type"] == "working_memory_finalized"
     assert loop.working_memory.get_item(stored[0].work_memory_id).status == "archived"
     assert loop.working_memory.get_item(stored[0].work_memory_id).promotion_state == "promoted_to_artifact_store"
-    assert loop.working_memory.get_item(stored[1].work_memory_id).status == "discarded"
+    assert loop.working_memory.get_item(stored[1].work_memory_id) is None
