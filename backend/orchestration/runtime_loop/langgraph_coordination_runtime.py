@@ -411,6 +411,7 @@ class LangGraphCoordinationRuntime:
             "artifact_refs": artifact_refs,
             "trace_refs": trace_refs,
             "outputs": mapped_outputs,
+            "diagnostics": dict(event.get("diagnostics") or {}),
             "accepted": bool(event.get("accepted") is True) and _required_artifact_outputs_satisfied(
                 output_mappings,
                 artifact_refs,
@@ -700,6 +701,15 @@ class LangGraphCoordinationRuntime:
             node_id=node_id,
             contract=contract,
         )
+        working_memory_operations = list(state.get("working_memory_operations") or [])
+        read_operation = _working_memory_read_operation_from_context(
+            context=working_memory_context,
+            stage_id=stage_id,
+            node_id=node_id,
+            agent_id=str(contract.get("agent_id") or ""),
+        )
+        if read_operation:
+            working_memory_operations.append(read_operation)
         working_memory_contexts = {
             **dict(state.get("working_memory_contexts") or {}),
             **({stage_id: working_memory_context} if working_memory_context else {}),
@@ -772,6 +782,7 @@ class LangGraphCoordinationRuntime:
             "a2a_payload": a2a_payload,
             "handoff_packets": next_handoff_packets,
             "working_memory_contexts": working_memory_contexts,
+            "working_memory_operations": working_memory_operations,
             "terminal_status": "",
         }
 
@@ -1373,6 +1384,52 @@ def _working_memory_context_from_selection(
                 if str(getattr(item, "work_memory_id", "") or "")
             ],
         },
+    }
+
+
+def _working_memory_read_operation_from_context(
+    *,
+    context: dict[str, Any],
+    stage_id: str,
+    node_id: str,
+    agent_id: str,
+) -> dict[str, Any]:
+    payload = dict(context or {})
+    diagnostics = dict(payload.get("diagnostics") or {})
+    required = dict(payload.get("working_memory.required") or {})
+    preferred = dict(payload.get("working_memory.preferred") or {})
+    selected_refs = [
+        *[str(item).strip() for item in list(required.get("refs") or []) if str(item).strip()],
+        *[
+            str(item).strip()
+            for item in list(preferred.get("refs") or [])
+            if str(item).strip() and str(item).strip() not in list(required.get("refs") or [])
+        ],
+    ]
+    denied_reason = str(payload.get("denied_reason") or "")
+    if not selected_refs and not denied_reason and not str(payload.get("read_log_id") or ""):
+        return {}
+    return {
+        "operation": "memory_read",
+        "stage_id": stage_id,
+        "node_id": node_id,
+        "reader_agent_id": agent_id,
+        "node_run_id": str(payload.get("node_run_id") or ""),
+        "read_log_id": str(payload.get("read_log_id") or ""),
+        "selected_working_memory_refs": selected_refs,
+        "excluded_working_memory_refs": [
+            str(item).strip()
+            for item in list(diagnostics.get("excluded_refs") or [])
+            if str(item).strip()
+        ],
+        "selected_item_previews": [
+            dict(item)
+            for item in list(diagnostics.get("selected_item_previews") or [])
+            if isinstance(item, dict)
+        ],
+        "denied_reason": denied_reason,
+        "status": "denied" if denied_reason else "completed",
+        "authority": "orchestration.working_memory_resource_node",
     }
 
 

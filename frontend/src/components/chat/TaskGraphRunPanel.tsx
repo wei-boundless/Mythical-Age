@@ -85,6 +85,15 @@ type CoordinationWorkingMemoryOperation = {
   edgeId: string;
   status: string;
   refs: string[];
+  deniedReason: string;
+  selectedItemPreviews: Array<{
+    work_memory_id: string;
+    owner_node_id: string;
+    scope: string;
+    visibility: string;
+    kind: string;
+    summary: string;
+  }>;
   transactionRef: string;
   finalizationRef: string;
 };
@@ -409,11 +418,24 @@ function buildContractRuntimeFromLiveState(
       refs: Array.from(new Set([
         ...stringArray(operation.created_working_memory_refs),
         ...stringArray(operation.selected_working_memory_refs),
+        ...stringArray(operation.excluded_working_memory_refs),
         ...stringArray(operation.adopted_working_memory_refs),
         ...stringArray(operation.accepted_working_memory_refs),
         ...stringArray(operation.discarded_working_memory_refs),
         ...stringArray(operation.conflict_working_memory_refs),
       ].filter(Boolean))),
+      deniedReason: text(operation.denied_reason),
+      selectedItemPreviews: asArray(operation.selected_item_previews).map((item) => {
+        const preview = asRecord(item);
+        return {
+          work_memory_id: text(preview.work_memory_id),
+          owner_node_id: text(preview.owner_node_id),
+          scope: text(preview.scope),
+          visibility: text(preview.visibility),
+          kind: text(preview.kind),
+          summary: text(preview.summary),
+        };
+      }).filter((item) => item.work_memory_id || item.summary),
       transactionRef: text(operation.handoff_transaction_ref),
       finalizationRef: text(operation.finalization_ref),
     })),
@@ -848,6 +870,17 @@ export function TaskGraphRunPanel({
                 </div>
                 <em>{runtimeScopeLabel(operation.nodeId || operation.stageId || operation.edgeId || "graph")}</em>
                 <small>{operation.refs.length ? operation.refs.join(" / ") : operation.transactionRef || operation.finalizationRef || "等待引用"}</small>
+                {operation.deniedReason ? (
+                  <small>拒读原因: {operation.deniedReason}</small>
+                ) : null}
+                {operation.selectedItemPreviews.length ? (
+                  <small>
+                    {operation.selectedItemPreviews
+                      .slice(0, 3)
+                      .map((item) => `${item.work_memory_id || "unknown"} · ${item.owner_node_id || "graph"} · ${item.scope || "node_scope"}`)
+                      .join(" / ")}
+                  </small>
+                ) : null}
               </article>
             )) : (
               <p className="coordination-contract-empty">

@@ -190,6 +190,7 @@ def _stage_results(results: dict[str, Any]) -> list[dict[str, Any]]:
                 "task_result_ref": str(item.get("task_result_ref") or ""),
                 "agent_run_result_ref": str(item.get("agent_run_result_ref") or ""),
                 "working_memory_refs": _string_list(item.get("working_memory_refs")),
+                "diagnostics": dict(item.get("diagnostics") or {}),
             }
         )
     return payloads
@@ -219,8 +220,20 @@ def _failure_details(*, task: dict[str, Any], coord: dict[str, Any], state: dict
     diagnostics = dict(task.get("diagnostics") or {})
     state_diagnostics = dict(state.get("diagnostics") or {})
     coord_diagnostics = dict(coord.get("diagnostics") or {})
+    stage_results = dict(state.get("stage_results") or {})
+    failed_stage_errors: list[dict[str, Any]] = []
+    for stage_id in _string_list(state.get("failed_nodes")):
+        result = dict(stage_results.get(stage_id) or {})
+        result_diagnostics = dict(result.get("diagnostics") or {})
+        stage_error = dict(result_diagnostics.get("last_error") or {})
+        if stage_error:
+            stage_error.setdefault("step_id", str(stage_error.get("step_id") or ""))
+            stage_error.setdefault("source", str(stage_error.get("source") or ""))
+            stage_error["stage_id"] = stage_id
+            failed_stage_errors.append(stage_error)
     last_error = dict(
-        diagnostics.get("last_error")
+        (failed_stage_errors[0] if failed_stage_errors else {})
+        or diagnostics.get("last_error")
         or state_diagnostics.get("last_error")
         or coord_diagnostics.get("last_error")
         or {}
@@ -234,6 +247,7 @@ def _failure_details(*, task: dict[str, Any], coord: dict[str, Any], state: dict
         "provider": str(last_error.get("provider") or ""),
         "model": str(last_error.get("model") or ""),
         "source": str(last_error.get("source") or ""),
+        "stage_id": str(last_error.get("stage_id") or ""),
         "step_id": str(last_error.get("step_id") or state.get("current_step_id") or ""),
         "observation_ref": str(last_error.get("observation_ref") or ""),
     }

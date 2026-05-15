@@ -258,6 +258,7 @@ class RuntimeStateIndex:
     def read_session_monitor_snapshot(self, session_id: str) -> dict[str, Any]:
         session_view = self._read_session_live_view(session_id)
         task_run_ids = self._read_index_ids("sessions", session_id)
+        task_run_bucket = self._read_record_bucket("task_runs")
         latest_coordination_task_run_id = str(
             session_view.get("latest_coordination_task_run_id")
             or self._read_index_value("session_latest_coordination_task_runs", session_id)
@@ -273,10 +274,31 @@ class RuntimeStateIndex:
             for item in [latest_coordination_task_run_id, latest_task_run_id]
             if item
         ]
+        indexed_task_runs = [
+            dict(task_run_bucket.get(task_run_id) or {})
+            for task_run_id in task_run_ids
+            if isinstance(task_run_bucket.get(task_run_id), dict)
+        ]
+        freshest_task_run_id = ""
+        if indexed_task_runs:
+            freshest_task_run = max(
+                indexed_task_runs,
+                key=lambda item: (
+                    float(item.get("updated_at") or 0.0),
+                    float(item.get("created_at") or 0.0),
+                ),
+            )
+            freshest_task_run_id = str(freshest_task_run.get("task_run_id") or "")
+            if freshest_task_run_id:
+                preferred_task_run_ids.insert(0, freshest_task_run_id)
         if not preferred_task_run_ids and task_run_ids:
             preferred_task_run_ids = [task_run_ids[-1]]
         preferred_task_run_ids = list(dict.fromkeys(preferred_task_run_ids))
-        task_runs = self._read_selected_records("task_runs", preferred_task_run_ids)
+        task_runs = {
+            task_run_id: dict(task_run_bucket.get(task_run_id) or {})
+            for task_run_id in preferred_task_run_ids
+            if isinstance(task_run_bucket.get(task_run_id), dict)
+        }
         task_coordination_runs = {}
         for task_run_id in preferred_task_run_ids:
             latest_coordination_run_id = str(
@@ -341,6 +363,7 @@ class RuntimeStateIndex:
                 "task_run_count": int(session_view.get("task_run_count") or len(task_run_ids)),
                 "latest_task_run_id": latest_task_run_id,
                 "latest_coordination_task_run_id": latest_coordination_task_run_id,
+                "freshest_task_run_id": freshest_task_run_id,
                 "latest_coordination_run_id": str(session_view.get("latest_coordination_run_id") or ""),
                 "updated_at": float(session_view.get("updated_at") or self._read_meta().get("updated_at") or 0.0),
             },

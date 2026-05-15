@@ -514,6 +514,14 @@ class TaskRunLoop:
         diagnostics: dict[str, Any] | None = None,
     ) -> TaskRunLoopStartResult:
         """Create a durable runtime-loop run from a first-class TaskGraphDefinition."""
+        effective_initial_inputs = dict(initial_inputs or {})
+        if not effective_initial_inputs:
+            restored_initial_inputs = self._restore_task_graph_initial_inputs(
+                session_id=session_id,
+                graph_id=graph.graph_id,
+            )
+            if restored_initial_inputs:
+                effective_initial_inputs = restored_initial_inputs
         runtime_policy = dict(graph.runtime_policy or {})
         coordinator_agent_id = str(runtime_spec.coordinator_agent_id or runtime_policy.get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
         graph_definition_ref = self.runtime_objects.put_json_once(
@@ -536,10 +544,20 @@ class TaskRunLoop:
             "graph_ref": graph.graph_id,
             "runtime_spec_ref": f"runtime-spec:task-graph:{graph.graph_id}",
             "runtime_spec": runtime_spec.to_dict(),
-            "initial_inputs": dict(initial_inputs or {}),
+            "initial_inputs": dict(effective_initial_inputs),
             "working_memory_policy_profile_id": graph.working_memory_policy_profile_id,
             "working_memory_policy": dict(graph.working_memory_policy or {}),
         }
+        initial_inputs_ref = self.runtime_objects.put_object(
+            "task_graph_initial_inputs",
+            f"{session_id}:{task_id or graph.graph_id}:{graph.graph_id}",
+            {
+                "session_id": session_id,
+                "task_id": task_id or graph.graph_id,
+                "graph_id": graph.graph_id,
+                "initial_inputs": dict(effective_initial_inputs),
+            },
+        )
         start = self.start(
             session_id=session_id,
             task_id=task_id or graph.graph_id,
@@ -564,7 +582,9 @@ class TaskRunLoop:
                 "task_graph_publish_state": graph.publish_state,
                 "task_graph_definition_ref": graph_definition_ref,
                 "task_graph_runtime_spec_ref": graph_runtime_spec_ref,
+                "task_graph_initial_inputs_ref": initial_inputs_ref,
                 "task_graph_runtime_spec_valid": runtime_spec.valid,
+                "task_graph_initial_input_keys": sorted(str(key) for key in effective_initial_inputs.keys()),
                 **dict(diagnostics or {}),
             },
         )
@@ -577,7 +597,7 @@ class TaskRunLoop:
         initialized = self.langgraph_coordination_runtime.initialize(
             coordination_run=start.coordination_run,
             event_task_run_id=start.task_run.task_run_id,
-            inherited_inputs=dict(initial_inputs or {}),
+            inherited_inputs=dict(effective_initial_inputs),
         )
         events = [dict(item) for item in start.events]
         events.extend(
@@ -612,6 +632,36 @@ class TaskRunLoop:
             checkpoint=start.checkpoint,
             events=tuple(events),
         )
+
+    def _restore_task_graph_initial_inputs(self, *, session_id: str, graph_id: str) -> dict[str, Any]:
+        target_graph_id = str(graph_id or "").strip()
+        if not session_id or not target_graph_id:
+            return {}
+        candidates = sorted(
+            (
+                task_run
+                for task_run in self.state_index.list_session_task_runs(session_id)
+                if str(task_run.task_id or "").strip() == target_graph_id
+                and str(dict(task_run.diagnostics or {}).get("task_graph_id") or "").strip() == target_graph_id
+            ),
+            key=lambda item: float(item.updated_at or 0.0),
+            reverse=True,
+        )
+        for task_run in candidates:
+            diagnostics = dict(task_run.diagnostics or {})
+            initial_inputs_ref = str(diagnostics.get("task_graph_initial_inputs_ref") or "").strip()
+            if initial_inputs_ref:
+                payload = self.runtime_objects.get_object(initial_inputs_ref)
+                restored = dict(payload.get("initial_inputs") or {})
+                if restored:
+                    return restored
+            runtime_assembly_ref = str(diagnostics.get("runtime_assembly_ref") or "").strip()
+            if runtime_assembly_ref:
+                assembly = self.runtime_objects.get_object(runtime_assembly_ref)
+                restored = dict(assembly.get("initial_inputs") or {})
+                if restored:
+                    return restored
+        return {}
 
     def submit_working_memory_candidates(
         self,
@@ -1088,6 +1138,11 @@ class TaskRunLoop:
             context_policy_result=effective_context_policy,
             stage_projection_snapshot=stage_projection,
             runtime_execution_facts=effective_runtime_execution_facts,
+            runtime_assembly=dict(
+                dict(current_turn_context or {}).get("stage_execution_request", {}).get("runtime_assembly")
+                or dict(current_turn_context or {}).get("runtime_assembly")
+                or {}
+            ),
         )
         context_event = self.event_log.append(
             state.task_run_id,
@@ -3057,6 +3112,7 @@ class TaskRunLoop:
                     agent_run_result_ref=agent_run_result.agent_run_result_id,
                     diagnostics={
                         "terminal_reason": terminal_state.terminal_reason,
+                        "last_error": dict(terminal_state.diagnostics.get("last_error") or {}),
                         "chapter_words": _count_longform_chapter_words(
                             final_content,
                             stage_id=current_stage_id,

@@ -156,3 +156,41 @@ def test_monitor_includes_failure_details_from_task_diagnostics() -> None:
     assert view["runtime"]["failure"]["message"] == "模型配置有误，请检查提供商和密钥设置。"
     assert view["runtime"]["failure"]["detail"] == "401 Unauthorized from upstream provider"
     assert view["runtime"]["failure"]["provider"] == "deepseek"
+
+
+def test_monitor_prefers_failed_stage_error_details() -> None:
+    task_run = _base_task_run()
+    task_run["status"] = "failed"
+    task_run["terminal_reason"] = "executor_failed"
+    task_run["diagnostics"] = {}
+    view = build_task_graph_run_monitor_view(
+        task_run=task_run,
+        coordination_run=_base_coordination_run(),
+        coordination_state={
+            "diagnostics": {"coordination_graph_spec": _graph_spec()},
+            "failed_nodes": ["world"],
+            "stage_results": {
+                "world": {
+                    "status": "failed",
+                    "accepted": False,
+                    "artifact_refs": [],
+                    "task_result_ref": "taskresult:world",
+                    "diagnostics": {
+                        "last_error": {
+                            "message": "upstream model timeout",
+                            "detail": "request exceeded 300s",
+                            "code": "timeout",
+                            "provider": "deepseek",
+                            "model": "deepseek-v4-pro",
+                            "step_id": "understand_request",
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    assert view["runtime"]["failure"]["message"] == "upstream model timeout"
+    assert view["runtime"]["failure"]["detail"] == "request exceeded 300s"
+    assert view["runtime"]["failure"]["stage_id"] == "world"
+    assert view["runtime"]["failure"]["step_id"] == "understand_request"

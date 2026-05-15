@@ -530,6 +530,12 @@ def _pick_session_monitor_task_run_payload(
 ) -> dict[str, Any] | None:
     if not task_runs:
         return None
+    monitor_index = dict(state_snapshot.get("monitor_index") or {})
+    freshest_task_run_id = str(monitor_index.get("freshest_task_run_id") or "")
+    if freshest_task_run_id:
+        for item in task_runs:
+            if str(item.get("task_run_id") or "") == freshest_task_run_id:
+                return item
     task_coordination_runs = dict(state_snapshot.get("task_coordination_runs") or {})
     for item in task_runs:
         if list(task_coordination_runs.get(str(item.get("task_run_id") or "")) or []):

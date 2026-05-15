@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from orchestration.runtime_loop.checkpoint import RuntimeCheckpointStore
 from orchestration.runtime_loop.models import CoordinationNodeRun, CoordinationRun, RuntimeLoopState, TaskRun
 from orchestration.runtime_loop.state_index import RuntimeStateIndex
@@ -159,3 +161,44 @@ def test_session_live_view_preserves_coordination_pointer_after_root_task_update
     assert live_view["latest_task_run_id"] == "taskrun:test:root"
     assert live_view["latest_coordination_task_run_id"] == "taskrun:test:root"
     assert live_view["latest_coordination_run_id"] == "coordrun:test:root"
+
+
+def test_session_live_monitor_prefers_freshest_task_run_over_stale_live_view_pointer(tmp_path) -> None:
+    state_index = RuntimeStateIndex(tmp_path)
+    checkpoints = RuntimeCheckpointStore(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    reader = RuntimeLoopTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
+
+    stale = TaskRun(
+        task_run_id="taskrun:test:stale",
+        session_id="session:test",
+        task_id="task.old",
+        status="running",
+        created_at=100.0,
+        updated_at=110.0,
+    )
+    fresh = TaskRun(
+        task_run_id="taskrun:test:fresh",
+        session_id="session:test",
+        task_id="task.new",
+        status="completed",
+        created_at=120.0,
+        updated_at=220.0,
+        terminal_reason="done",
+    )
+    state_index.upsert_task_run(stale)
+    state_index.upsert_task_run(fresh)
+
+    session_view = state_index._read_session_live_view("session:test")
+    session_view["latest_task_run_id"] = stale.task_run_id
+    session_view["latest_coordination_task_run_id"] = stale.task_run_id
+    state_index._session_live_view_path("session:test").write_text(
+        json.dumps(session_view, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    monitor = reader.get_session_live_monitor("session:test")
+
+    assert monitor["latest_task_run_id"] == fresh.task_run_id
+    assert monitor["monitor"] is not None
+    assert monitor["monitor"]["status"] == "completed"

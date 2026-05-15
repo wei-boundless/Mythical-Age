@@ -42,6 +42,9 @@ class WorkingMemoryFinalizationResult:
     artifact_candidate_count: int
     unresolved_conflict_count: int
     unchanged_count: int
+    purged_count: int
+    purged_status_counts: dict[str, int]
+    store_optimized: bool
     archive_report_path: str
     item_actions: tuple[dict[str, Any], ...]
     authority: str = "working_memory.finalizer"
@@ -56,6 +59,9 @@ class WorkingMemoryFinalizationResult:
             "artifact_candidate_count": self.artifact_candidate_count,
             "unresolved_conflict_count": self.unresolved_conflict_count,
             "unchanged_count": self.unchanged_count,
+            "purged_count": self.purged_count,
+            "purged_status_counts": dict(self.purged_status_counts),
+            "store_optimized": self.store_optimized,
             "archive_report_path": self.archive_report_path,
             "item_actions": [dict(item) for item in self.item_actions],
             "authority": self.authority,
@@ -106,10 +112,33 @@ class WorkingMemoryFinalizer:
             artifact_candidate_count=counts["artifact_candidate"],
             unresolved_conflict_count=counts["unresolved_conflict"],
             unchanged_count=counts["unchanged"],
+            purged_count=0,
+            purged_status_counts={},
+            store_optimized=False,
             archive_report_path="",
             item_actions=tuple(actions),
         )
         report_path = self.working_memory.store.write_archive_report(task_run, report.to_dict())
+        cleanup_policy = {
+            "purge_terminal_items_after_finalize": True,
+            "purge_statuses": ["draft", "proposed", "discarded", "superseded"],
+            "optimize_store_after_finalize": True,
+            **finalization_policy,
+        }
+        purge_result = {"purged_count": 0, "purged_status_counts": {}}
+        if bool(cleanup_policy.get("purge_terminal_items_after_finalize")):
+            purge_result = self.working_memory.store.purge_task_run_terminal_items(
+                task_run,
+                purge_statuses=tuple(
+                    str(item).strip()
+                    for item in list(cleanup_policy.get("purge_statuses") or [])
+                    if str(item).strip()
+                ),
+            )
+        store_optimized = False
+        if bool(cleanup_policy.get("optimize_store_after_finalize")):
+            self.working_memory.store.optimize_store()
+            store_optimized = True
         return WorkingMemoryFinalizationResult(
             task_run_id=report.task_run_id,
             finalized_count=report.finalized_count,
@@ -119,6 +148,9 @@ class WorkingMemoryFinalizer:
             artifact_candidate_count=report.artifact_candidate_count,
             unresolved_conflict_count=report.unresolved_conflict_count,
             unchanged_count=report.unchanged_count,
+            purged_count=int(purge_result.get("purged_count") or 0),
+            purged_status_counts=dict(purge_result.get("purged_status_counts") or {}),
+            store_optimized=store_optimized,
             archive_report_path=str(report_path),
             item_actions=report.item_actions,
         )

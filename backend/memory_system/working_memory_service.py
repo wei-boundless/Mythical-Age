@@ -220,16 +220,28 @@ class WorkingMemoryService:
         max_initial_items = max(1, int(read_request.get("max_items") or read_policy.get("max_items") or 200))
         requested_kinds = set(_strings(read_request.get("requested_kinds") or read_request.get("requested_kind") or read_policy.get("readable_kinds")))
         requested_semantics = set(_strings(read_request.get("requested_semantics") or read_request.get("requested_semantic") or read_policy.get("readable_semantics")))
-        readable_scopes = set(_strings(read_request.get("acceptable_scopes") or read_policy.get("readable_scopes")))
+        readable_scopes = _effective_readable_scopes(read_request=read_request, read_policy=read_policy)
+        readable_visibilities = _effective_readable_visibilities(read_request=read_request, read_policy=read_policy)
         required_stage_ids = set(_strings(read_request.get("required_stage_ids")))
         for item in items:
             if item.status != "accepted":
+                excluded.append(item)
+                continue
+            if readable_visibilities and item.visibility not in readable_visibilities:
                 excluded.append(item)
                 continue
             if item.visibility == "private_to_agent" and item.writer_agent_id != reader_agent_id:
                 excluded.append(item)
                 continue
             if item.visibility == "private_to_node" and item.owner_node_id != owner_node_id:
+                excluded.append(item)
+                continue
+            if item.visibility == "handoff_only" and not _handoff_visibility_allowed(
+                item=item,
+                owner_node_id=owner_node_id,
+                read_request=read_request,
+                read_policy=read_policy,
+            ):
                 excluded.append(item)
                 continue
             if item.visibility in {"coordinator_only", "human_review_only"} and node_role not in {"coordinator", "human_gate"}:
@@ -658,8 +670,67 @@ def _selection_payload(
             "excluded_count": len(excluded_tuple),
             "token_estimate": read_log.token_estimate,
             "denied_reason": denied_reason,
+            "selected_refs": [item.work_memory_id for item in selected_tuple if item.work_memory_id],
+            "excluded_refs": [item.work_memory_id for item in excluded_tuple if item.work_memory_id],
+            "selected_item_previews": [
+                {
+                    "work_memory_id": item.work_memory_id,
+                    "owner_node_id": item.owner_node_id,
+                    "scope": item.scope,
+                    "visibility": item.visibility,
+                    "kind": item.kind,
+                    "summary": item.summary,
+                }
+                for item in selected_tuple[:12]
+            ],
         },
     }
+
+
+def _effective_readable_scopes(*, read_request: dict[str, Any], read_policy: dict[str, Any]) -> set[str]:
+    requested = set(_strings(read_request.get("acceptable_scopes")))
+    if requested:
+        return requested
+    policy_scopes = set(_strings(read_policy.get("readable_scopes")))
+    if policy_scopes:
+        return policy_scopes
+    return {"node_scope"}
+
+
+def _effective_readable_visibilities(*, read_request: dict[str, Any], read_policy: dict[str, Any]) -> set[str]:
+    requested = set(_strings(read_request.get("readable_visibilities")))
+    if requested:
+        return requested
+    policy_visibilities = set(_strings(read_policy.get("readable_visibilities")))
+    if policy_visibilities:
+        return policy_visibilities
+    return {"private_to_node", "shared_in_graph"}
+
+
+def _handoff_visibility_allowed(
+    *,
+    item: WorkingMemoryItem,
+    owner_node_id: str,
+    read_request: dict[str, Any],
+    read_policy: dict[str, Any],
+) -> bool:
+    if item.owner_node_id == owner_node_id:
+        return True
+    allowed_handoff = bool(
+        read_request.get("allow_handoff_visibility")
+        or read_policy.get("allow_handoff_visibility")
+    )
+    if not allowed_handoff:
+        return False
+    authorized_sources = {
+        *set(_strings(read_request.get("authorized_source_node_ids"))),
+        *set(_strings(read_policy.get("authorized_source_node_ids"))),
+        *set(_strings(read_request.get("readable_owner_node_ids"))),
+        *set(_strings(read_policy.get("readable_owner_node_ids"))),
+    }
+    if not authorized_sources:
+        return True
+    return item.owner_node_id in authorized_sources
 
 
 def _stable_id(prefix: str, *parts: str) -> str:

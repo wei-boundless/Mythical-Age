@@ -329,6 +329,63 @@ def test_task_run_loop_starts_task_graph_with_real_dispatch_plan(tmp_path: Path)
     assert trace["coordination_runs"][0]["graph_ref"] == graph.graph_id
 
 
+def test_task_run_loop_restores_task_graph_initial_inputs_for_same_session_graph(tmp_path: Path) -> None:
+    graph = TaskGraphDefinition(
+        graph_id="graph.test.restore_inputs",
+        title="恢复初始输入",
+        graph_kind="multi_agent",
+        publish_state="published",
+        entry_node_id="collect",
+        output_node_id="review",
+        runtime_policy={"coordinator_agent_id": "agent:coordinator"},
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="collect",
+                node_type="agent",
+                title="资料整理",
+                task_id="task.test.collect",
+                agent_id="agent:collector",
+            ),
+            TaskGraphNodeDefinition(
+                node_id="review",
+                node_type="agent",
+                title="审核",
+                task_id="task.test.review",
+                agent_id="agent:reviewer",
+            ),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="collect_to_review",
+                source_node_id="collect",
+                target_node_id="review",
+                payload_contract_id="contract.collect.review",
+            ),
+        ),
+    )
+    runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
+    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+
+    first = loop.start_task_graph_run(
+        session_id="session:test",
+        graph=graph,
+        runtime_spec=runtime_spec,
+        initial_inputs={"project_brief": "洪荒时代", "title": "洪荒时代"},
+    )
+    second = loop.start_task_graph_run(
+        session_id="session:test",
+        graph=graph,
+        runtime_spec=runtime_spec,
+        initial_inputs={},
+    )
+
+    restored_ref = str(second.task_run.diagnostics.get("task_graph_initial_inputs_ref") or "")
+    restored_payload = loop.runtime_objects.get_object(restored_ref)
+    assert first.task_run.diagnostics["task_graph_initial_input_keys"] == ["project_brief", "title"]
+    assert second.task_run.diagnostics["task_graph_initial_input_keys"] == ["project_brief", "title"]
+    assert restored_payload["initial_inputs"] == {"project_brief": "洪荒时代", "title": "洪荒时代"}
+
+
 def test_task_run_loop_rejects_legacy_task_graph_fallback_when_langgraph_support_missing(tmp_path: Path, monkeypatch) -> None:
     graph = TaskGraphDefinition(
         graph_id="graph.test.no_legacy_fallback",

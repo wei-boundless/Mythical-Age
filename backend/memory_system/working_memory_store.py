@@ -260,6 +260,50 @@ class WorkingMemoryStore:
         path.write_text(_json(report), encoding="utf-8")
         return path
 
+    def purge_task_run_terminal_items(
+        self,
+        task_run_id: str,
+        *,
+        purge_statuses: tuple[str, ...] | list[str] = (),
+    ) -> dict[str, Any]:
+        statuses = tuple(str(item).strip() for item in purge_statuses if str(item).strip())
+        if not task_run_id or not statuses:
+            return {"purged_count": 0, "purged_status_counts": {}}
+        status_counts: dict[str, int] = {}
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT status, COUNT(*) AS count
+                FROM work_memory_items
+                WHERE task_run_id = ? AND status IN ({",".join("?" for _ in statuses)})
+                GROUP BY status
+                """,
+                (task_run_id, *statuses),
+            ).fetchall()
+            for row in rows:
+                status_counts[str(row["status"])] = int(row["count"] or 0)
+            conn.execute(
+                f"DELETE FROM work_memory_items WHERE task_run_id = ? AND status IN ({','.join('?' for _ in statuses)})",
+                (task_run_id, *statuses),
+            )
+            conn.execute(
+                """
+                DELETE FROM work_memory_temporal_edges
+                WHERE task_run_id = ?
+                  AND (source_item_id NOT IN (SELECT work_memory_id FROM work_memory_items)
+                       OR target_item_id NOT IN (SELECT work_memory_id FROM work_memory_items))
+                """,
+                (task_run_id,),
+            )
+        return {
+            "purged_count": sum(status_counts.values()),
+            "purged_status_counts": status_counts,
+        }
+
+    def optimize_store(self) -> None:
+        with self._connect() as conn:
+            conn.execute("PRAGMA optimize")
+
     def append_read_log(self, log: WorkingMemoryReadLog) -> WorkingMemoryReadLog:
         stored = replace(log, created_at=log.created_at or utc_now_iso())
         with self._connect() as conn:

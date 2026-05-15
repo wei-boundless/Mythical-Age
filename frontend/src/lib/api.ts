@@ -2408,6 +2408,9 @@ export type WorkingMemoryFinalizationResult = {
   artifact_candidate_count: number;
   unresolved_conflict_count: number;
   unchanged_count: number;
+  purged_count: number;
+  purged_status_counts: Record<string, number>;
+  store_optimized: boolean;
   archive_report_path: string;
   item_actions: Array<{
     work_memory_id: string;
