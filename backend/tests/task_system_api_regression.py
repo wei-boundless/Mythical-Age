@@ -543,7 +543,7 @@ def test_task_system_no_longer_seeds_concrete_writing_task_objects(tmp_path: Pat
     for protocol_id in removed_refs["protocols"]:
         assert registry.get_task_communication_protocol(protocol_id) is None
     for graph_id in removed_refs["coordination_tasks"]:
-        assert registry.get_graph_task(graph_id) is None
+        assert registry.get_task_graph(graph_id) is None
     for task_id in removed_refs["adoption_plans"]:
         assert registry.get_task_agent_adoption_plan(task_id) is None
 

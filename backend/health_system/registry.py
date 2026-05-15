@@ -18,7 +18,7 @@ from tasks.workflow_registry import TaskWorkflowRegistry
 
 from .command_builder import HealthCommandBuilder
 from .command_service import HealthCommandService
-from .constants import HEALTH_AGENT_ID, HEALTH_SESSION_ID, normalize_health_agent_id
+from .constants import HEALTH_AGENT_ID, HEALTH_SESSION_ID
 from .execution_planner import (
     build_health_agent_execution_plan,
     build_health_agent_run_preview,
@@ -207,7 +207,7 @@ class HealthRegistry:
         )
         session = HealthAgentConversationSession(
             session_id=session_id,
-            agent_id=normalize_health_agent_id(str(payload.get("agent_id") or defaults["agent_id"] or HEALTH_AGENT_ID)),
+            agent_id=str(payload.get("agent_id") or defaults["agent_id"] or HEALTH_AGENT_ID).strip(),
             agent_profile_id=str(payload.get("agent_profile_id") or defaults["agent_profile_id"] or ""),
             workflow_id=str(payload.get("workflow_id") or payload.get("skill_workflow_id") or defaults["workflow_id"] or ""),
             runtime_lane=str(payload.get("runtime_lane") or defaults["runtime_lane"] or ""),
@@ -408,7 +408,7 @@ class HealthRegistry:
             session_id=session_id or HEALTH_SESSION_ID,
             task_id=task_id,
             task_contract_ref=task_contract_ref,
-            agent_id=normalize_health_agent_id(str(agent_runtime_spec.get("agent_id") or binding.get("agent_id") or "")),
+            agent_id=str(agent_runtime_spec.get("agent_id") or binding.get("agent_id") or "").strip(),
             agent_profile_id=str(binding.get("agent_profile_id") or ""),
             runtime_lane=str(agent_runtime_spec.get("runtime_lane") or binding.get("runtime_lane") or ""),
             task_agent_binding_ref=str(binding.get("binding_id") or ""),
@@ -1093,13 +1093,13 @@ class HealthRegistry:
                     source="health_system.conversation_defaults",
                 )
                 return {
-                    "agent_id": normalize_health_agent_id(plan.agent_id),
+                    "agent_id": str(plan.agent_id or "").strip(),
                     "agent_profile_id": str(plan.agent_profile_id or ""),
                     "workflow_id": str(plan.workflow_id or ""),
                     "runtime_lane": str(plan.runtime_lane or ""),
                 }
         return {
-            "agent_id": normalize_health_agent_id(HEALTH_AGENT_ID),
+            "agent_id": HEALTH_AGENT_ID,
             "agent_profile_id": "",
             "workflow_id": "",
             "runtime_lane": "",
@@ -1119,7 +1119,7 @@ class HealthRegistry:
         )
         updated = HealthAgentConversationSession(
             session_id=session.session_id,
-            agent_id=normalize_health_agent_id(defaults["agent_id"] or session.agent_id),
+            agent_id=str(defaults["agent_id"] or session.agent_id).strip(),
             agent_profile_id=str(defaults["agent_profile_id"] or session.agent_profile_id),
             workflow_id=str(defaults["workflow_id"] or session.workflow_id),
             runtime_lane=str(defaults["runtime_lane"] or session.runtime_lane),

@@ -750,7 +750,11 @@ def _select_communication_protocol(
         registered_task=registered_task,
         current_turn_context=current_turn_payload,
     )
-    protocol_id = str(dict(getattr(task_graph, "metadata", {}) or {}).get("protocol_id") or "").strip()
+    protocol_id = str(
+        getattr(task_graph, "default_protocol_id", "")
+        or dict(getattr(task_graph, "metadata", {}) or {}).get("protocol_id")
+        or ""
+    ).strip()
     if protocol_id:
         protocol = flow_registry.get_task_communication_protocol(protocol_id)
         if protocol is not None:
@@ -779,7 +783,7 @@ def _select_task_graph(
         target = str(ref or "").strip()
         if not target:
             continue
-        resolved = flow_registry.resolve_graph_task_view(target)
+        resolved = flow_registry.get_task_graph(target)
         if resolved is not None:
             return resolved
     task_id = str((registered_task or {}).get("task_id") or "").strip()
@@ -791,18 +795,18 @@ def _select_task_graph(
         or ""
     ).strip()
     if metadata_graph_ref:
-        resolved = flow_registry.resolve_graph_task_view(metadata_graph_ref)
+        resolved = flow_registry.get_task_graph(metadata_graph_ref)
         if resolved is not None:
             return resolved
-    for item in flow_registry.list_graph_tasks():
-        if task_id and task_id in item.subtask_refs:
+    for item in flow_registry.list_task_graphs():
+        if task_id and task_id in list(item.to_dict().get("subtask_refs") or []):
             return item
     if task_id.startswith("task.health.") or task_family == "health":
         return next(
             (
                 item
-                for item in flow_registry.list_graph_tasks()
-                if item.topology_template_id == "topology.health.repair_review"
+                for item in flow_registry.list_task_graphs()
+                if str(item.metadata.get("topology_template_id") or "") == "topology.health.repair_review"
             ),
             None,
         )

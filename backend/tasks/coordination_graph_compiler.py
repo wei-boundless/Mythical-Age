@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .coordination_graph_models import TaskGraphRuntimeEdge, TaskGraphRuntimeNode, TaskGraphRuntimeSpec, TaskGraphRuntimeValidationIssue
-from .flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol, TopologyTemplate
+from .flow_models import SpecificTaskRecord, TaskCommunicationProtocol
 from .task_graph_models import TaskGraphDefinition, TaskGraphValidationIssue, validate_task_graph
 
 
@@ -142,79 +142,6 @@ def compile_task_graph_definition_runtime_spec(
             "timeline_policy": dict(graph_metadata.get("timeline_policy") or {}),
             "phase_definitions": list(graph_metadata.get("phase_definitions") or []),
             "scheduler_support": scheduler_support,
-        },
-    )
-
-
-def compile_task_graph_runtime_spec(
-    *,
-    coordination_task: CoordinationTaskDefinition,
-    specific_tasks: tuple[SpecificTaskRecord, ...] = (),
-    topology_template: TopologyTemplate | None = None,
-    communication_protocol: TaskCommunicationProtocol | None = None,
-) -> TaskGraphRuntimeSpec:
-    task_by_id = {item.task_id: item for item in specific_tasks}
-    raw_nodes = list(coordination_task.graph_nodes or ())
-    if (not raw_nodes or _prefer_topology_nodes(raw_nodes=raw_nodes, topology_template=topology_template)) and topology_template is not None:
-        raw_nodes = list(topology_template.nodes or ())
-    nodes = _normalize_nodes(
-        raw_nodes=raw_nodes,
-        coordination_task=coordination_task,
-        task_by_id=task_by_id,
-    )
-    raw_edges = list(coordination_task.graph_edges or ())
-    if (not raw_edges or _prefer_topology_edges(raw_edges=raw_edges, topology_template=topology_template)) and topology_template is not None:
-        raw_edges = list(topology_template.edges or ())
-    communication_modes = _communication_modes(
-        coordination_task=coordination_task,
-        raw_edges=raw_edges,
-        protocol=communication_protocol,
-    )
-    edges = _normalize_edges(
-        raw_edges=raw_edges,
-        nodes=nodes,
-        default_mode=communication_modes[0] if communication_modes else coordination_task.handoff_policy or "handoff",
-    )
-    if not edges and len(nodes) > 1:
-        edges = _default_edges(nodes, default_mode=communication_modes[0] if communication_modes else "handoff")
-    issues = _validate_graph(
-        coordination_task=coordination_task,
-        nodes=nodes,
-        edges=edges,
-        task_by_id=task_by_id,
-    )
-    source_ids = {edge.source_node_id for edge in edges}
-    target_ids = {edge.target_node_id for edge in edges}
-    node_ids = [node.node_id for node in nodes]
-    start_node_ids = tuple(node_id for node_id in node_ids if node_id not in target_ids)
-    terminal_node_ids = tuple(node_id for node_id in node_ids if node_id not in source_ids)
-    subtask_refs = tuple(
-        dict.fromkeys(
-            [
-                *coordination_task.subtask_refs,
-                *[node.task_id for node in nodes if node.task_id],
-            ]
-        )
-    )
-    graph_id = str(dict(coordination_task.metadata or {}).get("graph_id") or coordination_task.graph_id or "").strip()
-    return TaskGraphRuntimeSpec(
-        graph_id=graph_id,
-        graph_ref=graph_id,
-        domain_id=coordination_task.domain_id,
-        task_family=coordination_task.task_family,
-        coordinator_agent_id=coordination_task.coordinator_agent_id,
-        agent_group_id=coordination_task.agent_group_id,
-        nodes=tuple(nodes),
-        edges=tuple(edges),
-        subtask_refs=subtask_refs,
-        communication_modes=communication_modes,
-        start_node_ids=start_node_ids,
-        terminal_node_ids=terminal_node_ids,
-        issues=tuple(issues),
-        diagnostics={
-            "source": "task_system.task_graph_runtime_compiler",
-            "topology_template_id": str(getattr(topology_template, "template_id", "") or ""),
-            "communication_protocol_id": str(getattr(communication_protocol, "protocol_id", "") or ""),
         },
     )
 

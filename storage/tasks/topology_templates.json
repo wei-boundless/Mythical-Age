@@ -297,7 +297,13 @@
           "source_node_id": "quality_gate",
           "target_node_id": "chapter_plan",
           "mode": "review_feedback",
-          "payload_contract_id": "contract.writing_team.long_novel.quality_gate"
+          "payload_contract_id": "contract.writing_team.long_novel.quality_gate",
+          "edge_type": "review_feedback",
+          "metadata": {
+            "dependency_role": "conditional_feedback",
+            "loop_role": "repair",
+            "initial_run_required": false
+          }
         },
         {
           "edge_id": "edge.quality_gate.memory_commit",

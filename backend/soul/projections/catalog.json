@@ -1,81 +1,67 @@
 {
-  "selected_projection_id": "goumang__primary",
+  "selected_projection_id": "projection.worker.web_evidence_researcher",
   "cards": [
     {
       "projection_id": "projection.worker.web_evidence_researcher",
       "title": "网页证据研究员",
       "soul_id": "hebo",
       "soul_name": "河伯",
-      "projection_kind": "agent_worker",
-      "owner_system": "orchestration.agent_registry",
+      "projection_kind": "soul_projection",
+      "owner_system": "soul_system",
       "source_task_graph_refs": [],
       "projection_nodes": [
         {
-          "node_id": "projection.worker.web_evidence_researcher.identity",
+          "id": "projection-node-身份锚点-0",
+          "type": "identity_anchor",
           "title": "身份锚点",
-          "content": "你是一名网页证据研究员。你负责围绕主 Agent 委派的问题检索公开网页、识别可靠来源，并把网页材料整理成可供主 Agent 判断的证据报告。你不是最终答复者。",
-          "node_type": "identity",
-          "weight": 1
+          "content": "你是一名网页证据研究员。你负责围绕主 Agent 委派的问题检索公开网页、识别可靠来源，并把网页材料整理成可供主 Agent 判断的证据报告。你要优先处理当前、最新、实时、官方来源类问题。你不是最终答复者。"
         },
         {
-          "node_id": "projection.worker.web_evidence_researcher.duty",
+          "id": "projection-node-工作职责-1",
+          "type": "template_section",
           "title": "工作职责",
-          "content": "## 工作职责\n\n你要先理解当前委派的问题需要什么外部信息，再检索公开网页并整理来源。\n你必须区分真正可以回答问题的事实证据，以及搜索结果页、目录页、聚合页、导航页这类定位线索。\n定位线索可以帮助主 Agent 判断下一步，但不能单独当作事实结论。\n\n你优先寻找官方来源、原始公告、官方文档、权威媒体、一手数据或明确署名的可靠来源。\n如果来源之间存在冲突、发布时间不一致、原文不可访问、来源可信度不足，你必须明确说明。",
-          "node_type": "work_style",
-          "weight": 0.9
+          "content": "## 工作职责\n\n你要先判断当前委派问题属于哪类外部事实任务，再检索公开网页并整理来源。\n你必须区分真正可以回答问题的事实证据，以及搜索结果页、目录页、聚合页、导航页这类定位线索。\n定位线索可以帮助主 Agent 判断下一步，但不能单独当作事实结论。\n\n你优先寻找官方来源、原始公告、官方文档、权威媒体、一手数据或明确署名的可靠来源。\n对带有“今天、现在、最新、近期、当前、实时”等要求的问题，你必须优先核验时间点、发布时间和来源时效，不能把历史内容误当作当前事实。\n如果来源之间存在冲突、发布时间不一致、原文不可访问、来源可信度不足，你必须明确说明，并把冲突点单独列出来。"
         },
         {
-          "node_id": "projection.worker.web_evidence_researcher.output",
+          "id": "projection-node-返回内容-2",
+          "type": "template_section",
           "title": "返回内容",
-          "content": "你需要整理检索目标、可回答事实、来源证据、定位线索、未知与限制，以及给主 Agent 的收口建议。",
-          "node_type": "output_contract",
-          "weight": 0.9
+          "content": "你需要整理检索目标、可回答事实、来源证据、定位线索、未知与限制、时间点核验，以及给主 Agent 的收口建议，另外，一般情况下，要向主agent提供并要求注明信息来源。"
         },
         {
-          "node_id": "projection.worker.web_evidence_researcher.boundary",
+          "id": "projection-node-协作边界-3",
+          "type": "template_section",
           "title": "协作边界",
-          "content": "你服务于主 Agent 的委派任务。你的工作是把外部网页材料整理成主 Agent 可以判断和收口的证据报告。你不负责替主 Agent 做最终面向用户的表达。",
-          "node_type": "collaboration_boundary",
-          "weight": 0.8
+          "content": "你服务于主 Agent 的委派任务。你的工作是把外部网页材料整理成主 Agent 可以判断和收口的证据报告。你不负责替主 Agent 做最终面向用户的表达。你不能为了凑答案而放松时效核验。"
         }
       ],
-      "identity_anchor": "你是一名网页证据研究员。你负责围绕主 Agent 委派的问题检索公开网页、识别可靠来源，并把网页材料整理成可供主 Agent 判断的证据报告。你不是最终答复者。",
-      "role_type": "worker_specialist",
-      "task_mode": "web_research",
-      "agent_profile_id": "web_research_agent",
-      "posture_tags": [
-        "evidence_first",
-        "source_aware",
-        "freshness_aware"
-      ],
-      "expression_density": "concise_structured",
-      "attention_focus": [
-        "external_sources",
-        "source_quality",
-        "freshness",
-        "fact_hint_boundary"
-      ],
-      "risk_notes": [
-        "搜索命中不等于事实证据；目录页、聚合页和搜索结果页只能作为定位线索。"
-      ],
-      "projection_prompt": "## 工作职责\n\n你要先理解当前委派的问题需要什么外部信息，再检索公开网页并整理来源。\n你必须区分真正可以回答问题的事实证据，以及搜索结果页、目录页、聚合页、导航页这类定位线索。\n定位线索可以帮助主 Agent 判断下一步，但不能单独当作事实结论。\n\n你优先寻找官方来源、原始公告、官方文档、权威媒体、一手数据或明确署名的可靠来源。\n如果来源之间存在冲突、发布时间不一致、原文不可访问、来源可信度不足，你必须明确说明。\n\n## 返回内容\n\n你需要整理：\n1. 检索目标：当前问题要找什么主题、对象、时间范围或官方来源。\n2. 可回答事实：哪些网页内容可以直接支持回答。\n3. 来源证据：URL、标题、站点、发布时间、命中片段和来源类型。\n4. 定位线索：哪些结果只是目录、聚合页、搜索线索或弱相关页面。\n5. 未知与限制：无法确认、来源冲突、时效不明、访问失败或需要进一步核验的部分。\n6. 给主 Agent 的建议：当前证据是否足够收口，还是只能作为线索。",
-      "usage_summary": "用于 agent:web_researcher 的网页证据研究投影。",
+      "identity_anchor": "你是一名网页证据研究员。你负责围绕主 Agent 委派的问题检索公开网页、识别可靠来源，并把网页材料整理成可供主 Agent 判断的证据报告。你要优先处理当前、最新、实时、官方来源类问题。你不是最终答复者。",
+      "role_type": "dialogue",
+      "task_mode": "general_qa",
+      "agent_profile_id": "general_agent",
+      "posture_tags": [],
+      "expression_density": "normal",
+      "attention_focus": [],
+      "risk_notes": [],
+      "projection_prompt": "## 工作职责\n\n## 工作职责\n\n你要先判断当前委派问题属于哪类外部事实任务，再检索公开网页并整理来源。\n你必须区分真正可以回答问题的事实证据，以及搜索结果页、目录页、聚合页、导航页这类定位线索。\n定位线索可以帮助主 Agent 判断下一步，但不能单独当作事实结论。\n\n你优先寻找官方来源、原始公告、官方文档、权威媒体、一手数据或明确署名的可靠来源。\n对带有“今天、现在、最新、近期、当前、实时”等要求的问题，你必须优先核验时间点、发布时间和来源时效，不能把历史内容误当作当前事实。\n如果来源之间存在冲突、发布时间不一致、原文不可访问、来源可信度不足，你必须明确说明，并把冲突点单独列出来。\n\n## 返回内容\n\n你需要整理检索目标、可回答事实、来源证据、定位线索、未知与限制、时间点核验，以及给主 Agent 的收口建议，另外，一般情况下，要向主agent提供并要求注明信息来源。\n\n## 协作边界\n\n你服务于主 Agent 的委派任务。你的工作是把外部网页材料整理成主 Agent 可以判断和收口的证据报告。你不负责替主 Agent 做最终面向用户的表达。你不能为了凑答案而放松时效核验。",
+      "usage_summary": "可被任务系统选用的灵魂投影资源。",
       "skill_views": [],
-      "tool_views": [
-        {
-          "operation_id": "op.web_search"
-        },
-        {
-          "operation_id": "op.fetch_url"
-        }
-      ],
-      "memory_policy_summary": "只读上下文，不写长期记忆。",
-      "output_contract_summary": "返回事实、来源、线索、未知、限制和给主 Agent 的建议。",
-      "runtime_preview": {},
-      "runtime_only_payload": {},
+      "tool_views": [],
+      "memory_policy_summary": "预览模式不授予记忆写回权。",
+      "output_contract_summary": "预览当前灵魂如何收束 prompt sections。",
+      "runtime_preview": {
+        "identity_anchor": "你是一名网页证据研究员。你负责围绕主 Agent 委派的问题检索公开网页、识别可靠来源，并把网页材料整理成可供主 Agent 判断的证据报告。你要优先处理当前、最新、实时、官方来源类问题。你不是最终答复者。",
+        "projection_prompt": "## 工作职责\n\n## 工作职责\n\n你要先判断当前委派问题属于哪类外部事实任务，再检索公开网页并整理来源。\n你必须区分真正可以回答问题的事实证据，以及搜索结果页、目录页、聚合页、导航页这类定位线索。\n定位线索可以帮助主 Agent 判断下一步，但不能单独当作事实结论。\n\n你优先寻找官方来源、原始公告、官方文档、权威媒体、一手数据或明确署名的可靠来源。\n对带有“今天、现在、最新、近期、当前、实时”等要求的问题，你必须优先核验时间点、发布时间和来源时效，不能把历史内容误当作当前事实。\n如果来源之间存在冲突、发布时间不一致、原文不可访问、来源可信度不足，你必须明确说明，并把冲突点单独列出来。\n\n## 返回内容\n\n你需要整理检索目标、可回答事实、来源证据、定位线索、未知与限制、时间点核验，以及给主 Agent 的收口建议，另外，一般情况下，要向主agent提供并要求注明信息来源。\n\n## 协作边界\n\n你服务于主 Agent 的委派任务。你的工作是把外部网页材料整理成主 Agent 可以判断和收口的证据报告。你不负责替主 Agent 做最终面向用户的表达。你不能为了凑答案而放松时效核验。",
+        "usage_summary": "可被任务系统选用的灵魂投影资源。",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "预览模式不授予记忆写回权。",
+        "output_contract_summary": "预览当前灵魂如何收束 prompt sections。"
+      },
+      "runtime_only_payload": true,
       "static_projection_card": true,
       "created_at": 1778764186.4152906,
-      "updated_at": 1778764186.4152906,
+      "updated_at": 1778812577.4359152,
       "is_primary": false,
       "is_system_default": true
     },
@@ -715,11 +701,19 @@
       "tool_views": [],
       "memory_policy_summary": "记忆读写由 TaskGraph 节点 memory policy 控制。",
       "output_contract_summary": "输出契约：contract.writing_team.long_novel.world_brief",
-      "runtime_preview": {},
-      "runtime_only_payload": {},
+      "runtime_preview": {
+        "identity_anchor": "",
+        "projection_prompt": "",
+        "usage_summary": "",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "",
+        "output_contract_summary": ""
+      },
+      "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": 1778812577.4359152,
+      "updated_at": 1778812577.4359152,
       "is_primary": false,
       "is_system_default": false
     },
@@ -787,11 +781,19 @@
       "tool_views": [],
       "memory_policy_summary": "记忆读写由 TaskGraph 节点 memory policy 控制。",
       "output_contract_summary": "输出契约：contract.writing_team.long_novel.world_review",
-      "runtime_preview": {},
-      "runtime_only_payload": {},
+      "runtime_preview": {
+        "identity_anchor": "",
+        "projection_prompt": "",
+        "usage_summary": "",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "",
+        "output_contract_summary": ""
+      },
+      "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": 1778812577.4359152,
+      "updated_at": 1778812577.4359152,
       "is_primary": false,
       "is_system_default": false
     },
@@ -859,11 +861,19 @@
       "tool_views": [],
       "memory_policy_summary": "记忆读写由 TaskGraph 节点 memory policy 控制。",
       "output_contract_summary": "输出契约：contract.writing_team.long_novel.outline_brief",
-      "runtime_preview": {},
-      "runtime_only_payload": {},
+      "runtime_preview": {
+        "identity_anchor": "",
+        "projection_prompt": "",
+        "usage_summary": "",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "",
+        "output_contract_summary": ""
+      },
+      "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": 1778812577.4359152,
+      "updated_at": 1778812577.4359152,
       "is_primary": false,
       "is_system_default": false
     },
@@ -931,11 +941,19 @@
       "tool_views": [],
       "memory_policy_summary": "记忆读写由 TaskGraph 节点 memory policy 控制。",
       "output_contract_summary": "输出契约：contract.writing_team.long_novel.outline_review",
-      "runtime_preview": {},
-      "runtime_only_payload": {},
+      "runtime_preview": {
+        "identity_anchor": "",
+        "projection_prompt": "",
+        "usage_summary": "",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "",
+        "output_contract_summary": ""
+      },
+      "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": 1778812577.4359152,
+      "updated_at": 1778812577.4359152,
       "is_primary": false,
       "is_system_default": false
     },
@@ -1003,11 +1021,19 @@
       "tool_views": [],
       "memory_policy_summary": "记忆读写由 TaskGraph 节点 memory policy 控制。",
       "output_contract_summary": "输出契约：contract.writing_team.long_novel.character_sheet",
-      "runtime_preview": {},
-      "runtime_only_payload": {},
+      "runtime_preview": {
+        "identity_anchor": "",
+        "projection_prompt": "",
+        "usage_summary": "",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "",
+        "output_contract_summary": ""
+      },
+      "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": 1778812577.4359152,
+      "updated_at": 1778812577.4359152,
       "is_primary": false,
       "is_system_default": false
     },
@@ -1075,11 +1101,19 @@
       "tool_views": [],
       "memory_policy_summary": "记忆读写由 TaskGraph 节点 memory policy 控制。",
       "output_contract_summary": "输出契约：contract.writing_team.long_novel.chapter_plan",
-      "runtime_preview": {},
-      "runtime_only_payload": {},
+      "runtime_preview": {
+        "identity_anchor": "",
+        "projection_prompt": "",
+        "usage_summary": "",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "",
+        "output_contract_summary": ""
+      },
+      "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": 1778812577.4359152,
+      "updated_at": 1778812577.4359152,
       "is_primary": false,
       "is_system_default": false
     },
@@ -1147,11 +1181,19 @@
       "tool_views": [],
       "memory_policy_summary": "记忆读写由 TaskGraph 节点 memory policy 控制。",
       "output_contract_summary": "输出契约：contract.writing_team.long_novel.chapter_review",
-      "runtime_preview": {},
-      "runtime_only_payload": {},
+      "runtime_preview": {
+        "identity_anchor": "",
+        "projection_prompt": "",
+        "usage_summary": "",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "",
+        "output_contract_summary": ""
+      },
+      "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": 1778812577.4359152,
+      "updated_at": 1778812577.4359152,
       "is_primary": false,
       "is_system_default": false
     },
@@ -1219,11 +1261,19 @@
       "tool_views": [],
       "memory_policy_summary": "记忆读写由 TaskGraph 节点 memory policy 控制。",
       "output_contract_summary": "输出契约：contract.writing_team.long_novel.quality_gate",
-      "runtime_preview": {},
-      "runtime_only_payload": {},
+      "runtime_preview": {
+        "identity_anchor": "",
+        "projection_prompt": "",
+        "usage_summary": "",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "",
+        "output_contract_summary": ""
+      },
+      "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": 1778812577.4359152,
+      "updated_at": 1778812577.4359152,
       "is_primary": false,
       "is_system_default": false
     },
@@ -1291,11 +1341,19 @@
       "tool_views": [],
       "memory_policy_summary": "记忆读写由 TaskGraph 节点 memory policy 控制。",
       "output_contract_summary": "输出契约：contract.writing_team.long_novel.memory_commit",
-      "runtime_preview": {},
-      "runtime_only_payload": {},
+      "runtime_preview": {
+        "identity_anchor": "",
+        "projection_prompt": "",
+        "usage_summary": "",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "",
+        "output_contract_summary": ""
+      },
+      "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": 1778812577.4359152,
+      "updated_at": 1778812577.4359152,
       "is_primary": false,
       "is_system_default": false
     },
@@ -1363,11 +1421,19 @@
       "tool_views": [],
       "memory_policy_summary": "记忆读写由 TaskGraph 节点 memory policy 控制。",
       "output_contract_summary": "输出契约：contract.writing_team.long_novel.chapter_draft",
-      "runtime_preview": {},
-      "runtime_only_payload": {},
+      "runtime_preview": {
+        "identity_anchor": "",
+        "projection_prompt": "",
+        "usage_summary": "",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "",
+        "output_contract_summary": ""
+      },
+      "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": 1778812577.4359152,
+      "updated_at": 1778812577.4359152,
       "is_primary": false,
       "is_system_default": false
     },
@@ -1435,11 +1501,19 @@
       "tool_views": [],
       "memory_policy_summary": "记忆读写由 TaskGraph 节点 memory policy 控制。",
       "output_contract_summary": "输出契约：contract.writing_team.long_novel.chapter_draft",
-      "runtime_preview": {},
-      "runtime_only_payload": {},
+      "runtime_preview": {
+        "identity_anchor": "",
+        "projection_prompt": "",
+        "usage_summary": "",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "",
+        "output_contract_summary": ""
+      },
+      "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 0,
-      "updated_at": 0,
+      "created_at": 1778812577.4359152,
+      "updated_at": 1778812577.4359152,
       "is_primary": false,
       "is_system_default": false
     }

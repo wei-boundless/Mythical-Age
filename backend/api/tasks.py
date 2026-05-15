@@ -20,46 +20,9 @@ from tasks import (
     TaskFlowRegistry,
     TaskWorkflowRegistry,
     compile_task_graph_definition_runtime_spec,
-    compile_task_graph_runtime_spec,
 )
 
 router = APIRouter()
-
-LEGACY_HEALTH_TASK_MODES = {
-    "issue_triage",
-    "trace_analysis",
-    "case_draft",
-    "fix_verification",
-}
-
-
-def _is_legacy_health_task_mode(value: str) -> bool:
-    return str(value or "").strip() in LEGACY_HEALTH_TASK_MODES
-
-
-def _is_legacy_health_ref(value: str) -> bool:
-    normalized = str(value or "").strip()
-    return any(
-        normalized in {
-            f"task.health.{mode}",
-            f"flow.health.{mode}",
-            f"workflow.health.{mode}",
-        }
-        for mode in LEGACY_HEALTH_TASK_MODES
-    )
-
-
-def _is_legacy_health_payload(payload: dict[str, object]) -> bool:
-    return _is_legacy_health_task_mode(str(payload.get("task_mode") or "")) or any(
-        _is_legacy_health_ref(str(payload.get(key) or ""))
-        for key in (
-            "task_id",
-            "flow_id",
-            "workflow_id",
-            "default_flow_contract_id",
-            "default_workflow_id",
-        )
-    )
 
 
 TASK_GRAPH_PROMPT_METADATA_KEYS = {
@@ -186,23 +149,6 @@ def _migrate_task_graph_legacy_prompt_nodes(
             )
         migrated_nodes.append(next_node)
     return tuple(migrated_nodes)
-
-
-def _visible_task_payloads(items: list[dict[str, object]]) -> list[dict[str, object]]:
-    return [item for item in items if not _is_legacy_health_payload(item)]
-
-
-def _visible_contract_payloads(items: list[dict[str, object]]) -> list[dict[str, object]]:
-    result: list[dict[str, object]] = []
-    for item in items:
-        metadata = item.get("metadata")
-        if isinstance(metadata, dict) and _is_legacy_health_task_mode(str(metadata.get("task_mode") or "")):
-            continue
-        source_refs = item.get("source_refs")
-        if isinstance(source_refs, list) and any(_is_legacy_health_ref(str(ref or "")) for ref in source_refs):
-            continue
-        result.append(item)
-    return result
 
 
 def _derived_count(effective_items: list[object], explicit_items: list[object], *, key_attr: str) -> int:
@@ -432,11 +378,11 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     agents = [item.to_dict() for item in agent_registry.list_agents()]
     contract_registry = TaskContractRegistry(base_dir)
     workflows = TaskWorkflowRegistry(base_dir).build_catalog()
-    visible_workflows = _visible_task_payloads(list(workflows.get("workflows") or []))
-    task_flows = _visible_task_payloads([item.to_dict() for item in registry.list_flows()])
+    visible_workflows = list(workflows.get("workflows") or [])
+    task_flows = [item.to_dict() for item in registry.list_flows()]
     entry_policies = [item.to_dict() for item in registry.list_general_task_profiles()]
-    compat_specific_tasks = _visible_task_payloads([item.to_dict() for item in registry.list_task_assignments()])
-    specific_task_records = _visible_task_payloads([item.to_dict() for item in registry.list_specific_task_records()])
+    task_assignments = [item.to_dict() for item in registry.list_task_assignments()]
+    specific_task_records = [item.to_dict() for item in registry.list_specific_task_records()]
     projection_binding_models = registry.list_projection_bindings()
     explicit_projection_binding_models = registry.list_explicit_projection_bindings()
     flow_contract_binding_models = registry.list_flow_contract_bindings()
@@ -445,22 +391,10 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     explicit_execution_policy_models = registry.list_explicit_task_agent_adoption_plans()
     memory_request_profile_models = registry.list_task_memory_request_profiles()
     explicit_memory_request_profile_models = registry.list_explicit_task_memory_request_profiles()
-    projection_bindings = [
-        item
-        for item in [model.to_dict() for model in projection_binding_models]
-        if not _is_legacy_health_ref(str(item.get("task_id") or ""))
-    ]
-    flow_contract_bindings = [
-        item
-        for item in [model.to_dict() for model in flow_contract_binding_models]
-        if not _is_legacy_health_ref(str(item.get("task_id") or "")) and not _is_legacy_health_ref(str(item.get("flow_id") or ""))
-    ]
+    projection_bindings = [model.to_dict() for model in projection_binding_models]
+    flow_contract_bindings = [model.to_dict() for model in flow_contract_binding_models]
     execution_policies = [item.to_dict() for item in execution_policy_models]
-    memory_request_profiles = [
-        item
-        for item in [model.to_dict() for model in memory_request_profile_models]
-        if not _is_legacy_health_ref(str(item.get("task_id") or ""))
-    ]
+    memory_request_profiles = [model.to_dict() for model in memory_request_profile_models]
     task_domains = [item.to_dict() for item in registry.list_task_domains()]
     task_graphs = [item.to_dict() for item in registry.list_task_graphs()]
     visible_task_ids = {str(item.get("task_id") or "") for item in specific_task_records}
@@ -487,7 +421,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
         ).to_dict()
         for graph in registry.list_task_graphs()
     ]
-    contract_catalog = _visible_contract_payloads([item.to_dict() for item in registry.list_contract_descriptors()])
+    contract_catalog = [item.to_dict() for item in registry.list_contract_descriptors()]
     contract_management = contract_registry.build_catalog()
     template_validation_matrix = registry.template_registry.build_validation_matrix()
     link_permission_matrix = registry.build_link_permission_matrix()
@@ -499,7 +433,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
         "summary": {
             "entry_policy_count": len(entry_policies),
             "specific_task_record_count": len(specific_task_records),
-            "specific_task_compat_view_count": len(compat_specific_tasks),
+            "task_assignment_count": len(task_assignments),
             "task_flow_count": len(task_flows),
             "workflow_count": len(visible_workflows),
             "projection_binding_count": len(explicit_projection_binding_models),
@@ -551,9 +485,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "execution_policies": execution_policies,
             "memory_request_profiles": memory_request_profiles,
             "contract_catalog": contract_catalog,
-            "compatibility_views": {
-                "specific_tasks": compat_specific_tasks,
-            },
+            "task_assignments": task_assignments,
         },
         "contract_management": contract_management,
         "task_graph_management": {
@@ -695,31 +627,27 @@ async def compile_task_system_workflow_contract_manifest(
     return manifest.to_dict()
 
 
-def _graph_view_or_404(*, registry: TaskFlowRegistry, graph_id: str):
+def _graph_or_404(*, registry: TaskFlowRegistry, graph_id: str):
     graph = registry.get_task_graph(graph_id)
     if graph is None:
         from fastapi import HTTPException
 
         raise HTTPException(status_code=404, detail="task graph not found")
-    graph_view = registry.get_graph_task(graph_id)
-    if graph_view is None:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=404, detail="task graph view not found")
-    return graph, graph_view
+    return graph
 
 
 @router.get("/tasks/contract-manifests/task-graphs/{graph_id}")
 async def compile_task_system_task_graph_contract_manifest(graph_id: str) -> dict[str, object]:
     runtime = require_runtime()
     registry = TaskFlowRegistry(runtime.base_dir)
-    _, graph_view = _graph_view_or_404(registry=registry, graph_id=graph_id)
+    graph = _graph_or_404(registry=registry, graph_id=graph_id)
     specific_tasks = tuple(registry.list_specific_task_records())
-    protocol = registry.get_task_communication_protocol(str(dict(graph_view.metadata or {}).get("protocol_id") or ""))
-    graph_spec = compile_task_graph_runtime_spec(
-        coordination_task=graph_view,
+    protocol = registry.get_task_communication_protocol(
+        str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "")
+    )
+    graph_spec = compile_task_graph_definition_runtime_spec(
+        graph=graph,
         specific_tasks=specific_tasks,
-        topology_template=registry.get_topology_template(graph_view.topology_template_id),
         communication_protocol=protocol,
     )
     runtime_registry = AgentRuntimeRegistry(runtime.base_dir)
@@ -732,6 +660,7 @@ async def compile_task_system_task_graph_contract_manifest(graph_id: str) -> dic
         )
         if profile is not None
     )
+    graph_view = registry.derive_coordination_task_view_from_graph(graph)
     manifest = compile_coordination_contract_manifest(
         contract_registry=TaskContractRegistry(runtime.base_dir),
         coordination_task=graph_view,
@@ -808,13 +737,14 @@ async def build_task_system_task_graph_node_runtime_assembly(
 ) -> dict[str, object]:
     runtime = require_runtime()
     registry = TaskFlowRegistry(runtime.base_dir)
-    _, coordination_task = _coordination_view_from_graph_or_404(registry=registry, graph_id=graph_id)
+    graph = _graph_or_404(registry=registry, graph_id=graph_id)
     specific_tasks = tuple(registry.list_specific_task_records())
-    protocol = registry.get_task_communication_protocol(str(dict(coordination_task.metadata or {}).get("protocol_id") or ""))
-    graph_spec = compile_task_graph_runtime_spec(
-        coordination_task=coordination_task,
+    protocol = registry.get_task_communication_protocol(
+        str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "")
+    )
+    graph_spec = compile_task_graph_definition_runtime_spec(
+        graph=graph,
         specific_tasks=specific_tasks,
-        topology_template=registry.get_topology_template(coordination_task.topology_template_id),
         communication_protocol=protocol,
     )
     runtime_registry = AgentRuntimeRegistry(runtime.base_dir)
@@ -827,6 +757,7 @@ async def build_task_system_task_graph_node_runtime_assembly(
         )
         if profile is not None
     )
+    coordination_task = registry.derive_coordination_task_view_from_graph(graph)
     manifest = compile_coordination_contract_manifest(
         contract_registry=TaskContractRegistry(runtime.base_dir),
         coordination_task=coordination_task,

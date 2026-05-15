@@ -83,7 +83,12 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="health_maintainer_agent",
             agent_id="agent:3",
-            allowed_task_modes=(),
+            allowed_task_modes=(
+                "issue_triage",
+                "trace_analysis",
+                "case_draft",
+                "fix_verification",
+            ),
             allowed_runtime_lanes=(
                 "health_issue_read",
                 "health_trace_read",

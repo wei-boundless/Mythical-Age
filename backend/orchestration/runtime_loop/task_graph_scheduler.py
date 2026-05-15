@@ -171,6 +171,9 @@ def _node_adjacency(edges: tuple[TaskGraphRuntimeEdge, ...]) -> tuple[dict[str, 
         target = str(edge.target_node_id or "").strip()
         if not source or not target:
             continue
+        if _is_feedback_edge(edge):
+            outgoing[source].append(target)
+            continue
         incoming[target].append(source)
         outgoing[source].append(target)
     return dict(incoming), dict(outgoing)
@@ -297,6 +300,19 @@ def _edge_state(*, edge: TaskGraphRuntimeEdge, statuses: dict[str, str]) -> Task
             "timeout_policy": str(dict(edge.metadata or {}).get("timeout_policy") or ""),
         },
     )
+
+
+def _is_feedback_edge(edge: TaskGraphRuntimeEdge) -> bool:
+    metadata = dict(edge.metadata or {})
+    mode = str(edge.mode or "").strip()
+    dependency_role = str(metadata.get("dependency_role") or "").strip()
+    loop_role = str(metadata.get("loop_role") or "").strip()
+    return mode in {"review_feedback", "repair_feedback", "conditional_feedback"} or dependency_role in {
+        "feedback",
+        "conditional_feedback",
+        "repair_feedback",
+        "non_blocking_feedback",
+    } or loop_role in {"repair", "feedback"}
 
 
 def _phase_states(

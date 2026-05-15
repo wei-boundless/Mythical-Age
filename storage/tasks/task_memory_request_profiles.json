@@ -1,6 +1,86 @@
 {
   "memory_request_profiles": [
     {
+      "profile_id": "taskmem:task.health.issue_triage",
+      "task_id": "task.health.issue_triage",
+      "requested_memory_layers": [
+        "state",
+        "conversation"
+      ],
+      "requested_topics": [
+        "health_issue",
+        "issue_triage"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "issue_local_readonly",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.health.trace_analysis",
+      "task_id": "task.health.trace_analysis",
+      "requested_memory_layers": [
+        "state",
+        "conversation"
+      ],
+      "requested_topics": [
+        "health_issue",
+        "trace_analysis"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "health_trace_readonly",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.health.case_draft",
+      "task_id": "task.health.case_draft",
+      "requested_memory_layers": [
+        "state",
+        "conversation"
+      ],
+      "requested_topics": [
+        "health_issue",
+        "case_draft"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "issue_local_readonly",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.health.fix_verification",
+      "task_id": "task.health.fix_verification",
+      "requested_memory_layers": [
+        "state",
+        "conversation"
+      ],
+      "requested_topics": [
+        "health_issue",
+        "fix_verification"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "issue_local_readonly",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
       "profile_id": "taskmem:task.writing_team.long_novel.world_design",
       "task_id": "task.writing_team.long_novel.world_design",
       "requested_memory_layers": [

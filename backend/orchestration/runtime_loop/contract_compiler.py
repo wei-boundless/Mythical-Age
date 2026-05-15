@@ -281,6 +281,7 @@ def compile_coordination_contract_manifest(
             dict.fromkeys(
                 str(item).strip()
                 for item in [
+                    getattr(edge, "payload_contract_id", ""),
                     metadata.get("contract_id"),
                     *list(metadata.get("contract_refs") or []),
                     *protocol_payload_contracts,

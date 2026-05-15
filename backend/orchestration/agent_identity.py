@@ -5,7 +5,6 @@ from typing import Iterable
 
 CANONICAL_AGENT_ID_BY_ALIAS = {
     "agent:main": "agent:0",
-    "agent:health:maintainer": "agent:3",
     "agent:6": "agent:rag_analyst",
     "agent.rag_retriever": "agent:rag_analyst",
     "agent.rag_analyst": "agent:rag_analyst",
@@ -50,8 +49,6 @@ def agent_id_aliases(agent_id: str) -> tuple[str, ...]:
     values = [canonical] if canonical else []
     if canonical == "agent:0":
         values.append("agent:main")
-    if canonical == "agent:3":
-        values.append("agent:health:maintainer")
     values.extend(WORKER_AGENT_ALIASES.get(canonical, ()))
     seen: set[str] = set()
     result: list[str] = []

@@ -1,6 +1,54 @@
 {
   "flow_contract_bindings": [
     {
+      "binding_id": "taskflowbind:task.health.issue_triage",
+      "task_id": "task.health.issue_triage",
+      "flow_contract_id": "flow.health.issue_triage",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.health.trace_analysis",
+      "task_id": "task.health.trace_analysis",
+      "flow_contract_id": "flow.health.trace_analysis",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.health.case_draft",
+      "task_id": "task.health.case_draft",
+      "flow_contract_id": "flow.health.case_draft",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.health.fix_verification",
+      "task_id": "task.health.fix_verification",
+      "flow_contract_id": "flow.health.fix_verification",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
       "binding_id": "taskflowbind:task.writing_team.long_novel.world_design",
       "task_id": "task.writing_team.long_novel.world_design",
       "flow_contract_id": "contract.writing_team.long_novel.world_brief",

@@ -50,8 +50,19 @@ def build_orchestration_runtime_bundle(
     memory_view = dict(memory_runtime_view or {})
     context_policy = dict(context_policy_result or {})
 
-    agent_id = str(getattr(agent_runtime_profile, "agent_id", "") or "").strip() or "agent:0"
+    explicit_context_agent_id = str(current_turn_payload.get("agent_id") or "").strip()
+    agent_id = str(getattr(agent_runtime_profile, "agent_id", "") or explicit_context_agent_id or "").strip()
+    if explicit_context_agent_id and not agent_id:
+        raise ValueError(f"TaskGraph node agent has no runtime profile: {explicit_context_agent_id}")
     runtime_profile = agent_runtime_profile or AgentRuntimeRegistry(base_dir).get_profile(agent_id)
+    if explicit_context_agent_id:
+        if runtime_profile is None:
+            raise ValueError(f"TaskGraph node agent has no runtime profile: {explicit_context_agent_id}")
+        if str(getattr(runtime_profile, "agent_id", "") or "").strip() != explicit_context_agent_id:
+            raise ValueError(
+                "TaskGraph node agent profile mismatch: "
+                f"requested {explicit_context_agent_id}, got {getattr(runtime_profile, 'agent_id', '')}"
+            )
     agent_id = str(getattr(runtime_profile, "agent_id", "") or agent_id).strip() or "agent:0"
     descriptor = AgentRegistry(base_dir).get_agent(agent_id)
     profile_registry = BodyProfileRegistry(base_dir)

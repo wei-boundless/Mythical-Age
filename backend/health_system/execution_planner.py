@@ -8,7 +8,7 @@ from orchestration import AgentRuntimeRegistry, build_orchestration_runtime_bund
 from tasks import TaskFlowRegistry
 from tasks.assembly_builder import build_task_execution_assembly_bundle
 
-from .constants import HEALTH_SESSION_ID, health_specific_task_id, normalize_health_agent_id
+from .constants import HEALTH_SESSION_ID, health_specific_task_id
 from .models import HealthIssue
 
 
@@ -112,7 +112,7 @@ def build_health_agent_execution_plan(
     blocked_reasons = list(binding.diagnostics.get("failures") or [])
     if binding.validation_state != "valid":
         blocked_reasons.append("binding_invalid")
-    if normalize_health_agent_id(str(agent_runtime_spec.get("agent_id") or "")) != normalize_health_agent_id(binding.agent_id):
+    if str(agent_runtime_spec.get("agent_id") or "").strip() != str(binding.agent_id or "").strip():
         blocked_reasons.append("runtime_spec_agent_mismatch")
     if str(agent_runtime_spec.get("runtime_lane") or "") != binding.runtime_lane:
         blocked_reasons.append("runtime_spec_lane_mismatch")
@@ -125,7 +125,7 @@ def build_health_agent_execution_plan(
         task_id=task_id,
         flow_id=flow.flow_id,
         binding_id=binding.binding_id,
-        agent_id=normalize_health_agent_id(binding.agent_id),
+        agent_id=str(binding.agent_id or "").strip(),
         agent_profile_id=binding.agent_profile_id,
         workflow_id=binding.workflow_id,
         runtime_lane=binding.runtime_lane,

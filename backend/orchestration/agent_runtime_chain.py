@@ -35,13 +35,21 @@ class AgentRuntimeChainAssembler:
         source: str,
         task_selection: dict[str, Any] | None = None,
         agent_runtime_profile: Any | None = None,
+        current_turn_context_override: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         task_selection_payload = dict(task_selection or {})
         effective_agent_runtime_profile = agent_runtime_profile
+        selected_agent_id = str(task_selection_payload.get("agent_id") or "").strip()
         if effective_agent_runtime_profile is None:
-            selected_agent_id = str(task_selection_payload.get("agent_id") or "").strip()
             if selected_agent_id:
                 effective_agent_runtime_profile = AgentRuntimeRegistry(self.base_dir).get_profile(selected_agent_id)
+                if effective_agent_runtime_profile is None:
+                    raise ValueError(f"TaskGraph node agent has no runtime profile: {selected_agent_id}")
+        elif selected_agent_id and str(getattr(effective_agent_runtime_profile, "agent_id", "") or "").strip() != selected_agent_id:
+            raise ValueError(
+                "TaskGraph node agent profile mismatch: "
+                f"requested {selected_agent_id}, got {getattr(effective_agent_runtime_profile, 'agent_id', '')}"
+            )
         memory_intent = analyze_memory_intent(message)
         memory_payload = self.build_memory_runtime_view_payload(
             task_id=task_id,
@@ -71,6 +79,14 @@ class AgentRuntimeChainAssembler:
             query_understanding=asdict(query_understanding),
         )
         current_turn_context_payload = current_turn_context.to_dict()
+        if current_turn_context_override:
+            current_turn_context_payload.update(
+                {
+                    key: value
+                    for key, value in dict(current_turn_context_override or {}).items()
+                    if value not in ("", None, [], {})
+                }
+            )
         if turn_id:
             current_turn_context_payload["turn_id"] = turn_id
         if task_selection:

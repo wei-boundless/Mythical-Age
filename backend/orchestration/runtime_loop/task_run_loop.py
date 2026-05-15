@@ -25,9 +25,8 @@ from project_layout import ProjectLayout
 from output_boundary.boundary import AssistantOutputBoundary
 from memory_system import WorkingMemoryFinalizer, WorkingMemoryService
 from tasks.flow_registry import TaskFlowRegistry
-from tasks.coordination_graph_models import TaskGraphRuntimeSpec
+from tasks.coordination_graph_models import TaskGraphRuntimeEdge, TaskGraphRuntimeNode, TaskGraphRuntimeSpec
 from tasks.task_graph_models import TaskGraphDefinition
-from tasks.coordination_graph_compiler import compile_task_graph_runtime_spec
 from tasks.run_models import (
     TaskRunLedger,
     TaskStepRun,
@@ -158,11 +157,10 @@ class TaskRunLoop:
         target = str(graph_ref or "").strip()
         if not target:
             return None
-        if target.startswith("graph."):
-            task_graph = self.task_flow_registry.get_task_graph(target)
-            if task_graph is not None:
-                return self.task_flow_registry.get_graph_task(target)
-        return self.task_flow_registry.resolve_graph_task_view(target)
+        task_graph = self.task_flow_registry.get_task_graph(target)
+        if task_graph is None:
+            return None
+        return self.task_flow_registry.derive_coordination_task_view_from_graph(task_graph)
 
     def __init__(
         self,
@@ -288,6 +286,7 @@ class TaskRunLoop:
                 diagnostics={
                     "coordination_candidate": True,
                     "task_agent_binding_ref": task_agent_binding_ref,
+                    **dict(diagnostics or {}),
                 },
             )
             if resolved_graph_ref
@@ -535,6 +534,8 @@ class TaskRunLoop:
                 "task_graph_id": graph.graph_id,
                 "task_graph_title": graph.title,
                 "task_graph_publish_state": graph.publish_state,
+                "task_graph_definition": graph.to_dict(),
+                "task_graph_runtime_spec": runtime_spec.to_dict(),
                 "task_graph_runtime_spec_valid": runtime_spec.valid,
                 **dict(diagnostics or {}),
             },
@@ -681,6 +682,7 @@ class TaskRunLoop:
             turn_id=str(dict(task_selection or {}).get("turn_id") or ""),
             message=user_message,
             source=source,
+            current_turn_context_override=dict(task_selection or {}),
             task_selection={
                 **dict(task_selection or {}),
                 "search_policy": sorted(allowed_search_sources),
@@ -3696,10 +3698,6 @@ class TaskRunLoop:
         events: list[Any] = []
         existing_node_runs = {item.node_id: item for item in self.state_index.list_coordination_node_runs(coordination_run.coordination_run_id)}
         existing_agent_runs = {item.agent_run_id: item for item in self.state_index.list_task_agent_runs(task_run_id)}
-        topology_template = self._resolve_topology_template(coordination_run.topology_template_id)
-        coordination_task = self._resolve_task_graph_view(coordination_run.graph_ref)
-        communication_protocol = self.task_flow_registry.get_task_communication_protocol(coordination_run.communication_protocol_id)
-        specific_tasks = tuple(self.task_flow_registry.list_specific_task_records())
         coordination_flow = dict(coordination_run.diagnostics.get("coordination_flow") or {})
         node_status_map = build_coordination_node_status_map(coordination_flow)
         emitted_stage_ids: set[str] = set()
@@ -3717,16 +3715,7 @@ class TaskRunLoop:
                     "role": "worker_participant",
                 }
             )
-        graph_spec = (
-            compile_task_graph_runtime_spec(
-                coordination_task=coordination_task,
-                specific_tasks=specific_tasks,
-                topology_template=self.task_flow_registry.get_topology_template(coordination_run.topology_template_id),
-                communication_protocol=communication_protocol,
-            )
-            if coordination_task is not None
-            else None
-        )
+        graph_spec = _runtime_spec_from_payload(dict(coordination_run.diagnostics.get("task_graph_runtime_spec") or {}))
         graph_result = (
             self.langgraph_coordination_runner.run(
                 task_run_id=task_run_id,
@@ -3739,7 +3728,7 @@ class TaskRunLoop:
         nodes = (
             [dict(item) for item in list(graph_result.graph_spec.get("nodes") or [])]
             if graph_result is not None
-            else list(topology_template.get("nodes") or [])
+            else []
         )
         if not nodes:
             nodes = [
@@ -4287,9 +4276,11 @@ class TaskRunLoop:
         if not next_task_ref or not next_message:
             return
         stage_agent_id = str(next_turn_context.get("agent_id") or "").strip()
-        stage_agent_runtime_profile = agent_runtime_profile
+        stage_agent_runtime_profile = None
         if stage_agent_id:
-            stage_agent_runtime_profile = self.agent_runtime_registry.get_profile(stage_agent_id) or agent_runtime_profile
+            stage_agent_runtime_profile = self.agent_runtime_registry.get_profile(stage_agent_id)
+            if stage_agent_runtime_profile is None:
+                raise ValueError(f"TaskGraph node agent has no runtime profile: {stage_agent_id}")
         turn_marker = str(next_turn_context.get("turn_id") or "").strip() or f"turn:{session_id}:{uuid.uuid4().hex[:8]}"
         next_turn_context["turn_id"] = turn_marker
         next_task_id = f"taskinst:{turn_marker}:{next_task_ref.split('.')[-1]}"
@@ -4324,7 +4315,7 @@ class TaskRunLoop:
             history=list(history or []),
             source=source,
             agent_runtime_chain=_ContinuationAgentRuntimeChain(
-                base=agent_runtime_chain,
+                base=_ContinuationAgentRuntimeChain.unwrap(agent_runtime_chain),
                 forced_turn_context=next_turn_context,
             ),
             model_response_executor=model_response_executor,
@@ -6987,6 +6978,37 @@ def _dispatch_graph_payload_from_task_graph_runtime_spec(
     }
 
 
+def _runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec | None:
+    if not payload:
+        return None
+    try:
+        return TaskGraphRuntimeSpec(
+            graph_id=str(payload.get("graph_id") or ""),
+            domain_id=str(payload.get("domain_id") or ""),
+            task_family=str(payload.get("task_family") or ""),
+            coordinator_agent_id=str(payload.get("coordinator_agent_id") or ""),
+            graph_ref=str(payload.get("graph_ref") or payload.get("graph_id") or ""),
+            agent_group_id=str(payload.get("agent_group_id") or ""),
+            nodes=tuple(
+                TaskGraphRuntimeNode(**{key: value for key, value in dict(item).items() if key in TaskGraphRuntimeNode.__dataclass_fields__})
+                for item in list(payload.get("nodes") or [])
+                if isinstance(item, dict)
+            ),
+            edges=tuple(
+                TaskGraphRuntimeEdge(**{key: value for key, value in dict(item).items() if key in TaskGraphRuntimeEdge.__dataclass_fields__})
+                for item in list(payload.get("edges") or [])
+                if isinstance(item, dict)
+            ),
+            subtask_refs=tuple(str(item) for item in list(payload.get("subtask_refs") or []) if str(item)),
+            communication_modes=tuple(str(item) for item in list(payload.get("communication_modes") or []) if str(item)),
+            start_node_ids=tuple(str(item) for item in list(payload.get("start_node_ids") or []) if str(item)),
+            terminal_node_ids=tuple(str(item) for item in list(payload.get("terminal_node_ids") or []) if str(item)),
+            diagnostics=dict(payload.get("diagnostics") or {}),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
 def _dispatch_nodes_from_payload(graph_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:
     candidates = (
         graph_payload.get("graph_nodes"),
@@ -7084,6 +7106,25 @@ class _ContinuationAgentRuntimeChain:
         self._forced_turn_context = dict(forced_turn_context or {})
 
     def build_runtime(self, **kwargs) -> dict[str, Any]:
+        override = {
+            **dict(kwargs.get("current_turn_context_override") or {}),
+            **dict(self._forced_turn_context),
+        }
+        forced_agent_id = str(self._forced_turn_context.get("agent_id") or "").strip()
+        if forced_agent_id:
+            override["agent_id"] = forced_agent_id
+        kwargs["current_turn_context_override"] = override
+        task_selection = {
+            **dict(kwargs.get("task_selection") or {}),
+            **{
+                key: value
+                for key, value in override.items()
+                if value not in ("", None, [], {})
+            },
+        }
+        if forced_agent_id:
+            task_selection["agent_id"] = forced_agent_id
+        kwargs["task_selection"] = task_selection
         runtime = dict(self._base.build_runtime(**kwargs) or {})
         current_turn_context = {
             **dict(runtime.get("current_turn_context") or {}),
@@ -7097,9 +7138,27 @@ class _ContinuationAgentRuntimeChain:
             **dict(current_turn_context.get("explicit_inputs") or {}),
         }
         task_operation["task_spec"] = task_spec
+        expected_agent_id = str(current_turn_context.get("agent_id") or "").strip()
+        if expected_agent_id:
+            agent_runtime_spec = dict(runtime.get("agent_runtime_spec") or task_operation.get("agent_runtime_spec") or {})
+            actual_agent_id = str(agent_runtime_spec.get("agent_id") or "").strip()
+            if actual_agent_id != expected_agent_id:
+                raise ValueError(
+                    "TaskGraph node runtime assembled with wrong agent: "
+                    f"expected {expected_agent_id}, got {actual_agent_id or '<empty>'}"
+                )
         runtime["current_turn_context"] = current_turn_context
         runtime["task_operation"] = task_operation
         return runtime
 
     def build_context_policy_result(self, *args, **kwargs):
         return self._base.build_context_policy_result(*args, **kwargs)
+
+    def __getattr__(self, name: str):
+        return getattr(self._base, name)
+
+    @staticmethod
+    def unwrap(chain: Any) -> Any:
+        while isinstance(chain, _ContinuationAgentRuntimeChain):
+            chain = chain._base
+        return chain

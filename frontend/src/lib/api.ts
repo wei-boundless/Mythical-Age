@@ -857,9 +857,7 @@ export type TaskSystemOverview = {
     execution_policies: TaskExecutionPolicy[];
     memory_request_profiles: TaskMemoryRequestProfile[];
     contract_catalog?: TaskContractDescriptor[];
-    compatibility_views?: {
-      specific_tasks?: Array<Record<string, unknown>>;
-    };
+    task_assignments?: Array<Record<string, unknown>>;
   };
   contract_management?: {
     authority: string;

@@ -9,8 +9,9 @@ from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from langgraph.graph import END, START, StateGraph
 
 from tasks import TaskContractRegistry
-from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec, compile_task_graph_runtime_spec
+from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from tasks.coordination_graph_models import TaskGraphRuntimeEdge, TaskGraphRuntimeNode, TaskGraphRuntimeSpec
+from tasks.task_graph_models import task_graph_from_dict
 
 from .a2a_stage_payload import build_stage_execution_a2a_payload
 from .artifact_refs import ArtifactRefIndex, collect_task_result_output_refs
@@ -151,9 +152,18 @@ class LangGraphCoordinationRuntime:
         self._app = self._build_app()
 
     def _resolve_task_graph_view(self, coordination_run: CoordinationRun):
-        return self.task_flow_registry.resolve_graph_task_view(coordination_run.graph_ref)
+        task_graph = self._resolve_task_graph_definition(coordination_run)
+        if task_graph is None:
+            return None
+        derive = getattr(self.task_flow_registry, "derive_coordination_task_view_from_graph", None)
+        if not callable(derive):
+            return None
+        return derive(task_graph)
 
     def _resolve_task_graph_definition(self, coordination_run: CoordinationRun):
+        snapshot = dict(coordination_run.diagnostics.get("task_graph_definition") or {})
+        if snapshot:
+            return task_graph_from_dict(snapshot)
         target = str(coordination_run.graph_ref or "").strip()
         if not target:
             return None
@@ -713,19 +723,34 @@ class LangGraphCoordinationRuntime:
         communication_protocol = self.task_flow_registry.get_task_communication_protocol(coordination_run.communication_protocol_id)
         specific_tasks = tuple(self.task_flow_registry.list_specific_task_records())
         task_graph = self._resolve_task_graph_definition(coordination_run)
+        if task_graph is None:
+            return {
+                "coordination_run_id": coordination_run.coordination_run_id,
+                "root_task_run_id": coordination_run.task_run_id,
+                "terminal_status": "blocked",
+                "stage_execution_request": {},
+                "a2a_payload": {},
+                "diagnostics": {
+                    "coordination_engine": "langgraph_runtime",
+                    "task_graph_runtime_source": "missing_task_graph_definition",
+                    "stage_contract_issues": [
+                        {
+                            "code": "missing_task_graph_definition",
+                            "message": "TaskGraph runtime requires a first-class TaskGraphDefinition snapshot or registry record.",
+                            "severity": "error",
+                        }
+                    ],
+                },
+            }
+        graph_spec_payload = dict(coordination_run.diagnostics.get("task_graph_runtime_spec") or {})
         graph_spec = (
-            compile_task_graph_definition_runtime_spec(
-                graph=task_graph,
-                specific_tasks=specific_tasks,
-                communication_protocol=communication_protocol,
-            )
-            if task_graph is not None
-            else compile_task_graph_runtime_spec(
-                coordination_task=coordination_task,
-                specific_tasks=specific_tasks,
-                topology_template=topology_template,
-                communication_protocol=communication_protocol,
-            )
+            _runtime_spec_from_payload(graph_spec_payload)
+            if graph_spec_payload
+            else None
+        ) or compile_task_graph_definition_runtime_spec(
+            graph=task_graph,
+            specific_tasks=specific_tasks,
+            communication_protocol=communication_protocol,
         )
         topology_nodes = _merge_runtime_nodes(
             compiled_nodes=[node.to_dict() for node in graph_spec.nodes],
@@ -836,7 +861,7 @@ class LangGraphCoordinationRuntime:
                 },
                 "coordination_graph_spec": graph_spec.to_dict(),
                 "task_graph_scheduler_state": scheduler_state.to_dict(),
-                "task_graph_runtime_source": "task_graph_definition" if task_graph is not None else "legacy_coordination_view",
+                "task_graph_runtime_source": "task_graph_definition",
                 "contract_manifest_ref": manifest.manifest_id,
                 "contract_manifest_valid": manifest.valid,
                 "contract_manifest_issue_count": len(manifest.issues),
@@ -1402,6 +1427,10 @@ def _scheduler_node_sets(
 
 def _runtime_spec_from_state(state: dict[str, Any]) -> TaskGraphRuntimeSpec | None:
     payload = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+    return _runtime_spec_from_payload(payload)
+
+
+def _runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec | None:
     if not payload:
         return None
     try:

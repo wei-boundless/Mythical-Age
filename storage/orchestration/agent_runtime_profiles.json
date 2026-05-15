@@ -79,7 +79,12 @@
     {
       "agent_profile_id": "health_maintainer_agent",
       "agent_id": "agent:3",
-      "allowed_task_modes": [],
+      "allowed_task_modes": [
+        "issue_triage",
+        "trace_analysis",
+        "case_draft",
+        "fix_verification"
+      ],
       "allowed_runtime_lanes": [
         "health_issue_read",
         "health_trace_read",
@@ -553,6 +558,644 @@
           "external_web_lookup",
           "current_information_lookup",
           "official_source_lookup"
+        ]
+      }
+    },
+    {
+      "agent_profile_id": "writing_team_world_designer_runtime",
+      "agent_id": "agent:world_designer",
+      "allowed_task_modes": [
+        "world_designer",
+        "writing_team_long_novel"
+      ],
+      "allowed_runtime_lanes": [
+        "coordination_task",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "writing_team_long_novel"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing_team.long_novel.world_brief"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "task_family": "writing_team_long_novel",
+        "role": "world_designer",
+        "source_task_graph_refs": [
+          "graph.writing_team.long_novel"
+        ]
+      }
+    },
+    {
+      "agent_profile_id": "writing_team_world_reviewer_runtime",
+      "agent_id": "agent:world_reviewer",
+      "allowed_task_modes": [
+        "world_reviewer",
+        "writing_team_long_novel"
+      ],
+      "allowed_runtime_lanes": [
+        "coordination_task",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "writing_team_long_novel"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing_team.long_novel.world_review"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "task_family": "writing_team_long_novel",
+        "role": "world_reviewer",
+        "source_task_graph_refs": [
+          "graph.writing_team.long_novel"
+        ]
+      }
+    },
+    {
+      "agent_profile_id": "writing_team_outline_designer_runtime",
+      "agent_id": "agent:outline_designer",
+      "allowed_task_modes": [
+        "outline_designer",
+        "writing_team_long_novel"
+      ],
+      "allowed_runtime_lanes": [
+        "coordination_task",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "writing_team_long_novel"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing_team.long_novel.outline_brief"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "task_family": "writing_team_long_novel",
+        "role": "outline_designer",
+        "source_task_graph_refs": [
+          "graph.writing_team.long_novel"
+        ]
+      }
+    },
+    {
+      "agent_profile_id": "writing_team_outline_reviewer_runtime",
+      "agent_id": "agent:outline_reviewer",
+      "allowed_task_modes": [
+        "outline_reviewer",
+        "writing_team_long_novel"
+      ],
+      "allowed_runtime_lanes": [
+        "coordination_task",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "writing_team_long_novel"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing_team.long_novel.outline_review"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "task_family": "writing_team_long_novel",
+        "role": "outline_reviewer",
+        "source_task_graph_refs": [
+          "graph.writing_team.long_novel"
+        ]
+      }
+    },
+    {
+      "agent_profile_id": "writing_team_character_designer_runtime",
+      "agent_id": "agent:character_designer",
+      "allowed_task_modes": [
+        "character_designer",
+        "writing_team_long_novel"
+      ],
+      "allowed_runtime_lanes": [
+        "coordination_task",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "writing_team_long_novel"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing_team.long_novel.character_sheet"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "task_family": "writing_team_long_novel",
+        "role": "character_designer",
+        "source_task_graph_refs": [
+          "graph.writing_team.long_novel"
+        ]
+      }
+    },
+    {
+      "agent_profile_id": "writing_team_chapter_planner_runtime",
+      "agent_id": "agent:chapter_planner",
+      "allowed_task_modes": [
+        "chapter_planner",
+        "writing_team_long_novel"
+      ],
+      "allowed_runtime_lanes": [
+        "coordination_task",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "writing_team_long_novel"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing_team.long_novel.chapter_plan"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "task_family": "writing_team_long_novel",
+        "role": "chapter_planner",
+        "source_task_graph_refs": [
+          "graph.writing_team.long_novel"
+        ]
+      }
+    },
+    {
+      "agent_profile_id": "writing_team_chapter_writer_a_runtime",
+      "agent_id": "agent:chapter_writer_a",
+      "allowed_task_modes": [
+        "chapter_writer",
+        "writing_team_long_novel"
+      ],
+      "allowed_runtime_lanes": [
+        "coordination_task",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "writing_team_long_novel"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing_team.long_novel.chapter_draft"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "task_family": "writing_team_long_novel",
+        "role": "chapter_writer_a",
+        "source_task_graph_refs": [
+          "graph.writing_team.long_novel"
+        ]
+      }
+    },
+    {
+      "agent_profile_id": "writing_team_chapter_writer_b_runtime",
+      "agent_id": "agent:chapter_writer_b",
+      "allowed_task_modes": [
+        "chapter_writer",
+        "writing_team_long_novel"
+      ],
+      "allowed_runtime_lanes": [
+        "coordination_task",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "writing_team_long_novel"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing_team.long_novel.chapter_draft"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "task_family": "writing_team_long_novel",
+        "role": "chapter_writer_b",
+        "source_task_graph_refs": [
+          "graph.writing_team.long_novel"
+        ]
+      }
+    },
+    {
+      "agent_profile_id": "writing_team_chapter_reviewer_runtime",
+      "agent_id": "agent:chapter_reviewer",
+      "allowed_task_modes": [
+        "chapter_reviewer",
+        "writing_team_long_novel"
+      ],
+      "allowed_runtime_lanes": [
+        "coordination_task",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "writing_team_long_novel"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing_team.long_novel.chapter_review"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "task_family": "writing_team_long_novel",
+        "role": "chapter_reviewer",
+        "source_task_graph_refs": [
+          "graph.writing_team.long_novel"
+        ]
+      }
+    },
+    {
+      "agent_profile_id": "writing_team_quality_gate_reviewer_runtime",
+      "agent_id": "agent:quality_gate_reviewer",
+      "allowed_task_modes": [
+        "quality_gate",
+        "writing_team_long_novel"
+      ],
+      "allowed_runtime_lanes": [
+        "coordination_task",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "writing_team_long_novel"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing_team.long_novel.quality_gate"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "task_family": "writing_team_long_novel",
+        "role": "quality_gate_reviewer",
+        "source_task_graph_refs": [
+          "graph.writing_team.long_novel"
+        ]
+      }
+    },
+    {
+      "agent_profile_id": "writing_team_memory_steward_runtime",
+      "agent_id": "agent:memory_steward",
+      "allowed_task_modes": [
+        "memory_steward",
+        "writing_team_long_novel"
+      ],
+      "allowed_runtime_lanes": [
+        "coordination_task",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "writing_team_long_novel"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing_team.long_novel.memory_commit"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "metadata": {
+        "managed_by": "codex_writing_team_rebuild",
+        "task_family": "writing_team_long_novel",
+        "role": "memory_steward",
+        "source_task_graph_refs": [
+          "graph.writing_team.long_novel"
         ]
       }
     }

@@ -20,7 +20,9 @@ from orchestration import (
     build_base_unit_catalog,
 )
 from orchestration.runtime_loop import TaskRun
+from orchestration.runtime_loop.langgraph_coordination_runtime import LangGraphCoordinationRuntimeResult
 from orchestration.delegation_catalog import DelegationCatalogBuilder
+from understanding import analyze_memory_intent
 from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
 
@@ -111,6 +113,7 @@ class TaskGraphRunStartRequest(BaseModel):
     initial_inputs: dict[str, Any] = Field(default_factory=dict)
     require_published: bool = True
     include_trace: bool = True
+    execute_initial_stage: bool = True
 
 
 class DelegationPreviewRequest(BaseModel):
@@ -682,12 +685,49 @@ async def start_task_graph_runtime_loop_run(
             "require_published": payload.require_published,
         },
     )
-    trace = (
-        runtime.query_runtime.task_run_loop.get_trace(start.task_run.task_run_id)
-        if payload.include_trace
-        else None
-    )
     stage_execution_request = dict(start.loop_state.diagnostics.get("stage_execution_request") or {})
+    initial_stage_execution_events: list[dict[str, Any]] = []
+    initial_stage_execution_error: dict[str, Any] | None = None
+    if payload.execute_initial_stage and stage_execution_request:
+        from orchestration.runtime_loop.stage_execution_request import StageExecutionRequest
+
+        request = StageExecutionRequest.from_dict(stage_execution_request)
+        continuation_payload = LangGraphCoordinationRuntimeResult(
+            stage_execution_request=request,
+        ).continuation_payload(
+            session_id=session_id,
+            current_turn_context={
+                "authority": "context.task_graph_start",
+                "task_graph_id": graph.graph_id,
+                "selected_graph_id": graph.graph_id,
+                "explicit_inputs": dict(payload.initial_inputs or {}),
+            },
+        )
+        try:
+            async for event in runtime.query_runtime.task_run_loop._continue_coordination_delivery_stream(
+                session_id=session_id,
+                history=runtime.query_runtime.session_manager.load_session_for_agent(
+                    session_id,
+                    include_compressed_context=False,
+                ),
+                source="orchestration.runtime_loop.task_graph_start_api",
+                agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
+                model_response_executor=runtime.query_runtime.model_response_executor,
+                runtime_context_manager=runtime.query_runtime.runtime_context_manager,
+                stage_projection_cycle=None,
+                memory_intent=analyze_memory_intent(request.message),
+                assistant_message_committer=lambda _payload: None,
+                tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
+                tool_instances=runtime.query_runtime._all_tool_instances(),
+                agent_runtime_profile=runtime.query_runtime.agent_runtime_registry.get_profile(request.agent_id),
+                continuation_payload=continuation_payload,
+            ):
+                initial_stage_execution_events.append(dict(event))
+        except Exception as exc:
+            initial_stage_execution_error = {
+                "error": str(exc),
+                "type": exc.__class__.__name__,
+            }
     return {
         "authority": "orchestration.task_graph_run_start",
         "graph_id": graph.graph_id,
@@ -698,7 +738,14 @@ async def start_task_graph_runtime_loop_run(
         "checkpoint": start.checkpoint.to_dict(),
         "runtime_spec": runtime_spec.to_dict(),
         "stage_execution_request": stage_execution_request or None,
-        "trace": trace,
+        "initial_stage_execution_events": initial_stage_execution_events,
+        "initial_stage_execution_event_count": len(initial_stage_execution_events),
+        "initial_stage_execution_error": initial_stage_execution_error,
+        "trace": (
+            runtime.query_runtime.task_run_loop.get_trace(start.task_run.task_run_id)
+            if payload.include_trace
+            else None
+        ),
         "events": [dict(item) for item in start.events],
     }
 

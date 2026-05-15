@@ -147,6 +147,8 @@ def derive_stage_contracts_from_graph(
     for edge in edges:
         source = _edge_source(edge)
         target = _edge_target(edge)
+        if _is_feedback_edge(edge):
+            continue
         if source in node_by_id and target in node_by_id:
             incoming_by_target.setdefault(target, []).append(dict(edge))
 
@@ -286,6 +288,19 @@ def _edge_source(edge: dict[str, Any]) -> str:
 
 def _edge_target(edge: dict[str, Any]) -> str:
     return str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
+
+
+def _is_feedback_edge(edge: dict[str, Any]) -> bool:
+    metadata = dict(edge.get("metadata") or {}) if isinstance(edge.get("metadata"), dict) else {}
+    edge_type = str(edge.get("edge_type") or edge.get("mode") or edge.get("policy") or "").strip()
+    dependency_role = str(edge.get("dependency_role") or metadata.get("dependency_role") or "").strip()
+    loop_role = str(edge.get("loop_role") or metadata.get("loop_role") or "").strip()
+    return edge_type in {"review_feedback", "repair_feedback", "conditional_feedback"} or dependency_role in {
+        "feedback",
+        "conditional_feedback",
+        "repair_feedback",
+        "non_blocking_feedback",
+    } or loop_role in {"repair", "feedback"}
 
 
 def _contract_ref_from_node(node: dict[str, Any]) -> str:

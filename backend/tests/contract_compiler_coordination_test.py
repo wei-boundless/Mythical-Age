@@ -4,8 +4,9 @@ from pathlib import Path
 
 from orchestration.agent_runtime_models import AgentRuntimeProfile
 from orchestration.runtime_loop.contract_compiler import compile_coordination_contract_manifest
-from tasks import TaskContractRegistry, compile_task_graph_runtime_spec
+from tasks import TaskContractRegistry, compile_task_graph_definition_runtime_spec
 from tasks.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol
+from tasks.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 
 
 def _seed_coordination_contracts(registry: TaskContractRegistry) -> None:
@@ -76,8 +77,41 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
         payload_contracts=("contract.test.edge_handoff",),
         enabled=True,
     )
-    graph_spec = compile_task_graph_runtime_spec(
-        coordination_task=coordination,
+    graph = TaskGraphDefinition(
+        graph_id=coordination.graph_id,
+        title=coordination.title,
+        graph_kind="multi_agent",
+        task_family=coordination.task_family,
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="coordinator",
+                node_type="coordinator",
+                title="协调者",
+                agent_id="agent:0",
+                work_posture="coordinator",
+            ),
+            TaskGraphNodeDefinition(
+                node_id="worker",
+                node_type="subtask",
+                title="测试工作节点",
+                task_id=task.task_id,
+                agent_id="agent:test",
+                runtime_lane="node_lane",
+                node_contract_id="contract.test.node_override",
+                projection_id="projection.test.node_worker",
+            ),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="coordinator_to_worker",
+                source_node_id="coordinator",
+                target_node_id="worker",
+                edge_type="dispatch",
+            ),
+        ),
+    )
+    graph_spec = compile_task_graph_definition_runtime_spec(
+        graph=graph,
         specific_tasks=(task,),
         communication_protocol=protocol,
     )
@@ -149,7 +183,37 @@ def test_coordination_contract_compiler_reports_missing_edge_contract(tmp_path: 
             {"edge_id": "coordinator_to_worker", "from": "coordinator", "to": "worker", "mode": "dispatch"},
         ),
     )
-    graph_spec = compile_task_graph_runtime_spec(coordination_task=coordination, specific_tasks=(task,))
+    graph = TaskGraphDefinition(
+        graph_id=coordination.graph_id,
+        title=coordination.title,
+        graph_kind="multi_agent",
+        task_family=coordination.task_family,
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="coordinator",
+                node_type="coordinator",
+                title="协调者",
+                agent_id="agent:0",
+                work_posture="coordinator",
+            ),
+            TaskGraphNodeDefinition(
+                node_id="worker",
+                node_type="subtask",
+                title="测试工作节点",
+                task_id=task.task_id,
+                agent_id="agent:test",
+            ),
+        ),
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="coordinator_to_worker",
+                source_node_id="coordinator",
+                target_node_id="worker",
+                edge_type="dispatch",
+            ),
+        ),
+    )
+    graph_spec = compile_task_graph_definition_runtime_spec(graph=graph, specific_tasks=(task,))
 
     manifest = compile_coordination_contract_manifest(
         contract_registry=contract_registry,

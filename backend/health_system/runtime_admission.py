@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from .execution_planner import build_health_agent_execution_plan
-from .constants import normalize_health_agent_id
 from .models import HealthManagementCommand
 from .registry_records import get_health_issue_by_id
 
@@ -97,7 +96,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
     if not runtime_spec:
         blocked.append("runtime_profile_missing")
     else:
-        agent_id = normalize_health_agent_id(str(runtime_spec.get("agent_id") or plan.agent_id))
+        agent_id = str(runtime_spec.get("agent_id") or plan.agent_id).strip()
         diagnostics["runtime_spec_check_mode"] = "agent_runtime_spec_declared"
         diagnostics["workflow_id"] = plan.workflow_id
         requested_operations = tuple(

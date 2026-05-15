@@ -60,20 +60,6 @@ CONTRACT_KIND_LABELS: dict[str, str] = {
     "payload": "通信载荷契约",
 }
 
-LEGACY_HEALTH_TASK_MODES: frozenset[str] = frozenset(
-    {
-        "issue_triage",
-        "trace_analysis",
-        "case_draft",
-        "fix_verification",
-    }
-)
-
-
-
-
-
-
 def normalize_task_agent_adoption_mode(value: str) -> str:
     normalized = str(value or "").strip()
     if normalized == "spawn_worker_allowed":
@@ -81,7 +67,7 @@ def normalize_task_agent_adoption_mode(value: str) -> str:
     return normalized or "adopt_existing"
 
 
-def legacy_health_task_flows() -> tuple[TaskFlowDefinition, ...]:
+def default_health_task_flows() -> tuple[TaskFlowDefinition, ...]:
     return (
         TaskFlowDefinition(
             flow_id="flow.health.issue_triage",
@@ -143,26 +129,16 @@ def legacy_health_task_flows() -> tuple[TaskFlowDefinition, ...]:
 
 
 def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
-    return ()
+    return default_health_task_flows()
 
 
-def _is_legacy_health_task_mode(value: str) -> bool:
-    return str(value or "").strip() in LEGACY_HEALTH_TASK_MODES
-
-
-def _is_legacy_health_task_ref(value: str) -> bool:
-    normalized = str(value or "").strip()
-    return any(normalized == f"task.health.{mode}" for mode in LEGACY_HEALTH_TASK_MODES)
-
-
-def _is_legacy_health_flow_ref(value: str) -> bool:
-    normalized = str(value or "").strip()
-    return any(normalized == f"flow.health.{mode}" for mode in LEGACY_HEALTH_TASK_MODES)
-
-
-def _is_legacy_health_workflow_ref(value: str) -> bool:
-    normalized = str(value or "").strip()
-    return any(normalized == f"workflow.health.{mode}" for mode in LEGACY_HEALTH_TASK_MODES)
+def _health_task_template_ids() -> dict[str, str]:
+    return {
+        "task.health.issue_triage": "template.health.issue_triage",
+        "task.health.trace_analysis": "template.health.trace_analysis",
+        "task.health.case_draft": "template.health.case_draft",
+        "task.health.fix_verification": "template.health.fix_verification",
+    }
 
 
 def _input_contract_for_task_mode(task_mode: str) -> str:
@@ -216,10 +192,7 @@ def _synthetic_specific_task_record_for_runtime(task_id: str) -> SpecificTaskRec
         "task.dev.workspace_patch": "template.dev.workspace_patch",
         "task.dev.light_web_game": "template.dev.light_web_game",
         "task.dev.arcade_game_bundle": "template.dev.arcade_game_bundle",
-        "task.health.issue_triage": "template.health.issue_triage",
-        "task.health.trace_analysis": "template.health.trace_analysis",
-        "task.health.case_draft": "template.health.case_draft",
-        "task.health.fix_verification": "template.health.fix_verification",
+        **_health_task_template_ids(),
     }
     template_id = task_template_ids.get(target)
     if not template_id:
@@ -868,17 +841,7 @@ class TaskFlowRegistry:
 
     def get_flow(self, flow_id: str) -> TaskFlowDefinition | None:
         target = str(flow_id or "").strip()
-        flow = next((item for item in self.list_flows() if item.flow_id == target), None)
-        if flow is not None:
-            return flow
-        return next((item for item in legacy_health_task_flows() if item.flow_id == target), None)
-
-    def _legacy_health_specific_task_record(self, task_id: str) -> SpecificTaskRecord | None:
-        target = str(task_id or "").strip()
-        legacy_flow = next((flow for flow in legacy_health_task_flows() if str(flow.metadata.get("task_resource") or "") == target), None)
-        if legacy_flow is None:
-            return None
-        return self._specific_task_record_from_flow(legacy_flow)
+        return next((item for item in self.list_flows() if item.flow_id == target), None)
 
     def next_flow_id(self) -> str:
         return _next_prefixed_id(
@@ -1089,10 +1052,10 @@ class TaskFlowRegistry:
         }
         coordination_ids = {
             str(item.graph_id or "")
-            for item in self.list_graph_tasks()
-            if str(item.metadata.get("task_family") or "") == task_family
-            or str(item.metadata.get("domain_id") or "") == target
-            or any(ref in task_ids for ref in item.subtask_refs)
+            for item in self.list_task_graphs()
+            if str(item.metadata.get("task_family") or item.task_family or "") == task_family
+            or str(item.metadata.get("domain_id") or item.domain_id or "") == target
+            or any(ref in task_ids for ref in item.to_dict().get("subtask_refs") or [])
             or _family_from_ref(item.graph_id) == task_family
         }
         topology_ids = {
@@ -1215,12 +1178,6 @@ class TaskFlowRegistry:
                 )
             )
         if not records:
-            legacy_payload = _read_json(_assignments_path(self.base_dir), {"assignments": []})
-            for item in list(legacy_payload.get("assignments") or []):
-                if not isinstance(item, dict):
-                    continue
-                records.append(_specific_task_record_from_assignment(_assignment_from_dict(item)))
-        if not records:
             records = [self._specific_task_record_from_flow(flow) for flow in self.list_flows()]
         if records:
             normalized = [item.to_dict() for item in records]
@@ -1239,9 +1196,6 @@ class TaskFlowRegistry:
         stored_record = next((item for item in self.list_specific_task_records() if item.task_id == target), None)
         if stored_record is not None:
             return stored_record
-        legacy_record = self._legacy_health_specific_task_record(target)
-        if legacy_record is not None:
-            return legacy_record
         return _synthetic_specific_task_record_for_runtime(target)
 
     def upsert_task_assignment(
@@ -2004,7 +1958,7 @@ class TaskFlowRegistry:
         )
         return profile
 
-    def _derive_coordination_task_view_from_graph(self, graph: TaskGraphDefinition) -> CoordinationTaskDefinition:
+    def derive_coordination_task_view_from_graph(self, graph: TaskGraphDefinition) -> CoordinationTaskDefinition:
         records_by_task_id = {record.task_id: record for record in self.list_specific_task_records()}
         metadata = dict(graph.metadata or {})
         coordinator_agent_id = str(dict(graph.runtime_policy or {}).get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
@@ -2077,26 +2031,6 @@ class TaskFlowRegistry:
             enabled=bool(graph.enabled),
             metadata=derived_metadata,
         )
-
-    def list_graph_tasks(self) -> list[CoordinationTaskDefinition]:
-        return [self._derive_coordination_task_view_from_graph(graph) for graph in self.list_task_graphs()]
-
-    def get_graph_task(self, graph_id: str) -> CoordinationTaskDefinition | None:
-        graph = self.get_task_graph(graph_id)
-        if graph is None:
-            return None
-        return self._derive_coordination_task_view_from_graph(graph)
-
-    def resolve_graph_task_view(self, graph_ref: str) -> CoordinationTaskDefinition | None:
-        target = str(graph_ref or "").strip()
-        if not target:
-            return None
-        if target.startswith("graph."):
-            return self.get_graph_task(target)
-        for graph in self.list_task_graphs():
-            if graph.graph_id == target:
-                return self._derive_coordination_task_view_from_graph(graph)
-        return None
 
     def list_task_graphs(self) -> list[TaskGraphDefinition]:
         payload = _read_json(_task_graphs_path(self.base_dir), {"task_graphs": []})
@@ -2417,7 +2351,7 @@ class TaskFlowRegistry:
         communication_modes: tuple[str, ...] = (),
         enabled: bool = False,
         metadata: dict[str, Any] | None = None,
-    ) -> CoordinationTaskDefinition:
+    ) -> TaskGraphDefinition:
         target = str(graph_id or "").strip()
         if not target.startswith("graph."):
             raise ValueError("graph_id must start with graph.")
@@ -2443,7 +2377,7 @@ class TaskFlowRegistry:
             normalized_family = str(getattr(record, "task_family", "") or "").strip()
             if not normalized_domain_id and normalized_family:
                 normalized_domain_id = f"domain.{normalized_family}"
-        self.upsert_task_graph(
+        graph = self.upsert_task_graph(
             graph_id=target,
             title=str(title or target).strip(),
             domain_id=normalized_domain_id,
@@ -2484,10 +2418,7 @@ class TaskFlowRegistry:
                 "communication_modes": [str(item).strip() for item in communication_modes if str(item).strip()],
             },
         )
-        resolved = self.get_graph_task(target)
-        if resolved is None:
-            raise ValueError("failed to derive coordination task view from task graph")
-        return resolved
+        return graph
 
     def _resolve_coordination_participants(
         self,

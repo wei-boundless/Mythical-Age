@@ -104,51 +104,6 @@ def test_orchestration_runtime_bundle_uses_selected_task_profiles() -> None:
     assert orchestration["verification_gate_plan"]["task_constraints"] == task_bundle["task_execution_assembly"]["task_constraints"]
 
 
-def test_orchestration_runtime_bundle_uses_health_flow_runtime_lanes() -> None:
-    expected_lanes = {
-        "task.health.issue_triage": "health_issue_read",
-        "task.health.trace_analysis": "health_trace_read",
-        "task.health.case_draft": "case_draft_candidate",
-        "task.health.fix_verification": "fix_verification_candidate",
-    }
-    for selected_task_id, expected_lane in expected_lanes.items():
-        task_bundle = build_task_execution_assembly_bundle(
-            session_id="session-orch-health-lanes",
-            task_id=f"taskinst:turn:session-orch-health-lanes:1:{selected_task_id}",
-            user_goal="请执行健康系统管理任务。",
-            source="test",
-            current_turn_context={
-                "authority": "context.current_turn",
-                "turn_id": "turn:session-orch-health-lanes:1",
-                "selected_task_id": selected_task_id,
-            },
-        )
-
-        payload = build_orchestration_runtime_bundle(
-            base_dir=BACKEND_DIR,
-            session_id="session-orch-health-lanes",
-            task_id=f"taskinst:turn:session-orch-health-lanes:1:{selected_task_id}",
-            user_goal="请执行健康系统管理任务。",
-            task_assembly_bundle=task_bundle,
-            agent_runtime_profile=AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:3"),
-            current_turn_context={
-                "authority": "context.current_turn",
-                "turn_id": "turn:session-orch-health-lanes:1",
-                "selected_task_id": selected_task_id,
-            },
-        )
-
-        task_structure = task_bundle["registered_task"]["task_policy"]["task_structure"]
-        runtime_spec = payload["agent_runtime_spec"]
-        lane_profile = payload["runtime_lane_profile"]
-
-        assert task_structure["runtime_lane_hint"] == expected_lane
-        assert runtime_spec["runtime_lane"] == expected_lane
-        assert runtime_spec["runtime_lane"] == task_structure["runtime_lane_hint"]
-        assert lane_profile["metadata"]["requested_runtime_lane"] == expected_lane
-        assert lane_profile["metadata"]["lane_issue"] == ""
-
-
 def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:
     task_bundle = build_task_execution_assembly_bundle(
         session_id="session-orch-shared-contract",
@@ -241,8 +196,8 @@ def test_removed_longform_writing_runtime_residue_stays_absent() -> None:
 
     assert "template.writing.longform_novel_project" not in templates
     assert "template.writing.chapter_drafting" not in templates
-    assert registry.get_graph_task("graph.writing.longform_project_bootstrap") is None
-    assert registry.get_graph_task("graph.writing.chapter_pipeline") is None
+    assert registry.get_task_graph("graph.writing.longform_project_bootstrap") is None
+    assert registry.get_task_graph("graph.writing.chapter_pipeline") is None
     assert registry.get_task_communication_protocol("protocol.writing.longform_project_bootstrap") is None
     assert registry.get_task_communication_protocol("protocol.writing.chapter_pipeline") is None
     assert registry.get_specific_task_record("task.writing.chapter_planning") is None

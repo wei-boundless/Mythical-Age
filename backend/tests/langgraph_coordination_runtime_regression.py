@@ -9,6 +9,7 @@ from orchestration.runtime_loop.stage_execution_request import TaskResultReadyEv
 from orchestration.runtime_loop.state_index import RuntimeStateIndex
 from tasks import TaskContractRegistry
 from tasks.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol, TopologyTemplate
+from tasks.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 from orchestration.runtime_loop.continuation_policy import parse_stage_contracts
 
 
@@ -18,6 +19,47 @@ class _Trace:
 
     def get_trace(self, task_run_id: str, *, include_payloads: bool = False, include_model_messages: bool = False):
         return self.traces.get(task_run_id)
+
+
+def _task_graph_from_coordination(coordination: CoordinationTaskDefinition, *, protocol_id: str = "") -> TaskGraphDefinition:
+    nodes = tuple(
+        TaskGraphNodeDefinition(
+            node_id=str(node.get("node_id") or ""),
+            node_type=str(node.get("node_type") or "agent"),
+            title=str(node.get("title") or node.get("node_id") or ""),
+            task_id=str(node.get("task_id") or ""),
+            agent_id=str(node.get("agent_id") or ""),
+            runtime_lane=str(node.get("runtime_lane") or node.get("lane") or ""),
+            work_posture=str(node.get("role") or ""),
+            phase_id=str(node.get("phase_id") or ""),
+            sequence_index=int(node.get("sequence_index") or 0),
+            metadata={key: value for key, value in dict(node).items() if key not in {"node_id", "node_type", "title", "task_id", "agent_id", "runtime_lane", "lane", "role", "phase_id", "sequence_index"}},
+        )
+        for node in coordination.graph_nodes
+    )
+    edges = tuple(
+        TaskGraphEdgeDefinition(
+            edge_id=str(edge.get("edge_id") or edge.get("id") or ""),
+            source_node_id=str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or ""),
+            target_node_id=str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or ""),
+            edge_type=str(edge.get("edge_type") or edge.get("mode") or "handoff"),
+            payload_contract_id=str(edge.get("payload_contract_id") or edge.get("contract_id") or ""),
+        )
+        for edge in coordination.graph_edges
+    )
+    return TaskGraphDefinition(
+        graph_id=coordination.graph_id,
+        title=coordination.title,
+        task_family=coordination.task_family,
+        graph_kind="multi_agent",
+        nodes=nodes,
+        edges=edges,
+        default_protocol_id=protocol_id,
+        runtime_policy={"coordinator_agent_id": coordination.coordinator_agent_id},
+        metadata=dict(coordination.metadata or {}),
+        publish_state="published",
+        enabled=True,
+    )
 
 
 class _Registry:
@@ -81,8 +123,13 @@ class _Registry:
             metadata={"a2a_protocol": "official", "protocol_locked": True},
         )
 
-    def resolve_graph_task_view(self, graph_id: str):
-        return self.coordination if graph_id == self.coordination.graph_id else None
+    def get_task_graph(self, graph_id: str):
+        if graph_id != self.coordination.graph_id:
+            return None
+        return _task_graph_from_coordination(self.coordination, protocol_id=self.protocol.protocol_id)
+
+    def derive_coordination_task_view_from_graph(self, graph):
+        return self.coordination if graph.graph_id == self.coordination.graph_id else None
 
     def get_topology_template(self, template_id: str):
         return self.topology if template_id == self.topology.template_id else None
@@ -285,8 +332,13 @@ class _DiamondRegistry:
             enabled=True,
         )
 
-    def resolve_graph_task_view(self, graph_id: str):
-        return self.coordination if graph_id == self.coordination.graph_id else None
+    def get_task_graph(self, graph_id: str):
+        if graph_id != self.coordination.graph_id:
+            return None
+        return _task_graph_from_coordination(self.coordination, protocol_id=self.protocol.protocol_id)
+
+    def derive_coordination_task_view_from_graph(self, graph):
+        return self.coordination if graph.graph_id == self.coordination.graph_id else None
 
     def get_topology_template(self, template_id: str):
         return self.topology if template_id == self.topology.template_id else None
@@ -431,8 +483,13 @@ class _SequencedRegistry:
             enabled=True,
         )
 
-    def resolve_graph_task_view(self, graph_id: str):
-        return self.coordination if graph_id == self.coordination.graph_id else None
+    def get_task_graph(self, graph_id: str):
+        if graph_id != self.coordination.graph_id:
+            return None
+        return _task_graph_from_coordination(self.coordination, protocol_id=self.protocol.protocol_id)
+
+    def derive_coordination_task_view_from_graph(self, graph):
+        return self.coordination if graph.graph_id == self.coordination.graph_id else None
 
     def get_topology_template(self, template_id: str):
         return self.topology if template_id == self.topology.template_id else None

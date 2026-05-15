@@ -113,7 +113,7 @@ export function Sidebar({ compact = false }: SidebarProps) {
           <div className="archive-section-head__copy">
             <p className="archive-section-head__eyebrow">会话</p>
             <h2 className="archive-section-head__title">
-              会话与消息轨迹
+              会话记录
             </h2>
           </div>
           <button className="icon-well archive-icon-button" onClick={() => void createNewSession()} type="button">

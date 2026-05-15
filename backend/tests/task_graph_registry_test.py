@@ -6,6 +6,8 @@ from api.tasks import _task_system_payload
 from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from tasks.flow_registry import TaskFlowRegistry
 from tasks.task_graph_models import task_graph_from_dict, validate_task_graph
+from orchestration.runtime_loop.continuation_policy import derive_stage_contracts_from_graph
+from orchestration.runtime_loop.task_graph_scheduler import bootstrap_scheduler_state
 
 
 def test_task_graph_registry_round_trips_single_agent_graph(tmp_path: Path) -> None:
@@ -421,6 +423,74 @@ def test_task_graph_runtime_spec_reports_unsupported_scheduler_policy(tmp_path: 
     supported_fields = {item["field"] for item in scheduler_support["supported"]}
     assert "wait_policy" in supported_fields
     assert any(issue.code == "scheduler_policy_unsupported" and issue.severity == "warning" for issue in spec.issues)
+
+
+def test_task_graph_feedback_edge_does_not_block_initial_forward_stage(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.feedback_loop",
+        title="反馈返修图",
+        graph_kind="coordination",
+        nodes=(
+            {
+                "node_id": "plan",
+                "node_type": "agent",
+                "title": "规划",
+                "task_id": "task.test.plan",
+                "agent_id": "agent:planner",
+                "phase_id": "phase.plan",
+                "sequence_index": 1,
+            },
+            {
+                "node_id": "draft",
+                "node_type": "agent",
+                "title": "起草",
+                "task_id": "task.test.draft",
+                "agent_id": "agent:writer",
+                "phase_id": "phase.draft",
+                "sequence_index": 1,
+            },
+            {
+                "node_id": "quality",
+                "node_type": "review_gate",
+                "title": "质量门",
+                "task_id": "task.test.quality",
+                "agent_id": "agent:reviewer",
+                "phase_id": "phase.review",
+                "sequence_index": 1,
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "edge.plan.draft",
+                "source_node_id": "plan",
+                "target_node_id": "draft",
+                "payload_contract_id": "contract.plan",
+            },
+            {
+                "edge_id": "edge.draft.quality",
+                "source_node_id": "draft",
+                "target_node_id": "quality",
+                "payload_contract_id": "contract.draft",
+            },
+            {
+                "edge_id": "edge.quality.plan",
+                "source_node_id": "quality",
+                "target_node_id": "plan",
+                "edge_type": "review_feedback",
+                "payload_contract_id": "contract.quality",
+                "metadata": {"dependency_role": "conditional_feedback", "loop_role": "repair"},
+            },
+        ),
+    )
+    spec = compile_task_graph_definition_runtime_spec(graph=graph)
+
+    scheduler = bootstrap_scheduler_state(runtime_spec=spec, mode="active")
+    contracts = derive_stage_contracts_from_graph(coordination_task=graph, topology_nodes=[node.to_dict() for node in spec.nodes], topology_edges=[edge.to_dict() for edge in spec.edges])
+    plan_contract = next(contract for contract in contracts if contract.stage_id == "plan")
+
+    assert scheduler.ready_node_ids == ("plan",)
+    assert plan_contract.required_inputs == ()
 
 
 def test_task_graph_dispatch_policy_fails_closed_for_invalid_or_unsafe_modes() -> None:

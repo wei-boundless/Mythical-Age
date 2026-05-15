@@ -33,6 +33,80 @@ def default_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
             enabled=True,
             metadata={"managed_by": "task_system", "task_resource": "general_conversation"},
         ),
+        *_default_health_task_workflows(),
+    )
+
+
+def _default_health_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
+    return (
+        TaskWorkflowBinding(
+            workflow_id="workflow.health.issue_triage",
+            title="健康问题分诊工作流",
+            task_mode="issue_triage",
+            steps=(
+                {"step_id": "read_issue", "title": "读取健康问题"},
+                {"step_id": "triage_risk", "title": "判断风险与影响"},
+                {"step_id": "finalize_triage", "title": "输出分诊结论"},
+            ),
+            input_boundary="HealthIssue and linked runtime traces.",
+            output_boundary="HealthTriageResult.",
+            stop_conditions=("triage_ready",),
+            output_contract_id="HealthTriageResult",
+            prompt="你是一名健康系统维护分析员。你只负责判断当前问题的影响范围、风险等级和下一步处理建议。",
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "task.health.issue_triage"},
+        ),
+        TaskWorkflowBinding(
+            workflow_id="workflow.health.trace_analysis",
+            title="健康链路分析工作流",
+            task_mode="trace_analysis",
+            steps=(
+                {"step_id": "read_trace", "title": "读取链路"},
+                {"step_id": "locate_breakpoint", "title": "定位异常断点"},
+                {"step_id": "finalize_trace_analysis", "title": "输出链路分析"},
+            ),
+            input_boundary="HealthTrace and related runtime events.",
+            output_boundary="HealthTraceAnalysis.",
+            stop_conditions=("analysis_ready",),
+            output_contract_id="HealthTraceAnalysis",
+            prompt="你是一名健康链路分析员。你只负责根据运行链路定位异常阶段、证据和可能原因。",
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "task.health.trace_analysis"},
+        ),
+        TaskWorkflowBinding(
+            workflow_id="workflow.health.case_draft",
+            title="健康用例草案工作流",
+            task_mode="case_draft",
+            steps=(
+                {"step_id": "read_issue", "title": "读取问题"},
+                {"step_id": "draft_repro_case", "title": "草拟复现用例"},
+                {"step_id": "finalize_case_draft", "title": "输出用例草案"},
+            ),
+            input_boundary="HealthIssue and before/after evidence when available.",
+            output_boundary="HealthCaseDraftProposal.",
+            stop_conditions=("case_draft_ready",),
+            output_contract_id="HealthCaseDraftProposal",
+            prompt="你是一名复现用例设计员。你只负责把健康问题转化为可执行、可验证的复现草案。",
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "task.health.case_draft"},
+        ),
+        TaskWorkflowBinding(
+            workflow_id="workflow.health.fix_verification",
+            title="健康修复验证工作流",
+            task_mode="fix_verification",
+            steps=(
+                {"step_id": "read_before_after", "title": "读取修复前后证据"},
+                {"step_id": "verify_delta", "title": "验证差异"},
+                {"step_id": "finalize_fix_verification", "title": "输出验证结论"},
+            ),
+            input_boundary="HealthIssueWithBeforeAfterTrace.",
+            output_boundary="HealthFixVerificationProposal.",
+            stop_conditions=("verification_ready",),
+            output_contract_id="HealthFixVerificationProposal",
+            prompt="你是一名修复验证员。你只负责依据修复前后证据判断问题是否被解决，并说明残余风险。",
+            enabled=True,
+            metadata={"managed_by": "task_system", "task_resource": "task.health.fix_verification"},
+        ),
     )
 
 

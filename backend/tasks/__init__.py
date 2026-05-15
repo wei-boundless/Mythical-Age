@@ -34,7 +34,6 @@ __all__ = [
     "TaskGraphValidationIssue",
     "TaskGraphRuntimeSpec",
     "compile_task_graph_definition_runtime_spec",
-    "compile_task_graph_runtime_spec",
     "ProjectionSelectionResult",
     "TaskExecutionAssembly",
     "TaskSpec",
@@ -194,10 +193,6 @@ def __getattr__(name: str) -> Any:
         )
 
         return TaskGraphRuntimeSpec
-    if name == "compile_task_graph_runtime_spec":
-        from tasks.coordination_graph_compiler import compile_task_graph_runtime_spec
-
-        return compile_task_graph_runtime_spec
     if name == "compile_task_graph_definition_runtime_spec":
         from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 
