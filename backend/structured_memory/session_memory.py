@@ -553,6 +553,8 @@ class SessionMemoryManager:
         )
         active_pdf = self._coerce_text(active_constraints.get("active_pdf"))
         active_dataset = self._coerce_text(active_constraints.get("active_dataset"))
+        active_subset_labels = self._coerce_text_list(active_constraints.get("subset_labels"))
+        active_subset_filter_column = self._coerce_text(active_constraints.get("subset_filter_column"))
         active_pdf_mode = self._normalize_pdf_scope(self._coerce_text(active_constraints.get("pdf_mode")))
         active_pdf_section = self._coerce_text(active_constraints.get("pdf_section"))
         active_pdf_pages = self._coerce_int_list(active_constraints.get("pdf_focus_pages"))
@@ -643,10 +645,15 @@ class SessionMemoryManager:
             active_object_handle_id = ""
             active_result_handle_id = ""
             active_subset_handle_id = ""
+            active_subset_labels = []
+            active_subset_filter_column = ""
         if not active_pdf:
             active_pdf_mode = ""
             active_pdf_section = ""
             active_pdf_pages = []
+        if not active_dataset:
+            active_subset_labels = []
+            active_subset_filter_column = ""
         if active_pdf:
             committed_pdf = active_pdf
             if active_binding_owner_task_id:
@@ -661,6 +668,8 @@ class SessionMemoryManager:
             active_pdf_section=active_pdf_section,
             active_pdf_pages=active_pdf_pages,
             active_dataset=active_dataset,
+            active_subset_labels=active_subset_labels,
+            active_subset_filter_column=active_subset_filter_column,
             active_binding_kind=active_binding_kind,
             active_binding_identity=active_binding_identity,
             active_binding_owner_task_id=active_binding_owner_task_id,

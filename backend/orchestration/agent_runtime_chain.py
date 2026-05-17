@@ -274,6 +274,7 @@ def _active_bindings_from_memory_payload(memory_payload: dict[str, Any]) -> dict
     state_snapshot = dict(memory_payload.get("state_snapshot") or {})
     context_slots = dict(state_snapshot.get("context_slots") or {})
     active_handles = dict(state_snapshot.get("active_handles") or {})
+    active_constraints = dict(context_slots.get("active_constraints") or state_snapshot.get("active_constraints") or {})
     result: dict[str, Any] = {}
     for key in (
         "active_pdf",
@@ -292,6 +293,8 @@ def _active_bindings_from_memory_payload(memory_payload: dict[str, Any]) -> dict
         value = context_slots.get(key)
         if value not in ("", [], {}, None):
             result[key] = value
+    if active_constraints:
+        result["active_constraints"] = active_constraints
     bundle_refs = list(state_snapshot.get("bundle_result_refs") or [])
     if bundle_refs:
         result["bundle_result_refs"] = [

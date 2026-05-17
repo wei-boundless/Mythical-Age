@@ -287,6 +287,7 @@ def _build_mcp_request(request: AgentDelegationRequest, *, mcp_route: str, agent
     path = _primary_payload_path(payload)
     bindings: dict[str, Any] = {}
     constraints: dict[str, Any] = dict(payload)
+    constraints = _normalize_followup_constraints(constraints)
     if mcp_route == "pdf" and path:
         bindings["active_pdf"] = path
         constraints.setdefault("path", path)
@@ -329,3 +330,21 @@ def _primary_payload_path(payload: dict[str, Any]) -> str:
         elif isinstance(values, str) and values.strip():
             return values.strip()
     return ""
+
+
+def _normalize_followup_constraints(constraints: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(constraints or {})
+    semantic_hints = dict(normalized.get("semantic_hints") or {})
+    subset_labels = [
+        str(item or "").strip()
+        for item in list(normalized.get("subset_labels") or [])
+        if str(item or "").strip()
+    ]
+    subset_filter_column = str(normalized.get("subset_filter_column") or "").strip()
+    if subset_labels:
+        semantic_hints.setdefault("subset_allowed_values", subset_labels)
+    if subset_filter_column:
+        semantic_hints.setdefault("subset_filter_column", subset_filter_column)
+    if semantic_hints:
+        normalized["semantic_hints"] = semantic_hints
+    return normalized

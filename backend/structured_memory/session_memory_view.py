@@ -230,6 +230,10 @@ class SessionMemoryViewBuilder:
             items.append(f"PDF 聚焦页：{', '.join(str(page) for page in slots.active_pdf_pages)}")
         if slots.active_dataset:
             items.append(f"当前数据集：{slots.active_dataset if include_debug else 'available'}")
+        if include_debug and getattr(slots, "active_subset_filter_column", ""):
+            items.append(f"当前子集筛选列：{slots.active_subset_filter_column}")
+        if include_debug and getattr(slots, "active_subset_labels", []):
+            items.append(f"当前子集标签：{', '.join(str(item) for item in slots.active_subset_labels[:8])}")
         if include_debug and slots.active_binding_identity:
             items.append(f"当前绑定标识：{slots.active_binding_identity}")
         if include_debug and slots.active_binding_owner_task_id:

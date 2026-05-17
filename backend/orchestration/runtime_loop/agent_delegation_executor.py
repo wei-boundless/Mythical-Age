@@ -445,6 +445,7 @@ class AgentDelegationExecutor:
         )
 
     def build_parent_observation(self, result: AgentDelegationResult) -> dict[str, Any]:
+        context_writeback_hints = _context_writeback_hints_from_result(result)
         return {
             "type": "agent_delegation_result",
             "status": result.status,
@@ -458,6 +459,7 @@ class AgentDelegationExecutor:
             "followup_questions": list(result.followup_questions),
             "result_ref": result.result_id,
             "child_agent_run_ref": result.child_agent_run_ref,
+            **({"context_writeback_hints": context_writeback_hints} if context_writeback_hints else {}),
         }
 
     def _blocked_result(self, request: AgentDelegationRequest, *, parent_agent_run: AgentRun, reasons: list[str]) -> AgentDelegationResult:
@@ -490,6 +492,39 @@ def _soul_base_dir(root_dir: Path) -> Path:
     if (resolved / "backend" / "soul" / "projections").exists():
         return resolved / "backend"
     return resolved
+
+
+def _context_writeback_hints_from_result(result: AgentDelegationResult) -> dict[str, Any]:
+    diagnostics = dict(result.diagnostics or {})
+    mcp_result = dict(diagnostics.get("mcp_result") or {})
+    canonical = dict(mcp_result.get("canonical_result") or {})
+    bindings = dict(canonical.get("bindings") or {})
+    presentation_hints = dict(canonical.get("presentation_hints") or {})
+    source_path = str(bindings.get("active_dataset") or bindings.get("active_pdf") or bindings.get("active_table") or "").strip()
+    source_kind = "dataset" if bindings.get("active_dataset") else "pdf" if bindings.get("active_pdf") else "table" if bindings.get("active_table") else ""
+    subset_labels = [
+        str(item or "").strip()
+        for item in list(presentation_hints.get("subset_labels") or [])
+        if str(item or "").strip()
+    ]
+    payload = {
+        "source_kind": source_kind,
+        "source_path": source_path,
+        "active_object_handle_id": _first_text(canonical.get("object_handle_ids")),
+        "active_result_handle_id": str(canonical.get("primary_result_handle_id") or _first_text(canonical.get("result_handle_ids"))),
+        "active_subset_handle_id": str(presentation_hints.get("subset_handle_id") or ""),
+        "subset_filter_column": str(presentation_hints.get("subset_filter_column") or ""),
+        "subset_labels": subset_labels,
+    }
+    return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
+
+
+def _first_text(values: Any) -> str:
+    for item in list(values or []):
+        text = str(item or "").strip()
+        if text:
+            return text
+    return ""
 
 
 def _child_system_prompt(agent: Any | None, profile: Any | None, *, projection_card: dict[str, Any] | None = None) -> str:

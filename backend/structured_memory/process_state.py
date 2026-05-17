@@ -46,6 +46,8 @@ class ContextSlots:
     active_pdf_section: str = ""
     active_pdf_pages: list[int] = field(default_factory=list)
     active_dataset: str = ""
+    active_subset_labels: list[str] = field(default_factory=list)
+    active_subset_filter_column: str = ""
     active_binding_kind: str = ""
     active_binding_identity: str = ""
     active_binding_owner_task_id: str = ""
@@ -168,6 +170,14 @@ class ProcessState:
                     if str(item).strip()
                 ],
                 active_dataset=str(getattr(slots_payload, "get", lambda *_: "")("active_dataset", "")),
+                active_subset_labels=[
+                    str(item).strip()
+                    for item in list(getattr(slots_payload, "get", lambda *_: [])("active_subset_labels", []) or [])
+                    if str(item).strip()
+                ],
+                active_subset_filter_column=str(
+                    getattr(slots_payload, "get", lambda *_: "")("active_subset_filter_column", "")
+                ),
                 active_binding_kind=str(getattr(slots_payload, "get", lambda *_: "")("active_binding_kind", "")),
                 active_binding_identity=str(getattr(slots_payload, "get", lambda *_: "")("active_binding_identity", "")),
                 active_binding_owner_task_id=str(

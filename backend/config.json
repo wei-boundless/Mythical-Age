@@ -18,7 +18,7 @@
   "system_config": {
     "runtime": {
       "llm_timeout_seconds": 60.0,
-      "llm_max_retries": 0,
+      "llm_max_retries": 2,
       "terminal_timeout_seconds": 300,
       "llm_long_output_timeout_seconds": 360.0,
       "component_char_limit": 20000

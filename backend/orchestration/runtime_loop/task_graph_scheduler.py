@@ -23,12 +23,19 @@ def bootstrap_scheduler_state(
     *,
     runtime_spec: TaskGraphRuntimeSpec,
     node_statuses: dict[str, str] | None = None,
+    result_record_index: dict[str, dict[str, Any]] | None = None,
+    accepted_result_records_by_scope: dict[str, dict[str, str]] | None = None,
+    active_scope_key: str = "",
     terminal_status: str = "",
     mode: str = "shadow",
 ) -> TaskGraphSchedulerState:
     statuses = _initial_node_statuses(runtime_spec=runtime_spec, node_statuses=node_statuses)
     incoming, outgoing = _node_adjacency(runtime_spec.nodes, runtime_spec.edges, runtime_spec.temporal_edges)
+    incoming_edges = _incoming_edges_by_target(runtime_spec.edges, runtime_spec.temporal_edges)
     optional_node_ids = _optional_feedback_subgraph_nodes(runtime_spec.nodes, runtime_spec.edges)
+    temporal_gate_enabled = bool(result_record_index is not None or accepted_result_records_by_scope is not None)
+    record_index = _normalize_result_record_index(result_record_index)
+    accepted_by_scope = _normalize_accepted_result_records(accepted_result_records_by_scope)
     completed = {node_id for node_id, status in statuses.items() if status in TERMINAL_COMPLETED}
     failed = {node_id for node_id, status in statuses.items() if status in TERMINAL_FAILED}
     running = {node_id for node_id, status in statuses.items() if status in ACTIVE_STATUSES}
@@ -71,6 +78,11 @@ def bootstrap_scheduler_state(
                 required_sources=required_sources,
                 completed=completed,
                 failed=failed,
+                temporal_gate_enabled=temporal_gate_enabled,
+                incoming_edges=tuple(incoming_edges.get(node.node_id, ())),
+                result_record_index=record_index,
+                accepted_result_records_by_scope=accepted_by_scope,
+                active_scope_key=active_scope_key,
             ) and timing_allowed
             if ready:
                 status = "ready"
@@ -79,6 +91,18 @@ def bootstrap_scheduler_state(
                 status = "blocked"
                 missing_sources = [source for source in required_sources if source not in completed]
                 blocked_reasons.extend(f"upstream:{source}" for source in missing_sources)
+                blocked_reasons.extend(
+                    _timeline_gate_blocked_reasons(
+                        node=node,
+                        required_sources=required_sources,
+                        completed=completed,
+                        temporal_gate_enabled=temporal_gate_enabled,
+                        incoming_edges=tuple(incoming_edges.get(node.node_id, ())),
+                        result_record_index=record_index,
+                        accepted_result_records_by_scope=accepted_by_scope,
+                        active_scope_key=active_scope_key,
+                    )
+                )
                 blocked_reasons.extend(timing_reasons)
                 if node.wait_policy not in {"wait_all_upstream_completed", "wait_required_contracts"}:
                     blocked_reasons.append(f"unsupported_wait_policy:{node.wait_policy}")
@@ -114,7 +138,14 @@ def bootstrap_scheduler_state(
         )
 
     edge_states = [
-        _edge_state(edge=edge, statuses=statuses)
+        _edge_state(
+            edge=edge,
+            statuses=statuses,
+            temporal_gate_enabled=temporal_gate_enabled,
+            result_record_index=record_index,
+            accepted_result_records_by_scope=accepted_by_scope,
+            active_scope_key=active_scope_key,
+        )
         for edge in runtime_spec.edges
     ]
     phase_states = _phase_states(runtime_spec.nodes, node_states)
@@ -149,6 +180,8 @@ def bootstrap_scheduler_state(
             "active_phase_ids": list(active_phase_ids),
             "active_sequence_by_phase": dict(active_sequence_by_phase),
             "optional_node_ids": sorted(optional_node_ids),
+            "timeline_gate_enabled": temporal_gate_enabled,
+            "active_scope_key": active_scope_key,
         },
     )
 
@@ -206,6 +239,22 @@ def _node_adjacency(
         if target not in outgoing[source]:
             outgoing[source].append(target)
     return dict(incoming), dict(outgoing)
+
+
+def _incoming_edges_by_target(
+    edges: tuple[TaskGraphRuntimeEdge, ...],
+    temporal_edges: tuple[dict[str, Any], ...] = (),
+) -> dict[str, list[TaskGraphRuntimeEdge | dict[str, Any]]]:
+    incoming: dict[str, list[TaskGraphRuntimeEdge | dict[str, Any]]] = defaultdict(list)
+    for edge in edges:
+        target = str(edge.target_node_id or "").strip()
+        if target:
+            incoming[target].append(edge)
+    for edge in _blocking_temporal_edges(temporal_edges):
+        target = str(edge.get("target_node_id") or "").strip()
+        if target:
+            incoming[target].append(dict(edge))
+    return dict(incoming)
 
 
 def _blocking_temporal_edges(temporal_edges: tuple[dict[str, Any], ...]) -> tuple[dict[str, Any], ...]:
@@ -272,6 +321,11 @@ def _node_ready(
     required_sources: tuple[str, ...],
     completed: set[str],
     failed: set[str],
+    temporal_gate_enabled: bool = False,
+    incoming_edges: tuple[TaskGraphRuntimeEdge | dict[str, Any], ...] = (),
+    result_record_index: dict[str, dict[str, Any]] | None = None,
+    accepted_result_records_by_scope: dict[str, dict[str, str]] | None = None,
+    active_scope_key: str = "",
 ) -> bool:
     if node.wait_policy == "fire_and_continue":
         return True
@@ -279,11 +333,36 @@ def _node_ready(
         return current_status == "ready" or node.node_id in start_node_ids
     if failed and node.join_policy in {"allow_partial_with_issues", "coordinator_decides"}:
         terminal_sources = completed | failed
-        return all(source in terminal_sources for source in required_sources) and any(source in completed for source in required_sources)
+        if not (all(source in terminal_sources for source in required_sources) and any(source in completed for source in required_sources)):
+            return False
+        return _timeline_dependencies_satisfied(
+            required_sources=tuple(source for source in required_sources if source in completed),
+            temporal_gate_enabled=temporal_gate_enabled,
+            incoming_edges=incoming_edges,
+            result_record_index=result_record_index or {},
+            accepted_result_records_by_scope=accepted_result_records_by_scope or {},
+            active_scope_key=active_scope_key,
+        )
     if node.wait_policy == "wait_any_upstream_completed":
-        return any(source in completed for source in required_sources)
+        completed_sources = tuple(source for source in required_sources if source in completed)
+        return any(completed_sources) and _timeline_dependencies_satisfied(
+            required_sources=completed_sources,
+            temporal_gate_enabled=temporal_gate_enabled,
+            incoming_edges=incoming_edges,
+            result_record_index=result_record_index or {},
+            accepted_result_records_by_scope=accepted_result_records_by_scope or {},
+            active_scope_key=active_scope_key,
+            any_source=True,
+        )
     if node.wait_policy in {"wait_all_upstream_completed", "wait_required_contracts"}:
-        return all(source in completed for source in required_sources)
+        return all(source in completed for source in required_sources) and _timeline_dependencies_satisfied(
+            required_sources=required_sources,
+            temporal_gate_enabled=temporal_gate_enabled,
+            incoming_edges=incoming_edges,
+            result_record_index=result_record_index or {},
+            accepted_result_records_by_scope=accepted_result_records_by_scope or {},
+            active_scope_key=active_scope_key,
+        )
     if node.wait_policy == "manual_release":
         return False
     return False
@@ -364,11 +443,208 @@ def _node_timing_allowed(
     return not reasons, reasons
 
 
-def _edge_state(*, edge: TaskGraphRuntimeEdge, statuses: dict[str, str]) -> TaskGraphEdgeHandoffState:
+def _timeline_dependencies_satisfied(
+    *,
+    required_sources: tuple[str, ...],
+    temporal_gate_enabled: bool,
+    incoming_edges: tuple[TaskGraphRuntimeEdge | dict[str, Any], ...],
+    result_record_index: dict[str, dict[str, Any]],
+    accepted_result_records_by_scope: dict[str, dict[str, str]],
+    active_scope_key: str = "",
+    any_source: bool = False,
+) -> bool:
+    if not temporal_gate_enabled:
+        return True
+    checks = [
+        _source_has_effective_result_record(
+            source=source,
+            edge=_edge_for_source(incoming_edges, source),
+            result_record_index=result_record_index,
+            accepted_result_records_by_scope=accepted_result_records_by_scope,
+            active_scope_key=active_scope_key,
+        )
+        for source in required_sources
+    ]
+    return any(checks) if any_source else all(checks)
+
+
+def _timeline_gate_blocked_reasons(
+    *,
+    node: TaskGraphRuntimeNode,
+    required_sources: tuple[str, ...],
+    completed: set[str],
+    temporal_gate_enabled: bool,
+    incoming_edges: tuple[TaskGraphRuntimeEdge | dict[str, Any], ...],
+    result_record_index: dict[str, dict[str, Any]],
+    accepted_result_records_by_scope: dict[str, dict[str, str]],
+    active_scope_key: str = "",
+) -> list[str]:
+    if not temporal_gate_enabled:
+        return []
+    reasons: list[str] = []
+    for source in required_sources:
+        if source not in completed:
+            continue
+        edge = _edge_for_source(incoming_edges, source)
+        record = _effective_result_record(
+            source=source,
+            edge=edge,
+            result_record_index=result_record_index,
+            accepted_result_records_by_scope=accepted_result_records_by_scope,
+            active_scope_key=active_scope_key,
+        )
+        if not record:
+            reasons.append(f"timeline_result_missing:{source}")
+            continue
+        if record.get("accepted") is not True:
+            reasons.append(f"timeline_result_not_accepted:{source}")
+        if int(record.get("effective_from_clock_seq") or 0) <= 0:
+            reasons.append(f"timeline_result_not_effective:{source}")
+        if _edge_requires_artifacts(edge) and not list(record.get("produced_artifact_refs") or []):
+            reasons.append(f"timeline_result_missing_artifacts:{source}")
+    return reasons
+
+
+def _source_has_effective_result_record(
+    *,
+    source: str,
+    edge: TaskGraphRuntimeEdge | dict[str, Any] | None,
+    result_record_index: dict[str, dict[str, Any]],
+    accepted_result_records_by_scope: dict[str, dict[str, str]],
+    active_scope_key: str = "",
+) -> bool:
+    record = _effective_result_record(
+        source=source,
+        edge=edge,
+        result_record_index=result_record_index,
+        accepted_result_records_by_scope=accepted_result_records_by_scope,
+        active_scope_key=active_scope_key,
+    )
+    if not record:
+        return False
+    if record.get("accepted") is not True:
+        return False
+    if int(record.get("effective_from_clock_seq") or 0) <= 0:
+        return False
+    if _edge_requires_artifacts(edge) and not list(record.get("produced_artifact_refs") or []):
+        return False
+    return True
+
+
+def _effective_result_record(
+    *,
+    source: str,
+    edge: TaskGraphRuntimeEdge | dict[str, Any] | None,
+    result_record_index: dict[str, dict[str, Any]],
+    accepted_result_records_by_scope: dict[str, dict[str, str]],
+    active_scope_key: str = "",
+) -> dict[str, Any]:
+    scope_candidates = _scope_candidates(edge=edge, active_scope_key=active_scope_key)
+    for scope_key in scope_candidates:
+        record_id = str(dict(accepted_result_records_by_scope.get(scope_key) or {}).get(source) or "")
+        record = dict(result_record_index.get(record_id) or {})
+        if record:
+            return record
+    if not scope_candidates:
+        for scope_records in accepted_result_records_by_scope.values():
+            record_id = str(dict(scope_records or {}).get(source) or "")
+            record = dict(result_record_index.get(record_id) or {})
+            if record:
+                return record
+    return {}
+
+
+def _scope_candidates(*, edge: TaskGraphRuntimeEdge | dict[str, Any] | None, active_scope_key: str) -> tuple[str, ...]:
+    policy = _timeline_dependency_policy(edge)
+    configured = str(policy.get("scope_key") or policy.get("required_scope_key") or "").strip()
+    scope_mode = str(policy.get("scope") or policy.get("scope_mode") or "").strip()
+    if configured:
+        return (configured,)
+    if active_scope_key and scope_mode in {"current", "current_scope", "same_scope", ""}:
+        return (active_scope_key,)
+    if active_scope_key and policy.get("require_current_scope") is True:
+        return (active_scope_key,)
+    return ()
+
+
+def _edge_requires_artifacts(edge: TaskGraphRuntimeEdge | dict[str, Any] | None) -> bool:
+    if edge is None:
+        return False
+    policy = _artifact_policy(edge)
+    timeline_policy = _timeline_dependency_policy(edge)
+    return policy.get("required") is True or timeline_policy.get("require_artifacts") is True
+
+
+def _edge_for_source(
+    incoming_edges: tuple[TaskGraphRuntimeEdge | dict[str, Any], ...],
+    source: str,
+) -> TaskGraphRuntimeEdge | dict[str, Any] | None:
+    for edge in incoming_edges:
+        if _edge_source(edge) == source:
+            return edge
+    return None
+
+
+def _edge_source(edge: TaskGraphRuntimeEdge | dict[str, Any] | None) -> str:
+    if edge is None:
+        return ""
+    if isinstance(edge, TaskGraphRuntimeEdge):
+        return str(edge.source_node_id or "")
+    return str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "")
+
+
+def _timeline_dependency_policy(edge: TaskGraphRuntimeEdge | dict[str, Any] | None) -> dict[str, Any]:
+    if edge is None:
+        return {}
+    if isinstance(edge, TaskGraphRuntimeEdge):
+        metadata = dict(edge.metadata or {})
+        return dict(metadata.get("timeline_dependency") or metadata.get("temporal_control") or {})
+    metadata = dict(edge.get("metadata") or {})
+    return dict(edge.get("timeline_dependency") or metadata.get("timeline_dependency") or metadata.get("temporal_control") or {})
+
+
+def _artifact_policy(edge: TaskGraphRuntimeEdge | dict[str, Any] | None) -> dict[str, Any]:
+    if edge is None:
+        return {}
+    if isinstance(edge, TaskGraphRuntimeEdge):
+        return dict(edge.artifact_ref_policy or {})
+    return dict(edge.get("artifact_ref_policy") or {})
+
+
+def _normalize_result_record_index(value: dict[str, dict[str, Any]] | None) -> dict[str, dict[str, Any]]:
+    return {str(key): dict(record) for key, record in dict(value or {}).items() if str(key) and isinstance(record, dict)}
+
+
+def _normalize_accepted_result_records(value: dict[str, dict[str, str]] | None) -> dict[str, dict[str, str]]:
+    return {
+        str(scope): {str(stage): str(record_id) for stage, record_id in dict(records or {}).items() if str(stage) and str(record_id)}
+        for scope, records in dict(value or {}).items()
+        if str(scope) and isinstance(records, dict)
+    }
+
+
+def _edge_state(
+    *,
+    edge: TaskGraphRuntimeEdge,
+    statuses: dict[str, str],
+    temporal_gate_enabled: bool = False,
+    result_record_index: dict[str, dict[str, Any]] | None = None,
+    accepted_result_records_by_scope: dict[str, dict[str, str]] | None = None,
+    active_scope_key: str = "",
+) -> TaskGraphEdgeHandoffState:
     source_status = statuses.get(edge.source_node_id, "pending")
     target_status = statuses.get(edge.target_node_id, "pending")
+    record = _effective_result_record(
+        source=edge.source_node_id,
+        edge=edge,
+        result_record_index=result_record_index or {},
+        accepted_result_records_by_scope=accepted_result_records_by_scope or {},
+        active_scope_key=active_scope_key,
+    ) if temporal_gate_enabled else {}
     if source_status == "failed":
         status = "failed"
+    elif temporal_gate_enabled and source_status == "completed" and not record:
+        status = "timeline_waiting"
     elif source_status == "completed" and target_status in {"completed", "running"}:
         status = "acknowledged" if edge.ack_required else "delivered"
     elif source_status == "completed":
@@ -389,6 +665,9 @@ def _edge_state(*, edge: TaskGraphRuntimeEdge, statuses: dict[str, str]) -> Task
             "source_status": source_status,
             "target_status": target_status,
             "timeout_policy": str(dict(edge.metadata or {}).get("timeout_policy") or ""),
+            "timeline_gate_enabled": temporal_gate_enabled,
+            "result_record_id": str(record.get("result_record_id") or ""),
+            "result_scope_key": str(record.get("scope_key") or ""),
         },
     )
 

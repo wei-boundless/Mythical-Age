@@ -448,8 +448,6 @@ def _preferred_file_kind(context: dict[str, Any]) -> str:
     path_hint = _first_present(
         explicit_inputs.get("explicit_dataset_path"),
         explicit_inputs.get("explicit_pdf_path"),
-        explicit_inputs.get("bound_dataset_path"),
-        explicit_inputs.get("bound_pdf_path"),
     )
     suffix = _normalized_suffix(path_hint)
     if suffix in {".xlsx", ".xls", ".csv", ".tsv", ".jsonl", ".parquet"}:

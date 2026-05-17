@@ -124,6 +124,16 @@ class MCPProjectionAdapter:
         subset_handle_id = str(dict(canonical_result.presentation_hints or {}).get("subset_handle_id", "") or "").strip()
         if subset_handle_id:
             projected.active_subset_handle_id = subset_handle_id
+        subset_labels = [
+            str(item or "").strip()
+            for item in list(dict(canonical_result.presentation_hints or {}).get("subset_labels") or [])
+            if str(item or "").strip()
+        ]
+        subset_filter_column = str(dict(canonical_result.presentation_hints or {}).get("subset_filter_column", "") or "").strip()
+        if subset_labels:
+            projected.active_constraints["subset_labels"] = subset_labels
+        if subset_filter_column:
+            projected.active_constraints["subset_filter_column"] = subset_filter_column
         return projected
 
     def _project_task_summary_refs(

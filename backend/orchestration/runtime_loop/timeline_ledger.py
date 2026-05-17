@@ -35,7 +35,7 @@ class TimelineEvent:
     parallel_group_id: str = ""
     dispatch_id: str = ""
     request_id: str = ""
-    receipt_id: str = ""
+    result_record_id: str = ""
     payload_ref: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
     checkpoint_ref: str = ""
@@ -118,7 +118,7 @@ class TimelineLedgerStore:
         parallel_group_id: str = "",
         dispatch_id: str = "",
         request_id: str = "",
-        receipt_id: str = "",
+        result_record_id: str = "",
         payload_ref: str = "",
         payload: dict[str, Any] | None = None,
         checkpoint_ref: str = "",
@@ -156,7 +156,7 @@ class TimelineLedgerStore:
                 parallel_group_id=str(parallel_group_id or ""),
                 dispatch_id=str(dispatch_id or ""),
                 request_id=str(request_id or ""),
-                receipt_id=str(receipt_id or ""),
+                result_record_id=str(result_record_id or ""),
                 payload_ref=str(payload_ref or ""),
                 payload=dict(payload or {}),
                 checkpoint_ref=str(checkpoint_ref or ""),
@@ -280,7 +280,7 @@ def _event_from_payload(payload: dict[str, Any]) -> TimelineEvent:
         parallel_group_id=str(payload.get("parallel_group_id") or ""),
         dispatch_id=str(payload.get("dispatch_id") or ""),
         request_id=str(payload.get("request_id") or ""),
-        receipt_id=str(payload.get("receipt_id") or ""),
+        result_record_id=str(payload.get("result_record_id") or ""),
         payload_ref=str(payload.get("payload_ref") or ""),
         payload=dict(payload.get("payload") or {}),
         checkpoint_ref=str(payload.get("checkpoint_ref") or ""),

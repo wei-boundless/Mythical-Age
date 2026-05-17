@@ -49,12 +49,16 @@ class StateMemoryStoreAdapter:
             }.items()
             if _clean(value)
         }
+        active_constraints = _active_constraints_from_context_slots(context_slots)
         return StateMemorySnapshot(
             session_id=_safe_session_id(session_id),
             active_goal=_clean(getattr(state, "active_goal", "")),
             flow_state=_object_to_dict(flow_state),
             task_state=_object_to_dict(task_state),
-            context_slots=context_slots,
+            context_slots={
+                **context_slots,
+                **({"active_constraints": active_constraints} if active_constraints else {}),
+            },
             active_handles={key: _clean(value) for key, value in active_handles.items()},
             bundle_result_refs=tuple(
                 dict(item)
@@ -241,8 +245,10 @@ def _clean(value: Any) -> str:
 def _object_to_dict(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
-    if hasattr(value, "to_dict"):
-        payload = value.to_dict()
+    if isinstance(value, dict):
+        payload = dict(value)
+    elif hasattr(value, "to_dict"):
+        payload = dict(value.to_dict())
     else:
         try:
             payload = asdict(value)
@@ -255,6 +261,45 @@ def _object_to_dict(value: Any) -> dict[str, Any]:
         for key, item in payload.items()
         if item not in ("", [], {}, None)
     }
+
+
+def _active_constraints_from_context_slots(context_slots: dict[str, Any]) -> dict[str, Any]:
+    constraints: dict[str, Any] = {}
+    active_pdf = _clean(context_slots.get("active_pdf"))
+    active_dataset = _clean(context_slots.get("active_dataset"))
+    if active_pdf:
+        constraints["active_pdf"] = active_pdf
+        constraints["source_kind"] = "pdf"
+    if active_dataset:
+        constraints["active_dataset"] = active_dataset
+        constraints["source_kind"] = "dataset"
+    active_pdf_mode = _clean(context_slots.get("active_pdf_mode"))
+    active_pdf_section = _clean(context_slots.get("active_pdf_section"))
+    active_pdf_pages = [
+        int(item)
+        for item in list(context_slots.get("active_pdf_pages") or [])
+        if str(item).strip().isdigit()
+    ]
+    if active_pdf_mode:
+        constraints["active_pdf_mode"] = active_pdf_mode
+    if active_pdf_section:
+        constraints["active_pdf_section"] = active_pdf_section
+    if active_pdf_pages:
+        constraints["active_pdf_pages"] = active_pdf_pages
+    subset_labels = [
+        _clean(item)
+        for item in list(context_slots.get("active_subset_labels") or [])
+        if _clean(item)
+    ]
+    subset_filter_column = _clean(context_slots.get("active_subset_filter_column"))
+    if subset_labels:
+        constraints["subset_labels"] = subset_labels
+    if subset_filter_column:
+        constraints["subset_filter_column"] = subset_filter_column
+    active_binding_identity = _clean(context_slots.get("active_binding_identity"))
+    if active_binding_identity:
+        constraints["active_binding_identity"] = active_binding_identity
+    return constraints
 
 
 def _safe_int(value: Any) -> int:

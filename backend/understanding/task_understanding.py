@@ -726,6 +726,11 @@ def _collect_task_signals(
     skill_authoring_request = _looks_like_skill_authoring_request(message, lowered)
     binding_view = _normalize_active_bindings(active_bindings)
     followup_resolution = _resolve_followup_target(lowered, binding_view)
+    if (
+        followup_resolution["target_kind"] != "bundle_ordinals"
+        and (explicit_dataset_path or explicit_pdf_path or explicit_workspace_path or weather_domain or gold_price_domain or external_requirement)
+    ):
+        followup_resolution = {"target_kind": "", "ordinals": [], "scope": ""}
 
     anchor_kinds: list[str] = []
     if explicit_dataset_path:

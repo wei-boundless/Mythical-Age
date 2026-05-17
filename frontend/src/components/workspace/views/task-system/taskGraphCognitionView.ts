@@ -251,12 +251,12 @@ function nodeOutputs(
   }
   if (stringValue(node.output_contract_id)) {
     outputs.push({
-      outputId: `${nodeId}:receipt`,
-      kind: "receipt",
-      targetId: "stage_execution_receipt",
-      title: "执行回执",
+      outputId: `${nodeId}:timeline_result`,
+      kind: "timeline_result",
+      targetId: "timeline_result_record",
+      title: "时序结果记录",
       contractId: stringValue(node.output_contract_id),
-      visibility: "由运行时 receipt_policy 控制",
+      visibility: "由运行时时序坐标控制",
     });
   }
   return outputs;

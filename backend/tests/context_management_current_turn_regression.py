@@ -99,6 +99,7 @@ def test_context_resolver_does_not_split_priority_word_as_sequence_marker() -> N
     assert context.execution_mode == "single"
     assert context.bundle_items == ()
     assert context.explicit_inputs["explicit_dataset_path"] == "inventory.xlsx"
+    assert "bound_dataset_path" not in context.explicit_inputs
 
 
 def test_context_resolver_keeps_bound_pdf_alongside_explicit_dataset() -> None:
@@ -129,6 +130,7 @@ def test_context_resolver_keeps_bound_pdf_alongside_explicit_dataset() -> None:
         (binding.file_kind, binding.metadata.get("path"))
         for binding in context.resolved_bindings
     }
+    assert "bound_pdf_path" not in context.explicit_inputs
     assert ("dataset", "knowledge/E-commerce Data/employees.xlsx") in paths
     assert ("pdf", "knowledge/AI Knowledge/report.pdf") in paths
 

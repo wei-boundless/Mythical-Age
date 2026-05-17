@@ -1287,6 +1287,7 @@ class TaskRunLoop:
                 current_turn_context=current_turn_context,
                 query_understanding=query_understanding,
                 selected_recipe_payload=selected_recipe_payload,
+                task_spec_payload=task_spec_payload,
                 task_contract_ref=task_contract_ref,
                 runtime_task_ledger=runtime_task_ledger,
                 state=state,
@@ -4877,6 +4878,7 @@ class TaskRunLoop:
         current_turn_context: dict[str, Any],
         query_understanding: dict[str, Any],
         selected_recipe_payload: dict[str, Any],
+        task_spec_payload: dict[str, Any],
         task_contract_ref: str,
         runtime_task_ledger: TaskRunLedger | None,
         state: RuntimeLoopState,
@@ -4903,6 +4905,7 @@ class TaskRunLoop:
             current_turn_context=current_turn_context,
             query_understanding=query_understanding,
             selected_recipe_payload=selected_recipe_payload,
+            task_spec_payload=task_spec_payload,
         )
         if not operation_allowed_by_search_policy(operation_id, allowed_search_sources):
             blocked_event = self.event_log.append(
@@ -5059,6 +5062,7 @@ class TaskRunLoop:
         current_turn_context: dict[str, Any],
         query_understanding: dict[str, Any],
         selected_recipe_payload: dict[str, Any],
+        task_spec_payload: dict[str, Any] | None = None,
     ) -> tuple[str, str, dict[str, Any], dict[str, Any], str]:
         source_kind = str(
             selected_recipe_payload.get("source_kind")
@@ -5070,11 +5074,16 @@ class TaskRunLoop:
         parameters = dict(query_understanding.get("tool_input") or query_understanding.get("parameters") or {})
         bindings: dict[str, Any] = {}
         constraints: dict[str, Any] = {}
+        followup_contract = _followup_contract_from_task_spec(task_spec_payload)
         if unit is not None:
             path_key = str(unit.request_path_parameter or "").strip()
             binding_key = str(unit.followup_binding_key or "").strip()
             if path_key and binding_key and binding_key != "current_turn_context":
-                path = str(parameters.get(path_key) or "").strip()
+                path = str(
+                    parameters.get(path_key)
+                    or _followup_contract_source_path(followup_contract, binding_key=binding_key)
+                    or ""
+                ).strip()
                 bindings = {binding_key: path} if path else {}
                 constraints = {path_key: path} if path else {}
             if unit.request_mode_parameter:
@@ -5084,6 +5093,7 @@ class TaskRunLoop:
                     constraints[mode_key] = mode
             if binding_key == "current_turn_context":
                 bindings = {"current_turn_context": dict(current_turn_context or {})}
+            constraints = _merge_followup_contract_into_payload(constraints, followup_contract=followup_contract)
             return unit.route, unit.operation_id, bindings, constraints, unit.answer_source
         bindings = {"current_turn_context": dict(current_turn_context or {})}
         retrieval_unit = get_local_mcp_unit("retrieval")
@@ -5133,6 +5143,7 @@ class TaskRunLoop:
         parent_agent_run_ref: str,
         source_agent_id: str,
         user_message: str,
+        task_operation: dict[str, Any] | None = None,
         allowed_search_sources: set[str] | None = None,
     ) -> AgentDelegationRequest:
         tool_call = dict(action_request.payload.get("tool_call") or {})
@@ -5140,6 +5151,10 @@ class TaskRunLoop:
         task_run = self.state_index.get_task_run(task_run_id)
         instruction = str(tool_args.get("instruction") or "").strip()
         input_payload = dict(tool_args.get("input_payload") or {})
+        input_payload = _merge_followup_contract_into_payload(
+            input_payload,
+            followup_contract=_followup_contract_from_task_spec(dict(task_operation or {}).get("task_spec")),
+        )
         diagnostics = {
             "tool_call_id": str(tool_call.get("id") or ""),
             "operation_id": str(action_request.operation_id or ""),
@@ -5436,6 +5451,7 @@ class TaskRunLoop:
                         parent_agent_run_ref=parent_agent_run.agent_run_id,
                         source_agent_id=parent_agent_run.agent_id,
                         user_message=user_message,
+                        task_operation=task_operation,
                         allowed_search_sources=allowed_search_sources,
                     )
                     delegated = await self._delegation_executor().execute(
@@ -6696,17 +6712,24 @@ def _project_structured_data_tool_context(
     tool_args: dict[str, Any],
     result_text: str,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    context_writeback_hints = dict(tool_args.get("context_writeback_hints") or {})
     path = _clean_text(tool_args.get("path"))
     query = _clean_text(tool_args.get("query"))
     if not path:
-        path = _extract_tool_output_field(result_text, ("数据集", "文件", "path", "source"))
+        path = _clean_text(context_writeback_hints.get("source_path")) or _extract_tool_output_field(result_text, ("数据集", "文件", "path", "source"))
     if not path or _looks_like_failed_tool_result(result_text):
         return {}, []
-    object_handle_id = _stable_file_work_id("source:dataset", path)
-    result_handle_id = _stable_file_work_id("result:structured_answer", f"{path}:{query}:{result_text[:160]}")
-    subset_labels = _extract_ranked_labels(result_text)
+    object_handle_id = _clean_text(context_writeback_hints.get("active_object_handle_id")) or _stable_file_work_id("source:dataset", path)
+    result_handle_id = _clean_text(context_writeback_hints.get("active_result_handle_id")) or _stable_file_work_id("result:structured_answer", f"{path}:{query}:{result_text[:160]}")
+    subset_labels = [
+        str(item or "").strip()
+        for item in list(context_writeback_hints.get("subset_labels") or [])
+        if str(item or "").strip()
+    ] or _extract_ranked_labels(result_text)
+    subset_filter_column = _clean_text(context_writeback_hints.get("subset_filter_column"))
     subset_handle_id = (
-        _stable_file_work_id("subset:structured_selection", f"{path}:{'|'.join(subset_labels)}")
+        _clean_text(context_writeback_hints.get("active_subset_handle_id"))
+        or _stable_file_work_id("subset:structured_selection", f"{path}:{'|'.join(subset_labels)}")
         if subset_labels
         else ""
     )
@@ -6716,6 +6739,8 @@ def _project_structured_data_tool_context(
     }
     if subset_labels:
         active_constraints["subset_labels"] = subset_labels
+    if subset_filter_column:
+        active_constraints["subset_filter_column"] = subset_filter_column
     main_context = {
         "active_goal": query,
         "active_work_item": "structured_data",
@@ -6755,6 +6780,7 @@ def _project_delegated_file_work_context(
     if not result_payload or str(result_payload.get("status") or "") not in {"completed", "failed"}:
         return {}, []
     input_payload = dict(tool_args.get("input_payload") or {})
+    context_writeback_hints = dict(result_payload.get("context_writeback_hints") or {})
     kind = _clean_text(tool_args.get("delegation_kind"))
     path = _clean_text(
         input_payload.get("file_path")
@@ -6770,7 +6796,11 @@ def _project_delegated_file_work_context(
     if goal_alignment == "offtopic":
         return {}, []
     if not path:
-        path = _clean_text(result_payload.get("source") or result_payload.get("path"))
+        path = _clean_text(
+            context_writeback_hints.get("source_path")
+            or result_payload.get("source")
+            or result_payload.get("path")
+        )
     summary = _clean_text(result_payload.get("summary") or result_payload.get("answer_candidate") or result_text)
     if not path and kind in {"retrieval", "evidence_lookup", "knowledge_retrieval"}:
         task_id = _stable_file_work_id(
@@ -6801,6 +6831,7 @@ def _project_delegated_file_work_context(
     delegated_tool_args = {
         "path": path,
         "query": _clean_text(input_payload.get("query") or tool_args.get("instruction")),
+        **({"context_writeback_hints": context_writeback_hints} if context_writeback_hints else {}),
     }
     if kind in {"structured_data", "table_analysis", "structured_data_lookup"}:
         return _project_structured_data_tool_context(tool_args=delegated_tool_args, result_text=summary)
@@ -6856,6 +6887,69 @@ def _compact_summary(value: str, max_chars: int = 280) -> str:
 
 def _clean_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _followup_contract_from_task_spec(task_spec_payload: dict[str, Any] | None) -> dict[str, Any]:
+    inputs = dict(dict(task_spec_payload or {}).get("inputs") or {})
+    contract = dict(inputs.get("followup_execution_contract") or {})
+    if not contract:
+        return {}
+    return contract if str(contract.get("authority") or "") == "task_system.followup_execution_contract" else {}
+
+
+def _followup_contract_source_path(followup_contract: dict[str, Any], *, binding_key: str) -> str:
+    if not followup_contract:
+        return ""
+    binding = str(binding_key or "").strip()
+    source_kind = str(followup_contract.get("source_kind") or "").strip()
+    if binding == "active_dataset" and source_kind == "dataset":
+        return _clean_text(followup_contract.get("source_path"))
+    if binding == "active_pdf" and source_kind == "pdf":
+        return _clean_text(followup_contract.get("source_path"))
+    return ""
+
+
+def _merge_followup_contract_into_payload(
+    payload: dict[str, Any],
+    *,
+    followup_contract: dict[str, Any],
+) -> dict[str, Any]:
+    if not followup_contract:
+        return dict(payload or {})
+    merged = dict(payload or {})
+    for key in (
+        "followup_scope",
+        "followup_target_kind",
+        "followup_target_refs",
+        "active_subset_handle_id",
+        "active_result_handle_id",
+        "active_object_handle_id",
+        "subset_labels",
+        "subset_filter_column",
+    ):
+        value = followup_contract.get(key)
+        if value not in ("", [], {}, None):
+            merged.setdefault(key, value)
+    constraint_policy = str(followup_contract.get("constraint_policy") or "").strip()
+    if constraint_policy:
+        merged.setdefault("followup_constraint_policy", constraint_policy)
+    source_path = _clean_text(followup_contract.get("source_path"))
+    source_kind = _clean_text(followup_contract.get("source_kind"))
+    if source_path:
+        if source_kind == "dataset":
+            merged.setdefault("active_dataset", source_path)
+            merged.setdefault("path", source_path)
+        elif source_kind == "pdf":
+            merged.setdefault("active_pdf", source_path)
+            merged.setdefault("path", source_path)
+    if followup_contract.get("subset_labels") or followup_contract.get("subset_filter_column"):
+        semantic_hints = dict(merged.get("semantic_hints") or {})
+        if followup_contract.get("subset_labels"):
+            semantic_hints.setdefault("subset_allowed_values", list(followup_contract.get("subset_labels") or []))
+        if followup_contract.get("subset_filter_column"):
+            semantic_hints.setdefault("subset_filter_column", followup_contract.get("subset_filter_column"))
+        merged["semantic_hints"] = semantic_hints
+    return merged
 
 
 def _safe_positive_int(value: Any) -> int | None:

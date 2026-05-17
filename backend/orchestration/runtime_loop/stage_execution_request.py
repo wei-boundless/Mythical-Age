@@ -34,7 +34,7 @@ class StageExecutionRequest:
     artifact_context_packet: dict[str, Any] = field(default_factory=dict)
     revision_packet: dict[str, Any] = field(default_factory=dict)
     handoff_packet_refs: tuple[str, ...] = ()
-    execution_receipt_policy: dict[str, Any] = field(default_factory=dict)
+    timeline_result_policy: dict[str, Any] = field(default_factory=dict)
     idempotency_key: str = ""
     authority: str = "orchestration.stage_execution_request"
 
@@ -85,7 +85,7 @@ class StageExecutionRequest:
         payload["artifact_context_packet"] = dict(self.artifact_context_packet)
         payload["revision_packet"] = dict(self.revision_packet)
         payload["handoff_packet_refs"] = list(self.handoff_packet_refs)
-        payload["execution_receipt_policy"] = dict(self.execution_receipt_policy)
+        payload["timeline_result_policy"] = dict(self.timeline_result_policy)
         return payload
 
     @classmethod
@@ -117,7 +117,7 @@ class StageExecutionRequest:
             artifact_context_packet=dict(payload.get("artifact_context_packet") or {}),
             revision_packet=dict(payload.get("revision_packet") or {}),
             handoff_packet_refs=tuple(str(item).strip() for item in list(payload.get("handoff_packet_refs") or []) if str(item).strip()),
-            execution_receipt_policy=dict(payload.get("execution_receipt_policy") or {}),
+            timeline_result_policy=dict(payload.get("timeline_result_policy") or {}),
             idempotency_key=str(payload.get("idempotency_key") or ""),
         )
 

@@ -187,6 +187,16 @@ def _execution_intent_from_context(
         return "bundle_followup_item"
     if str(current_turn_context.get("intent") or "") == "bundle_followup" and bundle_items:
         return "bundle_followup_item"
+    followup_target_kind = str(
+        understanding_signals.get("followup_target_kind")
+        or structural_signals.get("followup_target_kind")
+        or explicit_inputs.get("followup_target_kind")
+        or ""
+    ).strip()
+    if followup_target_kind == "active_subset":
+        return "subset_followup"
+    if followup_target_kind in {"active_dataset", "active_pdf"}:
+        return "object_followup"
     return "single_task"
 
 
@@ -214,6 +224,9 @@ def _intent_requested_outputs(
         ]
         if item_outputs:
             return item_outputs
+    followup_target_kind = str(dict(current_turn_context.get("explicit_inputs") or {}).get("followup_target_kind") or "").strip()
+    if followup_target_kind == "active_subset":
+        return ["final_answer", "task_summary_refs"]
     if "document_analysis" in capability_requests or "dataset_analysis" in capability_requests:
         return ["final_answer", "task_summary_refs"]
     return ["final_answer"]
@@ -312,6 +325,11 @@ def _build_task_spec(
         for item in list(current_turn_context.get("resolved_bindings") or [])
         if isinstance(item, dict)
     ]
+    followup_execution_contract = _build_followup_execution_contract(
+        task_intent_contract=task_intent_contract,
+        current_turn_context=current_turn_context,
+        resolved_bindings=resolved_bindings,
+    )
     step_input_bindings = _build_step_input_bindings(
         selected_recipe=selected_recipe,
         current_turn_context=current_turn_context,
@@ -338,6 +356,7 @@ def _build_task_spec(
         user_goal=user_goal,
         inputs={
             **explicit_inputs,
+            **followup_execution_contract,
             **({"explicit_workspace_path": default_artifact_path} if default_artifact_path else {}),
             **({"coordination_request_brief": coordination_request_brief} if coordination_request_brief else {}),
             **({"bundle_spec": bundle_spec.to_dict()} if bundle_spec is not None else {}),
@@ -355,6 +374,7 @@ def _build_task_spec(
                 for item in list(query_understanding.get("candidate_tools") or [])
                 if str(item).strip()
             ],
+            **({"followup_execution_contract_ref": followup_execution_contract["followup_execution_contract"]["contract_id"]} if followup_execution_contract else {}),
             **({"coordination_request_ref": coordination_request_brief["brief_id"]} if coordination_request_brief else {}),
         },
         current_turn_context_ref=str(current_turn_context.get("authority") or ""),
@@ -367,6 +387,107 @@ def _build_task_spec(
         operation_requirement_ref=operation_requirement_ref,
         safety_envelope=dict(dict(operation_requirement.get("metadata") or {}).get("safety_envelope") or {}),
     )
+
+
+def _build_followup_execution_contract(
+    *,
+    task_intent_contract,
+    current_turn_context: dict[str, Any],
+    resolved_bindings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
+    execution_intent = str(getattr(task_intent_contract, "execution_intent", "") or "").strip()
+    followup_target_kind = str(explicit_inputs.get("followup_target_kind") or "").strip()
+    if execution_intent not in {"subset_followup", "object_followup", "bundle_followup_item"} and not followup_target_kind:
+        return {}
+    followup_target_refs = _dedupe(
+        [
+            *[
+                str(item or "").strip()
+                for item in list(getattr(task_intent_contract, "followup_target_refs", ()) or ())
+                if str(item or "").strip()
+            ],
+            *[
+                str(item or "").strip()
+                for item in list(current_turn_context.get("followup_target_refs") or [])
+                if str(item or "").strip()
+            ],
+        ]
+    )
+    subset_binding = _binding_for_followup_kind(
+        resolved_bindings,
+        followup_target_kind=followup_target_kind,
+    )
+    binding_metadata = dict(subset_binding.get("metadata") or {}) if subset_binding else {}
+    active_constraints = dict(binding_metadata.get("active_constraints") or {})
+    subset_labels = [
+        str(item or "").strip()
+        for item in list(active_constraints.get("subset_labels") or [])
+        if str(item or "").strip()
+    ]
+    subset_filter_column = str(active_constraints.get("subset_filter_column") or "").strip()
+    active_subset_handle_id = str((subset_binding or {}).get("subset_handle_id") or "").strip()
+    active_result_handle_id = str((subset_binding or {}).get("result_handle_id") or "").strip()
+    active_object_handle_id = str((subset_binding or {}).get("source_handle_id") or "").strip()
+    active_source_path = str(binding_metadata.get("path") or (subset_binding or {}).get("identity") or "").strip()
+    source_kind = "dataset" if str((subset_binding or {}).get("file_kind") or "") == "dataset" else "pdf" if str((subset_binding or {}).get("file_kind") or "") == "pdf" else ""
+    contract = {
+        "authority": "task_system.followup_execution_contract",
+        "contract_id": f"followup-contract:{current_turn_context.get('task_id') or getattr(task_intent_contract, 'task_id', 'task')}",
+        "execution_intent": execution_intent,
+        "followup_target_kind": followup_target_kind,
+        "followup_scope": str(explicit_inputs.get("followup_scope") or followup_target_kind or "").strip(),
+        "followup_target_refs": followup_target_refs,
+        "active_subset_handle_id": active_subset_handle_id,
+        "active_result_handle_id": active_result_handle_id,
+        "active_object_handle_id": active_object_handle_id,
+        "source_kind": source_kind,
+        "source_path": active_source_path,
+        "constraint_policy": (
+            "result_subset_only_do_not_expand_to_full_object"
+            if execution_intent == "subset_followup" or followup_target_kind == "active_subset"
+            else "active_object_followup"
+        ),
+        **({"subset_labels": subset_labels} if subset_labels else {}),
+        **({"subset_filter_column": subset_filter_column} if subset_filter_column else {}),
+    }
+    compact = {key: value for key, value in contract.items() if value not in ("", [], {}, None)}
+    result: dict[str, Any] = {"followup_execution_contract": compact}
+    for key in (
+        "followup_scope",
+        "followup_target_kind",
+        "followup_target_refs",
+        "active_subset_handle_id",
+        "active_result_handle_id",
+        "active_object_handle_id",
+        "subset_labels",
+        "subset_filter_column",
+    ):
+        value = compact.get(key)
+        if value not in ("", [], {}, None):
+            result[key] = value
+    if active_source_path:
+        if source_kind == "dataset":
+            result.setdefault("active_dataset", active_source_path)
+        elif source_kind == "pdf":
+            result.setdefault("active_pdf", active_source_path)
+    result["followup_constraint_policy"] = compact["constraint_policy"]
+    return result
+
+
+def _binding_for_followup_kind(
+    resolved_bindings: list[dict[str, Any]],
+    *,
+    followup_target_kind: str,
+) -> dict[str, Any]:
+    target_kind = str(followup_target_kind or "").strip()
+    if target_kind == "active_pdf":
+        return next((item for item in resolved_bindings if str(item.get("file_kind") or "") == "pdf"), {})
+    if target_kind in {"active_dataset", "active_subset"}:
+        dataset = next((item for item in resolved_bindings if str(item.get("file_kind") or "") == "dataset"), {})
+        if dataset:
+            return dataset
+    return next((item for item in resolved_bindings if str(item.get("subset_handle_id") or "").strip()), {})
 
 
 def _default_task_artifact_path(selected_recipe, current_turn_context: dict[str, Any]) -> str:

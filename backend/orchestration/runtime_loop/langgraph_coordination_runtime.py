@@ -46,9 +46,9 @@ from .runtime_object_store import RuntimeObjectStore
 from .models import CoordinationRun
 from .runtime_assembly_builder import build_node_runtime_assembly
 from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
-from .stage_execution_receipt import build_stage_execution_receipt
 from .task_graph_scheduler import bootstrap_scheduler_state
 from .timeline_ledger import TimelineEvent, TimelineLedgerStore
+from .timeline_result_record import build_timeline_result_record
 
 
 class CoordinationRuntimeState(TypedDict, total=False):
@@ -75,6 +75,7 @@ class CoordinationRuntimeState(TypedDict, total=False):
     acceptance_results: dict[str, Any]
     node_statuses: dict[str, str]
     stage_results: dict[str, dict[str, Any]]
+    stage_results_by_instance: dict[str, dict[str, Any]]
     stale_stage_results: list[dict[str, Any]]
     duplicate_stage_commits: list[dict[str, Any]]
     artifact_refs: Annotated[list[dict[str, Any]], operator.add]
@@ -91,7 +92,10 @@ class CoordinationRuntimeState(TypedDict, total=False):
     working_memory_contexts: dict[str, dict[str, Any]]
     working_memory_operations: list[dict[str, Any]]
     revision_packets: list[dict[str, Any]]
-    execution_receipts: list[dict[str, Any]]
+    timeline_result_records: list[dict[str, Any]]
+    result_record_index: dict[str, dict[str, Any]]
+    latest_stage_result_records: dict[str, str]
+    accepted_result_records_by_scope: dict[str, dict[str, str]]
     timeline: dict[str, Any]
     diagnostics: dict[str, Any]
 
@@ -462,7 +466,7 @@ class LangGraphCoordinationRuntime:
         parallel_group_id: str = "",
         dispatch_id: str = "",
         request_id: str = "",
-        receipt_id: str = "",
+        result_record_id: str = "",
         payload_ref: str = "",
         payload: dict[str, Any] | None = None,
         checkpoint_ref: str = "",
@@ -491,7 +495,7 @@ class LangGraphCoordinationRuntime:
             parallel_group_id=parallel_group_id,
             dispatch_id=dispatch_id,
             request_id=request_id,
-            receipt_id=receipt_id,
+            result_record_id=result_record_id,
             payload_ref=payload_ref,
             payload=payload or {},
             checkpoint_ref=checkpoint_ref,
@@ -518,17 +522,43 @@ class LangGraphCoordinationRuntime:
         payload = dict(contract or dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {}))
         phase_id = str(payload.get("phase_id") or _runtime_node_value(state, stage_id, "phase_id") or "phase.unassigned")
         scope_path = ["run", phase_id]
+        pending_inputs = dict(state.get("pending_inputs") or {})
+        volume_index = _safe_int(pending_inputs.get("volume_index"), 0)
+        batch_start = _safe_int(pending_inputs.get("batch_start_index") or pending_inputs.get("chapter_index"), 0)
+        batch_end = _safe_int(pending_inputs.get("batch_end_index"), batch_start)
+        round_index = _safe_int(
+            pending_inputs.get("round_index")
+            or pending_inputs.get("revision_round")
+            or pending_inputs.get("attempt_index"),
+            0,
+        )
+        if volume_index > 0:
+            scope_path.append(f"volume[{volume_index:03d}]")
+        if batch_start > 0:
+            batch_label = f"batch[{batch_start:03d}"
+            if batch_end and batch_end != batch_start:
+                batch_label += f"-{batch_end:03d}"
+            batch_label += "]"
+            scope_path.append(batch_label)
+        if round_index > 0:
+            scope_path.append(f"round[{round_index:03d}]")
         retry_index = int(dict(state.get("retry_counts") or {}).get(stage_id) or 0)
         if retry_index > 0:
             scope_path.append(f"retry[{retry_index}]")
-        loop_index = _safe_int(dict(state.get("pending_inputs") or {}).get("iteration_index"), 0)
+        loop_index = _safe_int(pending_inputs.get("iteration_index"), 0)
         if loop_index > 0:
             scope_path.append(f"iteration[{loop_index}]")
+        dependency_scope_key = _dependency_scope_key_from_inputs(pending_inputs)
         return {
             "scope_type": "stage",
             "scope_path": scope_path,
             "phase_id": phase_id,
             "iteration_index": loop_index,
+            "volume_index": volume_index,
+            "batch_start_index": batch_start,
+            "batch_end_index": batch_end,
+            "round_index": round_index,
+            "dependency_scope_key": dependency_scope_key,
         }
 
     def _stage_accept(self, state: CoordinationRuntimeState) -> dict[str, Any]:
@@ -671,7 +701,7 @@ class LangGraphCoordinationRuntime:
         )
         result_event_payload = result_event.to_dict() if result_event is not None else {}
         stage_results = dict(state.get("stage_results") or {})
-        stage_results[stage_id] = {
+        stage_result_payload = {
             "task_run_id": str(event.get("task_run_id") or ""),
             "task_ref": str(contract.get("task_ref") or event.get("task_ref") or ""),
             "task_result_ref": str(event.get("task_result_ref") or ""),
@@ -695,7 +725,7 @@ class LangGraphCoordinationRuntime:
                 source_clock_seq=int(result_event_payload.get("clock_seq") or 0),
             )
             if write_operation:
-                stage_results[stage_id]["working_memory_refs"] = list(write_operation.get("created_working_memory_refs") or [])
+                stage_result_payload["working_memory_refs"] = list(write_operation.get("created_working_memory_refs") or [])
                 working_memory_operations.append(
                     _timeline_working_memory_operation(
                         write_operation,
@@ -733,14 +763,14 @@ class LangGraphCoordinationRuntime:
                     )
                 )
         node_statuses = dict(state.get("node_statuses") or {})
-        created_memory_refs = _string_list(stage_results[stage_id].get("working_memory_refs"))
+        created_memory_refs = _string_list(stage_result_payload.get("working_memory_refs"))
         committed_memory_refs = [
             ref
             for operation in working_memory_operations
             if isinstance(operation, dict) and str(operation.get("operation") or "") == "memory_commit"
             for ref in _string_list(operation.get("accepted_working_memory_refs"))
         ]
-        receipt = build_stage_execution_receipt(
+        result_record = build_timeline_result_record(
             request_payload=request_payload,
             result_event=result_event_payload,
             stage_id=stage_id,
@@ -755,23 +785,57 @@ class LangGraphCoordinationRuntime:
                 "requires_file_artifact_refs": requires_file_artifact_refs,
             },
         )
-        stage_results[stage_id]["execution_receipt"] = receipt.to_dict()
-        execution_receipts = [dict(item) for item in list(state.get("execution_receipts") or []) if isinstance(item, dict)]
-        execution_receipts.append(receipt.to_dict())
+        result_record_payload = result_record.to_dict()
+        stage_result_payload["timeline_result_record"] = result_record_payload
+        stage_results_by_instance = {
+            str(key): dict(value)
+            for key, value in dict(state.get("stage_results_by_instance") or {}).items()
+            if str(key) and isinstance(value, dict)
+        }
+        stage_results_by_instance[result_record.result_record_id] = dict(stage_result_payload)
+        timeline_result_records = [dict(item) for item in list(state.get("timeline_result_records") or []) if isinstance(item, dict)]
+        timeline_result_records.append(result_record_payload)
+        result_record_index = {
+            str(key): dict(value)
+            for key, value in dict(state.get("result_record_index") or {}).items()
+            if str(key) and isinstance(value, dict)
+        }
+        result_record_index[result_record.result_record_id] = result_record_payload
+        latest_stage_result_records = {
+            str(key): str(value)
+            for key, value in dict(state.get("latest_stage_result_records") or {}).items()
+            if str(key) and str(value)
+        }
+        accepted_result_records_by_scope = {
+            str(scope): {str(stage): str(record_id) for stage, record_id in dict(records or {}).items() if str(stage) and str(record_id)}
+            for scope, records in dict(state.get("accepted_result_records_by_scope") or {}).items()
+            if str(scope) and isinstance(records, dict)
+        }
+        if accepted:
+            stage_results[stage_id] = dict(stage_result_payload)
+            latest_stage_result_records[stage_id] = result_record.result_record_id
+            scope_records = dict(accepted_result_records_by_scope.get(result_record.scope_key) or {})
+            scope_records[stage_id] = result_record.result_record_id
+            accepted_result_records_by_scope[result_record.scope_key] = scope_records
+            dependency_scope_key = str(result_record.dependency_scope_key or result_record.scope_key or "")
+            if dependency_scope_key:
+                dependency_scope_records = dict(accepted_result_records_by_scope.get(dependency_scope_key) or {})
+                dependency_scope_records[stage_id] = result_record.result_record_id
+                accepted_result_records_by_scope[dependency_scope_key] = dependency_scope_records
         self._append_timeline_event(
             state,
-            event_type="node_execution_receipt_committed",
-            status=receipt.status,
+            event_type="node_timeline_result_recorded",
+            status=result_record.status,
             scope_type=str(stage_scope.get("scope_type") or "stage"),
             scope_path=list(stage_scope.get("scope_path") or ["run"]),
             node_id=node_id,
             phase_id=str(stage_scope.get("phase_id") or ""),
             iteration_index=int(stage_scope.get("iteration_index") or 0),
             request_id=str(request_payload.get("request_id") or ""),
-            receipt_id=receipt.receipt_id,
-            payload=receipt.to_dict(),
+            result_record_id=result_record.result_record_id,
+            payload=result_record_payload,
             causal_event_ids=[str(result_event_payload.get("event_id") or "")] if result_event_payload.get("event_id") else (),
-            idempotency_key=f"{state.get('coordination_run_id')}:{stage_id}:receipt:{receipt.receipt_id}",
+            idempotency_key=f"{state.get('coordination_run_id')}:{stage_id}:timeline_result:{result_record.result_record_id}",
         )
         retry_counts = dict(state.get("retry_counts") or {})
         retry_stage_id = ""
@@ -818,7 +882,7 @@ class LangGraphCoordinationRuntime:
                 phase_id=str(stage_scope.get("phase_id") or ""),
                 revision_cycle_id=str(revision_packet.get("revision_cycle_id") or ""),
                 payload=revision_packet,
-                causal_event_ids=[receipt.receipt_id],
+                causal_event_ids=[result_record.result_record_id],
                 idempotency_key=f"{state.get('coordination_run_id')}:{revision_packet.get('revision_packet_id')}",
             )
             state["pending_inputs"] = _pending_inputs_for_revision_retry(
@@ -898,7 +962,7 @@ class LangGraphCoordinationRuntime:
                 node_id=node_id,
                 phase_id=str(stage_scope.get("phase_id") or ""),
                 payload={key: value for key, value in human_gate.items() if key != "original_event"},
-                causal_event_ids=[receipt.receipt_id],
+                causal_event_ids=[result_record.result_record_id],
             )
         elif accepted or retry_stage_id or terminal_status == "failed":
             human_gate = {**human_gate, "status": "cleared"} if human_gate else {}
@@ -912,6 +976,7 @@ class LangGraphCoordinationRuntime:
         artifact_payloads = [{"stage_id": stage_id, "ref": ref, "ref_kind": "artifact"} for ref in artifact_refs]
         return {
             "stage_results": stage_results,
+            "stage_results_by_instance": stage_results_by_instance,
             "node_statuses": dict(loop_updates.get("node_statuses") or node_statuses),
             "retry_counts": retry_counts,
             "contract_status": contract_status,
@@ -919,7 +984,10 @@ class LangGraphCoordinationRuntime:
             "artifact_refs": artifact_payloads,
             "working_memory_operations": working_memory_operations,
             "revision_packets": revision_packets,
-            "execution_receipts": execution_receipts,
+            "timeline_result_records": timeline_result_records,
+            "result_record_index": result_record_index,
+            "latest_stage_result_records": latest_stage_result_records,
+            "accepted_result_records_by_scope": accepted_result_records_by_scope,
             "final_result_ref": str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
             "stage_execution_request": {},
             "a2a_payload": {},
@@ -1193,6 +1261,11 @@ class LangGraphCoordinationRuntime:
             "scope_path": list(stage_scope.get("scope_path") or ["run"]),
             "scope_type": str(stage_scope.get("scope_type") or "stage"),
             "phase_id": str(stage_scope.get("phase_id") or ""),
+            "dependency_scope_key": str(stage_scope.get("dependency_scope_key") or ""),
+            "volume_index": int(stage_scope.get("volume_index") or 0),
+            "batch_start_index": int(stage_scope.get("batch_start_index") or 0),
+            "batch_end_index": int(stage_scope.get("batch_end_index") or 0),
+            "round_index": int(stage_scope.get("round_index") or 0),
             "node_id": node_id,
             "stage_id": stage_id,
             "thread_id": str(state.get("coordination_run_id") or ""),
@@ -1321,10 +1394,10 @@ class LangGraphCoordinationRuntime:
             artifact_context_packet=artifact_context_packet,
             revision_packet=revision_packet,
             handoff_packet_refs=tuple(str(item) for item in list(context_packets.get("handoff_packet_refs") or []) if str(item)),
-            execution_receipt_policy={
+            timeline_result_policy={
                 "required": True,
                 "commit_visibility": "accepted_outputs_only",
-                "authority": "task_graph.stage_execution_receipt_policy",
+                "authority": "task_graph.timeline_result_policy",
             },
         )
         next_handoff_packets = list(state.get("handoff_packets") or [])
@@ -1991,11 +2064,15 @@ class LangGraphCoordinationRuntime:
             "acceptance_results": {},
             "node_statuses": node_statuses,
             "stage_results": {},
+            "stage_results_by_instance": {},
             "artifact_refs": [],
             "working_memory_contexts": {},
             "working_memory_operations": [],
             "revision_packets": [],
-            "execution_receipts": [],
+            "timeline_result_records": [],
+            "result_record_index": {},
+            "latest_stage_result_records": {},
+            "accepted_result_records_by_scope": {},
             "timeline": self.timeline_ledger.snapshot(coordination_run.coordination_run_id, limit=80),
             "pending_inputs": dict(loop_state),
             "missing_required_inputs": [],
@@ -3881,6 +3958,9 @@ def _scheduler_node_sets(
     scheduler_state = bootstrap_scheduler_state(
         runtime_spec=runtime_spec,
         node_statuses=node_statuses,
+        result_record_index=dict(state.get("result_record_index") or {}),
+        accepted_result_records_by_scope=dict(state.get("accepted_result_records_by_scope") or {}),
+        active_scope_key=_active_scope_key_for_scheduler(state),
         terminal_status=terminal_status,
         mode="active",
     )
@@ -3907,6 +3987,69 @@ def _scheduler_node_sets(
 def _runtime_spec_from_state(state: dict[str, Any]) -> TaskGraphRuntimeSpec | None:
     payload = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
     return _runtime_spec_from_payload(payload)
+
+
+def _dependency_scope_key_from_inputs(inputs: dict[str, Any]) -> str:
+    volume_index = _safe_int(inputs.get("volume_index"), 0)
+    batch_start = _safe_int(inputs.get("batch_start_index") or inputs.get("chapter_index"), 0)
+    batch_end = _safe_int(inputs.get("batch_end_index"), batch_start)
+    round_index = _safe_int(inputs.get("round_index") or inputs.get("revision_round") or inputs.get("attempt_index"), 0)
+    iteration_index = _safe_int(inputs.get("iteration_index"), 0)
+    parts = ["run"]
+    if volume_index > 0:
+        parts.append(f"volume[{volume_index:03d}]")
+    if batch_start > 0:
+        batch_label = f"batch[{batch_start:03d}"
+        if batch_end and batch_end != batch_start:
+            batch_label += f"-{batch_end:03d}"
+        batch_label += "]"
+        parts.append(batch_label)
+    if round_index > 0:
+        parts.append(f"round[{round_index:03d}]")
+    if iteration_index > 0:
+        parts.append(f"iteration[{iteration_index}]")
+    return "/".join(parts)
+
+
+def _active_scope_key_for_scheduler(state: dict[str, Any]) -> str:
+    request = dict(state.get("stage_execution_request") or {})
+    dispatch_context = dict(request.get("dispatch_context") or {})
+    dependency_scope_key = str(dispatch_context.get("dependency_scope_key") or "").strip()
+    if dependency_scope_key:
+        return dependency_scope_key
+    scope_path = list(dispatch_context.get("scope_path") or [])
+    if not scope_path:
+        active_stage_id = str(state.get("active_stage_id") or "")
+        contract = dict(dict(state.get("stage_contracts") or {}).get(active_stage_id) or {})
+        phase_id = str(contract.get("phase_id") or _runtime_node_value(state, active_stage_id, "phase_id") or "phase.unassigned")
+        scope_path = ["run", phase_id]
+        pending_inputs = dict(state.get("pending_inputs") or {})
+        volume_index = _safe_int(pending_inputs.get("volume_index"), 0)
+        batch_start = _safe_int(pending_inputs.get("batch_start_index") or pending_inputs.get("chapter_index"), 0)
+        batch_end = _safe_int(pending_inputs.get("batch_end_index"), batch_start)
+        round_index = _safe_int(
+            pending_inputs.get("round_index")
+            or pending_inputs.get("revision_round")
+            or pending_inputs.get("attempt_index"),
+            0,
+        )
+        if volume_index > 0:
+            scope_path.append(f"volume[{volume_index:03d}]")
+        if batch_start > 0:
+            batch_label = f"batch[{batch_start:03d}"
+            if batch_end and batch_end != batch_start:
+                batch_label += f"-{batch_end:03d}"
+            batch_label += "]"
+            scope_path.append(batch_label)
+        if round_index > 0:
+            scope_path.append(f"round[{round_index:03d}]")
+        retry_index = _safe_int(dict(state.get("retry_counts") or {}).get(active_stage_id), 0)
+        if retry_index > 0:
+            scope_path.append(f"retry[{retry_index}]")
+        loop_index = _safe_int(pending_inputs.get("iteration_index"), 0)
+        if loop_index > 0:
+            scope_path.append(f"iteration[{loop_index}]")
+    return _dependency_scope_key_from_inputs(dict(state.get("pending_inputs") or {})) or "/".join(str(item).strip().replace("/", "_") for item in list(scope_path or ["run"]) if str(item).strip()) or "run"
 
 
 def _runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec | None:

@@ -214,7 +214,7 @@ def build_task_graph_run_monitor_view(
         "current_stage_execution_request": stage_request,
         "current_dispatch_context": dispatch_context,
         "current_context_packets": context_packets,
-        "execution_receipts": _execution_receipts(state),
+        "timeline_result_records": _timeline_result_records(state),
         "timeline": timeline,
         "current_stage_timeline": dict(runtime_assembly_metadata.get("execution_timeline") or {}),
         "streaming": stream_preview,
@@ -305,7 +305,7 @@ def _stage_results(results: dict[str, Any]) -> list[dict[str, Any]]:
                 "task_result_ref": str(item.get("task_result_ref") or ""),
                 "agent_run_result_ref": str(item.get("agent_run_result_ref") or ""),
                 "working_memory_refs": _string_list(item.get("working_memory_refs")),
-                "execution_receipt": dict(item.get("execution_receipt") or {}),
+                "timeline_result_record": dict(item.get("timeline_result_record") or {}),
                 "diagnostics": dict(item.get("diagnostics") or {}),
             }
         )
@@ -387,16 +387,16 @@ def _memory_operation(operation: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _execution_receipts(state: dict[str, Any]) -> list[dict[str, Any]]:
-    explicit = [dict(item) for item in list(state.get("execution_receipts") or []) if isinstance(item, dict)]
+def _timeline_result_records(state: dict[str, Any]) -> list[dict[str, Any]]:
+    explicit = [dict(item) for item in list(state.get("timeline_result_records") or []) if isinstance(item, dict)]
     if explicit:
         return explicit[-80:]
-    receipts: list[dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     for item in list(dict(state.get("stage_results") or {}).values()):
-        receipt = dict(dict(item or {}).get("execution_receipt") or {})
-        if receipt:
-            receipts.append(receipt)
-    return receipts[-80:]
+        record = dict(dict(item or {}).get("timeline_result_record") or {})
+        if record:
+            records.append(record)
+    return records[-80:]
 
 
 def _timeline_view(timeline: dict[str, Any]) -> dict[str, Any]:
@@ -439,6 +439,50 @@ def _health_issues(
         issues.append(_issue("error", "active_node_missing", "Active node is not present in topology nodes.", active_node_id))
     if not dict(state.get("stage_execution_request") or {}) and not str(state.get("terminal_status") or ""):
         issues.append(_issue("warning", "stage_execution_request_missing", "Current stage execution request is missing.", "stage_execution_request"))
+    issues.extend(_timeline_integrity_issues(state))
+    return issues
+
+
+def _timeline_integrity_issues(state: dict[str, Any]) -> list[dict[str, str]]:
+    issues: list[dict[str, str]] = []
+    node_statuses = {str(key): str(value) for key, value in dict(state.get("node_statuses") or {}).items() if str(key)}
+    stage_results = dict(state.get("stage_results") or {})
+    records = [dict(item) for item in list(state.get("timeline_result_records") or []) if isinstance(item, dict)]
+    result_record_index = {
+        str(key): dict(value)
+        for key, value in dict(state.get("result_record_index") or {}).items()
+        if str(key) and isinstance(value, dict)
+    }
+    for node_id, status in node_statuses.items():
+        if status != "completed":
+            continue
+        result = dict(stage_results.get(node_id) or {})
+        record = dict(result.get("timeline_result_record") or {})
+        if not record:
+            issues.append(_issue("error", "completed_without_timeline_result", "Completed node has no accepted timeline result record.", node_id))
+            continue
+        if record.get("accepted") is not True:
+            issues.append(_issue("error", "completed_with_unaccepted_timeline_result", "Completed node points to a non-accepted timeline result record.", node_id))
+    for record in records:
+        record_id = str(record.get("result_record_id") or "")
+        if record_id and record_id not in result_record_index:
+            issues.append(_issue("warning", "timeline_result_not_indexed", "Timeline result record is not present in result_record_index.", record_id))
+        if record.get("accepted") is True and int(record.get("effective_from_clock_seq") or 0) <= 0:
+            issues.append(_issue("error", "accepted_timeline_result_not_effective", "Accepted timeline result has no effective clock.", record_id))
+        coordinate = dict(record.get("timeline_coordinate") or {})
+        if not str(coordinate.get("dispatch_event_id") or record.get("dispatch_event_id") or ""):
+            issues.append(_issue("error", "timeline_result_without_dispatch", "Timeline result record is missing dispatch identity.", record_id))
+    scheduler_state = dict(dict(state.get("diagnostics") or {}).get("task_graph_scheduler_state") or {})
+    for node_state in list(scheduler_state.get("node_states") or []):
+        if not isinstance(node_state, dict):
+            continue
+        for reason in _string_list(node_state.get("blocked_reasons")):
+            if reason.startswith("timeline_result_"):
+                issues.append(_issue("error", reason.split(":", 1)[0], reason, str(node_state.get("node_id") or "")))
+    artifact_packet = dict(dict(state.get("stage_execution_request") or {}).get("artifact_context_packet") or {})
+    for missing in _string_list(artifact_packet.get("missing_required_artifacts")):
+        if missing.startswith("timeline_result:"):
+            issues.append(_issue("error", "artifact_context_missing_timeline_result", "Current context packet is missing a required timeline result.", missing))
     return issues
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from context_management.projection import projection_from_bound_answer
@@ -32,6 +33,43 @@ def test_structured_mcp_observation_projects_file_work_context() -> None:
     assert main_context["active_subset_handle_id"].startswith("subset:structured_selection:")
     assert task_refs[0]["task_kind"] == "structured_data"
     assert "dataset=knowledge/E-commerce Data/employees.xlsx" in task_refs[0]["key_points"]
+
+
+def test_delegated_structured_observation_uses_canonical_subset_hints() -> None:
+    main_context, _ = _project_file_work_context_from_tool_observation(
+        {
+            "tool_name": "delegate_to_agent",
+            "tool_args": {
+                "delegation_kind": "table_analysis",
+                "instruction": "找出薪资前五名员工。",
+                "current_user_message": "找出薪资前五名员工。",
+                "input_payload": {"path": "Data/employees.xlsx", "query": "找出薪资前五名员工。"},
+            },
+            "result": json.dumps(
+                {
+                    "status": "completed",
+                    "summary": "薪资前五名员工已返回。",
+                    "answer_candidate": "薪资前五名员工已返回。",
+                    "context_writeback_hints": {
+                        "source_kind": "dataset",
+                        "source_path": "Data/employees.xlsx",
+                        "active_object_handle_id": "source:dataset:employees",
+                        "active_result_handle_id": "result:structured:employees:top5",
+                        "active_subset_handle_id": "subset:selection:employees:top5",
+                        "subset_filter_column": "name",
+                        "subset_labels": ["Alice", "Bob", "Chen", "Diaz", "Eve"],
+                    },
+                },
+                ensure_ascii=False,
+            ),
+        }
+    )
+
+    assert main_context["active_object_handle_id"] == "source:dataset:employees"
+    assert main_context["active_result_handle_id"] == "result:structured:employees:top5"
+    assert main_context["active_subset_handle_id"] == "subset:selection:employees:top5"
+    assert main_context["active_constraints"]["subset_filter_column"] == "name"
+    assert main_context["active_constraints"]["subset_labels"] == ["Alice", "Bob", "Chen", "Diaz", "Eve"]
 
 
 def test_pdf_mcp_observation_projects_file_work_context() -> None:
@@ -191,6 +229,8 @@ def test_assistant_commit_uses_context_state_writeback_for_file_work_objects(tmp
                 "active_constraints": {
                     "active_dataset": "knowledge/E-commerce Data/employees.xlsx",
                     "source_kind": "dataset",
+                    "subset_filter_column": "name",
+                    "subset_labels": ["Alice", "Bob", "Chen", "Diaz", "Eve"],
                 },
             },
             "task_summary_refs": [
@@ -211,6 +251,8 @@ def test_assistant_commit_uses_context_state_writeback_for_file_work_objects(tmp
     assert state.context_slots.active_object_handle_id == "source:dataset:employees"
     assert state.context_slots.active_result_handle_id == "result:structured:employees:top5"
     assert state.context_slots.active_subset_handle_id == "subset:selection:employees:top5"
+    assert state.context_slots.active_subset_filter_column == "name"
+    assert state.context_slots.active_subset_labels == ["Alice", "Bob", "Chen", "Diaz", "Eve"]
 
 
 def test_history_refresh_preserves_bound_pdf_followup_slots(tmp_path: Path) -> None:

@@ -76,7 +76,8 @@ def test_agent_runtime_chain_uses_realtime_network_without_active_skill() -> Non
     sections = list(dict(task_body_orchestration.get("soul_runtime_view") or {}).get("sections") or [])
     contents = "\n".join(str(dict(item).get("content") or "") for item in sections)
     assert "OpenAI API 最新更新" in contents
-    assert "Workflow ID: workflow.general.main_conversation" in contents
+    assert "Workflow ID: runtime.recipe.information_search" in contents
+    assert "Task mode: information_search" in contents
 
 
 def test_agent_runtime_chain_uses_active_file_binding_for_followup() -> None:

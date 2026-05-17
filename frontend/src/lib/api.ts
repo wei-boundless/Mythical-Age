@@ -1559,7 +1559,7 @@ export type TaskGraphRunMonitorView = {
     revision_packet?: Record<string, unknown>;
     handoff_packet_refs?: string[];
   };
-  execution_receipts?: Array<Record<string, unknown>>;
+  timeline_result_records?: Array<Record<string, unknown>>;
   timeline?: {
     ledger_id: string;
     coordination_run_id: string;

@@ -266,7 +266,13 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     manager.state_manager.overwrite(
         ProcessState(
             active_goal="Build memory runtime view",
-            context_slots=ContextSlots(active_result_handle_id="result-runtime-view"),
+            context_slots=ContextSlots(
+                active_dataset="Data/employees.xlsx",
+                active_result_handle_id="result-runtime-view",
+                active_subset_handle_id="subset-runtime-view",
+                active_subset_filter_column="name",
+                active_subset_labels=["Alice", "Bob"],
+            ),
         )
     )
     note = MemoryNote(
@@ -294,6 +300,9 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
         "long_term",
     }
     assert view.restore_candidates
+    assert view.state_snapshot is not None
+    assert view.state_snapshot.context_slots["active_constraints"]["subset_filter_column"] == "name"
+    assert view.state_snapshot.context_slots["active_constraints"]["subset_labels"] == ["Alice", "Bob"]
     assert all(candidate.authority == "candidate_only" for candidate in view.restore_candidates)
     assert view.diagnostics["memory_write_allowed"] is False
 

@@ -137,10 +137,21 @@ def resolve_artifact_context_packet(
         if _edge_targets(edge, stage_id=stage_id, node_id=node_id)
     ]
     stage_results = dict(state.get("stage_results") or {})
+    result_record_index = {
+        str(key): dict(value)
+        for key, value in dict(state.get("result_record_index") or {}).items()
+        if str(key) and isinstance(value, dict)
+    }
+    accepted_by_scope = {
+        str(scope): {str(stage): str(record_id) for stage, record_id in dict(records or {}).items() if str(stage) and str(record_id)}
+        for scope, records in dict(state.get("accepted_result_records_by_scope") or {}).items()
+        if str(scope) and isinstance(records, dict)
+    }
+    scope_key = str(dispatch_context.get("dependency_scope_key") or "") or _scope_key(dispatch_context.get("scope_path") or [])
     artifact_refs: list[str] = []
     trace_refs: list[str] = []
     source_node_ids: list[str] = []
-    source_receipt_ids: list[str] = []
+    source_result_record_ids: list[str] = []
     edge_ids: list[str] = []
     missing_required: list[str] = []
     expanded_text_by_input_key: dict[str, str] = {}
@@ -148,14 +159,23 @@ def resolve_artifact_context_packet(
     for edge in incoming_edges:
         edge_id = str(edge.get("edge_id") or f"{edge.get('source_node_id', '')}->{edge.get('target_node_id', '')}")
         source = str(edge.get("source_node_id") or "")
-        result = dict(stage_results.get(source) or {})
+        result = _stage_result_for_current_scope(
+            state=state,
+            source=source,
+            stage_results=stage_results,
+            result_record_index=result_record_index,
+            accepted_by_scope=accepted_by_scope,
+            scope_key=scope_key,
+        )
         if not result:
             if _edge_requires_artifact(edge):
                 missing_required.append(edge_id)
+            elif _edge_requires_timeline_result(edge):
+                missing_required.append(f"timeline_result:{edge_id}")
             continue
         edge_ids.append(edge_id)
         source_node_ids.append(source)
-        source_receipt_ids.append(str(dict(result.get("execution_receipt") or {}).get("receipt_id") or ""))
+        source_result_record_ids.append(_result_record_id_from_stage_result(result))
         artifact_refs.extend(_string_list(result.get("artifact_refs")))
         trace_refs.extend(_string_list(result.get("trace_refs")))
         policy = dict(edge.get("artifact_ref_policy") or {})
@@ -180,7 +200,7 @@ def resolve_artifact_context_packet(
         "node_id": node_id,
         "edge_ids": [item for item in edge_ids if item],
         "source_node_ids": _dedupe(source_node_ids),
-        "source_receipt_ids": [item for item in _dedupe(source_receipt_ids) if item],
+        "source_result_record_ids": [item for item in _dedupe(source_result_record_ids) if item],
         "artifact_refs": _dedupe(artifact_refs),
         "trace_refs": _dedupe(trace_refs),
         "expanded_text_by_input_key": {key: value for key, value in expanded_text_by_input_key.items() if value},
@@ -221,12 +241,30 @@ def resolve_handoff_packets(
     dispatch_context: dict[str, Any],
 ) -> list[dict[str, Any]]:
     stage_results = dict(state.get("stage_results") or {})
+    result_record_index = {
+        str(key): dict(value)
+        for key, value in dict(state.get("result_record_index") or {}).items()
+        if str(key) and isinstance(value, dict)
+    }
+    accepted_by_scope = {
+        str(scope): {str(stage): str(record_id) for stage, record_id in dict(records or {}).items() if str(stage) and str(record_id)}
+        for scope, records in dict(state.get("accepted_result_records_by_scope") or {}).items()
+        if str(scope) and isinstance(records, dict)
+    }
+    scope_key = str(dispatch_context.get("dependency_scope_key") or "") or _scope_key(dispatch_context.get("scope_path") or [])
     packets: list[dict[str, Any]] = []
     for edge in _graph_edges(state):
         if not _edge_targets(edge, stage_id=stage_id, node_id=node_id):
             continue
         source = str(edge.get("source_node_id") or "")
-        result = dict(stage_results.get(source) or {})
+        result = _stage_result_for_current_scope(
+            state=state,
+            source=source,
+            stage_results=stage_results,
+            result_record_index=result_record_index,
+            accepted_by_scope=accepted_by_scope,
+            scope_key=scope_key,
+        )
         if not result:
             continue
         edge_id = str(edge.get("edge_id") or f"{source}->{stage_id}")
@@ -236,7 +274,7 @@ def resolve_handoff_packets(
             "target_node_id": node_id or stage_id,
             "target_stage_id": stage_id,
             "edge_id": edge_id,
-            "source_receipt_id": str(dict(result.get("execution_receipt") or {}).get("receipt_id") or ""),
+            "source_result_record_id": _result_record_id_from_stage_result(result),
             "payload_contract_id": str(edge.get("payload_contract_id") or ""),
             "artifact_refs": _string_list(result.get("artifact_refs")),
             "memory_refs": _string_list(result.get("working_memory_refs")),
@@ -297,11 +335,7 @@ def build_revision_packet_from_review(
         "target_node_id": target_stage_id,
         "target_stage_id": target_stage_id,
         "previous_candidate_artifact_refs": _dedupe(previous_candidate_refs),
-        "previous_candidate_receipt_id": str(
-            dict(dict(state.get("stage_results") or {}).get(str(artifact_packet.get("source_node_ids", [""])[0] if artifact_packet.get("source_node_ids") else ""), {}) or {}).get("execution_receipt", {}).get("receipt_id")
-            if isinstance(artifact_packet.get("source_node_ids"), list)
-            else ""
-        ),
+        "previous_candidate_result_record_id": _previous_candidate_result_record_id(state=state, artifact_packet=artifact_packet),
         "review_result_refs": _dedupe(review_refs),
         "review_result_ref": str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
         "review_verdict": review_verdict,
@@ -336,6 +370,55 @@ def _edge_requires_artifact(edge: dict[str, Any]) -> bool:
         return True
     policy = dict(edge.get("artifact_ref_policy") or {})
     return policy.get("required") is True
+
+
+def _edge_requires_timeline_result(edge: dict[str, Any]) -> bool:
+    metadata = dict(edge.get("metadata") or {})
+    policy = dict(edge.get("timeline_dependency") or metadata.get("timeline_dependency") or metadata.get("temporal_control") or {})
+    return policy.get("required") is True or policy.get("require_current_scope") is True
+
+
+def _stage_result_for_current_scope(
+    *,
+    state: dict[str, Any],
+    source: str,
+    stage_results: dict[str, Any],
+    result_record_index: dict[str, dict[str, Any]],
+    accepted_by_scope: dict[str, dict[str, str]],
+    scope_key: str,
+) -> dict[str, Any]:
+    if scope_key:
+        record_id = str(dict(accepted_by_scope.get(scope_key) or {}).get(source) or "")
+        if record_id:
+            record = dict(result_record_index.get(record_id) or {})
+            if record.get("accepted") is True:
+                instance = dict(dict(state.get("stage_results_by_instance") or {}).get(record_id) or {})
+                if instance:
+                    return instance
+    if not accepted_by_scope:
+        result = dict(stage_results.get(source) or {})
+        record = dict(result.get("timeline_result_record") or {})
+        if result and record.get("accepted") is True:
+            return result
+    return {}
+
+
+def _result_record_id_from_stage_result(result: dict[str, Any]) -> str:
+    record = dict(result.get("timeline_result_record") or {})
+    return str(record.get("result_record_id") or "")
+
+
+def _previous_candidate_result_record_id(*, state: dict[str, Any], artifact_packet: dict[str, Any]) -> str:
+    source_ids = artifact_packet.get("source_node_ids")
+    if not isinstance(source_ids, list) or not source_ids:
+        return ""
+    source = str(source_ids[0] or "")
+    result = dict(dict(state.get("stage_results") or {}).get(source) or {})
+    return _result_record_id_from_stage_result(result)
+
+
+def _scope_key(scope_path: Any) -> str:
+    return "/".join(str(item).strip().replace("/", "_") for item in list(scope_path or ["run"]) if str(item).strip()) or "run"
 
 
 def _repository_refs_for_stage(*, state: dict[str, Any], stage_id: str, node_id: str) -> list[str]:

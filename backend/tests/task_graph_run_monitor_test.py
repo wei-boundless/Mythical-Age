@@ -121,7 +121,7 @@ def test_monitor_preserves_artifact_and_memory_operation_producers() -> None:
     assert view["memory_operations"][1]["created_at"] == 20.0
 
 
-def test_monitor_exposes_timeline_dispatch_packets_and_receipts() -> None:
+def test_monitor_exposes_timeline_dispatch_packets_and_result_records() -> None:
     view = build_task_graph_run_monitor_view(
         task_run=_base_task_run(),
         coordination_run=_base_coordination_run(),
@@ -143,8 +143,8 @@ def test_monitor_exposes_timeline_dispatch_packets_and_receipts() -> None:
                 "revision_packet": {},
                 "handoff_packet_refs": ["handoff:test"],
             },
-            "execution_receipts": [
-                {"receipt_id": "stagereceipt:test", "stage_id": "world", "accepted": True},
+            "timeline_result_records": [
+                {"result_record_id": "tlresult:test", "stage_id": "world", "accepted": True},
             ],
         },
     )
@@ -153,7 +153,22 @@ def test_monitor_exposes_timeline_dispatch_packets_and_receipts() -> None:
     assert view["timeline"]["recent_events"][1]["event_type"] == "node_dispatch_requested"
     assert view["current_dispatch_context"]["dispatch_event_id"] == "tlevent:2"
     assert view["current_context_packets"]["memory_snapshot"]["snapshot_id"] == "memsnap:test"
-    assert view["execution_receipts"][0]["receipt_id"] == "stagereceipt:test"
+    assert view["timeline_result_records"][0]["result_record_id"] == "tlresult:test"
+
+
+def test_monitor_reports_completed_node_without_timeline_result() -> None:
+    view = build_task_graph_run_monitor_view(
+        task_run=_base_task_run(),
+        coordination_run=_base_coordination_run(),
+        coordination_state={
+            "diagnostics": {"coordination_graph_spec": _graph_spec()},
+            "node_statuses": {"world": "completed", "outline": "pending"},
+            "stage_results": {"world": {"accepted": True}},
+        },
+    )
+
+    codes = {issue["code"] for issue in view["health"]["issues"]}
+    assert "completed_without_timeline_result" in codes
 
 
 def test_monitor_uses_tool_call_preview_when_stream_chunks_are_absent() -> None:

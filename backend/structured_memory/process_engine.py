@@ -422,6 +422,8 @@ class ProcessStateEngine:
             active_pdf_section=context_slots.active_pdf_section,
             active_pdf_pages=list(context_slots.active_pdf_pages),
             active_dataset=context_slots.active_dataset,
+            active_subset_labels=list(context_slots.active_subset_labels),
+            active_subset_filter_column=context_slots.active_subset_filter_column,
             active_binding_kind=context_slots.active_binding_kind,
             active_binding_identity=context_slots.active_binding_identity,
             active_binding_owner_task_id=context_slots.active_binding_owner_task_id,
@@ -685,6 +687,8 @@ class ProcessStateEngine:
         active_object_handle_id = ""
         active_result_handle_id = ""
         active_subset_handle_id = ""
+        active_subset_labels: list[str] = []
+        active_subset_filter_column = ""
         if active_pdf:
             active_binding_kind = "active_pdf"
             active_binding_identity = _binding_identity(active_pdf)
@@ -713,6 +717,12 @@ class ProcessStateEngine:
             active_subset_handle_id = (
                 previous_slots.active_subset_handle_id if active_dataset == previous_active_dataset else ""
             )
+            active_subset_labels = (
+                list(previous_slots.active_subset_labels) if active_dataset == previous_active_dataset else []
+            )
+            active_subset_filter_column = (
+                previous_slots.active_subset_filter_column if active_dataset == previous_active_dataset else ""
+            )
 
         return ContextSlots(
             active_pdf=active_pdf,
@@ -720,6 +730,8 @@ class ProcessStateEngine:
             active_pdf_section=active_pdf_section if active_pdf else "",
             active_pdf_pages=active_pdf_pages if active_pdf else [],
             active_dataset=active_dataset,
+            active_subset_labels=active_subset_labels if active_dataset else [],
+            active_subset_filter_column=active_subset_filter_column if active_dataset else "",
             active_binding_kind=active_binding_kind,
             active_binding_identity=active_binding_identity,
             active_binding_owner_task_id=active_binding_owner_task_id,

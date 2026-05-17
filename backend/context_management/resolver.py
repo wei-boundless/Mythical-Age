@@ -34,6 +34,7 @@ class ContextResolver:
         bindings = self._resolved_bindings(
             explicit_inputs=explicit_inputs,
             memory_runtime_view=memory_view,
+            structural_signals=dict(understanding.get("structural_signals") or {}),
         )
         if bundle_bindings:
             bindings = [*bundle_bindings, *bindings]
@@ -50,6 +51,7 @@ class ContextResolver:
         if bundle_bindings:
             explicit_inputs["ordinal_followup"] = ordinal_followups
             intent = "bundle_followup"
+        followup_target_kind = str(explicit_inputs.get("followup_target_kind") or "").strip()
         followup_target_refs = tuple(
             _dedupe_text(
                 [
@@ -58,6 +60,7 @@ class ContextResolver:
                         str(binding.result_handle_id or binding.owner_task_id or binding.identity or "").strip()
                         for binding in bundle_bindings
                     ),
+                    *_followup_target_refs_for_kind(followup_target_kind, bindings),
                 ]
             )
         )
@@ -89,16 +92,14 @@ class ContextResolver:
             "explicit_dataset_path",
             "explicit_pdf_path",
             "explicit_workspace_path",
-            "bound_dataset_path",
-            "bound_pdf_path",
-            "bound_pdf_mode",
-            "bound_pdf_section",
+            "followup_target_kind",
+            "followup_scope",
         ):
             value = signals.get(key)
             if value not in ("", [], {}, None):
                 result[key] = value
-        if signals.get("bound_pdf_pages"):
-            result["bound_pdf_pages"] = list(signals.get("bound_pdf_pages") or [])
+        if signals.get("followup_ordinals"):
+            result["followup_ordinals"] = list(signals.get("followup_ordinals") or [])
         if tool_input:
             result["tool_input"] = tool_input
         capability_requests = [
@@ -115,12 +116,11 @@ class ContextResolver:
         *,
         explicit_inputs: dict[str, Any],
         memory_runtime_view: dict[str, Any],
+        structural_signals: dict[str, Any],
     ) -> list[ResolvedBinding]:
         bindings: list[ResolvedBinding] = []
         explicit_pdf = str(explicit_inputs.get("explicit_pdf_path") or "").strip()
         explicit_dataset = str(explicit_inputs.get("explicit_dataset_path") or "").strip()
-        bound_pdf = str(explicit_inputs.get("bound_pdf_path") or "").strip()
-        bound_dataset = str(explicit_inputs.get("bound_dataset_path") or "").strip()
         if explicit_pdf:
             bindings.append(
                 ResolvedBinding(
@@ -145,34 +145,12 @@ class ContextResolver:
                     metadata={"path": explicit_dataset},
                 )
             )
-        if bound_pdf:
-            bindings.append(
-                ResolvedBinding(
-                    binding_id=f"binding:bound:pdf:{_slug(bound_pdf)}",
-                    binding_kind="source_file",
-                    identity=_identity(bound_pdf),
-                    file_kind="pdf",
-                    source="session_state",
-                    confidence=0.9,
-                    metadata={"path": bound_pdf, "slot_name": "bound_pdf_path"},
-                )
-            )
-        if bound_dataset:
-            bindings.append(
-                ResolvedBinding(
-                    binding_id=f"binding:bound:dataset:{_slug(bound_dataset)}",
-                    binding_kind="source_file",
-                    identity=_identity(bound_dataset),
-                    file_kind="dataset",
-                    source="session_state",
-                    confidence=0.9,
-                    metadata={"path": bound_dataset, "slot_name": "bound_dataset_path"},
-                )
-            )
 
         state_snapshot = dict(memory_runtime_view.get("state_snapshot") or {})
         context_slots = dict(state_snapshot.get("context_slots") or {})
         active_handles = dict(state_snapshot.get("active_handles") or {})
+        active_constraints = dict(context_slots.get("active_constraints") or state_snapshot.get("active_constraints") or {})
+        subset_constraints = _active_subset_constraints(active_constraints)
         for key, file_kind in (("active_pdf", "pdf"), ("committed_pdf", "pdf"), ("active_dataset", "dataset"), ("committed_dataset", "dataset")):
             path = str(context_slots.get(key) or "").strip()
             if not path:
@@ -189,7 +167,32 @@ class ContextResolver:
                     owner_task_id=str(context_slots.get("active_binding_owner_task_id") or context_slots.get(f"{key}_owner_task_id") or ""),
                     source="session_state",
                     confidence=0.72 if key.startswith("committed_") else 0.82,
-                    metadata={"slot_name": key, "path": path},
+                    metadata={
+                        "slot_name": key,
+                        "path": path,
+                        **(
+                            {
+                                "active_constraints": subset_constraints,
+                            }
+                            if key == "active_dataset" and subset_constraints
+                            else {}
+                        ),
+                    },
+                )
+            )
+        for key, file_kind in (("bound_pdf_path", "pdf"), ("bound_dataset_path", "dataset")):
+            path = str(structural_signals.get(key) or "").strip()
+            if not path:
+                continue
+            bindings.append(
+                ResolvedBinding(
+                    binding_id=f"binding:bound:{file_kind}:{_slug(path)}",
+                    binding_kind="source_file",
+                    identity=_identity(path),
+                    file_kind=file_kind,
+                    source="session_state",
+                    confidence=0.86,
+                    metadata={"path": path, "slot_name": key},
                 )
             )
         return _dedupe_bindings(bindings)
@@ -414,6 +417,49 @@ def _bundle_id_for_context(
         if bundle_id:
             return bundle_id
     return f"bundle:{task_id}" if bundle_items else ""
+
+
+def _followup_target_refs_for_kind(kind: str, bindings: list[ResolvedBinding]) -> list[str]:
+    target_kind = str(kind or "").strip()
+    if target_kind == "active_subset":
+        return [
+            str(value or "").strip()
+            for binding in bindings
+            for value in (binding.subset_handle_id, binding.result_handle_id, binding.owner_task_id)
+            if str(value or "").strip()
+        ]
+    if target_kind == "active_dataset":
+        return [
+            str(value or "").strip()
+            for binding in bindings
+            if binding.file_kind == "dataset"
+            for value in (binding.result_handle_id, binding.owner_task_id, binding.identity)
+            if str(value or "").strip()
+        ]
+    if target_kind == "active_pdf":
+        return [
+            str(value or "").strip()
+            for binding in bindings
+            if binding.file_kind == "pdf"
+            for value in (binding.result_handle_id, binding.owner_task_id, binding.identity)
+            if str(value or "").strip()
+        ]
+    return []
+
+
+def _active_subset_constraints(active_constraints: dict[str, Any]) -> dict[str, Any]:
+    subset_labels = [
+        str(item or "").strip()
+        for item in list(active_constraints.get("subset_labels") or [])
+        if str(item or "").strip()
+    ]
+    subset_filter_column = str(active_constraints.get("subset_filter_column") or "").strip()
+    if not subset_labels and not subset_filter_column:
+        return {}
+    return {
+        **({"subset_labels": subset_labels} if subset_labels else {}),
+        **({"subset_filter_column": subset_filter_column} if subset_filter_column else {}),
+    }
 
 
 def _dedupe_text(values: list[str]) -> list[str]:

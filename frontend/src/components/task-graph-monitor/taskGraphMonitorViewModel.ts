@@ -81,7 +81,7 @@ export type TaskGraphMonitorViewModel = {
   timelineEvents: Array<Record<string, unknown>>;
   dispatchContext: Record<string, unknown>;
   contextPackets: Record<string, unknown>;
-  executionReceipts: Array<Record<string, unknown>>;
+  timelineResultRecords: Array<Record<string, unknown>>;
   streamEnabled: boolean;
   streamChunkCount: number;
   streamAccumulatedChars: number;
@@ -238,7 +238,7 @@ export function buildTaskGraphMonitorViewModel(monitor: TaskGraphRunMonitorView 
     timelineEvents: monitor?.timeline?.recent_events ?? [],
     dispatchContext: monitor?.current_dispatch_context ?? {},
     contextPackets: monitor?.current_context_packets ?? {},
-    executionReceipts: monitor?.execution_receipts ?? [],
+    timelineResultRecords: monitor?.timeline_result_records ?? [],
     streamEnabled: monitor?.streaming?.enabled === true,
     streamChunkCount: Number(monitor?.streaming?.chunk_count ?? 0),
     streamAccumulatedChars: Number(monitor?.streaming?.accumulated_chars ?? 0),

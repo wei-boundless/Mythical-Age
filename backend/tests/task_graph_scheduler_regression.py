@@ -79,6 +79,50 @@ def test_scheduler_bootstrap_marks_downstream_ready_after_upstream_completed() -
     assert edge.status == "ack_waiting"
 
 
+def test_scheduler_blocks_completed_upstream_without_timeline_result_when_gate_enabled() -> None:
+    state = bootstrap_scheduler_state(
+        runtime_spec=_runtime_spec(),
+        node_statuses={"plan": "completed", "draft": "pending", "review": "pending"},
+        result_record_index={},
+        accepted_result_records_by_scope={},
+        active_scope_key="run",
+    )
+
+    assert "draft" in state.blocked_node_ids
+    assert "draft" not in state.ready_node_ids
+    draft = next(item for item in state.node_states if item.node_id == "draft")
+    assert "timeline_result_missing:plan" in draft.blocked_reasons
+    edge = next(item for item in state.edge_states if item.edge_id == "plan_draft")
+    assert edge.status == "timeline_waiting"
+
+
+def test_scheduler_releases_downstream_with_current_scope_timeline_result() -> None:
+    state = bootstrap_scheduler_state(
+        runtime_spec=_runtime_spec(),
+        node_statuses={"plan": "completed", "draft": "pending", "review": "pending"},
+        result_record_index={
+            "tlresult:plan": {
+                "result_record_id": "tlresult:plan",
+                "stage_id": "plan",
+                "accepted": True,
+                "effective_from_clock_seq": 2,
+                "produced_artifact_refs": ["artifact:plan.md"],
+                "scope_key": "run/phase.plan",
+                "dependency_scope_key": "run",
+            }
+        },
+        accepted_result_records_by_scope={"run": {"plan": "tlresult:plan"}},
+        active_scope_key="run",
+    )
+
+    assert state.ready_node_ids == ("draft",)
+    draft = next(item for item in state.node_states if item.node_id == "draft")
+    assert draft.status == "ready"
+    edge = next(item for item in state.edge_states if item.edge_id == "plan_draft")
+    assert edge.status == "ack_waiting"
+    assert edge.diagnostics["result_record_id"] == "tlresult:plan"
+
+
 def test_scheduler_consumes_explicit_blocking_temporal_edges() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.temporal_dependency",

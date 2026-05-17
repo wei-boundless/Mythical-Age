@@ -400,7 +400,7 @@ export function TaskGraphRunMonitorPanel({
                       #{Number(event.clock_seq ?? 0)} · {Array.isArray(event.scope_path) ? event.scope_path.join(" / ") : text(event.scope_path, "run")}
                     </span>
                   </div>
-                  <small>{text(event.node_id) || text(event.receipt_id) || text(event.checkpoint_ref) || text(event.status)}</small>
+                  <small>{text(event.node_id) || text(event.result_record_id) || text(event.checkpoint_ref) || text(event.status)}</small>
                 </article>
               ))
             ) : (
