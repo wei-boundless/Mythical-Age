@@ -21,7 +21,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.dev.prototype",
             agent_name_template="开发工作Agent {n}",
             description="通用开发工作子 Agent，用于领取局部实现、检查和素材整理类任务。",
-            allowed_task_modes=("light_web_game", "arcade_game_bundle", "bounded_patch", "task_execution"),
             default_runtime_lanes=("workspace_patch", "game_delivery"),
             allowed_operations=(
                 "op.model_response",
@@ -42,7 +41,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.explorer",
             agent_name_template="探索 Agent {n}",
             description="只读探索子 Agent，用于代码、资料和上下文摸底，不写入项目文件。",
-            allowed_task_modes=("information_search", "local_material_read", "knowledge_retrieval", "trace_analysis"),
             default_runtime_lanes=("readonly_exploration", "runtime_trace_read"),
             allowed_operations=(
                 "op.model_response",
@@ -67,7 +65,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.planner",
             agent_name_template="规划 Agent {n}",
             description="只读规划子 Agent，用于拆解方案、评估风险和形成实施计划。",
-            allowed_task_modes=("task_dispatch", "inspection_and_correction", "information_synthesis"),
             default_runtime_lanes=("planning_readonly", "task_dispatch"),
             allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_status", "op.git_diff"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
@@ -81,7 +78,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.verification",
             agent_name_template="验证 Agent {n}",
             description="验证子 Agent，用于复核实现、运行检查和输出可复现证据。",
-            allowed_task_modes=("fix_verification", "inspection_and_correction", "task_execution"),
             default_runtime_lanes=("verification", "runtime_trace_read"),
             allowed_operations=("op.model_response", "op.read_file", "op.search_text", "op.shell"),
             blocked_operations=("op.write_file", "op.edit_file", "op.python_repl", "op.memory_write_candidate"),
@@ -95,7 +91,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.execution",
             agent_name_template="执行 Agent {n}",
             description="执行子 Agent，用于领取有明确边界的实现、写入或修复任务。",
-            allowed_task_modes=("bounded_patch", "workspace_patch", "task_execution", "light_web_game", "arcade_game_bundle"),
             default_runtime_lanes=("workspace_patch", "game_delivery"),
             allowed_operations=(
                 "op.model_response",
@@ -117,7 +112,6 @@ def default_worker_agent_blueprints() -> tuple[WorkerAgentBlueprint, ...]:
             blueprint_id="worker.review",
             agent_name_template="审查 Agent {n}",
             description="审查子 Agent，用于代码审查、产物验收和风险汇总。",
-            allowed_task_modes=("inspection_and_correction", "fix_verification", "information_synthesis"),
             default_runtime_lanes=("review_readonly", "runtime_trace_read"),
             allowed_operations=("op.model_response", "op.read_file", "op.search_files", "op.search_text", "op.git_diff", "op.git_show"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate"),
@@ -174,7 +168,6 @@ class WorkerAgentFactory:
         runtime_profile = self.agent_runtime_registry.upsert_profile(
             agent_id=agent.agent_id,
             agent_profile_id=f"{agent.agent_id.removeprefix('agent:').replace(':', '_')}_runtime",
-            allowed_task_modes=blueprint.allowed_task_modes,
             allowed_runtime_lanes=blueprint.default_runtime_lanes or (request.runtime_lane,),
             allowed_operations=blueprint.allowed_operations,
             blocked_operations=blueprint.blocked_operations,

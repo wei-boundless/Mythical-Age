@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .execution_recipe_models import ExecutionRecipe, execution_recipe_from_template
+from .execution_recipe_models import ExecutionRecipe
 from .execution_shape_resolver import ExecutionShape
-from .template_registry import TaskTemplateRegistry
+from .step_models import TaskStepBlueprint
 
 
 def build_execution_recipe(
@@ -13,43 +13,253 @@ def build_execution_recipe(
     base_dir: Path,
     execution_shape: ExecutionShape,
 ) -> ExecutionRecipe:
-    template_registry = TaskTemplateRegistry(base_dir)
-    template = template_registry.get_template(execution_shape.recipe_preset_id)
-    if template is None:
-        raise ValueError(f"Unknown execution recipe preset: {execution_shape.recipe_preset_id}")
-    recipe = execution_recipe_from_template(
-        template,
-        execution_kind=execution_shape.execution_kind,
-        source_kind=execution_shape.source_kind,
-        artifact_policy=execution_shape.artifact_policy,
-        finalization_policy=execution_shape.finalization_policy,
-    )
+    _ = base_dir
+    profile = _recipe_profile(execution_shape)
     metadata = {
-        **dict(recipe.metadata or {}),
+        **dict(profile.get("metadata") or {}),
         "execution_shape": execution_shape.to_dict(),
+        "template_protocol_removed": True,
     }
     return ExecutionRecipe(
-        recipe_id=recipe.recipe_id,
-        title=recipe.title,
-        description=recipe.description,
-        execution_kind=recipe.execution_kind,
-        task_family=recipe.task_family,
-        task_mode=recipe.task_mode,
-        source_kind=recipe.source_kind,
-        input_schema=dict(recipe.input_schema),
-        output_schema=dict(recipe.output_schema),
-        default_agent_id=recipe.default_agent_id,
-        allowed_agent_ids=tuple(recipe.allowed_agent_ids),
-        required_capability_tags=tuple(recipe.required_capability_tags),
-        required_operations=tuple(recipe.required_operations),
-        optional_operations=tuple(recipe.optional_operations),
-        step_blueprints=tuple(recipe.step_blueprints),
-        validation_rules=tuple(recipe.validation_rules),
-        safety_policy=dict(recipe.safety_policy),
-        artifact_policy=dict(recipe.artifact_policy),
-        finalization_policy=dict(recipe.finalization_policy),
-        ui_manifest=dict(recipe.ui_manifest),
-        enabled=bool(recipe.enabled),
+        recipe_id=str(execution_shape.recipe_id or "runtime.recipe.conversation"),
+        title=str(profile.get("title") or "Runtime task"),
+        description=str(profile.get("description") or "Runtime assembly derived from capability resolution and TaskGraph context."),
+        execution_kind=str(execution_shape.execution_kind or "conversation"),
+        task_family=str(profile.get("task_family") or execution_shape.source_kind or "general"),
+        task_mode=str(profile.get("task_mode") or execution_shape.execution_kind or "runtime"),
+        source_kind=str(execution_shape.source_kind or profile.get("source_kind") or ""),
+        input_schema=dict(profile.get("input_schema") or {}),
+        output_schema=dict(profile.get("output_schema") or {"final_answer": {"type": "string", "required": True}}),
+        default_agent_id=str(profile.get("default_agent_id") or "agent:0"),
+        allowed_agent_ids=tuple(str(item) for item in tuple(profile.get("allowed_agent_ids") or ("agent:0",))),
+        required_capability_tags=tuple(str(item) for item in tuple(profile.get("required_capability_tags") or ())),
+        required_operations=tuple(str(item) for item in tuple(profile.get("required_operations") or ("op.model_response",))),
+        optional_operations=tuple(str(item) for item in tuple(profile.get("optional_operations") or ())),
+        step_blueprints=tuple(profile.get("step_blueprints") or ()),
+        validation_rules=(),
+        safety_policy=dict(profile.get("safety_policy") or {}),
+        artifact_policy=dict(execution_shape.artifact_policy),
+        finalization_policy=dict(execution_shape.finalization_policy),
+        ui_manifest={},
+        enabled=True,
         metadata=metadata,
-        legacy_template_id=recipe.legacy_template_id,
     )
+
+
+def _step(
+    step_id: str,
+    title: str,
+    step_kind: str,
+    *,
+    executor_type: str = "model",
+    required_operations: tuple[str, ...] = (),
+    optional_operations: tuple[str, ...] = (),
+    input_refs: tuple[str, ...] = (),
+    output_contract_id: str = "",
+) -> TaskStepBlueprint:
+    return TaskStepBlueprint(
+        step_id=step_id,
+        title=title,
+        step_kind=step_kind,
+        executor_type=executor_type,
+        required_operations=required_operations,
+        optional_operations=optional_operations,
+        input_refs=input_refs,
+        output_contract_id=output_contract_id,
+    )
+
+
+def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
+    recipe_id = str(execution_shape.recipe_id or "").strip()
+    if recipe_id == "runtime.recipe.knowledge_retrieval":
+        return _delegate_profile(
+            title="Knowledge retrieval answer",
+            description="Retrieve knowledge-base evidence and answer from grounded context.",
+            task_family="retrieval",
+            task_mode="knowledge_retrieval",
+            source_kind="knowledge",
+            delegate_target_agent_id="agent:rag_analyst",
+            delegation_kind="retrieval",
+            fallback_operation="op.mcp_retrieval",
+            steps=(
+                _step("retrieve_evidence", "Retrieve evidence", "execute"),
+                _step("synthesize_answer", "Synthesize answer", "finalize"),
+            ),
+        )
+    if recipe_id == "runtime.recipe.pdf_analysis":
+        return _delegate_profile(
+            title="PDF document analysis",
+            description="Read PDF evidence and answer the current question.",
+            task_family="document",
+            task_mode="capability_execution",
+            source_kind="pdf",
+            delegate_target_agent_id="agent:pdf_reader",
+            delegation_kind="pdf",
+            fallback_operation="op.mcp_pdf",
+            steps=(
+                _step("analyze_pdf", "Analyze PDF", "analyze"),
+                _step("finalize_pdf_answer", "Finalize PDF answer", "finalize"),
+            ),
+            output_schema={"final_answer": {"type": "string", "required": True}, "task_summary_refs": {"type": "array", "required": False}},
+        )
+    if recipe_id == "runtime.recipe.structured_data_analysis":
+        return _delegate_profile(
+            title="Structured data analysis",
+            description="Analyze table or dataset evidence and answer the current question.",
+            task_family="data",
+            task_mode="capability_execution",
+            source_kind="dataset",
+            delegate_target_agent_id="agent:table_analyst",
+            delegation_kind="structured_data",
+            fallback_operation="op.mcp_structured_data",
+            steps=(
+                _step("analyze_dataset", "Analyze dataset", "analyze"),
+                _step("finalize_dataset_answer", "Finalize data answer", "finalize"),
+            ),
+            output_schema={"final_answer": {"type": "string", "required": True}, "task_summary_refs": {"type": "array", "required": False}},
+        )
+    if recipe_id == "runtime.recipe.information_search":
+        return _delegate_profile(
+            title="Information search",
+            description="Search external or realtime information and summarize traceable results.",
+            task_family="search",
+            task_mode="information_search",
+            source_kind="external_web",
+            delegate_target_agent_id="agent:web_researcher",
+            delegation_kind="web_research",
+            fallback_operation="op.web_search",
+            steps=(
+                _step("search_information", "Search information", "execute", required_operations=("op.web_search",)),
+                _step("summarize_sources", "Summarize sources", "finalize"),
+            ),
+        )
+    if recipe_id == "runtime.recipe.memory_recall":
+        return {
+            "title": "Memory recall answer",
+            "description": "Answer from conversation, state, and long-term memory context.",
+            "task_family": "memory",
+            "task_mode": "memory_recall",
+            "source_kind": "memory",
+            "required_operations": ("op.model_response", "op.memory_read"),
+            "step_blueprints": (
+                _step("read_memory_context", "Read memory context", "analyze", required_operations=("op.memory_read",)),
+                _step("finalize_memory_answer", "Finalize memory answer", "finalize"),
+            ),
+            "metadata": {
+                "memory_answer": True,
+                "final_answer_requirements": ("Answer from current memory context before using any search route.",),
+            },
+        }
+    if recipe_id == "runtime.recipe.bundle":
+        return {
+            "title": "Multi-capability bundle",
+            "description": "Execute multiple bound runtime items and combine the result.",
+            "task_family": "bundle",
+            "task_mode": "capability_execution",
+            "source_kind": "mixed_sources",
+            "output_schema": {"final_answer": {"type": "string", "required": True}, "bundle_result_refs": {"type": "array", "required": False}},
+            "required_operations": ("op.model_response",),
+            "step_blueprints": (
+                _step("plan_bundle", "Plan bundle", "understand"),
+                _step("execute_bundle_items", "Execute bundle items", "execute"),
+                _step("finalize_bundle", "Finalize bundle", "finalize"),
+            ),
+        }
+    if recipe_id == "runtime.recipe.capability":
+        return {
+            "title": "Builtin capability lane",
+            "description": "Execute authorized capability operations and return grounded results.",
+            "task_family": "capability",
+            "task_mode": "capability_execution",
+            "source_kind": execution_shape.source_kind or "workspace",
+            "required_operations": ("op.model_response",),
+            "optional_operations": (
+                "op.read_file",
+                "op.list_dir",
+                "op.stat_path",
+                "op.path_exists",
+                "op.glob_paths",
+                "op.search_files",
+                "op.search_text",
+                "op.web_search",
+                "op.fetch_url",
+            ),
+            "step_blueprints": (
+                _step("execute_capability", "Execute capability", "execute"),
+                _step("finalize_capability_answer", "Finalize capability answer", "finalize"),
+            ),
+        }
+    if recipe_id in {"runtime.recipe.workspace_patch", "runtime.recipe.light_web_game", "runtime.recipe.arcade_game_bundle"}:
+        is_game = recipe_id == "runtime.recipe.light_web_game"
+        return {
+            "title": "Light web game" if is_game else "Workspace patch",
+            "description": "Produce a bounded workspace artifact or patch.",
+            "task_family": "development",
+            "task_mode": "light_web_game" if is_game else "bounded_patch",
+            "source_kind": "workspace",
+            "output_schema": {"final_answer": {"type": "string", "required": True}, "artifact_refs": {"type": "array", "required": False}},
+            "required_operations": ("op.model_response", "op.write_file", "op.edit_file") if is_game else ("op.model_response", "op.read_file", "op.search_text", "op.write_file", "op.edit_file"),
+            "optional_operations": ("op.read_file", "op.search_files") if is_game else ("op.search_files", "op.git_diff"),
+            "step_blueprints": (
+                _step("scope_work", "Scope work", "understand"),
+                _step("inspect_or_design", "Inspect or design", "analyze"),
+                _step("write_artifact", "Write artifact", "write"),
+                _step("verify_result", "Verify result", "verify"),
+                _step("finalize_delivery", "Finalize delivery", "finalize"),
+            ),
+            "safety_policy": {
+                "safety_class": "S1_bounded_artifact_write" if is_game else "S1_bounded_patch",
+                "write_mode": "bounded_create" if is_game else "scoped_patch",
+                "default_write_roots": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"] if is_game else [],
+                "forbidden_paths": [".env", ".env.local", ".git", "node_modules"],
+            },
+            "metadata": {
+                "default_artifact_name": "game.html" if is_game else "",
+                "default_write_roots": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"] if is_game else [],
+            },
+        }
+    return {
+        "title": "Main conversation",
+        "description": "General runtime conversation and final answer.",
+        "task_family": "general",
+        "task_mode": "general_task",
+        "source_kind": execution_shape.source_kind or "conversation",
+        "required_operations": ("op.model_response",),
+        "step_blueprints": (
+            _step("understand_request", "Understand request", "understand"),
+            _step("respond", "Respond", "finalize"),
+        ),
+        "metadata": {"final_answer_requirements": ("Answer the user's current request directly.",)},
+    }
+
+
+def _delegate_profile(
+    *,
+    title: str,
+    description: str,
+    task_family: str,
+    task_mode: str,
+    source_kind: str,
+    delegate_target_agent_id: str,
+    delegation_kind: str,
+    fallback_operation: str,
+    steps: tuple[TaskStepBlueprint, ...],
+    output_schema: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "title": title,
+        "description": description,
+        "task_family": task_family,
+        "task_mode": task_mode,
+        "source_kind": source_kind,
+        "output_schema": output_schema or {"final_answer": {"type": "string", "required": True}},
+        "required_operations": ("op.model_response",),
+        "step_blueprints": steps,
+        "metadata": {
+            "execution_strategy": "delegate_preferred",
+            "delegate_target_agent_id": delegate_target_agent_id,
+            "delegate_target_agent_category": "worker_sub_agent",
+            "delegation_kind": delegation_kind,
+            "fallback_operation": fallback_operation,
+        },
+    }

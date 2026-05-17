@@ -774,7 +774,7 @@ export function HealthSystemView() {
         source: "health_system_native_workbench",
         target_scope: "health_issue",
         target_ref: issue.issue_id,
-        task_mode: "issue_triage"
+        health_action: "issue_triage"
       });
       const runResult = (payload.run_result ?? {}) as Record<string, unknown>;
       const run = runResult.health_agent_run as HealthAgentRun | undefined;

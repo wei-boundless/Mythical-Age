@@ -40,7 +40,6 @@ class CompiledGlobalContract:
 class CompiledWorkflowContract:
     workflow_id: str
     title: str
-    task_mode: str
     output_contract_id: str
     step_contracts: tuple[dict[str, Any], ...] = ()
     source_ref: str = ""

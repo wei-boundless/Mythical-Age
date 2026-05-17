@@ -889,7 +889,6 @@ export type CapabilitySystemAgentCatalog = {
 export type OrchestrationAgentRuntimeProfile = {
   agent_profile_id: string;
   agent_id: string;
-  allowed_task_modes: string[];
   allowed_runtime_lanes: string[];
   allowed_operations: string[];
   blocked_operations: string[];
@@ -938,7 +937,7 @@ export type OrchestrationAgentRuntimeCatalog = {
   summary: Record<string, number>;
   options: {
     operations: OperationDescriptor[];
-    task_modes: string[];
+    task_graphs: string[];
     runtime_lanes: string[];
     memory_scopes: string[];
     context_sections: string[];
@@ -946,7 +945,7 @@ export type OrchestrationAgentRuntimeCatalog = {
     approval_policies: string[];
     trace_policies: string[];
     operation_options?: OrchestrationOption[];
-    task_mode_options?: OrchestrationOption[];
+    task_graph_options?: OrchestrationOption[];
     runtime_lane_options?: OrchestrationOption[];
     memory_scope_options?: OrchestrationOption[];
     context_section_options?: OrchestrationOption[];
@@ -1134,7 +1133,7 @@ export type HealthAgentRun = {
   agent_id: string;
   agent_profile_id: string;
   runtime_lane: string;
-  task_mode: string;
+  health_action: string;
   workflow_id: string;
   admission_status?: string;
   projection_id: string;
@@ -1210,7 +1209,7 @@ export type HealthManagementCommand = {
   conversation_session_ref: string;
   target_scope: string;
   target_ref: string;
-  task_mode: string;
+  health_action: string;
   payload: Record<string, unknown>;
   status: string;
   created_at: number;
@@ -1448,8 +1447,13 @@ export type TaskGraphRunMonitorNode = {
   node_type: string;
   task_id: string;
   agent_id: string;
+  execution_mode?: string;
   phase_id: string;
   sequence_index: number;
+  monitor_policy?: Record<string, unknown>;
+  background_policy?: Record<string, unknown>;
+  notification_policy?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   status: string;
   artifact_refs: string[];
   last_result_ref: string;
@@ -1650,6 +1654,41 @@ export type TaskGraphRunStartResult = {
   stage_execution_request: Record<string, unknown> | null;
   trace: RuntimeLoopTaskRunTrace | null;
   events: Array<Record<string, unknown>>;
+};
+
+export type TaskGraphMonitorDecision = {
+  authority: string;
+  decision_id: string;
+  task_run_id: string;
+  coordination_run_id: string;
+  monitor_node_id: string;
+  severity: string;
+  action: string;
+  reason: string;
+  summary: string;
+  observed: Record<string, unknown>;
+  recommended_control: Record<string, unknown>;
+  run_interaction_request?: Record<string, unknown>;
+  /** Compatibility only for monitor decisions persisted before the unified run interaction request. */
+  human_review_request?: Record<string, unknown>;
+  created_at: number;
+};
+
+export type TaskGraphMonitorEvaluation = {
+  authority: string;
+  task_run_id: string;
+  coordination_run_id: string;
+  monitor_node_id: string;
+  decision: TaskGraphMonitorDecision;
+  supervision_record: Record<string, unknown>;
+  monitor_snapshot: TaskGraphRunMonitorView;
+};
+
+export type TaskGraphMonitorDecisionsView = {
+  authority: string;
+  task_run_id: string;
+  decisions: TaskGraphMonitorDecision[];
+  supervision_records: Array<Record<string, unknown>>;
 };
 
 export type OrchestrationCatalogSkill = {
@@ -3270,6 +3309,28 @@ export async function getTaskGraphRunMonitor(taskRunId: string) {
   );
 }
 
+export async function evaluateTaskGraphRunMonitor(
+  taskRunId: string,
+  payload: {
+    monitor_node_id?: string;
+    monitor_policy?: Record<string, unknown>;
+  } = {}
+) {
+  return request<TaskGraphMonitorEvaluation>(
+    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/task-graph-monitor/evaluate`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function getTaskGraphRunMonitorDecisions(taskRunId: string) {
+  return request<TaskGraphMonitorDecisionsView>(
+    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/monitor-decisions`
+  );
+}
+
 export async function getCoordinationRunTaskGraphMonitor(coordinationRunId: string) {
   return request<TaskGraphRunMonitorView>(
     `/orchestration/coordination-runs/${encodeURIComponent(coordinationRunId)}/task-graph-monitor`
@@ -3341,6 +3402,30 @@ export async function resumeOrchestrationTaskGraphRun(
     {
       method: "POST",
       body: JSON.stringify({ resume_payload: resumePayload }),
+    }
+  );
+}
+
+export async function continueOrchestrationCurrentStage(
+  coordinationRunId: string,
+  payload: {
+    source?: string;
+    current_turn_context?: Record<string, unknown>;
+  } = {}
+) {
+  return request<{
+    authority: string;
+    coordination_run_id: string;
+    task_run_id: string;
+    session_id: string;
+    stage_execution_request: Record<string, unknown> | null;
+    background_started: boolean;
+    mode: string;
+  }>(
+    `/orchestration/coordination-runs/${encodeURIComponent(coordinationRunId)}/continue-current-stage`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
     }
   );
 }
@@ -3722,7 +3807,7 @@ export async function createHealthManagementCommand(payload: {
   conversation_session_ref?: string;
   target_scope?: string;
   target_ref?: string;
-  task_mode?: string;
+  health_action?: string;
   payload?: Record<string, unknown>;
 }) {
   return request<HealthCommandResponse>("/health-system/commands", {
@@ -3766,12 +3851,12 @@ export async function getHealthAgentRunTraceReport(runId: string) {
   return request<HealthTraceReport>(`/health-system/agent-runs/${encodeURIComponent(runId)}/trace-report`);
 }
 
-export async function previewHealthAgentRun(issueId: string, taskMode = "issue_triage") {
+export async function previewHealthAgentRun(issueId: string, healthAction = "issue_triage") {
   return request<HealthAgentRunPreview>(
     `/health-system/issues/${encodeURIComponent(issueId)}/agent-runs/preview`,
     {
       method: "POST",
-      body: JSON.stringify({ task_mode: taskMode })
+      body: JSON.stringify({ health_action: healthAction })
     }
   );
 }

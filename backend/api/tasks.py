@@ -8,11 +8,9 @@ from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration.runtime_loop.contract_compiler import (
     compile_coordination_contract_manifest,
-    compile_workflow_contract_manifest,
 )
 from orchestration.runtime_loop.runtime_assembly_builder import (
     build_node_runtime_assembly,
-    build_single_agent_runtime_assembly,
 )
 from soul.facade import SoulFacade
 from tasks import (
@@ -129,7 +127,6 @@ def _migrate_task_graph_legacy_prompt_nodes(
                     "source_task_graph_refs": [graph_id],
                     "projection_name": f"{str(next_node.get('title') or node_id)} / 节点职责",
                     "role_type": str(next_node.get("work_posture") or next_node.get("role") or "task_graph_node"),
-                    "task_mode": task_family or "task_graph_node",
                     "agent_profile_id": str(base_card.get("agent_profile_id") or "task_graph_node_agent"),
                     "projection_prompt": prompt,
                     "usage_summary": f"由 TaskGraph {graph_title or graph_id} 的节点职责迁移生成。",
@@ -181,8 +178,8 @@ class SpecificTaskRecordUpsertRequest(BaseModel):
     task_id: str = Field(..., min_length=3, max_length=160)
     task_title: str = Field(..., min_length=1, max_length=160)
     task_family: str = Field(..., min_length=1, max_length=80)
-    task_mode: str = Field(..., min_length=1, max_length=80)
     description: str = Field(default="", max_length=1000)
+    runtime_lane: str = Field(default="", max_length=120)
     input_contract_id: str = Field(default="", max_length=160)
     output_contract_id: str = Field(default="", max_length=160)
     acceptance_profile_id: str = Field(default="", max_length=160)
@@ -252,16 +249,16 @@ class TaskMemoryRequestProfileUpsertRequest(BaseModel):
 class TaskWorkflowUpsertRequest(BaseModel):
     workflow_id: str = Field(..., min_length=3, max_length=160)
     title: str = Field(..., min_length=1, max_length=160)
-    task_mode: str = Field(default="", max_length=80)
+    task_mode: str = Field(default="", max_length=120)
     compatible_projection_ids: list[str] = Field(default_factory=list)
     visible_skill_ids: list[str] = Field(default_factory=list)
     steps: list[dict[str, object]] = Field(default_factory=list)
-    input_boundary: str = Field(default="")
-    output_boundary: str = Field(default="")
+    input_boundary: str = Field(default="", max_length=1000)
+    output_boundary: str = Field(default="", max_length=1000)
     stop_conditions: list[str] = Field(default_factory=list)
     required_evidence_refs: list[str] = Field(default_factory=list)
     output_contract_id: str = Field(default="", max_length=160)
-    prompt: str = Field(default="")
+    prompt: str = Field(default="", max_length=4000)
     enabled: bool = True
     metadata: dict[str, object] = Field(default_factory=dict)
 
@@ -374,11 +371,10 @@ def _display_number(internal_id: str, *, prefix: str, fallback: str) -> str:
 
 def _task_system_payload(base_dir) -> dict[str, object]:
     registry = TaskFlowRegistry(base_dir)
+    workflow_registry = TaskWorkflowRegistry(base_dir)
     agent_registry = AgentRegistry(base_dir)
     agents = [item.to_dict() for item in agent_registry.list_agents()]
     contract_registry = TaskContractRegistry(base_dir)
-    workflows = TaskWorkflowRegistry(base_dir).build_catalog()
-    visible_workflows = list(workflows.get("workflows") or [])
     task_flows = [item.to_dict() for item in registry.list_flows()]
     entry_policies = [item.to_dict() for item in registry.list_general_task_profiles()]
     task_assignments = [item.to_dict() for item in registry.list_task_assignments()]
@@ -403,6 +399,7 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     )
     memory_request_profiles = [model.to_dict() for model in memory_request_profile_models]
     task_domains = [item.to_dict() for item in registry.list_task_domains()]
+    workflow_resources = [item.to_dict() for item in workflow_registry.list_workflows()]
     task_graphs = [item.to_dict() for item in registry.list_task_graphs()]
     visible_task_ids = {str(item.get("task_id") or "") for item in specific_task_records}
     specific_task_records_by_id = {
@@ -430,7 +427,13 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     ]
     contract_catalog = [item.to_dict() for item in registry.list_contract_descriptors()]
     contract_management = contract_registry.build_catalog()
-    template_validation_matrix = registry.template_registry.build_validation_matrix()
+    runtime_recipe_validation_matrix = {
+        "authority": "task_system.runtime_recipe_validation",
+        "status": "removed",
+        "rows": [],
+        "template_protocol_removed": True,
+        "replacement": "TaskGraph + runtime.recipe",
+    }
     link_permission_matrix = registry.build_link_permission_matrix()
     agent_task_connections = registry.build_agent_task_connection_overview()
     agent_carrying_profiles = registry.build_agent_carrying_overview()
@@ -442,7 +445,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "specific_task_record_count": len(specific_task_records),
             "task_assignment_count": len(task_assignments),
             "task_flow_count": len(task_flows),
-            "workflow_count": len(visible_workflows),
             "projection_binding_count": len(explicit_projection_binding_models),
             "derived_projection_binding_count": _derived_count(
                 projection_binding_models,
@@ -486,13 +488,13 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "task_domains": task_domains,
             "specific_task_records": specific_task_records,
             "task_flow_definitions": task_flows,
-            "workflow_resources": visible_workflows,
             "projection_bindings": projection_bindings,
             "flow_contract_bindings": flow_contract_bindings,
             "execution_policies": execution_policies,
             "memory_request_profiles": memory_request_profiles,
             "contract_catalog": contract_catalog,
             "task_assignments": task_assignments,
+            "workflow_resources": workflow_resources,
         },
         "contract_management": contract_management,
         "task_graph_management": {
@@ -526,7 +528,8 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             },
         },
         "diagnostics": {
-            "template_validation_matrix": template_validation_matrix,
+            "runtime_recipe_validation_matrix": runtime_recipe_validation_matrix,
+            "template_validation_matrix": runtime_recipe_validation_matrix,
             "link_permission_matrix": link_permission_matrix,
             "agent_task_connections": agent_task_connections,
             "agent_carrying_profiles": agent_carrying_profiles,
@@ -545,10 +548,9 @@ async def task_system_overview() -> dict[str, object]:
 async def task_system_next_ids() -> dict[str, object]:
     runtime = require_runtime()
     flow_registry = TaskFlowRegistry(runtime.base_dir)
-    workflow_registry = TaskWorkflowRegistry(runtime.base_dir)
     task_id = flow_registry.next_specific_task_id()
     flow_id = flow_registry.next_flow_id()
-    workflow_id = workflow_registry.next_workflow_id()
+    workflow_id = TaskWorkflowRegistry(runtime.base_dir).next_workflow_id()
     graph_id = flow_registry.next_task_graph_id()
     topology_template_id = flow_registry.next_topology_template_id()
     return {
@@ -567,12 +569,6 @@ async def task_system_next_ids() -> dict[str, object]:
             "topology": _display_number(topology_template_id, prefix="topology.", fallback="拓扑"),
         },
     }
-
-
-@router.get("/tasks/workflows")
-async def task_system_workflows() -> dict[str, object]:
-    runtime = require_runtime()
-    return TaskWorkflowRegistry(runtime.base_dir).build_catalog()
 
 
 @router.put("/tasks/contracts/{contract_id}")
@@ -601,37 +597,6 @@ async def delete_task_system_contract(contract_id: str) -> dict[str, object]:
     payload = _task_system_payload(runtime.base_dir)
     payload["last_deletion"] = deletion
     return payload
-
-
-@router.get("/tasks/contract-manifests/workflows/{workflow_id}")
-async def compile_task_system_workflow_contract_manifest(
-    workflow_id: str,
-    task_id: str = "",
-) -> dict[str, object]:
-    runtime = require_runtime()
-    flow_registry = TaskFlowRegistry(runtime.base_dir)
-    workflow_registry = TaskWorkflowRegistry(runtime.base_dir)
-    workflow = workflow_registry.get_workflow(workflow_id)
-    task = flow_registry.get_specific_task_record(task_id)
-    if workflow is None or task is None:
-        from fastapi import HTTPException
-
-        missing = "workflow" if workflow is None else "task"
-        raise HTTPException(status_code=404, detail=f"{missing} not found")
-    task_policy = dict(task.task_policy or {})
-    task_structure = dict(task_policy.get("task_structure") or {})
-    metadata = dict(task.metadata or {})
-    agent_id = str(metadata.get("agent_id") or "agent:0").strip() or "agent:0"
-    runtime_lane = str(task_structure.get("runtime_lane") or metadata.get("runtime_lane") or "").strip()
-    manifest = compile_workflow_contract_manifest(
-        contract_registry=TaskContractRegistry(runtime.base_dir),
-        task=task,
-        workflow=workflow,
-        agent_profile=AgentRuntimeRegistry(runtime.base_dir).get_profile(agent_id),
-        agent_id=agent_id,
-        runtime_lane=runtime_lane,
-    )
-    return manifest.to_dict()
 
 
 def _graph_or_404(*, registry: TaskFlowRegistry, graph_id: str):
@@ -699,44 +664,6 @@ async def compile_task_system_task_graph_runtime_spec(graph_id: str) -> dict[str
     return graph_spec.to_dict()
 
 
-@router.get("/tasks/runtime-assemblies/workflows/{workflow_id}")
-async def build_task_system_workflow_runtime_assembly(
-    workflow_id: str,
-    task_id: str = "",
-) -> dict[str, object]:
-    runtime = require_runtime()
-    flow_registry = TaskFlowRegistry(runtime.base_dir)
-    workflow_registry = TaskWorkflowRegistry(runtime.base_dir)
-    workflow = workflow_registry.get_workflow(workflow_id)
-    task = flow_registry.get_specific_task_record(task_id)
-    if workflow is None or task is None:
-        from fastapi import HTTPException
-
-        missing = "workflow" if workflow is None else "task"
-        raise HTTPException(status_code=404, detail=f"{missing} not found")
-    task_policy = dict(task.task_policy or {})
-    task_structure = dict(task_policy.get("task_structure") or {})
-    metadata = dict(task.metadata or {})
-    agent_id = str(metadata.get("agent_id") or "agent:0").strip() or "agent:0"
-    runtime_lane = str(task_structure.get("runtime_lane") or metadata.get("runtime_lane") or "").strip()
-    agent_profile = AgentRuntimeRegistry(runtime.base_dir).get_profile(agent_id)
-    manifest = compile_workflow_contract_manifest(
-        contract_registry=TaskContractRegistry(runtime.base_dir),
-        task=task,
-        workflow=workflow,
-        agent_profile=agent_profile,
-        agent_id=agent_id,
-        runtime_lane=runtime_lane,
-    )
-    assembly = build_single_agent_runtime_assembly(
-        manifest=manifest,
-        agent_profile=agent_profile,
-        explicit_inputs={},
-        runtime_lane=runtime_lane,
-    )
-    return assembly.to_dict()
-
-
 @router.get("/tasks/runtime-assemblies/task-graphs/{graph_id}/nodes/{node_id}")
 async def build_task_system_task_graph_node_runtime_assembly(
     graph_id: str,
@@ -785,35 +712,6 @@ async def build_task_system_task_graph_node_runtime_assembly(
         explicit_inputs={},
     )
     return assembly.to_dict()
-
-
-@router.put("/tasks/workflows/{workflow_id}")
-async def upsert_task_system_workflow(workflow_id: str, payload: TaskWorkflowUpsertRequest) -> dict[str, object]:
-    runtime = require_runtime()
-    if payload.workflow_id != workflow_id:
-        payload = payload.model_copy(update={"workflow_id": workflow_id})
-    try:
-        TaskWorkflowRegistry(runtime.base_dir).upsert_workflow(
-            workflow_id=payload.workflow_id,
-            title=payload.title,
-            task_mode=payload.task_mode,
-            compatible_projection_ids=tuple(payload.compatible_projection_ids),
-            visible_skill_ids=tuple(payload.visible_skill_ids),
-            steps=tuple(dict(item) for item in payload.steps),
-            input_boundary=payload.input_boundary,
-            output_boundary=payload.output_boundary,
-            stop_conditions=tuple(payload.stop_conditions),
-            required_evidence_refs=tuple(payload.required_evidence_refs),
-            output_contract_id=payload.output_contract_id,
-            prompt=payload.prompt,
-            enabled=payload.enabled,
-            metadata=payload.metadata,
-        )
-    except ValueError as exc:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _task_system_payload(runtime.base_dir)
 
 
 @router.put("/tasks/entry-policies/{profile_id}")
@@ -877,6 +775,35 @@ async def delete_task_system_domain(domain_id: str) -> dict[str, object]:
     return payload
 
 
+@router.put("/tasks/workflows/{workflow_id}")
+async def upsert_task_system_workflow(workflow_id: str, payload: TaskWorkflowUpsertRequest) -> dict[str, object]:
+    runtime = require_runtime()
+    if payload.workflow_id != workflow_id:
+        payload = payload.model_copy(update={"workflow_id": workflow_id})
+    metadata = {**dict(payload.metadata), **({"task_mode": payload.task_mode} if payload.task_mode else {})}
+    try:
+        TaskWorkflowRegistry(runtime.base_dir).upsert_workflow(
+            workflow_id=payload.workflow_id,
+            title=payload.title,
+            compatible_projection_ids=tuple(payload.compatible_projection_ids),
+            visible_skill_ids=tuple(payload.visible_skill_ids),
+            steps=tuple(dict(item) for item in payload.steps),
+            input_boundary=payload.input_boundary,
+            output_boundary=payload.output_boundary,
+            stop_conditions=tuple(payload.stop_conditions),
+            required_evidence_refs=tuple(payload.required_evidence_refs),
+            output_contract_id=payload.output_contract_id,
+            prompt=payload.prompt,
+            enabled=payload.enabled,
+            metadata=metadata,
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _task_system_payload(runtime.base_dir)
+
+
 @router.put("/tasks/specific-records/{task_id}")
 async def upsert_task_system_specific_record(task_id: str, payload: SpecificTaskRecordUpsertRequest) -> dict[str, object]:
     runtime = require_runtime()
@@ -887,9 +814,9 @@ async def upsert_task_system_specific_record(task_id: str, payload: SpecificTask
             task_id=payload.task_id,
             task_title=payload.task_title,
             task_family=payload.task_family,
-            task_mode=payload.task_mode,
             description=payload.description,
             enabled=payload.enabled,
+            runtime_lane=payload.runtime_lane,
             input_contract_id=payload.input_contract_id,
             output_contract_id=payload.output_contract_id,
             acceptance_profile_id=payload.acceptance_profile_id,

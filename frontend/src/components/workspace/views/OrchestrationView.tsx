@@ -52,7 +52,6 @@ type AgentDraft = OrchestrationAgentUpsertPayload & {
 };
 
 type RuntimeDraft = OrchestrationAgentRuntimeProfile & {
-  allowed_task_modes_text: string;
   allowed_runtime_lanes_text: string;
   allowed_operations_text: string;
   blocked_operations_text: string;
@@ -91,7 +90,6 @@ const EMPTY_AGENT_DRAFT: AgentDraft = {
 const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   agent_profile_id: "",
   agent_id: "",
-  allowed_task_modes: [],
   allowed_runtime_lanes: [],
   allowed_operations: ["op.model_response"],
   blocked_operations: [],
@@ -108,7 +106,6 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   trace_policy: "runtime_event_log",
   lifecycle_policy: "orchestration_managed",
   metadata: { managed_by: "orchestration_console" },
-  allowed_task_modes_text: "",
   allowed_runtime_lanes_text: "",
   allowed_operations_text: "op.model_response",
   blocked_operations_text: "",
@@ -276,7 +273,6 @@ function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentR
   return {
     ...merged,
     agent_profile_id: profileId,
-    allowed_task_modes: merged.allowed_task_modes ?? [],
     allowed_runtime_lanes: merged.allowed_runtime_lanes ?? [],
     allowed_operations: allowedOps,
     blocked_operations: merged.blocked_operations ?? [],
@@ -293,7 +289,6 @@ function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentR
     trace_policy: String(merged.trace_policy || "runtime_event_log"),
     lifecycle_policy: String(merged.lifecycle_policy || "orchestration_managed"),
     metadata: merged.metadata ?? { managed_by: "orchestration_console" },
-    allowed_task_modes_text: listText(merged.allowed_task_modes ?? []),
     allowed_runtime_lanes_text: listText(merged.allowed_runtime_lanes ?? []),
     allowed_operations_text: listText(allowedOps),
     blocked_operations_text: listText(merged.blocked_operations ?? []),
@@ -308,7 +303,6 @@ function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentR
 function runtimePayloadFromDraft(draft: RuntimeDraft) {
   return {
     agent_profile_id: draft.agent_profile_id,
-    allowed_task_modes: splitList(draft.allowed_task_modes_text),
     allowed_runtime_lanes: splitList(draft.allowed_runtime_lanes_text),
     allowed_operations: Array.from(new Set(["op.model_response", ...splitList(draft.allowed_operations_text)])),
     blocked_operations: splitList(draft.blocked_operations_text),
@@ -438,7 +432,6 @@ export function OrchestrationView() {
     [catalog],
   );
   const operationOptionItems = useMemo(() => catalog?.options.operation_options ?? [], [catalog]);
-  const taskModeOptionItems = useMemo(() => catalog?.options.task_mode_options ?? [], [catalog]);
   const runtimeLaneOptionItems = useMemo(() => catalog?.options.runtime_lane_options ?? [], [catalog]);
   const memoryScopeOptionItems = useMemo(() => catalog?.options.memory_scope_options ?? [], [catalog]);
   const contextSectionOptionItems = useMemo(() => catalog?.options.context_section_options ?? [], [catalog]);
@@ -448,7 +441,6 @@ export function OrchestrationView() {
   const runtimeOptionLabels = useMemo(
     () => new Map([
       ...optionLabelMap(operationOptionItems),
-      ...optionLabelMap(taskModeOptionItems),
       ...optionLabelMap(runtimeLaneOptionItems),
       ...optionLabelMap(memoryScopeOptionItems),
       ...optionLabelMap(contextSectionOptionItems),
@@ -463,7 +455,6 @@ export function OrchestrationView() {
       operationOptionItems,
       outputContractOptionItems,
       runtimeLaneOptionItems,
-      taskModeOptionItems,
       tracePolicyOptions,
     ],
   );
@@ -955,9 +946,6 @@ export function OrchestrationView() {
                   runtimeLaneOptionItems={runtimeLaneOptionItems}
                   runtimeLaneOptions={catalog?.options.runtime_lanes ?? []}
                   runtimeLanesSummary={displayOptionList(splitList(runtimeDraft.allowed_runtime_lanes_text), runtimeOptionLabels)}
-                  taskModeOptionItems={taskModeOptionItems}
-                  taskModeOptions={catalog?.options.task_modes ?? []}
-                  taskModesSummary={displayOptionList(splitList(runtimeDraft.allowed_task_modes_text), runtimeOptionLabels)}
                   tracePolicyOptions={tracePolicyOptions}
                   tracePolicies={catalog?.options.trace_policies ?? ["runtime_event_log"]}
                 />

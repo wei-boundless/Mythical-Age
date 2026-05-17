@@ -143,7 +143,6 @@ def build_task_run_ledger(
         step_runs=initial_step_runs,
         refs={
             "task_contract_ref": task_contract_ref,
-            "template_id": selected_recipe.template_id,
             "recipe_id": selected_recipe.recipe_id,
         },
         diagnostics=dict(diagnostics or {}),

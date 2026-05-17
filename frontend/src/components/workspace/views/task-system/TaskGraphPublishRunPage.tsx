@@ -15,6 +15,7 @@ import {
   type RuntimeLoopTaskRunTrace,
   type TaskGraphRuntimeSpec,
 } from "@/lib/api";
+import { useAppStore } from "@/lib/store";
 import { TaskSystemToolbarButton } from "./TaskSystemWorkbenchUi";
 import { isTaskGraphPublishedState, taskGraphPublishStateLabel, type TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
 import { focusForPreflightIssue, focusTargetLabel } from "./taskGraphEditorFocus";
@@ -89,6 +90,17 @@ export function TaskGraphPublishRunPage({
   publishState: TaskGraphPublishStateV2;
   saving: string;
 }) {
+  const {
+    bindTaskGraphMonitorRun,
+    evaluateBoundTaskGraphMonitor,
+    setTaskGraphRunInteractionOpen,
+    taskGraphBoundRunMonitor,
+    taskGraphMonitorBinding,
+    taskGraphMonitorDecision,
+    taskGraphMonitorDecisions,
+    taskGraphMonitorError,
+    taskGraphMonitorLoading,
+  } = useAppStore();
   const [runtimeSpec, setRuntimeSpec] = useState<TaskGraphRuntimeSpec | null>(null);
   const [runtimeSpecError, setRuntimeSpecError] = useState("");
   const [runtimeSpecLoading, setRuntimeSpecLoading] = useState(false);
@@ -163,6 +175,13 @@ export function TaskGraphPublishRunPage({
       setTaskRunId(result.task_run_id);
       setRuntimeSpec(result.runtime_spec);
       setRunTrace(result.trace);
+      bindTaskGraphMonitorRun({
+        task_run_id: result.task_run_id,
+        coordination_run_id: result.coordination_run_id,
+        graph_id: graphId,
+        session_id: runSessionId.trim() || "session:task_graph_studio",
+        title: graphId,
+      });
       onRunBound?.();
     } catch (error) {
       setRunTrace(null);
@@ -210,6 +229,21 @@ export function TaskGraphPublishRunPage({
     } finally {
       setStopLoading(false);
     }
+  }
+
+  function bindManualTaskRun() {
+    if (!taskRunId.trim()) {
+      setRunTraceError("请先输入 TaskRun ID。");
+      return;
+    }
+    setRunTraceError("");
+    bindTaskGraphMonitorRun({
+      task_run_id: taskRunId.trim(),
+      coordination_run_id: taskGraphRunIdOf(latestTaskGraphRunFromTrace(runTrace)),
+      graph_id: graphId,
+      session_id: runSessionId.trim() || undefined,
+      title: graphId,
+    });
   }
 
   return (
@@ -266,6 +300,12 @@ export function TaskGraphPublishRunPage({
             </TaskSystemToolbarButton>
             <TaskSystemToolbarButton disabled={!taskRunId || resumeLoading} onClick={() => void resumeLatestTaskGraphRun()}>
               <RefreshCw size={15} />断点重连
+            </TaskSystemToolbarButton>
+            <TaskSystemToolbarButton disabled={!taskRunId || taskGraphMonitorLoading} onClick={bindManualTaskRun}>
+              <MessageSquareShare size={15} />绑定监控
+            </TaskSystemToolbarButton>
+            <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding || taskGraphMonitorLoading} onClick={() => void evaluateBoundTaskGraphMonitor()}>
+              <TriangleAlert size={15} />监测评估
             </TaskSystemToolbarButton>
           </div>
         </article>
@@ -354,6 +394,9 @@ export function TaskGraphPublishRunPage({
           <TaskSystemToolbarButton disabled={!runTrace || resumeLoading} onClick={() => void resumeLatestTaskGraphRun()}>
             <PlayCircle size={15} />续跑最近任务图运行
           </TaskSystemToolbarButton>
+          <TaskSystemToolbarButton disabled={!taskRunId.trim()} onClick={bindManualTaskRun}>
+            <MessageSquareShare size={15} />绑定常驻监控
+          </TaskSystemToolbarButton>
         </div>
         {runTrace ? (
           <div className="task-graph-runtime-spec-panel">
@@ -416,6 +459,82 @@ export function TaskGraphPublishRunPage({
             <span>{runTraceError || "输入已有 TaskRun ID 后，可以读取真实 runtime-loop trace 和 checkpoint。"}</span>
           </div>
         )}
+      </section>
+
+      <section className="boundary-card">
+        <header><strong>运行交互窗口</strong><span>runtime_monitor / run control</span></header>
+        <div className="boundary-actions">
+          <TaskSystemToolbarButton disabled={!taskRunId.trim()} onClick={bindManualTaskRun}>
+            <MessageSquareShare size={15} />绑定当前 TaskRun
+          </TaskSystemToolbarButton>
+          <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding || taskGraphMonitorLoading} onClick={() => void evaluateBoundTaskGraphMonitor()}>
+            <TriangleAlert size={15} />执行一次监测
+          </TaskSystemToolbarButton>
+          <TaskSystemToolbarButton disabled={!taskGraphMonitorBinding} onClick={() => setTaskGraphRunInteractionOpen(true)}>
+            <MessageSquareShare size={15} />打开交互窗口
+          </TaskSystemToolbarButton>
+        </div>
+        {taskGraphMonitorBinding ? (
+          <div className="task-graph-note">
+            <strong>已绑定常驻监控：{taskGraphMonitorBinding.title || taskGraphMonitorBinding.graph_id || "TaskGraph Run"}</strong>
+            <span>{taskGraphMonitorBinding.task_run_id}</span>
+          </div>
+        ) : (
+          <div className="task-graph-note">
+            <strong>尚未绑定常驻监控</strong>
+            <span>创建运行或输入 TaskRun ID 后点击绑定，浮窗会按 TaskRun 独立轮询，不再跟随聊天会话。</span>
+          </div>
+        )}
+        {taskGraphBoundRunMonitor ? (
+          <div className="task-graph-runtime-spec-panel">
+            <div className="task-graph-mini-kv">
+              <p><span>状态</span><strong>{taskGraphBoundRunMonitor.runtime?.status || "unknown"}</strong></p>
+              <p><span>当前节点</span><strong>{taskGraphBoundRunMonitor.runtime?.active_node_id || "-"}</strong></p>
+              <p><span>事件</span><strong>{taskGraphBoundRunMonitor.runtime?.event_count ?? 0}</strong></p>
+              <p><span>流式</span><strong>{taskGraphBoundRunMonitor.streaming?.enabled ? `${taskGraphBoundRunMonitor.streaming.chunk_count} 片 / ${taskGraphBoundRunMonitor.streaming.accumulated_chars} 字` : "未启用"}</strong></p>
+            </div>
+          </div>
+        ) : null}
+        {taskGraphMonitorDecision ? (
+          <div className="task-graph-runtime-spec-panel">
+            <div className="task-graph-mini-kv">
+              <p><span>Action</span><strong>{taskGraphMonitorDecision.action}</strong></p>
+              <p><span>Reason</span><strong>{taskGraphMonitorDecision.reason}</strong></p>
+              <p><span>Severity</span><strong>{taskGraphMonitorDecision.severity}</strong></p>
+              <p><span>Monitor</span><strong>{taskGraphMonitorDecision.monitor_node_id || "runtime_monitor"}</strong></p>
+            </div>
+            <div className={taskGraphMonitorDecision.action === "no_action" ? "task-graph-note" : "task-graph-note task-graph-note--danger"}>
+              <strong>{taskGraphMonitorDecision.summary}</strong>
+              <span>需要处理时会在常驻浮窗内展示统一运行交互请求。</span>
+            </div>
+            <details className="task-graph-runtime-spec-details">
+              <summary>Monitor Decision</summary>
+              <pre>{JSON.stringify(taskGraphMonitorDecision, null, 2)}</pre>
+            </details>
+          </div>
+        ) : (
+          <div className="task-graph-note">
+            <strong>尚未执行监测评估</strong>
+            <span>{taskGraphMonitorError || "点击“执行一次监测”会读取后端 task_graph.run_monitor 快照，并写入 SupervisionRecord。"}</span>
+          </div>
+        )}
+        {taskGraphMonitorDecisions.length ? (
+          <div className="task-graph-preflight-list">
+            {taskGraphMonitorDecisions.slice(-5).reverse().map((decision) => (
+              <article className="task-graph-preflight-row" key={decision.decision_id}>
+                <span className={`task-graph-preflight-row__severity task-graph-preflight-row__severity--${decision.severity || "info"}`}>
+                  {decision.severity || "info"}
+                </span>
+                <div>
+                  <strong>{decision.action} / {decision.reason}</strong>
+                  <span>{decision.summary}</span>
+                </div>
+                <em>{decision.monitor_node_id || "runtime_monitor"}</em>
+                <small>{new Date(Number(decision.created_at || 0) * 1000).toLocaleTimeString()}</small>
+              </article>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <section className="boundary-card">

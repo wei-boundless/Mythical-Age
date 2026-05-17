@@ -399,9 +399,19 @@ def _align_understanding_with_explicit_task_selection(
         for item in list(getattr(query_understanding, "candidate_capabilities", []) or [])
         if isinstance(item, dict)
     ]
-    query_understanding.intent = f"{record.task_mode}_task"
+    record_policy = dict(getattr(record, "task_policy", {}) or {})
+    record_structure = dict(record_policy.get("task_structure") or {})
+    record_metadata = dict(getattr(record, "metadata", {}) or {})
+    record_task_mode = str(
+        record_metadata.get("task_mode")
+        or record_structure.get("task_mode")
+        or record_structure.get("runtime_lane_hint")
+        or getattr(record, "runtime_lane", "")
+        or "task_runtime"
+    ).strip()
+    query_understanding.intent = f"{record_task_mode}_task"
     query_understanding.source_kind = "task_system"
-    query_understanding.task_kind = record.task_mode
+    query_understanding.task_kind = record_task_mode
     query_understanding.modality = record.task_family or "task"
     query_understanding.route = "agent"
     query_understanding.execution_posture = "task_runtime"
@@ -438,7 +448,7 @@ def _align_understanding_with_explicit_task_selection(
         {
             "selected_task_id": selected_task_id,
             "selected_task_family": record.task_family,
-            "selected_task_mode": record.task_mode,
+            "selected_task_mode": record_task_mode,
             "understanding_aligned_to_explicit_task": True,
             "suppressed_candidate_capabilities": suppressed_candidates,
         }

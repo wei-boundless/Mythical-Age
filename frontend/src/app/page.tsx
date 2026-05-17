@@ -8,6 +8,7 @@ import { ResizeHandle } from "@/components/layout/ResizeHandle";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { WorkspacePanel } from "@/components/workspace/WorkspacePanel";
 import { SystemFrameworkView } from "@/components/workspace/views/SystemFrameworkView";
+import { TaskGraphRunInteractionDock } from "@/components/workspace/views/task-system/TaskGraphRunInteractionDock";
 import { AppProvider, useAppStore } from "@/lib/store";
 import type { WorkspaceView } from "@/lib/store/types";
 
@@ -28,7 +29,25 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
 ]);
 
 function Workspace() {
-  const { sidebarWidth, setSidebarWidth, activeSoulKey, activeWorkspaceView, setWorkspaceView, soulOptions } = useAppStore();
+  const {
+    sidebarWidth,
+    setSidebarWidth,
+    activeSoulKey,
+    activeWorkspaceView,
+    setWorkspaceView,
+    soulOptions,
+    clearTaskGraphMonitorRun,
+    evaluateBoundTaskGraphMonitor,
+    setTaskGraphRunInteractionOpen,
+    submitTaskGraphMonitorDecision,
+    taskGraphBoundRunMonitor,
+    taskGraphMonitorActionLoading,
+    taskGraphMonitorBinding,
+    taskGraphMonitorDecision,
+    taskGraphMonitorError,
+    taskGraphMonitorLoading,
+    taskGraphRunInteractionOpen,
+  } = useAppStore();
   const isBoundaryWorkspace = activeWorkspaceView === "task-system" || activeWorkspaceView === "orchestration";
   const activeSoul = soulOptions.find((soul) => soul.key === activeSoulKey) ?? soulOptions[0] ?? null;
   const soulBackgroundPath = activeSoul?.backgroundPath ?? `/souls/backgrounds/${activeSoulKey ?? "hebo"}-bg.png`;
@@ -52,6 +71,19 @@ function Workspace() {
     return (
       <main className="system-framework-stage min-h-screen">
         <SystemFrameworkView />
+        <TaskGraphRunInteractionDock
+          actionLoading={taskGraphMonitorActionLoading}
+          binding={taskGraphMonitorBinding}
+          decision={taskGraphMonitorDecision}
+          error={taskGraphMonitorError}
+          monitor={taskGraphBoundRunMonitor}
+          monitorLoading={taskGraphMonitorLoading}
+          onClear={clearTaskGraphMonitorRun}
+          onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
+          onOpenChange={setTaskGraphRunInteractionOpen}
+          onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
+          open={taskGraphRunInteractionOpen}
+        />
       </main>
     );
   }
@@ -76,6 +108,19 @@ function Workspace() {
           <WorkspacePanel />
         </div>
       </div>
+      <TaskGraphRunInteractionDock
+        actionLoading={taskGraphMonitorActionLoading}
+        binding={taskGraphMonitorBinding}
+        decision={taskGraphMonitorDecision}
+        error={taskGraphMonitorError}
+        monitor={taskGraphBoundRunMonitor}
+        monitorLoading={taskGraphMonitorLoading}
+        onClear={clearTaskGraphMonitorRun}
+        onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
+        onOpenChange={setTaskGraphRunInteractionOpen}
+        onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
+        open={taskGraphRunInteractionOpen}
+      />
     </main>
   );
 }

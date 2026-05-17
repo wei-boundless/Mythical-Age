@@ -21,7 +21,6 @@ type RuntimeDraftLike = {
   approval_policy?: string;
   trace_policy?: string;
   lifecycle_policy?: string;
-  allowed_task_modes_text?: string;
   allowed_runtime_lanes_text?: string;
   allowed_operations_text?: string;
   blocked_operations_text?: string;
@@ -388,14 +387,11 @@ export function OrchestrationRuntimeWorkbench({
   tracePolicies,
   approvalPolicyOptions,
   tracePolicyOptions,
-  taskModeOptions,
   runtimeLaneOptions,
-  taskModeOptionItems,
   runtimeLaneOptionItems,
   outputContractOptions,
   outputContractOptionItems,
   displayId,
-  taskModesSummary,
   runtimeLanesSummary,
   outputContractsSummary,
 }: {
@@ -405,14 +401,11 @@ export function OrchestrationRuntimeWorkbench({
   tracePolicies: string[];
   approvalPolicyOptions: OrchestrationOption[];
   tracePolicyOptions: OrchestrationOption[];
-  taskModeOptions: string[];
   runtimeLaneOptions: string[];
   outputContractOptions: string[];
-  taskModeOptionItems: OrchestrationOption[];
   runtimeLaneOptionItems: OrchestrationOption[];
   outputContractOptionItems: OrchestrationOption[];
   displayId: (value: unknown, fallback?: string) => string;
-  taskModesSummary: string;
   runtimeLanesSummary: string;
   outputContractsSummary: string;
 }) {
@@ -434,14 +427,6 @@ export function OrchestrationRuntimeWorkbench({
           </OrchestrationField>
           <OrchestrationField label="生命周期"><input value={runtimeDraft.lifecycle_policy || ""} onChange={(event) => patchRuntimeDraft({ lifecycle_policy: event.target.value })} /></OrchestrationField>
         </div>
-        <OrchestrationOptionSelection
-          displayId={displayId}
-          fallbackOptions={taskModeOptions}
-          label="可承接任务范围"
-          onChange={(values) => patchRuntimeDraft({ allowed_task_modes_text: serializeList(values) })}
-          options={taskModeOptionItems}
-          selectedValues={splitList(runtimeDraft.allowed_task_modes_text)}
-        />
         <OrchestrationOptionSelection
           displayId={displayId}
           fallbackOptions={runtimeLaneOptions}
@@ -508,7 +493,6 @@ export function OrchestrationRuntimeWorkbench({
       <aside className="boundary-card">
         <header><strong>运行摘要</strong></header>
         <div className="boundary-kv">
-          <p><span>任务范围</span><strong>{taskModesSummary}</strong></p>
           <p><span>运行通道</span><strong>{runtimeLanesSummary}</strong></p>
           <p><span>输出契约</span><strong>{outputContractsSummary}</strong></p>
           <p><span>子 Agent 调用</span><strong>{runtimeDraft.can_delegate_to_agents ? "允许" : "禁止"}</strong></p>

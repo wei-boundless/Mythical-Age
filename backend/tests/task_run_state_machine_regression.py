@@ -17,7 +17,6 @@ from orchestration.runtime_loop.task_run_loop import _finalize_runtime_task_run_
 def _recipe(*steps: TaskStepBlueprint) -> ExecutionRecipe:
     return ExecutionRecipe(
         recipe_id="recipe.test.state_machine",
-        template_id="template.test.state_machine",
         title="State Machine Test",
         description="",
         execution_kind="single_agent",
@@ -35,7 +34,7 @@ def _task_spec() -> TaskSpec:
     return TaskSpec(
         task_id="task-state-machine",
         task_spec_ref="taskspec:test",
-        template_id="template.test.state_machine",
+        recipe_id="recipe.test.state_machine",
         session_id="session-test",
         user_goal="test",
         requested_outputs=("final_answer",),

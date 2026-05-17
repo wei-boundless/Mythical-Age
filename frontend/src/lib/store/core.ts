@@ -59,8 +59,16 @@ export function getDefaultState(): StoreState {
     systemGraphOverlay: null,
     memoryInspectorTarget: null,
     orchestrationSnapshot: null,
+    taskGraphMonitorBinding: null,
     taskGraphLiveMonitor: null,
     taskGraphRunMonitor: null,
+    taskGraphBoundRunMonitor: null,
+    taskGraphMonitorDecision: null,
+    taskGraphMonitorDecisions: [],
+    taskGraphMonitorLoading: false,
+    taskGraphMonitorActionLoading: false,
+    taskGraphMonitorError: "",
+    taskGraphRunInteractionOpen: false,
     orchestrationInspectorTarget: null,
     taskSelection: null
   };

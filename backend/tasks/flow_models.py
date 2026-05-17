@@ -7,7 +7,6 @@ from typing import Any
 @dataclass(frozen=True, slots=True)
 class TaskFlowDefinition:
     flow_id: str
-    task_mode: str
     task_family: str
     title: str
     input_contract_id: str
@@ -47,9 +46,9 @@ class TaskAssignment:
     task_title: str
     task_kind: str
     task_family: str
-    task_mode: str
     flow_id: str
-    default_agent_id: str
+    runtime_lane: str = ""
+    default_agent_id: str = "agent:0"
     participant_agent_ids: tuple[str, ...] = ()
     workflow_id: str = ""
     workflow_file_ref: str = ""
@@ -87,9 +86,9 @@ class SpecificTaskRecord:
     task_id: str
     task_title: str
     task_family: str
-    task_mode: str
     description: str = ""
     enabled: bool = True
+    runtime_lane: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""
     acceptance_profile_id: str = ""
@@ -391,7 +390,7 @@ class AgentTaskConnectionProfile:
     profile_type: str
     lifecycle_state: str
     task_family_refs: tuple[str, ...] = ()
-    available_task_modes: tuple[str, ...] = ()
+    task_refs: tuple[str, ...] = ()
     flow_refs: tuple[str, ...] = ()
     binding_refs: tuple[str, ...] = ()
     workflow_refs: tuple[str, ...] = ()
@@ -407,7 +406,7 @@ class AgentTaskConnectionProfile:
         payload = asdict(self)
         for key in (
             "task_family_refs",
-            "available_task_modes",
+            "task_refs",
             "flow_refs",
             "binding_refs",
             "workflow_refs",

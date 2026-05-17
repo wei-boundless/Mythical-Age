@@ -15,10 +15,9 @@ from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from soul.projection_store import get_projection_card
 
 from .child_agent_runtime_executor import ChildAgentRuntimeExecutor
-from .delegation_graph_adapter import DelegationGraphAdapter
 from .delegation_models import AgentDelegationRequest, AgentDelegationResult
 from .event_log import RuntimeEventLog
-from .models import AgentHandoffEnvelope, AgentRun, AgentRunResult, CoordinationNodeRun, CoordinationRun
+from .models import AgentRun, AgentRunResult
 from .state_index import RuntimeStateIndex
 
 
@@ -40,7 +39,6 @@ class AgentDelegationExecutor:
         self.event_log = event_log or RuntimeEventLog(self.root_dir)
         self.agent_registry = AgentRegistry(self.root_dir)
         self.runtime_registry = AgentRuntimeRegistry(self.root_dir)
-        self.graph_adapter = DelegationGraphAdapter(self.root_dir, state_index=self.state_index, event_log=self.event_log)
         self.child_runner = child_runner
         self.child_runtime_executor = ChildAgentRuntimeExecutor(self.root_dir, evidence_orchestrator=evidence_orchestrator)
 
@@ -83,11 +81,6 @@ class AgentDelegationExecutor:
             "agent_run_created",
             payload={"agent_run": child_agent_run.to_dict()},
             refs={"agent_run_ref": child_agent_run.agent_run_id, "delegation_request_ref": request.request_id},
-        )
-        coordination_run, node_runs, _handoffs, graph_events = self.graph_adapter.create_runtime_objects(
-            request=request,
-            parent_agent_run=parent_agent_run,
-            child_agent_run=child_agent_run,
         )
         child_context = self.build_child_runtime_context(request, child_agent_run=child_agent_run)
         child_runtime_event = self.event_log.append(
@@ -147,12 +140,15 @@ class AgentDelegationExecutor:
                 context_scope=child_agent_run.context_scope,
                 runtime_lane=child_agent_run.runtime_lane,
                 parent_agent_run_ref=child_agent_run.parent_agent_run_ref,
-                coordination_run_ref=coordination_run.coordination_run_id,
+                coordination_run_ref="",
                 status=agent_run_result.status,
                 result_ref=agent_run_result.agent_run_result_id,
                 created_at=child_agent_run.created_at,
                 updated_at=time.time(),
-                diagnostics=dict(child_agent_run.diagnostics),
+                diagnostics={
+                    **dict(child_agent_run.diagnostics),
+                    "delegation_runtime": "direct_agent_communication",
+                },
             )
         )
         self.state_index.upsert_agent_delegation_result(result)
@@ -174,13 +170,22 @@ class AgentDelegationExecutor:
                 payload={"agent_delegation_result": result.to_dict()},
                 refs={"delegation_request_ref": request.request_id, "delegation_result_ref": result.result_id},
             ),
+            self.event_log.append(
+                request.task_run_id,
+                "agent_delegation_parent_observation_created",
+                payload={"parent_observation": self.build_parent_observation(result)},
+                refs={
+                    "delegation_request_ref": request.request_id,
+                    "delegation_result_ref": result.result_id,
+                    "agent_run_ref": child_agent_run.agent_run_id,
+                },
+            ),
         ]
-        completion_events.extend(self._complete_delegation_graph(request, coordination_run, node_runs, child_agent_run, result))
         return {
             "request": request,
             "result": result,
             "observation": self.build_parent_observation(result),
-            "events": (request_event, agent_run_event, child_runtime_event, *graph_events, *completion_events),
+            "events": (request_event, agent_run_event, child_runtime_event, *completion_events),
         }
 
     def validate_request(self, request: AgentDelegationRequest, *, parent_agent_run: AgentRun) -> dict[str, Any]:
@@ -470,69 +475,6 @@ class AgentDelegationExecutor:
             created_at=time.time(),
             diagnostics={"blocked_reasons": list(reasons)},
         )
-
-    def _complete_delegation_graph(
-        self,
-        request: AgentDelegationRequest,
-        coordination_run: CoordinationRun,
-        node_runs: tuple[CoordinationNodeRun, ...],
-        child_agent_run: AgentRun,
-        result: AgentDelegationResult,
-    ) -> list[Any]:
-        events: list[Any] = []
-        for node in node_runs:
-            if node.node_id == "coordinator":
-                continue
-            status = "completed" if result.status == "completed" else "failed"
-            if node.node_id == "parent_observation":
-                status = "completed"
-            updated = CoordinationNodeRun(
-                node_run_id=node.node_run_id,
-                coordination_run_id=node.coordination_run_id,
-                task_run_id=node.task_run_id,
-                node_id=node.node_id,
-                role=node.role,
-                assigned_agent_id=node.assigned_agent_id,
-                assigned_agent_run_ref=node.assigned_agent_run_ref,
-                status=status,
-                handoff_count=node.handoff_count,
-                latest_handoff_ref=node.latest_handoff_ref,
-                created_at=node.created_at,
-                updated_at=time.time(),
-                diagnostics=dict(node.diagnostics),
-            )
-            self.state_index.upsert_coordination_node_run(updated)
-            events.append(
-                self.event_log.append(
-                    request.task_run_id,
-                    "coordination_node_run_updated",
-                    payload={"coordination_node_run": updated.to_dict()},
-                    refs={"coordination_node_run_ref": updated.node_run_id, "delegation_request_ref": request.request_id},
-                )
-            )
-        handoff = AgentHandoffEnvelope(
-            handoff_id=f"handoff:{coordination_run.coordination_run_id}:result",
-            task_run_id=request.task_run_id,
-            coordination_run_id=coordination_run.coordination_run_id,
-            source_agent_run_ref=child_agent_run.agent_run_id,
-            target_agent_run_ref=request.parent_agent_run_ref,
-            message_type="delegate/result",
-            payload_ref=result.result_id,
-            ack_state="acked",
-            created_at=time.time(),
-            diagnostics={"handoff_policy": "summary_and_refs_only", "graph_source": "delegation_graph"},
-        )
-        self.state_index.upsert_handoff_envelope(handoff)
-        events.append(
-            self.event_log.append(
-                request.task_run_id,
-                "handoff_envelope_created",
-                payload={"handoff_envelope": handoff.to_dict()},
-                refs={"handoff_ref": handoff.handoff_id, "delegation_result_ref": result.result_id},
-            )
-        )
-        return events
-
 
 def _child_projection_card(root_dir: Path, agent: Any | None) -> dict[str, Any]:
     projection_id = str(getattr(agent, "default_projection_id", "") or "").strip()

@@ -26,7 +26,8 @@
         "agent:writing_simple_creator",
         "agent:writing_simple_reviewer",
         "agent:writing_memory_steward",
-        "agent:writing_final_assembler"
+        "agent:writing_final_assembler",
+        "agent:writing_runtime_monitor"
       ],
       "description": "执行简易版长篇小说完整生产流程。",
       "default_topology_template_ids": [
@@ -41,7 +42,8 @@
       "lifecycle_state": "enabled",
       "metadata": {
         "managed_by": "codex_writing_simple_novel_config_20260517",
-        "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
+        "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+        "monitor_node_id": "runtime_monitor"
       },
       "authority": "orchestration.agent_group",
       "allowed_coordination_task_ids": [

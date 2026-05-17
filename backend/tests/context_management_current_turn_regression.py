@@ -35,9 +35,9 @@ def test_context_resolver_builds_bundle_items_for_compound_request() -> None:
         "",
         "web_search",
     ]
-    assert context.bundle_items[0].template_id == "template.pdf.document_analysis"
+    assert context.bundle_items[0].recipe_id == ""
     assert context.bundle_items[0].item_id == "bundle:task-1:item:1"
-    assert context.bundle_items[1].template_id == "template.data.structured_analysis"
+    assert context.bundle_items[1].recipe_id == ""
 
 
 def test_context_resolver_prefers_explicit_input_over_state_binding() -> None:
@@ -179,5 +179,5 @@ def test_context_resolver_binds_ordinal_followup_to_previous_bundle_item() -> No
     assert context.resolved_bindings[0].binding_kind == "task_ref"
     assert context.resolved_bindings[0].metadata["ordinal"] == 2
     assert context.resolved_bindings[0].metadata["task_kind"] == "structured_data"
-    assert context.bundle_items[0].template_id == "template.data.structured_analysis"
+    assert context.bundle_items[0].recipe_id == ""
     assert context.followup_target_refs == ("bundle:2:inventory",)

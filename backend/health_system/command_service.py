@@ -139,7 +139,7 @@ class HealthCommandService:
                 return self.registry._complete_command(command, receipt=receipt)
             run_result = await self.registry.execute_agent_run(
                 issue_id=issue_id,
-                task_mode=admission.task_mode,
+                health_action=admission.health_action,
                 session_id=command.conversation_session_ref or HEALTH_SESSION_ID,
                 source=command.source or "health_management_command",
                 task_run_loop=task_run_loop,

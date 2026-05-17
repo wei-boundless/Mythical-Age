@@ -670,9 +670,9 @@
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.writing.simple_novel.human_review_handoff",
-      "task_id": "task.writing.simple_novel.human_review_handoff",
-      "flow_contract_id": "contract.writing.simple_novel.human_review_packet",
+      "binding_id": "taskflowbind:task.writing.simple_novel.runtime_monitor",
+      "task_id": "task.writing.simple_novel.runtime_monitor",
+      "flow_contract_id": "contract.taskgraph.monitor.decision",
       "override_policy": "task_default",
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",

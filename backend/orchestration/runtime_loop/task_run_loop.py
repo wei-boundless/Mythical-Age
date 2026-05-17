@@ -47,8 +47,7 @@ from tasks.run_models import (
 )
 from tasks.spec_models import TaskSpec
 from tasks.step_models import StepInputBinding, TaskStepBlueprint
-from tasks.execution_recipe_models import ExecutionRecipe
-from tasks.template_models import TaskValidationRule
+from tasks.execution_recipe_models import ExecutionRecipe, TaskValidationRule
 from capability_system.tool_authorization import resolve_tool_operation_id
 from understanding.capability_resolution_view import capability_resolution_view
 
@@ -99,6 +98,10 @@ from .project_supervision import (
 )
 from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
 from .task_artifact_materializer import MaterializedTaskArtifacts, materialize_task_artifacts
+from .task_graph_monitoring import (
+    compact_monitor_snapshot,
+    evaluate_task_graph_monitor_snapshot,
+)
 from .timeline_ledger import TimelineLedgerStore
 from .model_adoption import build_model_response_runtime_adoption, build_runtime_capability_state
 from .models import (
@@ -261,6 +264,111 @@ class TaskRunLoop:
             "supervision_records": [item.to_dict() for item in self.state_index.list_project_supervision_records(project_id)[-50:]],
             "authority": "orchestration.project_runtime_status_view",
         }
+
+    def evaluate_task_graph_monitor(
+        self,
+        task_run_id: str,
+        *,
+        monitor_node_id: str = "",
+        monitor_policy: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        monitor = self.get_task_graph_run_monitor(task_run_id)
+        if monitor is None:
+            return None
+        effective_policy = self._resolve_task_graph_monitor_policy(
+            monitor,
+            monitor_node_id=monitor_node_id,
+            override_policy=dict(monitor_policy or {}),
+        )
+        effective_node_id = monitor_node_id or str(effective_policy.get("monitor_node_id") or "")
+        decision = evaluate_task_graph_monitor_snapshot(
+            monitor,
+            monitor_node_id=effective_node_id,
+            monitor_policy=effective_policy,
+        )
+        project_id = str(
+            dict(monitor.get("project") or {}).get("project_id")
+            or dict(decision.observed).get("project_id")
+            or task_run_id
+        ).strip()
+        session_id = str(monitor.get("session_id") or "")
+        record = make_supervision_record(
+            project_id=project_id,
+            session_id=session_id,
+            task_run_id=decision.task_run_id,
+            coordination_run_id=decision.coordination_run_id,
+            issue_type=f"monitor_{decision.reason}",
+            issue_summary=decision.summary,
+            root_cause=decision.reason,
+            repair_action=decision.action,
+            followup_status="recorded" if decision.action == "no_action" else "pending_control",
+            diagnostics={
+                "monitor_node_id": effective_node_id,
+                "monitor_policy": effective_policy,
+                "monitor_decision": decision.to_dict(),
+                "monitor_snapshot": compact_monitor_snapshot(monitor),
+            },
+        )
+        self.state_index.upsert_supervision_record(record)
+        return {
+            "authority": "orchestration.task_graph_monitor_evaluation",
+            "task_run_id": task_run_id,
+            "coordination_run_id": decision.coordination_run_id,
+            "monitor_node_id": effective_node_id,
+            "decision": decision.to_dict(),
+            "supervision_record": record.to_dict(),
+            "monitor_snapshot": compact_monitor_snapshot(monitor),
+        }
+
+    def list_task_graph_monitor_decisions(self, task_run_id: str) -> dict[str, Any]:
+        records = self.state_index.list_task_supervision_records(task_run_id)
+        decision_records = [
+            record.to_dict()
+            for record in records
+            if dict(record.diagnostics or {}).get("monitor_decision")
+        ]
+        return {
+            "authority": "orchestration.task_graph_monitor_decisions",
+            "task_run_id": task_run_id,
+            "decisions": [
+                dict(dict(item.get("diagnostics") or {}).get("monitor_decision") or {})
+                for item in decision_records
+            ],
+            "supervision_records": decision_records,
+        }
+
+    def _resolve_task_graph_monitor_policy(
+        self,
+        monitor: dict[str, Any],
+        *,
+        monitor_node_id: str = "",
+        override_policy: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        override = dict(override_policy or {})
+        topology = dict(monitor.get("topology") or {})
+        nodes = [dict(item) for item in list(topology.get("nodes") or []) if isinstance(item, dict)]
+        monitor_nodes = [
+            node
+            for node in nodes
+            if str(node.get("node_type") or "") == "runtime_monitor"
+            or str(node.get("node_id") or "") == monitor_node_id
+        ]
+        selected = next(
+            (node for node in monitor_nodes if str(node.get("node_id") or "") == monitor_node_id),
+            monitor_nodes[0] if monitor_nodes else {},
+        )
+        metadata = dict(selected.get("metadata") or {})
+        policy = {
+            **dict(metadata.get("monitor_policy") or {}),
+            **dict(selected.get("monitor_policy") or {}),
+            **override,
+        }
+        background = dict(metadata.get("background_policy") or selected.get("background_policy") or {})
+        if "stale_after_seconds" not in policy and background.get("stale_after_seconds"):
+            policy["stale_after_seconds"] = background.get("stale_after_seconds")
+        if "monitor_node_id" not in policy and selected:
+            policy["monitor_node_id"] = str(selected.get("node_id") or "")
+        return policy
 
     def get_task_run_artifacts(self, task_run_id: str) -> dict[str, Any]:
         task_run = self.state_index.get_task_run(task_run_id)
@@ -3018,6 +3126,38 @@ class TaskRunLoop:
                     **stage_artifact_policy,
                 },
             }
+        stage_contract_for_acceptance: dict[str, Any] = {}
+        stage_acceptance_preview: dict[str, Any] = {}
+        requires_file_artifact_refs_preview = bool(
+            dict(stage_execution_request.get("artifact_policy") or {}).get("enabled")
+            or stage_execution_request.get("artifact_targets")
+        )
+        if stage_execution_request and start_coordination_run is not None:
+            coordination_state_for_acceptance = self.langgraph_coordination_runtime.checkpoints.get_state(
+                thread_id=start_coordination_run.coordination_run_id,
+            ) or {}
+            stage_contract_for_acceptance = dict(
+                dict(coordination_state_for_acceptance.get("stage_contracts") or {}).get(
+                    str(stage_execution_request.get("stage_id") or "")
+                )
+                or {}
+            )
+            stage_acceptance_preview = _stage_business_acceptance(
+                stage_id=str(stage_execution_request.get("stage_id") or ""),
+                contract=stage_contract_for_acceptance,
+                explicit_inputs=explicit_inputs,
+                final_content=final_content,
+                output_refs=["artifact:pending"] if requires_file_artifact_refs_preview and str(terminal_state.status or "") == "completed" else [],
+                terminal_status=terminal_state.status,
+                requires_file_artifact_refs=requires_file_artifact_refs_preview,
+            )
+        acceptance_status = (
+            "accepted"
+            if bool(stage_acceptance_preview.get("accepted") is True)
+            else "rejected"
+            if stage_execution_request and requires_file_artifact_refs_preview
+            else ""
+        )
         try:
             artifact_materialization = materialize_task_artifacts(
                 workspace_root=_workspace_root_from_runtime_root(self.root_dir),
@@ -3032,6 +3172,9 @@ class TaskRunLoop:
                 task_status=terminal_state.status,
                 terminal_reason=terminal_state.terminal_reason,
                 task_diagnostics=dict(terminal_state.diagnostics or {}),
+                acceptance_status=acceptance_status,
+                stage_id=str(stage_execution_request.get("stage_id") or ""),
+                request_id=str(stage_execution_request.get("request_id") or ""),
             )
         except Exception as exc:
             artifact_materialization = MaterializedTaskArtifacts(
@@ -3260,6 +3403,9 @@ class TaskRunLoop:
                     for ref in all_output_refs
                     if str(ref or "").startswith("artifact:")
                 ] if requires_file_artifact_refs else all_output_refs
+                materialization_payload = dict(dict(task_result or {}).get("diagnostics", {}).get("artifact_materialization") or {})
+                if str(dict(materialization_payload.get("diagnostics") or {}).get("acceptance_status") or "") == "rejected":
+                    output_refs = []
                 task_result_ref = str(dict(task_result or {}).get("result_id") or agent_run_result.agent_run_result_id)
                 coordination_state_before_resume = self.langgraph_coordination_runtime.checkpoints.get_state(
                     thread_id=target_coordination_run.coordination_run_id,
@@ -3286,6 +3432,8 @@ class TaskRunLoop:
                     artifact_refs=tuple(output_refs),
                     accepted=bool(stage_acceptance.get("accepted") is True),
                     agent_run_result_ref=agent_run_result.agent_run_result_id,
+                    request_id=str(current_stage_request.get("request_id") or ""),
+                    dispatch_event_id=str(dict(current_stage_request.get("dispatch_context") or {}).get("dispatch_event_id") or ""),
                     diagnostics={
                         "terminal_reason": terminal_state.terminal_reason,
                         "last_error": dict(terminal_state.diagnostics.get("last_error") or {}),
@@ -3717,7 +3865,11 @@ class TaskRunLoop:
         )
         events.extend(spawn_events)
 
-        if current_coordination_run is not None and not self.langgraph_coordination_runtime.supports(current_coordination_run):
+        if (
+            current_coordination_run is not None
+            and not self.langgraph_coordination_runtime.supports(current_coordination_run)
+            and not bool(dict(current_coordination_run.diagnostics or {}).get("worker_spawn_runtime"))
+        ):
             raise RuntimeError(
                 f"Legacy coordination runtime sync path was removed: {current_coordination_run.coordination_run_id}"
             )
@@ -3934,6 +4086,7 @@ class TaskRunLoop:
                 updated_at=time.time(),
                 diagnostics={
                     "autogenerated": True,
+                    "worker_spawn_runtime": True,
                     "reason": "worker_spawn_authorized_without_coordination_task",
                 },
             )
@@ -5724,7 +5877,7 @@ def _task_spec_from_payload(payload: dict[str, Any]) -> TaskSpec | None:
         return TaskSpec(
             task_id=str(payload.get("task_id") or ""),
             task_spec_ref=str(payload.get("task_spec_ref") or ""),
-            template_id=str(payload.get("template_id") or ""),
+            recipe_id=str(payload.get("recipe_id") or ""),
             session_id=str(payload.get("session_id") or ""),
             user_goal=str(payload.get("user_goal") or ""),
             inputs=dict(payload.get("inputs") or {}),
@@ -5753,7 +5906,7 @@ def _recipe_from_payload(payload: dict[str, Any]) -> ExecutionRecipe | None:
         return None
     try:
         return ExecutionRecipe(
-            recipe_id=str(payload.get("recipe_id") or payload.get("template_id") or ""),
+            recipe_id=str(payload.get("recipe_id") or ""),
             title=str(payload.get("title") or ""),
             description=str(payload.get("description") or ""),
             execution_kind=str(payload.get("execution_kind") or ""),
@@ -5775,7 +5928,6 @@ def _recipe_from_payload(payload: dict[str, Any]) -> ExecutionRecipe | None:
             ui_manifest=dict(payload.get("ui_manifest") or {}),
             enabled=bool(payload.get("enabled", True)),
             metadata=dict(payload.get("metadata") or {}),
-            legacy_template_id=str(payload.get("template_id") or ""),
         )
     except ValueError:
         return None
@@ -7073,10 +7225,10 @@ def _compile_agent_dispatch_plan_from_graph_payload(
         dispatch_group = str(node.get("dispatch_group") or "").strip()
         wait_policy = str(node.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed"
         join_policy = str(node.get("join_policy") or "all_success").strip() or "all_success"
-        background_policy = dict(node.get("background_policy") or {})
-        notification_policy = dict(node.get("notification_policy") or {})
-        lifecycle_policy = dict(node.get("resource_lifecycle_policy") or {})
         node_metadata = dict(node.get("metadata") or {}) if isinstance(node.get("metadata"), dict) else {}
+        background_policy = dict(node.get("background_policy") or node_metadata.get("background_policy") or {})
+        notification_policy = dict(node.get("notification_policy") or node_metadata.get("notification_policy") or {})
+        lifecycle_policy = dict(node.get("resource_lifecycle_policy") or node_metadata.get("resource_lifecycle_policy") or {})
         node_upstream = tuple(upstream.get(node_id, ()))
         node_downstream = tuple(downstream.get(node_id, ()))
         status = "ready" if not node_upstream or wait_policy == "fire_and_continue" else "blocked"

@@ -3682,31 +3682,31 @@
           }
         },
         {
-          "node_id": "human_review_handoff",
-          "node_type": "manual_gate",
-          "title": "人工接管",
-          "task_id": "task.writing.simple_novel.human_review_handoff",
-          "agent_id": "agent:0",
-          "role": "human",
-          "work_posture": "human",
-          "projection_id": "hebo__primary",
-          "phase_id": "phase.terminal",
-          "sequence_index": 900,
-          "execution_mode": "sync",
-          "dispatch_group": "phase.terminal",
-          "artifact_target": "handoff/human_review_packet.md",
-          "output_path": "handoff/human_review_packet.md",
+          "node_id": "runtime_monitor",
+          "node_type": "runtime_monitor",
+          "title": "运行监测",
+          "task_id": "task.writing.simple_novel.runtime_monitor",
+          "agent_id": "agent:writing_runtime_monitor",
+          "role": "monitor",
+          "work_posture": "monitor",
+          "projection_id": "projection.writing.simple_novel.runtime_monitor",
+          "phase_id": "phase.monitor",
+          "sequence_index": 5,
+          "execution_mode": "background",
+          "dispatch_group": "monitor",
+          "artifact_target": "monitor/runtime_monitor_decision.md",
+          "output_path": "monitor/runtime_monitor_decision.md",
           "artifact_policy": {
             "enabled": true,
             "required": true,
             "source": "task_graph_node",
             "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
             "subdir_template": "",
-            "artifact_target": "handoff/human_review_packet.md",
+            "artifact_target": "monitor/runtime_monitor_decision.md",
             "storage_policy": "task_artifact_ref",
             "artifacts": [
               {
-                "path": "handoff/human_review_packet.md",
+                "path": "monitor/runtime_monitor_decision.md",
                 "required": true,
                 "content_source": "final_content",
                 "fallback_to_full_content": false
@@ -3725,11 +3725,11 @@
           "resource_lifecycle_policy": {},
           "metadata": {
             "managed_by": "codex_writing_simple_novel_config_20260517",
-            "role": "human",
-            "role_identity": "你是一名人工接管协调员。",
-            "responsibility_scope": "你只负责整理需要人工决策的阻塞信息。",
-            "responsibility_exclusions": "你不负责自动替用户做不可恢复决策。",
-            "definition_of_done": "完成标准：必须列出阻塞原因、安全状态和需要人工选择的事项。",
+            "role": "monitor",
+            "role_identity": "你是一名 TaskGraph 运行监测员。",
+            "responsibility_scope": "你只负责读取运行监测快照，判断是否健康、是否需要续跑、提醒或人工审核。",
+            "responsibility_exclusions": "你不负责创作、审核正文或写入记忆库，也不直接修改业务节点输出。",
+            "definition_of_done": "完成标准：必须输出监测决策包，明确 action、reason、severity、recommended_control 和必要的 run_interaction_request。",
             "workflow_instruction_template": "先确认本轮时序位置，再读取输入包和授权记忆，随后完成职责，最后按输出契约交付。",
             "context_usage_rules": [
               "只使用输入包、MemorySnapshot、ArtifactContextPacket、RevisionPacket 中明确授权的信息。",
@@ -3741,12 +3741,104 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
-            "operation": "",
-            "memory_closed_loop": true,
-            "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
-            "chapters_per_round": 0,
-            "streaming_enabled": false
+            "operation": "monitor",
+            "monitor_policy": {
+              "watch_runtime_status": true,
+              "watch_streaming": true,
+              "watch_progress": true,
+              "watch_blockers": true,
+              "watch_manual_gate": true,
+              "stale_after_seconds": 600,
+              "allowed_actions": [
+                "no_action",
+                "notify",
+                "request_user_decision",
+                "resume",
+                "restart",
+                "pause",
+                "escalate"
+              ],
+              "interaction_surface": {
+                "window": "task_graph_run_interaction_panel",
+                "open_mode": "inline_panel",
+                "title": "写作任务运行交互",
+                "focus": {
+                  "layer": "publish",
+                  "facet": "run_interaction",
+                  "node_id": "runtime_monitor"
+                },
+                "decision_options": [
+                  {
+                    "decision": "continue_current_stage",
+                    "label": "续跑当前节点",
+                    "control_action": "continue_current_stage",
+                    "resume_payload": {
+                      "decision": "approve"
+                    }
+                  },
+                  {
+                    "decision": "retry_current_stage",
+                    "label": "重试当前节点",
+                    "control_action": "continue_current_stage",
+                    "resume_payload": {
+                      "decision": "retry"
+                    }
+                  },
+                  {
+                    "decision": "pause",
+                    "label": "暂停等待处理",
+                    "control_action": "stop_task_run",
+                    "resume_payload": {
+                      "decision": "reject",
+                      "reason": "monitor_pause_requested"
+                    }
+                  }
+                ]
+              }
+            },
+            "monitor_contract_ids": {
+              "snapshot": "contract.taskgraph.monitor.snapshot",
+              "decision": "contract.taskgraph.monitor.decision",
+              "run_interaction_request": "contract.taskgraph.run_interaction.request"
+            },
+            "run_interaction_window": {
+              "window": "task_graph_run_interaction_panel",
+              "open_mode": "inline_panel",
+              "title": "写作任务运行交互",
+              "focus": {
+                "layer": "publish",
+                "facet": "run_interaction",
+                "node_id": "runtime_monitor"
+              },
+              "decision_options": [
+                {
+                  "decision": "continue_current_stage",
+                  "label": "续跑当前节点",
+                  "control_action": "continue_current_stage",
+                  "resume_payload": {
+                    "decision": "approve"
+                  }
+                },
+                {
+                  "decision": "retry_current_stage",
+                  "label": "重试当前节点",
+                  "control_action": "continue_current_stage",
+                  "resume_payload": {
+                    "decision": "retry"
+                  }
+                },
+                {
+                  "decision": "pause",
+                  "label": "暂停等待处理",
+                  "control_action": "stop_task_run",
+                  "resume_payload": {
+                    "decision": "reject",
+                    "reason": "monitor_pause_requested"
+                  }
+                }
+              ]
+            },
+            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
           }
         },
         {

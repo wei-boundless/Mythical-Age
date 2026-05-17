@@ -12,7 +12,6 @@ class WorkerAgentBlueprint:
     blueprint_id: str
     agent_name_template: str
     description: str = ""
-    allowed_task_modes: tuple[str, ...] = ()
     default_runtime_lanes: tuple[str, ...] = ()
     allowed_operations: tuple[str, ...] = ()
     blocked_operations: tuple[str, ...] = ()
@@ -33,7 +32,6 @@ class WorkerAgentBlueprint:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         for key in (
-            "allowed_task_modes",
             "default_runtime_lanes",
             "allowed_operations",
             "blocked_operations",
@@ -107,4 +105,3 @@ class WorkerAgentSpawnResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-

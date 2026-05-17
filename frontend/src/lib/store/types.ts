@@ -1,6 +1,7 @@
 import type {
   OrchestrationSnapshot,
   RetrievalResult,
+  TaskGraphMonitorDecision,
   TaskGraphRunMonitorView,
   RuntimeLoopTaskRunLiveMonitor,
   SessionSummary,
@@ -95,6 +96,16 @@ export type TaskSelectionState = {
   mode?: "single_task" | "coordination";
 };
 
+export type TaskGraphMonitorBinding = {
+  task_run_id: string;
+  coordination_run_id?: string;
+  graph_id?: string;
+  session_id?: string;
+  project_id?: string;
+  title?: string;
+  bound_at: number;
+};
+
 export type StoreState = {
   activeWorkspaceView: WorkspaceView;
   sessions: SessionSummary[];
@@ -118,8 +129,16 @@ export type StoreState = {
   systemGraphOverlay: SystemGraphOverlay | null;
   memoryInspectorTarget: MemoryInspectorTarget | null;
   orchestrationSnapshot: OrchestrationSnapshot | null;
+  taskGraphMonitorBinding: TaskGraphMonitorBinding | null;
   taskGraphLiveMonitor: RuntimeLoopTaskRunLiveMonitor | null;
   taskGraphRunMonitor: TaskGraphRunMonitorView | null;
+  taskGraphBoundRunMonitor: TaskGraphRunMonitorView | null;
+  taskGraphMonitorDecision: TaskGraphMonitorDecision | null;
+  taskGraphMonitorDecisions: TaskGraphMonitorDecision[];
+  taskGraphMonitorLoading: boolean;
+  taskGraphMonitorActionLoading: boolean;
+  taskGraphMonitorError: string;
+  taskGraphRunInteractionOpen: boolean;
   orchestrationInspectorTarget: OrchestrationInspectorTarget | null;
   taskSelection: TaskSelectionState | null;
 };
@@ -146,6 +165,11 @@ export type StoreActions = {
   setMemoryInspectorTarget: (target: MemoryInspectorTarget | null) => void;
   setOrchestrationInspectorTarget: (target: OrchestrationInspectorTarget | null) => void;
   setOrchestrationSnapshot: (snapshot: OrchestrationSnapshot | null) => void;
+  bindTaskGraphMonitorRun: (binding: Omit<TaskGraphMonitorBinding, "bound_at"> & { bound_at?: number }) => void;
+  clearTaskGraphMonitorRun: () => void;
+  setTaskGraphRunInteractionOpen: (open: boolean) => void;
+  evaluateBoundTaskGraphMonitor: () => Promise<void>;
+  submitTaskGraphMonitorDecision: (decision: string, controlAction: string, resumePayload?: Record<string, unknown>) => Promise<void>;
   resumeTaskGraphRun: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;
   setTaskSelection: (selection: TaskSelectionState | null) => void;
 };

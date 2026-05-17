@@ -72,7 +72,8 @@ def test_explicit_task_selection_suppresses_nested_rag_resolution() -> None:
     assert resolution.route == "agent"
     assert resolution.execution_posture == "task_runtime"
     assert resolution.preferred_skill == ""
-    assert execution_shape["recipe_preset_id"] != "template.rag.knowledge_answer"
+    assert execution_shape["recipe_id"] != "runtime.recipe.knowledge_retrieval"
+    assert "recipe_preset_id" not in execution_shape
     assert "rag_execution_posture" not in list(execution_shape.get("resolution_reasons") or [])
     assert recipe["execution_kind"] == "task_runtime"
 

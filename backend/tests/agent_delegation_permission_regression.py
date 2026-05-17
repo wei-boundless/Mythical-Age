@@ -20,7 +20,6 @@ def test_delegation_catalog_filters_by_parent_agent_permission(tmp_path) -> None
     runtime_registry.upsert_profile(
         agent_id="agent:0",
         agent_profile_id="main_interactive_agent",
-        allowed_task_modes=("general_task",),
         allowed_runtime_lanes=("full_interactive",),
         allowed_operations=("op.model_response",),
         blocked_operations=(),
@@ -38,7 +37,6 @@ def test_delegation_executor_blocks_when_parent_cannot_delegate(tmp_path) -> Non
     runtime_registry.upsert_profile(
         agent_id="agent:0",
         agent_profile_id="main_interactive_agent",
-        allowed_task_modes=("general_task",),
         allowed_runtime_lanes=("full_interactive",),
         allowed_operations=("op.model_response",),
         blocked_operations=(),
@@ -294,6 +292,49 @@ def test_delegation_executor_rejects_plan_text_as_invalid_output(tmp_path) -> No
     assert result.status == "invalid_output"
     assert "pseudo_tool_text_without_execution_refs" in result.limitations
     assert result.diagnostics["quality_gate"]["status"] == "invalid"
+
+
+def test_direct_delegation_does_not_create_coordination_run(tmp_path) -> None:
+    async def _child_runner(_context):
+        return {
+            "status": "completed",
+            "summary": "已完成证据摘要。",
+            "answer_candidate": "已完成证据摘要。",
+            "evidence_refs": ["ref:test"],
+        }
+
+    executor = AgentDelegationExecutor(tmp_path, child_runner=_child_runner)
+    parent_run = AgentRun(
+        agent_run_id="agrun:taskrun:test:main",
+        task_run_id="taskrun:test",
+        agent_id="agent:0",
+        agent_profile_id="main_interactive_agent",
+        status="running",
+    )
+    request = AgentDelegationRequest(
+        request_id="delegation:req:direct",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref=parent_run.agent_run_id,
+        source_agent_id="agent:0",
+        target_agent_id="agent:rag_analyst",
+        delegation_kind="evidence_lookup",
+        instruction="请检索证据。",
+        input_payload={"query": "test"},
+    )
+
+    outcome = asyncio.run(executor.execute(request=request, parent_agent_run=parent_run))
+    event_types = [event.event_type for event in outcome["events"]]
+    child_runs = executor.state_index.list_task_agent_runs("taskrun:test")
+
+    assert outcome["result"].status == "completed"
+    assert outcome["observation"]["type"] == "agent_delegation_result"
+    assert executor.state_index.list_task_coordination_runs("taskrun:test") == []
+    assert all(run.coordination_run_ref == "" for run in child_runs)
+    assert "coordination_run_created" not in event_types
+    assert "coordination_node_run_created" not in event_types
+    assert "handoff_envelope_created" not in event_types
+    assert "agent_delegation_parent_observation_created" in event_types
 
 
 def test_delegation_executor_enforces_max_delegate_calls_per_turn(tmp_path) -> None:

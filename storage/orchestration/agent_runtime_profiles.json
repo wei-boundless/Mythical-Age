@@ -3,10 +3,6 @@
     {
       "agent_profile_id": "main_interactive_agent",
       "agent_id": "agent:0",
-      "allowed_task_modes": [
-        "general_task",
-        "memory_recall"
-      ],
       "allowed_runtime_lanes": [
         "full_interactive",
         "task_dispatch",
@@ -79,12 +75,6 @@
     {
       "agent_profile_id": "health_maintainer_agent",
       "agent_id": "agent:3",
-      "allowed_task_modes": [
-        "issue_triage",
-        "trace_analysis",
-        "case_draft",
-        "fix_verification"
-      ],
       "allowed_runtime_lanes": [
         "health_issue_read",
         "health_trace_read",
@@ -147,7 +137,6 @@
     {
       "agent_profile_id": "permission_system_agent",
       "agent_id": "agent:1",
-      "allowed_task_modes": [],
       "allowed_runtime_lanes": [
         "permission_trace_read"
       ],
@@ -192,7 +181,6 @@
     {
       "agent_profile_id": "config_system_agent",
       "agent_id": "agent:2",
-      "allowed_task_modes": [],
       "allowed_runtime_lanes": [
         "config_trace_read"
       ],
@@ -237,7 +225,6 @@
     {
       "agent_profile_id": "task_management_agent",
       "agent_id": "agent:4",
-      "allowed_task_modes": [],
       "allowed_runtime_lanes": [
         "task_trace_read"
       ],
@@ -282,7 +269,6 @@
     {
       "agent_profile_id": "capability_system_agent",
       "agent_id": "agent:5",
-      "allowed_task_modes": [],
       "allowed_runtime_lanes": [
         "capability_trace_read"
       ],
@@ -327,11 +313,6 @@
     {
       "agent_profile_id": "rag_analysis_agent",
       "agent_id": "agent:rag_analyst",
-      "allowed_task_modes": [
-        "knowledge_retrieval",
-        "information_search",
-        "evidence_lookup"
-      ],
       "allowed_runtime_lanes": [
         "retrieval_delegate",
         "readonly_exploration"
@@ -384,11 +365,6 @@
     {
       "agent_profile_id": "pdf_analysis_agent",
       "agent_id": "agent:pdf_reader",
-      "allowed_task_modes": [
-        "pdf_analysis",
-        "document_reading",
-        "evidence_lookup"
-      ],
       "allowed_runtime_lanes": [
         "pdf_delegate",
         "readonly_exploration"
@@ -441,11 +417,6 @@
     {
       "agent_profile_id": "structured_data_analysis_agent",
       "agent_id": "agent:table_analyst",
-      "allowed_task_modes": [
-        "structured_data_analysis",
-        "table_analysis",
-        "evidence_lookup"
-      ],
       "allowed_runtime_lanes": [
         "structured_data_delegate",
         "readonly_exploration"
@@ -498,12 +469,6 @@
     {
       "agent_profile_id": "web_research_agent",
       "agent_id": "agent:web_researcher",
-      "allowed_task_modes": [
-        "web_research",
-        "information_search",
-        "current_information_lookup",
-        "evidence_lookup"
-      ],
       "allowed_runtime_lanes": [
         "web_research_delegate",
         "readonly_exploration"
@@ -561,10 +526,6 @@
     {
       "agent_profile_id": "writing_team_chapter_planner_runtime",
       "agent_id": "agent:chapter_planner",
-      "allowed_task_modes": [
-        "chapter_planner",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -620,11 +581,6 @@
     {
       "agent_profile_id": "writing_team_character_designer_a_runtime",
       "agent_id": "agent:character_designer_a",
-      "allowed_task_modes": [
-        "character_designer_a",
-        "character_repair_a",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -681,11 +637,6 @@
     {
       "agent_profile_id": "writing_team_character_designer_b_runtime",
       "agent_id": "agent:character_designer_b",
-      "allowed_task_modes": [
-        "character_designer_b",
-        "character_repair_b",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -742,10 +693,6 @@
     {
       "agent_profile_id": "writing_team_character_judge_runtime",
       "agent_id": "agent:character_judge",
-      "allowed_task_modes": [
-        "character_judge",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -801,10 +748,6 @@
     {
       "agent_profile_id": "writing_team_memory_steward_runtime",
       "agent_id": "agent:memory_steward",
-      "allowed_task_modes": [
-        "memory_steward",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -864,11 +807,6 @@
     {
       "agent_profile_id": "writing_team_novel_quality_judge_runtime",
       "agent_id": "agent:novel_quality_judge",
-      "allowed_task_modes": [
-        "deviation_router",
-        "novel_quality_judge",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -927,11 +865,6 @@
     {
       "agent_profile_id": "writing_team_novel_writer_a_runtime",
       "agent_id": "agent:novel_writer_a",
-      "allowed_task_modes": [
-        "writer_a_draft",
-        "writer_a_revision",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -988,11 +921,6 @@
     {
       "agent_profile_id": "writing_team_novel_writer_b_runtime",
       "agent_id": "agent:novel_writer_b",
-      "allowed_task_modes": [
-        "writer_b_final_candidate",
-        "writer_b_review",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -1049,11 +977,6 @@
     {
       "agent_profile_id": "writing_team_outline_designer_a_runtime",
       "agent_id": "agent:outline_designer_a",
-      "allowed_task_modes": [
-        "outline_designer_a",
-        "outline_repair_a",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -1110,11 +1033,6 @@
     {
       "agent_profile_id": "writing_team_outline_designer_b_runtime",
       "agent_id": "agent:outline_designer_b",
-      "allowed_task_modes": [
-        "outline_designer_b",
-        "outline_repair_b",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -1171,10 +1089,6 @@
     {
       "agent_profile_id": "writing_team_outline_judge_runtime",
       "agent_id": "agent:outline_judge",
-      "allowed_task_modes": [
-        "outline_judge",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -1230,11 +1144,6 @@
     {
       "agent_profile_id": "writing_team_world_designer_a_runtime",
       "agent_id": "agent:world_designer_a",
-      "allowed_task_modes": [
-        "world_designer_a",
-        "world_repair_a",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -1291,11 +1200,6 @@
     {
       "agent_profile_id": "writing_team_world_designer_b_runtime",
       "agent_id": "agent:world_designer_b",
-      "allowed_task_modes": [
-        "world_designer_b",
-        "world_repair_b",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -1352,10 +1256,6 @@
     {
       "agent_profile_id": "writing_team_world_judge_runtime",
       "agent_id": "agent:world_judge",
-      "allowed_task_modes": [
-        "world_judge",
-        "writing_team_long_novel"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "readonly_exploration"
@@ -1411,14 +1311,6 @@
     {
       "agent_profile_id": "writing_simple_creator_runtime",
       "agent_id": "agent:writing_simple_creator",
-      "allowed_task_modes": [
-        "chapter_draft",
-        "chapter_outline",
-        "project_brief",
-        "volume_plan",
-        "world_design",
-        "world_outline_extension_proposal"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task"
       ],
@@ -1475,16 +1367,6 @@
     {
       "agent_profile_id": "writing_simple_reviewer_runtime",
       "agent_id": "agent:writing_simple_reviewer",
-      "allowed_task_modes": [
-        "chapter_progress_router",
-        "chapter_review",
-        "extension_review",
-        "final_review",
-        "next_volume_router",
-        "volume_postmortem",
-        "volume_review",
-        "world_review"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task"
       ],
@@ -1543,15 +1425,6 @@
     {
       "agent_profile_id": "writing_memory_steward_runtime",
       "agent_id": "agent:writing_memory_steward",
-      "allowed_task_modes": [
-        "baseline_memory_seed",
-        "extension_commit",
-        "fail_closed",
-        "memory_commit_chapter",
-        "memory_commit_world",
-        "memory_finalize",
-        "volume_commit"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task",
         "system_memory"
@@ -1610,9 +1483,6 @@
     {
       "agent_profile_id": "writing_final_assembler_runtime",
       "agent_id": "agent:writing_final_assembler",
-      "allowed_task_modes": [
-        "final_assemble"
-      ],
       "allowed_runtime_lanes": [
         "coordination_task"
       ],
@@ -1642,6 +1512,58 @@
       "use_shared_contract": true,
       "output_contracts": [
         "contract.writing.simple_novel.final_manuscript"
+      ],
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
+      "max_delegate_calls_per_turn": 0,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "task_family": "writing_simple_novel",
+        "source_task_graph_refs": [
+          "graph.writing.simple_novel"
+        ]
+      }
+    },
+    {
+      "agent_profile_id": "writing_runtime_monitor_runtime",
+      "agent_id": "agent:writing_runtime_monitor",
+      "allowed_runtime_lanes": [
+        "task_graph_monitor"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.delegate_to_agent",
+        "op.web_search"
+      ],
+      "allowed_memory_scopes": [
+        "writing_simple_novel",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view",
+        "task_graph_monitor"
+      ],
+      "use_shared_contract": true,
+      "output_contracts": [
+        "contract.taskgraph.monitor.decision"
       ],
       "can_delegate_to_agents": false,
       "allowed_delegate_agent_ids": [],

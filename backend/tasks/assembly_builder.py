@@ -14,6 +14,7 @@ from .assembly_support import (
     _build_bundle_spec,
     _build_task_safety_envelope,
     _build_task_spec,
+    build_runtime_task_intent_contract,
     _dedupe,
     _projection_tags,
     _resolve_operation_approval_policy,
@@ -30,7 +31,6 @@ from .execution_recipe_builder import build_execution_recipe
 from .execution_shape_resolver import resolve_execution_shape
 from .flow_registry import TaskFlowRegistry
 from .runtime_contracts import SkillRuntimeView, skill_runtime_views_for_refs
-from .template_registry import TaskTemplateRegistry
 from .workflow_registry import TaskWorkflowRegistry
 
 
@@ -56,7 +56,6 @@ def build_task_execution_assembly_bundle(
     )
     current_turn_payload = dict(current_turn_context or {})
     active_skill_payload = dict(active_skill or {})
-    template_registry = TaskTemplateRegistry(registry_base_dir)
     flow_registry = TaskFlowRegistry(registry_base_dir)
     workflow_registry = TaskWorkflowRegistry(registry_base_dir)
     registered_task = _resolve_registered_task(
@@ -68,7 +67,7 @@ def build_task_execution_assembly_bundle(
         if registered_task and str(registered_task.get("task_type") or "") == "specific_task"
         else None
     )
-    task_intent_contract = template_registry.build_task_intent_contract(
+    task_intent_contract = build_runtime_task_intent_contract(
         session_id=session_id,
         task_id=task_id,
         user_goal=user_goal,
@@ -115,7 +114,7 @@ def build_task_execution_assembly_bundle(
         session_id=session_id,
         user_goal=user_goal,
         source=source,
-        template_id=selected_recipe.recipe_id,
+        recipe_id=selected_recipe.recipe_id,
         task_family=task_family,
         task_mode=task_mode,
         task_spec_ref=f"taskspec:{task_id}",
@@ -125,7 +124,7 @@ def build_task_execution_assembly_bundle(
         active_skill=active_skill_payload,
     )
     runtime_operations = _dedupe(list(runtime_required_operations or ()))
-    resolved_runtime_operations = _resolve_template_runtime_operations(
+    resolved_runtime_operations = _resolve_runtime_recipe_operations(
         selected_recipe=selected_recipe,
         agent_runtime_profile=agent_runtime_profile,
     )
@@ -197,7 +196,7 @@ def build_task_execution_assembly_bundle(
             current_turn_context=current_turn_payload,
         ),
         extra_metadata={"runtime_operation_resolution": dict(resolved_runtime_operations)},
-        reason="derived from TaskTemplate, TaskDefinition, TaskBinding, task-side skill scope, and task operation policy",
+        reason="derived from runtime recipe, TaskDefinition, TaskBinding, task-side skill scope, and task operation policy",
     )
     task_spec = _build_task_spec(
         task_id=task_id,
@@ -231,7 +230,13 @@ def build_task_execution_assembly_bundle(
         task_workflow=task_workflow,
         merged_binding=merged_binding,
     )
-    registered_task_id = str((registered_task or {}).get("task_id") or task_contract.task_id).strip()
+    explicit_task_id = str(
+        current_turn_payload.get("selected_task_id")
+        or current_turn_payload.get("task_id")
+        or current_turn_payload.get("specific_task_id")
+        or ""
+    ).strip()
+    registered_task_id = str((registered_task or {}).get("task_id") or explicit_task_id or task_contract.task_id).strip()
     projection_binding = flow_registry.get_projection_binding(registered_task_id)
     flow_contract_binding = flow_registry.get_flow_contract_binding(registered_task_id)
     execution_policy = flow_registry.get_task_agent_adoption_plan(registered_task_id)
@@ -241,7 +246,6 @@ def build_task_execution_assembly_bundle(
         task_id=registered_task_id or task_contract.task_id,
         task_family=task_family,
         task_mode=task_mode,
-        legacy_template_id=selected_recipe.template_id,
         query_understanding=dict(query_understanding or {}),
     )
     projection_selection = _align_projection_selection_with_binding(
@@ -270,7 +274,6 @@ def build_task_execution_assembly_bundle(
             **dict(task_contract_payload.get("bindings") or {}),
             "current_turn": current_turn_payload,
         }
-    task_contract_payload["legacy_template_id"] = selected_recipe.template_id
     task_contract_payload["task_intent_ref"] = task_intent_contract.task_intent_id
     task_contract_payload["selected_recipe_id"] = selected_recipe.recipe_id
     task_contract_payload["bundle_spec_ref"] = bundle_spec.bundle_id if bundle_spec is not None else ""
@@ -312,7 +315,6 @@ def build_task_execution_assembly_bundle(
         requested_outputs=tuple(task_spec.requested_outputs),
         metadata={
             "stream_policy": dict(dict((registered_task or {}).get("task_policy") or {}).get("stream_policy") or {}),
-            "template_id": selected_recipe.template_id,
             "recipe_id": selected_recipe.recipe_id,
             "execution_kind": selected_recipe.execution_kind,
             "source_kind": selected_recipe.source_kind,
@@ -364,7 +366,6 @@ def build_task_execution_assembly_bundle(
         "active_skill": active_skill_payload,
         "status": "assembled",
         "_definitions_obj": definitions,
-        "_selected_template_obj": selected_recipe,
         "_selected_recipe_obj": selected_recipe,
         "_merged_binding_obj": merged_binding,
         "_task_workflow_obj": task_workflow,
@@ -374,7 +375,7 @@ def build_task_execution_assembly_bundle(
     }
 
 
-def _resolve_template_runtime_operations(
+def _resolve_runtime_recipe_operations(
     *,
     selected_recipe,
     agent_runtime_profile: AgentRuntimeProfile | None,
@@ -461,7 +462,6 @@ def _memory_request_profile_payload(
     task_id: str,
     task_family: str,
     task_mode: str,
-    legacy_template_id: str,
     query_understanding: dict[str, Any],
 ) -> dict[str, Any]:
     payload = memory_request_profile.to_dict() if memory_request_profile is not None else {}
@@ -476,7 +476,6 @@ def _memory_request_profile_payload(
         not payload
         and (
             task_mode in {"short_realtime_lookup", "information_search"}
-            or legacy_template_id in {"template.search.short_realtime_lookup", "template.search.information_search"}
             or route in {"realtime_network", "search"}
         )
     ):
@@ -498,13 +497,6 @@ def _memory_request_profile_payload(
         not payload
         and (
             task_mode in {"capability_execution", "knowledge_retrieval"}
-            or legacy_template_id
-            in {
-                "template.data.structured_analysis",
-                "template.pdf.document_analysis",
-                "template.rag.knowledge_answer",
-                "template.capability.builtin_tool_lane",
-            }
             or route in {"structured_data", "pdf", "rag", "tool"}
         )
     ):
@@ -525,7 +517,6 @@ def _memory_request_profile_payload(
     if (
         task_family == "memory"
         or task_mode == "memory_recall"
-        or legacy_template_id == "template.memory.recall_answer"
         or route == "memory"
         or posture == "direct_memory"
     ):
@@ -649,11 +640,11 @@ def _resolve_task_operation_policy(
     registered_task: dict[str, Any] | None,
     current_turn_context: dict[str, Any],
 ) -> dict[str, Any]:
-    template_policy = dict(dict(getattr(selected_recipe, "metadata", {}) or {}).get("operation_policy") or {})
+    recipe_policy = dict(dict(getattr(selected_recipe, "metadata", {}) or {}).get("operation_policy") or {})
     registered_policy = dict((registered_task or {}).get("task_policy") or {})
     task_operation_policy = dict(registered_policy.get("operation_policy") or {})
     context_policy = dict(current_turn_context.get("operation_policy") or {})
-    merged = {**template_policy, **task_operation_policy, **context_policy}
+    merged = {**recipe_policy, **task_operation_policy, **context_policy}
     allowed = _dedupe(list(merged.get("allowed_operations") or []))
     denied = _dedupe(list(merged.get("denied_operations") or []))
     if not allowed and not denied:

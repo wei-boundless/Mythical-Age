@@ -117,3 +117,41 @@ def test_failed_empty_stage_does_not_create_misleading_required_artifact(tmp_pat
     report_text = report_path.read_text(encoding="utf-8")
     assert "失败诊断" in report_text
     assert "401 Unauthorized from upstream provider" in report_text
+
+
+def test_rejected_stage_artifact_is_isolated_from_official_output(tmp_path: Path) -> None:
+    result = materialize_task_artifacts(
+        workspace_root=tmp_path,
+        task_run_id="taskrun:test:chapter_draft:rejected",
+        session_id="session-rejected",
+        task_ref="task.writing.simple_novel.chapter_draft",
+        coordination_run_id="coordrun:test",
+        final_content="# 【章节正文候选】\n\n第1章 正文不足。",
+        user_message="写第1-10章。",
+        explicit_inputs={
+            "artifact_root": "output/novel_artifacts/simple_novel/runs/session-rejected",
+            "batch_start_index": 1,
+            "batch_end_index": 10,
+            "round_index": 6,
+        },
+        task_policy=_base_policy("volume_001/chapters/chapter_001_010/draft_round_006.md"),
+        task_status="completed",
+        acceptance_status="rejected",
+        stage_id="chapter_draft",
+        request_id="stageexec:test:chapter_draft:old",
+    )
+
+    artifact_root = tmp_path / "output" / "novel_artifacts" / "simple_novel" / "runs" / "session-rejected"
+    assert not (artifact_root / "volume_001" / "chapters" / "chapter_001_010" / "draft_round_006.md").exists()
+    assert (
+        artifact_root
+        / "rejected"
+        / "chapter-draft"
+        / "chapter_001_010_round_006"
+        / "stageexec-test-chapter-draft-old"
+        / "volume_001"
+        / "chapters"
+        / "chapter_001_010"
+        / "draft_round_006.md"
+    ).exists()
+    assert all("/rejected/" in ref for ref in result.artifact_refs)

@@ -8,7 +8,6 @@ from typing import Any
 class AgentRuntimeProfile:
     agent_profile_id: str
     agent_id: str
-    allowed_task_modes: tuple[str, ...] = ()
     allowed_runtime_lanes: tuple[str, ...] = ()
     allowed_operations: tuple[str, ...] = ()
     blocked_operations: tuple[str, ...] = ()
@@ -29,7 +28,6 @@ class AgentRuntimeProfile:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         for key in (
-            "allowed_task_modes",
             "allowed_runtime_lanes",
             "allowed_operations",
             "blocked_operations",

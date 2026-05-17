@@ -42,6 +42,9 @@ def materialize_task_artifacts(
     task_status: str = "",
     terminal_reason: str = "",
     task_diagnostics: dict[str, Any] | None = None,
+    acceptance_status: str = "",
+    stage_id: str = "",
+    request_id: str = "",
 ) -> MaterializedTaskArtifacts:
     artifact_policy = dict(task_policy.get("artifact_policy") or {})
     if not artifact_policy.get("enabled"):
@@ -73,6 +76,15 @@ def materialize_task_artifacts(
             ),
         )
     artifact_root = _resolve_artifact_root(workspace, root_value)
+    rejected_output = str(acceptance_status or "").strip().lower() == "rejected"
+    visible_artifact_root = artifact_root
+    if rejected_output:
+        artifact_root = _rejected_artifact_root(
+            artifact_root,
+            stage_id=stage_id or _safe_slug(task_ref or task_run_id),
+            explicit_inputs=explicit_inputs,
+            request_id=request_id or task_run_id,
+        )
     artifact_root.mkdir(parents=True, exist_ok=True)
     (artifact_root / "debug").mkdir(parents=True, exist_ok=True)
 
@@ -148,6 +160,8 @@ def materialize_task_artifacts(
             "skipped_count": len(skipped),
             "task_status": task_status,
             "terminal_reason": terminal_reason,
+            "acceptance_status": acceptance_status,
+            "visible_artifact_root": _relative_or_absolute(visible_artifact_root, workspace),
             "source": "task_policy.artifact_policy",
         },
     )
@@ -272,6 +286,29 @@ def _render_artifact_path(path_template: str, explicit_inputs: dict[str, Any]) -
         rendered = rendered.replace("{" + key + ":03d}", padded_value)
         rendered = rendered.replace("{" + key + "}", str(value))
     return rendered
+
+
+def _rejected_artifact_root(
+    artifact_root: Path,
+    *,
+    stage_id: str,
+    explicit_inputs: dict[str, Any],
+    request_id: str,
+) -> Path:
+    batch_start = _safe_int(explicit_inputs.get("batch_start_index"), _safe_int(explicit_inputs.get("chapter_index"), 0))
+    batch_end = _safe_int(explicit_inputs.get("batch_end_index"), batch_start)
+    round_index = _safe_int(
+        explicit_inputs.get("round_index")
+        or explicit_inputs.get("revision_round")
+        or explicit_inputs.get("attempt_index"),
+        1,
+    )
+    batch_slug = (
+        f"chapter_{batch_start:03d}_{batch_end:03d}_round_{round_index:03d}"
+        if batch_start and batch_end
+        else f"round_{round_index:03d}"
+    )
+    return artifact_root / "rejected" / _safe_slug(stage_id) / batch_slug / _safe_slug(request_id)
 
 
 def _safe_int(value: Any, default: int = 0) -> int:

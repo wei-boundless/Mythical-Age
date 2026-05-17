@@ -29,7 +29,7 @@ class HealthCommandBuilder:
             conversation_session_ref=str(payload.get("conversation_session_ref") or ""),
             target_scope=str(payload.get("target_scope") or ""),
             target_ref=str(payload.get("target_ref") or ""),
-            task_mode=str(payload.get("task_mode") or ""),
+            health_action=str(payload.get("health_action") or ""),
             payload=dict(payload.get("payload") or {}),
             status=str(payload.get("status") or "pending"),
             created_at=now,

@@ -17,7 +17,7 @@ class HealthCommandRuntimeAdmission:
     command_id: str
     agent_id: str
     agent_profile_id: str
-    task_mode: str
+    health_action: str
     flow_id: str
     binding_id: str
     runtime_lane: str
@@ -47,7 +47,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
             command_id=command.command_id,
             agent_id="",
             agent_profile_id="",
-            task_mode=command.task_mode,
+            health_action=command.health_action,
             flow_id="",
             binding_id="",
             runtime_lane="",
@@ -56,7 +56,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
             diagnostics={"reason": "command_does_not_require_agent_runtime"},
         )
 
-    task_mode = command.task_mode or _default_task_mode(command.command_type)
+    health_action = command.health_action or _default_health_action(command.command_type)
     issue_id = str(command.target_ref or command.payload.get("issue_id") or "").strip()
     issue = get_health_issue_by_id(base_dir, issue_id)
     if issue is None:
@@ -64,7 +64,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
             command_id=command.command_id,
             agent_id="",
             agent_profile_id="",
-            task_mode=task_mode,
+            health_action=health_action,
             flow_id="",
             binding_id="",
             runtime_lane="",
@@ -80,7 +80,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
     plan = build_health_agent_execution_plan(
         base_dir,
         issue=issue,
-        task_mode=task_mode,
+        health_action=health_action,
         source="health_system.runtime_admission",
     )
     blocked = list(plan.blocked_reasons)
@@ -129,7 +129,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
         command_id=command.command_id,
         agent_id=plan.agent_id,
         agent_profile_id=plan.agent_profile_id,
-        task_mode=task_mode,
+        health_action=health_action,
         flow_id=plan.flow_id,
         binding_id=plan.binding_id,
         runtime_lane=plan.runtime_lane,
@@ -143,7 +143,7 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
     )
 
 
-def _default_task_mode(command_type: str) -> str:
+def _default_health_action(command_type: str) -> str:
     if command_type == "draft_case":
         return "case_draft"
     if command_type == "verify_fix":

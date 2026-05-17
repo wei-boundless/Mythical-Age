@@ -4084,43 +4084,49 @@
           }
         },
         {
-          "node_id": "human_review_handoff",
-          "node_type": "manual_gate",
-          "title": "人工接管",
-          "task_id": "task.writing.simple_novel.human_review_handoff",
-          "agent_id": "agent:0",
+          "node_id": "runtime_monitor",
+          "node_type": "runtime_monitor",
+          "title": "运行监测",
+          "task_id": "task.writing.simple_novel.runtime_monitor",
+          "agent_id": "agent:writing_runtime_monitor",
           "agent_selection_policy": "explicit_agent",
-          "agent_group_id": "",
-          "work_posture": "human",
-          "node_contract_id": "contract.writing.simple_novel.human_review_packet",
-          "input_contract_id": "contract.writing.simple_novel.human_review_input",
-          "output_contract_id": "contract.writing.simple_novel.human_review_packet",
-          "runtime_lane": "full_interactive",
+          "agent_group_id": "group.writing.simple_novel",
+          "work_posture": "monitor",
+          "node_contract_id": "contract.taskgraph.monitor.decision",
+          "input_contract_id": "contract.taskgraph.monitor.snapshot",
+          "output_contract_id": "contract.taskgraph.monitor.decision",
+          "runtime_lane": "task_graph_monitor",
           "context_visibility_policy": {
-            "shared_context_policy": "explicit_refs_only",
-            "memory_sharing_policy": "memory_pack_only",
-            "conversation_memory": "restricted",
-            "suppress_conversation_memory": false
+            "shared_context_policy": "runtime_monitor_snapshot_only",
+            "memory_sharing_policy": "monitor_visible_only",
+            "conversation_memory": "hidden",
+            "suppress_conversation_memory": true
           },
-          "projection_id": "hebo__primary",
-          "projection_overlay_id": "hebo__primary",
+          "projection_id": "projection.writing.simple_novel.runtime_monitor",
+          "projection_overlay_id": "projection.writing.simple_novel.runtime_monitor",
           "failure_policy": {
-            "default": "fail_closed",
-            "on_missing_required_memory": "fail_closed"
+            "default": "notify_and_continue",
+            "on_monitor_error": "record_supervision"
           },
           "human_gate_policy": {
-            "enabled": false,
-            "mode": "auto_continue",
-            "trigger_verdict": "human_review_required"
+            "enabled": true,
+            "mode": "run_interaction",
+            "trigger_action": "request_user_decision",
+            "window": "task_graph_run_interaction_panel"
           },
           "memory_read_policy": {
             "mode": "memory_pack_required",
             "access_model": "edge_based_repository_read",
             "topics": [
-              "safe_state_refs",
-              "blocking_issues"
+              "runtime_status",
+              "task_graph_monitor",
+              "project_runtime_status",
+              "supervision_records"
             ],
-            "required_topics": [],
+            "required_topics": [
+              "runtime_status",
+              "task_graph_monitor"
+            ],
             "forbidden_topics": [
               "raw_conversation_history"
             ],
@@ -4150,34 +4156,11 @@
             "suppress_conversation_memory": false,
             "token_budget": 6000
           },
-          "memory_writeback_policy": {
-            "mode": "system_receipt",
-            "access_model": "edge_based_repository_write",
-            "capture_artifact_refs": true,
-            "writable_indexes": [
-              "memory_runtime_index"
-            ],
-            "writable_kinds": [
-              "runtime_receipt"
-            ],
-            "writable_scopes": [
-              "writing_simple_novel",
-              "project_state",
-              "node_scope"
-            ],
-            "write_scope_guard": {
-              "baseline_memory_mutable": false,
-              "mutable_memory_mutable": false,
-              "forbid_frozen_character_rewrite": true,
-              "forbid_frozen_relationship_rewrite": true
-            },
-            "write_contract_id": "contract.writing.simple_novel.memory_write_request",
-            "receipt_contract_id": "contract.writing.simple_novel.memory_write_receipt"
-          },
+          "memory_writeback_policy": {},
           "dynamic_memory_read_policy": {},
-          "phase_id": "phase.terminal",
-          "sequence_index": 900,
-          "timeline_group_id": "phase.terminal",
+          "phase_id": "phase.monitor",
+          "sequence_index": 5,
+          "timeline_group_id": "phase.monitor",
           "main_chain": false,
           "blocks_phase_exit": false,
           "loop_policy": {},
@@ -4188,11 +4171,11 @@
             "source": "task_graph_node",
             "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
             "subdir_template": "",
-            "artifact_target": "handoff/human_review_packet.md",
+            "artifact_target": "monitor/runtime_monitor_decision.md",
             "storage_policy": "task_artifact_ref",
             "artifacts": [
               {
-                "path": "handoff/human_review_packet.md",
+                "path": "monitor/runtime_monitor_decision.md",
                 "required": true,
                 "content_source": "final_content",
                 "fallback_to_full_content": false
@@ -4202,29 +4185,33 @@
           "stream_policy": {
             "enabled": false,
             "mode": "disabled",
-            "monitor_visibility": "none",
-            "chunk_event_type": "",
-            "emit_text_preview": false,
-            "preview_char_limit": 0,
-            "persist_full_stream_text": false,
-            "fallback_to_non_stream_on_error": true
+            "monitor_visibility": "task_graph_monitor"
           },
-          "artifact_target": "handoff/human_review_packet.md",
-          "output_path": "handoff/human_review_packet.md",
-          "execution_mode": "sync",
-          "dispatch_group": "phase.terminal",
-          "wait_policy": "wait_all_upstream_completed",
-          "join_policy": "all_success",
-          "background_policy": {},
-          "notification_policy": {},
+          "artifact_target": "monitor/runtime_monitor_decision.md",
+          "output_path": "monitor/runtime_monitor_decision.md",
+          "execution_mode": "background",
+          "dispatch_group": "monitor",
+          "wait_policy": "fire_and_continue",
+          "join_policy": "allow_partial_with_issues",
+          "background_policy": {
+            "enabled": true,
+            "interval_seconds": 300,
+            "stale_after_seconds": 600,
+            "max_runtime_seconds": 86400,
+            "blocks_downstream": false
+          },
+          "notification_policy": {
+            "priority": "normal",
+            "include_result": "summary_and_refs"
+          },
           "resource_lifecycle_policy": {},
           "metadata": {
             "managed_by": "codex_writing_simple_novel_config_20260517",
-            "role": "human",
-            "role_identity": "你是一名人工接管协调员。",
-            "responsibility_scope": "你只负责整理需要人工决策的阻塞信息。",
-            "responsibility_exclusions": "你不负责自动替用户做不可恢复决策。",
-            "definition_of_done": "完成标准：必须列出阻塞原因、安全状态和需要人工选择的事项。",
+            "role": "monitor",
+            "role_identity": "你是一名 TaskGraph 运行监测员。",
+            "responsibility_scope": "你只负责读取运行监测快照，判断是否健康、是否需要续跑、提醒或人工审核。",
+            "responsibility_exclusions": "你不负责创作、审核正文或写入记忆库，也不直接修改业务节点输出。",
+            "definition_of_done": "完成标准：必须输出监测决策包，明确 action、reason、severity、recommended_control 和必要的 run_interaction_request。",
             "workflow_instruction_template": "先确认本轮时序位置，再读取输入包和授权记忆，随后完成职责，最后按输出契约交付。",
             "context_usage_rules": [
               "只使用输入包、MemorySnapshot、ArtifactContextPacket、RevisionPacket 中明确授权的信息。",
@@ -4236,12 +4223,104 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
-            "operation": "",
-            "memory_closed_loop": true,
-            "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
-            "chapters_per_round": 0,
-            "streaming_enabled": false
+            "operation": "monitor",
+            "monitor_policy": {
+              "watch_runtime_status": true,
+              "watch_streaming": true,
+              "watch_progress": true,
+              "watch_blockers": true,
+              "watch_manual_gate": true,
+              "stale_after_seconds": 600,
+              "allowed_actions": [
+                "no_action",
+                "notify",
+                "request_user_decision",
+                "resume",
+                "restart",
+                "pause",
+                "escalate"
+              ],
+              "interaction_surface": {
+                "window": "task_graph_run_interaction_panel",
+                "open_mode": "inline_panel",
+                "title": "写作任务运行交互",
+                "focus": {
+                  "layer": "publish",
+                  "facet": "run_interaction",
+                  "node_id": "runtime_monitor"
+                },
+                "decision_options": [
+                  {
+                    "decision": "continue_current_stage",
+                    "label": "续跑当前节点",
+                    "control_action": "continue_current_stage",
+                    "resume_payload": {
+                      "decision": "approve"
+                    }
+                  },
+                  {
+                    "decision": "retry_current_stage",
+                    "label": "重试当前节点",
+                    "control_action": "continue_current_stage",
+                    "resume_payload": {
+                      "decision": "retry"
+                    }
+                  },
+                  {
+                    "decision": "pause",
+                    "label": "暂停等待处理",
+                    "control_action": "stop_task_run",
+                    "resume_payload": {
+                      "decision": "reject",
+                      "reason": "monitor_pause_requested"
+                    }
+                  }
+                ]
+              }
+            },
+            "monitor_contract_ids": {
+              "snapshot": "contract.taskgraph.monitor.snapshot",
+              "decision": "contract.taskgraph.monitor.decision",
+              "run_interaction_request": "contract.taskgraph.run_interaction.request"
+            },
+            "run_interaction_window": {
+              "window": "task_graph_run_interaction_panel",
+              "open_mode": "inline_panel",
+              "title": "写作任务运行交互",
+              "focus": {
+                "layer": "publish",
+                "facet": "run_interaction",
+                "node_id": "runtime_monitor"
+              },
+              "decision_options": [
+                {
+                  "decision": "continue_current_stage",
+                  "label": "续跑当前节点",
+                  "control_action": "continue_current_stage",
+                  "resume_payload": {
+                    "decision": "approve"
+                  }
+                },
+                {
+                  "decision": "retry_current_stage",
+                  "label": "重试当前节点",
+                  "control_action": "continue_current_stage",
+                  "resume_payload": {
+                    "decision": "retry"
+                  }
+                },
+                {
+                  "decision": "pause",
+                  "label": "暂停等待处理",
+                  "control_action": "stop_task_run",
+                  "resume_payload": {
+                    "decision": "reject",
+                    "reason": "monitor_pause_requested"
+                  }
+                }
+              ]
+            },
+            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
           }
         },
         {
@@ -15351,6 +15430,13 @@
         },
         "runtime_loop_policy": {
           "enabled": true,
+          "monitor_node_id": "runtime_monitor",
+          "monitor_policy": {
+            "enabled": true,
+            "interval_seconds": 300,
+            "stale_after_seconds": 600,
+            "interaction_window": "task_graph_run_interaction_panel"
+          },
           "initial_inputs": {
             "volume_index": 1,
             "volume_current_words": 0,
@@ -19169,43 +19255,49 @@
           }
         },
         {
-          "node_id": "human_review_handoff",
-          "node_type": "manual_gate",
-          "title": "人工接管",
-          "task_id": "task.writing.simple_novel.human_review_handoff",
-          "agent_id": "agent:0",
+          "node_id": "runtime_monitor",
+          "node_type": "runtime_monitor",
+          "title": "运行监测",
+          "task_id": "task.writing.simple_novel.runtime_monitor",
+          "agent_id": "agent:writing_runtime_monitor",
           "agent_selection_policy": "explicit_agent",
-          "agent_group_id": "",
-          "work_posture": "human",
-          "node_contract_id": "contract.writing.simple_novel.human_review_packet",
-          "input_contract_id": "contract.writing.simple_novel.human_review_input",
-          "output_contract_id": "contract.writing.simple_novel.human_review_packet",
-          "runtime_lane": "full_interactive",
+          "agent_group_id": "group.writing.simple_novel",
+          "work_posture": "monitor",
+          "node_contract_id": "contract.taskgraph.monitor.decision",
+          "input_contract_id": "contract.taskgraph.monitor.snapshot",
+          "output_contract_id": "contract.taskgraph.monitor.decision",
+          "runtime_lane": "task_graph_monitor",
           "context_visibility_policy": {
-            "shared_context_policy": "explicit_refs_only",
-            "memory_sharing_policy": "memory_pack_only",
-            "conversation_memory": "restricted",
-            "suppress_conversation_memory": false
+            "shared_context_policy": "runtime_monitor_snapshot_only",
+            "memory_sharing_policy": "monitor_visible_only",
+            "conversation_memory": "hidden",
+            "suppress_conversation_memory": true
           },
-          "projection_id": "hebo__primary",
-          "projection_overlay_id": "hebo__primary",
+          "projection_id": "projection.writing.simple_novel.runtime_monitor",
+          "projection_overlay_id": "projection.writing.simple_novel.runtime_monitor",
           "failure_policy": {
-            "default": "fail_closed",
-            "on_missing_required_memory": "fail_closed"
+            "default": "notify_and_continue",
+            "on_monitor_error": "record_supervision"
           },
           "human_gate_policy": {
-            "enabled": false,
-            "mode": "auto_continue",
-            "trigger_verdict": "human_review_required"
+            "enabled": true,
+            "mode": "run_interaction",
+            "trigger_action": "request_user_decision",
+            "window": "task_graph_run_interaction_panel"
           },
           "memory_read_policy": {
             "mode": "memory_pack_required",
             "access_model": "edge_based_repository_read",
             "topics": [
-              "safe_state_refs",
-              "blocking_issues"
+              "runtime_status",
+              "task_graph_monitor",
+              "project_runtime_status",
+              "supervision_records"
             ],
-            "required_topics": [],
+            "required_topics": [
+              "runtime_status",
+              "task_graph_monitor"
+            ],
             "forbidden_topics": [
               "raw_conversation_history"
             ],
@@ -19235,34 +19327,11 @@
             "suppress_conversation_memory": false,
             "token_budget": 6000
           },
-          "memory_writeback_policy": {
-            "mode": "system_receipt",
-            "access_model": "edge_based_repository_write",
-            "capture_artifact_refs": true,
-            "writable_indexes": [
-              "memory_runtime_index"
-            ],
-            "writable_kinds": [
-              "runtime_receipt"
-            ],
-            "writable_scopes": [
-              "writing_simple_novel",
-              "project_state",
-              "node_scope"
-            ],
-            "write_scope_guard": {
-              "baseline_memory_mutable": false,
-              "mutable_memory_mutable": false,
-              "forbid_frozen_character_rewrite": true,
-              "forbid_frozen_relationship_rewrite": true
-            },
-            "write_contract_id": "contract.writing.simple_novel.memory_write_request",
-            "receipt_contract_id": "contract.writing.simple_novel.memory_write_receipt"
-          },
+          "memory_writeback_policy": {},
           "dynamic_memory_read_policy": {},
-          "phase_id": "phase.terminal",
-          "sequence_index": 900,
-          "timeline_group_id": "phase.terminal",
+          "phase_id": "phase.monitor",
+          "sequence_index": 5,
+          "timeline_group_id": "phase.monitor",
           "main_chain": false,
           "blocks_phase_exit": false,
           "loop_policy": {},
@@ -19273,11 +19342,11 @@
             "source": "task_graph_node",
             "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
             "subdir_template": "",
-            "artifact_target": "handoff/human_review_packet.md",
+            "artifact_target": "monitor/runtime_monitor_decision.md",
             "storage_policy": "task_artifact_ref",
             "artifacts": [
               {
-                "path": "handoff/human_review_packet.md",
+                "path": "monitor/runtime_monitor_decision.md",
                 "required": true,
                 "content_source": "final_content",
                 "fallback_to_full_content": false
@@ -19287,29 +19356,33 @@
           "stream_policy": {
             "enabled": false,
             "mode": "disabled",
-            "monitor_visibility": "none",
-            "chunk_event_type": "",
-            "emit_text_preview": false,
-            "preview_char_limit": 0,
-            "persist_full_stream_text": false,
-            "fallback_to_non_stream_on_error": true
+            "monitor_visibility": "task_graph_monitor"
           },
-          "artifact_target": "handoff/human_review_packet.md",
-          "output_path": "handoff/human_review_packet.md",
-          "execution_mode": "sync",
-          "dispatch_group": "phase.terminal",
-          "wait_policy": "wait_all_upstream_completed",
-          "join_policy": "all_success",
-          "background_policy": {},
-          "notification_policy": {},
+          "artifact_target": "monitor/runtime_monitor_decision.md",
+          "output_path": "monitor/runtime_monitor_decision.md",
+          "execution_mode": "background",
+          "dispatch_group": "monitor",
+          "wait_policy": "fire_and_continue",
+          "join_policy": "allow_partial_with_issues",
+          "background_policy": {
+            "enabled": true,
+            "interval_seconds": 300,
+            "stale_after_seconds": 600,
+            "max_runtime_seconds": 86400,
+            "blocks_downstream": false
+          },
+          "notification_policy": {
+            "priority": "normal",
+            "include_result": "summary_and_refs"
+          },
           "resource_lifecycle_policy": {},
           "metadata": {
             "managed_by": "codex_writing_simple_novel_config_20260517",
-            "role": "human",
-            "role_identity": "你是一名人工接管协调员。",
-            "responsibility_scope": "你只负责整理需要人工决策的阻塞信息。",
-            "responsibility_exclusions": "你不负责自动替用户做不可恢复决策。",
-            "definition_of_done": "完成标准：必须列出阻塞原因、安全状态和需要人工选择的事项。",
+            "role": "monitor",
+            "role_identity": "你是一名 TaskGraph 运行监测员。",
+            "responsibility_scope": "你只负责读取运行监测快照，判断是否健康、是否需要续跑、提醒或人工审核。",
+            "responsibility_exclusions": "你不负责创作、审核正文或写入记忆库，也不直接修改业务节点输出。",
+            "definition_of_done": "完成标准：必须输出监测决策包，明确 action、reason、severity、recommended_control 和必要的 run_interaction_request。",
             "workflow_instruction_template": "先确认本轮时序位置，再读取输入包和授权记忆，随后完成职责，最后按输出契约交付。",
             "context_usage_rules": [
               "只使用输入包、MemorySnapshot、ArtifactContextPacket、RevisionPacket 中明确授权的信息。",
@@ -19321,12 +19394,104 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
-            "operation": "",
-            "memory_closed_loop": true,
-            "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
-            "chapters_per_round": 0,
-            "streaming_enabled": false
+            "operation": "monitor",
+            "monitor_policy": {
+              "watch_runtime_status": true,
+              "watch_streaming": true,
+              "watch_progress": true,
+              "watch_blockers": true,
+              "watch_manual_gate": true,
+              "stale_after_seconds": 600,
+              "allowed_actions": [
+                "no_action",
+                "notify",
+                "request_user_decision",
+                "resume",
+                "restart",
+                "pause",
+                "escalate"
+              ],
+              "interaction_surface": {
+                "window": "task_graph_run_interaction_panel",
+                "open_mode": "inline_panel",
+                "title": "写作任务运行交互",
+                "focus": {
+                  "layer": "publish",
+                  "facet": "run_interaction",
+                  "node_id": "runtime_monitor"
+                },
+                "decision_options": [
+                  {
+                    "decision": "continue_current_stage",
+                    "label": "续跑当前节点",
+                    "control_action": "continue_current_stage",
+                    "resume_payload": {
+                      "decision": "approve"
+                    }
+                  },
+                  {
+                    "decision": "retry_current_stage",
+                    "label": "重试当前节点",
+                    "control_action": "continue_current_stage",
+                    "resume_payload": {
+                      "decision": "retry"
+                    }
+                  },
+                  {
+                    "decision": "pause",
+                    "label": "暂停等待处理",
+                    "control_action": "stop_task_run",
+                    "resume_payload": {
+                      "decision": "reject",
+                      "reason": "monitor_pause_requested"
+                    }
+                  }
+                ]
+              }
+            },
+            "monitor_contract_ids": {
+              "snapshot": "contract.taskgraph.monitor.snapshot",
+              "decision": "contract.taskgraph.monitor.decision",
+              "run_interaction_request": "contract.taskgraph.run_interaction.request"
+            },
+            "run_interaction_window": {
+              "window": "task_graph_run_interaction_panel",
+              "open_mode": "inline_panel",
+              "title": "写作任务运行交互",
+              "focus": {
+                "layer": "publish",
+                "facet": "run_interaction",
+                "node_id": "runtime_monitor"
+              },
+              "decision_options": [
+                {
+                  "decision": "continue_current_stage",
+                  "label": "续跑当前节点",
+                  "control_action": "continue_current_stage",
+                  "resume_payload": {
+                    "decision": "approve"
+                  }
+                },
+                {
+                  "decision": "retry_current_stage",
+                  "label": "重试当前节点",
+                  "control_action": "continue_current_stage",
+                  "resume_payload": {
+                    "decision": "retry"
+                  }
+                },
+                {
+                  "decision": "pause",
+                  "label": "暂停等待处理",
+                  "control_action": "stop_task_run",
+                  "resume_payload": {
+                    "decision": "reject",
+                    "reason": "monitor_pause_requested"
+                  }
+                }
+              ]
+            },
+            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
           }
         },
         {
@@ -30374,7 +30539,7 @@
         "task.writing.simple_novel.final_assemble",
         "task.writing.simple_novel.final_review",
         "task.writing.simple_novel.memory_finalize",
-        "task.writing.simple_novel.human_review_handoff",
+        "task.writing.simple_novel.runtime_monitor",
         "task.writing.simple_novel.fail_closed"
       ]
     },

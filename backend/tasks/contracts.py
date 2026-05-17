@@ -10,7 +10,7 @@ class TaskContract:
     session_id: str
     user_goal: str
     source: str = "user_request"
-    template_id: str = ""
+    recipe_id: str = ""
     task_family: str = "unknown"
     task_mode: str = "unknown"
     parent_task_id: str = ""
@@ -33,7 +33,7 @@ def build_task_contract(
     session_id: str,
     user_goal: str,
     source: str = "runtime",
-    template_id: str = "",
+    recipe_id: str = "",
     task_family: str = "unknown",
     task_mode: str = "unknown",
     task_spec_ref: str = "",
@@ -43,7 +43,7 @@ def build_task_contract(
         session_id=session_id,
         user_goal=user_goal,
         source=source,
-        template_id=template_id,
+        recipe_id=recipe_id,
         task_family=task_family,
         task_mode=task_mode,
         task_spec_ref=task_spec_ref,

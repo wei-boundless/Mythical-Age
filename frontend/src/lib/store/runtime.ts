@@ -1,10 +1,13 @@
 "use client";
 
 import {
+  continueOrchestrationCurrentStage,
+  evaluateTaskGraphRunMonitor,
   loadFile,
   createSession,
   deleteSession,
   getCoordinationRunTaskGraphMonitor,
+  getTaskGraphRunMonitorDecisions,
   getTaskGraphRunMonitor,
   getOrchestrationRuntimeLoopSessionLiveMonitor,
   getRagMode,
@@ -16,6 +19,7 @@ import {
   renameSession,
   saveFile,
   setRagMode,
+  stopOrchestrationTaskRun,
   streamChat,
   switchSoulSystemSeed,
   taskGraphRunIdFromLiveMonitor,
@@ -32,8 +36,10 @@ import {
 
 import type { Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
-import type { SearchPolicySource, StoreActions, StoreState, TaskSelectionState, WorkspaceView } from "./types";
+import type { SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
+
+const TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY = "task-graph-monitor-binding";
 
 export class WorkspaceRuntime {
   private createSessionPromise: Promise<string> | null = null;
@@ -43,6 +49,9 @@ export class WorkspaceRuntime {
   private orchestrationMonitorTimer: number | null = null;
   private orchestrationMonitorSessionId: string | null = null;
   private orchestrationMonitorInFlight = false;
+  private taskGraphMonitorTimer: number | null = null;
+  private taskGraphMonitorTaskRunId: string | null = null;
+  private taskGraphMonitorInFlight = false;
   private sessionRefreshTimers: number[] = [];
   private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot">>();
   private removedStreamingSessionIds = new Set<string>();
@@ -116,6 +125,21 @@ export class WorkspaceRuntime {
       setOrchestrationSnapshot: (snapshot) => {
         this.setOrchestrationSnapshot(snapshot);
       },
+      bindTaskGraphMonitorRun: (binding) => {
+        this.bindTaskGraphMonitorRun(binding);
+      },
+      clearTaskGraphMonitorRun: () => {
+        this.clearTaskGraphMonitorRun();
+      },
+      setTaskGraphRunInteractionOpen: (open) => {
+        this.setTaskGraphRunInteractionOpen(open);
+      },
+      evaluateBoundTaskGraphMonitor: async () => {
+        await this.evaluateBoundTaskGraphMonitor();
+      },
+      submitTaskGraphMonitorDecision: async (decision, controlAction, resumePayload) => {
+        await this.submitTaskGraphMonitorDecision(decision, controlAction, resumePayload);
+      },
       resumeTaskGraphRun: async (taskGraphRunId, payload) => {
         await this.resumeTaskGraphRun(taskGraphRunId, payload);
       },
@@ -160,6 +184,7 @@ export class WorkspaceRuntime {
       inspectorContent: file.content,
       inspectorDirty: false
     }));
+    this.restoreTaskGraphMonitorBinding();
   }
 
   dispose() {
@@ -171,6 +196,7 @@ export class WorkspaceRuntime {
     }
     this.sessionRefreshTimers = [];
     this.stopOrchestrationMonitorPolling();
+    this.stopTaskGraphMonitorPolling();
   }
 
   private scheduleSessionRefreshes(delays: number[] = [1500, 4000]) {
@@ -747,6 +773,268 @@ export class WorkspaceRuntime {
 
   private setOrchestrationSnapshot(snapshot: StoreState["orchestrationSnapshot"]) {
     this.store.setState((prev) => ({ ...prev, orchestrationSnapshot: snapshot }));
+  }
+
+  private normalizeTaskGraphMonitorBinding(
+    binding: Omit<TaskGraphMonitorBinding, "bound_at"> & { bound_at?: number }
+  ): TaskGraphMonitorBinding | null {
+    const taskRunId = String(binding.task_run_id ?? "").trim();
+    if (!taskRunId) {
+      return null;
+    }
+    return {
+      task_run_id: taskRunId,
+      coordination_run_id: String(binding.coordination_run_id ?? "").trim() || undefined,
+      graph_id: String(binding.graph_id ?? "").trim() || undefined,
+      session_id: String(binding.session_id ?? "").trim() || undefined,
+      project_id: String(binding.project_id ?? "").trim() || undefined,
+      title: String(binding.title ?? "").trim() || undefined,
+      bound_at: Number(binding.bound_at ?? Date.now() / 1000),
+    };
+  }
+
+  private bindTaskGraphMonitorRun(binding: Omit<TaskGraphMonitorBinding, "bound_at"> & { bound_at?: number }) {
+    const normalized = this.normalizeTaskGraphMonitorBinding(binding);
+    if (!normalized) {
+      return;
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      taskGraphMonitorBinding: normalized,
+      taskGraphMonitorError: "",
+      taskGraphRunInteractionOpen: prev.taskGraphRunInteractionOpen || Boolean(prev.taskGraphMonitorDecision?.action && prev.taskGraphMonitorDecision.action !== "no_action"),
+    }));
+    this.persistTaskGraphMonitorBinding(normalized);
+    this.startTaskGraphMonitorPolling(normalized.task_run_id);
+  }
+
+  private clearTaskGraphMonitorRun() {
+    this.stopTaskGraphMonitorPolling();
+    this.persistTaskGraphMonitorBinding(null);
+    this.store.setState((prev) => ({
+      ...prev,
+      taskGraphMonitorBinding: null,
+      taskGraphBoundRunMonitor: null,
+      taskGraphMonitorDecision: null,
+      taskGraphMonitorDecisions: [],
+      taskGraphMonitorError: "",
+      taskGraphRunInteractionOpen: false,
+    }));
+  }
+
+  private setTaskGraphRunInteractionOpen(open: boolean) {
+    this.store.setState((prev) => ({ ...prev, taskGraphRunInteractionOpen: open }));
+  }
+
+  private restoreTaskGraphMonitorBinding() {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw) as Partial<TaskGraphMonitorBinding>;
+      const normalized = this.normalizeTaskGraphMonitorBinding({
+        task_run_id: String(parsed.task_run_id ?? ""),
+        coordination_run_id: parsed.coordination_run_id,
+        graph_id: parsed.graph_id,
+        session_id: parsed.session_id,
+        project_id: parsed.project_id,
+        title: parsed.title,
+        bound_at: parsed.bound_at,
+      });
+      if (!normalized) {
+        return;
+      }
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorBinding: normalized,
+      }));
+      this.startTaskGraphMonitorPolling(normalized.task_run_id);
+    } catch {
+      // Binding persistence is convenience state only.
+    }
+  }
+
+  private persistTaskGraphMonitorBinding(binding: TaskGraphMonitorBinding | null) {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      if (!binding) {
+        window.localStorage.removeItem(TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY);
+        return;
+      }
+      window.localStorage.setItem(TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY, JSON.stringify(binding));
+    } catch {
+      // Losing local persistence must not break runtime monitoring in memory.
+    }
+  }
+
+  private stopTaskGraphMonitorPolling() {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (this.taskGraphMonitorTimer !== null) {
+      window.clearTimeout(this.taskGraphMonitorTimer);
+      this.taskGraphMonitorTimer = null;
+    }
+    this.taskGraphMonitorTaskRunId = null;
+    this.taskGraphMonitorInFlight = false;
+  }
+
+  private startTaskGraphMonitorPolling(taskRunId: string) {
+    const targetTaskRunId = taskRunId.trim();
+    if (typeof window === "undefined" || !targetTaskRunId) {
+      return;
+    }
+    if (this.taskGraphMonitorTimer !== null) {
+      window.clearTimeout(this.taskGraphMonitorTimer);
+      this.taskGraphMonitorTimer = null;
+    }
+    this.taskGraphMonitorTaskRunId = targetTaskRunId;
+    void this.pollTaskGraphMonitor(targetTaskRunId);
+  }
+
+  private scheduleNextTaskGraphMonitorPoll(taskRunId: string, delayMs = 1800) {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (this.taskGraphMonitorTimer !== null) {
+      window.clearTimeout(this.taskGraphMonitorTimer);
+    }
+    this.taskGraphMonitorTimer = window.setTimeout(() => {
+      void this.pollTaskGraphMonitor(taskRunId);
+    }, delayMs);
+  }
+
+  private async pollTaskGraphMonitor(taskRunId: string) {
+    const targetTaskRunId = taskRunId.trim();
+    if (!targetTaskRunId || this.taskGraphMonitorTaskRunId !== targetTaskRunId) {
+      return;
+    }
+    if (this.taskGraphMonitorInFlight) {
+      this.scheduleNextTaskGraphMonitorPoll(targetTaskRunId, 900);
+      return;
+    }
+    this.taskGraphMonitorInFlight = true;
+    try {
+      const monitor = await getTaskGraphRunMonitor(targetTaskRunId);
+      if (this.taskGraphMonitorTaskRunId === targetTaskRunId) {
+        this.store.setState((prev) => ({
+          ...prev,
+          taskGraphBoundRunMonitor: monitor,
+          taskGraphMonitorError: "",
+        }));
+      }
+    } catch (error) {
+      if (this.taskGraphMonitorTaskRunId === targetTaskRunId) {
+        this.store.setState((prev) => ({
+          ...prev,
+          taskGraphMonitorError: error instanceof Error ? error.message : "TaskGraph 运行监控读取失败",
+        }));
+      }
+    } finally {
+      this.taskGraphMonitorInFlight = false;
+      if (this.taskGraphMonitorTaskRunId === targetTaskRunId) {
+        this.scheduleNextTaskGraphMonitorPoll(targetTaskRunId);
+      }
+    }
+  }
+
+  private async evaluateBoundTaskGraphMonitor() {
+    const binding = this.store.getState().taskGraphMonitorBinding;
+    const taskRunId = binding?.task_run_id?.trim() ?? "";
+    if (!taskRunId) {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有绑定可监测的 TaskRun。" }));
+      return;
+    }
+    this.store.setState((prev) => ({ ...prev, taskGraphMonitorLoading: true, taskGraphMonitorError: "" }));
+    try {
+      const result = await evaluateTaskGraphRunMonitor(taskRunId, { monitor_node_id: "runtime_monitor" });
+      const decisions = await getTaskGraphRunMonitorDecisions(taskRunId);
+      const shouldOpen = Boolean(result.decision?.action && result.decision.action !== "no_action");
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorDecision: result.decision,
+        taskGraphMonitorDecisions: decisions.decisions ?? [],
+        taskGraphBoundRunMonitor: result.monitor_snapshot ?? prev.taskGraphBoundRunMonitor,
+        taskGraphRunInteractionOpen: shouldOpen ? true : prev.taskGraphRunInteractionOpen,
+      }));
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorError: error instanceof Error ? error.message : "监测评估失败",
+      }));
+    } finally {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorLoading: false }));
+    }
+  }
+
+  private async submitTaskGraphMonitorDecision(
+    decision: string,
+    controlAction: string,
+    resumePayload?: Record<string, unknown>,
+  ) {
+    const state = this.store.getState();
+    const binding = state.taskGraphMonitorBinding;
+    const monitorDecision = state.taskGraphMonitorDecision;
+    const coordinationRunId = String(
+      monitorDecision?.coordination_run_id
+      || binding?.coordination_run_id
+      || state.taskGraphBoundRunMonitor?.coordination_run_id
+      || ""
+    ).trim();
+    const taskRunId = String(binding?.task_run_id || monitorDecision?.task_run_id || "").trim();
+    if (!coordinationRunId) {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorError: "当前没有可处理运行交互的 CoordinationRun。" }));
+      return;
+    }
+    this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: true, taskGraphMonitorError: "" }));
+    try {
+      if (controlAction === "continue_current_stage" || decision === "continue_current_stage" || decision === "retry_current_stage") {
+        await continueOrchestrationCurrentStage(coordinationRunId, {
+          source: "task_graph_monitor_global_dock",
+          current_turn_context: {
+            decision,
+            monitor_decision_id: monitorDecision?.decision_id,
+            ...(resumePayload ?? {}),
+          },
+        });
+      } else if (controlAction === "stop_task_run" || decision === "pause") {
+        await stopOrchestrationTaskRun(taskRunId, {
+          reason: String(resumePayload?.reason || "monitor_pause_requested"),
+          message: "TaskGraph 运行交互浮窗暂停运行",
+          coordination_run_id: coordinationRunId,
+        });
+      } else if (controlAction === "acknowledge" || decision === "acknowledge") {
+        this.store.setState((prev) => ({ ...prev, taskGraphRunInteractionOpen: false }));
+      } else {
+        await resumeOrchestrationTaskGraphRun(coordinationRunId, {
+          decision,
+          source: "task_graph_monitor_global_dock",
+          monitor_decision_id: monitorDecision?.decision_id,
+          ...(resumePayload ?? {}),
+        });
+      }
+      if (taskRunId) {
+        const monitor = await getTaskGraphRunMonitor(taskRunId);
+        this.store.setState((prev) => ({
+          ...prev,
+          taskGraphBoundRunMonitor: monitor,
+          taskGraphRunInteractionOpen: false,
+        }));
+      }
+    } catch (error) {
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphMonitorError: error instanceof Error ? error.message : "运行交互处理失败",
+      }));
+    } finally {
+      this.store.setState((prev) => ({ ...prev, taskGraphMonitorActionLoading: false }));
+    }
   }
 
   private stopOrchestrationMonitorPolling() {

@@ -7,9 +7,7 @@ import { contractSpecTitle } from "@/components/workspace/views/task-system/Cont
 import { TaskSystemToolbarButton, taskSystemOptionLabel } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 import {
   buildTaskSystemTaskGraphNodeRuntimeAssembly,
-  buildTaskSystemWorkflowRuntimeAssembly,
   compileTaskSystemTaskGraphContractManifest,
-  compileTaskSystemWorkflowContractManifest,
   type ContractManifest,
   type ContractSpec,
   type RuntimeAssembly,
@@ -20,8 +18,8 @@ import {
 function kindLabel(value: string) {
   const labels: Record<string, string> = {
     global_task: "全局任务",
-    workflow: "单任务工作流",
-    workflow_step: "工作流步骤",
+    workflow: "旧单任务工作流",
+    workflow_step: "旧工作流步骤",
     node_execution: "节点执行",
     edge_handoff: "边交接",
     final_output: "最终输出",
@@ -45,18 +43,17 @@ function refCount(manifest: ContractManifest | null) {
 
 export function ContractOverviewPanel({
   contractSpecs,
-  selectedTask,
   selectedTaskGraph,
   selectedNodeId,
+  selectedTask,
 }: {
   contractSpecs: ContractSpec[];
-  selectedTask: SpecificTaskRecord | null;
   selectedTaskGraph: TaskGraphRecord | null;
   selectedNodeId: string;
+  selectedTask?: SpecificTaskRecord | null;
 }) {
   const [loading, setLoading] = useState("");
   const [error, setError] = useState("");
-  const [workflowManifest, setWorkflowManifest] = useState<ContractManifest | null>(null);
   const [taskGraphManifest, setTaskGraphManifest] = useState<ContractManifest | null>(null);
   const [assembly, setAssembly] = useState<RuntimeAssembly | null>(null);
 
@@ -65,32 +62,6 @@ export function ContractOverviewPanel({
     contractSpecs.forEach((spec) => counts.set(spec.contract_kind, (counts.get(spec.contract_kind) ?? 0) + 1));
     return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [contractSpecs]);
-
-  async function previewWorkflowManifest() {
-    if (!selectedTask?.default_workflow_id || !selectedTask.task_id) return;
-    setLoading("workflow-manifest");
-    setError("");
-    try {
-      setWorkflowManifest(await compileTaskSystemWorkflowContractManifest(selectedTask.default_workflow_id, selectedTask.task_id));
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Workflow 契约预检失败");
-    } finally {
-      setLoading("");
-    }
-  }
-
-  async function previewWorkflowAssembly() {
-    if (!selectedTask?.default_workflow_id || !selectedTask.task_id) return;
-    setLoading("workflow-assembly");
-    setError("");
-    try {
-      setAssembly(await buildTaskSystemWorkflowRuntimeAssembly(selectedTask.default_workflow_id, selectedTask.task_id));
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "Workflow RuntimeAssembly 预览失败");
-    } finally {
-      setLoading("");
-    }
-  }
 
   async function previewTaskGraphManifest() {
     if (!selectedTaskGraph?.graph_id) return;
@@ -149,12 +120,6 @@ export function ContractOverviewPanel({
         <header><strong>运行前预检</strong></header>
         {error ? <div className="boundary-alert boundary-alert--error">{error}</div> : null}
         <div className="boundary-actions">
-          <TaskSystemToolbarButton disabled={!selectedTask || Boolean(loading)} onClick={() => void previewWorkflowManifest()}>
-            {loading === "workflow-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}单任务清单
-          </TaskSystemToolbarButton>
-          <TaskSystemToolbarButton disabled={!selectedTask || Boolean(loading)} onClick={() => void previewWorkflowAssembly()}>
-            {loading === "workflow-assembly" ? <Loader2 size={14} /> : <PackageCheck size={14} />}单任务装配
-          </TaskSystemToolbarButton>
           <TaskSystemToolbarButton disabled={!selectedTaskGraph || Boolean(loading)} onClick={() => void previewTaskGraphManifest()}>
             {loading === "task-graph-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}任务图清单
           </TaskSystemToolbarButton>
@@ -163,10 +128,9 @@ export function ContractOverviewPanel({
           </TaskSystemToolbarButton>
         </div>
         <div className="boundary-kv">
-          <p><span>单任务</span><strong>{selectedTask?.task_title || "未选择"}</strong></p>
           <p><span>任务图</span><strong>{selectedTaskGraph?.title || "未选择"}</strong></p>
+          <p><span>当前任务</span><strong>{selectedTask?.task_title || selectedTask?.task_id || "未选择"}</strong></p>
           <p><span>选中节点</span><strong>{selectedNodeId || "未选择"}</strong></p>
-          <p><span>单任务契约清单</span><strong>{workflowManifest ? `${refCount(workflowManifest)} 引用 / ${workflowManifest.issues.length} 问题` : "未生成"}</strong></p>
           <p><span>任务图契约清单</span><strong>{taskGraphManifest ? `${refCount(taskGraphManifest)} 引用 / ${taskGraphManifest.issues.length} 问题` : "未生成"}</strong></p>
           <p><span>运行装配</span><strong>{assembly?.assembly_id || "未生成"}</strong></p>
         </div>
@@ -176,7 +140,7 @@ export function ContractOverviewPanel({
         <header><strong>预览详情</strong></header>
         <textarea
           readOnly
-          value={JSON.stringify({ workflowManifest, taskGraphManifest, assembly }, null, 2)}
+          value={JSON.stringify({ taskGraphManifest, assembly }, null, 2)}
         />
       </aside>
     </section>

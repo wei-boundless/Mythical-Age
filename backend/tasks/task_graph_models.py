@@ -37,6 +37,7 @@ TASK_GRAPH_NODE_TYPES = {
     "tool",
     "barrier",
     "manual_gate",
+    "runtime_monitor",
     "memory_resource",
     "memory_read",
     "memory_write",
@@ -312,6 +313,12 @@ def validate_task_graph(graph: TaskGraphDefinition) -> tuple[TaskGraphValidation
             issues.append(TaskGraphValidationIssue(code="node_type_invalid", message="节点 node_type 不受支持", node_id=node.node_id))
         if node.node_type == "agent" and not node.agent_id and not node.agent_group_id:
             issues.append(TaskGraphValidationIssue(code="agent_node_missing_agent_ref", message="Agent 节点缺少 agent_id 或 agent_group_id", node_id=node.node_id))
+        if node.node_type == "runtime_monitor":
+            if node.execution_mode != "background":
+                issues.append(TaskGraphValidationIssue(code="monitor_node_execution_mode_invalid", message="监测节点必须使用 background execution_mode", node_id=node.node_id))
+            monitor_policy = dict(node.metadata.get("monitor_policy") or {})
+            if not monitor_policy:
+                issues.append(TaskGraphValidationIssue(code="monitor_node_policy_missing", message="监测节点缺少 metadata.monitor_policy", severity="warning", node_id=node.node_id))
         if node.node_type in {"memory_resource", "memory_read", "memory_write", "memory_handoff", "memory_commit", "memory_finalize"}:
             operation = str(node.metadata.get("operation") or node.node_type.replace("memory_", "")).strip()
             if operation not in MEMORY_RESOURCE_OPERATIONS:

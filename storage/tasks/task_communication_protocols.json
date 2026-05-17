@@ -147,15 +147,17 @@
         "contract.writing.simple_novel.final_review_input",
         "contract.writing.simple_novel.final_review",
         "contract.writing.simple_novel.delivery_package",
-        "contract.writing.simple_novel.human_review_input",
-        "contract.writing.simple_novel.human_review_packet",
         "contract.writing.simple_novel.failure_input",
         "contract.writing.simple_novel.failure_report",
         "contract.writing.simple_novel.memory_read_request",
         "contract.writing.simple_novel.memory_pack",
         "contract.writing.simple_novel.memory_write_request",
         "contract.writing.simple_novel.memory_write_receipt",
-        "contract.writing.simple_novel.graph"
+        "contract.writing.simple_novel.monitor_decision",
+        "contract.writing.simple_novel.graph",
+        "contract.taskgraph.monitor.snapshot",
+        "contract.taskgraph.monitor.decision",
+        "contract.taskgraph.run_interaction.request"
       ],
       "signal_rules": [
         "memory_pack_required_before_business_node",

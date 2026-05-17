@@ -7,9 +7,31 @@ from capability_system.local_mcp_registry import get_local_mcp_unit_for_source_k
 from .bundle_models import BundleItemSpec, BundleSpec
 from .definitions import default_task_definitions
 from .flow_registry import TaskFlowRegistry
+from .match_contracts import TaskIntentContract
 from .spec_models import TaskSpec
 from .step_models import StepInputBinding, TaskStepBlueprint
 from .workflow_registry import TaskWorkflowRegistry
+
+
+def _record_task_mode(record: Any, flow: Any | None = None) -> str:
+    policy = dict(getattr(record, "task_policy", {}) or {})
+    structure = dict(policy.get("task_structure") or {})
+    metadata = dict(getattr(record, "metadata", {}) or {})
+    flow_metadata = dict(getattr(flow, "metadata", {}) or {}) if flow is not None else {}
+    return str(
+        metadata.get("task_mode")
+        or structure.get("task_mode")
+        or structure.get("runtime_lane_hint")
+        or getattr(record, "runtime_lane", "")
+        or flow_metadata.get("task_mode")
+        or getattr(flow, "default_runtime_lane", "")
+        or ""
+    ).strip()
+
+
+def _flow_task_mode(flow: Any) -> str:
+    metadata = dict(getattr(flow, "metadata", {}) or {})
+    return str(metadata.get("task_mode") or getattr(flow, "default_runtime_lane", "") or "").strip()
 
 
 def _dedupe(values: list[str] | tuple[str, ...]) -> list[str]:
@@ -43,6 +65,158 @@ def _task_contract_execution_mode(current_turn_context: dict[str, Any]) -> str:
     if mode == "bundle":
         return "bundle_execution"
     return "single_agent_runtime"
+
+
+def build_runtime_task_intent_contract(
+    *,
+    session_id: str,
+    task_id: str,
+    user_goal: str,
+    query_understanding: dict[str, Any] | None = None,
+    current_turn_context: dict[str, Any] | None = None,
+) -> TaskIntentContract:
+    understanding = dict(query_understanding or {})
+    current_turn = dict(current_turn_context or {})
+    explicit_inputs = dict(current_turn.get("explicit_inputs") or {})
+    bundle_items = [
+        dict(item)
+        for item in list(current_turn.get("bundle_items") or [])
+        if isinstance(item, dict)
+    ]
+    resolved_bindings = [
+        dict(item)
+        for item in list(current_turn.get("resolved_bindings") or [])
+        if isinstance(item, dict)
+    ]
+    capability_requests = _dedupe(
+        [
+            *[
+                str(item or "").strip()
+                for item in list(understanding.get("capability_requests") or [])
+                if str(item or "").strip()
+            ],
+            *[
+                str(item or "").strip()
+                for item in list(explicit_inputs.get("capability_requests") or [])
+                if str(item or "").strip()
+            ],
+        ]
+    )
+    followup_target_refs = _dedupe(
+        [
+            *[
+                str(item.get("followup_target_ref") or item.get("target_ref") or "").strip()
+                for item in bundle_items
+                if isinstance(item, dict)
+            ],
+            *[
+                str(item or "").strip()
+                for item in list(current_turn.get("followup_target_refs") or [])
+                if str(item or "").strip()
+            ],
+        ]
+    )
+    return TaskIntentContract(
+        task_intent_id=f"task-intent:{session_id}:{task_id}",
+        session_id=session_id,
+        task_id=task_id,
+        user_goal=user_goal,
+        intent_kind=str(current_turn.get("intent") or understanding.get("intent") or ""),
+        execution_intent=_execution_intent_from_context(
+            current_turn_context=current_turn,
+            bundle_items=bundle_items,
+            query_understanding=understanding,
+        ),
+        requested_outputs=tuple(
+            _intent_requested_outputs(
+                explicit_inputs=explicit_inputs,
+                bundle_items=bundle_items,
+                capability_requests=capability_requests,
+                current_turn_context=current_turn,
+            )
+        ),
+        explicit_inputs=explicit_inputs,
+        source_binding_refs=tuple(
+            _dedupe(
+                [
+                    str(item.get("binding_id") or "").strip()
+                    for item in resolved_bindings
+                    if str(item.get("binding_id") or "").strip()
+                ]
+            )
+        ),
+        followup_target_refs=tuple(followup_target_refs),
+        capability_requests=tuple(capability_requests),
+        diagnostics={
+            "execution_mode": str(current_turn.get("execution_mode") or "single"),
+            "bundle_item_count": len(bundle_items),
+            "route_hint": str(understanding.get("route_hint") or ""),
+            "preferred_skill": str(understanding.get("preferred_skill") or ""),
+            "source_kind": str(understanding.get("source_kind") or ""),
+            "modality": str(understanding.get("modality") or ""),
+            "followup_target_kind": str(
+                dict(understanding.get("structural_signals") or {}).get("followup_target_kind")
+                or explicit_inputs.get("followup_target_kind")
+                or ""
+            ),
+        },
+    )
+
+
+def _execution_intent_from_context(
+    *,
+    current_turn_context: dict[str, Any],
+    bundle_items: list[dict[str, Any]],
+    query_understanding: dict[str, Any],
+) -> str:
+    execution_mode = str(current_turn_context.get("execution_mode") or "").strip()
+    if execution_mode == "bundle" or len(bundle_items) > 1:
+        return "bundle_task"
+    structural_signals = dict(current_turn_context.get("structural_signals") or {})
+    understanding_signals = dict(query_understanding.get("structural_signals") or {})
+    explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
+    if (
+        str(
+            understanding_signals.get("followup_target_kind")
+            or structural_signals.get("followup_target_kind")
+            or explicit_inputs.get("followup_target_kind")
+            or ""
+        ).strip()
+        == "bundle_ordinals"
+    ):
+        return "bundle_followup_item"
+    if str(current_turn_context.get("intent") or "") == "bundle_followup" and bundle_items:
+        return "bundle_followup_item"
+    return "single_task"
+
+
+def _intent_requested_outputs(
+    *,
+    explicit_inputs: dict[str, Any],
+    bundle_items: list[dict[str, Any]],
+    capability_requests: list[str],
+    current_turn_context: dict[str, Any],
+) -> list[str]:
+    explicit_outputs = [
+        str(item or "").strip()
+        for item in list(explicit_inputs.get("requested_outputs") or [])
+        if str(item or "").strip()
+    ]
+    if explicit_outputs:
+        return explicit_outputs
+    if len(bundle_items) > 1 or str(current_turn_context.get("execution_mode") or "") == "bundle":
+        return ["final_answer", "bundle_result_refs"]
+    if bundle_items:
+        item_outputs = [
+            str(item or "").strip()
+            for item in list(bundle_items[0].get("requested_outputs") or [])
+            if str(item or "").strip()
+        ]
+        if item_outputs:
+            return item_outputs
+    if "document_analysis" in capability_requests or "dataset_analysis" in capability_requests:
+        return ["final_answer", "task_summary_refs"]
+    return ["final_answer"]
 
 
 def _resolve_task_workflow(
@@ -83,7 +257,7 @@ def _resolve_task_workflow(
     for definition in definitions:
         definition_mode = str(getattr(definition, "task_mode", "") or "").strip()
         matched_flow = next(
-            (flow for flow in flow_registry.list_flows() if flow.task_mode == definition_mode and flow.default_workflow_id),
+            (flow for flow in flow_registry.list_flows() if _flow_task_mode(flow) == definition_mode and flow.default_workflow_id),
             None,
         )
         if matched_flow is not None:
@@ -92,7 +266,7 @@ def _resolve_task_workflow(
                 return workflow.to_dict()
 
     matched_flow = next(
-        (flow for flow in flow_registry.list_flows() if flow.task_mode == task_mode and flow.default_workflow_id),
+        (flow for flow in flow_registry.list_flows() if _flow_task_mode(flow) == task_mode and flow.default_workflow_id),
         None,
     )
     if matched_flow is not None:
@@ -159,7 +333,7 @@ def _build_task_spec(
     return TaskSpec(
         task_id=task_id,
         task_spec_ref=f"taskspec:{task_id}",
-        template_id=selected_recipe.template_id,
+        recipe_id=str(getattr(selected_recipe, "recipe_id", "") or ""),
         session_id=session_id,
         user_goal=user_goal,
         inputs={
@@ -196,8 +370,8 @@ def _build_task_spec(
 
 
 def _default_task_artifact_path(selected_recipe, current_turn_context: dict[str, Any]) -> str:
-    template_metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
-    default_artifact_name = str(template_metadata.get("default_artifact_name") or "").strip()
+    recipe_metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
+    default_artifact_name = str(recipe_metadata.get("default_artifact_name") or "").strip()
     if not default_artifact_name:
         return ""
     artifact_root = str(
@@ -205,10 +379,10 @@ def _default_task_artifact_path(selected_recipe, current_turn_context: dict[str,
         or current_turn_context.get("workspace_root")
         or dict(current_turn_context.get("explicit_inputs") or {}).get("artifact_root")
         or dict(current_turn_context.get("explicit_inputs") or {}).get("workspace_root")
-        or template_metadata.get("default_write_root")
+        or recipe_metadata.get("default_write_root")
         or (
-            list(template_metadata.get("default_write_roots") or [""])[0]
-            if isinstance(template_metadata.get("default_write_roots"), list)
+            list(recipe_metadata.get("default_write_roots") or [""])[0]
+            if isinstance(recipe_metadata.get("default_write_roots"), list)
             else ""
         )
         or "docs/系统规划/任务系统实测记录/artifacts"
@@ -228,8 +402,8 @@ def _build_coordination_request_brief(
     current_turn_context: dict[str, Any],
     query_understanding: dict[str, Any],
 ) -> dict[str, Any]:
-    template_metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
-    task_graph_id = str(template_metadata.get("task_graph_id") or template_metadata.get("graph_id") or "").strip()
+    recipe_metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
+    task_graph_id = str(recipe_metadata.get("task_graph_id") or recipe_metadata.get("graph_id") or "").strip()
     graph_ref = str(task_graph_id or "").strip()
     if not graph_ref:
         return {}
@@ -257,10 +431,10 @@ def _build_coordination_request_brief(
     ]
     return {
         "authority": "task_system.coordination_request_brief",
-        "brief_id": f"coordbrief:{current_turn_context.get('turn_id') or getattr(selected_recipe, 'template_id', 'template')}",
+        "brief_id": f"coordbrief:{current_turn_context.get('turn_id') or getattr(selected_recipe, 'recipe_id', 'runtime.recipe')}",
         "task_graph_id": graph_ref,
         "graph_id": graph_ref,
-        "template_id": str(getattr(selected_recipe, "template_id", "") or ""),
+        "recipe_id": str(getattr(selected_recipe, "recipe_id", "") or ""),
         "natural_request": str(user_goal or "").strip(),
         "carrying_policy": "preserve_user_request_as_runtime_brief",
         "planning_policy": "coordinator_agent_interprets_request_inside_stable_workflow",
@@ -282,12 +456,12 @@ def _resolve_task_runtime_limits(
     task_structure: dict[str, Any],
     current_turn_context: dict[str, Any],
 ) -> dict[str, Any]:
-    template_metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
-    template_limits = dict(template_metadata.get("runtime_limits") or {})
+    recipe_metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
+    recipe_limits = dict(recipe_metadata.get("runtime_limits") or {})
     policy_limits = dict(registered_task_policy.get("runtime_limits") or {})
     structure_limits = dict(task_structure.get("runtime_limits") or {})
     explicit_limits = dict(current_turn_context.get("runtime_limits") or {})
-    merged = {**template_limits, **policy_limits, **structure_limits, **explicit_limits}
+    merged = {**recipe_limits, **policy_limits, **structure_limits, **explicit_limits}
     if not merged:
         return {}
     normalized = {
@@ -327,7 +501,7 @@ def _resolve_registered_task(
                 "task_id": record.task_id,
                 "task_title": record.task_title,
                 "task_family": record.task_family,
-                "task_mode": record.task_mode,
+                "task_mode": _record_task_mode(record, flow),
                 "workflow_id": str(record.default_workflow_id or getattr(flow, "default_workflow_id", "") or "").strip(),
                 "projection_id": str(getattr(projection_binding, "default_projection_id", "") or "").strip(),
                 "input_contract_id": record.input_contract_id,
@@ -335,7 +509,11 @@ def _resolve_registered_task(
                 "flow_id": str(getattr(flow_contract_binding, "flow_contract_id", "") or record.default_flow_contract_id or "").strip(),
                 "safety_policy": dict(dict(record.task_policy or {}).get("safety_policy") or {}),
                 "task_policy": dict(record.task_policy or {}),
-                "template_id": str((record.metadata or {}).get("template_id") or getattr(flow, "metadata", {}).get("template_id") or ""),
+                "runtime_recipe_id": str(
+                    (record.metadata or {}).get("runtime_recipe_id")
+                    or getattr(flow, "metadata", {}).get("runtime_recipe_id")
+                    or ""
+                ),
                 "metadata": dict(record.metadata or {}),
             }
     explicit_general_profile_id = str(
@@ -404,10 +582,10 @@ def _align_runtime_definitions(
     if not registered_task or str(registered_task.get("task_type") or "") != "specific_task":
         return definitions
 
-    template_id = str(getattr(selected_recipe, "template_id", "") or "")
+    recipe_id = str(getattr(selected_recipe, "recipe_id", "") or "")
     task_mode = str((registered_task or {}).get("task_mode") or getattr(selected_recipe, "task_mode", "") or "")
     definition_catalog = default_task_definitions()
-    if template_id in {"template.dev.workspace_patch", "template.dev.light_web_game", "template.dev.arcade_game_bundle"} or task_mode in {
+    if recipe_id in {"runtime.recipe.workspace_patch", "runtime.recipe.light_web_game", "runtime.recipe.arcade_game_bundle"} or task_mode in {
         "workspace_patch",
         "light_web_game",
         "arcade_game_bundle",
@@ -478,9 +656,9 @@ def _build_task_safety_envelope(
     registered_task: dict[str, Any] | None,
     current_turn_context: dict[str, Any],
 ) -> dict[str, Any]:
-    template_policy = dict(getattr(selected_recipe, "safety_policy", {}) or {})
+    recipe_policy = dict(getattr(selected_recipe, "safety_policy", {}) or {})
     registered_policy = dict((registered_task or {}).get("safety_policy") or {})
-    effective_policy = {**template_policy, **registered_policy}
+    effective_policy = {**recipe_policy, **registered_policy}
     explicit_target_root = str(
         current_turn_context.get("target_root")
         or current_turn_context.get("workspace_target_root")
@@ -505,7 +683,7 @@ def _build_task_safety_envelope(
         ],
         "verification_mode": str(effective_policy.get("verification_mode") or "none").strip(),
         "task_id": str((registered_task or {}).get("task_id") or ""),
-        "template_id": str(getattr(selected_recipe, "template_id", "") or ""),
+        "recipe_id": str(getattr(selected_recipe, "recipe_id", "") or ""),
     }
 
 
@@ -532,7 +710,7 @@ def _build_bundle_spec(
                 item_id=str(item.get("item_id") or f"{bundle_id}:item:{ordinal or len(item_specs) + 1}"),
                 ordinal=ordinal,
                 user_text=str(item.get("user_text") or ""),
-                template_id=str(item.get("template_id") or ""),
+                recipe_id=str(item.get("recipe_id") or ""),
                 capability_kind=capability_kind,
                 required_tool=str(item.get("required_tool") or ""),
                 requested_outputs=tuple(
@@ -609,10 +787,10 @@ def _build_step_input_bindings(
         if previous_step_id:
             private_state_refs.append(f"step_output:{previous_step_id}")
         binding_policy = "inherit_parent_context"
-        if bundle_spec is not None and str(selected_recipe.template_id or "") != "template.bundle.multi_capability":
+        if bundle_spec is not None and str(getattr(selected_recipe, "execution_kind", "") or "") != "bundle":
             binding_policy = "bundle_item_private_context"
         output_writebacks = _step_output_writebacks(
-            template_id=str(selected_recipe.template_id or ""),
+            recipe_id=str(getattr(selected_recipe, "recipe_id", "") or ""),
             source_kind=str(
                 getattr(selected_recipe, "source_kind", "")
                 or dict(getattr(selected_recipe, "metadata", {}) or {}).get("source_kind")
@@ -637,13 +815,13 @@ def _build_step_input_bindings(
 
 def _step_output_writebacks(
     *,
-    template_id: str,
+    recipe_id: str,
     source_kind: str,
     blueprint: TaskStepBlueprint,
     bundle_spec: BundleSpec | None,
 ) -> dict[str, str]:
     step_kind = str(blueprint.step_kind or "")
-    if template_id == "template.bundle.multi_capability":
+    if source_kind == "mixed_sources":
         if step_kind == "understand":
             return {"bundle_plan": "runtime.bundle_plan"}
         if step_kind == "finalize":

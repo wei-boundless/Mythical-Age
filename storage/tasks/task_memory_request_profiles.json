@@ -1347,16 +1347,18 @@
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.writing.simple_novel.human_review_handoff",
-      "task_id": "task.writing.simple_novel.human_review_handoff",
+      "profile_id": "taskmem:task.writing.simple_novel.runtime_monitor",
+      "task_id": "task.writing.simple_novel.runtime_monitor",
       "requested_memory_layers": [
         "task_state",
         "artifact_index",
         "issue_ledger"
       ],
       "requested_topics": [
-        "safe_state_refs",
-        "blocking_issues"
+        "runtime_status",
+        "task_graph_monitor",
+        "project_runtime_status",
+        "supervision_records"
       ],
       "memory_priority": "normal",
       "writeback_policy": "system_receipt",

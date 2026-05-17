@@ -44,6 +44,8 @@ def _task_graph_from_coordination(coordination: CoordinationTaskDefinition, *, p
             target_node_id=str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or ""),
             edge_type=str(edge.get("edge_type") or edge.get("mode") or "handoff"),
             payload_contract_id=str(edge.get("payload_contract_id") or edge.get("contract_id") or ""),
+            artifact_ref_policy=dict(edge.get("artifact_ref_policy") or {}),
+            metadata=dict(edge.get("metadata") or {}),
         )
         for edge in coordination.graph_edges
     )
@@ -148,7 +150,6 @@ class _WorkingMemoryRegistry:
                 task_id="task.test.source",
                 task_title="Source",
                 task_family="test",
-                task_mode="task_execution",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.agent_output.markdown",
             ),
@@ -156,7 +157,6 @@ class _WorkingMemoryRegistry:
                 task_id="task.test.target",
                 task_title="Target",
                 task_family="test",
-                task_mode="task_execution",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.agent_output.markdown",
             ),
@@ -268,7 +268,6 @@ class _FormalMemoryRegistry:
                 task_id="task.test.world_author",
                 task_title="World Author",
                 task_family="test",
-                task_mode="task_execution",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.agent_output.markdown",
             ),
@@ -276,7 +275,6 @@ class _FormalMemoryRegistry:
                 task_id="task.test.memory_repo",
                 task_title="Memory Repo",
                 task_family="test",
-                task_mode="task_execution",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.agent_output.markdown",
             ),
@@ -284,7 +282,6 @@ class _FormalMemoryRegistry:
                 task_id="task.test.world_review",
                 task_title="World Review",
                 task_family="test",
-                task_mode="task_execution",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.agent_output.markdown",
             ),
@@ -486,6 +483,143 @@ class _FormalMemoryRegistry:
 
     def list_specific_task_records(self):
         return list(self.tasks)
+
+
+class _ArtifactContextRegistry:
+    def __init__(self) -> None:
+        self.tasks = (
+            SpecificTaskRecord(
+                task_id="task.test.outline",
+                task_title="Outline",
+                task_family="test",
+                input_contract_id="contract.user_request.basic",
+                output_contract_id="contract.test.outline",
+            ),
+            SpecificTaskRecord(
+                task_id="task.test.writer",
+                task_title="Writer",
+                task_family="test",
+                input_contract_id="contract.test.outline",
+                output_contract_id="contract.test.draft",
+            ),
+        )
+        self.coordination = CoordinationTaskDefinition(
+            graph_id="graph.test.artifact_context",
+            title="产物交接测试",
+            coordination_mode="pipeline",
+            coordinator_agent_id="agent:0",
+            task_family="test",
+            topology_template_id="topology.test.artifact_context",
+            graph_nodes=(
+                {"node_id": "outline", "agent_id": "agent:0", "task_id": "task.test.outline", "role": "writer"},
+                {
+                    "node_id": "writer",
+                    "agent_id": "agent:0",
+                    "task_id": "task.test.writer",
+                    "role": "writer",
+                    "artifact_context_policy": {
+                        "items": [
+                            {
+                                "source": "input_key",
+                                "input_key": "contract.test.outline:artifact_refs",
+                                "label": "当前批次细纲",
+                                "max_chars": 20000,
+                            }
+                        ],
+                        "default_max_chars": 20000,
+                        "max_items": 1,
+                    },
+                },
+            ),
+            graph_edges=(
+                {
+                    "edge_id": "outline_writer",
+                    "from": "outline",
+                    "to": "writer",
+                    "contract_id": "contract.test.outline",
+                    "artifact_ref_policy": {
+                        "target_input_key": "contract.test.outline:artifact_refs",
+                        "max_chars": 20000,
+                    },
+                    "metadata": {"on_missing": "block"},
+                },
+            ),
+        )
+        self.topology = TopologyTemplate(
+            template_id="topology.test.artifact_context",
+            title="产物交接拓扑",
+            nodes=self.coordination.graph_nodes,
+            edges=self.coordination.graph_edges,
+            enabled=True,
+        )
+        self.protocol = TaskCommunicationProtocol(
+            protocol_id="protocol.test.artifact_context",
+            title="产物交接协议",
+            message_types=("message/send",),
+            payload_contracts=("contract.test.outline", "contract.test.draft"),
+            enabled=True,
+        )
+
+    def get_task_graph(self, graph_id: str):
+        if graph_id != self.coordination.graph_id:
+            return None
+        return _task_graph_from_coordination(self.coordination, protocol_id=self.protocol.protocol_id)
+
+    def derive_coordination_task_view_from_graph(self, graph):
+        return self.coordination if graph.graph_id == self.coordination.graph_id else None
+
+    def get_topology_template(self, template_id: str):
+        return self.topology if template_id == self.topology.template_id else None
+
+    def get_task_communication_protocol(self, protocol_id: str):
+        return self.protocol if protocol_id == self.protocol.protocol_id else None
+
+    def list_specific_task_records(self):
+        return list(self.tasks)
+
+
+def test_stage_message_expands_current_artifact_handoff(tmp_path) -> None:
+    outline_path = tmp_path / "outline.md"
+    outline_path.write_text("# 当前细纲\n\n第1章：主角入泽。", encoding="utf-8")
+    registry = _ArtifactContextRegistry()
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:artifact-context",
+        task_run_id="taskrun:outline",
+        graph_ref="graph.test.artifact_context",
+        coordinator_agent_id="agent:0",
+        topology_template_id="topology.test.artifact_context",
+        communication_protocol_id="protocol.test.artifact_context",
+        status="running",
+        diagnostics={"coordination_flow": {"current_stage_id": "outline"}},
+    )
+    state_index.upsert_coordination_run(coordination_run)
+
+    result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:artifact-context",
+            task_run_id="taskrun:outline",
+            stage_id="outline",
+            task_ref="task.test.outline",
+            task_result_ref="taskresult:outline",
+            artifact_refs=(f"artifact:{outline_path.as_posix()}",),
+            accepted=True,
+        ),
+    )
+
+    assert result.stage_execution_request is not None
+    assert "当前批次细纲" in result.stage_execution_request.message
+    assert "第1章：主角入泽" in result.stage_execution_request.message
 
 
 def test_langgraph_coordination_runtime_injects_working_memory_context(tmp_path) -> None:
@@ -1036,7 +1170,6 @@ class _DiamondRegistry:
                 task_id="task.test.a",
                 task_title="A",
                 task_family="test",
-                task_mode="task_execution",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.artifact_refs.bundle",
             ),
@@ -1044,7 +1177,6 @@ class _DiamondRegistry:
                 task_id="task.test.b",
                 task_title="B",
                 task_family="test",
-                task_mode="task_execution",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.artifact_refs.bundle",
             ),
@@ -1052,7 +1184,6 @@ class _DiamondRegistry:
                 task_id="task.test.c",
                 task_title="C",
                 task_family="test",
-                task_mode="task_execution",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.artifact_refs.bundle",
             ),
@@ -1060,7 +1191,6 @@ class _DiamondRegistry:
                 task_id="task.test.d",
                 task_title="D",
                 task_family="test",
-                task_mode="task_execution",
                 input_contract_id="contract.user_request.basic",
                 output_contract_id="contract.agent_output.markdown",
             ),
@@ -1240,20 +1370,61 @@ def test_langgraph_coordination_runtime_routes_ready_nodes_before_join(tmp_path)
     assert result_c.stage_execution_request.a2a_payload["message"]["metadata"]["contract_manifest_ref"]
     assert len(result_c.stage_execution_request.a2a_payload["message"]["parts"][-1]["data"]["handoff_packets"]) == 2
 
+
+def test_langgraph_coordination_runtime_ignores_stale_dispatch_result(tmp_path) -> None:
+    runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
+    first = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            artifact_refs=("ref:a",),
+            accepted=True,
+        ),
+    )
+    assert first.stage_execution_request is not None
+    active_request_id = first.stage_execution_request.request_id
+
+    stale = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:b:old",
+            stage_id="b",
+            task_ref="task.test.b",
+            task_result_ref="taskresult:b:old",
+            artifact_refs=("ref:b:old",),
+            accepted=True,
+            request_id="stageexec:stale",
+            dispatch_event_id="tlevent:stale",
+        ),
+    )
+
+    assert stale.state["stage_execution_request"]["request_id"] == active_request_id
+    assert "b" not in stale.state.get("stage_results", {})
+    assert stale.state["stale_stage_results"]
+    assert stale.state["diagnostics"]["last_stale_result_reason"] == "request_id_does_not_match_active_request"
+
     updated = state_index.get_coordination_run("coordrun:diamond")
     assert updated is not None
     assert "langgraph_runtime_state" not in updated.diagnostics
     runtime_state = runtime.checkpoints.get_state(thread_id="coordrun:diamond")
-    assert runtime_state["completed_nodes"] == ["a", "b", "c"]
-    assert runtime_state["running_nodes"] == ["d"]
+    assert runtime_state["completed_nodes"] == ["a"]
+    assert runtime_state["running_nodes"] == ["b"]
+    assert runtime_state["ready_nodes"] == ["c"]
 
 
 class _SequencedRegistry:
     def __init__(self) -> None:
         self.tasks = (
-            SpecificTaskRecord(task_id="task.test.a", task_title="A", task_family="test", task_mode="task_execution"),
-            SpecificTaskRecord(task_id="task.test.b", task_title="B", task_family="test", task_mode="task_execution"),
-            SpecificTaskRecord(task_id="task.test.c", task_title="C", task_family="test", task_mode="task_execution"),
+            SpecificTaskRecord(task_id="task.test.a", task_title="A", task_family="test"),
+            SpecificTaskRecord(task_id="task.test.b", task_title="B", task_family="test"),
+            SpecificTaskRecord(task_id="task.test.c", task_title="C", task_family="test"),
         )
         self.coordination = CoordinationTaskDefinition(
             graph_id="graph.test.sequence",

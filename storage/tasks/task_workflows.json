@@ -3,7 +3,6 @@
     {
       "workflow_id": "workflow.general.main_conversation",
       "title": "主会话通用工作流",
-      "task_mode": "general_task",
       "compatible_projection_ids": [],
       "visible_skill_ids": [],
       "steps": [
@@ -38,7 +37,6 @@
     {
       "workflow_id": "workflow.health.issue_triage",
       "title": "健康问题分诊工作流",
-      "task_mode": "issue_triage",
       "compatible_projection_ids": [],
       "visible_skill_ids": [],
       "steps": [
@@ -72,7 +70,6 @@
     {
       "workflow_id": "workflow.health.trace_analysis",
       "title": "健康链路分析工作流",
-      "task_mode": "trace_analysis",
       "compatible_projection_ids": [],
       "visible_skill_ids": [],
       "steps": [
@@ -106,7 +103,6 @@
     {
       "workflow_id": "workflow.health.case_draft",
       "title": "健康用例草案工作流",
-      "task_mode": "case_draft",
       "compatible_projection_ids": [],
       "visible_skill_ids": [],
       "steps": [
@@ -140,7 +136,6 @@
     {
       "workflow_id": "workflow.health.fix_verification",
       "title": "健康修复验证工作流",
-      "task_mode": "fix_verification",
       "compatible_projection_ids": [],
       "visible_skill_ids": [],
       "steps": [
@@ -174,7 +169,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.world_designer_a",
       "title": "世界观设计师 A工作流",
-      "task_mode": "world_designer_a",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.world_designer_a"
       ],
@@ -219,7 +213,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.world_designer_b",
       "title": "世界观设计师 B工作流",
-      "task_mode": "world_designer_b",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.world_designer_b"
       ],
@@ -264,7 +257,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.world_judge",
       "title": "世界观裁判工作流",
-      "task_mode": "world_judge",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.world_judge"
       ],
@@ -309,7 +301,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.memory_commit_world",
       "title": "世界观入库工作流",
-      "task_mode": "memory_steward",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.memory_commit_world"
       ],
@@ -354,7 +345,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.outline_designer_a",
       "title": "大纲结构师 A工作流",
-      "task_mode": "outline_designer_a",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.outline_designer_a"
       ],
@@ -399,7 +389,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.outline_designer_b",
       "title": "大纲结构师 B工作流",
-      "task_mode": "outline_designer_b",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.outline_designer_b"
       ],
@@ -444,7 +433,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.outline_judge",
       "title": "大纲裁判工作流",
-      "task_mode": "outline_judge",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.outline_judge"
       ],
@@ -489,7 +477,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.memory_commit_outline",
       "title": "大纲入库工作流",
-      "task_mode": "memory_steward",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.memory_commit_outline"
       ],
@@ -534,7 +521,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.character_designer_a",
       "title": "人物设计师 A工作流",
-      "task_mode": "character_designer_a",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.character_designer_a"
       ],
@@ -579,7 +565,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.character_designer_b",
       "title": "人物设计师 B工作流",
-      "task_mode": "character_designer_b",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.character_designer_b"
       ],
@@ -624,7 +609,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.character_judge",
       "title": "人物裁判工作流",
-      "task_mode": "character_judge",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.character_judge"
       ],
@@ -669,7 +653,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.memory_commit_character",
       "title": "人物入库工作流",
-      "task_mode": "memory_steward",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.memory_commit_character"
       ],
@@ -714,7 +697,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.chapter_plan",
       "title": "章节细纲工作流",
-      "task_mode": "chapter_planner",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.chapter_plan"
       ],
@@ -759,7 +741,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.writer_a_draft",
       "title": "作者 A 初稿工作流",
-      "task_mode": "writer_a_draft",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.writer_a_draft"
       ],
@@ -804,7 +785,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.writer_b_review",
       "title": "作者 B 审读工作流",
-      "task_mode": "writer_b_review",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.writer_b_review"
       ],
@@ -849,7 +829,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.writer_a_revision",
       "title": "作者 A 修订工作流",
-      "task_mode": "writer_a_revision",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.writer_a_revision"
       ],
@@ -894,7 +873,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.writer_b_final_candidate",
       "title": "作者 B 终稿候选工作流",
-      "task_mode": "writer_b_final_candidate",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.writer_b_final_candidate"
       ],
@@ -939,7 +917,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.novel_quality_judge",
       "title": "独立裁判通关工作流",
-      "task_mode": "novel_quality_judge",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.novel_quality_judge"
       ],
@@ -984,7 +961,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.world_deviation_router",
       "title": "世界观偏差路由工作流",
-      "task_mode": "deviation_router",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.world_deviation_router"
       ],
@@ -1029,7 +1005,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.world_repair_a",
       "title": "世界观修正 A工作流",
-      "task_mode": "world_repair_a",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.world_repair_a"
       ],
@@ -1074,7 +1049,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.world_repair_b",
       "title": "世界观修正 B工作流",
-      "task_mode": "world_repair_b",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.world_repair_b"
       ],
@@ -1119,7 +1093,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.outline_deviation_router",
       "title": "大纲偏差路由工作流",
-      "task_mode": "deviation_router",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.outline_deviation_router"
       ],
@@ -1164,7 +1137,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.outline_repair_a",
       "title": "大纲修正 A工作流",
-      "task_mode": "outline_repair_a",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.outline_repair_a"
       ],
@@ -1209,7 +1181,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.outline_repair_b",
       "title": "大纲修正 B工作流",
-      "task_mode": "outline_repair_b",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.outline_repair_b"
       ],
@@ -1254,7 +1225,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.character_deviation_router",
       "title": "人物偏差路由工作流",
-      "task_mode": "deviation_router",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.character_deviation_router"
       ],
@@ -1299,7 +1269,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.character_repair_a",
       "title": "人物修正 A工作流",
-      "task_mode": "character_repair_a",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.character_repair_a"
       ],
@@ -1344,7 +1313,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.character_repair_b",
       "title": "人物修正 B工作流",
-      "task_mode": "character_repair_b",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.character_repair_b"
       ],
@@ -1389,7 +1357,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.memory_commit_chapter",
       "title": "章节入库工作流",
-      "task_mode": "memory_steward",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.memory_commit_chapter"
       ],
@@ -1434,7 +1401,6 @@
     {
       "workflow_id": "workflow.writing_team.long_novel.memory_finalize",
       "title": "工作记忆收尾工作流",
-      "task_mode": "memory_steward",
       "compatible_projection_ids": [
         "projection.writing_team.long_novel.memory_finalize"
       ],
@@ -1479,7 +1445,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.project_brief",
       "title": "项目启动包工作流",
-      "task_mode": "project_brief",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.project_brief"
       ],
@@ -1525,7 +1490,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.world_design",
       "title": "世界观设定候选工作流",
-      "task_mode": "world_design",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.world_designer"
       ],
@@ -1571,7 +1535,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.world_review",
       "title": "世界观审核工作流",
-      "task_mode": "world_review",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.world_reviewer"
       ],
@@ -1617,7 +1580,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.memory_commit_world",
       "title": "世界观写入工作流",
-      "task_mode": "memory_commit_world",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.memory_steward"
       ],
@@ -1663,7 +1625,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.baseline_memory_seed",
       "title": "基准记忆库初始化工作流",
-      "task_mode": "baseline_memory_seed",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.baseline_memory_steward"
       ],
@@ -1709,7 +1670,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.volume_plan",
       "title": "分卷规划工作流",
-      "task_mode": "volume_plan",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.volume_planner"
       ],
@@ -1755,7 +1715,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.chapter_outline",
       "title": "当前批次细纲工作流",
-      "task_mode": "chapter_outline",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.chapter_outliner"
       ],
@@ -1801,7 +1760,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.chapter_draft",
       "title": "当前批次正文候选工作流",
-      "task_mode": "chapter_draft",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.chapter_writer"
       ],
@@ -1847,7 +1805,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.chapter_review",
       "title": "当前批次轻量审核工作流",
-      "task_mode": "chapter_review",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.chapter_reviewer"
       ],
@@ -1893,7 +1850,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.memory_commit_chapter",
       "title": "章节批次写入工作流",
-      "task_mode": "memory_commit_chapter",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.memory_steward"
       ],
@@ -1939,7 +1895,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.chapter_progress_router",
       "title": "章节批次推进判断工作流",
-      "task_mode": "chapter_progress_router",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.chapter_progress_router"
       ],
@@ -1985,7 +1940,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.volume_review",
       "title": "卷级总审核工作流",
-      "task_mode": "volume_review",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.volume_reviewer"
       ],
@@ -2031,7 +1985,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.volume_commit",
       "title": "卷级写入工作流",
-      "task_mode": "volume_commit",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.memory_steward"
       ],
@@ -2077,7 +2030,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.volume_postmortem",
       "title": "卷后复盘工作流",
-      "task_mode": "volume_postmortem",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.volume_postmortem"
       ],
@@ -2123,7 +2075,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.world_outline_extension_proposal",
       "title": "可改动库更新提案工作流",
-      "task_mode": "world_outline_extension_proposal",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.world_outline_extension_proposer"
       ],
@@ -2169,7 +2120,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.extension_review",
       "title": "可改动库更新审核工作流",
-      "task_mode": "extension_review",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.extension_reviewer"
       ],
@@ -2215,7 +2165,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.extension_commit",
       "title": "可改动记忆库更新工作流",
-      "task_mode": "extension_commit",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.memory_steward"
       ],
@@ -2261,7 +2210,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.next_volume_router",
       "title": "下一卷推进判断工作流",
-      "task_mode": "next_volume_router",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.next_volume_router"
       ],
@@ -2307,7 +2255,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.final_assemble",
       "title": "交付包整编工作流",
-      "task_mode": "final_assemble",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.final_assembler"
       ],
@@ -2353,7 +2300,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.final_review",
       "title": "最终交付审核工作流",
-      "task_mode": "final_review",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.final_reviewer"
       ],
@@ -2399,7 +2345,6 @@
     {
       "workflow_id": "workflow.writing.simple_novel.memory_finalize",
       "title": "任务收尾归档工作流",
-      "task_mode": "memory_finalize",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.memory_steward"
       ],
@@ -2443,11 +2388,10 @@
       }
     },
     {
-      "workflow_id": "workflow.writing.simple_novel.human_review_handoff",
-      "title": "人工接管工作流",
-      "task_mode": "general_task",
+      "workflow_id": "workflow.writing.simple_novel.runtime_monitor",
+      "title": "运行监测工作流",
       "compatible_projection_ids": [
-        "hebo__primary"
+        "projection.writing.simple_novel.runtime_monitor"
       ],
       "visible_skill_ids": [],
       "steps": [
@@ -2464,8 +2408,8 @@
           "title": "写入索引或交接下游"
         }
       ],
-      "input_boundary": "contract.writing.simple_novel.human_review_input",
-      "output_boundary": "contract.writing.simple_novel.human_review_packet",
+      "input_boundary": "contract.taskgraph.monitor.snapshot",
+      "output_boundary": "contract.taskgraph.monitor.decision",
       "stop_conditions": [
         "contract_output_ready",
         "blocking_issue_reported",
@@ -2476,22 +2420,21 @@
         "artifact_refs",
         "contract_payload"
       ],
-      "output_contract_id": "contract.writing.simple_novel.human_review_packet",
-      "prompt": "",
+      "output_contract_id": "contract.taskgraph.monitor.decision",
+      "prompt": "你是一名 TaskGraph 运行监测员。\n\n你的职责不是创作小说，也不是审核正文质量；你只负责观察当前任务图是否还能稳定推进。\n你读取的是系统给出的运行监测快照，包括任务图状态、当前节点、事件时间、checkpoint、流式输出、阻塞信息、监督记录和项目进度。\n\n你必须判断：\n1. 当前运行是否健康，是否存在长时间无有效输出。\n2. 当前是否卡在人工门控、阻塞状态、失败状态或缺少续跑信号。\n3. 是否可以自动建议续跑，还是必须请求人工审核。\n4. 如果需要用户介入，用户需要看到什么安全状态、哪些决策选项，并在同一个运行交互窗口里处理。\n\n你不允许：\n1. 代替业务节点写世界观、章节、大纲或审核意见。\n2. 直接修改记忆库、产物或业务输出。\n3. 在没有证据时声称任务失败。\n4. 把开发说明当作给业务节点的 Prompt。\n\n你的输出必须是监测决策包，包含：\n【运行判断】\n【触发原因】\n【建议动作】\n【是否需要用户介入】\n【运行交互窗口请求；仅需要用户处理时填写】\n【安全状态引用】\n【下一步控制建议】",
       "enabled": true,
       "metadata": {
         "managed_by": "codex_writing_simple_novel_config_20260517",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel",
-        "task_id": "task.writing.simple_novel.human_review_handoff",
-        "flow_id": "flow.writing.simple_novel.human_review_handoff",
-        "projection_id": "hebo__primary"
+        "task_id": "task.writing.simple_novel.runtime_monitor",
+        "flow_id": "flow.writing.simple_novel.runtime_monitor",
+        "projection_id": "projection.writing.simple_novel.runtime_monitor"
       }
     },
     {
       "workflow_id": "workflow.writing.simple_novel.fail_closed",
       "title": "失败关闭工作流",
-      "task_mode": "fail_closed",
       "compatible_projection_ids": [
         "projection.writing.simple_novel.memory_steward"
       ],

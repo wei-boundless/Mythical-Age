@@ -69,7 +69,8 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["memory_request_profiles"])
     assert task_graph_management["communication_protocols"] == []
     assert payload["contract_management"]["contract_specs"]
-    assert diagnostics["template_validation_matrix"]["authority"] == "task_system.template_validation_matrix"
+    assert diagnostics["runtime_recipe_validation_matrix"]["authority"] == "task_system.runtime_recipe_validation"
+    assert diagnostics["runtime_recipe_validation_matrix"]["template_protocol_removed"] is True
     assert diagnostics["link_permission_matrix"]["authority"] == "task_system.link_permission_matrix"
     assert diagnostics["agent_task_connections"]["authority"] == "task_system.agent_task_connections"
     assert diagnostics["agent_carrying_profiles"]["authority"] == "task_system.agent_carrying_profiles"
@@ -486,7 +487,7 @@ def test_task_system_specific_record_is_canonical_and_assignment_becomes_compat_
                         "task_structure": {"memory_scope_hint": "conversation_read_write"},
                     },
                     enabled=True,
-                    metadata={"template_id": "template.dev.light_web_game"},
+                    metadata={"runtime_recipe_id": "runtime.recipe.light_web_game"},
                 ),
             )
         )

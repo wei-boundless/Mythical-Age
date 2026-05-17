@@ -227,14 +227,20 @@ def build_task_graph_run_monitor_view(
 
 def _monitor_node(node: dict[str, Any], statuses: dict[str, str]) -> dict[str, Any]:
     node_id = str(node.get("node_id") or node.get("id") or "")
+    metadata = dict(node.get("metadata") or {})
     return {
         "node_id": node_id,
         "title": str(node.get("title") or node.get("label") or node_id),
         "node_type": str(node.get("node_type") or ""),
         "task_id": str(node.get("task_id") or ""),
         "agent_id": str(node.get("agent_id") or ""),
+        "execution_mode": str(node.get("execution_mode") or ""),
         "phase_id": str(node.get("phase_id") or ""),
         "sequence_index": int(node.get("sequence_index") or 0),
+        "monitor_policy": dict(node.get("monitor_policy") or metadata.get("monitor_policy") or {}),
+        "background_policy": dict(node.get("background_policy") or metadata.get("background_policy") or {}),
+        "notification_policy": dict(node.get("notification_policy") or metadata.get("notification_policy") or {}),
+        "metadata": metadata,
         "status": statuses.get(node_id, "pending"),
         "artifact_refs": [],
         "last_result_ref": "",

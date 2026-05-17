@@ -83,7 +83,6 @@ class BodyProfileRegistry:
             model_visible_rules={
                 "strip_control_plane_sections": True,
                 "allow_prompt_manifest_projection": True,
-                "task_mode": task_mode,
                 "output_contract_id": output_contract_id,
             },
             metadata={"agent_id": agent_id},
@@ -140,12 +139,7 @@ class BodyProfileRegistry:
             lane_id = allowed_lanes[0] if allowed_lanes else "full_interactive"
             if requested_lane:
                 lane_issue = "requested_runtime_lane_not_allowed"
-        if not requested_lane and task_mode == "task_dispatch" and "task_dispatch" in allowed_lanes:
-            lane_id = "task_dispatch"
-            lane_source = "task_mode_default"
-        elif not requested_lane and task_mode == "light_web_game" and "game_delivery" in allowed_lanes:
-            lane_id = "game_delivery"
-            lane_source = "task_mode_default"
+        _ = task_mode
         return RuntimeLaneProfile(
             profile_id=f"lane:{agent_id}:default",
             lane_id=lane_id,
@@ -155,7 +149,6 @@ class BodyProfileRegistry:
             resume_policy="checkpoint_replay",
             metadata={
                 "agent_id": agent_id,
-                "task_mode": task_mode,
                 "requested_runtime_lane": requested_lane,
                 "lane_source": lane_source,
                 "lane_issue": lane_issue,

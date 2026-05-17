@@ -133,6 +133,8 @@ class TaskResultReadyEvent:
     artifact_refs: tuple[str, ...] = ()
     accepted: bool = False
     agent_run_result_ref: str = ""
+    request_id: str = ""
+    dispatch_event_id: str = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.task_result_ready_event"
 

@@ -10,7 +10,7 @@ from .step_models import StepInputBinding
 class TaskSpec:
     task_id: str
     task_spec_ref: str
-    template_id: str
+    recipe_id: str
     session_id: str
     user_goal: str
     inputs: dict[str, Any] = field(default_factory=dict)

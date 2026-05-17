@@ -11,8 +11,6 @@ class HealthTaskRequest:
     task_kind: str
     task_id: str
     flow_id: str
-    graph_id: str = ""
-    entry_node_id: str = ""
     required_evidence_refs: tuple[str, ...] = ()
     requested_by: str = ""
     created_at: float = 0.0
@@ -59,7 +57,7 @@ class HealthAgentRun:
     agent_id: str
     agent_profile_id: str
     runtime_lane: str
-    task_mode: str
+    health_action: str
     workflow_id: str
     projection_id: str
     prompt_manifest_id: str
@@ -109,7 +107,7 @@ class HealthManagementCommand:
     conversation_session_ref: str
     target_scope: str
     target_ref: str
-    task_mode: str
+    health_action: str
     payload: dict[str, Any] = field(default_factory=dict)
     status: str = "pending"
     created_at: float = 0.0

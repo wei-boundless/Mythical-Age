@@ -13,6 +13,9 @@ GRAPH_ID = "graph.writing.simple_novel"
 TOPOLOGY_ID = "topology.writing.simple_novel"
 PROTOCOL_ID = "protocol.writing.simple_novel"
 MEMORY_SCOPE = "writing_simple_novel"
+MONITOR_NODE_ID = "runtime_monitor"
+MONITOR_AGENT_ID = "agent:writing_runtime_monitor"
+MONITOR_PROJECTION_ID = "projection.writing.simple_novel.runtime_monitor"
 DESIGN_DOC = "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
 PROMPT_SOURCE_DOC = "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
 CHAPTERS_PER_ROUND = 10
@@ -20,7 +23,6 @@ CHAPTER_TARGET_WORDS = 2000
 TARGET_WORDS = 1000000
 VOLUME_TARGET_WORDS = 200000
 CHAPTERS_PER_VOLUME = VOLUME_TARGET_WORDS // CHAPTER_TARGET_WORDS
-HUMAN_REVIEW_ENABLED = False
 
 
 def load(path):
@@ -39,6 +41,21 @@ def strip_items(items, key, prefixes=(), exact=()):
         for item in items
         if not (
             isinstance(item, dict)
+            and (
+                any(str(item.get(key, "")).startswith(prefix) for prefix in prefixes)
+                or str(item.get(key, "")) in exact
+            )
+        )
+    ]
+
+
+def strip_managed_items(items, key, prefixes=(), exact=(), managed_by=MANAGED):
+    return [
+        item
+        for item in items
+        if not (
+            isinstance(item, dict)
+            and str((item.get("metadata") if isinstance(item.get("metadata"), dict) else {}).get("managed_by", "")) == managed_by
             and (
                 any(str(item.get(key, "")).startswith(prefix) for prefix in prefixes)
                 or str(item.get(key, "")) in exact
@@ -88,6 +105,24 @@ def contract(contract_id, fields, title=None, kind="node_execution"):
 
 
 def artifact_policy(path):
+    artifacts = [{"path": path, "required": True, "content_source": "final_content", "fallback_to_full_content": False}]
+    if str(path or "").endswith("/draft_round_{round_index:03d}.md"):
+        artifacts = [
+            {
+                "path": path,
+                "required": True,
+                "content_source": "section",
+                "section_keys": ["章节正文候选"],
+                "fallback_to_full_content": False,
+            },
+            {
+                "path": str(path).replace("draft_round_{round_index:03d}.md", "draft_manifest_round_{round_index:03d}.md"),
+                "required": False,
+                "content_source": "section",
+                "section_keys": ["承接说明", "本章目标完成说明", "人物与冲突推进", "商业钩子与爽点兑现", "后续伏笔或待承接事项", "自检风险", "公开摘要"],
+                "fallback_to_full_content": False,
+            },
+        ]
     return {
         "enabled": True,
         "required": True,
@@ -96,7 +131,7 @@ def artifact_policy(path):
         "subdir_template": "",
         "artifact_target": path,
         "storage_policy": "task_artifact_ref",
-        "artifacts": [{"path": path, "required": True, "content_source": "final_content", "fallback_to_full_content": False}],
+        "artifacts": artifacts,
     }
 
 
@@ -140,7 +175,6 @@ def memory_read_policy(role, node_id=""):
         "final_review": ["final_manuscript_ref", "baseline_memory", "frozen_character_facts", "frozen_relationship_facts", "mutable_memory", "volume_commit_manifest", "open_issue_refs"],
         "memory_finalize": ["final_review", "final_manuscript_ref", "delivery_manifest_id", "volume_commit_manifest"],
         "fail_closed": ["safe_state_refs", "last_successful_commit_refs", "failure_reason"],
-        "human_review_handoff": ["safe_state_refs", "blocking_issues"],
     }
     role_topics = {
         "creator": ["project_brief", "baseline_memory", "frozen_character_facts", "frozen_relationship_facts", "volume_plan", "mutable_memory", "issue_ledger", "previous_review", "current_volume_commit"],
@@ -149,6 +183,7 @@ def memory_read_policy(role, node_id=""):
         "router": ["volume_plan_commit", "completed_chapter_refs", "completed_volume_refs", "open_issue_refs", "current_words", "target_words", "volume_target_words"],
         "final_assembler": ["delivery_requirements", "volume_commit_manifest", "chapter_file_refs", "chapter_summary_refs", "open_issue_refs", "baseline_memory", "frozen_character_facts", "frozen_relationship_facts", "mutable_memory"],
         "human": ["safe_state_refs", "blocking_issues"],
+        "monitor": ["runtime_status", "task_graph_monitor", "project_runtime_status", "supervision_records"],
     }
     topics = node_topics.get(node_id) or role_topics.get(role, ["project_state"])
     required_topics = {
@@ -172,6 +207,7 @@ def memory_read_policy(role, node_id=""):
         "final_assemble": ["baseline_memory", "frozen_character_facts", "frozen_relationship_facts", "volume_commit_manifest", "chapter_file_refs"],
         "final_review": ["final_manuscript_ref", "baseline_memory", "frozen_character_facts", "frozen_relationship_facts"],
         "memory_finalize": ["final_review"],
+        MONITOR_NODE_ID: ["runtime_status", "task_graph_monitor"],
     }.get(node_id, [])
     forbidden_topics = {
         "world_design": ["baseline_memory", "mutable_memory", "chapter_full_text"],
@@ -269,13 +305,17 @@ def artifact_context_policy(node_id):
             {"source": "input_key", "input_key": "contract.writing.simple_novel.world_review:artifact_refs", "label": "世界观审核结论", "max_chars": 20000},
         ],
         "chapter_draft": [
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.chapter_outline:artifact_refs", "label": "当前批次细纲", "max_chars": 50000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.volume_plan_commit:artifact_refs", "label": "当前卷计划", "max_chars": 40000},
             {"source": "input_key", "input_key": "previous_review_ref", "label": "上一轮审核意见", "max_chars": 24000},
             {"source": "input_key", "input_key": "previous_candidate_ref", "label": "上一轮被审核正文", "max_chars": 65000},
         ],
         "chapter_review": [
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.chapter_outline:artifact_refs", "label": "当前批次细纲", "max_chars": 50000},
             {"source": "input_key", "input_key": "contract.writing.simple_novel.chapter_draft:artifact_refs", "label": "待审章节批次正文", "max_chars": 90000},
         ],
         "memory_commit_chapter": [
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.chapter_outline:artifact_refs", "label": "待冻结章节细纲", "max_chars": 50000},
             {"source": "input_key", "input_key": "contract.writing.simple_novel.chapter_draft:artifact_refs", "label": "待提交章节正文", "max_chars": 90000},
             {"source": "input_key", "input_key": "contract.writing.simple_novel.chapter_review:artifact_refs", "label": "章节审核结论", "max_chars": 24000},
         ],
@@ -409,7 +449,7 @@ NODE_DEFS = [
     ("final_assemble", "交付包整编", "agent:writing_final_assembler", "projection.writing.simple_novel.final_assembler", "contract.writing.simple_novel.next_volume_decision", "contract.writing.simple_novel.final_manuscript", "phase.final", 300, "delivery/delivery_manifest.md", "final_assembler"),
     ("final_review", "最终交付审核", "agent:writing_simple_reviewer", "projection.writing.simple_novel.final_reviewer", "contract.writing.simple_novel.final_review_input", "contract.writing.simple_novel.final_review", "phase.final", 310, "delivery/final_review.md", "reviewer"),
     ("memory_finalize", "任务收尾归档", "agent:writing_memory_steward", "projection.writing.simple_novel.memory_steward", "contract.writing.simple_novel.final_review", "contract.writing.simple_novel.delivery_package", "phase.final", 320, "delivery/delivery_package.md", "memory_steward"),
-    ("human_review_handoff", "人工接管", "agent:0", "hebo__primary", "contract.writing.simple_novel.human_review_input", "contract.writing.simple_novel.human_review_packet", "phase.terminal", 900, "handoff/human_review_packet.md", "human"),
+    (MONITOR_NODE_ID, "运行监测", MONITOR_AGENT_ID, MONITOR_PROJECTION_ID, "contract.taskgraph.monitor.snapshot", "contract.taskgraph.monitor.decision", "phase.monitor", 5, "monitor/runtime_monitor_decision.md", "monitor"),
     ("fail_closed", "失败关闭", "agent:writing_memory_steward", "projection.writing.simple_novel.memory_steward", "contract.writing.simple_novel.failure_input", "contract.writing.simple_novel.failure_report", "phase.terminal", 910, "failure/failure_report.md", "memory_steward"),
 ]
 
@@ -516,14 +556,13 @@ CONTRACT_FIELDS = {
     "final_review_input": ["project_id", "final_manuscript_ref", "delivery_manifest_id", "baseline_memory_ref", "mutable_memory_refs", "volume_commit_manifest_ref", "open_issue_refs", "memory_pack_id"],
     "final_review": ["project_id", "review_id", "reviewed_candidate_id", "verdict", "quality_score", "blocking_issues", "non_blocking_issues", "revision_requirements", "delivery_permission", "repair_request", "next_step", "summary"],
     "delivery_package": ["project_id", "delivery_package_id", "final_review_id", "delivery_manifest_id", "assembled_output_refs", "archive_refs", "task_completion_state", "summary"],
-    "human_review_input": ["project_id", "trigger_node_id", "trigger_contract_id", "blocking_issues", "required_human_decision", "safe_state_refs", "summary"],
-    "human_review_packet": ["project_id", "handoff_id", "trigger_node_id", "decision_options", "safe_state_refs", "summary"],
     "failure_input": ["project_id", "trigger_node_id", "failure_reason", "safe_state_refs", "last_successful_commit_refs", "summary"],
     "failure_report": ["project_id", "failure_report_id", "failure_reason", "safe_state_refs", "last_successful_commit_refs", "task_state", "summary"],
     "memory_read_request": ["request_id", "project_id", "consumer_node_id", "stage_id", "round_index", "allowed_memory_keys", "required_artifact_refs", "forbidden_memory_keys", "max_payload_policy", "on_missing_required"],
     "memory_pack": ["memory_pack_id", "request_id", "consumer_node_id", "included_refs", "included_summaries", "included_commits", "included_issue_ledger", "missing_required_refs", "blocked", "block_reason"],
     "memory_write_request": ["request_id", "project_id", "producer_node_id", "write_kind", "artifact_kind", "artifact_ref", "artifact_summary", "source_refs", "not_canon", "expected_version"],
     "memory_write_receipt": ["receipt_id", "request_id", "write_status", "written_indexes", "artifact_ref", "new_version", "blocked", "block_reason"],
+    "monitor_decision": ["decision_id", "task_run_id", "coordination_run_id", "monitor_node_id", "severity", "action", "reason", "summary", "observed", "recommended_control", "run_interaction_request"],
 }
 
 
@@ -978,6 +1017,31 @@ fail_closed
 【阻塞问题】
 【交付许可】
 【下一步节点】""",
+    MONITOR_PROJECTION_ID: """你是一名 TaskGraph 运行监测员。
+
+你的职责不是创作小说，也不是审核正文质量；你只负责观察当前任务图是否还能稳定推进。
+你读取的是系统给出的运行监测快照，包括任务图状态、当前节点、事件时间、checkpoint、流式输出、阻塞信息、监督记录和项目进度。
+
+你必须判断：
+1. 当前运行是否健康，是否存在长时间无有效输出。
+2. 当前是否卡在人工门控、阻塞状态、失败状态或缺少续跑信号。
+3. 是否可以自动建议续跑，还是必须请求人工审核。
+4. 如果需要用户介入，用户需要看到什么安全状态、哪些决策选项，并在同一个运行交互窗口里处理。
+
+你不允许：
+1. 代替业务节点写世界观、章节、大纲或审核意见。
+2. 直接修改记忆库、产物或业务输出。
+3. 在没有证据时声称任务失败。
+4. 把开发说明当作给业务节点的 Prompt。
+
+你的输出必须是监测决策包，包含：
+【运行判断】
+【触发原因】
+【建议动作】
+【是否需要用户介入】
+【运行交互窗口请求；仅需要用户处理时填写】
+【安全状态引用】
+【下一步控制建议】""",
 }
 
 
@@ -1054,7 +1118,7 @@ def prompt_for(pid, prompts):
         "projection.writing.simple_novel.chapter_progress_router",
         "projection.writing.simple_novel.next_volume_router",
         "projection.writing.simple_novel.final_reviewer",
-    } and not HUMAN_REVIEW_ENABLED:
+    }:
         no_human_appendix = (
             "自动版运行约束：\n"
             "- 本图为简易自动运行版，禁止输出 human_review_required 作为正常裁决。\n"
@@ -1088,6 +1152,7 @@ def projection_cards():
         "memory_steward": "写作资产记忆管家",
         "final_assembler": "交付包整编者",
         "final_reviewer": "最终交付审核员",
+        "runtime_monitor": "运行监测员",
     }
     projection_ids = sorted({node[3] for node in NODE_DEFS if node[3].startswith("projection.writing.simple_novel")})
     cards = []
@@ -1107,8 +1172,8 @@ def projection_cards():
             "projection_nodes": [{"node_id": pid + ".role", "title": "角色提示", "content": prompt, "node_type": "role_prompt", "weight": 1}],
             "identity_anchor": prompt.split("\n")[0],
             "role_type": role,
-            "task_mode": role,
-            "agent_profile_id": "agent:" + role,
+            "task_mode": "",
+            "agent_profile_id": next((node[2] for node in NODE_DEFS if node[3] == pid), ""),
             "posture_tags": ["writing_simple_novel", "bounded_role", "contract_first"],
             "expression_density": "structured_high_detail",
             "attention_focus": ["memory_pack", "artifact_refs", "contract_output", "bounded_context"],
@@ -1204,7 +1269,6 @@ def node_responsibility_metadata(node_id, title, role):
         "final_assemble": "你是一名交付包整编者。",
         "final_review": "你是一名最终交付审核员。",
         "memory_finalize": "你是一名任务收尾归档管家。",
-        "human_review_handoff": "你是一名人工接管协调员。",
         "fail_closed": "你是一名失败关闭记录员。",
     }
     scopes = {
@@ -1214,7 +1278,9 @@ def node_responsibility_metadata(node_id, title, role):
         "router": "你只负责根据提交状态、目标进度和阻塞问题决定下一步路由。",
         "final_assembler": "你只负责依据提交清单和交付要求整编交付包。",
         "human": "你只负责整理需要人工决策的阻塞信息。",
+        "monitor": "你只负责读取运行监测快照，判断是否健康、是否需要续跑、提醒或人工审核。",
     }
+    identities[MONITOR_NODE_ID] = "你是一名 TaskGraph 运行监测员。"
     exclusions = {
         "creator": "你不负责审核自己产出的候选，也不负责把候选写成已提交事实。",
         "reviewer": "你不负责替创作者扩写正文，也不负责越过审核结果写入记忆库。",
@@ -1222,6 +1288,7 @@ def node_responsibility_metadata(node_id, title, role):
         "router": "你不负责补写正文或审核正文质量，只做推进裁决。",
         "final_assembler": "你不负责重写全书正文，也不负责创建未经提交的新设定。",
         "human": "你不负责自动替用户做不可恢复决策。",
+        "monitor": "你不负责创作、审核正文或写入记忆库，也不直接修改业务节点输出。",
     }
     done_by_role = {
         "creator": "完成标准：输出必须可被审核节点直接审阅，并明确引用输入包和未解决风险。",
@@ -1230,6 +1297,7 @@ def node_responsibility_metadata(node_id, title, role):
         "router": "完成标准：必须给出继续、转入下一阶段、最终交付或失败关闭的明确路由。",
         "final_assembler": "完成标准：必须生成交付清单、组装引用、完整性检查和残留限制。",
         "human": "完成标准：必须列出阻塞原因、安全状态和需要人工选择的事项。",
+        "monitor": "完成标准：必须输出监测决策包，明确 action、reason、severity、recommended_control 和必要的 run_interaction_request。",
     }
     return {
         "role_identity": identities.get(node_id, f"你是一名{title}。"),
@@ -1252,6 +1320,8 @@ def node_responsibility_metadata(node_id, title, role):
 
 def graph_node(node):
     node_id, title, agent, projection, input_contract, output_contract, phase, seq, path, role = node
+    if role == "monitor":
+        return monitor_graph_node(node)
     node_type = {
         "reviewer": "review_gate",
         "memory_steward": "memory_commit",
@@ -1385,6 +1455,108 @@ def graph_node(node):
             "design_doc": DESIGN_DOC,
             "chapters_per_round": CHAPTERS_PER_ROUND if loop_policy else 0,
             "streaming_enabled": bool(node_stream_policy.get("enabled")),
+        },
+    }
+
+
+def monitor_graph_node(node):
+    node_id, title, agent, projection, input_contract, output_contract, phase, seq, path, role = node
+    monitor_policy = {
+        "watch_runtime_status": True,
+        "watch_streaming": True,
+        "watch_progress": True,
+        "watch_blockers": True,
+        "watch_manual_gate": True,
+        "stale_after_seconds": 600,
+        "allowed_actions": ["no_action", "notify", "request_user_decision", "resume", "restart", "pause", "escalate"],
+        "interaction_surface": {
+            "window": "task_graph_run_interaction_panel",
+            "open_mode": "inline_panel",
+            "title": "写作任务运行交互",
+            "focus": {"layer": "publish", "facet": "run_interaction", "node_id": node_id},
+            "decision_options": [
+                {"decision": "continue_current_stage", "label": "续跑当前节点", "control_action": "continue_current_stage", "resume_payload": {"decision": "approve"}},
+                {"decision": "retry_current_stage", "label": "重试当前节点", "control_action": "continue_current_stage", "resume_payload": {"decision": "retry"}},
+                {"decision": "pause", "label": "暂停等待处理", "control_action": "stop_task_run", "resume_payload": {"decision": "reject", "reason": "monitor_pause_requested"}},
+            ],
+        },
+    }
+    return {
+        "node_id": node_id,
+        "node_type": "runtime_monitor",
+        "title": title,
+        "task_id": "task.writing.simple_novel." + node_id,
+        "agent_id": agent,
+        "agent_selection_policy": "explicit_agent",
+        "agent_group_id": GROUP_ID,
+        "work_posture": role,
+        "node_contract_id": output_contract,
+        "input_contract_id": input_contract,
+        "output_contract_id": output_contract,
+        "runtime_lane": "task_graph_monitor",
+        "context_visibility_policy": {
+            "shared_context_policy": "runtime_monitor_snapshot_only",
+            "memory_sharing_policy": "monitor_visible_only",
+            "conversation_memory": "hidden",
+            "suppress_conversation_memory": True,
+        },
+        "projection_id": projection,
+        "projection_overlay_id": projection,
+        "failure_policy": {"default": "notify_and_continue", "on_monitor_error": "record_supervision"},
+        "human_gate_policy": {
+            "enabled": True,
+            "mode": "run_interaction",
+            "trigger_action": "request_user_decision",
+            "window": "task_graph_run_interaction_panel",
+        },
+        "memory_read_policy": memory_read_policy(role, node_id=node_id),
+        "memory_writeback_policy": {},
+        "dynamic_memory_read_policy": {},
+        "phase_id": phase,
+        "sequence_index": seq,
+        "timeline_group_id": phase,
+        "main_chain": False,
+        "blocks_phase_exit": False,
+        "loop_policy": {},
+        "loop_kind": "",
+        "loop_scope_id": "",
+        "title_template": "",
+        "loop_route_policy": {},
+        "review_gate_policy": {},
+        "artifact_context_policy": {},
+        "revision_context_policy": {},
+        "quality_retry_policy": {},
+        "progress_commit_policy": {},
+        "artifact_policy": artifact_policy(path),
+        "stream_policy": {"enabled": False, "mode": "disabled", "monitor_visibility": "task_graph_monitor"},
+        "artifact_target": path,
+        "output_path": path,
+        "execution_mode": "background",
+        "dispatch_group": "monitor",
+        "wait_policy": "fire_and_continue",
+        "join_policy": "allow_partial_with_issues",
+        "background_policy": {
+            "enabled": True,
+            "interval_seconds": 300,
+            "stale_after_seconds": 600,
+            "max_runtime_seconds": 86400,
+            "blocks_downstream": False,
+        },
+        "notification_policy": {"priority": "normal", "include_result": "summary_and_refs"},
+        "resource_lifecycle_policy": {},
+        "metadata": {
+            "managed_by": MANAGED,
+            "role": role,
+            **node_responsibility_metadata(node_id, title, role),
+            "operation": "monitor",
+            "monitor_policy": monitor_policy,
+            "monitor_contract_ids": {
+                "snapshot": "contract.taskgraph.monitor.snapshot",
+                "decision": "contract.taskgraph.monitor.decision",
+                "run_interaction_request": "contract.taskgraph.run_interaction.request",
+            },
+            "run_interaction_window": monitor_policy["interaction_surface"],
+            "design_doc": DESIGN_DOC,
         },
     }
 
@@ -1840,9 +2012,6 @@ def build_edges():
         }),
     ]:
         edges.append(edge(f"edge.{source}.revise", source, target, "contract.writing.simple_novel." + contract_name, "revision_request", {"verdict": "revise", **revision_packet}))
-    if HUMAN_REVIEW_ENABLED:
-        for review_node in ["world_review", "chapter_review", "volume_review", "extension_review", "final_review", "chapter_progress_router", "next_volume_router"]:
-            edges.append(edge(f"edge.{review_node}.human", review_node, "human_review_handoff", "contract.writing.simple_novel.human_review_input", "human_handoff", {"verdict": "human_review_required"}))
     for review_node in ["world_review", "chapter_review", "volume_review", "extension_review", "final_review", "chapter_progress_router", "next_volume_router"]:
         edges.append(edge(f"edge.{review_node}.fail", review_node, "fail_closed", "contract.writing.simple_novel.failure_input", "fail_closed", {"verdict": "fail_closed"}))
     baseline_reads = [
@@ -2100,25 +2269,25 @@ def configure():
         "agent:writing_simple_reviewer": ("写作组审核员", "projection.writing.simple_novel.volume_reviewer", "执行章节轻审、卷级总审、补充边界审和推进裁决。"),
         "agent:writing_memory_steward": ("写作组记忆管家", "projection.writing.simple_novel.memory_steward", "初始化基准库，并写入章节、卷级、可改动库和交付索引。"),
         "agent:writing_final_assembler": ("写作组交付包整编者", "projection.writing.simple_novel.final_assembler", "基于 manifest、章节文件引用和摘要整理交付包。"),
+        MONITOR_AGENT_ID: ("写作组运行监测员", MONITOR_PROJECTION_ID, "观察 TaskGraph 运行快照，向统一运行交互窗口输出提醒、续跑或人工确认请求。"),
     }
 
     data = load("storage/orchestration/agents.json")
-    data["agents"] = strip_items(data["agents"], "agent_id", ("agent:writing_simple_", "agent:writing_memory_", "agent:writing_final_"))
+    data["agents"] = strip_items(data["agents"], "agent_id", ("agent:writing_simple_", "agent:writing_memory_", "agent:writing_final_", "agent:writing_runtime_"))
     for agent_id, (name, projection, desc) in agents.items():
         data["agents"].append({"agent_id": agent_id, "agent_name": name, "display_name": name, "agent_category": "worker_sub_agent", "profile_type": "worker_sub_agent", "interface_target": "task_graph_node_runtime", "description": desc, "enabled": True, "builtin": False, "editable": True, "default_soul_id": "hebo", "default_projection_id": projection, "created_at": NOW, "updated_at": NOW, "metadata": {"managed_by": MANAGED, "task_family": TASK_FAMILY, "definition_source": "task_graph_assembly", "source_task_graph_refs": [GRAPH_ID], "system_key": "worker_pool"}})
     save("storage/orchestration/agents.json", data)
 
     data = load("storage/orchestration/agent_runtime_profiles.json")
-    data["profiles"] = strip_items(data["profiles"], "agent_id", ("agent:writing_simple_", "agent:writing_memory_", "agent:writing_final_"))
+    data["profiles"] = strip_items(data["profiles"], "agent_id", ("agent:writing_simple_", "agent:writing_memory_", "agent:writing_final_", "agent:writing_runtime_"))
     for agent_id in agents:
-        role = "creator" if "creator" in agent_id else "reviewer" if "reviewer" in agent_id else "memory_steward" if "memory" in agent_id else "final_assembler"
-        allowed_task_modes = sorted({node[0] for node in NODE_DEFS if node[2] == agent_id})
-        data["profiles"].append({"agent_profile_id": agent_id.replace("agent:", "") + "_runtime", "agent_id": agent_id, "allowed_task_modes": allowed_task_modes, "allowed_runtime_lanes": ["coordination_task", "system_memory"] if role == "memory_steward" else ["coordination_task"], "allowed_operations": ["op.model_response", "op.memory_read"], "blocked_operations": ["op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.delegate_to_agent", "op.web_search"], "allowed_memory_scopes": [MEMORY_SCOPE, "state_readonly"], "allowed_context_sections": ["task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view"], "use_shared_contract": True, "output_contracts": [node[5] for node in NODE_DEFS if node[2] == agent_id], "can_delegate_to_agents": False, "allowed_delegate_agent_ids": [], "allowed_delegate_agent_categories": ["worker_sub_agent"], "max_delegate_calls_per_turn": 0, "delegate_context_policy": "summary_and_refs_only", "approval_policy": "read_only_first", "trace_policy": "runtime_event_log", "lifecycle_policy": "task_graph_managed", "metadata": {"managed_by": MANAGED, "task_family": TASK_FAMILY, "source_task_graph_refs": [GRAPH_ID]}})
+        role = "monitor" if agent_id == MONITOR_AGENT_ID else "creator" if "creator" in agent_id else "reviewer" if "reviewer" in agent_id else "memory_steward" if "memory" in agent_id else "final_assembler"
+        data["profiles"].append({"agent_profile_id": agent_id.replace("agent:", "") + "_runtime", "agent_id": agent_id, "allowed_runtime_lanes": ["task_graph_monitor"] if role == "monitor" else ["coordination_task", "system_memory"] if role == "memory_steward" else ["coordination_task"], "allowed_operations": ["op.model_response", "op.memory_read"], "blocked_operations": ["op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.delegate_to_agent", "op.web_search"], "allowed_memory_scopes": [MEMORY_SCOPE, "state_readonly"], "allowed_context_sections": ["task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view", "task_graph_monitor"] if role == "monitor" else ["task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view"], "use_shared_contract": True, "output_contracts": [node[5] for node in NODE_DEFS if node[2] == agent_id], "can_delegate_to_agents": False, "allowed_delegate_agent_ids": [], "allowed_delegate_agent_categories": ["worker_sub_agent"], "max_delegate_calls_per_turn": 0, "delegate_context_policy": "summary_and_refs_only", "approval_policy": "read_only_first", "trace_policy": "runtime_event_log", "lifecycle_policy": "task_graph_managed", "metadata": {"managed_by": MANAGED, "task_family": TASK_FAMILY, "source_task_graph_refs": [GRAPH_ID]}})
     save("storage/orchestration/agent_runtime_profiles.json", data)
 
     data = load("storage/orchestration/agent_groups.json")
     data["groups"] = strip_items(data["groups"], "group_id", exact=(GROUP_ID,))
-    data["groups"].append({"group_id": GROUP_ID, "title": "写作组", "group_kind": "coordination_team", "description": "执行简易版长篇小说完整生产流程。", "coordinator_agent_id": "agent:0", "member_agent_ids": list(agents), "default_topology_template_ids": [TOPOLOGY_ID], "default_communication_protocol_ids": [PROTOCOL_ID], "allowed_task_graph_ids": [GRAPH_ID], "lifecycle_state": "enabled", "metadata": {"managed_by": MANAGED, "design_doc": DESIGN_DOC}, "authority": "orchestration.agent_group", "allowed_coordination_task_ids": ["task.writing.simple_novel." + node[0] for node in NODE_DEFS]})
+    data["groups"].append({"group_id": GROUP_ID, "title": "写作组", "group_kind": "coordination_team", "description": "执行简易版长篇小说完整生产流程。", "coordinator_agent_id": "agent:0", "member_agent_ids": list(agents), "default_topology_template_ids": [TOPOLOGY_ID], "default_communication_protocol_ids": [PROTOCOL_ID], "allowed_task_graph_ids": [GRAPH_ID], "lifecycle_state": "enabled", "metadata": {"managed_by": MANAGED, "design_doc": DESIGN_DOC, "monitor_node_id": MONITOR_NODE_ID}, "authority": "orchestration.agent_group", "allowed_coordination_task_ids": ["task.writing.simple_novel." + node[0] for node in NODE_DEFS]})
     save("storage/orchestration/agent_groups.json", data)
 
     data = load("backend/soul/projections/catalog.json")
@@ -2153,13 +2322,17 @@ def configure():
         data[key].extend(maker(node) for node in NODE_DEFS)
         save(path, data)
 
+    data = load("storage/tasks/task_agent_adoption_plans.json")
+    data["adoption_plans"] = strip_items(data["adoption_plans"], "task_id", ("task.writing.simple_novel.",))
+    save("storage/tasks/task_agent_adoption_plans.json", data)
+
     data = load("storage/tasks/task_communication_protocols.json")
     data["communication_protocols"] = strip_items(data["communication_protocols"], "protocol_id", exact=(PROTOCOL_ID,))
     data["communication_protocols"].append({
         "protocol_id": PROTOCOL_ID,
         "title": "写作组简易长篇小说通信协议",
         "message_types": ["message/send", "task/status", "task/artifact", "task/review_feedback", "task/revision_request", "task/canon_update", "task/memory_read", "task/memory_write"],
-        "payload_contracts": [item["contract_id"] for item in contracts],
+        "payload_contracts": [item["contract_id"] for item in contracts] + ["contract.taskgraph.monitor.snapshot", "contract.taskgraph.monitor.decision", "contract.taskgraph.run_interaction.request"],
         "signal_rules": ["memory_pack_required_before_business_node", "candidate_ref_required_before_review", "pass_required_before_memory_commit", "baseline_memory_written_only_by_commit_edge", "mutable_memory_written_only_by_extension_commit_edge", "repair_returns_to_trigger_node", "final_assemble_uses_manifest_not_full_text"],
         "handoff_rules": ["structured_artifact_refs_only", "no_raw_agent_dialogue", "memory_pack_refs_only", "no_unapproved_memory_write", "candidate_outputs_are_not_memory", "chapter_full_text_not_handed_as_global_context", "delivery_manifest_not_full_text_context"],
         "ack_policy": "explicit_ack",
@@ -2241,6 +2414,13 @@ def configure():
             "continuation_policy": {"human_gate_mode": "auto_continue"},
             "runtime_loop_policy": {
                 "enabled": True,
+                "monitor_node_id": MONITOR_NODE_ID,
+                "monitor_policy": {
+                    "enabled": True,
+                    "interval_seconds": 300,
+                    "stale_after_seconds": 600,
+                    "interaction_window": "task_graph_run_interaction_panel",
+                },
                 "initial_inputs": initial_runtime_loop_inputs(),
                 "derived_fields": loop_derived_fields(),
                 "summary": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。",

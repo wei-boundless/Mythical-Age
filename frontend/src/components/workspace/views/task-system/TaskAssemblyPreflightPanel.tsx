@@ -10,9 +10,7 @@ import {
 import { buildTimelinePreflightIssues } from "@/components/workspace/views/task-system/taskGraphTimeline";
 import {
   buildTaskSystemTaskGraphNodeRuntimeAssembly,
-  buildTaskSystemWorkflowRuntimeAssembly,
   compileTaskSystemTaskGraphContractManifest,
-  compileTaskSystemWorkflowContractManifest,
   type ContractManifest,
   type RuntimeAssembly,
   type SpecificTaskRecord,
@@ -24,8 +22,6 @@ import {
 type PreflightLoadState =
   | ""
   | "all"
-  | "workflow-manifest"
-  | "workflow-assembly"
   | "task-graph-manifest"
   | "node-assembly";
 
@@ -152,9 +148,7 @@ export function TaskAssemblyPreflightPanel({
 }) {
   const [loading, setLoading] = useState<PreflightLoadState>("");
   const [error, setError] = useState("");
-  const [workflowManifest, setWorkflowManifest] = useState<ContractManifest | null>(null);
   const [taskGraphManifest, setTaskGraphManifest] = useState<ContractManifest | null>(null);
-  const [workflowAssembly, setWorkflowAssembly] = useState<RuntimeAssembly | null>(null);
   const [nodeAssembly, setNodeAssembly] = useState<RuntimeAssembly | null>(null);
 
   const graphNodes = useMemo(() => selectedGraphSpec.nodes ?? [], [selectedGraphSpec.nodes]);
@@ -165,20 +159,6 @@ export function TaskAssemblyPreflightPanel({
   const dispatchIssues = useMemo(() => buildDispatchPreflightIssues(graphNodes, graphEdges), [graphEdges, graphNodes]);
   const timelineIssues = useMemo(() => buildTimelinePreflightIssues(graphNodes, graphEdges, taskGraphMetadata), [taskGraphMetadata, graphEdges, graphNodes]);
   const allPreflightIssues = useMemo(() => [...graphIssues, ...dispatchIssues, ...timelineIssues], [dispatchIssues, graphIssues, timelineIssues]);
-
-  async function runWorkflowManifest() {
-    if (!selectedTask?.default_workflow_id || !selectedTask.task_id) return null;
-    const payload = await compileTaskSystemWorkflowContractManifest(selectedTask.default_workflow_id, selectedTask.task_id);
-    setWorkflowManifest(payload);
-    return payload;
-  }
-
-  async function runWorkflowAssembly() {
-    if (!selectedTask?.default_workflow_id || !selectedTask.task_id) return null;
-    const payload = await buildTaskSystemWorkflowRuntimeAssembly(selectedTask.default_workflow_id, selectedTask.task_id);
-    setWorkflowAssembly(payload);
-    return payload;
-  }
 
   async function runTaskGraphManifest() {
     if (!selectedTaskGraph?.graph_id) return null;
@@ -208,14 +188,11 @@ export function TaskAssemblyPreflightPanel({
 
   async function refreshAll() {
     await runAction("all", async () => {
-      await runWorkflowManifest();
-      await runWorkflowAssembly();
       await runTaskGraphManifest();
       await runNodeAssembly();
     });
   }
 
-  const workflowReady = Boolean(selectedTask?.task_id && selectedTask.default_workflow_id);
   const taskGraphReady = Boolean(selectedTaskGraph?.graph_id);
   const nodeReady = Boolean(taskGraphReady && currentNodeId);
 
@@ -243,7 +220,6 @@ export function TaskAssemblyPreflightPanel({
           <ReadinessTile label="调度策略" value={dispatchIssues.length ? `${dispatchIssues.length} 个问题` : "通过"} ready={!dispatchIssues.length} />
           <ReadinessTile label="时序编排" value={timelineIssues.length ? `${timelineIssues.length} 个问题` : "通过"} ready={!timelineIssues.some((issue) => issue.severity === "error")} />
           <ReadinessTile label="拓扑草稿" value={topologyDirty ? "未同步" : "已同步"} ready={!topologyDirty} />
-          <ReadinessTile label="单任务装配" value={workflowReady ? "可预检" : "缺少工作流"} ready={workflowReady} />
           <ReadinessTile label="节点装配" value={nodeReady ? currentNodeId : "未选节点"} ready={nodeReady} />
           <ReadinessTile label="发布状态" value={editorPublished ? "已发布" : "草稿"} ready={editorPublished} />
           <ReadinessTile label="A2A 通信" value={`${a2aCatalog?.transport || "JSONRPC"} · ${a2aCatalog?.protocol_version || "0.3.0"}`} ready={Boolean(a2aCatalog?.protocol_locked)} />
@@ -257,12 +233,6 @@ export function TaskAssemblyPreflightPanel({
             <span>{loading ? "运行中" : "待检查"}</span>
           </header>
           <div className="boundary-actions boundary-actions--wrap">
-            <TaskSystemToolbarButton disabled={!workflowReady || Boolean(loading)} onClick={() => void runAction("workflow-manifest", runWorkflowManifest)}>
-              {loading === "workflow-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}单任务清单
-            </TaskSystemToolbarButton>
-            <TaskSystemToolbarButton disabled={!workflowReady || Boolean(loading)} onClick={() => void runAction("workflow-assembly", runWorkflowAssembly)}>
-              {loading === "workflow-assembly" ? <Loader2 size={14} /> : <PackageCheck size={14} />}单任务装配
-            </TaskSystemToolbarButton>
             <TaskSystemToolbarButton disabled={!taskGraphReady || Boolean(loading)} onClick={() => void runAction("task-graph-manifest", runTaskGraphManifest)}>
               {loading === "task-graph-manifest" ? <Loader2 size={14} /> : <Eye size={14} />}任务图清单
             </TaskSystemToolbarButton>
@@ -272,12 +242,9 @@ export function TaskAssemblyPreflightPanel({
           </div>
           <div className="boundary-kv">
             <p><span>单任务</span><strong>{selectedTask?.task_title || "未选择"}</strong></p>
-            <p><span>工作流</span><strong>{selectedTask?.default_workflow_id || "未绑定"}</strong></p>
             <p><span>任务图</span><strong>{selectedTaskGraph?.graph_id || "未选择"}</strong></p>
             <p><span>当前节点</span><strong>{currentNodeId || "未选择"}</strong></p>
-            <p><span>单任务契约清单</span><strong>{workflowManifest ? `${manifestRefCount(workflowManifest)} 引用 / ${workflowManifest.issues.length} 问题` : "未生成"}</strong></p>
             <p><span>任务图契约清单</span><strong>{taskGraphManifest ? `${manifestRefCount(taskGraphManifest)} 引用 / ${taskGraphManifest.issues.length} 问题` : "未生成"}</strong></p>
-            <p><span>单任务装配</span><strong>{workflowAssembly?.assembly_id || "未生成"}</strong></p>
             <p><span>节点装配</span><strong>{nodeAssembly?.assembly_id || "未生成"}</strong></p>
           </div>
         </section>
@@ -325,8 +292,6 @@ export function TaskAssemblyPreflightPanel({
             className="task-assembly-preflight__json"
             readOnly
             value={jsonPreview({
-              workflowManifest,
-              workflowAssembly,
               taskGraphManifest,
               nodeAssembly,
               selectedNode,

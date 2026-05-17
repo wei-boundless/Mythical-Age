@@ -33,7 +33,7 @@ class BundleItem:
     ordinal: int
     user_text: str
     bundle_id: str = ""
-    template_id: str = ""
+    recipe_id: str = ""
     capability_kind: str = ""
     required_tool: str = ""
     requested_outputs: tuple[str, ...] = ()

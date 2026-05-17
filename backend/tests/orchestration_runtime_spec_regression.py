@@ -131,7 +131,6 @@ def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:
     profile_without_shared = AgentRuntimeProfile(
         agent_profile_id=profile.agent_profile_id,
         agent_id=profile.agent_id,
-        allowed_task_modes=profile.allowed_task_modes,
         allowed_runtime_lanes=profile.allowed_runtime_lanes,
         allowed_operations=profile.allowed_operations,
         blocked_operations=profile.blocked_operations,
@@ -187,15 +186,12 @@ def test_removed_story_task_selection_falls_back_to_general_runtime() -> None:
 
 def test_removed_longform_writing_runtime_residue_stays_absent() -> None:
     from tasks.flow_registry import TaskFlowRegistry
-    from tasks.template_registry import default_task_templates
     from orchestration.agent_runtime_chain import _align_understanding_with_explicit_task_selection
     from understanding.query_understanding import analyze_query_understanding
 
     registry = TaskFlowRegistry(BACKEND_DIR)
-    templates = {item.template_id for item in default_task_templates()}
 
-    assert "template.writing.longform_novel_project" not in templates
-    assert "template.writing.chapter_drafting" not in templates
+    assert not hasattr(registry, "template_registry")
     assert registry.get_task_graph("graph.writing.longform_project_bootstrap") is None
     assert registry.get_task_graph("graph.writing.chapter_pipeline") is None
     assert registry.get_task_communication_protocol("protocol.writing.longform_project_bootstrap") is None

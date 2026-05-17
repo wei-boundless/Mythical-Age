@@ -62,7 +62,7 @@ def test_bound_answer_projection_prefers_dataset_template_over_prior_pdf_binding
         content="没有。每个仓库至少存在一条库存低于补货线的记录。",
         current_turn_context={
             "intent": "general_query",
-            "legacy_template_id": "template.data.structured_analysis",
+            "source_kind": "dataset",
             "explicit_inputs": {
                 "bound_dataset_path": "inventory.xlsx",
                 "bound_pdf_path": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
@@ -101,7 +101,7 @@ def test_bound_answer_projection_prefers_pdf_template_over_dataset_binding() -> 
         content="第三页承担目录和结构导航作用。",
         current_turn_context={
             "intent": "general_query",
-            "legacy_template_id": "template.pdf.document_analysis",
+            "source_kind": "pdf",
             "explicit_inputs": {
                 "bound_dataset_path": "inventory.xlsx",
                 "bound_pdf_path": pdf_path,
@@ -140,7 +140,7 @@ def test_bound_answer_projection_ignores_non_file_task_with_stale_binding() -> N
         content="现货黄金约 4737 美元/盎司，时间口径为 2026-05-11 21:03 UTC。",
         current_turn_context={
             "intent": "realtime_network",
-            "legacy_template_id": "template.search.information_search",
+            "source_kind": "external_web",
             "explicit_inputs": {
                 "bound_dataset_path": "inventory.xlsx",
                 "tool_input": {

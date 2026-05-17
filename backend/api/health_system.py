@@ -14,11 +14,11 @@ router = APIRouter()
 
 
 class HealthAgentRunPreviewRequest(BaseModel):
-    task_mode: str = Field(default="issue_triage")
+    health_action: str = Field(default="issue_triage")
 
 
 class HealthAgentRunStartRequest(BaseModel):
-    task_mode: str = Field(default="issue_triage")
+    health_action: str = Field(default="issue_triage")
     session_id: str = Field(default="health-system")
     source: str = Field(default="health_system.manual")
 
@@ -46,7 +46,7 @@ class HealthManagementCommandRequest(BaseModel):
     conversation_session_ref: str = Field(default="")
     target_scope: str = Field(default="")
     target_ref: str = Field(default="")
-    task_mode: str = Field(default="")
+    health_action: str = Field(default="")
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -556,9 +556,9 @@ async def health_system_agent_run_trace_report(run_id: str) -> dict[str, Any]:
 async def health_system_agent_run_preview(issue_id: str, payload: HealthAgentRunPreviewRequest) -> dict[str, Any]:
     runtime = require_runtime()
     try:
-        return HealthRegistry(runtime.base_dir).preview_agent_run(issue_id=issue_id, task_mode=payload.task_mode)
+        return HealthRegistry(runtime.base_dir).preview_agent_run(issue_id=issue_id, health_action=payload.health_action)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Unknown health issue or task mode") from exc
+        raise HTTPException(status_code=404, detail="Unknown health issue or health action") from exc
 
 
 @router.post("/health-system/issues/{issue_id}/agent-runs")
@@ -573,7 +573,7 @@ async def health_system_agent_run_start(issue_id: str, payload: HealthAgentRunSt
                 "conversation_session_ref": payload.session_id,
                 "target_scope": "health_issue",
                 "target_ref": issue_id,
-                "task_mode": payload.task_mode,
+                "health_action": payload.health_action,
             },
             task_run_loop=runtime.query_runtime.task_run_loop,
             model_response_executor=runtime.query_runtime.model_response_executor,
@@ -581,4 +581,4 @@ async def health_system_agent_run_start(issue_id: str, payload: HealthAgentRunSt
         )
         return dict(response.get("run_result") or response)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Unknown health issue or task mode") from exc
+        raise HTTPException(status_code=404, detail="Unknown health issue or health action") from exc

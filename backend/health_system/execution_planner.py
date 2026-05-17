@@ -15,7 +15,7 @@ from .models import HealthIssue
 @dataclass(frozen=True, slots=True)
 class HealthAgentExecutionPlan:
     issue_id: str
-    task_mode: str
+    health_action: str
     task_id: str
     flow_id: str
     binding_id: str
@@ -46,22 +46,22 @@ def build_health_agent_execution_plan(
     base_dir: Path,
     *,
     issue: HealthIssue,
-    task_mode: str = "issue_triage",
+    health_action: str = "issue_triage",
     session_id: str = HEALTH_SESSION_ID,
     source: str = "health_system.execution_plan",
 ) -> HealthAgentExecutionPlan:
-    task_mode = str(task_mode or "issue_triage").strip() or "issue_triage"
+    health_action = str(health_action or "issue_triage").strip() or "issue_triage"
     task_registry = TaskFlowRegistry(base_dir)
-    specific_task_id = health_specific_task_id(task_mode)
+    specific_task_id = health_specific_task_id(health_action)
     specific_task = task_registry.get_specific_task_record(specific_task_id)
     if specific_task is None:
         raise KeyError(specific_task_id)
     flow = next((item for item in task_registry.list_flows() if item.flow_id == specific_task.default_flow_contract_id), None)
     if flow is None:
-        raise KeyError(specific_task.default_flow_contract_id or task_mode)
+        raise KeyError(specific_task.default_flow_contract_id or health_action)
 
     binding = task_registry.build_binding_for_flow(flow)
-    task_id = f"task.health.{task_mode}:{issue.issue_id}"
+    task_id = f"task.health.{health_action}:{issue.issue_id}"
     current_turn_context = {
         "authority": "health_system.current_turn_context",
         "selected_task_id": specific_task_id,
@@ -75,7 +75,7 @@ def build_health_agent_execution_plan(
             }
         ],
         "explicit_inputs": {
-            "explicit_template_id": _health_template_id_for_task_mode(task_mode),
+            "explicit_template_id": _health_template_id_for_action(health_action),
             "capability_requests": ["health_issue"],
         },
     }
@@ -101,7 +101,7 @@ def build_health_agent_execution_plan(
         user_goal=user_goal,
         task_assembly_bundle=task_bundle,
         current_turn_context=current_turn_context,
-        memory_runtime_view=_memory_runtime_view(issue=issue, task_mode=task_mode),
+        memory_runtime_view=_memory_runtime_view(issue=issue, health_action=health_action),
         context_policy_result=_context_policy_result(binding=binding.to_dict()),
         agent_runtime_profile=runtime_profile,
     )
@@ -121,7 +121,7 @@ def build_health_agent_execution_plan(
 
     return HealthAgentExecutionPlan(
         issue_id=issue.issue_id,
-        task_mode=task_mode,
+        health_action=health_action,
         task_id=task_id,
         flow_id=flow.flow_id,
         binding_id=binding.binding_id,
@@ -182,10 +182,11 @@ def build_health_agent_run_preview(plan: HealthAgentExecutionPlan, *, issue: Hea
     }
 
 
-def _memory_runtime_view(*, issue: HealthIssue, task_mode: str) -> dict[str, Any]:
+def _memory_runtime_view(*, issue: HealthIssue, health_action: str) -> dict[str, Any]:
     return {
-        "view_id": f"health-memview:{issue.issue_id}:{task_mode}",
+        "view_id": f"health-memview:{issue.issue_id}:{health_action}",
         "authority": "health_system.memory_runtime_view",
+        "health_action": health_action,
         "issue_ref": issue.issue_id,
         "conversation_ref": issue.conversation_ref,
         "runtime_trace_refs": list(issue.runtime_trace_refs),
@@ -203,10 +204,10 @@ def _context_policy_result(binding: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _health_template_id_for_task_mode(task_mode: str) -> str:
+def _health_template_id_for_action(health_action: str) -> str:
     return {
         "issue_triage": "template.health.issue_triage",
         "trace_analysis": "template.health.trace_analysis",
         "case_draft": "template.health.case_draft",
         "fix_verification": "template.health.fix_verification",
-    }.get(str(task_mode or "").strip(), "template.health.issue_triage")
+    }.get(str(health_action or "").strip(), "template.health.issue_triage")

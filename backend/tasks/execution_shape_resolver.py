@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from capability_system.local_mcp_registry import get_local_mcp_unit_for_source_kind
 from understanding.capability_resolution_view import capability_resolution_view
 
 from .definitions import TaskDefinition
@@ -12,7 +11,7 @@ from .match_contracts import TaskIntentContract
 
 @dataclass(frozen=True, slots=True)
 class ExecutionShape:
-    recipe_preset_id: str
+    recipe_id: str
     execution_kind: str
     source_kind: str
     artifact_policy: dict[str, Any] = field(default_factory=dict)
@@ -62,7 +61,7 @@ def resolve_execution_shape(
         if _explicit_task_runtime(current_turn, understanding):
             reasons.append("explicit_task_runtime")
             return ExecutionShape(
-                recipe_preset_id="template.general.main_conversation",
+                recipe_id="runtime.recipe.task_graph_node",
                 execution_kind="task_runtime",
                 source_kind=source_kind or "task_system",
                 finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
@@ -78,21 +77,12 @@ def resolve_execution_shape(
                     current_turn,
                 ),
             )
-        registered_template_id = str((registered_task or {}).get("template_id") or "").strip()
         registered_task_mode = str((registered_task or {}).get("task_mode") or "").strip()
-        if registered_template_id:
-            reasons.append("registered_task_template")
-            return _shape_from_template_id(
-                registered_template_id,
-                source_kind=source_kind,
-                resolution_source="registered_task",
-                reasons=reasons,
-                diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, source_kind, modality, current_turn),
-            )
         if registered_task_mode in {"bounded_patch", "workspace_patch", "light_web_game", "arcade_game_bundle"}:
             reasons.append("registered_task_mode")
-            return _shape_from_template_id(
-                "template.dev.workspace_patch" if registered_task_mode != "light_web_game" else "template.dev.light_web_game",
+            recipe_id = "runtime.recipe.light_web_game" if registered_task_mode == "light_web_game" else "runtime.recipe.workspace_patch"
+            return _shape_from_recipe_id(
+                recipe_id,
                 source_kind=source_kind or "workspace",
                 resolution_source="registered_task",
                 reasons=reasons,
@@ -102,7 +92,7 @@ def resolve_execution_shape(
     if task_intent_contract.execution_intent == "bundle_task":
         reasons.append("bundle_execution_mode")
         return ExecutionShape(
-            recipe_preset_id="template.bundle.multi_capability",
+            recipe_id="runtime.recipe.bundle",
             execution_kind="bundle",
             source_kind=source_kind or "mixed_sources",
             finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
@@ -112,17 +102,17 @@ def resolve_execution_shape(
         )
     if execution_posture == "direct_rag" or effective_route == "rag" or effective_skill == "rag-skill":
         reasons.append("rag_execution_posture")
-        return _shape_from_source_kind("knowledge", fallback_template_id="template.rag.knowledge_answer", execution_kind="retrieval", resolution_source="capability_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, source_kind or "knowledge", modality, current_turn))
+        return _shape_from_source_kind("knowledge", recipe_id="runtime.recipe.knowledge_retrieval", execution_kind="retrieval", resolution_source="capability_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, source_kind or "knowledge", modality, current_turn))
     if effective_route == "pdf" or effective_skill == "pdf-analysis" or modality == "pdf" or explicit_inputs.get("explicit_pdf_path") or explicit_inputs.get("bound_pdf_path"):
         reasons.append("pdf_route")
-        return _shape_from_source_kind("pdf", fallback_template_id="template.pdf.document_analysis", execution_kind="document_analysis", resolution_source="capability_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "pdf", modality, current_turn))
+        return _shape_from_source_kind("pdf", recipe_id="runtime.recipe.pdf_analysis", execution_kind="document_analysis", resolution_source="capability_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "pdf", modality, current_turn))
     if effective_route == "structured_data" or effective_skill == "structured-data-analysis" or source_kind == "dataset" or explicit_inputs.get("explicit_dataset_path") or explicit_inputs.get("bound_dataset_path"):
         reasons.append("dataset_route")
-        return _shape_from_source_kind("dataset", fallback_template_id="template.data.structured_analysis", execution_kind="dataset_analysis", resolution_source="capability_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "dataset", modality, current_turn))
+        return _shape_from_source_kind("dataset", recipe_id="runtime.recipe.structured_data_analysis", execution_kind="dataset_analysis", resolution_source="capability_contract", reasons=reasons, diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, "dataset", modality, current_turn))
     if effective_route in {"search", "realtime_network"} or "task.information_search" in definition_ids or capability_requests & {"weather", "gold_price", "latest_information", "realtime_network"}:
         reasons.append("search_route")
         return ExecutionShape(
-            recipe_preset_id="template.search.information_search",
+            recipe_id="runtime.recipe.information_search",
             execution_kind="search",
             source_kind=source_kind or "external_web",
             finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
@@ -133,7 +123,7 @@ def resolve_execution_shape(
     if execution_posture == "direct_memory" or effective_route == "memory":
         reasons.append("memory_route")
         return ExecutionShape(
-            recipe_preset_id="template.memory.recall_answer",
+            recipe_id="runtime.recipe.memory_recall",
             execution_kind="memory_recall",
             source_kind=source_kind or "memory",
             finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
@@ -150,15 +140,15 @@ def resolve_execution_shape(
     } or execution_posture == "builtin_tool_lane" or effective_route == "tool":
         reasons.append("builtin_tool_route")
         if effective_route in {"workspace_write", "workspace_edit"}:
-            return _shape_from_template_id(
-                "template.dev.workspace_patch",
+            return _shape_from_recipe_id(
+                "runtime.recipe.workspace_patch",
                 source_kind=source_kind or "workspace",
                 resolution_source="capability_contract",
                 reasons=reasons,
                 diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, source_kind or "workspace", modality, current_turn),
             )
         return ExecutionShape(
-            recipe_preset_id="template.capability.builtin_tool_lane",
+            recipe_id="runtime.recipe.capability",
             execution_kind="capability",
             source_kind=source_kind or "workspace",
             finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
@@ -168,8 +158,8 @@ def resolve_execution_shape(
         )
     if _looks_like_light_web_game(lowered_goal):
         reasons.append("light_web_game_phrase")
-        return _shape_from_template_id(
-            "template.dev.light_web_game",
+        return _shape_from_recipe_id(
+            "runtime.recipe.light_web_game",
             source_kind=source_kind or "workspace",
             resolution_source="heuristic_fallback",
             reasons=reasons,
@@ -177,8 +167,8 @@ def resolve_execution_shape(
         )
     if source_kind == "workspace" or "task.task_execution" in definition_ids or "task.local_material_read" in definition_ids:
         reasons.append("workspace_source_kind")
-        return _shape_from_template_id(
-            "template.dev.workspace_patch",
+        return _shape_from_recipe_id(
+            "runtime.recipe.workspace_patch",
             source_kind="workspace",
             resolution_source="binding_contract",
             reasons=reasons,
@@ -186,7 +176,7 @@ def resolve_execution_shape(
         )
     reasons.append("fallback_general_response")
     return ExecutionShape(
-        recipe_preset_id="template.general.main_conversation",
+        recipe_id="runtime.recipe.conversation",
         execution_kind="conversation",
         source_kind=source_kind or "knowledge_base",
         finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
@@ -199,23 +189,14 @@ def resolve_execution_shape(
 def _shape_from_source_kind(
     source_kind: str,
     *,
-    fallback_template_id: str,
+    recipe_id: str,
     execution_kind: str,
     resolution_source: str,
     reasons: list[str],
     diagnostics: dict[str, Any],
 ) -> ExecutionShape:
-    preset_id = fallback_template_id
-    unit = get_local_mcp_unit_for_source_kind(source_kind)
-    if unit is not None:
-        if source_kind == "pdf":
-            preset_id = "template.pdf.document_analysis"
-        elif source_kind == "dataset":
-            preset_id = "template.data.structured_analysis"
-        elif source_kind == "knowledge":
-            preset_id = "template.rag.knowledge_answer"
     return ExecutionShape(
-        recipe_preset_id=preset_id,
+        recipe_id=recipe_id,
         execution_kind=execution_kind,
         source_kind=source_kind,
         finalization_policy={"requires_model_finalize": True, "tool_observation_can_finalize": False},
@@ -225,18 +206,18 @@ def _shape_from_source_kind(
     )
 
 
-def _shape_from_template_id(
-    template_id: str,
+def _shape_from_recipe_id(
+    recipe_id: str,
     *,
     source_kind: str,
     resolution_source: str,
     reasons: list[str],
     diagnostics: dict[str, Any],
 ) -> ExecutionShape:
-    execution_kind = "workspace_patch" if "workspace_patch" in template_id else "development" if ".dev." in template_id else "conversation"
-    artifact_policy = {"requires_write_file": template_id in {"template.dev.light_web_game"}}
+    execution_kind = "workspace_patch" if "workspace_patch" in recipe_id else "development" if "light_web_game" in recipe_id else "conversation"
+    artifact_policy = {"requires_write_file": recipe_id in {"runtime.recipe.light_web_game"}}
     return ExecutionShape(
-        recipe_preset_id=template_id,
+        recipe_id=recipe_id,
         execution_kind=execution_kind,
         source_kind=source_kind,
         artifact_policy=artifact_policy,

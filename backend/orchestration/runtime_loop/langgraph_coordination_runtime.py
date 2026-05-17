@@ -75,6 +75,8 @@ class CoordinationRuntimeState(TypedDict, total=False):
     acceptance_results: dict[str, Any]
     node_statuses: dict[str, str]
     stage_results: dict[str, dict[str, Any]]
+    stale_stage_results: list[dict[str, Any]]
+    duplicate_stage_commits: list[dict[str, Any]]
     artifact_refs: Annotated[list[dict[str, Any]], operator.add]
     pending_inputs: dict[str, Any]
     missing_required_inputs: list[str]
@@ -415,6 +417,7 @@ class LangGraphCoordinationRuntime:
         graph.add_node("stage_prepare", self._stage_prepare)
         graph.add_node("stage_execute", self._stage_execute)
         graph.add_node("blocked", self._blocked)
+        graph.add_node("noop", self._noop)
         graph.add_node("complete", self._complete)
         graph.add_edge(START, "stage_accept")
         graph.add_edge("stage_accept", "route_next")
@@ -424,6 +427,7 @@ class LangGraphCoordinationRuntime:
             {
                 "stage_prepare": "stage_prepare",
                 "blocked": "blocked",
+                "noop": "noop",
                 "complete": "complete",
             },
         )
@@ -437,6 +441,7 @@ class LangGraphCoordinationRuntime:
         )
         graph.add_edge("stage_execute", END)
         graph.add_edge("blocked", END)
+        graph.add_edge("noop", END)
         graph.add_edge("complete", END)
         return graph.compile()
 
@@ -534,6 +539,41 @@ class LangGraphCoordinationRuntime:
         if not stage_id:
             return {"diagnostics": {**dict(state.get("diagnostics") or {}), "accept_warning": "missing_stage_id"}}
         contract = dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {})
+        request_payload = dict(state.get("stage_execution_request") or {})
+        stale_result = _stale_result_reason(event=event, request_payload=request_payload, stage_id=stage_id)
+        if stale_result:
+            stale_event = self._append_timeline_event(
+                state,
+                event_type="stale_node_result_ignored",
+                status="ignored",
+                scope_type="stage",
+                scope_path=list(dict(request_payload.get("dispatch_context") or {}).get("scope_path") or ["run"]),
+                node_id=str(contract.get("node_id") or stage_id),
+                phase_id=str(contract.get("phase_id") or ""),
+                request_id=str(request_payload.get("request_id") or ""),
+                payload={
+                    "stage_id": stage_id,
+                    "task_run_id": str(event.get("task_run_id") or ""),
+                    "task_result_ref": str(event.get("task_result_ref") or ""),
+                    "agent_run_result_ref": str(event.get("agent_run_result_ref") or ""),
+                    "reason": stale_result,
+                    "event_request_id": str(event.get("request_id") or ""),
+                    "active_request_id": str(request_payload.get("request_id") or ""),
+                    "event_dispatch_event_id": str(event.get("dispatch_event_id") or ""),
+                    "active_dispatch_event_id": str(dict(request_payload.get("dispatch_context") or {}).get("dispatch_event_id") or ""),
+                },
+                idempotency_key=f"{state.get('coordination_run_id')}:{stage_id}:stale:{event.get('task_result_ref') or event.get('agent_run_result_ref') or event.get('task_run_id')}",
+            )
+            stale_results = [dict(item) for item in list(state.get("stale_stage_results") or []) if isinstance(item, dict)]
+            stale_results.append(dict(stale_event.to_dict() if stale_event is not None else {}))
+            return {
+                "stale_stage_results": stale_results,
+                "stage_execution_request": dict(state.get("stage_execution_request") or {}),
+                "a2a_payload": dict(state.get("a2a_payload") or {}),
+                "terminal_status": "stale_result_ignored",
+                "timeline": self.timeline_ledger.snapshot(str(state.get("coordination_run_id") or ""), limit=80),
+                "diagnostics": {**dict(state.get("diagnostics") or {}), "last_stale_result_reason": stale_result},
+            }
         raw_refs = [
             str(item)
             for item in list(event.get("artifact_refs") or [])
@@ -565,9 +605,47 @@ class LangGraphCoordinationRuntime:
             requires_file_artifact_refs=requires_file_artifact_refs,
         )
         node_id = str(contract.get("node_id") or stage_id)
-        request_payload = dict(state.get("stage_execution_request") or {})
         dispatch_context = dict(request_payload.get("dispatch_context") or {})
         stage_scope = self._stage_scope(state=state, stage_id=stage_id, contract=contract)
+        commit_identity = _stage_commit_identity(
+            stage_id=stage_id,
+            explicit_inputs=dict(request_payload.get("explicit_inputs") or state.get("pending_inputs") or {}),
+            artifact_refs=artifact_refs,
+        )
+        committed_identities = {
+            str(item)
+            for item in list(dict(state.get("diagnostics") or {}).get("committed_stage_identities") or [])
+            if str(item)
+        }
+        if accepted and commit_identity and commit_identity in committed_identities:
+            duplicate_event = self._append_timeline_event(
+                state,
+                event_type="duplicate_stage_commit_ignored",
+                status="ignored",
+                scope_type=str(stage_scope.get("scope_type") or "stage"),
+                scope_path=list(stage_scope.get("scope_path") or ["run"]),
+                node_id=node_id,
+                phase_id=str(stage_scope.get("phase_id") or ""),
+                request_id=str(request_payload.get("request_id") or ""),
+                payload={
+                    "stage_id": stage_id,
+                    "commit_identity": commit_identity,
+                    "task_run_id": str(event.get("task_run_id") or ""),
+                    "task_result_ref": str(event.get("task_result_ref") or ""),
+                    "artifact_refs": artifact_refs,
+                },
+                idempotency_key=f"{state.get('coordination_run_id')}:{stage_id}:duplicate_commit:{commit_identity}",
+            )
+            duplicate_commits = [dict(item) for item in list(state.get("duplicate_stage_commits") or []) if isinstance(item, dict)]
+            duplicate_commits.append(dict(duplicate_event.to_dict() if duplicate_event is not None else {}))
+            return {
+                "duplicate_stage_commits": duplicate_commits,
+                "stage_execution_request": {},
+                "a2a_payload": {},
+                "terminal_status": "duplicate_commit_ignored",
+                "timeline": self.timeline_ledger.snapshot(str(state.get("coordination_run_id") or ""), limit=80),
+                "diagnostics": {**dict(state.get("diagnostics") or {}), "last_duplicate_commit_identity": commit_identity},
+            }
         result_event = self._append_timeline_event(
             state,
             event_type="node_result_received",
@@ -791,6 +869,8 @@ class LangGraphCoordinationRuntime:
                 missing_required_inputs=[],
             )
         diagnostics = {**dict(state.get("diagnostics") or {}), "last_accepted_stage_id": stage_id}
+        if accepted and commit_identity:
+            diagnostics["committed_stage_identities"] = sorted({*committed_identities, commit_identity})
         if retry_stage_id:
             diagnostics["retry_stage_id"] = retry_stage_id
             diagnostics["retry_counts"] = retry_counts
@@ -886,6 +966,32 @@ class LangGraphCoordinationRuntime:
         order = [str(item) for item in list(state.get("stage_order") or []) if str(item)]
         if not order:
             return {"terminal_status": "blocked", "missing_required_inputs": ["stage_order"]}
+        if str(state.get("terminal_status") or "") == "stale_result_ignored":
+            return {
+                "terminal_status": "stale_result_ignored",
+                "stage_execution_request": dict(state.get("stage_execution_request") or {}),
+                "a2a_payload": dict(state.get("a2a_payload") or {}),
+                "ready_nodes": list(state.get("ready_nodes") or []),
+                "blocked_nodes": list(state.get("blocked_nodes") or []),
+                "running_nodes": list(state.get("running_nodes") or []),
+                "waiting_nodes": list(state.get("waiting_nodes") or []),
+                "completed_nodes": list(state.get("completed_nodes") or []),
+                "failed_nodes": list(state.get("failed_nodes") or []),
+                "diagnostics": dict(state.get("diagnostics") or {}),
+            }
+        if str(state.get("terminal_status") or "") == "duplicate_commit_ignored":
+            return {
+                "terminal_status": "duplicate_commit_ignored",
+                "stage_execution_request": dict(state.get("stage_execution_request") or {}),
+                "a2a_payload": dict(state.get("a2a_payload") or {}),
+                "ready_nodes": list(state.get("ready_nodes") or []),
+                "blocked_nodes": list(state.get("blocked_nodes") or []),
+                "running_nodes": list(state.get("running_nodes") or []),
+                "waiting_nodes": list(state.get("waiting_nodes") or []),
+                "completed_nodes": list(state.get("completed_nodes") or []),
+                "failed_nodes": list(state.get("failed_nodes") or []),
+                "diagnostics": dict(state.get("diagnostics") or {}),
+            }
         if str(state.get("terminal_status") or "") == "waiting_for_human":
             update = _scheduler_node_sets(
                 order=order,
@@ -1199,6 +1305,9 @@ class LangGraphCoordinationRuntime:
                 task_ref=str(contract.get("task_ref") or state.get("active_task_ref") or ""),
                 contract=contract,
                 explicit_inputs=explicit_inputs,
+                artifact_context_packet=artifact_context_packet,
+                memory_snapshot=memory_snapshot,
+                revision_packet=revision_packet,
             ),
             artifact_root=str(explicit_inputs.get("artifact_root") or ""),
             artifact_policy=dict(contract.get("artifact_policy") or {}),
@@ -1704,6 +1813,14 @@ class LangGraphCoordinationRuntime:
     def _blocked(state: CoordinationRuntimeState) -> dict[str, Any]:
         return {"terminal_status": str(state.get("terminal_status") or "blocked"), "stage_execution_request": {}, "a2a_payload": {}}
 
+    @staticmethod
+    def _noop(state: CoordinationRuntimeState) -> dict[str, Any]:
+        return {
+            "terminal_status": str(state.get("terminal_status") or ""),
+            "stage_execution_request": dict(state.get("stage_execution_request") or {}),
+            "a2a_payload": dict(state.get("a2a_payload") or {}),
+        }
+
     def _complete(self, state: CoordinationRuntimeState) -> dict[str, Any]:
         task_run_id = str(state.get("root_task_run_id") or "").strip()
         operations = list(state.get("working_memory_operations") or [])
@@ -1731,6 +1848,8 @@ class LangGraphCoordinationRuntime:
     @staticmethod
     def _route_after_next(state: CoordinationRuntimeState) -> str:
         terminal = str(state.get("terminal_status") or "")
+        if terminal in {"stale_result_ignored", "duplicate_commit_ignored"}:
+            return "noop"
         if terminal == "blocked":
             return "blocked"
         if terminal == "waiting_for_human":
@@ -1947,13 +2066,13 @@ def _contract_payload(contract: CoordinationStageContract, *, topology_nodes: li
         {},
     )
     payload = contract.to_dict()
-    payload["agent_id"] = str(node.get("agent_id") or "")
-    payload["runtime_lane"] = str(node.get("lane") or node.get("runtime_lane") or "")
-    payload["role"] = str(node.get("role") or "")
-    payload["title"] = str(node.get("title") or contract.stage_id)
+    payload["agent_id"] = str(node.get("agent_id") or payload.get("agent_id") or "")
+    payload["runtime_lane"] = str(node.get("lane") or node.get("runtime_lane") or payload.get("runtime_lane") or "")
+    payload["role"] = str(node.get("role") or node.get("work_posture") or payload.get("role") or "")
+    payload["title"] = str(node.get("title") or payload.get("title") or contract.stage_id)
     payload["input_contract_id"] = str(node.get("input_contract_id") or payload.get("input_contract_id") or "")
-    payload["output_contract_id"] = str(node.get("output_contract_id") or node.get("node_contract_id") or "")
-    payload["projection_id"] = str(node.get("projection_id") or "")
+    payload["output_contract_id"] = str(node.get("output_contract_id") or node.get("node_contract_id") or payload.get("output_contract_id") or "")
+    payload["projection_id"] = str(node.get("projection_id") or payload.get("projection_id") or "")
     for key in (
         "artifact_targets",
         "artifact_requirements",
@@ -3258,6 +3377,9 @@ def _stage_execution_message(
     task_ref: str,
     contract: dict[str, Any],
     explicit_inputs: dict[str, Any],
+    artifact_context_packet: dict[str, Any] | None = None,
+    memory_snapshot: dict[str, Any] | None = None,
+    revision_packet: dict[str, Any] | None = None,
 ) -> str:
     title_template = str(contract.get("title_template") or "").strip()
     title = _render_runtime_template(title_template, explicit_inputs) if title_template else ""
@@ -3292,9 +3414,19 @@ def _stage_execution_message(
         lines.append(original_request)
     if artifact_paths:
         lines.append("目标文本：" + "、".join(artifact_paths) + "。")
-    readable_artifacts = _readable_artifact_context_for_stage(contract=contract, explicit_inputs=explicit_inputs)
+    readable_artifacts = _readable_artifact_context_for_stage(
+        contract=contract,
+        explicit_inputs=explicit_inputs,
+        artifact_context_packet=dict(artifact_context_packet or {}),
+    )
     if readable_artifacts:
         lines.extend(readable_artifacts)
+    memory_sections = _readable_memory_snapshot_sections(dict(memory_snapshot or {}))
+    if memory_sections:
+        lines.extend(memory_sections)
+    revision_sections = _readable_revision_packet_sections(dict(revision_packet or {}))
+    if revision_sections:
+        lines.extend(revision_sections)
     if instructions:
         lines.append("写作要求：")
         lines.extend(f"- {item}" for item in instructions)
@@ -3305,12 +3437,85 @@ def _stage_execution_message(
     return "\n".join(lines)
 
 
-def _readable_artifact_context_for_stage(*, contract: dict[str, Any], explicit_inputs: dict[str, Any]) -> list[str]:
+def _stale_result_reason(*, event: dict[str, Any], request_payload: dict[str, Any], stage_id: str) -> str:
+    event_request_id = str(event.get("request_id") or "").strip()
+    event_dispatch_id = str(event.get("dispatch_event_id") or "").strip()
+    if not request_payload:
+        return "missing_active_stage_execution_request" if event_request_id or event_dispatch_id else ""
+    active_stage_id = str(request_payload.get("stage_id") or "").strip()
+    if active_stage_id and active_stage_id != stage_id and (event_request_id or event_dispatch_id):
+        return "stage_id_does_not_match_active_request"
+    active_request_id = str(request_payload.get("request_id") or "").strip()
+    if event_request_id and active_request_id and event_request_id != active_request_id:
+        return "request_id_does_not_match_active_request"
+    active_dispatch_id = str(dict(request_payload.get("dispatch_context") or {}).get("dispatch_event_id") or "").strip()
+    if event_dispatch_id and active_dispatch_id and event_dispatch_id != active_dispatch_id:
+        return "dispatch_event_id_does_not_match_active_request"
+    return ""
+
+
+def _stage_commit_identity(*, stage_id: str, explicit_inputs: dict[str, Any], artifact_refs: list[str]) -> str:
+    if str(stage_id or "") != "memory_commit_chapter":
+        return ""
+    volume_index = _safe_int(explicit_inputs.get("volume_index"), 1)
+    batch_start = _safe_int(explicit_inputs.get("batch_start_index") or explicit_inputs.get("chapter_index"), 0)
+    batch_end = _safe_int(explicit_inputs.get("batch_end_index"), batch_start)
+    source_refs = []
+    for key in (
+        "contract.writing.simple_novel.chapter_draft:artifact_refs",
+        "contract.writing.simple_novel.chapter_review:artifact_refs",
+        "chapter_draft_ref",
+        "chapter_review_ref",
+        "previous_candidate_ref",
+        "previous_review_ref",
+    ):
+        source_refs.extend(_artifact_refs_from_value(explicit_inputs.get(key)))
+    if not source_refs:
+        source_refs.extend(str(item) for item in list(artifact_refs or []) if str(item))
+    seed = {
+        "stage_id": stage_id,
+        "volume_index": volume_index,
+        "batch_start_index": batch_start,
+        "batch_end_index": batch_end,
+        "source_refs": sorted(set(source_refs)),
+    }
+    return f"commitid:{_short_hash(seed)}"
+
+
+def _short_hash(value: Any) -> str:
+    import hashlib
+    import json
+
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _readable_artifact_context_for_stage(
+    *,
+    contract: dict[str, Any],
+    explicit_inputs: dict[str, Any],
+    artifact_context_packet: dict[str, Any] | None = None,
+) -> list[str]:
     policy = dict(contract.get("artifact_context_policy") or {})
     items = [dict(item) for item in list(policy.get("items") or []) if isinstance(item, dict)]
     if not items:
         return []
     sections: list[str] = []
+    expanded = dict(dict(artifact_context_packet or {}).get("expanded_text_by_input_key") or {})
+    if expanded:
+        label_by_key = {
+            str(item.get("input_key") or item.get("label") or "").strip(): str(item.get("label") or "").strip()
+            for item in items
+            if isinstance(item, dict)
+        }
+        sections.append("产物交接包：")
+        for input_key, content in expanded.items():
+            text = str(content or "").strip()
+            if not text:
+                continue
+            label = label_by_key.get(str(input_key), "") or str(input_key)
+            sections.append(f"{label}（{input_key}）：")
+            sections.append(text)
     max_items = max(_safe_int(policy.get("max_items"), len(items)), 1)
     for item in items[:max_items]:
         refs = _artifact_refs_from_value(_resolve_artifact_context_value(item, explicit_inputs=explicit_inputs))
@@ -3324,6 +3529,30 @@ def _readable_artifact_context_for_stage(*, contract: dict[str, Any], explicit_i
             sections.append(f"{label}（{ref}）：")
             sections.append(content[:max_chars])
     return sections
+
+
+def _readable_memory_snapshot_sections(memory_snapshot: dict[str, Any]) -> list[str]:
+    records = [dict(item) for item in list(memory_snapshot.get("resolved_records") or []) if isinstance(item, dict)]
+    if not records:
+        return []
+    lines = ["记忆快照："]
+    for record in records[:20]:
+        title = str(record.get("title") or record.get("record_key") or record.get("record_id") or record.get("version_id") or "记忆记录").strip()
+        summary = str(record.get("summary") or record.get("canonical_text") or "").strip()
+        if summary:
+            lines.append(f"- {title}: {summary[:4000]}")
+    return lines
+
+
+def _readable_revision_packet_sections(revision_packet: dict[str, Any]) -> list[str]:
+    if not revision_packet:
+        return []
+    lines = ["返修交接包："]
+    for key in ("review_verdict", "required_changes", "review_result_refs", "previous_candidate_artifact_refs"):
+        value = revision_packet.get(key)
+        if value not in ("", None, [], {}):
+            lines.append(f"- {key}: {value}")
+    return lines
 
 
 def _resolve_artifact_context_value(item: dict[str, Any], *, explicit_inputs: dict[str, Any]) -> Any:

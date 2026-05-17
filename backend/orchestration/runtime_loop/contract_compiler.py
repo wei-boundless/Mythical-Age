@@ -97,7 +97,6 @@ def compile_workflow_contract_manifest(
 
     runtime_contracts = _compile_runtime_contracts(
         agent_profiles=tuple(item for item in (agent_profile,) if item is not None),
-        task_mode=workflow.task_mode or task.task_mode,
         runtime_lane=runtime_lane,
         output_contract_id=output_contract_id,
         issues=issues,
@@ -113,7 +112,6 @@ def compile_workflow_contract_manifest(
             CompiledWorkflowContract(
                 workflow_id=workflow.workflow_id,
                 title=workflow.title,
-                task_mode=workflow.task_mode,
                 output_contract_id=workflow_output_contract_id,
                 step_contracts=tuple(step_contracts),
                 source_ref=task.task_id,
@@ -198,7 +196,7 @@ def compile_coordination_contract_manifest(
             )
             if ref
         )
-        if task is not None:
+        if task is not None or input_contract_id or output_contract_id:
             for contract_id, purpose in (
                 (input_contract_id, "node_input_contract"),
                 (output_contract_id, "node_output_contract"),
@@ -277,7 +275,6 @@ def compile_coordination_contract_manifest(
         elif profile is not None and task is not None:
             _validate_agent_profile(
                 profile=profile,
-                task_mode=task.task_mode,
                 runtime_lane=node.runtime_lane,
                 output_contract_id=output_contract_id,
                 issues=issues,
@@ -345,7 +342,6 @@ def compile_coordination_contract_manifest(
 
     runtime_contracts = _compile_runtime_contracts(
         agent_profiles=agent_profiles,
-        task_mode="",
         runtime_lane="",
         output_contract_id="",
         issues=issues,
@@ -454,7 +450,6 @@ def _collect_contract(
 def _compile_runtime_contracts(
     *,
     agent_profiles: tuple[AgentRuntimeProfile, ...],
-    task_mode: str,
     runtime_lane: str,
     output_contract_id: str,
     issues: list[ContractCompileIssue],
@@ -463,7 +458,6 @@ def _compile_runtime_contracts(
     for profile in agent_profiles:
         _validate_agent_profile(
             profile=profile,
-            task_mode=task_mode,
             runtime_lane=runtime_lane,
             output_contract_id=output_contract_id,
             issues=issues,
@@ -478,7 +472,6 @@ def _compile_runtime_contracts(
                 allowed_memory_scopes=profile.allowed_memory_scopes,
                 validation_state="invalid" if profile_issue_count else "valid",
                 metadata={
-                    "allowed_task_modes": list(profile.allowed_task_modes),
                     "output_contracts": list(profile.output_contracts),
                 },
             )
@@ -489,22 +482,11 @@ def _compile_runtime_contracts(
 def _validate_agent_profile(
     *,
     profile: AgentRuntimeProfile,
-    task_mode: str,
     runtime_lane: str,
     output_contract_id: str,
     issues: list[ContractCompileIssue],
     node_id: str = "",
 ) -> None:
-    if task_mode and profile.allowed_task_modes and task_mode not in profile.allowed_task_modes:
-        issues.append(
-            ContractCompileIssue(
-                code="runtime_task_mode_not_allowed",
-                message=f"Agent runtime profile 不允许任务模式：{task_mode}",
-                severity="error",
-                agent_id=profile.agent_id,
-                node_id=node_id,
-            )
-        )
     if runtime_lane and profile.allowed_runtime_lanes and runtime_lane not in profile.allowed_runtime_lanes:
         issues.append(
             ContractCompileIssue(

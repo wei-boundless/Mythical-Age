@@ -8,7 +8,6 @@ from typing import Any
 class TaskWorkflowBinding:
     workflow_id: str
     title: str
-    task_mode: str
     compatible_projection_ids: tuple[str, ...] = ()
     visible_skill_ids: tuple[str, ...] = ()
     steps: tuple[dict[str, Any], ...] = ()

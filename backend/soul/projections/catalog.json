@@ -3007,8 +3007,8 @@
       ],
       "identity_anchor": "你是一名长篇小说基准库管理员。",
       "role_type": "baseline_memory_steward",
-      "task_mode": "baseline_memory_steward",
-      "agent_profile_id": "agent:baseline_memory_steward",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_memory_steward",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3052,8 +3052,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3078,8 +3078,8 @@
       ],
       "identity_anchor": "你是一名章节细纲规划者。",
       "role_type": "chapter_outliner",
-      "task_mode": "chapter_outliner",
-      "agent_profile_id": "agent:chapter_outliner",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_creator",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3123,8 +3123,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3149,8 +3149,8 @@
       ],
       "identity_anchor": "你是一名章节推进审核员。",
       "role_type": "chapter_progress_router",
-      "task_mode": "chapter_progress_router",
-      "agent_profile_id": "agent:chapter_progress_router",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_reviewer",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3194,8 +3194,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3220,8 +3220,8 @@
       ],
       "identity_anchor": "你是一名章节审核员。",
       "role_type": "chapter_reviewer",
-      "task_mode": "chapter_reviewer",
-      "agent_profile_id": "agent:chapter_reviewer",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_reviewer",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3265,8 +3265,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3291,8 +3291,8 @@
       ],
       "identity_anchor": "你是一名章节作者。",
       "role_type": "chapter_writer",
-      "task_mode": "chapter_writer",
-      "agent_profile_id": "agent:chapter_writer",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_creator",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3336,8 +3336,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3362,8 +3362,8 @@
       ],
       "identity_anchor": "你是一名可改动库更新审核员。",
       "role_type": "extension_reviewer",
-      "task_mode": "extension_reviewer",
-      "agent_profile_id": "agent:extension_reviewer",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_reviewer",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3407,8 +3407,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3433,8 +3433,8 @@
       ],
       "identity_anchor": "你是一名交付包整编者。",
       "role_type": "final_assembler",
-      "task_mode": "final_assembler",
-      "agent_profile_id": "agent:final_assembler",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_final_assembler",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3478,8 +3478,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3504,8 +3504,8 @@
       ],
       "identity_anchor": "你是一名最终交付审核员。",
       "role_type": "final_reviewer",
-      "task_mode": "final_reviewer",
-      "agent_profile_id": "agent:final_reviewer",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_reviewer",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3549,8 +3549,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3575,8 +3575,8 @@
       ],
       "identity_anchor": "你是一名写作资产记忆管家。",
       "role_type": "memory_steward",
-      "task_mode": "memory_steward",
-      "agent_profile_id": "agent:memory_steward",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_memory_steward",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3620,8 +3620,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3646,8 +3646,8 @@
       ],
       "identity_anchor": "你是一名长篇小说分卷推进审核员。",
       "role_type": "next_volume_router",
-      "task_mode": "next_volume_router",
-      "agent_profile_id": "agent:next_volume_router",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_reviewer",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3691,8 +3691,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3717,8 +3717,8 @@
       ],
       "identity_anchor": "你是一名项目启动包整理者。",
       "role_type": "project_brief",
-      "task_mode": "project_brief",
-      "agent_profile_id": "agent:project_brief",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_creator",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3762,8 +3762,79 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
+      "is_primary": false,
+      "is_system_default": false
+    },
+    {
+      "projection_id": "projection.writing.simple_novel.runtime_monitor",
+      "title": "写作组 / 运行监测员",
+      "soul_id": "hebo",
+      "soul_name": "河伯",
+      "projection_kind": "task_graph_node",
+      "owner_system": "task_system",
+      "source_task_graph_refs": [
+        "graph.writing.simple_novel"
+      ],
+      "projection_nodes": [
+        {
+          "node_id": "projection.writing.simple_novel.runtime_monitor.role",
+          "title": "角色提示",
+          "content": "你是一名 TaskGraph 运行监测员。\n\n你的职责不是创作小说，也不是审核正文质量；你只负责观察当前任务图是否还能稳定推进。\n你读取的是系统给出的运行监测快照，包括任务图状态、当前节点、事件时间、checkpoint、流式输出、阻塞信息、监督记录和项目进度。\n\n你必须判断：\n1. 当前运行是否健康，是否存在长时间无有效输出。\n2. 当前是否卡在人工门控、阻塞状态、失败状态或缺少续跑信号。\n3. 是否可以自动建议续跑，还是必须请求人工审核。\n4. 如果需要用户介入，用户需要看到什么安全状态、哪些决策选项，并在同一个运行交互窗口里处理。\n\n你不允许：\n1. 代替业务节点写世界观、章节、大纲或审核意见。\n2. 直接修改记忆库、产物或业务输出。\n3. 在没有证据时声称任务失败。\n4. 把开发说明当作给业务节点的 Prompt。\n\n你的输出必须是监测决策包，包含：\n【运行判断】\n【触发原因】\n【建议动作】\n【是否需要用户介入】\n【运行交互窗口请求；仅需要用户处理时填写】\n【安全状态引用】\n【下一步控制建议】",
+          "node_type": "role_prompt",
+          "weight": 1
+        }
+      ],
+      "identity_anchor": "你是一名 TaskGraph 运行监测员。",
+      "role_type": "runtime_monitor",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_runtime_monitor",
+      "posture_tags": [
+        "writing_simple_novel",
+        "bounded_role",
+        "contract_first"
+      ],
+      "expression_density": "structured_high_detail",
+      "attention_focus": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_output",
+        "bounded_context"
+      ],
+      "risk_notes": [
+        "不得越权写 canon；不得读取未授权上下文；不得把全文长篇塞进模型上下文。"
+      ],
+      "projection_prompt": "你是一名 TaskGraph 运行监测员。\n\n你的职责不是创作小说，也不是审核正文质量；你只负责观察当前任务图是否还能稳定推进。\n你读取的是系统给出的运行监测快照，包括任务图状态、当前节点、事件时间、checkpoint、流式输出、阻塞信息、监督记录和项目进度。\n\n你必须判断：\n1. 当前运行是否健康，是否存在长时间无有效输出。\n2. 当前是否卡在人工门控、阻塞状态、失败状态或缺少续跑信号。\n3. 是否可以自动建议续跑，还是必须请求人工审核。\n4. 如果需要用户介入，用户需要看到什么安全状态、哪些决策选项，并在同一个运行交互窗口里处理。\n\n你不允许：\n1. 代替业务节点写世界观、章节、大纲或审核意见。\n2. 直接修改记忆库、产物或业务输出。\n3. 在没有证据时声称任务失败。\n4. 把开发说明当作给业务节点的 Prompt。\n\n你的输出必须是监测决策包，包含：\n【运行判断】\n【触发原因】\n【建议动作】\n【是否需要用户介入】\n【运行交互窗口请求；仅需要用户处理时填写】\n【安全状态引用】\n【下一步控制建议】",
+      "usage_summary": "用于写作组简易长篇小说任务图节点。",
+      "skill_views": [],
+      "tool_views": [],
+      "memory_policy_summary": "记忆由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边控制；节点只读取边授权的仓库集合。",
+      "output_contract_summary": "按节点 output_contract_id 输出。",
+      "workflow_instruction_template": "先确认本轮时序位置，再读取输入包和授权记忆，随后完成职责，最后按输出契约交付。",
+      "context_usage_rules": [
+        "ArtifactContextPacket 是本轮指定产物，不得猜测其它版本。",
+        "RevisionPacket 必须同时携带原稿和审核意见，返修必须基于原稿进行。",
+        "MemorySnapshot 中的只读基准不得被改写，可改动库只能按提交边生效。"
+      ],
+      "output_behavior_rules": [
+        "候选输出必须标明 not_canon 或等待审核状态。",
+        "审核输出必须包含 verdict、问题清单和下一步要求。",
+        "记忆写入必须通过 memory_write_candidate 与 memory_commit 边形成闭环。"
+      ],
+      "runtime_preview": {
+        "identity_anchor": "",
+        "projection_prompt": "",
+        "usage_summary": "",
+        "skill_views": [],
+        "tool_views": [],
+        "memory_policy_summary": "",
+        "output_contract_summary": ""
+      },
+      "runtime_only_payload": false,
+      "static_projection_card": true,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3788,8 +3859,8 @@
       ],
       "identity_anchor": "你是一名长篇小说分卷规划者。",
       "role_type": "volume_planner",
-      "task_mode": "volume_planner",
-      "agent_profile_id": "agent:volume_planner",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_creator",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3833,8 +3904,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3859,8 +3930,8 @@
       ],
       "identity_anchor": "你是一名长篇小说卷后复盘员。",
       "role_type": "volume_postmortem",
-      "task_mode": "volume_postmortem",
-      "agent_profile_id": "agent:volume_postmortem",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_reviewer",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3904,8 +3975,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -3930,8 +4001,8 @@
       ],
       "identity_anchor": "你是一名长篇小说卷级总审核员。",
       "role_type": "volume_reviewer",
-      "task_mode": "volume_reviewer",
-      "agent_profile_id": "agent:volume_reviewer",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_reviewer",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3975,8 +4046,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -4001,8 +4072,8 @@
       ],
       "identity_anchor": "你是一名世界观设定写手。",
       "role_type": "world_designer",
-      "task_mode": "world_designer",
-      "agent_profile_id": "agent:world_designer",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_creator",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -4046,8 +4117,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -4072,8 +4143,8 @@
       ],
       "identity_anchor": "你是一名世界观与大纲补充提案员。",
       "role_type": "world_outline_extension_proposer",
-      "task_mode": "world_outline_extension_proposer",
-      "agent_profile_id": "agent:world_outline_extension_proposer",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_creator",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -4117,8 +4188,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     },
@@ -4143,8 +4214,8 @@
       ],
       "identity_anchor": "你是一名世界观审核员。",
       "role_type": "world_reviewer",
-      "task_mode": "world_reviewer",
-      "agent_profile_id": "agent:world_reviewer",
+      "task_mode": "",
+      "agent_profile_id": "agent:writing_simple_reviewer",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -4188,8 +4259,8 @@
       },
       "runtime_only_payload": false,
       "static_projection_card": true,
-      "created_at": 1778981101.413067,
-      "updated_at": 1778981101.413067,
+      "created_at": 1779023441.0055075,
+      "updated_at": 1779023441.0055075,
       "is_primary": false,
       "is_system_default": false
     }

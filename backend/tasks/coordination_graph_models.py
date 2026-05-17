@@ -31,6 +31,7 @@ class TaskGraphRuntimeNode:
     stream_policy: dict[str, Any] = field(default_factory=dict)
     review_gate_policy: dict[str, Any] = field(default_factory=dict)
     loop_policy: dict[str, Any] = field(default_factory=dict)
+    monitor_policy: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

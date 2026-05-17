@@ -223,6 +223,7 @@ def _runtime_node_from_task_graph_node(
         stream_policy=dict(getattr(raw_node, "stream_policy", {}) or {}),
         review_gate_policy=dict(getattr(raw_node, "review_gate_policy", {}) or {}),
         loop_policy=dict(getattr(raw_node, "loop_policy", {}) or {}),
+        monitor_policy=dict(node_metadata.get("monitor_policy") or {}),
         metadata={
             **node_metadata,
             "agent_group_id": node_agent_group_id,

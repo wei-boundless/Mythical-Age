@@ -90,7 +90,7 @@ def default_health_agent_runs(now: float | None = None) -> tuple[HealthAgentRun,
             agent_id=HEALTH_AGENT_ID,
             agent_profile_id="health_maintainer_agent",
             runtime_lane="health_issue_read",
-            task_mode="issue_triage",
+            health_action="issue_triage",
             workflow_id="workflow.health.issue_triage",
             admission_status="accepted",
             projection_id="",
@@ -203,7 +203,7 @@ class HealthRegistry:
         defaults = self._resolve_conversation_defaults(
             active_issue_ref=active_issue_ref,
             active_run_ref=active_run_ref,
-            task_mode=str(payload.get("task_mode") or "issue_triage").strip() or "issue_triage",
+            health_action=str(payload.get("health_action") or "issue_triage").strip() or "issue_triage",
         )
         session = HealthAgentConversationSession(
             session_id=session_id,
@@ -344,14 +344,14 @@ class HealthRegistry:
             trace=trace,
         )
 
-    def preview_agent_run(self, *, issue_id: str, task_mode: str = "issue_triage") -> dict[str, Any]:
+    def preview_agent_run(self, *, issue_id: str, health_action: str = "issue_triage") -> dict[str, Any]:
         issue = next((item for item in self.list_issues() if item.issue_id == issue_id), None)
         if issue is None:
             raise KeyError(issue_id)
         plan = build_health_agent_execution_plan(
             self.base_dir,
             issue=issue,
-            task_mode=task_mode,
+            health_action=health_action,
             source="health_system.preview",
         )
         return build_health_agent_run_preview(plan, issue=issue)
@@ -360,12 +360,12 @@ class HealthRegistry:
         self,
         *,
         issue_id: str,
-        task_mode: str = "issue_triage",
+        health_action: str = "issue_triage",
         session_id: str = "health-system",
         source: str = "health_system.manual",
         task_run_loop: Any,
     ) -> dict[str, Any]:
-        preview = self.preview_agent_run(issue_id=issue_id, task_mode=task_mode)
+        preview = self.preview_agent_run(issue_id=issue_id, health_action=health_action)
         if preview["status"] != "ready":
             return {
                 "authority": "health_system.agent_run_start",
@@ -380,16 +380,14 @@ class HealthRegistry:
         task_execution_assembly = dict(preview.get("task_execution_assembly") or {})
         task_body_orchestration = dict(preview.get("task_body_orchestration") or {})
         agent_runtime_spec = dict(preview.get("agent_runtime_spec") or {})
-        task_id = str(agent_runtime_spec.get("task_id") or f"task.health.{task_mode}:{issue_id}")
+        task_id = str(agent_runtime_spec.get("task_id") or f"task.health.{health_action}:{issue_id}")
         task_contract_ref = str(task_execution_assembly.get("assembly_id") or task_id)
         task_request = HealthTaskRequest(
-            request_id=f"health-task-request:{task_mode}:{issue_id}",
+            request_id=f"health-task-request:{health_action}:{issue_id}",
             issue_id=issue_id,
-            task_kind=task_mode,
+            task_kind=health_action,
             task_id=task_id,
             flow_id=str(flow.get("flow_id") or ""),
-            graph_id=f"graph.health.{task_mode}",
-            entry_node_id="agent",
             required_evidence_refs=tuple(
                 item
                 for item in (
@@ -419,7 +417,7 @@ class HealthRegistry:
                 "health_issue_title": str(issue.get("title") or ""),
                 "health_issue_source": str(issue.get("source") or ""),
                 "health_run_source": source,
-                "task_mode": task_mode,
+                "health_action": health_action,
                 "flow_id": str(flow.get("flow_id") or ""),
                 "output_contract_id": str(binding.get("output_contract_id") or ""),
                 "memory_scope": str(binding.get("memory_scope") or ""),
@@ -438,7 +436,7 @@ class HealthRegistry:
             agent_id=task_run.agent_id,
             agent_profile_id=task_run.agent_profile_id,
             runtime_lane=task_run.runtime_lane,
-            task_mode=task_mode,
+            health_action=health_action,
             workflow_id=str(binding.get("workflow_id") or ""),
             admission_status="accepted",
             projection_id=str(task_body_orchestration.get("projection_ref") or ""),
@@ -501,7 +499,7 @@ class HealthRegistry:
         self,
         *,
         issue_id: str,
-        task_mode: str = "issue_triage",
+        health_action: str = "issue_triage",
         session_id: str = "health-system",
         source: str = "health_system.manual",
         task_run_loop: Any,
@@ -510,7 +508,7 @@ class HealthRegistry:
     ) -> dict[str, Any]:
         started = self.start_agent_run(
             issue_id=issue_id,
-            task_mode=task_mode,
+            health_action=health_action,
             session_id=session_id,
             source=source,
             task_run_loop=task_run_loop,
@@ -541,10 +539,10 @@ class HealthRegistry:
                 "task_contract": {
                     "task_id": task_id,
                     "session_id": str(task_run.get("session_id") or ""),
-                    "task_mode": task_mode,
+                    "health_action": health_action,
                     "input_contract_id": str(flow.get("input_contract_id") or ""),
                     "output_contract_id": str(flow.get("output_contract_id") or ""),
-                    "user_goal": f"对健康问题进行 {task_mode}：{issue.get('title') or issue_id}",
+                    "user_goal": f"对健康问题执行 {health_action}：{issue.get('title') or issue_id}",
                 },
                 "source": source,
             },
@@ -554,13 +552,13 @@ class HealthRegistry:
             task_run_id,
             "memory_runtime_view_built",
             payload={
-                "memory_runtime_view_ref": f"health-memory-view:{issue_id}:{task_mode}",
+                "memory_runtime_view_ref": f"health-memory-view:{issue_id}:{health_action}",
                 "memory_scope": str(binding.get("memory_scope") or ""),
                 "conversation_candidate_count": 1 if issue.get("conversation_ref") else 0,
                 "state_candidate_count": len(list(issue.get("runtime_trace_refs") or [])),
                 "long_term_candidate_count": 0,
             },
-            refs={"memory_runtime_view_ref": f"health-memory-view:{issue_id}:{task_mode}"},
+            refs={"memory_runtime_view_ref": f"health-memory-view:{issue_id}:{health_action}"},
         )
         context_event = task_run_loop.event_log.append(
             task_run_id,
@@ -573,7 +571,7 @@ class HealthRegistry:
                     "history_message_count": 0,
                     "pending_user_message_chars": len(model_messages[-1]["content"]),
                     "system_prompt_chars": len(model_messages[0]["content"]),
-                    "memory_runtime_view_ref": f"health-memory-view:{issue_id}:{task_mode}",
+                    "memory_runtime_view_ref": f"health-memory-view:{issue_id}:{health_action}",
                     "projection_ref": "",
                     "prompt_manifest_ref": "",
                     "token_pressure": {"level": "unknown", "source": "health_system"},
@@ -584,7 +582,7 @@ class HealthRegistry:
                 },
             },
             refs={
-                "memory_runtime_view_ref": f"health-memory-view:{issue_id}:{task_mode}",
+                "memory_runtime_view_ref": f"health-memory-view:{issue_id}:{health_action}",
                 "context_snapshot_ref": f"ctx:{task_run_id}",
             },
         )
@@ -721,7 +719,7 @@ class HealthRegistry:
             "result_ref": result_ref,
             "issue_id": issue_id,
             "task_run_id": task_run_id,
-            "task_mode": task_mode,
+            "health_action": health_action,
             "output_contract_id": str(flow.get("output_contract_id") or ""),
             "content": final_content,
             "workflow": workflow_payload,
@@ -757,7 +755,7 @@ class HealthRegistry:
             transition="stop_after_final_output",
             terminal_reason=terminal_reason,
             context_snapshot_ref=f"ctx:{task_run_id}",
-            memory_state_ref=f"health-memory-view:{issue_id}:{task_mode}",
+            memory_state_ref=f"health-memory-view:{issue_id}:{health_action}",
             result_refs=tuple(result_refs),
             commit_state={"task_result_final": final_commit.to_dict(), "health_result_recorded": True},
             diagnostics={
@@ -816,7 +814,7 @@ class HealthRegistry:
             agent_id=str(task_run.get("agent_id") or ""),
             agent_profile_id=str(task_run.get("agent_profile_id") or ""),
             runtime_lane=str(task_run.get("runtime_lane") or ""),
-            task_mode=task_mode,
+            health_action=health_action,
             workflow_id=str(binding.get("workflow_id") or ""),
             admission_status="accepted",
             projection_id=str(terminal_state.projection_ref or ""),
@@ -1008,18 +1006,18 @@ class HealthRegistry:
                 created_at=now,
             )
 
-        task_mode = self._route_conversation_task_mode(
+        health_action = self._route_conversation_health_action(
             user_message=user_message.content,
             session=session,
         )
         session = self._refresh_conversation_session_mode(
             session,
-            task_mode=task_mode,
+            health_action=health_action,
             active_issue_ref=issue_id,
         )
         run_result = await self.execute_agent_run(
             issue_id=issue_id,
-            task_mode=task_mode,
+            health_action=health_action,
             session_id=session.session_id,
             source="health_system.conversation",
             task_run_loop=task_run_loop,
@@ -1047,7 +1045,7 @@ class HealthRegistry:
             receipt_ref=str(health_run.get("run_id") or ""),
         )
 
-    def _route_conversation_task_mode(
+    def _route_conversation_health_action(
         self,
         *,
         user_message: str,
@@ -1075,7 +1073,7 @@ class HealthRegistry:
         *,
         active_issue_ref: str,
         active_run_ref: str,
-        task_mode: str,
+        health_action: str,
     ) -> dict[str, str]:
         issue_id = str(active_issue_ref or "").strip()
         if not issue_id and str(active_run_ref or "").strip():
@@ -1088,7 +1086,7 @@ class HealthRegistry:
                 plan = build_health_agent_execution_plan(
                     self.base_dir,
                     issue=issue,
-                    task_mode=task_mode,
+                    health_action=health_action,
                     session_id=HEALTH_SESSION_ID,
                     source="health_system.conversation_defaults",
                 )
@@ -1109,13 +1107,13 @@ class HealthRegistry:
         self,
         session: HealthAgentConversationSession,
         *,
-        task_mode: str,
+        health_action: str,
         active_issue_ref: str,
     ) -> HealthAgentConversationSession:
         defaults = self._resolve_conversation_defaults(
             active_issue_ref=active_issue_ref,
             active_run_ref=session.active_run_ref,
-            task_mode=task_mode,
+            health_action=health_action,
         )
         updated = HealthAgentConversationSession(
             session_id=session.session_id,

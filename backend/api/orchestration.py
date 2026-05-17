@@ -28,7 +28,7 @@ from orchestration.runtime_loop.langgraph_coordination_runtime import LangGraphC
 from orchestration.delegation_catalog import DelegationCatalogBuilder
 from understanding import analyze_memory_intent
 from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-from tasks import TaskFlowRegistry, TaskWorkflowRegistry
+from tasks import TaskFlowRegistry
 from sessions import InvalidSessionId, validate_session_id
 
 router = APIRouter()
@@ -325,7 +325,6 @@ class OrchestrationModeRequest(BaseModel):
 
 class AgentRuntimeProfileRequest(BaseModel):
     agent_profile_id: str = Field(default="", max_length=160)
-    allowed_task_modes: list[str] = Field(default_factory=list)
     allowed_runtime_lanes: list[str] = Field(default_factory=list)
     allowed_operations: list[str] = Field(default_factory=list)
     blocked_operations: list[str] = Field(default_factory=list)
@@ -404,6 +403,11 @@ class TaskGraphRunStartRequest(BaseModel):
     execute_initial_stage: bool = True
 
 
+class TaskGraphMonitorEvaluateRequest(BaseModel):
+    monitor_node_id: str = Field(default="", max_length=180)
+    monitor_policy: dict[str, Any] = Field(default_factory=dict)
+
+
 class DelegationPreviewRequest(BaseModel):
     parent_agent_id: str = Field(default="")
     target_agent_id: str = Field(default="")
@@ -477,14 +481,6 @@ OPTION_LABELS: dict[str, str] = {
     "assertions": "验收断言",
 }
 
-REMOVED_ORCHESTRATION_TASK_MODES = {
-    "issue_triage",
-    "trace_analysis",
-    "case_draft",
-    "fix_verification",
-}
-
-
 def _option_label(value: str, fallback: str = "") -> str:
     normalized = str(value or "").strip()
     if not normalized:
@@ -523,44 +519,24 @@ def _choice_label_from_map(value: str, labels: dict[str, str]) -> str:
     return str(labels.get(normalized) or _option_label(normalized, normalized)).strip()
 
 
-def _task_scope_option(value: str, *, label: str, description: str = "", source: str = "") -> dict[str, str]:
+def _task_graph_option(value: str, *, label: str, description: str = "", source: str = "") -> dict[str, str]:
     option = _option(value, label=label, description=description)
     option["source"] = str(source or "").strip()
     return option
 
 
-def _build_task_scope_options(task_registry: TaskFlowRegistry, workflows: list[Any]) -> tuple[list[str], list[dict[str, str]]]:
+def _build_task_graph_options(task_registry: TaskFlowRegistry) -> tuple[list[str], list[dict[str, str]]]:
     options_by_value: dict[str, dict[str, str]] = {}
 
     def add(value: str, *, label: str, description: str = "", source: str = "") -> None:
         normalized = str(value or "").strip()
-        if not normalized or normalized in options_by_value or normalized in REMOVED_ORCHESTRATION_TASK_MODES:
+        if not normalized or normalized in options_by_value:
             return
-        options_by_value[normalized] = _task_scope_option(
+        options_by_value[normalized] = _task_graph_option(
             normalized,
             label=label,
             description=description,
             source=source,
-        )
-
-    for domain in task_registry.list_task_domains():
-        if not domain.enabled:
-            continue
-        add(
-            domain.task_family,
-            label=f"{_option_label(domain.task_family, domain.title)} · 任务域",
-            description=domain.description or domain.domain_id,
-            source="task_domain",
-        )
-
-    for record in task_registry.list_specific_task_records():
-        if not record.enabled:
-            continue
-        add(
-            record.task_mode,
-            label=f"{_option_label(record.task_mode, record.task_title)} · 具体任务",
-            description=record.task_id,
-            source="specific_task",
         )
 
     for graph in task_registry.list_task_graphs():
@@ -571,19 +547,6 @@ def _build_task_scope_options(task_registry: TaskFlowRegistry, workflows: list[A
             label=f"{graph.title} · 任务图",
             description=f"{graph.graph_kind} / {graph.publish_state}",
             source="task_graph",
-        )
-
-    for workflow in workflows:
-        if not getattr(workflow, "enabled", True):
-            continue
-        task_mode = str(getattr(workflow, "task_mode", "") or "").strip()
-        if not task_mode:
-            continue
-        add(
-            task_mode,
-            label=f"{_option_label(task_mode, str(getattr(workflow, 'title', task_mode) or task_mode))} · 工作流",
-            description=str(getattr(workflow, "workflow_id", "") or ""),
-            source="workflow",
         )
 
     options = sorted(options_by_value.values(), key=lambda item: (item.get("source", ""), item["label"], item["value"]))
@@ -653,9 +616,7 @@ async def orchestration_agents() -> dict[str, Any]:
     groups = AgentGroupRegistry(runtime.base_dir).list_groups()
     task_registry = TaskFlowRegistry(runtime.base_dir)
     operations = build_default_operation_registry().list_operations()
-    workflows = TaskWorkflowRegistry(runtime.base_dir).list_workflows()
-    flow_items = task_registry.list_flows()
-    task_scopes, task_scope_options = _build_task_scope_options(task_registry, workflows)
+    task_graph_refs, task_graph_options = _build_task_graph_options(task_registry)
     runtime_lane_labels = {
         "main_conversation": "主会话通道",
         "general_task": "通用任务通道",
@@ -663,14 +624,34 @@ async def orchestration_agents() -> dict[str, Any]:
         "coordination_task": "协调任务通道",
         "health_task": "健康任务通道",
     }
-    runtime_lanes = sorted({item.default_runtime_lane for item in flow_items if item.default_runtime_lane})
+    runtime_lanes = sorted(
+        {
+            lane
+            for profile in registry.list_profiles()
+            for lane in profile.allowed_runtime_lanes
+            if lane
+        }
+        | {
+            str(dict(node).get("runtime_lane") or "").strip()
+            for graph in task_registry.list_task_graphs()
+            for node in graph.nodes
+            if str(dict(node).get("runtime_lane") or "").strip()
+        }
+    )
     memory_scope_labels = {
         "session_read": "会话只读记忆",
         "session_working_set": "会话工作记忆",
         "workspace_context": "工作区上下文",
         "health_case_memory": "健康案例记忆",
     }
-    memory_scopes = sorted({item.default_memory_scope for item in flow_items if item.default_memory_scope})
+    memory_scopes = sorted(
+        {
+            scope
+            for profile in registry.list_profiles()
+            for scope in profile.allowed_memory_scopes
+            if scope
+        }
+    )
     context_sections = [
         "conversation",
         "state",
@@ -690,14 +671,14 @@ async def orchestration_agents() -> dict[str, Any]:
         "agent_groups": [item.to_dict() for item in groups],
         "options": {
             "operations": [item.to_dict() for item in operations],
-            "task_modes": task_scopes,
+            "task_graphs": task_graph_refs,
             "runtime_lanes": runtime_lanes,
             "memory_scopes": memory_scopes,
             "context_sections": context_sections,
             "approval_policies": approval_policies,
             "trace_policies": trace_policies,
             "operation_options": [_operation_option(item) for item in operations],
-            "task_mode_options": task_scope_options,
+            "task_graph_options": task_graph_options,
             "runtime_lane_options": [_option(item, label=_choice_label_from_map(item, runtime_lane_labels)) for item in runtime_lanes],
             "memory_scope_options": [_option(item, label=_choice_label_from_map(item, memory_scope_labels)) for item in memory_scopes],
             "context_section_options": [_option(item) for item in context_sections],
@@ -859,7 +840,6 @@ async def upsert_orchestration_agent_runtime_profile(
         AgentRuntimeRegistry(runtime.base_dir).upsert_profile(
             agent_id=agent_id,
             agent_profile_id=payload.agent_profile_id,
-            allowed_task_modes=tuple(payload.allowed_task_modes),
             allowed_runtime_lanes=tuple(payload.allowed_runtime_lanes),
             allowed_operations=tuple(payload.allowed_operations),
             blocked_operations=tuple(payload.blocked_operations),
@@ -952,6 +932,28 @@ async def get_runtime_loop_task_graph_run_monitor(task_run_id: str) -> dict[str,
     if monitor is None:
         raise HTTPException(status_code=404, detail="TaskGraph run monitor not found")
     return monitor
+
+
+@router.post("/orchestration/runtime-loop/task-runs/{task_run_id}/task-graph-monitor/evaluate")
+async def evaluate_runtime_loop_task_graph_monitor(
+    task_run_id: str,
+    payload: TaskGraphMonitorEvaluateRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    evaluation = runtime.query_runtime.task_run_loop.evaluate_task_graph_monitor(
+        task_run_id,
+        monitor_node_id=payload.monitor_node_id.strip(),
+        monitor_policy=dict(payload.monitor_policy or {}),
+    )
+    if evaluation is None:
+        raise HTTPException(status_code=404, detail="TaskGraph run monitor not found")
+    return evaluation
+
+
+@router.get("/orchestration/runtime-loop/task-runs/{task_run_id}/monitor-decisions")
+async def list_runtime_loop_task_graph_monitor_decisions(task_run_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    return runtime.query_runtime.task_run_loop.list_task_graph_monitor_decisions(task_run_id)
 
 
 @router.get("/orchestration/runtime-loop/task-runs/{task_run_id}/artifacts")

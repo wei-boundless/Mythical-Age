@@ -9,7 +9,7 @@ class BundleItemSpec:
     item_id: str
     ordinal: int
     user_text: str
-    template_id: str = ""
+    recipe_id: str = ""
     capability_kind: str = ""
     required_tool: str = ""
     requested_outputs: tuple[str, ...] = ()

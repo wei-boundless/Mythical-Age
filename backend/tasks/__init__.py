@@ -53,8 +53,6 @@ __all__ = [
     "TaskWorkflowRegistry",
     "TaskStepBlueprint",
     "StepInputBinding",
-    "TaskTemplate",
-    "TaskTemplateRegistry",
     "TaskValidationRule",
     "ExecutionRecipe",
     "ExecutionShape",
@@ -206,10 +204,6 @@ def __getattr__(name: str) -> Any:
         from tasks.workflow_registry import TaskWorkflowRegistry
 
         return TaskWorkflowRegistry
-    if name == "TaskTemplateRegistry":
-        from tasks.template_registry import TaskTemplateRegistry
-
-        return TaskTemplateRegistry
     if name in {"TaskBindingRecord"}:
         from tasks.bindings import TaskBindingRecord
 
@@ -248,10 +242,10 @@ def __getattr__(name: str) -> Any:
         from tasks.step_models import StepInputBinding, TaskStepBlueprint
 
         return {"TaskStepBlueprint": TaskStepBlueprint, "StepInputBinding": StepInputBinding}[name]
-    if name in {"TaskTemplate", "TaskValidationRule"}:
-        from tasks.template_models import TaskTemplate, TaskValidationRule
+    if name == "TaskValidationRule":
+        from tasks.execution_recipe_models import TaskValidationRule
 
-        return {"TaskTemplate": TaskTemplate, "TaskValidationRule": TaskValidationRule}[name]
+        return TaskValidationRule
     if name == "ExecutionRecipe":
         from tasks.execution_recipe_models import ExecutionRecipe
 

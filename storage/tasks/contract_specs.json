@@ -9403,197 +9403,6 @@
       }
     },
     {
-      "contract_id": "contract.writing.simple_novel.human_review_input",
-      "title_zh": "human_review_input",
-      "title_en": "human_review_input",
-      "contract_kind": "node_execution",
-      "description": "写作组简易长篇小说契约：contract.writing.simple_novel.human_review_input。",
-      "input_fields": [],
-      "output_fields": [
-        {
-          "field_id": "project_id",
-          "title_zh": "project_id",
-          "field_type": "string",
-          "required": true,
-          "description": "project_id。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "trigger_node_id",
-          "title_zh": "trigger_node_id",
-          "field_type": "string",
-          "required": false,
-          "description": "trigger_node_id。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "trigger_contract_id",
-          "title_zh": "trigger_contract_id",
-          "field_type": "string",
-          "required": false,
-          "description": "trigger_contract_id。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "blocking_issues",
-          "title_zh": "blocking_issues",
-          "field_type": "array",
-          "required": false,
-          "description": "blocking_issues。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "required_human_decision",
-          "title_zh": "required_human_decision",
-          "field_type": "string",
-          "required": false,
-          "description": "required_human_decision。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "safe_state_refs",
-          "title_zh": "safe_state_refs",
-          "field_type": "array",
-          "required": false,
-          "description": "safe_state_refs。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "summary",
-          "title_zh": "summary",
-          "field_type": "string",
-          "required": false,
-          "description": "summary。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        }
-      ],
-      "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
-        "不得用普通消息文本代替结构化契约和 artifact refs。",
-        "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
-      ],
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "task_family": "writing_simple_novel"
-      },
-      "artifact_ref_policy": {
-        "required_for_long_outputs": true,
-        "raw_full_text_handoff": "forbidden_for_full_novel"
-      }
-    },
-    {
-      "contract_id": "contract.writing.simple_novel.human_review_packet",
-      "title_zh": "human_review_packet",
-      "title_en": "human_review_packet",
-      "contract_kind": "node_execution",
-      "description": "写作组简易长篇小说契约：contract.writing.simple_novel.human_review_packet。",
-      "input_fields": [],
-      "output_fields": [
-        {
-          "field_id": "project_id",
-          "title_zh": "project_id",
-          "field_type": "string",
-          "required": true,
-          "description": "project_id。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "handoff_id",
-          "title_zh": "handoff_id",
-          "field_type": "string",
-          "required": false,
-          "description": "handoff_id。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "trigger_node_id",
-          "title_zh": "trigger_node_id",
-          "field_type": "string",
-          "required": false,
-          "description": "trigger_node_id。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "decision_options",
-          "title_zh": "decision_options",
-          "field_type": "string",
-          "required": false,
-          "description": "decision_options。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "safe_state_refs",
-          "title_zh": "safe_state_refs",
-          "field_type": "array",
-          "required": false,
-          "description": "safe_state_refs。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        },
-        {
-          "field_id": "summary",
-          "title_zh": "summary",
-          "field_type": "string",
-          "required": false,
-          "description": "summary。",
-          "default_value": null,
-          "schema": {},
-          "source_hint": "node_output",
-          "visibility": "model_visible"
-        }
-      ],
-      "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
-        "不得用普通消息文本代替结构化契约和 artifact refs。",
-        "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
-      ],
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "task_family": "writing_simple_novel"
-      },
-      "artifact_ref_policy": {
-        "required_for_long_outputs": true,
-        "raw_full_text_handoff": "forbidden_for_full_novel"
-      }
-    },
-    {
       "contract_id": "contract.writing.simple_novel.failure_input",
       "title_zh": "failure_input",
       "title_en": "failure_input",
@@ -10277,6 +10086,151 @@
           "field_type": "string",
           "required": false,
           "description": "block_reason。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "不得用普通消息文本代替结构化契约和 artifact refs。",
+        "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "domain_id": "domain.writing.simple_novel",
+        "task_family": "writing_simple_novel"
+      },
+      "artifact_ref_policy": {
+        "required_for_long_outputs": true,
+        "raw_full_text_handoff": "forbidden_for_full_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.simple_novel.monitor_decision",
+      "title_zh": "monitor_decision",
+      "title_en": "monitor_decision",
+      "contract_kind": "node_execution",
+      "description": "写作组简易长篇小说契约：contract.writing.simple_novel.monitor_decision。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "decision_id",
+          "title_zh": "decision_id",
+          "field_type": "string",
+          "required": false,
+          "description": "decision_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "task_run_id",
+          "title_zh": "task_run_id",
+          "field_type": "string",
+          "required": false,
+          "description": "task_run_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "coordination_run_id",
+          "title_zh": "coordination_run_id",
+          "field_type": "string",
+          "required": false,
+          "description": "coordination_run_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "monitor_node_id",
+          "title_zh": "monitor_node_id",
+          "field_type": "string",
+          "required": false,
+          "description": "monitor_node_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "severity",
+          "title_zh": "severity",
+          "field_type": "string",
+          "required": false,
+          "description": "severity。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "action",
+          "title_zh": "action",
+          "field_type": "string",
+          "required": false,
+          "description": "action。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "reason",
+          "title_zh": "reason",
+          "field_type": "string",
+          "required": false,
+          "description": "reason。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": false,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "observed",
+          "title_zh": "observed",
+          "field_type": "string",
+          "required": false,
+          "description": "observed。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "recommended_control",
+          "title_zh": "recommended_control",
+          "field_type": "string",
+          "required": false,
+          "description": "recommended_control。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "run_interaction_request",
+          "title_zh": "run_interaction_request",
+          "field_type": "string",
+          "required": false,
+          "description": "run_interaction_request。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",

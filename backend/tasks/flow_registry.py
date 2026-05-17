@@ -29,7 +29,6 @@ from .task_graph_models import (
     TaskGraphDefinition,
     task_graph_from_dict,
 )
-from .template_registry import TaskTemplateRegistry
 from .workflow_registry import TaskWorkflowRegistry
 
 
@@ -68,64 +67,7 @@ def normalize_task_agent_adoption_mode(value: str) -> str:
 
 
 def default_health_task_flows() -> tuple[TaskFlowDefinition, ...]:
-    return (
-        TaskFlowDefinition(
-            flow_id="flow.health.issue_triage",
-            task_mode="issue_triage",
-            task_family="health",
-            title="健康问题分诊流",
-            input_contract_id="HealthIssue",
-            output_contract_id="HealthTriageResult",
-            default_agent_id="agent:3",
-            default_workflow_id="workflow.health.issue_triage",
-            default_runtime_lane="health_issue_read",
-            default_memory_scope="issue_local_readonly",
-            enabled=True,
-            metadata={"managed_by": "task_system", "task_resource": "task.health.issue_triage"},
-        ),
-        TaskFlowDefinition(
-            flow_id="flow.health.trace_analysis",
-            task_mode="trace_analysis",
-            task_family="health",
-            title="健康链路分析流",
-            input_contract_id="HealthTrace",
-            output_contract_id="HealthTraceAnalysis",
-            default_agent_id="agent:3",
-            default_workflow_id="workflow.health.trace_analysis",
-            default_runtime_lane="health_trace_read",
-            default_memory_scope="health_trace_readonly",
-            enabled=True,
-            metadata={"managed_by": "task_system", "task_resource": "task.health.trace_analysis"},
-        ),
-        TaskFlowDefinition(
-            flow_id="flow.health.case_draft",
-            task_mode="case_draft",
-            task_family="health",
-            title="健康用例草案流",
-            input_contract_id="HealthIssue",
-            output_contract_id="HealthCaseDraftProposal",
-            default_agent_id="agent:3",
-            default_workflow_id="workflow.health.case_draft",
-            default_runtime_lane="case_draft_candidate",
-            default_memory_scope="issue_local_readonly",
-            enabled=True,
-            metadata={"managed_by": "task_system", "task_resource": "task.health.case_draft"},
-        ),
-        TaskFlowDefinition(
-            flow_id="flow.health.fix_verification",
-            task_mode="fix_verification",
-            task_family="health",
-            title="健康修复验证流",
-            input_contract_id="HealthIssueWithBeforeAfterTrace",
-            output_contract_id="HealthFixVerificationProposal",
-            default_agent_id="agent:3",
-            default_workflow_id="workflow.health.fix_verification",
-            default_runtime_lane="fix_verification_candidate",
-            default_memory_scope="issue_local_readonly",
-            enabled=True,
-            metadata={"managed_by": "task_system", "task_resource": "task.health.fix_verification"},
-        ),
-    )
+    return ()
 
 
 def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
@@ -133,122 +75,7 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
 
 
 def _system_task_specs() -> dict[str, dict[str, Any]]:
-    return {
-        "task.dev.workspace_patch": {
-            "title": "工作区受限补丁",
-            "description": "读取工作区、实施受限补丁并汇报验证状态。",
-            "task_family": "development",
-            "task_mode": "bounded_patch",
-            "workflow_id": "workflow.dev.bounded_patch",
-            "input_contract_id": "WorkspacePatchTaskInput",
-            "output_contract_id": "AssistantFinalAnswer",
-            "safety_policy": {
-                "safety_class": "S1_bounded_patch",
-                "write_mode": "scoped_patch",
-                "forbidden_paths": [".env", ".env.local", ".git", "node_modules"],
-            },
-        },
-        "task.dev.light_web_game": {
-            "title": "轻量网页小游戏",
-            "description": "生成一个可运行、可验证的轻量网页小游戏产物。",
-            "task_family": "development",
-            "task_mode": "light_web_game",
-            "workflow_id": "workflow.dev.light_web_game",
-            "input_contract_id": "LightWebGameTaskInput",
-            "output_contract_id": "LightWebGameResult",
-            "safety_policy": {
-                "safety_class": "S1_bounded_artifact_write",
-                "write_mode": "bounded_create",
-                "default_write_roots": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"],
-                "forbidden_paths": [".env", ".env.local", ".git", "node_modules"],
-            },
-        },
-        "task.dev.arcade_game_bundle": {
-            "title": "复合网页小游戏包",
-            "description": "生成多文件网页小游戏包，并明确入口文件和资源关系。",
-            "task_family": "development",
-            "task_mode": "arcade_game_bundle",
-            "workflow_id": "workflow.dev.arcade_game_bundle",
-            "input_contract_id": "ArcadeGameBundleTaskInput",
-            "output_contract_id": "LightWebGameResult",
-            "safety_policy": {
-                "safety_class": "S1_bounded_artifact_write",
-                "write_mode": "bounded_create",
-                "default_write_roots": ["frontend/public/games", "docs/系统规划/任务系统实测记录/artifacts"],
-                "forbidden_paths": [".env", ".env.local", ".git", "node_modules"],
-            },
-        },
-        "task.health.issue_triage": {
-            "title": "健康问题分诊",
-            "description": "读取健康问题和追踪引用，输出归属与分诊建议。",
-            "task_family": "health",
-            "task_mode": "issue_triage",
-            "workflow_id": "workflow.health.issue_triage",
-            "input_contract_id": "HealthIssue",
-            "output_contract_id": "HealthTriageResult",
-            "safety_policy": {},
-        },
-        "task.health.trace_analysis": {
-            "title": "健康链路分析",
-            "description": "读取健康问题与运行链路证据，定位问题节点并给出修复范围建议。",
-            "task_family": "health",
-            "task_mode": "trace_analysis",
-            "workflow_id": "workflow.health.trace_analysis",
-            "input_contract_id": "HealthTrace",
-            "output_contract_id": "HealthTraceAnalysis",
-            "safety_policy": {},
-        },
-        "task.health.case_draft": {
-            "title": "健康用例草案",
-            "description": "围绕健康问题提取复现触发条件并生成验证用例草案。",
-            "task_family": "health",
-            "task_mode": "case_draft",
-            "workflow_id": "workflow.health.case_draft",
-            "input_contract_id": "HealthIssue",
-            "output_contract_id": "HealthCaseDraftProposal",
-            "safety_policy": {},
-        },
-        "task.health.fix_verification": {
-            "title": "健康修复验证",
-            "description": "比较修复前后证据，判断问题是否消失并输出验证建议。",
-            "task_family": "health",
-            "task_mode": "fix_verification",
-            "workflow_id": "workflow.health.fix_verification",
-            "input_contract_id": "HealthIssueWithBeforeAfterTrace",
-            "output_contract_id": "HealthFixVerificationProposal",
-            "safety_policy": {},
-        },
-    }
-
-
-def _input_contract_for_task_mode(task_mode: str) -> str:
-    return {
-        "bounded_patch": "WorkspacePatchTaskInput",
-        "light_web_game": "LightWebGameTaskInput",
-        "arcade_game_bundle": "ArcadeGameBundleTaskInput",
-        "issue_triage": "HealthIssue",
-    }.get(str(task_mode or "").strip(), "UserMessage")
-
-
-def _output_contract_for_task_mode(task_mode: str) -> str:
-    return {
-        "light_web_game": "LightWebGameResult",
-        "arcade_game_bundle": "LightWebGameResult",
-        "issue_triage": "HealthTriageResult",
-    }.get(str(task_mode or "").strip(), "AssistantFinalAnswer")
-
-
-def _runtime_lane_for_task_mode(task_mode: str) -> str:
-    return {
-        "bounded_patch": "workspace_patch",
-        "light_web_game": "game_delivery",
-        "arcade_game_bundle": "game_delivery",
-        "issue_triage": "health_triage",
-        "knowledge_retrieval": "retrieval",
-        "information_search": "search",
-        "short_realtime_lookup": "search",
-        "capability_execution": "capability_execution",
-    }.get(str(task_mode or "").strip(), "main_conversation")
+    return {}
 
 
 def _memory_scope_for_family(task_family: str) -> str:
@@ -271,17 +98,17 @@ def _synthetic_specific_task_record_for_runtime(task_id: str) -> SpecificTaskRec
     if spec is None:
         return None
     workflow_id = str(spec.get("workflow_id") or "").strip()
-    task_mode = str(spec.get("task_mode") or "").strip()
     task_family = str(spec.get("task_family") or "").strip()
+    runtime_lane = str(spec.get("runtime_lane") or "main_conversation").strip()
     return SpecificTaskRecord(
         task_id=target,
         task_title=str(spec.get("title") or target),
         task_family=task_family,
-        task_mode=task_mode,
         description=str(spec.get("description") or spec.get("title") or target),
         enabled=True,
-        input_contract_id=str(spec.get("input_contract_id") or _input_contract_for_task_mode(task_mode)),
-        output_contract_id=str(spec.get("output_contract_id") or _output_contract_for_task_mode(task_mode)),
+        runtime_lane=runtime_lane,
+        input_contract_id=str(spec.get("input_contract_id") or "UserMessage"),
+        output_contract_id=str(spec.get("output_contract_id") or "AssistantFinalAnswer"),
         acceptance_profile_id="",
         default_flow_contract_id=workflow_id.replace("workflow.", "flow.", 1) if workflow_id else f"flow.{target.removeprefix('task.')}",
         default_workflow_id=workflow_id,
@@ -289,9 +116,9 @@ def _synthetic_specific_task_record_for_runtime(task_id: str) -> SpecificTaskRec
         task_policy={
             "safety_policy": dict(spec.get("safety_policy") or {}),
             "task_structure": {
-                "runtime_lane_hint": _runtime_lane_for_task_mode(task_mode),
+                "runtime_lane_hint": runtime_lane,
                 "memory_scope_hint": _memory_scope_for_family(task_family),
-                "task_resource_kind": task_mode or task_family,
+                "task_resource_kind": task_family,
             },
         },
         metadata={
@@ -652,29 +479,28 @@ def _default_adoption_plan(task: TaskAssignment) -> TaskAgentAdoptionPlan:
 
 def _default_memory_request_profile(task: TaskAssignment) -> TaskMemoryRequestProfile:
     task_family = str(task.task_family or "").strip()
-    task_mode = str(task.task_mode or "").strip()
     memory_scope_hint = str(dict(task.task_structure or {}).get("memory_scope_hint") or "").strip()
     requested_layers = ["conversation"]
-    requested_topics = [task_family or task_mode or "general_task"]
+    requested_topics = [task_family or task.task_id or "general_task"]
     allow_long_term_memory = False
     if task_family == "health":
         requested_layers = ["state", "conversation"]
-        requested_topics = ["health_issue", task_mode or "health"]
+        requested_topics = ["health_issue", task.task_id or "health"]
     elif task_family == "development":
         requested_layers = ["conversation", "state", "long_term"]
-        requested_topics = ["project_background", "recent_workspace_state", task_mode or "development"]
+        requested_topics = ["project_background", "recent_workspace_state", task.task_id or "development"]
         allow_long_term_memory = True
     elif task_family == "writing":
         requested_layers = ["conversation", "state", "long_term"]
-        requested_topics = ["story_goal", "story_style", task_mode or "writing"]
+        requested_topics = ["story_goal", "story_style", task.task_id or "writing"]
         allow_long_term_memory = True
-    elif task_family == "memory" or task_mode == "memory_recall":
+    elif task_family == "memory":
         requested_layers = ["conversation", "state", "long_term"]
         requested_topics = ["user_preference", "memory_recall"]
         allow_long_term_memory = True
-    elif task_mode in {"general_task", "short_realtime_lookup", "information_search"}:
+    elif task_family in {"general", "search"}:
         requested_layers = ["conversation"]
-        requested_topics = ["current_conversation"] if task_mode == "general_task" else ["current_conversation", task_mode]
+        requested_topics = ["current_conversation", task.task_id]
     return TaskMemoryRequestProfile(
         profile_id=f"taskmem:{task.task_id}",
         task_id=task.task_id,
@@ -694,9 +520,9 @@ def _specific_task_record_from_assignment(task: TaskAssignment) -> SpecificTaskR
         task_id=task.task_id,
         task_title=task.task_title,
         task_family=task.task_family,
-        task_mode=task.task_mode,
         description=str(dict(task.metadata or {}).get("description") or task.task_title),
         enabled=task.enabled,
+        runtime_lane=task.runtime_lane,
         input_contract_id=task.input_contract_id,
         output_contract_id=task.output_contract_id,
         acceptance_profile_id=str(dict(task.metadata or {}).get("acceptance_profile_id") or ""),
@@ -741,31 +567,30 @@ def _default_flow_contract_binding_from_specific_record(record: SpecificTaskReco
 
 def _default_memory_request_profile_from_specific_record(record: SpecificTaskRecord) -> TaskMemoryRequestProfile:
     task_family = str(record.task_family or "").strip()
-    task_mode = str(record.task_mode or "").strip()
     task_policy = dict(record.task_policy or {})
     task_structure = dict(task_policy.get("task_structure") or {})
     memory_scope_hint = str(task_structure.get("memory_scope_hint") or "").strip()
     requested_layers = ["conversation"]
-    requested_topics = [task_family or task_mode or "specific_task"]
+    requested_topics = [task_family or record.task_id or "specific_task"]
     allow_long_term_memory = False
     if task_family == "health":
         requested_layers = ["state", "conversation"]
-        requested_topics = ["health_issue", task_mode or "health"]
+        requested_topics = ["health_issue", record.task_id or "health"]
     elif task_family == "development":
         requested_layers = ["conversation", "state", "long_term"]
-        requested_topics = ["project_background", "recent_workspace_state", task_mode or "development"]
+        requested_topics = ["project_background", "recent_workspace_state", record.task_id or "development"]
         allow_long_term_memory = True
     elif task_family == "writing":
         requested_layers = ["conversation", "state", "long_term"]
-        requested_topics = ["story_goal", "story_style", task_mode or "writing"]
+        requested_topics = ["story_goal", "story_style", record.task_id or "writing"]
         allow_long_term_memory = True
-    elif task_family == "memory" or task_mode == "memory_recall":
+    elif task_family == "memory":
         requested_layers = ["conversation", "state", "long_term"]
         requested_topics = ["user_preference", "memory_recall"]
         allow_long_term_memory = True
-    elif task_mode in {"short_realtime_lookup", "information_search"}:
+    elif task_family == "search":
         requested_layers = ["conversation"]
-        requested_topics = ["current_conversation", task_mode]
+        requested_topics = ["current_conversation", record.task_id]
     return TaskMemoryRequestProfile(
         profile_id=f"taskmem:{record.task_id}",
         task_id=record.task_id,
@@ -785,8 +610,8 @@ def _synthetic_task_from_general_profile(profile: GeneralTaskProfile) -> TaskAss
         task_title=profile.title,
         task_kind="general_task",
         task_family="general",
-        task_mode="general_task",
         flow_id="flow.general.main_conversation",
+        runtime_lane="main_conversation",
         default_agent_id=str(profile.default_agent_id or "agent:0").strip() or "agent:0",
         participant_agent_ids=(),
         workflow_id=str(profile.default_workflow_id or ""),
@@ -810,7 +635,6 @@ class TaskFlowRegistry:
         self.agent_registry = AgentRegistry(self.base_dir)
         self.agent_group_registry = None
         self.agent_runtime_registry = AgentRuntimeRegistry(self.base_dir)
-        self.template_registry = TaskTemplateRegistry(self.base_dir)
         self.workflow_registry = TaskWorkflowRegistry(self.base_dir)
         self._cache: dict[str, Any] = {}
 
@@ -905,7 +729,6 @@ class TaskFlowRegistry:
                 flows.append(
                     TaskFlowDefinition(
                         flow_id=str(item.get("flow_id") or ""),
-                        task_mode=str(item.get("task_mode") or ""),
                         task_family=str(item.get("task_family") or ""),
                         title=str(item.get("title") or ""),
                         input_contract_id=str(item.get("input_contract_id") or ""),
@@ -939,7 +762,6 @@ class TaskFlowRegistry:
         self,
         *,
         flow_id: str,
-        task_mode: str,
         task_family: str,
         title: str,
         input_contract_id: str,
@@ -956,7 +778,6 @@ class TaskFlowRegistry:
             raise ValueError("flow_id must start with flow.")
         flow = TaskFlowDefinition(
             flow_id=normalized_flow_id,
-            task_mode=str(task_mode or "").strip(),
             task_family=str(task_family or "").strip(),
             title=str(title or normalized_flow_id).strip(),
             input_contract_id=str(input_contract_id or "").strip(),
@@ -1267,9 +1088,9 @@ class TaskFlowRegistry:
                     task_id=str(item.get("task_id") or ""),
                     task_title=str(item.get("task_title") or ""),
                     task_family=str(item.get("task_family") or ""),
-                    task_mode=str(item.get("task_mode") or ""),
                     description=str(item.get("description") or ""),
                     enabled=bool(item.get("enabled", True)),
+                    runtime_lane=str(item.get("runtime_lane") or dict(dict(item.get("task_policy") or {}).get("task_structure") or {}).get("runtime_lane_hint") or ""),
                     input_contract_id=str(item.get("input_contract_id") or ""),
                     output_contract_id=str(item.get("output_contract_id") or ""),
                     acceptance_profile_id=str(item.get("acceptance_profile_id") or ""),
@@ -1308,8 +1129,8 @@ class TaskFlowRegistry:
         task_title: str,
         task_kind: str,
         task_family: str,
-        task_mode: str,
         flow_id: str,
+        runtime_lane: str = "",
         default_agent_id: str,
         participant_agent_ids: tuple[str, ...] = (),
         workflow_id: str = "",
@@ -1334,9 +1155,9 @@ class TaskFlowRegistry:
             task_id=target,
             task_title=task_title,
             task_family=task_family,
-            task_mode=task_mode,
             description=str(normalized_metadata.get("description") or task_title or target).strip(),
             enabled=enabled,
+            runtime_lane=runtime_lane,
             input_contract_id=input_contract_id,
             output_contract_id=output_contract_id,
             acceptance_profile_id=str(normalized_metadata.get("acceptance_profile_id") or ""),
@@ -1355,14 +1176,13 @@ class TaskFlowRegistry:
         )
         self.upsert_flow(
             flow_id=normalized_flow_id,
-            task_mode=record.task_mode,
             task_family=record.task_family,
             title=record.task_title,
             input_contract_id=record.input_contract_id,
             output_contract_id=record.output_contract_id,
             default_agent_id=str(default_agent_id or "agent:0").strip() or "agent:0",
             default_workflow_id=record.default_workflow_id,
-            default_runtime_lane=str(dict(record.task_policy or {}).get("task_structure", {}).get("runtime_lane_hint") or ""),
+            default_runtime_lane=record.runtime_lane or str(dict(record.task_policy or {}).get("task_structure", {}).get("runtime_lane_hint") or ""),
             default_memory_scope=str(dict(record.task_policy or {}).get("task_structure", {}).get("memory_scope_hint") or ""),
             enabled=record.enabled,
             metadata={**dict(record.metadata or {}), "task_assignment_id": record.task_id},
@@ -1372,8 +1192,8 @@ class TaskFlowRegistry:
             task_title=record.task_title,
             task_kind=str(task_kind or "specific_task").strip(),
             task_family=record.task_family,
-            task_mode=record.task_mode,
             flow_id=normalized_flow_id,
+            runtime_lane=record.runtime_lane,
             default_agent_id=str(default_agent_id or "agent:0").strip() or "agent:0",
             participant_agent_ids=tuple(str(item).strip() for item in participant_agent_ids if str(item).strip()),
             workflow_id=record.default_workflow_id,
@@ -1397,9 +1217,9 @@ class TaskFlowRegistry:
         task_id: str,
         task_title: str,
         task_family: str,
-        task_mode: str,
         description: str = "",
         enabled: bool = True,
+        runtime_lane: str = "",
         input_contract_id: str = "",
         output_contract_id: str = "",
         acceptance_profile_id: str = "",
@@ -1416,9 +1236,9 @@ class TaskFlowRegistry:
             task_id=target,
             task_title=str(task_title or target).strip(),
             task_family=str(task_family or "").strip(),
-            task_mode=str(task_mode or "").strip(),
             description=str(description or task_title or target).strip(),
             enabled=bool(enabled),
+            runtime_lane=str(runtime_lane or "").strip(),
             input_contract_id=str(input_contract_id or "").strip(),
             output_contract_id=str(output_contract_id or "").strip(),
             acceptance_profile_id=str(acceptance_profile_id or "").strip(),
@@ -1511,15 +1331,15 @@ class TaskFlowRegistry:
 
     def _assignment_from_flow(self, flow: TaskFlowDefinition) -> TaskAssignment:
         workflow = self.workflow_registry.get_workflow(flow.default_workflow_id)
-        task_id = str(flow.metadata.get("task_id") or f"task.{flow.task_family}.{flow.task_mode}").strip()
+        task_id = str(flow.metadata.get("task_id") or flow.metadata.get("task_assignment_id") or f"task.{flow.flow_id.removeprefix('flow.')}").strip()
         spec = _system_task_specs().get(task_id)
         return TaskAssignment(
             task_id=task_id,
             task_title=flow.title,
             task_kind="specific_task",
             task_family=flow.task_family,
-            task_mode=flow.task_mode,
             flow_id=flow.flow_id,
+            runtime_lane=flow.default_runtime_lane,
             default_agent_id=flow.default_agent_id or "agent:0",
             participant_agent_ids=(),
             workflow_id=flow.default_workflow_id,
@@ -1532,7 +1352,7 @@ class TaskFlowRegistry:
                 "runtime_lane_hint": flow.default_runtime_lane,
                 "memory_scope_hint": flow.default_memory_scope,
                 "workflow_steps": [dict(item) for item in workflow.steps] if workflow is not None else [],
-                "task_resource_kind": str(flow.metadata.get("task_resource") or ""),
+                "task_resource_kind": str(flow.metadata.get("task_resource") or flow.task_family or ""),
             },
             enabled=flow.enabled,
             metadata={**flow.metadata, "source_flow_id": flow.flow_id},
@@ -1579,8 +1399,8 @@ class TaskFlowRegistry:
             task_title=record.task_title,
             task_kind="specific_task",
             task_family=record.task_family,
-            task_mode=record.task_mode,
             flow_id=flow_id,
+            runtime_lane=record.runtime_lane or str(task_structure.get("runtime_lane_hint") or getattr(flow, "default_runtime_lane", "") or ""),
             default_agent_id=default_agent_id,
             participant_agent_ids=(),
             workflow_id=record.default_workflow_id,
@@ -2368,8 +2188,8 @@ class TaskFlowRegistry:
                 summary=f"{CONTRACT_TITLE_MAP.get(flow.input_contract_id, flow.input_contract_id)} -> {CONTRACT_TITLE_MAP.get(flow.output_contract_id, flow.output_contract_id)}",
                 metadata={
                     "task_family": flow.task_family,
-                    "task_mode": flow.task_mode,
                     "default_workflow_id": flow.default_workflow_id,
+                    "default_runtime_lane": flow.default_runtime_lane,
                 },
             )
 
@@ -2619,14 +2439,13 @@ class TaskFlowRegistry:
         if profile is None:
             failures.append("runtime_profile_missing")
         else:
-            _validate_contains(failures, diagnostics, "task_mode", flow.task_mode, profile.allowed_task_modes)
             _validate_contains(failures, diagnostics, "runtime_lane", flow.default_runtime_lane, profile.allowed_runtime_lanes)
             _validate_contains(failures, diagnostics, "memory_scope", flow.default_memory_scope, profile.allowed_memory_scopes)
             _validate_contains(failures, diagnostics, "output_contract", flow.output_contract_id, profile.output_contracts)
         self._validate_workflow_ref(failures, diagnostics, flow.default_workflow_id)
         return TaskAgentBinding(
             binding_id=f"binding:{flow.flow_id}:{flow.default_agent_id}",
-            task_id=f"task-template:{flow.task_mode}",
+            task_id=str(flow.metadata.get("task_id") or flow.metadata.get("task_assignment_id") or f"task.{flow.flow_id.removeprefix('flow.')}"),
             flow_id=flow.flow_id,
             agent_id=flow.default_agent_id,
             agent_profile_id=profile.agent_profile_id if profile is not None else "",
@@ -2647,7 +2466,7 @@ class TaskFlowRegistry:
                 {
                     "agent_id": item.agent_id,
                     "agent_profile_id": item.agent_profile_id,
-                    "task_mode": next((flow.task_mode for flow in self.list_flows() if flow.flow_id == item.flow_id), ""),
+                    "task_ref": item.task_id,
                     "runtime_lane": item.runtime_lane,
                     "workflow": item.workflow_id,
                     "memory_scope": item.memory_scope,
@@ -2702,7 +2521,12 @@ class TaskFlowRegistry:
                     profile_type=agent.profile_type,
                     lifecycle_state=agent.lifecycle_state,
                     task_family_refs=tuple(dict.fromkeys(flow.task_family for flow in agent_flows)),
-                    available_task_modes=tuple(dict.fromkeys(flow.task_mode for flow in agent_flows)),
+                    task_refs=tuple(
+                        dict.fromkeys(
+                            str(flow.metadata.get("task_id") or flow.metadata.get("task_assignment_id") or f"task.{flow.flow_id.removeprefix('flow.')}")
+                            for flow in agent_flows
+                        )
+                    ),
                     flow_refs=tuple(flow.flow_id for flow in agent_flows),
                     binding_refs=tuple(binding.binding_id for binding in agent_bindings),
                     workflow_refs=tuple(
@@ -2907,8 +2731,6 @@ class TaskFlowRegistry:
         general_profiles = self.list_general_task_profiles()
         task_assignments = self.list_task_assignments()
         task_domains = self.list_task_domains()
-        templates = self.template_registry.list_templates()
-        template_validation_matrix = self.template_registry.build_validation_matrix()
         invalid_bindings = [item for item in bindings if item.validation_state != "valid"]
         projection_bindings = self.list_projection_bindings()
         explicit_projection_bindings = self.list_explicit_projection_bindings()
@@ -2930,8 +2752,9 @@ class TaskFlowRegistry:
                 "specific_task_count": len(task_assignments),
                 "task_flow_count": len(flows),
                 "enabled_task_flow_count": sum(1 for item in flows if item.enabled),
-                "task_template_count": len(templates),
-                "enabled_task_template_count": sum(1 for item in templates if item.enabled),
+                "runtime_recipe_protocol": "task_graph_derived",
+                "task_template_count": 0,
+                "enabled_task_template_count": 0,
                 "task_domain_count": len(task_domains),
                 "projection_binding_count": len(explicit_projection_bindings),
                 "derived_projection_binding_count": _derived_count(
@@ -2963,11 +2786,7 @@ class TaskFlowRegistry:
                 "effective_memory_request_profile_count": len(memory_request_profiles),
                 "communication_protocol_count": len(communication_protocols),
                 "invalid_binding_count": len(invalid_bindings),
-                "invalid_template_count": sum(
-                    1
-                    for item in list(template_validation_matrix.get("rows") or [])
-                    if str(item.get("validation_state") or "") != "valid"
-                ),
+                "invalid_template_count": 0,
             },
             "agents": agent_catalog["agents"],
             "task_domains": [item.to_dict() for item in task_domains],
@@ -2980,8 +2799,8 @@ class TaskFlowRegistry:
             "flow_contract_bindings": [item.to_dict() for item in flow_contract_bindings],
             "agent_adoption_plans": [item.to_dict() for item in adoption_plans],
             "memory_request_profiles": [item.to_dict() for item in memory_request_profiles],
-            "templates": [item.to_dict() for item in templates],
-            "template_validation_matrix": template_validation_matrix,
+            "templates": [],
+            "template_validation_matrix": _removed_template_protocol_matrix(),
             "topology_templates": [item.to_dict() for item in self.list_topology_templates()],
             "communication_protocols": [item.to_dict() for item in communication_protocols],
             "link_permission_matrix": self.build_link_permission_matrix(),
@@ -3009,8 +2828,8 @@ def _assignment_from_dict(payload: dict[str, Any]) -> TaskAssignment:
         task_title=str(payload.get("task_title") or ""),
         task_kind=str(payload.get("task_kind") or "specific_task"),
         task_family=str(payload.get("task_family") or ""),
-        task_mode=str(payload.get("task_mode") or ""),
         flow_id=str(payload.get("flow_id") or ""),
+        runtime_lane=str(payload.get("runtime_lane") or dict(payload.get("task_structure") or {}).get("runtime_lane_hint") or ""),
         default_agent_id=str(payload.get("default_agent_id") or "agent:0"),
         participant_agent_ids=tuple(str(item) for item in list(payload.get("participant_agent_ids") or []) if str(item)),
         workflow_id=str(payload.get("workflow_id") or ""),
@@ -3040,4 +2859,14 @@ def _diagnostic_issue(
         "field": field,
         "value": value,
         "severity": "blocking" if reason != "agent_without_task" else "warning",
+    }
+
+
+def _removed_template_protocol_matrix() -> dict[str, Any]:
+    return {
+        "authority": "task_system.runtime_recipe_validation",
+        "status": "removed",
+        "rows": [],
+        "template_protocol_removed": True,
+        "replacement": "TaskGraph + runtime.recipe",
     }

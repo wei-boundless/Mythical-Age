@@ -2,7 +2,6 @@
   "flows": [
     {
       "flow_id": "flow.health.issue_triage",
-      "task_mode": "issue_triage",
       "task_family": "health",
       "title": "健康问题分诊流",
       "input_contract_id": "HealthIssue",
@@ -19,7 +18,6 @@
     },
     {
       "flow_id": "flow.health.trace_analysis",
-      "task_mode": "trace_analysis",
       "task_family": "health",
       "title": "健康链路分析流",
       "input_contract_id": "HealthTrace",
@@ -36,7 +34,6 @@
     },
     {
       "flow_id": "flow.health.case_draft",
-      "task_mode": "case_draft",
       "task_family": "health",
       "title": "健康用例草案流",
       "input_contract_id": "HealthIssue",
@@ -53,7 +50,6 @@
     },
     {
       "flow_id": "flow.health.fix_verification",
-      "task_mode": "fix_verification",
       "task_family": "health",
       "title": "健康修复验证流",
       "input_contract_id": "HealthIssueWithBeforeAfterTrace",
@@ -70,7 +66,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.world_designer_a",
-      "task_mode": "world_designer_a",
       "task_family": "writing_team_long_novel",
       "title": "世界观设计师 A",
       "input_contract_id": "UserMessage",
@@ -89,7 +84,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.world_designer_b",
-      "task_mode": "world_designer_b",
       "task_family": "writing_team_long_novel",
       "title": "世界观设计师 B",
       "input_contract_id": "UserMessage",
@@ -108,7 +102,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.world_judge",
-      "task_mode": "world_judge",
       "task_family": "writing_team_long_novel",
       "title": "世界观裁判",
       "input_contract_id": "contract.writing_team.long_novel.world_judge_input",
@@ -127,7 +120,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.memory_commit_world",
-      "task_mode": "memory_steward",
       "task_family": "writing_team_long_novel",
       "title": "世界观入库",
       "input_contract_id": "contract.writing_team.long_novel.world_judgement",
@@ -146,7 +138,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.outline_designer_a",
-      "task_mode": "outline_designer_a",
       "task_family": "writing_team_long_novel",
       "title": "大纲结构师 A",
       "input_contract_id": "contract.writing_team.long_novel.memory_commit_world",
@@ -165,7 +156,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.outline_designer_b",
-      "task_mode": "outline_designer_b",
       "task_family": "writing_team_long_novel",
       "title": "大纲结构师 B",
       "input_contract_id": "contract.writing_team.long_novel.memory_commit_world",
@@ -184,7 +174,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.outline_judge",
-      "task_mode": "outline_judge",
       "task_family": "writing_team_long_novel",
       "title": "大纲裁判",
       "input_contract_id": "contract.writing_team.long_novel.outline_proposal_b",
@@ -203,7 +192,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.memory_commit_outline",
-      "task_mode": "memory_steward",
       "task_family": "writing_team_long_novel",
       "title": "大纲入库",
       "input_contract_id": "contract.writing_team.long_novel.outline_judgement",
@@ -222,7 +210,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.character_designer_a",
-      "task_mode": "character_designer_a",
       "task_family": "writing_team_long_novel",
       "title": "人物设计师 A",
       "input_contract_id": "contract.writing_team.long_novel.memory_commit_outline",
@@ -241,7 +228,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.character_designer_b",
-      "task_mode": "character_designer_b",
       "task_family": "writing_team_long_novel",
       "title": "人物设计师 B",
       "input_contract_id": "contract.writing_team.long_novel.memory_commit_outline",
@@ -260,7 +246,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.character_judge",
-      "task_mode": "character_judge",
       "task_family": "writing_team_long_novel",
       "title": "人物裁判",
       "input_contract_id": "contract.writing_team.long_novel.character_proposal_b",
@@ -279,7 +264,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.memory_commit_character",
-      "task_mode": "memory_steward",
       "task_family": "writing_team_long_novel",
       "title": "人物入库",
       "input_contract_id": "contract.writing_team.long_novel.character_judgement",
@@ -298,7 +282,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.chapter_plan",
-      "task_mode": "chapter_planner",
       "task_family": "writing_team_long_novel",
       "title": "章节细纲",
       "input_contract_id": "contract.writing_team.long_novel.memory_commit_character",
@@ -317,7 +300,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.writer_a_draft",
-      "task_mode": "writer_a_draft",
       "task_family": "writing_team_long_novel",
       "title": "作者 A 初稿",
       "input_contract_id": "contract.writing_team.long_novel.chapter_plan",
@@ -336,7 +318,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.writer_b_review",
-      "task_mode": "writer_b_review",
       "task_family": "writing_team_long_novel",
       "title": "作者 B 审读",
       "input_contract_id": "contract.writing_team.long_novel.writer_a_draft",
@@ -355,7 +336,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.writer_a_revision",
-      "task_mode": "writer_a_revision",
       "task_family": "writing_team_long_novel",
       "title": "作者 A 修订",
       "input_contract_id": "contract.writing_team.long_novel.writer_b_review",
@@ -374,7 +354,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.writer_b_final_candidate",
-      "task_mode": "writer_b_final_candidate",
       "task_family": "writing_team_long_novel",
       "title": "作者 B 终稿候选",
       "input_contract_id": "contract.writing_team.long_novel.writer_a_revision",
@@ -393,7 +372,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.novel_quality_judge",
-      "task_mode": "novel_quality_judge",
       "task_family": "writing_team_long_novel",
       "title": "独立裁判通关",
       "input_contract_id": "contract.writing_team.long_novel.writer_b_final_candidate",
@@ -412,7 +390,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.world_deviation_router",
-      "task_mode": "deviation_router",
       "task_family": "writing_team_long_novel",
       "title": "世界观偏差路由",
       "input_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
@@ -431,7 +408,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.world_repair_a",
-      "task_mode": "world_repair_a",
       "task_family": "writing_team_long_novel",
       "title": "世界观修正 A",
       "input_contract_id": "contract.writing_team.long_novel.world_deviation_route",
@@ -450,7 +426,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.world_repair_b",
-      "task_mode": "world_repair_b",
       "task_family": "writing_team_long_novel",
       "title": "世界观修正 B",
       "input_contract_id": "contract.writing_team.long_novel.world_deviation_route",
@@ -469,7 +444,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.outline_deviation_router",
-      "task_mode": "deviation_router",
       "task_family": "writing_team_long_novel",
       "title": "大纲偏差路由",
       "input_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
@@ -488,7 +462,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.outline_repair_a",
-      "task_mode": "outline_repair_a",
       "task_family": "writing_team_long_novel",
       "title": "大纲修正 A",
       "input_contract_id": "contract.writing_team.long_novel.outline_deviation_route",
@@ -507,7 +480,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.outline_repair_b",
-      "task_mode": "outline_repair_b",
       "task_family": "writing_team_long_novel",
       "title": "大纲修正 B",
       "input_contract_id": "contract.writing_team.long_novel.outline_deviation_route",
@@ -526,7 +498,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.character_deviation_router",
-      "task_mode": "deviation_router",
       "task_family": "writing_team_long_novel",
       "title": "人物偏差路由",
       "input_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
@@ -545,7 +516,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.character_repair_a",
-      "task_mode": "character_repair_a",
       "task_family": "writing_team_long_novel",
       "title": "人物修正 A",
       "input_contract_id": "contract.writing_team.long_novel.character_deviation_route",
@@ -564,7 +534,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.character_repair_b",
-      "task_mode": "character_repair_b",
       "task_family": "writing_team_long_novel",
       "title": "人物修正 B",
       "input_contract_id": "contract.writing_team.long_novel.character_deviation_route",
@@ -583,7 +552,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.memory_commit_chapter",
-      "task_mode": "memory_steward",
       "task_family": "writing_team_long_novel",
       "title": "章节入库",
       "input_contract_id": "contract.writing_team.long_novel.novel_quality_judge",
@@ -602,7 +570,6 @@
     },
     {
       "flow_id": "flow.writing_team.long_novel.memory_finalize",
-      "task_mode": "memory_steward",
       "task_family": "writing_team_long_novel",
       "title": "工作记忆收尾",
       "input_contract_id": "contract.writing_team.long_novel.memory_commit_chapter",
@@ -621,7 +588,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.project_brief",
-      "task_mode": "project_brief",
       "task_family": "writing_simple_novel",
       "title": "项目启动包",
       "input_contract_id": "contract.writing.simple_novel.user_goal",
@@ -640,7 +606,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.world_design",
-      "task_mode": "world_design",
       "task_family": "writing_simple_novel",
       "title": "世界观设定候选",
       "input_contract_id": "contract.writing.simple_novel.project_brief",
@@ -659,7 +624,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.world_review",
-      "task_mode": "world_review",
       "task_family": "writing_simple_novel",
       "title": "世界观审核",
       "input_contract_id": "contract.writing.simple_novel.world_candidate",
@@ -678,7 +642,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.memory_commit_world",
-      "task_mode": "memory_commit_world",
       "task_family": "writing_simple_novel",
       "title": "世界观写入",
       "input_contract_id": "contract.writing.simple_novel.world_review",
@@ -697,7 +660,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.baseline_memory_seed",
-      "task_mode": "baseline_memory_seed",
       "task_family": "writing_simple_novel",
       "title": "基准记忆库初始化",
       "input_contract_id": "contract.writing.simple_novel.memory_commit_world",
@@ -716,7 +678,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.volume_plan",
-      "task_mode": "volume_plan",
       "task_family": "writing_simple_novel",
       "title": "分卷规划",
       "input_contract_id": "contract.writing.simple_novel.baseline_memory_commit",
@@ -735,7 +696,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.chapter_outline",
-      "task_mode": "chapter_outline",
       "task_family": "writing_simple_novel",
       "title": "当前批次细纲",
       "input_contract_id": "contract.writing.simple_novel.chapter_outline_input",
@@ -754,7 +714,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.chapter_draft",
-      "task_mode": "chapter_draft",
       "task_family": "writing_simple_novel",
       "title": "当前批次正文候选",
       "input_contract_id": "contract.writing.simple_novel.chapter_draft_input",
@@ -773,7 +732,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.chapter_review",
-      "task_mode": "chapter_review",
       "task_family": "writing_simple_novel",
       "title": "当前批次轻量审核",
       "input_contract_id": "contract.writing.simple_novel.chapter_review_input",
@@ -792,7 +750,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.memory_commit_chapter",
-      "task_mode": "memory_commit_chapter",
       "task_family": "writing_simple_novel",
       "title": "章节批次写入",
       "input_contract_id": "contract.writing.simple_novel.chapter_review",
@@ -811,7 +768,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.chapter_progress_router",
-      "task_mode": "chapter_progress_router",
       "task_family": "writing_simple_novel",
       "title": "章节批次推进判断",
       "input_contract_id": "contract.writing.simple_novel.chapter_commit",
@@ -830,7 +786,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.volume_review",
-      "task_mode": "volume_review",
       "task_family": "writing_simple_novel",
       "title": "卷级总审核",
       "input_contract_id": "contract.writing.simple_novel.volume_review_input",
@@ -849,7 +804,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.volume_commit",
-      "task_mode": "volume_commit",
       "task_family": "writing_simple_novel",
       "title": "卷级写入",
       "input_contract_id": "contract.writing.simple_novel.volume_review",
@@ -868,7 +822,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.volume_postmortem",
-      "task_mode": "volume_postmortem",
       "task_family": "writing_simple_novel",
       "title": "卷后复盘",
       "input_contract_id": "contract.writing.simple_novel.volume_commit",
@@ -887,7 +840,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.world_outline_extension_proposal",
-      "task_mode": "world_outline_extension_proposal",
       "task_family": "writing_simple_novel",
       "title": "可改动库更新提案",
       "input_contract_id": "contract.writing.simple_novel.volume_postmortem",
@@ -906,7 +858,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.extension_review",
-      "task_mode": "extension_review",
       "task_family": "writing_simple_novel",
       "title": "可改动库更新审核",
       "input_contract_id": "contract.writing.simple_novel.world_outline_extension_proposal",
@@ -925,7 +876,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.extension_commit",
-      "task_mode": "extension_commit",
       "task_family": "writing_simple_novel",
       "title": "可改动记忆库更新",
       "input_contract_id": "contract.writing.simple_novel.extension_review",
@@ -944,7 +894,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.next_volume_router",
-      "task_mode": "next_volume_router",
       "task_family": "writing_simple_novel",
       "title": "下一卷推进判断",
       "input_contract_id": "contract.writing.simple_novel.extension_commit",
@@ -963,7 +912,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.final_assemble",
-      "task_mode": "final_assemble",
       "task_family": "writing_simple_novel",
       "title": "交付包整编",
       "input_contract_id": "contract.writing.simple_novel.next_volume_decision",
@@ -982,7 +930,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.final_review",
-      "task_mode": "final_review",
       "task_family": "writing_simple_novel",
       "title": "最终交付审核",
       "input_contract_id": "contract.writing.simple_novel.final_review_input",
@@ -1001,7 +948,6 @@
     },
     {
       "flow_id": "flow.writing.simple_novel.memory_finalize",
-      "task_mode": "memory_finalize",
       "task_family": "writing_simple_novel",
       "title": "任务收尾归档",
       "input_contract_id": "contract.writing.simple_novel.final_review",
@@ -1019,27 +965,25 @@
       }
     },
     {
-      "flow_id": "flow.writing.simple_novel.human_review_handoff",
-      "task_mode": "general_task",
+      "flow_id": "flow.writing.simple_novel.runtime_monitor",
       "task_family": "writing_simple_novel",
-      "title": "人工接管",
-      "input_contract_id": "contract.writing.simple_novel.human_review_input",
-      "output_contract_id": "contract.writing.simple_novel.human_review_packet",
-      "default_agent_id": "agent:0",
-      "default_workflow_id": "workflow.writing.simple_novel.human_review_handoff",
-      "default_runtime_lane": "full_interactive",
+      "title": "运行监测",
+      "input_contract_id": "contract.taskgraph.monitor.snapshot",
+      "output_contract_id": "contract.taskgraph.monitor.decision",
+      "default_agent_id": "agent:writing_runtime_monitor",
+      "default_workflow_id": "workflow.writing.simple_novel.runtime_monitor",
+      "default_runtime_lane": "coordination_task",
       "default_memory_scope": "writing_simple_novel",
       "enabled": true,
       "metadata": {
         "managed_by": "codex_writing_simple_novel_config_20260517",
         "domain_id": "domain.writing.simple_novel",
-        "task_id": "task.writing.simple_novel.human_review_handoff",
-        "projection_id": "hebo__primary"
+        "task_id": "task.writing.simple_novel.runtime_monitor",
+        "projection_id": "projection.writing.simple_novel.runtime_monitor"
       }
     },
     {
       "flow_id": "flow.writing.simple_novel.fail_closed",
-      "task_mode": "fail_closed",
       "task_family": "writing_simple_novel",
       "title": "失败关闭",
       "input_contract_id": "contract.writing.simple_novel.failure_input",

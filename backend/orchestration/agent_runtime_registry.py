@@ -39,7 +39,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="main_interactive_agent",
             agent_id="agent:0",
-            allowed_task_modes=("general_task", "memory_recall"),
             allowed_runtime_lanes=("full_interactive", "task_dispatch", "final_integration", "game_delivery"),
             allowed_operations=(
                 "op.model_response",
@@ -81,12 +80,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="health_maintainer_agent",
             agent_id="agent:3",
-            allowed_task_modes=(
-                "issue_triage",
-                "trace_analysis",
-                "case_draft",
-                "fix_verification",
-            ),
             allowed_runtime_lanes=(
                 "health_issue_read",
                 "health_trace_read",
@@ -122,7 +115,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="permission_system_agent",
             agent_id="agent:1",
-            allowed_task_modes=(),
             allowed_runtime_lanes=("permission_trace_read",),
             allowed_operations=("op.model_response", "op.read_file", "op.search_text"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.agent_bounded"),
@@ -137,7 +129,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="config_system_agent",
             agent_id="agent:2",
-            allowed_task_modes=(),
             allowed_runtime_lanes=("config_trace_read",),
             allowed_operations=("op.model_response", "op.read_file", "op.search_text"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.agent_bounded"),
@@ -152,7 +143,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="task_management_agent",
             agent_id="agent:4",
-            allowed_task_modes=(),
             allowed_runtime_lanes=("task_trace_read",),
             allowed_operations=("op.model_response", "op.read_file", "op.search_text"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.agent_bounded"),
@@ -167,7 +157,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="capability_system_agent",
             agent_id="agent:5",
-            allowed_task_modes=(),
             allowed_runtime_lanes=("capability_trace_read",),
             allowed_operations=("op.model_response", "op.read_file", "op.search_text"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.agent_bounded"),
@@ -182,7 +171,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="rag_analysis_agent",
             agent_id="agent:rag_analyst",
-            allowed_task_modes=("knowledge_retrieval", "information_search", "evidence_lookup"),
             allowed_runtime_lanes=("retrieval_delegate", "readonly_exploration"),
             allowed_operations=("op.model_response", "op.mcp_retrieval", "op.memory_read"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
@@ -198,7 +186,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="pdf_analysis_agent",
             agent_id="agent:pdf_reader",
-            allowed_task_modes=("pdf_analysis", "document_reading", "evidence_lookup"),
             allowed_runtime_lanes=("pdf_delegate", "readonly_exploration"),
             allowed_operations=("op.model_response", "op.mcp_pdf", "op.read_file"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
@@ -214,7 +201,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="structured_data_analysis_agent",
             agent_id="agent:table_analyst",
-            allowed_task_modes=("structured_data_analysis", "table_analysis", "evidence_lookup"),
             allowed_runtime_lanes=("structured_data_delegate", "readonly_exploration"),
             allowed_operations=("op.model_response", "op.mcp_structured_data", "op.read_structured_file", "op.read_file"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
@@ -230,7 +216,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
         AgentRuntimeProfile(
             agent_profile_id="web_research_agent",
             agent_id="agent:web_researcher",
-            allowed_task_modes=("web_research", "information_search", "current_information_lookup", "evidence_lookup"),
             allowed_runtime_lanes=("web_research_delegate", "readonly_exploration"),
             allowed_operations=("op.model_response", "op.web_search", "op.fetch_url"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
@@ -255,7 +240,6 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
     return AgentRuntimeProfile(
         agent_profile_id=str(payload.get("agent_profile_id") or ""),
         agent_id=normalized_agent_id,
-        allowed_task_modes=tuple(str(item) for item in list(payload.get("allowed_task_modes") or []) if str(item)),
         allowed_runtime_lanes=tuple(str(item) for item in list(payload.get("allowed_runtime_lanes") or []) if str(item)),
         allowed_operations=tuple(str(item) for item in list(payload.get("allowed_operations") or []) if str(item)),
         blocked_operations=tuple(str(item) for item in list(payload.get("blocked_operations") or []) if str(item)),
@@ -328,7 +312,6 @@ class AgentRuntimeRegistry:
         *,
         agent_id: str,
         agent_profile_id: str = "",
-        allowed_task_modes: tuple[str, ...] = (),
         allowed_runtime_lanes: tuple[str, ...] = (),
         allowed_operations: tuple[str, ...] = (),
         blocked_operations: tuple[str, ...] = (),
@@ -355,7 +338,6 @@ class AgentRuntimeRegistry:
         profile = AgentRuntimeProfile(
             agent_profile_id=str(agent_profile_id or (current.agent_profile_id if current else f"{target.removeprefix('agent:').replace(':', '_')}_runtime")).strip(),
             agent_id=target,
-            allowed_task_modes=tuple(str(item).strip() for item in allowed_task_modes if str(item).strip()),
             allowed_runtime_lanes=tuple(str(item).strip() for item in allowed_runtime_lanes if str(item).strip()),
             allowed_operations=tuple(str(item).strip() for item in allowed_operations if str(item).strip()),
             blocked_operations=tuple(str(item).strip() for item in blocked_operations if str(item).strip()),
@@ -442,7 +424,9 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
     )
     metadata = dict(payload.get("metadata") or {})
     metadata.pop("legacy_agent_id", None)
+    metadata.pop("allowed_task_modes", None)
     next_payload["metadata"] = metadata
+    next_payload.pop("allowed_task_modes", None)
     return next_payload
 
 
@@ -459,7 +443,6 @@ def _enforce_system_builtin_profile_payload(
     enforced.update(payload)
     enforced["agent_id"] = agent_id
     for key in (
-        "allowed_task_modes",
         "allowed_runtime_lanes",
         "allowed_operations",
         "blocked_operations",

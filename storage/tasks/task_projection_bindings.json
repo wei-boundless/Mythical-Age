@@ -853,18 +853,18 @@
       "authority": "task_system.task_projection_binding"
     },
     {
-      "binding_id": "taskprojbind:task.writing.simple_novel.human_review_handoff",
-      "task_id": "task.writing.simple_novel.human_review_handoff",
+      "binding_id": "taskprojbind:task.writing.simple_novel.runtime_monitor",
+      "task_id": "task.writing.simple_novel.runtime_monitor",
       "projection_selection_mode": "task_default_required",
       "allowed_projection_ids": [
-        "hebo__primary"
+        "projection.writing.simple_novel.runtime_monitor"
       ],
-      "default_projection_id": "hebo__primary",
+      "default_projection_id": "projection.writing.simple_novel.runtime_monitor",
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
         "managed_by": "codex_writing_simple_novel_config_20260517",
-        "role": "human"
+        "role": "monitor"
       },
       "authority": "task_system.task_projection_binding"
     },

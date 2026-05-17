@@ -33,7 +33,7 @@ def build_orchestration_runtime_bundle(
     task_contract = dict(task_assembly_bundle.get("task_contract") or {})
     task_execution_assembly = dict(task_assembly_bundle.get("task_execution_assembly") or {})
     task_spec = dict(task_assembly_bundle.get("task_spec") or {})
-    selected_template = dict(task_assembly_bundle.get("selected_template") or {})
+    selected_recipe = dict(task_assembly_bundle.get("selected_recipe") or {})
     projection_selection = dict(task_assembly_bundle.get("projection_selection") or {})
     task_workflow = dict(task_assembly_bundle.get("_task_workflow_obj") or {})
     binding = dict(task_assembly_bundle.get("binding") or {})
@@ -112,7 +112,7 @@ def build_orchestration_runtime_bundle(
         task_contract=task_contract,
         task_execution_assembly=task_execution_assembly,
         task_spec=task_spec,
-        selected_template=selected_template,
+        selected_recipe=selected_recipe,
         task_workflow=task_workflow,
         binding=binding,
         registered_task=registered_task,
@@ -322,7 +322,7 @@ def _build_runtime_prompt_contract(
     task_contract: dict[str, Any],
     task_execution_assembly: dict[str, Any],
     task_spec: dict[str, Any],
-    selected_template: dict[str, Any],
+    selected_recipe: dict[str, Any],
     task_workflow: dict[str, Any],
     binding: dict[str, Any],
     registered_task: dict[str, Any],
@@ -340,7 +340,7 @@ def _build_runtime_prompt_contract(
     if not workflow_steps:
         workflow_steps = [
             str(item.get("title") or item.get("step_id") or "").strip()
-            for item in list(selected_template.get("step_blueprints") or ())
+            for item in list(selected_recipe.get("step_blueprints") or ())
             if isinstance(item, dict) and str(item.get("title") or item.get("step_id") or "").strip()
         ]
     skill_ids = [
@@ -365,7 +365,7 @@ def _build_runtime_prompt_contract(
         ).strip(),
         "workflow_section": _workflow_section(
             task_workflow=task_workflow,
-            selected_template=selected_template,
+            selected_recipe=selected_recipe,
             workflow_steps=workflow_steps,
             skill_ids=skill_ids,
         ),
@@ -377,7 +377,7 @@ def _build_runtime_prompt_contract(
             "agent_id": agent_id,
             "resource_policy_ref": str(operation_requirement.get("requirement_id") or ""),
             "registered_task_id": str(registered_task.get("task_id") or ""),
-            "selected_template_id": str(selected_template.get("template_id") or ""),
+            "selected_recipe_id": str(selected_recipe.get("recipe_id") or ""),
         },
     }
 
@@ -385,13 +385,13 @@ def _build_runtime_prompt_contract(
 def _workflow_section(
     *,
     task_workflow: dict[str, Any],
-    selected_template: dict[str, Any],
+    selected_recipe: dict[str, Any],
     workflow_steps: list[str],
     skill_ids: list[str],
 ) -> str:
-    title = str(task_workflow.get("title") or selected_template.get("title") or "未命名工作流").strip()
-    workflow_id = str(task_workflow.get("workflow_id") or "").strip() or "template_runtime"
-    task_mode = str(task_workflow.get("task_mode") or selected_template.get("task_mode") or "").strip() or "runtime"
+    title = str(task_workflow.get("title") or selected_recipe.get("title") or "未命名工作流").strip()
+    workflow_id = str(task_workflow.get("workflow_id") or selected_recipe.get("recipe_id") or "").strip() or "runtime_recipe"
+    task_mode = str(task_workflow.get("task_mode") or selected_recipe.get("task_mode") or "").strip() or "runtime"
     lines = [
         f"Workflow: {title}",
         f"Workflow ID: {workflow_id}",
@@ -407,7 +407,7 @@ def _workflow_section(
     output_boundary = str(
         task_workflow.get("output_boundary")
         or task_workflow.get("output_contract_id")
-        or selected_template.get("output_schema")
+        or selected_recipe.get("output_schema")
         or ""
     ).strip()
     if output_boundary:

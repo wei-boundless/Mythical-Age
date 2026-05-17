@@ -290,7 +290,7 @@ export function HealthAgentDock({
         conversation_session_ref: session.session_id,
         target_scope: activeIssueRef ? "health_issue" : "health_agent_run",
         target_ref: targetRef,
-        task_mode: commandType === "draft_case" ? "case_draft" : commandType === "verify_fix" ? "fix_verification" : "issue_triage",
+        health_action: commandType === "draft_case" ? "case_draft" : commandType === "verify_fix" ? "fix_verification" : "issue_triage",
         payload: {
           active_issue_ref: activeIssueRef,
           active_run_ref: activeRunRef
