@@ -547,6 +547,40 @@ def test_runtime_assembly_includes_working_memory_sections_when_provided() -> No
     assert payload["diagnostics"]["working_memory_conflict_count"] == 1
 
 
+def test_runtime_assembly_includes_formal_memory_section_when_provided() -> None:
+    assembly = build_single_agent_runtime_assembly(
+        manifest=_manifest(),
+        agent_profile=AgentRuntimeProfile(agent_profile_id="test_profile", agent_id="agent:test"),
+        working_memory_context={
+            "task_run_id": "taskrun:test",
+            "graph_id": "graph:test",
+            "owner_node_id": "writer",
+            "node_run_id": "writer.run.001",
+            "formal_memory.required_records": [
+                {
+                    "version_id": "fmver:world:001",
+                    "record_key": "world_bible.current",
+                    "canonical_text": "正式仓库中的世界观。",
+                    "authority": "formal_memory.resolved_record",
+                }
+            ],
+            "formal_memory.read_log_ids": ["fmread:world:001"],
+            "diagnostics": {
+                "formal_memory_primary": True,
+                "working_memory_legacy_read_enabled": False,
+            },
+        },
+    )
+
+    payload = assembly.to_dict()
+    section_ids = [item["section_id"] for item in payload["context_sections"]]
+
+    assert "formal_memory.required_records" in section_ids
+    assert payload["diagnostics"]["formal_memory_required_count"] == 1
+    assert payload["diagnostics"]["formal_memory_primary"] is True
+    assert payload["diagnostics"]["working_memory_legacy_read_enabled"] is False
+
+
 def test_runtime_assembly_includes_task_durable_sections_when_provided() -> None:
     assembly = build_single_agent_runtime_assembly(
         manifest=_manifest(),

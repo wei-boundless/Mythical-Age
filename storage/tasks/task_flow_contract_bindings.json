@@ -397,18 +397,6 @@
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.000001",
-      "task_id": "task.000001",
-      "flow_contract_id": "flow.000001",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "derived_from": "specific_task_record"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
       "binding_id": "taskflowbind:task.writing.simple_novel.project_brief",
       "task_id": "task.writing.simple_novel.project_brief",
       "flow_contract_id": "contract.writing.simple_novel.project_brief",
@@ -704,6 +692,18 @@
       "metadata": {
         "managed_by": "codex_writing_simple_novel_config_20260517",
         "derived_from": "writing_simple_novel_config"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.000001",
+      "task_id": "task.000001",
+      "flow_contract_id": "flow.000001",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_flow_contract_binding"
     }

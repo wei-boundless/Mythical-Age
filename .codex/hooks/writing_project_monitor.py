@@ -14,9 +14,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_ROOT = REPO_ROOT / "output" / "codex_hook_monitor"
 LATEST_PATH = OUTPUT_ROOT / "writing_project_monitor_latest.json"
 LOG_PATH = OUTPUT_ROOT / "writing_project_monitor.jsonl"
+SUPERVISION_ROOT = REPO_ROOT / "output" / "novel_artifacts" / "simple_novel" / "supervision"
+ACTIVE_SUPERVISION_PATH = SUPERVISION_ROOT / "active_codex_supervision.json"
 
 BASE_URL = "http://127.0.0.1:8004/api"
 PROJECT_ID = "project:honghuang-times"
+SUPERVISION_STALE_SECONDS = 180
 
 
 def read_stdin_json() -> dict[str, Any]:
@@ -81,6 +84,47 @@ def write_latest(payload: dict[str, Any]) -> None:
 
 def quoted(value: str) -> str:
     return urllib.parse.quote(str(value or ""), safe="")
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return {}
+
+
+def normalized_path(raw_path: str) -> Path:
+    path = Path(str(raw_path or ""))
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    return path
+
+
+def active_supervision_snapshot() -> dict[str, Any]:
+    marker = read_json(ACTIVE_SUPERVISION_PATH)
+    state_path = normalized_path(str(marker.get("state_path") or ""))
+    state = read_json(state_path)
+    recency_candidates: list[float] = []
+    for value in (marker.get("updated_at"), state.get("updated_at")):
+        try:
+            timestamp = float(value or 0.0)
+        except (TypeError, ValueError):
+            timestamp = 0.0
+        if timestamp > 0:
+            recency_candidates.append(timestamp)
+    if state_path.exists():
+        recency_candidates.append(state_path.stat().st_mtime)
+    last_seen_at = max(recency_candidates) if recency_candidates else 0.0
+    age_seconds = int(max(0, time.time() - last_seen_at)) if last_seen_at > 0 else 10**9
+    return {
+        "marker": marker,
+        "state": state,
+        "state_path": str(state_path) if str(state_path) else "",
+        "status": str(marker.get("status") or state.get("status") or ""),
+        "enabled": marker.get("enabled") is True,
+        "age_seconds": age_seconds,
+        "stale": age_seconds > SUPERVISION_STALE_SECONDS,
+    }
 
 
 def summarize_monitor(task_graph_monitor: dict[str, Any]) -> dict[str, Any]:
@@ -151,6 +195,7 @@ def build_snapshot(event: dict[str, Any]) -> dict[str, Any]:
         "live_monitor": live_monitor,
         "artifacts": artifacts,
         "memory_receipts": memory_receipts,
+        "active_supervision": active_supervision_snapshot(),
         "errors": {
             "project_runtime_status": project_error,
             "task_graph_monitor": task_graph_monitor_error,
@@ -193,6 +238,7 @@ def should_continue(snapshot: dict[str, Any]) -> tuple[bool, str, str]:
     active_task_ref = str(summary.get("active_task_ref") or "")
     chunk_count = int(summary.get("stream_chunk_count") or 0)
     stream_preview_text = str(summary.get("stream_preview_text") or "")
+    active_supervision = dict(snapshot.get("active_supervision") or {})
 
     common = (
         "你正在值守《洪荒时代》项目自运行写作任务。"
@@ -224,14 +270,21 @@ def should_continue(snapshot: dict[str, Any]) -> tuple[bool, str, str]:
     if completed_words_total >= target_words and runtime_status in {"completed", "succeeded"}:
         return False, "", ""
 
-    return (
-        True,
-        "writing_project_monitor_continue_watch",
-        common
-        + f"\n\n当前状态仍在推进: active_run_status={active_run_status or runtime_status}, stream_chunks={chunk_count}。"
-        + (f"\n最近流式预览: {stream_preview_text[:300]}" if stream_preview_text else "")
-        + "\n请继续监测 world/outline/chapter 链路、流式正文、记忆读写和产物落盘；如发现阻塞或偏移，立即修复。",
-    )
+    supervision_enabled = bool(active_supervision.get("enabled") is True)
+    supervision_status = str(active_supervision.get("status") or "")
+    supervision_age = int(active_supervision.get("age_seconds") or 0)
+    supervision_stale = bool(active_supervision.get("stale") is True)
+    if active_task_run_id and (not supervision_enabled or supervision_status not in {"running", "starting"} or supervision_stale):
+        return (
+            True,
+            "writing_project_monitor_supervision_paused",
+            common
+            + "\n\n后台监督链路看起来没有稳定运行。"
+            + f"\nsupervision_enabled={supervision_enabled}, supervision_status={supervision_status or 'unknown'}, state_age_seconds={supervision_age}"
+            + "\n请检查 active supervision、watchdog 和 supervisor 进程；必要时重新挂载监督器，然后继续监测产物和记忆提交。",
+        )
+
+    return False, "", ""
 
 
 def main() -> int:

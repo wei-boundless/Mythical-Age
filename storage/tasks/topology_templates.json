@@ -11446,12 +11446,7 @@
           }
         }
       ],
-      "handoff_rules": [
-        "memory_pack_required",
-        "candidate_ref_before_review",
-        "pass_before_commit",
-        "manifest_not_full_text"
-      ],
+      "handoff_rules": [],
       "join_policy": "explicit_join",
       "failure_policy": "fail_closed",
       "terminal_policy": "coordinator_terminal",

@@ -55,6 +55,61 @@ function recordValue(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function stringArrayValue(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
+  }
+  return Array.isArray(value) ? value.map((item) => stringValue(item)).filter(Boolean) : [];
+}
+
+function nodeIdValue(node: Record<string, unknown>, index = 0) {
+  return stringValue(node.node_id ?? node.id ?? `node_${index + 1}`);
+}
+
+function isMemoryRepositoryNode(node: Record<string, unknown>) {
+  const nodeType = stringValue(node.node_type).toLowerCase();
+  const nodeId = stringValue(node.node_id ?? node.id).toLowerCase();
+  const workPosture = stringValue(node.work_posture).toLowerCase();
+  if (nodeType === "artifact_repository") return false;
+  return (
+    nodeType === "memory_repository"
+    || nodeType === "working_memory_store"
+    || nodeType === "runtime_state_store"
+    || nodeType === "progress_ledger"
+    || nodeType === "issue_ledger"
+    || (nodeType.includes("repository") && !nodeType.includes("artifact"))
+    || (workPosture === "resource" && nodeId.startsWith("memory."))
+  );
+}
+
+function memoryRepositorySpecs(nodes: Array<Record<string, unknown>>) {
+  return nodes
+    .map((node, index) => ({ node, index }))
+    .filter(({ node }) => isMemoryRepositoryNode(node))
+    .map(({ node, index }) => {
+      const metadata = recordValue(node.metadata);
+      const repositoryConfig = recordValue(metadata.memory_repository);
+      const nodeId = nodeIdValue(node, index);
+      const repositoryId = stringValue(repositoryConfig.repository_id ?? metadata.repository_id) || nodeId;
+      const rawCollections = Array.isArray(repositoryConfig.collections)
+        ? repositoryConfig.collections
+        : Array.isArray(metadata.collections)
+          ? metadata.collections
+          : [];
+      const collections = rawCollections
+        .map((item, itemIndex) => {
+          if (typeof item === "string") return { collection_id: item, record_kinds: [] };
+          const record = recordValue(item);
+          return {
+            collection_id: stringValue(record.collection_id ?? record.id ?? record.name) || `collection_${itemIndex + 1}`,
+            record_kinds: stringArrayValue(record.record_kinds ?? record.kinds),
+          };
+        })
+        .filter((item) => item.collection_id);
+      return { nodeId, repositoryId, collections, hasDeclaredCollections: rawCollections.length > 0 };
+    });
+}
+
 function pushIssue(
   issues: TaskGraphPreflightIssue[],
   issue: Omit<TaskGraphPreflightIssue, "issue_id"> & { issue_id?: string },
@@ -322,6 +377,22 @@ export function buildTaskGraphPreflightReport({
   });
 
   const memoryModel = buildTaskGraphMemoryModel({ nodes, edges });
+  const repositorySpecs = memoryRepositorySpecs(nodes);
+  const repositoryByAnyId = new Map<string, ReturnType<typeof memoryRepositorySpecs>[number]>();
+  repositorySpecs.forEach((repository) => {
+    repositoryByAnyId.set(repository.nodeId, repository);
+    repositoryByAnyId.set(repository.repositoryId, repository);
+    if (!repository.hasDeclaredCollections) {
+      pushIssue(issues, {
+        severity: "warning",
+        scope: "node",
+        target_id: repository.nodeId,
+        title: "记忆仓库没有显式 Collection",
+        detail: `${repository.repositoryId} 会退回 default collection。正式记忆库应显式声明分区、schema 和 record_kind。`,
+        source: "frontend.preflight.memory_repository",
+      });
+    }
+  });
   memoryModel.columns.forEach((column) => {
     if (column.synthetic) {
       pushIssue(issues, {
@@ -348,6 +419,27 @@ export function buildTaskGraphPreflightReport({
     const metadata = recordValue(memoryEdge.edge.metadata);
     const selector = recordValue(metadata.selector);
     const explicitCollection = stringValue(selector.collection ?? metadata.collection);
+    const explicitRepository = stringValue(metadata.repository ?? metadata.repository_id ?? memoryEdge.repositoryId);
+    const repository = repositoryByAnyId.get(explicitRepository) ?? repositoryByAnyId.get(memoryEdge.repositoryNodeId);
+    if (!repository) {
+      pushIssue(issues, {
+        severity: "error",
+        scope: "edge",
+        target_id: memoryEdge.edgeId,
+        title: "记忆边引用了不存在的仓库",
+        detail: `${memoryEdge.edgeId} 指向 ${explicitRepository || memoryEdge.repositoryId}，但图中没有对应 memory_repository 资源节点。`,
+        source: "frontend.preflight.memory_repository",
+      });
+    } else if (explicitCollection && !repository.collections.some((collection) => collection.collection_id === explicitCollection)) {
+      pushIssue(issues, {
+        severity: "error",
+        scope: "edge",
+        target_id: memoryEdge.edgeId,
+        title: "记忆边引用了不存在的 Collection",
+        detail: `${repository.repositoryId}.${explicitCollection} 没有在仓库节点中声明。请先在记忆页创建 collection，再连接读写边。`,
+        source: "frontend.preflight.memory_repository",
+      });
+    }
     if (memoryEdge.operation === "read" && !explicitCollection) {
       pushIssue(issues, {
         severity: "error",
@@ -355,6 +447,16 @@ export function buildTaskGraphPreflightReport({
         target_id: memoryEdge.edgeId,
         title: "记忆读取缺少 Selector",
         detail: "memory_read 边必须显式配置 selector.collection，读取路径不能依赖模糊仓库搜索。",
+        source: "frontend.preflight.memory_selector",
+      });
+    }
+    if (memoryEdge.operation === "read" && !stringValue(selector.record_key ?? metadata.record_key) && !stringArrayValue(selector.record_keys ?? metadata.record_keys).length && !stringValue(selector.record_kind ?? metadata.record_kind) && !stringArrayValue(selector.record_kinds ?? metadata.record_kinds).length) {
+      pushIssue(issues, {
+        severity: "warning",
+        scope: "edge",
+        target_id: memoryEdge.edgeId,
+        title: "记忆读取缺少 Record Selector",
+        detail: "memory_read 应至少配置 record_key / record_keys 或 record_kind / record_kinds，避免读取整个 collection 后让 Agent 自己筛选。",
         source: "frontend.preflight.memory_selector",
       });
     }
@@ -378,6 +480,26 @@ export function buildTaskGraphPreflightReport({
         source: "frontend.preflight.memory_commit_path",
       });
     }
+    if (memoryEdge.operation === "write_candidate" && !stringValue(metadata.source_output_key) && !stringValue(selector.source_output_key)) {
+      pushIssue(issues, {
+        severity: "error",
+        scope: "edge",
+        target_id: memoryEdge.edgeId,
+        title: "候选写入缺少输出来源",
+        detail: "memory_write_candidate 应配置 source_output_key，运行时才能把节点输出中的确定字段写入正式记忆记录。",
+        source: "frontend.preflight.memory_write_contract",
+      });
+    }
+    if (memoryEdge.operation === "write_candidate" && !stringValue(metadata.record_key ?? selector.record_key) && !stringValue(metadata.record_kind ?? selector.record_kind) && !stringArrayValue(metadata.record_kinds ?? selector.record_kinds).length) {
+      pushIssue(issues, {
+        severity: "error",
+        scope: "edge",
+        target_id: memoryEdge.edgeId,
+        title: "候选写入缺少 Record 标识",
+        detail: "memory_write_candidate 应配置 record_key 和 record_kind。否则同一 collection 中无法稳定维护当前记录和版本历史。",
+        source: "frontend.preflight.memory_write_contract",
+      });
+    }
     if (memoryEdge.operation === "commit" && !Object.keys(memoryEdge.receiptPolicy).length) {
       pushIssue(issues, {
         severity: "warning",
@@ -386,6 +508,26 @@ export function buildTaskGraphPreflightReport({
         title: "记忆提交缺少 Receipt 策略",
         detail: "memory_commit 边应配置 receipt_policy，说明提交状态和从哪个 clock/scope 起对后续节点可见。",
         source: "frontend.preflight.receipt_policy",
+      });
+    }
+    if (memoryEdge.operation === "commit" && !stringValue(metadata.candidate_ref_key) && !stringValue(metadata.record_key ?? selector.record_key)) {
+      pushIssue(issues, {
+        severity: "error",
+        scope: "edge",
+        target_id: memoryEdge.edgeId,
+        title: "记忆提交缺少候选引用",
+        detail: "memory_commit 应配置 candidate_ref_key 或明确 record_key，避免提交节点不知道要提交哪个候选版本。",
+        source: "frontend.preflight.memory_commit_contract",
+      });
+    }
+    if (memoryEdge.operation === "commit" && !stringValue(metadata.verdict_key) && !stringValue(metadata.required_verdict)) {
+      pushIssue(issues, {
+        severity: "info",
+        scope: "edge",
+        target_id: memoryEdge.edgeId,
+        title: "记忆提交缺少审核裁决字段",
+        detail: "建议配置 verdict_key / required_verdict，让正式提交依赖明确审核结果，而不是默认提交。",
+        source: "frontend.preflight.memory_commit_contract",
       });
     }
   });

@@ -230,13 +230,101 @@ describe("TaskGraph preflight", () => {
           target_node_id: "memory.project",
           edge_type: "memory_write_candidate",
           payload_contract_id: "contract.memory.write_candidate",
-          metadata: { repository: "memory.project", collection: "facts" },
+          metadata: {
+            repository: "memory.project",
+            collection: "facts",
+            record_key: "fact.current",
+            record_kind: "fact",
+            source_output_key: "approved_fact",
+          },
         },
       ],
     });
 
     expect(report.valid).toBe(true);
     expect(report.issues.some((issue) => issue.source === "frontend.preflight.memory_commit_path")).toBe(true);
+  });
+
+  it("blocks memory edges that point at an undeclared repository collection", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [
+        {
+          node_id: "memory.project",
+          node_type: "memory_repository",
+          metadata: { memory_repository: { repository_id: "memory.project", collections: ["world"] } },
+        },
+        { node_id: "writer", agent_id: "agent.writer" },
+      ],
+      edges: [
+        {
+          edge_id: "edge.memory.writer.characters",
+          source_node_id: "memory.project",
+          target_node_id: "writer",
+          edge_type: "memory_read",
+          payload_contract_id: "contract.memory.read",
+          metadata: {
+            repository: "memory.project",
+            collection: "characters",
+            selector: { collection: "characters", record_key: "character.current", status_filter: ["committed"] },
+            usage_instruction: "按人物定稿写作。",
+          },
+        },
+      ],
+    });
+
+    expect(report.valid).toBe(false);
+    expect(report.issues.some((issue) => issue.title === "记忆边引用了不存在的 Collection")).toBe(true);
+  });
+
+  it("diagnoses formal memory write and commit contracts", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [
+        {
+          node_id: "memory.project",
+          node_type: "memory_repository",
+          metadata: { memory_repository: { repository_id: "memory.project", collections: ["world"] } },
+        },
+        { node_id: "author", agent_id: "agent.author" },
+        { node_id: "review", agent_id: "agent.review" },
+      ],
+      edges: [
+        {
+          edge_id: "edge.author.memory",
+          source_node_id: "author",
+          target_node_id: "memory.project",
+          edge_type: "memory_write_candidate",
+          payload_contract_id: "contract.memory.write",
+          metadata: { repository: "memory.project", collection: "world" },
+        },
+        {
+          edge_id: "edge.author.review",
+          source_node_id: "author",
+          target_node_id: "review",
+          payload_contract_id: "contract.handoff",
+        },
+        {
+          edge_id: "edge.review.memory",
+          source_node_id: "review",
+          target_node_id: "memory.project",
+          edge_type: "memory_commit",
+          payload_contract_id: "contract.memory.commit",
+          metadata: {
+            repository: "memory.project",
+            collection: "world",
+            receipt_policy: { visible_after: "next_clock" },
+          },
+        },
+      ],
+    });
+
+    expect(report.issues.some((issue) => issue.source === "frontend.preflight.memory_write_contract")).toBe(true);
+    expect(report.issues.some((issue) => issue.source === "frontend.preflight.memory_commit_contract")).toBe(true);
   });
 
   it("warns when revision routes do not carry original artifact and review result references", () => {

@@ -758,24 +758,6 @@
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.000001",
-      "task_id": "task.000001",
-      "requested_memory_layers": [
-        "conversation"
-      ],
-      "requested_topics": [
-        "general"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "task_default",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "",
-      "metadata": {
-        "derived_from": "specific_task_record"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
       "profile_id": "taskmem:task.writing.simple_novel.project_brief",
       "task_id": "task.writing.simple_novel.project_brief",
       "requested_memory_layers": [
@@ -1410,6 +1392,24 @@
         "conversation_memory": "restricted",
         "memory_contract": "memory_pack_required",
         "memory_access_model": "edge_based_repository_access"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.000001",
+      "task_id": "task.000001",
+      "requested_memory_layers": [
+        "conversation"
+      ],
+      "requested_topics": [
+        "general"
+      ],
+      "memory_priority": "normal",
+      "writeback_policy": "task_default",
+      "allow_long_term_memory": false,
+      "memory_scope_hint": "",
+      "metadata": {
+        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_memory_request_profile"
     }

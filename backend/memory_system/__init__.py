@@ -13,6 +13,14 @@ __all__ = [
     "DurableMutationPlanner",
     "DurableStoreWriter",
     "DurableWriteExtractorAgent",
+    "FormalMemoryCollection",
+    "FormalMemoryReadLog",
+    "FormalMemoryRecord",
+    "FormalMemoryRecordVersion",
+    "FormalMemoryRepository",
+    "FormalMemoryService",
+    "FormalMemoryStore",
+    "FormalMemoryTransaction",
     "LongTermMemoryRecord",
     "LongTermMemoryStoreAdapter",
     "MemoryNote",
@@ -143,6 +151,39 @@ def __getattr__(name: str):
         from .governance_service import DurableMemoryGovernanceService
 
         return DurableMemoryGovernanceService
+    if name in {
+        "FormalMemoryCollection",
+        "FormalMemoryReadLog",
+        "FormalMemoryRecord",
+        "FormalMemoryRecordVersion",
+        "FormalMemoryRepository",
+        "FormalMemoryTransaction",
+    }:
+        from .formal_memory_models import (
+            FormalMemoryCollection,
+            FormalMemoryReadLog,
+            FormalMemoryRecord,
+            FormalMemoryRecordVersion,
+            FormalMemoryRepository,
+            FormalMemoryTransaction,
+        )
+
+        return {
+            "FormalMemoryCollection": FormalMemoryCollection,
+            "FormalMemoryReadLog": FormalMemoryReadLog,
+            "FormalMemoryRecord": FormalMemoryRecord,
+            "FormalMemoryRecordVersion": FormalMemoryRecordVersion,
+            "FormalMemoryRepository": FormalMemoryRepository,
+            "FormalMemoryTransaction": FormalMemoryTransaction,
+        }[name]
+    if name in {"FormalMemoryService"}:
+        from .formal_memory_service import FormalMemoryService
+
+        return FormalMemoryService
+    if name in {"FormalMemoryStore"}:
+        from .formal_memory_store import FormalMemoryStore
+
+        return FormalMemoryStore
     if name in {"MemoryFacade"}:
         from .facade import MemoryFacade
 

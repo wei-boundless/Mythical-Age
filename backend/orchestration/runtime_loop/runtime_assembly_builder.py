@@ -548,6 +548,32 @@ def _working_memory_sections(working_memory_context: dict[str, Any] | None) -> t
     if not task_run_id:
         return ()
     sections: list[RuntimeContextSection] = []
+    formal_records = [dict(item) for item in list(payload.get("formal_memory.required_records") or []) if isinstance(item, dict)]
+    if formal_records:
+        sections.append(
+            RuntimeContextSection(
+                section_id="formal_memory.required_records",
+                title="正式记忆快照",
+                content_mode="structured",
+                source_ref=f"formal_memory:{task_run_id}",
+                model_visible=True,
+                metadata={
+                    "profile_context_section": "working_memory",
+                    "task_run_id": task_run_id,
+                    "graph_id": str(payload.get("graph_id") or ""),
+                    "owner_node_id": str(payload.get("owner_node_id") or ""),
+                    "node_run_id": str(payload.get("node_run_id") or ""),
+                    "record_count": len(formal_records),
+                    "record_refs": [
+                        str(item.get("version_id") or item.get("record_id") or "")
+                        for item in formal_records
+                        if str(item.get("version_id") or item.get("record_id") or "")
+                    ],
+                    "records": formal_records,
+                    "read_log_ids": list(payload.get("formal_memory.read_log_ids") or []),
+                },
+            )
+        )
     for section_id, title in (
         ("working_memory.required", "工作记忆必需切片"),
         ("working_memory.preferred", "工作记忆优先切片"),
@@ -593,6 +619,9 @@ def _working_memory_diagnostics(working_memory_context: dict[str, Any] | None) -
         "working_memory_required_count": int(dict(payload.get("working_memory.required") or {}).get("item_count") or 0),
         "working_memory_preferred_count": int(dict(payload.get("working_memory.preferred") or {}).get("item_count") or 0),
         "working_memory_conflict_count": int(dict(payload.get("working_memory.conflict_warnings") or {}).get("item_count") or 0),
+        "formal_memory_required_count": len([item for item in list(payload.get("formal_memory.required_records") or []) if isinstance(item, dict)]),
+        "formal_memory_primary": bool(dict(payload.get("diagnostics") or {}).get("formal_memory_primary")),
+        "working_memory_legacy_read_enabled": bool(dict(payload.get("diagnostics") or {}).get("working_memory_legacy_read_enabled")),
     }
 
 

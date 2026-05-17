@@ -218,8 +218,12 @@ class WorkingMemoryService:
         excluded: list[WorkingMemoryItem] = []
         token_used = 0
         max_initial_items = max(1, int(read_request.get("max_items") or read_policy.get("max_items") or 200))
-        requested_kinds = set(_strings(read_request.get("requested_kinds") or read_request.get("requested_kind") or read_policy.get("readable_kinds")))
+        explicit_requested_kinds = read_request.get("requested_kinds") or read_request.get("requested_kind")
+        requested_kinds = set(_strings(explicit_requested_kinds or read_policy.get("readable_kinds")))
         requested_semantics = set(_strings(read_request.get("requested_semantics") or read_request.get("requested_semantic") or read_policy.get("readable_semantics")))
+        repository_read_edges = _normalized_repository_read_edges(read_request.get("repository_read_edges") or read_policy.get("repository_read_edges"))
+        if repository_read_edges and not explicit_requested_kinds:
+            requested_kinds = set()
         readable_scopes = _effective_readable_scopes(read_request=read_request, read_policy=read_policy)
         readable_visibilities = _effective_readable_visibilities(read_request=read_request, read_policy=read_policy)
         required_stage_ids = set(_strings(read_request.get("required_stage_ids")))
@@ -257,6 +261,9 @@ class WorkingMemoryService:
                 excluded.append(item)
                 continue
             if required_stage_ids and item.stage_id not in required_stage_ids:
+                excluded.append(item)
+                continue
+            if repository_read_edges and not _item_matches_any_repository_edge(item, repository_read_edges):
                 excluded.append(item)
                 continue
             item_tokens = count_text_tokens(item.summary or item.title or str(item.payload)[:500])
@@ -657,6 +664,8 @@ def _selection_payload(
     excluded_tuple = tuple(excluded_items)
     required = tuple(item for item in selected_tuple if item.status == "accepted")
     preferred = tuple(item for item in selected_tuple if item.status != "accepted")
+    repository_read_edges = _normalized_repository_read_edges(dict(read_log.request or {}).get("repository_read_edges"))
+    missing_repository_edges = _missing_repository_read_edges(required, repository_read_edges)
     return {
         "required_items": required,
         "preferred_items": preferred,
@@ -672,6 +681,13 @@ def _selection_payload(
             "denied_reason": denied_reason,
             "selected_refs": [item.work_memory_id for item in selected_tuple if item.work_memory_id],
             "excluded_refs": [item.work_memory_id for item in excluded_tuple if item.work_memory_id],
+            "missing_repository_read_edges": missing_repository_edges,
+            "selected_repository_records": [
+                preview
+                for item in selected_tuple
+                for preview in [_formal_memory_preview(item)]
+                if preview
+            ],
             "selected_item_previews": [
                 {
                     "work_memory_id": item.work_memory_id,
@@ -680,6 +696,7 @@ def _selection_payload(
                     "visibility": item.visibility,
                     "kind": item.kind,
                     "summary": item.summary,
+                    "formal_memory": _formal_memory_preview(item),
                 }
                 for item in selected_tuple[:12]
             ],
@@ -733,6 +750,115 @@ def _handoff_visibility_allowed(
     return item.owner_node_id in authorized_sources
 
 
+def _normalized_repository_read_edges(value: Any) -> tuple[dict[str, Any], ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    edges: list[dict[str, Any]] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        selector = dict(raw.get("selector") or {})
+        record_kinds = _strings(raw.get("record_keys") or raw.get("record_kinds") or selector.get("record_kinds"))
+        repository = str(raw.get("repository") or raw.get("repository_id") or selector.get("repository") or "").strip()
+        collection = str(raw.get("collection") or raw.get("collection_id") or selector.get("collection") or "").strip()
+        edge = {
+            "edge_id": str(raw.get("edge_id") or "").strip(),
+            "repository": repository,
+            "collection": collection,
+            "record_kinds": tuple(record_kinds),
+            "status_filter": tuple(_strings(selector.get("status_filter") or raw.get("status_filter"))),
+            "selector": selector,
+            "version_selector": str(raw.get("version_selector") or selector.get("version_selector") or "").strip(),
+            "on_missing": str(raw.get("on_missing") or selector.get("on_missing") or "").strip(),
+        }
+        if edge["edge_id"] or repository or collection or edge["record_kinds"]:
+            edges.append(edge)
+    return tuple(edges)
+
+
+def _item_matches_any_repository_edge(item: WorkingMemoryItem, edges: tuple[dict[str, Any], ...]) -> bool:
+    formal = _formal_memory_payload(item)
+    if not formal:
+        return False
+    return any(_item_matches_repository_edge(item, formal, edge) for edge in edges)
+
+
+def _item_matches_repository_edge(item: WorkingMemoryItem, formal: dict[str, Any], edge: dict[str, Any]) -> bool:
+    repository = str(edge.get("repository") or "").strip()
+    collection = str(edge.get("collection") or "").strip()
+    record_kinds = {str(kind).strip() for kind in tuple(edge.get("record_kinds") or ()) if str(kind).strip()}
+    if repository and repository != str(formal.get("repository_id") or formal.get("repository") or "").strip():
+        return False
+    if collection and collection != str(formal.get("collection_id") or formal.get("collection") or "").strip():
+        return False
+    item_kind = str(formal.get("record_kind") or item.kind or "").strip()
+    formal_kinds = {str(kind).strip() for kind in list(formal.get("record_kinds") or []) if str(kind).strip()}
+    if item_kind:
+        formal_kinds.add(item_kind)
+    if record_kinds and not formal_kinds.intersection(record_kinds):
+        return False
+    status_filter = {str(status).strip() for status in tuple(edge.get("status_filter") or ()) if str(status).strip()}
+    if "committed" in status_filter:
+        commit_state = str(formal.get("commit_state") or formal.get("status") or "").strip()
+        if commit_state and commit_state != "committed":
+            return False
+    return True
+
+
+def _formal_memory_payload(item: WorkingMemoryItem) -> dict[str, Any]:
+    metadata = dict(getattr(item, "metadata", {}) or {})
+    formal = dict(metadata.get("formal_memory") or metadata.get("memory_record") or {})
+    if not formal:
+        repository = str(metadata.get("repository") or metadata.get("repository_id") or "").strip()
+        collection = str(metadata.get("collection") or metadata.get("collection_id") or "").strip()
+        record_kind = str(metadata.get("record_kind") or "").strip()
+        if repository or collection or record_kind:
+            formal = {
+                "repository_id": repository,
+                "collection_id": collection,
+                "record_kind": record_kind or item.kind,
+            }
+    return formal
+
+
+def _formal_memory_preview(item: WorkingMemoryItem) -> dict[str, Any]:
+    formal = _formal_memory_payload(item)
+    if not formal:
+        return {}
+    return {
+        "work_memory_id": item.work_memory_id,
+        "repository_id": str(formal.get("repository_id") or formal.get("repository") or ""),
+        "collection_id": str(formal.get("collection_id") or formal.get("collection") or ""),
+        "record_kind": str(formal.get("record_kind") or item.kind or ""),
+        "record_kinds": [str(kind) for kind in list(formal.get("record_kinds") or []) if str(kind)],
+        "commit_state": str(formal.get("commit_state") or formal.get("status") or ""),
+        "source_edge_id": str(formal.get("source_edge_id") or ""),
+        "version_selector": str(formal.get("version_selector") or ""),
+    }
+
+
+def _missing_repository_read_edges(
+    selected_items: tuple[WorkingMemoryItem, ...],
+    repository_edges: tuple[dict[str, Any], ...],
+) -> list[dict[str, Any]]:
+    missing: list[dict[str, Any]] = []
+    for edge in repository_edges:
+        if str(edge.get("on_missing") or "") not in {"block", "required", "fail_closed"}:
+            continue
+        if any(_item_matches_repository_edge(item, _formal_memory_payload(item), edge) for item in selected_items):
+            continue
+        missing.append(
+            {
+                "edge_id": str(edge.get("edge_id") or ""),
+                "repository": str(edge.get("repository") or ""),
+                "collection": str(edge.get("collection") or ""),
+                "record_kinds": [str(kind) for kind in tuple(edge.get("record_kinds") or ()) if str(kind)],
+                "on_missing": str(edge.get("on_missing") or ""),
+            }
+        )
+    return missing
+
+
 def _stable_id(prefix: str, *parts: str) -> str:
     raw = "|".join(str(part or "").strip() for part in parts)
     digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
@@ -740,4 +866,6 @@ def _stable_id(prefix: str, *parts: str) -> str:
 
 
 def _strings(values: Any) -> list[str]:
+    if isinstance(values, str):
+        return [values.strip()] if values.strip() else []
     return [str(item).strip() for item in list(values or []) if str(item).strip()]

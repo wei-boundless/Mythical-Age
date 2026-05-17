@@ -9,6 +9,7 @@ from typing import Annotated, Any, TypedDict
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from langgraph.graph import END, START, StateGraph
 
+from memory_system.formal_memory_service import FormalMemoryService
 from memory_system.working_memory_finalizer import WorkingMemoryFinalizer
 from memory_system.working_memory_service import WorkingMemoryService
 from tasks import TaskContractRegistry
@@ -82,6 +83,7 @@ class CoordinationRuntimeState(TypedDict, total=False):
     terminal_status: str
     final_result_ref: str
     current_event: dict[str, Any]
+    current_task_result: dict[str, Any]
     stage_execution_request: dict[str, Any]
     a2a_payload: dict[str, Any]
     working_memory_contexts: dict[str, dict[str, Any]]
@@ -188,6 +190,7 @@ class LangGraphCoordinationRuntime:
         self.trace_adapter = CoordinationTraceAdapter(state_index=state_index, event_log=event_log)
         self.working_memory = WorkingMemoryService(_working_memory_root_for_runtime(root_dir))
         self.working_memory_finalizer = WorkingMemoryFinalizer(self.working_memory)
+        self.formal_memory = FormalMemoryService(_formal_memory_root_for_runtime(root_dir))
         self.timeline_ledger = TimelineLedgerStore(root_dir)
         self._app = self._build_app()
         self.kernel = LangGraphRuntimeKernel(app=self._app, checkpoints=self.checkpoints)
@@ -298,6 +301,7 @@ class LangGraphCoordinationRuntime:
             return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_coordination_task"})
         state = self._load_or_bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
         state["current_event"] = event.to_dict()
+        state["current_task_result"] = dict(current_task_result or {})
         state["pending_inputs"] = {
             **dict(state.get("pending_inputs") or {}),
             **dict(inherited_inputs or {}),
@@ -545,6 +549,16 @@ class LangGraphCoordinationRuntime:
             if not output_key:
                 continue
             mapped_outputs[output_key] = artifact_refs if mapping.get("single") is False else (artifact_refs[0] if artifact_refs else "")
+        output_bundle = _node_result_output_bundle(
+            state=state,
+            event=event,
+            artifact_refs=artifact_refs,
+            mapped_outputs=mapped_outputs,
+        )
+        stage_outputs = {
+            **_structured_outputs_from_output_bundle(output_bundle),
+            **mapped_outputs,
+        }
         accepted = bool(event.get("accepted") is True) and _required_artifact_outputs_satisfied(
             output_mappings,
             artifact_refs,
@@ -586,7 +600,7 @@ class LangGraphCoordinationRuntime:
             "agent_run_result_ref": str(event.get("agent_run_result_ref") or ""),
             "artifact_refs": artifact_refs,
             "trace_refs": trace_refs,
-            "outputs": mapped_outputs,
+            "outputs": stage_outputs,
             "diagnostics": dict(event.get("diagnostics") or {}),
             "accepted": accepted,
         }
@@ -598,6 +612,9 @@ class LangGraphCoordinationRuntime:
                 contract=contract,
                 event=event,
                 artifact_refs=artifact_refs,
+                output_bundle=output_bundle,
+                source_clock=str(result_event_payload.get("event_id") or ""),
+                source_clock_seq=int(result_event_payload.get("clock_seq") or 0),
             )
             if write_operation:
                 stage_results[stage_id]["working_memory_refs"] = list(write_operation.get("created_working_memory_refs") or [])
@@ -626,6 +643,9 @@ class LangGraphCoordinationRuntime:
                 stage_id=stage_id,
                 contract=contract,
                 event=event,
+                output_bundle=output_bundle,
+                source_clock=str(result_event_payload.get("event_id") or ""),
+                source_clock_seq=int(result_event_payload.get("clock_seq") or 0),
             )
             if commit_operation:
                 working_memory_operations.append(
@@ -957,6 +977,7 @@ class LangGraphCoordinationRuntime:
         source_contract = dict(dict(state.get("stage_contracts") or {}).get(source_stage_id) or {})
         current_task_ref = str(source_contract.get("task_ref") or current_event.get("task_ref") or "")
         current_task_result = {
+            **dict(state.get("current_task_result") or {}),
             "output_refs": list(current_event.get("artifact_refs") or []),
             "result_refs": [str(current_event.get("task_result_ref") or "")],
         }
@@ -1221,11 +1242,36 @@ class LangGraphCoordinationRuntime:
         dynamic_policy = dict(contract.get("dynamic_memory_read_policy") or {})
         graph_policy = dict(dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {}).get("diagnostics") or {}).get("working_memory_policy") or {}
         graph_policy = dict(graph_policy or {})
-        if not read_policy and not bool(graph_policy.get("auto_read_enabled")):
-            return {}
         root_task_run_id = str(state.get("root_task_run_id") or "").strip()
         if not root_task_run_id:
             return {}
+        repository_read_edges = _graph_memory_edge_descriptors(
+            state=state,
+            stage_id=stage_id,
+            node_id=node_id,
+            operation="read",
+        )
+        legacy_working_memory_read_enabled = bool(read_policy) or bool(graph_policy.get("auto_read_enabled"))
+        if not legacy_working_memory_read_enabled and not repository_read_edges:
+            return {}
+        graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+        graph_id = str(graph_spec.get("graph_ref") or graph_spec.get("graph_id") or dict(state.get("diagnostics") or {}).get("graph_ref") or "")
+        self.formal_memory.sync_graph_spec(graph_id=graph_id, graph_spec=graph_spec)
+        coordination_run_id = str(state.get("coordination_run_id") or "").strip()
+        predicted_clock_seq = int(self.timeline_ledger.load(coordination_run_id).current_clock_seq or 0) + 1 if coordination_run_id else 0
+        formal_selection: dict[str, Any] = {}
+        formal_selection_error = ""
+        if repository_read_edges:
+            try:
+                formal_selection = self.formal_memory.select_for_node(
+                    read_edges=repository_read_edges,
+                    node_run_id=f"{root_task_run_id}:{stage_id}",
+                    clock=f"clock:{predicted_clock_seq}" if predicted_clock_seq else "",
+                    clock_seq=predicted_clock_seq,
+                    limit=int(read_policy.get("max_items") or graph_policy.get("max_items") or 50),
+                )
+            except Exception as exc:  # pragma: no cover - defensive runtime diagnostics
+                formal_selection_error = str(exc)
         request = {
             **dict(graph_policy.get("default_read_request") or {}),
             **dict(read_policy.get("read_request") or {}),
@@ -1233,28 +1279,63 @@ class LangGraphCoordinationRuntime:
         if read_policy.get("max_items") and "max_items" not in request:
             request["max_items"] = read_policy.get("max_items")
         node_run_id = f"{root_task_run_id}:{stage_id}"
-        selection = self.working_memory.select_for_node(
-            task_run_id=root_task_run_id,
-            graph_id=str(dict(state.get("diagnostics") or {}).get("graph_ref") or dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {}).get("graph_ref") or ""),
-            owner_node_id=node_id,
-            node_run_id=node_run_id,
-            run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
-            reader_agent_id=str(contract.get("agent_id") or ""),
-            node_role=str(contract.get("role") or ""),
-            memory_read_policy=read_policy,
-            dynamic_read_policy=dynamic_policy,
-            request=request,
-            token_budget=int(read_policy.get("token_budget") or graph_policy.get("token_budget") or 0),
-        )
-        return _working_memory_context_from_selection(
-            selection,
-            task_run_id=root_task_run_id,
-            graph_id=str(dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {}).get("graph_ref") or ""),
-            owner_node_id=node_id,
-            node_run_id=node_run_id,
-            run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
-            read_policy=read_policy,
-        )
+        if legacy_working_memory_read_enabled:
+            selection = self.working_memory.select_for_node(
+                task_run_id=root_task_run_id,
+                graph_id=graph_id,
+                owner_node_id=node_id,
+                node_run_id=node_run_id,
+                run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
+                reader_agent_id=str(contract.get("agent_id") or ""),
+                node_role=str(contract.get("role") or ""),
+                memory_read_policy=read_policy,
+                dynamic_read_policy=dynamic_policy,
+                request=request,
+                token_budget=int(read_policy.get("token_budget") or graph_policy.get("token_budget") or 0),
+            )
+            context = _working_memory_context_from_selection(
+                selection,
+                task_run_id=root_task_run_id,
+                graph_id=graph_id,
+                owner_node_id=node_id,
+                node_run_id=node_run_id,
+                run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
+                read_policy=read_policy,
+            )
+        else:
+            context = _formal_memory_only_context(
+                task_run_id=root_task_run_id,
+                graph_id=graph_id,
+                owner_node_id=node_id,
+                node_run_id=node_run_id,
+                run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
+            )
+        if repository_read_edges:
+            diagnostics = dict(context.get("diagnostics") or {})
+            diagnostics["formal_memory_primary"] = True
+            diagnostics["working_memory_legacy_read_enabled"] = legacy_working_memory_read_enabled
+            diagnostics["repository_read_edge_count"] = len(repository_read_edges)
+            diagnostics["repository_read_edges"] = repository_read_edges
+            if formal_selection_error:
+                diagnostics["formal_memory_error"] = formal_selection_error
+            formal_diagnostics = dict(formal_selection.get("diagnostics") or {})
+            if formal_diagnostics:
+                diagnostics["formal_memory"] = formal_diagnostics
+            context["diagnostics"] = diagnostics
+            context["repository_read_edges"] = repository_read_edges
+            if formal_selection:
+                context["formal_memory.required_records"] = list(formal_selection.get("required_records") or [])
+                context["formal_memory.read_logs"] = list(formal_selection.get("read_logs") or [])
+                context["formal_memory.read_log_ids"] = list(formal_selection.get("read_log_ids") or [])
+                context["formal_memory.missing_required_records"] = list(formal_selection.get("missing_required_records") or [])
+                context["missing_required_records"] = list(formal_selection.get("missing_required_records") or [])
+                context["formal_memory"] = {
+                    "required_records": list(formal_selection.get("required_records") or []),
+                    "read_logs": list(formal_selection.get("read_logs") or []),
+                    "missing_required_records": list(formal_selection.get("missing_required_records") or []),
+                    "authority": "formal_memory.service",
+                }
+        return context
 
     def _submit_stage_working_memory_candidates(
         self,
@@ -1264,6 +1345,9 @@ class LangGraphCoordinationRuntime:
         contract: dict[str, Any],
         event: dict[str, Any],
         artifact_refs: list[str],
+        output_bundle: dict[str, Any] | None = None,
+        source_clock: str = "",
+        source_clock_seq: int = 0,
     ) -> dict[str, Any]:
         write_policy = dict(contract.get("memory_writeback_policy") or {})
         if not write_policy:
@@ -1273,6 +1357,21 @@ class LangGraphCoordinationRuntime:
             return {}
         raw_candidates = list(dict(event.get("diagnostics") or {}).get("working_memory_candidates") or [])
         candidates = [dict(item) for item in raw_candidates if isinstance(item, dict)]
+        node_id = str(contract.get("node_id") or stage_id)
+        memory_write_edges = _graph_memory_edge_descriptors(
+            state=state,
+            stage_id=stage_id,
+            node_id=node_id,
+            operation="write",
+        )
+        graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+        graph_id = str(graph_spec.get("graph_ref") or graph_spec.get("graph_id") or dict(state.get("diagnostics") or {}).get("graph_ref") or "")
+        self.formal_memory.sync_graph_spec(graph_id=graph_id, graph_spec=graph_spec)
+        memory_write_edge_by_id = {
+            str(edge.get("edge_id") or ""): dict(edge)
+            for edge in memory_write_edges
+            if str(edge.get("edge_id") or "")
+        }
         if not candidates and artifact_refs and bool(write_policy.get("capture_artifact_refs")):
             candidates = [
                 {
@@ -1283,26 +1382,32 @@ class LangGraphCoordinationRuntime:
                     "scope": _first_policy_value(write_policy, "writable_scopes", "node_scope"),
                 }
             ]
-        if not candidates:
+        if not candidates and not any(str(edge.get("source_output_key") or "").strip() for edge in memory_write_edges):
             return {}
+        write_records, formal_memory_errors = _formal_memory_write_records(
+            candidates=candidates,
+            memory_write_edges=memory_write_edges,
+            fallback_write_policy=write_policy,
+            output_bundle=dict(output_bundle or {}),
+        )
         created = []
-        node_id = str(contract.get("node_id") or stage_id)
+        formal_memory_receipts: list[dict[str, Any]] = []
         node_run_id = f"{root_task_run_id}:{stage_id}"
-        for index, candidate in enumerate(candidates):
+        for index, candidate in enumerate(write_records):
             payload = {
                 "task_run_id": root_task_run_id,
                 "task_id": str(contract.get("task_ref") or event.get("task_ref") or ""),
-                "graph_id": str(dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {}).get("graph_ref") or ""),
+                "graph_id": graph_id,
                 "owner_node_id": node_id,
                 "owner_node_role": str(contract.get("role") or ""),
                 "node_run_id": node_run_id,
                 "run_attempt_id": str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
                 "stage_id": stage_id,
                 "writer_agent_id": str(contract.get("agent_id") or ""),
-                "kind": _first_policy_value(write_policy, "writable_kinds", str(candidate.get("kind") or "intermediate_result")),
-                "scope": _first_policy_value(write_policy, "writable_scopes", str(candidate.get("scope") or "node_scope")),
+                "kind": str(candidate.get("kind") or _first_policy_value(write_policy, "writable_kinds", "intermediate_result")),
+                "scope": str(candidate.get("scope") or _first_policy_value(write_policy, "writable_scopes", "node_scope")),
                 "status": str(candidate.get("status") or write_policy.get("default_status") or "draft"),
-                "visibility": str(candidate.get("visibility") or write_policy.get("default_visibility") or "private_to_node"),
+                "visibility": str(candidate.get("visibility") or write_policy.get("default_visibility") or ("shared_in_graph" if memory_write_edges else "private_to_node")),
                 "summary": str(candidate.get("summary") or ""),
                 "title": str(candidate.get("title") or ""),
                 "payload": dict(candidate.get("payload") or {"source_stage_id": stage_id}),
@@ -1314,15 +1419,94 @@ class LangGraphCoordinationRuntime:
                     "operation": "memory_write",
                     "source_event_task_run_id": str(event.get("task_run_id") or ""),
                     "source_task_result_ref": str(event.get("task_result_ref") or ""),
+                    "memory_write_edges": memory_write_edges,
                 },
             }
-            created.append(self.working_memory.create_item(**payload))
+            item = self.working_memory.create_item(**payload)
+            formal = dict(dict(payload.get("metadata") or {}).get("formal_memory") or {})
+            if formal.get("repository_id") and formal.get("collection_id"):
+                source_edge_id = str(formal.get("source_edge_id") or "")
+                edge_descriptor = memory_write_edge_by_id.get(source_edge_id) or {
+                    "edge_id": source_edge_id,
+                    "repository": str(formal.get("repository_id") or ""),
+                    "collection": str(formal.get("collection_id") or ""),
+                    "record_kind": str(formal.get("record_kind") or item.kind or ""),
+                    "record_key": str(formal.get("record_key") or formal.get("record_kind") or item.kind or ""),
+                    "selector": dict(formal.get("selector") or {}),
+                    "receipt_policy": dict(formal.get("receipt_policy") or {}),
+                }
+                try:
+                    version, transaction = self.formal_memory.write_candidate_from_edge(
+                        edge=edge_descriptor,
+                        candidate={
+                            **candidate,
+                            "payload": dict(item.payload or {}),
+                            "summary": item.summary,
+                            "title": item.title,
+                            "kind": item.kind,
+                            "artifact_refs": list(item.artifact_refs),
+                            "idempotency_key": f"{item.idempotency_key}:formal",
+                        },
+                        task_run_id=root_task_run_id,
+                        graph_id=graph_id,
+                        node_run_id=node_run_id,
+                        source_node_id=node_id,
+                        source_clock=source_clock,
+                        source_clock_seq=source_clock_seq,
+                        artifact_refs=list(item.artifact_refs),
+                    )
+                    formal_update = {
+                        **formal,
+                        "record_id": version.record_id,
+                        "record_key": version.record_key,
+                        "version_id": version.version_id,
+                        "version": version.version,
+                        "transaction_id": transaction.transaction_id,
+                        "receipt": dict(transaction.receipt),
+                    }
+                    if str(formal.get("commit_state") or "") == "committed":
+                        committed_version, commit_transaction = self.formal_memory.commit_from_edge(
+                            edge=edge_descriptor,
+                            candidate_version_id=version.version_id,
+                            node_run_id=node_run_id,
+                            source_clock=source_clock,
+                            source_clock_seq=source_clock_seq,
+                        )
+                        formal_update = {
+                            **formal_update,
+                            "commit_state": committed_version.status,
+                            "committed_version_id": committed_version.version_id,
+                            "commit_transaction_id": commit_transaction.transaction_id,
+                            "commit_receipt": dict(commit_transaction.receipt),
+                        }
+                        formal_memory_receipts.append(dict(commit_transaction.receipt))
+                    else:
+                        formal_memory_receipts.append(dict(transaction.receipt))
+                    item = self.working_memory.update_lifecycle(
+                        item.work_memory_id,
+                        metadata={"formal_memory": formal_update},
+                        actor_id="langgraph_coordination_runtime",
+                        event_type="formal_memory_write_recorded",
+                    )
+                except Exception as exc:  # pragma: no cover - surfaced in runtime diagnostics
+                    formal_memory_errors.append(
+                        {
+                            "work_memory_id": item.work_memory_id,
+                            "edge_id": source_edge_id,
+                            "repository_id": str(formal.get("repository_id") or ""),
+                            "collection_id": str(formal.get("collection_id") or ""),
+                            "error": str(exc),
+                        }
+                    )
+            created.append(item)
         return {
             "operation": "memory_write",
             "stage_id": stage_id,
             "node_id": node_id,
             "node_run_id": node_run_id,
             "created_working_memory_refs": [item.work_memory_id for item in created],
+            "formal_memory_receipts": formal_memory_receipts,
+            "formal_memory_errors": formal_memory_errors,
             "candidate_count": len(created),
             "status": "completed",
             "authority": "orchestration.working_memory_resource_node",
@@ -1388,6 +1572,9 @@ class LangGraphCoordinationRuntime:
         stage_id: str,
         contract: dict[str, Any],
         event: dict[str, Any],
+        output_bundle: dict[str, Any] | None = None,
+        source_clock: str = "",
+        source_clock_seq: int = 0,
     ) -> dict[str, Any]:
         diagnostics = dict(event.get("diagnostics") or {})
         decision_payload = dict(diagnostics.get("working_memory_commit") or diagnostics.get("memory_commit_decision") or {})
@@ -1402,17 +1589,98 @@ class LangGraphCoordinationRuntime:
         accepted_refs = _decision_refs(decision_payload, "accepted_working_memory_refs", "accept_refs", "accepted_refs")
         discarded_refs = _decision_refs(decision_payload, "discarded_working_memory_refs", "discard_refs", "discarded_refs")
         conflict_refs = _decision_refs(decision_payload, "conflict_working_memory_refs", "conflict_refs")
-        if not decision_payload and is_commit_stage:
-            accepted_refs = _stage_working_memory_refs_for_commit(state)
-        if not accepted_refs and not discarded_refs and not conflict_refs:
-            return {}
         actor_id = str(contract.get("agent_id") or "langgraph_coordination_runtime")
+        node_id = str(contract.get("node_id") or stage_id)
+        graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+        graph_id = str(graph_spec.get("graph_ref") or graph_spec.get("graph_id") or dict(state.get("diagnostics") or {}).get("graph_ref") or "")
+        self.formal_memory.sync_graph_spec(graph_id=graph_id, graph_spec=graph_spec)
+        commit_edges = _graph_memory_edge_descriptors(
+            state=state,
+            stage_id=stage_id,
+            node_id=node_id,
+            operation="write",
+        )
+        commit_edges = [edge for edge in commit_edges if str(edge.get("edge_type") or "") == "memory_commit" or str(edge.get("memory_edge_type") or "") == "commit"]
+        resolved_output_bundle = dict(output_bundle or _node_result_output_bundle(state=state, event=event, artifact_refs=[], mapped_outputs={}))
+        edge_commit_requests, edge_commit_errors = _formal_memory_commit_requests(
+            commit_edges=commit_edges,
+            output_bundle=resolved_output_bundle,
+        )
+        refs_from_commit_edges = [request["candidate_ref"] for request in edge_commit_requests if request.get("candidate_ref")]
+        for ref in refs_from_commit_edges:
+            if ref not in accepted_refs:
+                accepted_refs.append(ref)
+        if not decision_payload and is_commit_stage and not accepted_refs:
+            accepted_refs = _stage_working_memory_refs_for_commit(state)
+        if not accepted_refs and not discarded_refs and not conflict_refs and not edge_commit_errors:
+            return {}
+        commit_request_by_ref = {
+            str(request.get("candidate_ref") or ""): dict(request)
+            for request in edge_commit_requests
+            if str(request.get("candidate_ref") or "")
+        }
         accepted: list[str] = []
         discarded: list[str] = []
         conflicted: list[str] = []
+        formal_memory_receipts: list[dict[str, Any]] = []
+        formal_memory_errors: list[dict[str, Any]] = list(edge_commit_errors)
         for ref in accepted_refs:
-            item = self.working_memory.accept_item(ref, actor_id=actor_id, metadata={"stage_id": stage_id, "operation": "memory_commit"})
-            accepted.append(item.work_memory_id)
+            current = self.working_memory.get_item(ref)
+            formal = dict(dict(getattr(current, "metadata", {}) or {}).get("formal_memory") or {}) if current is not None else {}
+            metadata: dict[str, Any] = {"stage_id": stage_id, "operation": "memory_commit"}
+            commit_request = dict(commit_request_by_ref.get(str(ref) or "") or {})
+            commit_edge = dict(commit_request.get("edge") or {})
+            version_id = str(formal.get("version_id") or formal.get("candidate_version_id") or commit_request.get("candidate_version_id") or "")
+            if formal and not commit_edge:
+                commit_edge = _matching_commit_edge(formal=formal, commit_edges=commit_edges)
+            if not version_id and current is None:
+                version_id = str(ref or "").strip()
+            if version_id:
+                try:
+                    committed_version, transaction = self.formal_memory.commit_from_edge(
+                        edge=commit_edge or {
+                            "edge_id": str(formal.get("source_edge_id") or ""),
+                            "repository": str(formal.get("repository_id") or ""),
+                            "collection": str(formal.get("collection_id") or ""),
+                            "record_key": str(formal.get("record_key") or ""),
+                            "record_kind": str(formal.get("record_kind") or ""),
+                        },
+                        candidate_version_id=version_id,
+                        node_run_id=f"{root_task_run_id}:{stage_id}",
+                        source_clock=source_clock,
+                        source_clock_seq=source_clock_seq,
+                        verdict=str(commit_request.get("verdict") or ""),
+                        required_verdict=str(commit_request.get("required_verdict") or ""),
+                    )
+                    formal = {
+                        **formal,
+                        "commit_state": committed_version.status,
+                        "committed_version_id": committed_version.version_id if committed_version.status == "committed" else "",
+                        "commit_transaction_id": transaction.transaction_id,
+                        "commit_receipt": dict(transaction.receipt),
+                    }
+                    formal_memory_receipts.append(dict(transaction.receipt))
+                except Exception as exc:  # pragma: no cover - surfaced in runtime diagnostics
+                    formal_memory_errors.append(
+                        {
+                            "work_memory_id": ref if current is not None else "",
+                            "version_id": version_id,
+                            "repository_id": str(formal.get("repository_id") or commit_edge.get("repository") or ""),
+                            "collection_id": str(formal.get("collection_id") or commit_edge.get("collection") or ""),
+                            "error": str(exc),
+                        }
+                    )
+            if formal and current is not None:
+                metadata["formal_memory"] = {
+                    **formal,
+                    "commit_state": "committed",
+                    "source_commit_stage_id": stage_id,
+                }
+            if current is not None:
+                item = self.working_memory.accept_item(ref, actor_id=actor_id, metadata=metadata)
+                accepted.append(item.work_memory_id)
+            elif version_id:
+                accepted.append(version_id)
         for ref in discarded_refs:
             item = self.working_memory.discard_item(ref, actor_id=actor_id, metadata={"stage_id": stage_id, "operation": "memory_commit"})
             discarded.append(item.work_memory_id)
@@ -1422,10 +1690,12 @@ class LangGraphCoordinationRuntime:
         return {
             "operation": "memory_commit",
             "stage_id": stage_id,
-            "node_id": str(contract.get("node_id") or stage_id),
+            "node_id": node_id,
             "accepted_working_memory_refs": accepted,
             "discarded_working_memory_refs": discarded,
             "conflict_working_memory_refs": conflicted,
+            "formal_memory_receipts": formal_memory_receipts,
+            "formal_memory_errors": formal_memory_errors,
             "status": "completed",
             "authority": "orchestration.working_memory_resource_node",
         }
@@ -1772,9 +2042,48 @@ def _working_memory_root_for_runtime(root_dir: Any) -> Path:
     return runtime_root / "working_memory"
 
 
+def _formal_memory_root_for_runtime(root_dir: Any) -> Path:
+    runtime_root = Path(root_dir).resolve()
+    if runtime_root.name == "runtime_state":
+        return runtime_root.parent / "formal_memory"
+    return runtime_root / "formal_memory"
+
+
 def _first_policy_value(policy: dict[str, Any], key: str, default: str) -> str:
     values = [str(item).strip() for item in list(policy.get(key) or []) if str(item).strip()]
     return values[0] if values else str(default or "").strip()
+
+
+def _formal_memory_only_context(
+    *,
+    task_run_id: str,
+    graph_id: str,
+    owner_node_id: str,
+    node_run_id: str,
+    run_attempt_id: str,
+) -> dict[str, Any]:
+    return {
+        "task_run_id": task_run_id,
+        "graph_id": graph_id,
+        "owner_node_id": owner_node_id,
+        "node_run_id": node_run_id,
+        "run_attempt_id": run_attempt_id,
+        "read_log_id": "",
+        "denied_reason": "",
+        "required_refs": [],
+        "preferred_refs": [],
+        "required_items": [],
+        "preferred_items": [],
+        "missing_required_records": [],
+        "working_memory.required": {"item_count": 0, "refs": [], "items": [], "content_mode": "summary"},
+        "working_memory.preferred": {"item_count": 0, "refs": [], "items": [], "content_mode": "summary"},
+        "working_memory.artifact_refs": {"item_count": 0, "refs": [], "content_mode": "refs_only"},
+        "working_memory.conflict_warnings": {"item_count": 0, "refs": [], "items": [], "content_mode": "summary"},
+        "diagnostics": {
+            "formal_memory_primary": True,
+            "working_memory_legacy_read_enabled": False,
+        },
+    }
 
 
 def _working_memory_context_from_selection(
@@ -1791,6 +2100,7 @@ def _working_memory_context_from_selection(
     required_items = [item for item in list(selection.get("required_items") or []) if hasattr(item, "to_dict")]
     preferred_items = [item for item in list(selection.get("preferred_items") or []) if hasattr(item, "to_dict")]
     excluded_items = [item for item in list(selection.get("excluded_items") or []) if hasattr(item, "to_dict")]
+    selection_diagnostics = dict(selection.get("diagnostics") or {})
     required_refs = [str(getattr(item, "work_memory_id", "") or "") for item in required_items if str(getattr(item, "work_memory_id", "") or "")]
     preferred_refs = [str(getattr(item, "work_memory_id", "") or "") for item in preferred_items if str(getattr(item, "work_memory_id", "") or "")]
     conflict_items = [
@@ -1807,6 +2117,11 @@ def _working_memory_context_from_selection(
         "run_attempt_id": run_attempt_id,
         "read_log_id": str(selection.get("read_log_id") or ""),
         "denied_reason": str(selection.get("denied_reason") or ""),
+        "required_refs": required_refs,
+        "preferred_refs": preferred_refs,
+        "required_items": [item.to_dict() for item in required_items],
+        "preferred_items": [item.to_dict() for item in preferred_items],
+        "missing_required_records": list(selection_diagnostics.get("missing_repository_read_edges") or []),
         "working_memory.required": {
             "item_count": len(required_refs),
             "refs": required_refs,
@@ -1836,7 +2151,7 @@ def _working_memory_context_from_selection(
             "content_mode": "summary",
         },
         "diagnostics": {
-            **dict(selection.get("diagnostics") or {}),
+            **selection_diagnostics,
             "requested_topics": [
                 str(item).strip()
                 for item in list(policy.get("topics") or [])
@@ -1872,6 +2187,8 @@ def _working_memory_read_operation_from_context(
     diagnostics = dict(payload.get("diagnostics") or {})
     required = dict(payload.get("working_memory.required") or {})
     preferred = dict(payload.get("working_memory.preferred") or {})
+    formal_records = [dict(item) for item in list(payload.get("formal_memory.required_records") or []) if isinstance(item, dict)]
+    formal_read_log_ids = [str(item).strip() for item in list(payload.get("formal_memory.read_log_ids") or []) if str(item).strip()]
     selected_refs = [
         *[str(item).strip() for item in list(required.get("refs") or []) if str(item).strip()],
         *[
@@ -1880,8 +2197,13 @@ def _working_memory_read_operation_from_context(
             if str(item).strip() and str(item).strip() not in list(required.get("refs") or [])
         ],
     ]
+    selected_formal_refs = [
+        str(item.get("version_id") or item.get("record_id") or "").strip()
+        for item in formal_records
+        if str(item.get("version_id") or item.get("record_id") or "").strip()
+    ]
     denied_reason = str(payload.get("denied_reason") or "")
-    if not selected_refs and not denied_reason and not str(payload.get("read_log_id") or ""):
+    if not selected_refs and not selected_formal_refs and not denied_reason and not str(payload.get("read_log_id") or "") and not formal_read_log_ids:
         return {}
     return {
         "operation": "memory_read",
@@ -1890,12 +2212,15 @@ def _working_memory_read_operation_from_context(
         "reader_agent_id": agent_id,
         "node_run_id": str(payload.get("node_run_id") or ""),
         "read_log_id": str(payload.get("read_log_id") or ""),
+        "formal_memory_read_log_ids": formal_read_log_ids,
         "selected_working_memory_refs": selected_refs,
+        "selected_formal_memory_refs": selected_formal_refs,
         "excluded_working_memory_refs": [
             str(item).strip()
             for item in list(diagnostics.get("excluded_refs") or [])
             if str(item).strip()
         ],
+        "selected_formal_memory_records": formal_records[:12],
         "selected_item_previews": [
             dict(item)
             for item in list(diagnostics.get("selected_item_previews") or [])
@@ -1927,6 +2252,535 @@ def _timeline_working_memory_operation(
     payload.setdefault("sequence_index", sequence_index)
     payload.setdefault("timeline_kind", "working_memory_operation")
     return payload
+
+
+def _graph_memory_edge_descriptors(
+    *,
+    state: dict[str, Any],
+    stage_id: str,
+    node_id: str,
+    operation: str,
+) -> list[dict[str, Any]]:
+    graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+    nodes_by_id = {
+        str(item.get("node_id") or item.get("id") or "").strip(): dict(item)
+        for item in list(graph_spec.get("nodes") or [])
+        if isinstance(item, dict) and str(item.get("node_id") or item.get("id") or "").strip()
+    }
+    descriptors: list[dict[str, Any]] = []
+    for raw in list(graph_spec.get("edges") or []):
+        if not isinstance(raw, dict):
+            continue
+        edge = dict(raw)
+        edge_type = str(edge.get("edge_type") or edge.get("mode") or "").strip()
+        metadata = dict(edge.get("metadata") or {})
+        memory_edge_type = str(metadata.get("memory_edge_type") or "").strip()
+        normalized_memory_edge_type = memory_edge_type or (edge_type.replace("memory_", "") if edge_type.startswith("memory_") else "")
+        source = str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "").strip()
+        target = str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
+        if operation == "read":
+            if normalized_memory_edge_type != "read" or target not in {stage_id, node_id}:
+                continue
+        elif operation == "write":
+            if normalized_memory_edge_type not in {"write", "write_candidate", "commit"} or source not in {stage_id, node_id}:
+                continue
+        else:
+            continue
+        selector = dict(metadata.get("selector") or {})
+        record_key = str(metadata.get("record_key") or selector.get("record_key") or "").strip()
+        record_kind = str(metadata.get("record_kind") or selector.get("record_kind") or "").strip()
+        record_keys = [
+            str(item).strip()
+            for item in list(metadata.get("record_keys") or selector.get("record_keys") or [])
+            if str(item).strip()
+        ]
+        record_kinds = [
+            str(item).strip()
+            for item in list(metadata.get("record_kinds") or selector.get("record_kinds") or [])
+            if str(item).strip()
+        ]
+        if record_key and record_key not in record_keys:
+            record_keys.insert(0, record_key)
+        if record_kind and record_kind not in record_kinds:
+            record_kinds.insert(0, record_kind)
+        repository_node_id = str(metadata.get("repository_node_id") or "").strip()
+        if not repository_node_id:
+            if operation == "read" and _is_runtime_memory_repository_node(nodes_by_id.get(source, {})):
+                repository_node_id = source
+            elif operation == "write" and _is_runtime_memory_repository_node(nodes_by_id.get(target, {})):
+                repository_node_id = target
+        repository = str(
+            metadata.get("repository")
+            or metadata.get("repository_id")
+            or _repository_id_from_runtime_node(nodes_by_id.get(repository_node_id, {}))
+            or repository_node_id
+            or ""
+        ).strip()
+        descriptors.append(
+            {
+                "edge_id": str(edge.get("edge_id") or "").strip(),
+                "edge_type": edge_type,
+                "memory_edge_type": normalized_memory_edge_type,
+                "source_node_id": source,
+                "target_node_id": target,
+                "repository": repository,
+                "repository_node_id": repository_node_id or repository,
+                "collection": str(metadata.get("collection") or selector.get("collection") or "").strip(),
+                "record_key": record_key,
+                "record_kind": record_kind,
+                "record_keys": record_keys,
+                "record_kinds": record_kinds,
+                "selector": selector,
+                "version_selector": metadata.get("version_selector") or selector.get("version_selector") or "",
+                "on_missing": str(metadata.get("on_missing") or "").strip(),
+                "source_output_key": str(metadata.get("source_output_key") or selector.get("source_output_key") or "").strip(),
+                "candidate_ref_key": str(metadata.get("candidate_ref_key") or "").strip(),
+                "verdict_key": str(metadata.get("verdict_key") or "").strip(),
+                "required_verdict": str(metadata.get("required_verdict") or "").strip(),
+                "model_visible_label": str(metadata.get("model_visible_label") or metadata.get("visible_label") or "").strip(),
+                "usage_instruction": str(metadata.get("usage_instruction") or metadata.get("instructions") or "").strip(),
+                "receipt_policy": dict(metadata.get("receipt_policy") or edge.get("receipt_policy") or {}),
+            }
+        )
+    return descriptors
+
+
+def _matching_commit_edge(*, formal: dict[str, Any], commit_edges: list[dict[str, Any]]) -> dict[str, Any]:
+    repository = str(formal.get("repository_id") or formal.get("repository") or "").strip()
+    collection = str(formal.get("collection_id") or formal.get("collection") or "").strip()
+    record_key = str(formal.get("record_key") or "").strip()
+    record_kind = str(formal.get("record_kind") or "").strip()
+    for edge in commit_edges:
+        selector = dict(edge.get("selector") or {})
+        if repository and repository != str(edge.get("repository") or "").strip():
+            continue
+        if collection and collection != str(edge.get("collection") or "").strip():
+            continue
+        edge_record_key = str(edge.get("record_key") or selector.get("record_key") or "").strip()
+        if record_key and edge_record_key and record_key != edge_record_key:
+            continue
+        edge_record_kind = str(edge.get("record_kind") or selector.get("record_kind") or "").strip()
+        edge_record_kinds = {str(item).strip() for item in list(edge.get("record_kinds") or []) if str(item).strip()}
+        if record_kind and edge_record_kind and record_kind != edge_record_kind:
+            continue
+        if record_kind and edge_record_kinds and record_kind not in edge_record_kinds:
+            continue
+        return dict(edge)
+    return dict(commit_edges[0]) if commit_edges else {}
+
+
+def _formal_memory_commit_requests(
+    *,
+    commit_edges: list[dict[str, Any]],
+    output_bundle: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    requests: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for edge in commit_edges:
+        candidate_ref_key = str(edge.get("candidate_ref_key") or "").strip()
+        verdict_key = str(edge.get("verdict_key") or "").strip()
+        required_verdict = str(edge.get("required_verdict") or "").strip()
+        verdict = ""
+        if verdict_key:
+            verdict_extraction = _extract_source_output_value(verdict_key, candidates=[], output_bundle=output_bundle)
+            if verdict_extraction.get("found"):
+                verdict = _scalar_text(verdict_extraction.get("value"))
+            elif required_verdict:
+                errors.append(
+                    {
+                        "edge_id": str(edge.get("edge_id") or ""),
+                        "verdict_key": verdict_key,
+                        "required_verdict": required_verdict,
+                        "error": "verdict_key_not_found",
+                    }
+                )
+                continue
+        if required_verdict and verdict and verdict != required_verdict:
+            errors.append(
+                {
+                    "edge_id": str(edge.get("edge_id") or ""),
+                    "verdict_key": verdict_key,
+                    "verdict": verdict,
+                    "required_verdict": required_verdict,
+                    "error": "required_verdict_not_satisfied",
+                }
+            )
+            continue
+        if not candidate_ref_key:
+            continue
+        ref_extraction = _extract_source_output_value(candidate_ref_key, candidates=[], output_bundle=output_bundle)
+        if not ref_extraction.get("found"):
+            errors.append(
+                {
+                    "edge_id": str(edge.get("edge_id") or ""),
+                    "candidate_ref_key": candidate_ref_key,
+                    "error": "candidate_ref_key_not_found",
+                }
+            )
+            continue
+        refs = _refs_from_output_value(ref_extraction.get("value"))
+        if not refs:
+            errors.append(
+                {
+                    "edge_id": str(edge.get("edge_id") or ""),
+                    "candidate_ref_key": candidate_ref_key,
+                    "error": "candidate_ref_empty",
+                }
+            )
+            continue
+        for ref in refs:
+            requests.append(
+                {
+                    "candidate_ref": ref,
+                    "candidate_version_id": ref,
+                    "edge": dict(edge),
+                    "verdict": verdict,
+                    "required_verdict": required_verdict,
+                }
+            )
+    return requests, errors
+
+
+def _formal_memory_write_records(
+    *,
+    candidates: list[dict[str, Any]],
+    memory_write_edges: list[dict[str, Any]],
+    fallback_write_policy: dict[str, Any],
+    output_bundle: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if not memory_write_edges:
+        return [dict(item) for item in candidates], []
+    records: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    fallback_scope = _first_policy_value(fallback_write_policy, "writable_scopes", "node_scope")
+    for edge in memory_write_edges:
+        record_keys = [str(item).strip() for item in list(edge.get("record_keys") or []) if str(item).strip()]
+        record_kinds = [str(item).strip() for item in list(edge.get("record_kinds") or []) if str(item).strip()]
+        edge_operation = str(edge.get("memory_edge_type") or "").strip()
+        commit_state = "committed" if edge_operation == "commit" else "candidate"
+        default_status = "accepted" if commit_state == "committed" else "draft"
+        source_output_key = str(edge.get("source_output_key") or "").strip()
+        edge_candidates = candidates
+        if source_output_key:
+            extraction = _extract_source_output_value(
+                source_output_key,
+                candidates=candidates,
+                output_bundle=output_bundle,
+            )
+            if not extraction.get("found"):
+                errors.append(
+                    {
+                        "edge_id": str(edge.get("edge_id") or ""),
+                        "repository_id": str(edge.get("repository") or ""),
+                        "collection_id": str(edge.get("collection") or ""),
+                        "source_output_key": source_output_key,
+                        "error": "source_output_key_not_found",
+                        "message": f"memory_write_candidate edge requires source_output_key '{source_output_key}', but the node result did not provide it.",
+                    }
+                )
+                continue
+            edge_candidates = [
+                _candidate_from_source_output(
+                    source_output_key=source_output_key,
+                    value=extraction.get("value"),
+                    source=str(extraction.get("source") or ""),
+                    fallback_candidate=candidates[0] if candidates else {},
+                )
+            ]
+        for index, raw_candidate in enumerate(edge_candidates):
+            candidate = dict(raw_candidate)
+            candidate_kind = str(candidate.get("kind") or "").strip()
+            kind = candidate_kind if (candidate_kind and (not record_kinds or candidate_kind in record_kinds)) else (record_kinds[0] if record_kinds else candidate_kind)
+            if not kind:
+                kind = _first_policy_value(fallback_write_policy, "writable_kinds", "intermediate_result")
+            record_key = str(candidate.get("record_key") or edge.get("record_key") or (record_keys[0] if record_keys else kind)).strip()
+            metadata = dict(candidate.get("metadata") or {})
+            formal_memory = {
+                "repository_id": str(edge.get("repository") or ""),
+                "repository_node_id": str(edge.get("repository_node_id") or edge.get("repository") or ""),
+                "collection_id": str(edge.get("collection") or ""),
+                "record_key": record_key,
+                "record_kind": kind,
+                "record_kinds": record_kinds,
+                "record_keys": record_keys,
+                "source_output_key": source_output_key,
+                "source_edge_id": str(edge.get("edge_id") or ""),
+                "source_edge_type": str(edge.get("edge_type") or ""),
+                "memory_edge_type": edge_operation,
+                "commit_state": commit_state,
+                "selector": dict(edge.get("selector") or {}),
+                "version_selector": str(edge.get("version_selector") or ""),
+                "receipt_policy": dict(edge.get("receipt_policy") or {}),
+            }
+            records.append(
+                {
+                    **candidate,
+                    "kind": kind,
+                    "scope": str(candidate.get("scope") or fallback_scope),
+                    "status": str(candidate.get("status") or default_status),
+                    "visibility": str(candidate.get("visibility") or "shared_in_graph"),
+                    "idempotency_key": str(candidate.get("idempotency_key") or f"{edge.get('edge_id')}:{index}:{kind}"),
+                    "metadata": {
+                        **metadata,
+                        "formal_memory": formal_memory,
+                    },
+                }
+            )
+    return records, errors
+
+
+def _node_result_output_bundle(
+    *,
+    state: dict[str, Any],
+    event: dict[str, Any],
+    artifact_refs: list[str],
+    mapped_outputs: dict[str, Any],
+) -> dict[str, Any]:
+    current_task_result = dict(state.get("current_task_result") or {})
+    diagnostics = dict(event.get("diagnostics") or {})
+    final_outputs = _first_dict(
+        current_task_result.get("final_outputs"),
+        diagnostics.get("task_result_outputs"),
+        diagnostics.get("final_outputs"),
+    )
+    outputs = _first_dict(
+        current_task_result.get("outputs"),
+        diagnostics.get("outputs"),
+        diagnostics.get("structured_outputs"),
+    )
+    task_result_diagnostics = _first_dict(current_task_result.get("diagnostics"))
+    artifact_materialization = _first_dict(
+        final_outputs.get("artifact_materialization"),
+        task_result_diagnostics.get("artifact_materialization"),
+        diagnostics.get("artifact_materialization"),
+    )
+    output_refs = collect_task_result_output_refs(current_task_result) or [
+        str(item).strip()
+        for item in list(event.get("artifact_refs") or artifact_refs or [])
+        if str(item).strip()
+    ]
+    return {
+        "mapped_outputs": dict(mapped_outputs or {}),
+        "final_outputs": final_outputs,
+        "outputs": outputs,
+        "diagnostics": diagnostics,
+        "task_result_diagnostics": task_result_diagnostics,
+        "task_result": current_task_result,
+        "artifact_materialization": artifact_materialization,
+        "artifact_refs": list(artifact_refs or []),
+        "output_refs": output_refs,
+        "result_refs": [str(event.get("task_result_ref") or "")] if str(event.get("task_result_ref") or "") else [],
+    }
+
+
+def _structured_outputs_from_output_bundle(output_bundle: dict[str, Any]) -> dict[str, Any]:
+    outputs: dict[str, Any] = {}
+    for section in (
+        "outputs",
+        "final_outputs",
+        "mapped_outputs",
+    ):
+        for key, value in dict(output_bundle.get(section) or {}).items():
+            if str(key).strip():
+                outputs[str(key).strip()] = value
+    artifact_refs = [str(item).strip() for item in list(output_bundle.get("artifact_refs") or []) if str(item).strip()]
+    output_refs = [str(item).strip() for item in list(output_bundle.get("output_refs") or []) if str(item).strip()]
+    if artifact_refs:
+        outputs.setdefault("artifact_refs", artifact_refs)
+    if output_refs:
+        outputs.setdefault("output_refs", output_refs)
+    return outputs
+
+
+def _extract_source_output_value(
+    key: str,
+    *,
+    candidates: list[dict[str, Any]],
+    output_bundle: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    source_key = str(key or "").strip()
+    if not source_key:
+        return {"found": False}
+    bundle = dict(output_bundle or {})
+    direct_sources = [
+        ("mapped_outputs", dict(bundle.get("mapped_outputs") or {})),
+        ("final_outputs", dict(bundle.get("final_outputs") or {})),
+        ("outputs", dict(bundle.get("outputs") or {})),
+        ("diagnostics", dict(bundle.get("diagnostics") or {})),
+        ("task_result_diagnostics", dict(bundle.get("task_result_diagnostics") or {})),
+        ("artifact_materialization", dict(bundle.get("artifact_materialization") or {})),
+    ]
+    task_result = dict(bundle.get("task_result") or {})
+    direct_sources.extend(
+        [
+            ("task_result.final_outputs", dict(task_result.get("final_outputs") or {})),
+            ("task_result.outputs", dict(task_result.get("outputs") or {})),
+            ("task_result", task_result),
+        ]
+    )
+    for source_name, payload in direct_sources:
+        if source_key in payload:
+            return {"found": True, "value": payload.get(source_key), "source": source_name}
+        nested = _lookup_path(payload, source_key)
+        if nested.get("found"):
+            return {"found": True, "value": nested.get("value"), "source": f"{source_name}.{source_key}"}
+    if source_key in {"artifact_refs", "output_refs", "result_refs"}:
+        values = [str(item).strip() for item in list(bundle.get(source_key) or []) if str(item).strip()]
+        if values:
+            return {"found": True, "value": values, "source": source_key}
+    for index, candidate in enumerate(candidates):
+        payload = dict(candidate.get("payload") or {}) if isinstance(candidate, dict) else {}
+        if source_key in candidate:
+            return {"found": True, "value": candidate.get(source_key), "source": f"working_memory_candidates[{index}]"}
+        if str(candidate.get("output_key") or "").strip() == source_key:
+            return {"found": True, "value": candidate, "source": f"working_memory_candidates[{index}]"}
+        if source_key in payload:
+            return {"found": True, "value": payload.get(source_key), "source": f"working_memory_candidates[{index}].payload"}
+        nested = _lookup_path(payload, source_key)
+        if nested.get("found"):
+            return {"found": True, "value": nested.get("value"), "source": f"working_memory_candidates[{index}].payload.{source_key}"}
+    return {"found": False}
+
+
+def _candidate_from_source_output(
+    *,
+    source_output_key: str,
+    value: Any,
+    source: str,
+    fallback_candidate: dict[str, Any],
+) -> dict[str, Any]:
+    fallback = dict(fallback_candidate or {})
+    fallback_artifact_refs = _refs_from_output_value(fallback.get("artifact_refs"))
+    if isinstance(value, dict):
+        payload = dict(value)
+        canonical_text = str(
+            payload.get("canonical_text")
+            or payload.get("text")
+            or payload.get("content")
+            or payload.get("markdown")
+            or payload.get("body")
+            or payload.get("final_answer")
+            or ""
+        ).strip()
+        artifact_refs = _refs_from_output_value(payload.get("artifact_refs") or payload.get("output_refs")) or fallback_artifact_refs
+        summary = str(payload.get("summary") or canonical_text or fallback.get("summary") or "").strip()
+        title = str(payload.get("title") or fallback.get("title") or source_output_key).strip()
+        kind = str(payload.get("kind") or fallback.get("kind") or "").strip()
+        record_key = str(payload.get("record_key") or fallback.get("record_key") or "").strip()
+    elif isinstance(value, str):
+        canonical_text = value
+        payload = {"source_output_key": source_output_key, source_output_key: value, "canonical_text": value}
+        artifact_refs = fallback_artifact_refs
+        summary = str(fallback.get("summary") or value[:280]).strip()
+        title = str(fallback.get("title") or source_output_key).strip()
+        kind = str(fallback.get("kind") or "").strip()
+        record_key = str(fallback.get("record_key") or "").strip()
+    else:
+        payload = {"source_output_key": source_output_key, source_output_key: value}
+        artifact_refs = _refs_from_output_value(value) if source_output_key in {"artifact_refs", "output_refs"} else fallback_artifact_refs
+        canonical_text = "" if artifact_refs else _json_text(value)
+        summary = str(fallback.get("summary") or canonical_text[:280] or source_output_key).strip()
+        title = str(fallback.get("title") or source_output_key).strip()
+        kind = str(fallback.get("kind") or "").strip()
+        record_key = str(fallback.get("record_key") or "").strip()
+    metadata = dict(fallback.get("metadata") or {})
+    return {
+        **fallback,
+        "title": title,
+        "summary": summary,
+        "kind": kind or str(fallback.get("kind") or ""),
+        "record_key": record_key,
+        "canonical_text": canonical_text,
+        "payload": payload,
+        "artifact_refs": artifact_refs,
+        "metadata": {
+            **metadata,
+            "source_output_key": source_output_key,
+            "source_output_extraction": source,
+        },
+    }
+
+
+def _lookup_path(payload: dict[str, Any], path: str) -> dict[str, Any]:
+    if "." not in path:
+        return {"found": False}
+    current: Any = payload
+    for part in [item for item in path.split(".") if item]:
+        if not isinstance(current, dict) or part not in current:
+            return {"found": False}
+        current = current.get(part)
+    return {"found": True, "value": current}
+
+
+def _refs_from_output_value(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, dict):
+        refs: list[str] = []
+        for key in ("work_memory_id", "working_memory_ref", "version_id", "candidate_version_id", "ref"):
+            item = str(value.get(key) or "").strip()
+            if item and item not in refs:
+                refs.append(item)
+        for key in ("refs", "artifact_refs", "output_refs", "working_memory_refs", "formal_memory_refs"):
+            for item in _refs_from_output_value(value.get(key)):
+                if item not in refs:
+                    refs.append(item)
+        return refs
+    if isinstance(value, (list, tuple, set)):
+        refs: list[str] = []
+        for item in value:
+            for ref in _refs_from_output_value(item):
+                if ref not in refs:
+                    refs.append(ref)
+        return refs
+    return []
+
+
+def _scalar_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("verdict", "status", "value", "result"):
+            text = str(value.get(key) or "").strip()
+            if text:
+                return text
+    return str(value or "").strip()
+
+
+def _first_dict(*values: Any) -> dict[str, Any]:
+    for value in values:
+        if isinstance(value, dict):
+            return dict(value)
+    return {}
+
+
+def _json_text(value: Any) -> str:
+    try:
+        import json
+
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    except Exception:
+        return str(value or "")
+
+
+def _is_runtime_memory_repository_node(node: dict[str, Any]) -> bool:
+    if not node:
+        return False
+    node_type = str(node.get("node_type") or "").strip()
+    node_id = str(node.get("node_id") or node.get("id") or "").strip()
+    work_posture = str(node.get("work_posture") or node.get("role") or "").strip()
+    return (
+        node_type in {"memory_repository", "working_memory_store", "runtime_state_store", "progress_ledger", "issue_ledger", "memory_resource", "memory"}
+        or (node_type.endswith("repository") and "artifact" not in node_type)
+        or (work_posture == "resource" and node_id.startswith("memory."))
+        or node_id.startswith("memory.")
+    )
+
+
+def _repository_id_from_runtime_node(node: dict[str, Any]) -> str:
+    metadata = dict(node.get("metadata") or {})
+    repo_config = dict(metadata.get("memory_repository") or {})
+    return str(repo_config.get("repository_id") or metadata.get("repository_id") or node.get("repository_id") or node.get("node_id") or "").strip()
 
 
 def _contract_requires_file_artifact_refs(contract: dict[str, Any]) -> bool:

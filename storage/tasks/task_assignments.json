@@ -995,34 +995,6 @@
       "execution_chain_type": "coordination_node"
     },
     {
-      "task_id": "task.000001",
-      "task_title": "TaskGraph 收尾验证任务",
-      "task_kind": "specific_task",
-      "task_family": "general",
-      "task_mode": "general_task",
-      "flow_id": "flow.000001",
-      "workflow_id": "workflow.000001",
-      "workflow_file_ref": "workflow:workflow.000001",
-      "projection_id": "",
-      "input_contract_id": "UserMessage",
-      "output_contract_id": "AssistantFinalAnswer",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_chain",
-        "trigger_signals": []
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_smoke",
-        "domain_id": "domain.general"
-      },
-      "execution_chain_type": "coordination_chain"
-    },
-    {
       "task_id": "task.writing.simple_novel.project_brief",
       "task_title": "项目启动包",
       "task_kind": "specific_task",
@@ -1826,6 +1798,34 @@
         "package_template": "writing_simple_novel"
       },
       "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.000001",
+      "task_title": "TaskGraph 收尾验证任务",
+      "task_kind": "specific_task",
+      "task_family": "general",
+      "task_mode": "general_task",
+      "flow_id": "flow.000001",
+      "workflow_id": "workflow.000001",
+      "workflow_file_ref": "workflow:workflow.000001",
+      "projection_id": "",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "AssistantFinalAnswer",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_chain",
+        "trigger_signals": []
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_smoke",
+        "domain_id": "domain.general"
+      },
+      "execution_chain_type": "coordination_chain"
     }
   ]
 }

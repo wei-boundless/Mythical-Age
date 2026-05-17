@@ -744,6 +744,20 @@ export function TaskGraphMemoryArtifactPage({
                 <TaskSystemField label="Collection">
                   <input onChange={(event) => patchSelectedMemoryEdgeMetadata({ collection: event.target.value, selector: { ...selectedMemoryEdge.selector, collection: event.target.value } })} value={selectedMemoryEdge.collectionId} />
                 </TaskSystemField>
+                <TaskSystemField label="Record Key">
+                  <input
+                    onChange={(event) => patchSelectedMemoryEdgeMetadata({ record_key: event.target.value, selector: { ...selectedMemoryEdge.selector, record_key: event.target.value } })}
+                    placeholder="world_bible.current / volume.001.plan"
+                    value={String(selectedMemoryEdge.selector.record_key ?? asRecord(selectedMemoryEdge.edge.metadata).record_key ?? "")}
+                  />
+                </TaskSystemField>
+                <TaskSystemField label="Record Kind">
+                  <input
+                    onChange={(event) => patchSelectedMemoryEdgeMetadata({ record_kind: event.target.value, selector: { ...selectedMemoryEdge.selector, record_kind: event.target.value } })}
+                    placeholder="world_bible / chapter_outline / chapter_fact"
+                    value={String(selectedMemoryEdge.selector.record_kind ?? asRecord(selectedMemoryEdge.edge.metadata).record_kind ?? "")}
+                  />
+                </TaskSystemField>
                 <TaskSystemField label="Record Kinds">
                   <textarea
                     onChange={(event) => patchSelectedMemoryEdgeMetadata({ selector: { ...selectedMemoryEdge.selector, record_kinds: splitList(event.target.value) } })}
@@ -756,6 +770,40 @@ export function TaskGraphMemoryArtifactPage({
                     value={listText(selectedMemoryEdge.selector.record_keys)}
                   />
                 </TaskSystemField>
+                {selectedMemoryEdge.operation === "write_candidate" ? (
+                  <TaskSystemField label="Source Output Key">
+                    <input
+                      onChange={(event) => patchSelectedMemoryEdgeMetadata({ source_output_key: event.target.value })}
+                      placeholder="approved_world / chapter_outline / canonical_fact"
+                      value={String(asRecord(selectedMemoryEdge.edge.metadata).source_output_key ?? "")}
+                    />
+                  </TaskSystemField>
+                ) : null}
+                {selectedMemoryEdge.operation === "commit" ? (
+                  <>
+                    <TaskSystemField label="Candidate Ref Key">
+                      <input
+                        onChange={(event) => patchSelectedMemoryEdgeMetadata({ candidate_ref_key: event.target.value })}
+                        placeholder="reviewed_candidate_ref / candidate_version_id"
+                        value={String(asRecord(selectedMemoryEdge.edge.metadata).candidate_ref_key ?? "")}
+                      />
+                    </TaskSystemField>
+                    <TaskSystemField label="Verdict Key">
+                      <input
+                        onChange={(event) => patchSelectedMemoryEdgeMetadata({ verdict_key: event.target.value })}
+                        placeholder="verdict / review_result.verdict"
+                        value={String(asRecord(selectedMemoryEdge.edge.metadata).verdict_key ?? "")}
+                      />
+                    </TaskSystemField>
+                    <TaskSystemField label="Required Verdict">
+                      <input
+                        onChange={(event) => patchSelectedMemoryEdgeMetadata({ required_verdict: event.target.value })}
+                        placeholder="pass / approved"
+                        value={String(asRecord(selectedMemoryEdge.edge.metadata).required_verdict ?? "")}
+                      />
+                    </TaskSystemField>
+                  </>
+                ) : null}
                 <TaskSystemSelectField
                   label="版本选择"
                   onChange={(value) => patchSelectedMemoryEdgeMetadata({ version_selector: { mode: value } })}
@@ -791,7 +839,7 @@ export function TaskGraphMemoryArtifactPage({
             ) : (
               <div className="task-graph-note">
                 <strong>没有记忆边</strong>
-                <span>在读写矩阵里给节点授权后，这里会显示 selector、版本选择和 receipt 配置。</span>
+                <span>在读写矩阵里配置真实记忆边后，这里会显示 selector、版本选择和 receipt 配置。</span>
               </div>
             )}
           </article>

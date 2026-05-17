@@ -292,9 +292,13 @@ class WritingCampaignSupervisor:
         live_status = str(monitor_payload.get("status") or "")
         active_node_id = str(runtime.get("active_node_id") or "")
         active_task_ref = str(runtime.get("active_task_ref") or "")
+        streaming = dict(graph_monitor.get("streaming") or {})
         latest_task_run_id = self.last_latest_task_run_id
         seconds_since_progress_change = int(time.time() - self.last_progress_change_at)
         seconds_since_latest_task_run_change = int(time.time() - self.last_latest_task_run_change_at)
+        latest_stream_chunk_at = float(streaming.get("latest_chunk_at") or 0.0)
+        stream_chunk_count = int(streaming.get("chunk_count") or 0)
+        seconds_since_stream_activity = int(time.time() - latest_stream_chunk_at) if latest_stream_chunk_at > 0 else 10**9
         requested_stage_id = str(current_stage.get("stage_id") or current_stage.get("node_id") or "").strip()
         requested_task_ref = str(current_stage.get("task_ref") or "").strip()
         live_task_run = dict((dict(monitor_payload.get("task_run") or {}) if isinstance(monitor_payload, dict) else {}) or {})
@@ -338,6 +342,16 @@ class WritingCampaignSupervisor:
                     "task_run_id": latest_task_run_id,
                     "seconds_since_progress_change": seconds_since_progress_change,
                 }
+        # A running stage with fresh stream chunks is still making forward progress even
+        # when the child task tracker or checkpoints have not refreshed yet.
+        if (
+            current_stage
+            and status in {"running", "failed", "blocked"}
+            and stream_chunk_count > 0
+            and seconds_since_stream_activity < max(30, self.args.interval * 4)
+        ):
+            self.last_effective_activity_at = max(self.last_effective_activity_at, latest_stream_chunk_at)
+            return {}
         if current_stage and status in {"running", "failed", "blocked"} and seconds_since_progress_change < max(20, self.args.interval * 3):
             return {}
         if current_stage and status in {"running", "failed", "blocked"} and not (

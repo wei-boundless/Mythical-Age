@@ -68,6 +68,19 @@ def resolve_memory_snapshot(
     node_id: str,
 ) -> dict[str, Any]:
     refs = _working_memory_refs_from_context(working_memory_context)
+    resolved_records = _working_memory_records_from_context(working_memory_context)
+    formal_record_refs = [
+        str(item.get("version_id") or item.get("record_id") or "")
+        for item in resolved_records
+        if str(item.get("authority") or "").startswith("formal_memory")
+        and str(item.get("version_id") or item.get("record_id") or "")
+    ]
+    if not refs:
+        refs = [
+            str(item.get("work_memory_id") or item.get("version_id") or item.get("record_id") or "")
+            for item in resolved_records
+            if str(item.get("work_memory_id") or item.get("version_id") or item.get("record_id") or "")
+        ]
     read_edge_ids = [
         str(edge.get("edge_id") or "")
         for edge in _graph_edges(state)
@@ -83,13 +96,23 @@ def resolve_memory_snapshot(
         "node_id": node_id,
         "read_edge_ids": [item for item in read_edge_ids if item],
         "repository_refs": _repository_refs_for_stage(state=state, stage_id=stage_id, node_id=node_id),
+        "repository_read_edges": [dict(item) for item in list(working_memory_context.get("repository_read_edges") or []) if isinstance(item, dict)],
         "resolved_record_refs": refs,
-        "resolved_records": list(working_memory_context.get("required_items") or [])
-        + list(working_memory_context.get("preferred_items") or []),
+        "resolved_records": resolved_records,
+        "formal_memory_record_refs": _dedupe(formal_record_refs),
+        "formal_memory_read_log_ids": [
+            str(item).strip()
+            for item in list(working_memory_context.get("formal_memory.read_log_ids") or [])
+            if str(item).strip()
+        ],
+        "source_counts": {
+            "formal_memory": len(formal_record_refs),
+            "working_memory": len([ref for ref in refs if ref not in formal_record_refs]),
+        },
         "resolved_versions": [
             {
                 "record_ref": ref,
-                "version_selector": "working_memory_selection",
+                "version_selector": _version_selector_for_record(ref, resolved_records=resolved_records) or "working_memory_selection",
                 "visible_at_clock_seq": int(dispatch_context.get("clock_seq") or 0),
             }
             for ref in refs
@@ -331,7 +354,52 @@ def _working_memory_refs_from_context(context: dict[str, Any]) -> list[str]:
     refs: list[str] = []
     for key in ("required_refs", "preferred_refs", "selected_working_memory_refs", "working_memory_refs"):
         refs.extend(_string_list(context.get(key)))
+    for section_id in ("working_memory.required", "working_memory.preferred", "working_memory.conflict_warnings"):
+        refs.extend(_string_list(dict(context.get(section_id) or {}).get("refs")))
     return _dedupe(refs)
+
+
+def _working_memory_records_from_context(context: dict[str, Any]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for key in ("required_items", "preferred_items"):
+        for item in list(context.get(key) or []):
+            if isinstance(item, dict):
+                records.append(dict(item))
+    for section_id in ("working_memory.required", "working_memory.preferred"):
+        for item in list(dict(context.get(section_id) or {}).get("items") or []):
+            if isinstance(item, dict):
+                records.append(dict(item))
+    for item in list(context.get("formal_memory.required_records") or []):
+        if isinstance(item, dict):
+            records.append(dict(item))
+    for item in list(dict(context.get("formal_memory") or {}).get("required_records") or []):
+        if isinstance(item, dict):
+            records.append(dict(item))
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for record in records:
+        ref = str(record.get("work_memory_id") or record.get("version_id") or record.get("record_id") or "")
+        if ref and ref in seen:
+            continue
+        if ref:
+            seen.add(ref)
+        deduped.append(record)
+    return deduped
+
+
+def _version_selector_for_record(ref: str, *, resolved_records: list[dict[str, Any]]) -> str:
+    for record in resolved_records:
+        record_ref = str(record.get("work_memory_id") or record.get("version_id") or record.get("record_id") or "")
+        if record_ref != ref:
+            continue
+        if record.get("version_id") and str(record.get("version_id") or "") == ref:
+            return str(record.get("version_selector") or "formal_memory_selected_version")
+        metadata = dict(record.get("metadata") or {})
+        formal = dict(metadata.get("formal_memory") or metadata.get("memory_record") or {})
+        version_selector = str(formal.get("version_selector") or "").strip()
+        if version_selector:
+            return version_selector
+    return ""
 
 
 def _artifact_refs_from_explicit_inputs(explicit_inputs: dict[str, Any]) -> list[str]:

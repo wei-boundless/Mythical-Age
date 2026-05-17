@@ -261,6 +261,233 @@ class _WorkingMemoryRegistry:
         return list(self.tasks)
 
 
+class _FormalMemoryRegistry:
+    def __init__(self) -> None:
+        self.tasks = (
+            SpecificTaskRecord(
+                task_id="task.test.world_author",
+                task_title="World Author",
+                task_family="test",
+                task_mode="task_execution",
+                input_contract_id="contract.user_request.basic",
+                output_contract_id="contract.agent_output.markdown",
+            ),
+            SpecificTaskRecord(
+                task_id="task.test.memory_repo",
+                task_title="Memory Repo",
+                task_family="test",
+                task_mode="task_execution",
+                input_contract_id="contract.user_request.basic",
+                output_contract_id="contract.agent_output.markdown",
+            ),
+            SpecificTaskRecord(
+                task_id="task.test.world_review",
+                task_title="World Review",
+                task_family="test",
+                task_mode="task_execution",
+                input_contract_id="contract.user_request.basic",
+                output_contract_id="contract.agent_output.markdown",
+            ),
+        )
+        self.coordination = CoordinationTaskDefinition(
+            graph_id="graph.test.formal_memory_runtime",
+            title="正式记忆库运行时测试",
+            coordination_mode="pipeline",
+            coordinator_agent_id="agent:0",
+            task_family="test",
+            topology_template_id="topology.test.formal_memory_runtime",
+            graph_nodes=(
+                {"node_id": "world_author", "agent_id": "agent:0", "task_id": "task.test.world_author", "role": "writer"},
+                {"node_id": "world_review", "agent_id": "agent:0", "task_id": "task.test.world_review", "role": "reviewer"},
+                {
+                    "node_id": "memory.world",
+                    "node_type": "memory_repository",
+                    "agent_id": "agent:0",
+                    "task_id": "task.test.memory_repo",
+                    "role": "resource",
+                    "metadata": {
+                        "memory_repository": {
+                            "repository_id": "memory.world",
+                            "collections": [
+                                {"collection_id": "world", "record_kinds": ["world_bible"]},
+                            ],
+                        }
+                    },
+                },
+            ),
+            graph_edges=(
+                {
+                    "edge_id": "edge.world_author.world_review",
+                    "from": "world_author",
+                    "to": "world_review",
+                    "mode": "structured_handoff",
+                },
+                {
+                    "edge_id": "edge.world_author.memory.world",
+                    "from": "world_author",
+                    "to": "memory.world",
+                    "mode": "memory_write_candidate",
+                    "metadata": {
+                        "collection": "world",
+                        "record_key": "world_bible.current",
+                        "record_kind": "world_bible",
+                        "source_output_key": "world_candidate",
+                    },
+                },
+                {
+                    "edge_id": "edge.world_review.memory.world",
+                    "from": "world_review",
+                    "to": "memory.world",
+                    "mode": "memory_commit",
+                    "metadata": {
+                        "collection": "world",
+                        "record_key": "world_bible.current",
+                        "record_kind": "world_bible",
+                        "candidate_ref_key": "reviewed_candidate_ref",
+                        "verdict_key": "verdict",
+                        "required_verdict": "pass",
+                        "receipt_policy": {"visible_after": "next_clock"},
+                    },
+                },
+            ),
+            metadata={
+                "stage_contracts": [
+                    {
+                        "stage_id": "world_author",
+                        "task_ref": "task.test.world_author",
+                        "node_id": "world_author",
+                    },
+                    {
+                        "stage_id": "world_review",
+                        "task_ref": "task.test.world_review",
+                        "node_id": "world_review",
+                    },
+                    {
+                        "stage_id": "memory.world",
+                        "task_ref": "task.test.memory_repo",
+                        "node_id": "memory.world",
+                    },
+                ],
+            },
+        )
+        self.topology = TopologyTemplate(
+            template_id="topology.test.formal_memory_runtime",
+            title="正式记忆库拓扑",
+            nodes=self.coordination.graph_nodes,
+            edges=self.coordination.graph_edges,
+            enabled=True,
+        )
+        self.protocol = TaskCommunicationProtocol(
+            protocol_id="protocol.test.formal_memory_runtime",
+            title="正式记忆库 A2A 测试协议",
+            message_types=("message/send",),
+            payload_contracts=("contract.agent_output.markdown",),
+            enabled=True,
+        )
+
+    def get_task_graph(self, graph_id: str):
+        if graph_id != self.coordination.graph_id:
+            return None
+        return TaskGraphDefinition(
+            graph_id=self.coordination.graph_id,
+            title=self.coordination.title,
+            task_family=self.coordination.task_family,
+            graph_kind="multi_agent",
+            nodes=(
+                TaskGraphNodeDefinition(
+                    node_id="world_author",
+                    node_type="agent",
+                    title="World Author",
+                    task_id="task.test.world_author",
+                    agent_id="agent:0",
+                    work_posture="writer",
+                    memory_writeback_policy={
+                        "writable_kinds": ["world_bible"],
+                        "writable_scopes": ["graph_scope"],
+                        "default_status": "draft",
+                        "default_visibility": "shared_in_graph",
+                    },
+                ),
+                TaskGraphNodeDefinition(
+                    node_id="world_review",
+                    node_type="agent",
+                    title="World Review",
+                    task_id="task.test.world_review",
+                    agent_id="agent:0",
+                    work_posture="reviewer",
+                    review_gate_policy={"commit_working_memory": True},
+                ),
+                TaskGraphNodeDefinition(
+                    node_id="memory.world",
+                    node_type="memory_repository",
+                    title="World Memory",
+                    task_id="task.test.memory_repo",
+                    agent_id="agent:0",
+                    work_posture="resource",
+                    metadata={
+                        "memory_repository": {
+                            "repository_id": "memory.world",
+                            "collections": [
+                                {"collection_id": "world", "record_kinds": ["world_bible"]},
+                            ],
+                        }
+                    },
+                ),
+            ),
+            edges=(
+                TaskGraphEdgeDefinition(
+                    edge_id="edge.world_author.world_review",
+                    source_node_id="world_author",
+                    target_node_id="world_review",
+                    edge_type="structured_handoff",
+                ),
+                TaskGraphEdgeDefinition(
+                    edge_id="edge.world_author.memory.world",
+                    source_node_id="world_author",
+                    target_node_id="memory.world",
+                    edge_type="memory_write_candidate",
+                    metadata={
+                        "collection": "world",
+                        "record_key": "world_bible.current",
+                        "record_kind": "world_bible",
+                        "source_output_key": "world_candidate",
+                    },
+                ),
+                TaskGraphEdgeDefinition(
+                    edge_id="edge.world_review.memory.world",
+                    source_node_id="world_review",
+                    target_node_id="memory.world",
+                    edge_type="memory_commit",
+                    metadata={
+                        "collection": "world",
+                        "record_key": "world_bible.current",
+                        "record_kind": "world_bible",
+                        "candidate_ref_key": "reviewed_candidate_ref",
+                        "verdict_key": "verdict",
+                        "required_verdict": "pass",
+                        "receipt_policy": {"visible_after": "next_clock"},
+                    },
+                ),
+            ),
+            default_protocol_id=self.protocol.protocol_id,
+            runtime_policy={"coordinator_agent_id": self.coordination.coordinator_agent_id},
+            publish_state="published",
+            enabled=True,
+        )
+
+    def derive_coordination_task_view_from_graph(self, graph):
+        return self.coordination if graph.graph_id == self.coordination.graph_id else None
+
+    def get_topology_template(self, template_id: str):
+        return self.topology if template_id == self.topology.template_id else None
+
+    def get_task_communication_protocol(self, protocol_id: str):
+        return self.protocol if protocol_id == self.protocol.protocol_id else None
+
+    def list_specific_task_records(self):
+        return list(self.tasks)
+
+
 def test_langgraph_coordination_runtime_injects_working_memory_context(tmp_path) -> None:
     registry = _WorkingMemoryRegistry()
     state_index = RuntimeStateIndex(tmp_path)
@@ -322,6 +549,337 @@ def test_langgraph_coordination_runtime_injects_working_memory_context(tmp_path)
     assert operations[0]["candidate_count"] == 1
     assert operations[1]["operation"] == "memory_handoff"
     assert operations[1]["status"] == "committed"
+
+
+def test_formal_memory_write_edge_uses_source_output_key(tmp_path) -> None:
+    registry = _FormalMemoryRegistry()
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:formal-memory",
+        task_run_id="taskrun:formal-memory",
+        graph_ref="graph.test.formal_memory_runtime",
+        coordinator_agent_id="agent:0",
+        topology_template_id="topology.test.formal_memory_runtime",
+        communication_protocol_id="protocol.test.formal_memory_runtime",
+        status="running",
+        diagnostics={"coordination_flow": {"current_stage_id": "world_author"}},
+    )
+    state_index.upsert_coordination_run(coordination_run)
+
+    result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:formal-memory",
+            task_run_id="taskrun:world-author",
+            stage_id="world_author",
+            task_ref="task.test.world_author",
+            task_result_ref="taskresult:world-author",
+            accepted=True,
+            artifact_refs=("artifact:world_candidate.md",),
+        ),
+        current_task_result={
+            "final_outputs": {
+                "world_candidate": {
+                    "canonical_text": "天地初辟，万族争道。",
+                    "summary": "世界观候选正文",
+                },
+                "unrelated_output": {
+                    "canonical_text": "这段内容不应进入世界观记忆库。",
+                },
+            },
+            "output_refs": ["artifact:world_candidate.md"],
+        },
+    )
+
+    assert result.state["stage_results"]["world_author"]["outputs"]["world_candidate"]["canonical_text"] == "天地初辟，万族争道。"
+    versions, _read_log = runtime.formal_memory.store.select_versions(
+        repository_id="memory.world",
+        collection_id="world",
+        selector={"record_key": "world_bible.current", "status_filter": ["candidate"]},
+        version_selector={"mode": "all"},
+        node_run_id="taskrun:formal-memory:assert",
+        edge_id="assert",
+    )
+
+    assert len(versions) == 1
+    assert versions[0].record_kind == "world_bible"
+    assert versions[0].canonical_text == "天地初辟，万族争道。"
+    assert versions[0].summary == "世界观候选正文"
+    assert "unrelated_output" not in versions[0].payload
+
+
+def test_formal_memory_write_edge_blocks_missing_source_output_key(tmp_path) -> None:
+    registry = _FormalMemoryRegistry()
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:formal-memory-missing",
+        task_run_id="taskrun:formal-memory-missing",
+        graph_ref="graph.test.formal_memory_runtime",
+        coordinator_agent_id="agent:0",
+        topology_template_id="topology.test.formal_memory_runtime",
+        communication_protocol_id="protocol.test.formal_memory_runtime",
+        status="running",
+        diagnostics={"coordination_flow": {"current_stage_id": "world_author"}},
+    )
+    state_index.upsert_coordination_run(coordination_run)
+
+    result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:formal-memory-missing",
+            task_run_id="taskrun:world-author",
+            stage_id="world_author",
+            task_ref="task.test.world_author",
+            task_result_ref="taskresult:world-author",
+            accepted=True,
+            artifact_refs=("artifact:world_candidate.md",),
+        ),
+        current_task_result={
+            "final_outputs": {
+                "unrelated_output": {
+                    "canonical_text": "没有 world_candidate 字段。",
+                },
+            },
+            "output_refs": ["artifact:world_candidate.md"],
+        },
+    )
+
+    operations = list(result.state.get("working_memory_operations") or [])
+    write_operation = next(item for item in operations if item.get("operation") == "memory_write")
+    assert write_operation["created_working_memory_refs"] == []
+    assert write_operation["formal_memory_errors"][0]["error"] == "source_output_key_not_found"
+    versions, _read_log = runtime.formal_memory.store.select_versions(
+        repository_id="memory.world",
+        collection_id="world",
+        selector={"record_key": "world_bible.current", "status_filter": ["candidate"]},
+        version_selector={"mode": "all"},
+        node_run_id="taskrun:formal-memory-missing:assert",
+        edge_id="assert",
+    )
+    assert versions == ()
+
+
+def test_formal_memory_commit_edge_uses_candidate_ref_and_verdict(tmp_path) -> None:
+    registry = _FormalMemoryRegistry()
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:formal-memory-commit",
+        task_run_id="taskrun:formal-memory-commit",
+        graph_ref="graph.test.formal_memory_runtime",
+        coordinator_agent_id="agent:0",
+        topology_template_id="topology.test.formal_memory_runtime",
+        communication_protocol_id="protocol.test.formal_memory_runtime",
+        status="running",
+        diagnostics={"coordination_flow": {"current_stage_id": "world_author"}},
+    )
+    state_index.upsert_coordination_run(coordination_run)
+
+    source_result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:formal-memory-commit",
+            task_run_id="taskrun:world-author",
+            stage_id="world_author",
+            task_ref="task.test.world_author",
+            task_result_ref="taskresult:world-author",
+            accepted=True,
+            artifact_refs=("artifact:world_candidate.md",),
+        ),
+        current_task_result={
+            "final_outputs": {
+                "world_candidate": {
+                    "canonical_text": "洪荒世界观候选。",
+                    "summary": "待审核世界观",
+                }
+            },
+            "output_refs": ["artifact:world_candidate.md"],
+        },
+    )
+    candidate_ref = source_result.state["stage_results"]["world_author"]["working_memory_refs"][0]
+    assert source_result.stage_execution_request is not None
+    assert source_result.stage_execution_request.stage_id == "world_review"
+
+    review_result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=TaskResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:formal-memory-commit",
+            task_run_id="taskrun:world-review",
+            stage_id="world_review",
+            task_ref="task.test.world_review",
+            task_result_ref="taskresult:world-review",
+            accepted=True,
+        ),
+        current_task_result={
+            "final_outputs": {
+                "reviewed_candidate_ref": candidate_ref,
+                "verdict": "pass",
+            }
+        },
+    )
+
+    operations = list(review_result.state.get("working_memory_operations") or [])
+    commit_operation = [item for item in operations if item.get("operation") == "memory_commit"][-1]
+    assert commit_operation["formal_memory_receipts"][0]["status"] == "committed"
+    versions, _read_log = runtime.formal_memory.store.select_versions(
+        repository_id="memory.world",
+        collection_id="world",
+        selector={"record_key": "world_bible.current", "status_filter": ["committed"]},
+        version_selector={"mode": "latest_committed_before_clock"},
+        clock_seq=999,
+        node_run_id="taskrun:formal-memory-commit:assert",
+        edge_id="assert",
+    )
+    assert len(versions) == 1
+    assert versions[0].canonical_text == "洪荒世界观候选。"
+
+
+def test_formal_memory_read_edge_does_not_fallback_to_working_memory(tmp_path) -> None:
+    registry = _FormalMemoryRegistry()
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    graph_spec = {
+        "graph_id": "graph.test.formal_memory_read",
+        "graph_ref": "graph.test.formal_memory_read",
+        "nodes": [
+            {
+                "node_id": "memory.world",
+                "node_type": "memory_repository",
+                "metadata": {
+                    "memory_repository": {
+                        "repository_id": "memory.world",
+                        "collections": [{"collection_id": "world", "record_kinds": ["world_bible"]}],
+                    }
+                },
+            },
+            {"node_id": "chapter_writer", "node_type": "agent"},
+        ],
+        "edges": [
+            {
+                "edge_id": "edge.memory.chapter.world",
+                "source_node_id": "memory.world",
+                "target_node_id": "chapter_writer",
+                "mode": "memory_read",
+                "metadata": {
+                    "collection": "world",
+                    "selector": {
+                        "collection": "world",
+                        "record_key": "world_bible.current",
+                        "record_kind": "world_bible",
+                        "status_filter": ["committed"],
+                    },
+                    "version_selector": {"mode": "latest_committed_before_clock"},
+                    "on_missing": "block",
+                },
+            }
+        ],
+    }
+    runtime.formal_memory.sync_graph_spec(graph_id="graph.test.formal_memory_read", graph_spec=graph_spec)
+    candidate, _write_txn = runtime.formal_memory.write_candidate_from_edge(
+        edge={
+            "edge_id": "edge.world_author.memory.world",
+            "repository": "memory.world",
+            "collection": "world",
+            "record_key": "world_bible.current",
+            "record_kind": "world_bible",
+        },
+        candidate={
+            "kind": "world_bible",
+            "summary": "正式世界观",
+            "payload": {"canonical_text": "正式仓库中的世界观。"},
+        },
+        task_run_id="taskrun:formal-read",
+        node_run_id="taskrun:formal-read:world_author",
+        source_node_id="world_author",
+        source_clock_seq=0,
+    )
+    runtime.formal_memory.commit_from_edge(
+        edge={
+            "edge_id": "edge.world_review.memory.world",
+            "repository": "memory.world",
+            "collection": "world",
+            "record_key": "world_bible.current",
+            "record_kind": "world_bible",
+            "receipt_policy": {"visible_after": "same_clock"},
+        },
+        candidate_version_id=candidate.version_id,
+        node_run_id="taskrun:formal-read:world_review",
+        source_clock_seq=0,
+    )
+    legacy_item = runtime.working_memory.create_item(
+        task_run_id="taskrun:formal-read",
+        graph_id="graph.test.formal_memory_read",
+        owner_node_id="legacy_seed",
+        node_run_id="taskrun:formal-read:legacy_seed",
+        kind="world_bible",
+        scope="graph_scope",
+        status="accepted",
+        visibility="shared_in_graph",
+        title="旧工作记忆世界观",
+        summary="这条旧工作记忆不应该通过正式 memory_read 边进入上下文。",
+        metadata={
+            "formal_memory": {
+                "repository_id": "memory.world",
+                "collection_id": "world",
+                "record_key": "world_bible.current",
+                "record_kind": "world_bible",
+                "commit_state": "committed",
+            }
+        },
+    )
+
+    context = runtime._select_stage_working_memory_context(
+        state={
+            "coordination_run_id": "coordrun:formal-read",
+            "root_task_run_id": "taskrun:formal-read",
+            "diagnostics": {"coordination_graph_spec": graph_spec},
+            "retry_counts": {},
+        },
+        stage_id="chapter_writer",
+        node_id="chapter_writer",
+        contract={"stage_id": "chapter_writer", "node_id": "chapter_writer", "agent_id": "agent:writer"},
+    )
+
+    assert context["diagnostics"]["formal_memory_primary"] is True
+    assert context["diagnostics"]["working_memory_legacy_read_enabled"] is False
+    assert dict(context["working_memory.required"])["item_count"] == 0
+    assert legacy_item.work_memory_id not in context.get("required_refs", [])
+    assert context["formal_memory.required_records"][0]["canonical_text"] == "正式仓库中的世界观。"
+    assert context["formal_memory.required_records"][0]["version_id"] == candidate.version_id
 
 
 def test_langgraph_coordination_runtime_commits_working_memory_decisions(tmp_path) -> None:

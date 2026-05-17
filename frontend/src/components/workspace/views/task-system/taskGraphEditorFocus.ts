@@ -27,7 +27,13 @@ export function focusForPreflightIssue(issue: TaskGraphPreflightIssue): TaskGrap
     issue_id: issue.issue_id,
   };
 
-  if (issue.source.includes("memory_selector") || issue.source.includes("receipt") || issue.source.includes("memory_commit_path")) {
+  if (
+    issue.source.includes("memory_selector")
+    || issue.source.includes("receipt")
+    || issue.source.includes("memory_commit_path")
+    || issue.source.includes("memory_write_contract")
+    || issue.source.includes("memory_commit_contract")
+  ) {
     return {
       ...base,
       layer: "memory",

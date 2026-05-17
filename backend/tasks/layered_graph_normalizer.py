@@ -191,18 +191,37 @@ def _memory_edge_payload(edge: TaskGraphEdgeDefinition) -> dict[str, Any]:
     else:
         memory_edge_type = str(metadata.get("memory_edge_type") or "read")
     default_on_missing = "warn" if memory_edge_type == "handoff" else "block"
+    selector = dict(metadata.get("selector") or {})
+    record_key = str(metadata.get("record_key") or selector.get("record_key") or "").strip()
+    record_kind = str(metadata.get("record_kind") or selector.get("record_kind") or "").strip()
+    record_keys = _string_list(metadata.get("record_keys") or selector.get("record_keys") or edge.working_memory_handoff_policy.get("carry_kinds"))
+    record_kinds = _string_list(metadata.get("record_kinds") or selector.get("record_kinds"))
+    if record_key and record_key not in record_keys:
+        record_keys.insert(0, record_key)
+    if record_kind and record_kind not in record_kinds:
+        record_kinds.insert(0, record_kind)
     return {
         "edge_id": edge.edge_id,
         "source_node_id": edge.source_node_id,
         "target_node_id": edge.target_node_id,
         "memory_edge_type": memory_edge_type,
-        "repository": str(metadata.get("repository") or ""),
-        "collection": str(metadata.get("collection") or ""),
-        "selector": dict(metadata.get("selector") or {}),
-        "record_keys": _string_list(metadata.get("record_keys") or edge.working_memory_handoff_policy.get("carry_kinds")),
+        "repository": str(metadata.get("repository") or metadata.get("repository_id") or metadata.get("repository_node_id") or ""),
+        "collection": str(metadata.get("collection") or selector.get("collection") or ""),
+        "selector": selector,
+        "record_key": record_key,
+        "record_kind": record_kind,
+        "record_keys": record_keys,
+        "record_kinds": record_kinds,
         "version_selector": str(metadata.get("version_selector") or "latest_committed_before_stage_start"),
         "effective_from": str(metadata.get("effective_from") or "next_stage"),
         "on_missing": str(metadata.get("on_missing") or default_on_missing),
+        "source_output_key": str(metadata.get("source_output_key") or selector.get("source_output_key") or ""),
+        "candidate_ref_key": str(metadata.get("candidate_ref_key") or ""),
+        "verdict_key": str(metadata.get("verdict_key") or ""),
+        "required_verdict": str(metadata.get("required_verdict") or ""),
+        "receipt_policy": dict(metadata.get("receipt_policy") or {}),
+        "model_visible_label": str(metadata.get("model_visible_label") or metadata.get("visible_label") or ""),
+        "usage_instruction": str(metadata.get("usage_instruction") or metadata.get("instructions") or ""),
         "read_contract": dict(metadata.get("read_contract") or {}),
         "write_contract": dict(metadata.get("write_contract") or {}),
         "working_memory_handoff_policy": dict(edge.working_memory_handoff_policy or {}),
