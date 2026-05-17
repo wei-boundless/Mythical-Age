@@ -47,7 +47,7 @@ def _filesystem_validator(*, root_dir: Path, safety_envelope: dict[str, Any]):
         if workspace_root not in candidate.parents and candidate != workspace_root:
             return False, "path traversal detected"
         normalized_candidate = candidate.relative_to(workspace_root).as_posix()
-        write_sensitive = operation_id in {"op.write_file", "op.edit_file", "op.index_multimodal_file"}
+        write_sensitive = operation_id in {"op.write_file", "op.edit_file"}
         if not write_sensitive and not operation_id:
             write_sensitive = any(key in input_payload for key in ("content", "old_text", "new_text"))
         if write_sensitive:

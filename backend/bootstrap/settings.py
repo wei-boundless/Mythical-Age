@@ -11,6 +11,29 @@ from context_management.budget_presets import (
 )
 
 
+def _provider_hint_from_model_base_url(model: str | None, base_url: str | None) -> str:
+    haystack = f"{model or ''} {base_url or ''}".strip().lower()
+    if not haystack:
+        return ""
+    if "deepseek" in haystack or "api.deepseek.com" in haystack:
+        return "deepseek"
+    if "dashscope" in haystack or "aliyuncs.com" in haystack or "qwen" in haystack:
+        return "bailian"
+    if "bigmodel" in haystack or "zhipu" in haystack or "glm-" in haystack:
+        return "zhipu"
+    if "api.openai.com" in haystack or haystack.startswith(("gpt-", "o1", "o3", "o4")):
+        return "openai"
+    return ""
+
+
+def _normalize_provider_with_payload_hints(provider: str, model: str | None, base_url: str | None) -> str:
+    normalized = str(provider or "").strip().lower()
+    hint = _provider_hint_from_model_base_url(model, base_url)
+    if hint and normalized and hint != normalized:
+        return hint
+    return normalized or hint
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeSettingsSnapshot:
     rag_mode: bool
@@ -180,7 +203,7 @@ class AppSettingsService:
     ) -> dict[str, Any]:
         from config import get_settings as cached_get_settings
 
-        normalized_provider = str(provider or "").strip().lower()
+        normalized_provider = _normalize_provider_with_payload_hints(provider, model, base_url)
         if normalized_provider not in LLM_PROVIDER_DEFAULTS:
             normalized_provider = self.static.llm_provider
         defaults = LLM_PROVIDER_DEFAULTS[normalized_provider]
@@ -189,7 +212,11 @@ class AppSettingsService:
             "model": str(model or defaults["model"]).strip() or defaults["model"],
             "base_url": str(base_url or defaults["base_url"]).strip() or defaults["base_url"],
         }
-        normalized_fallback_provider = str(fallback_provider or "").strip().lower()
+        normalized_fallback_provider = _normalize_provider_with_payload_hints(
+            str(fallback_provider or ""),
+            fallback_model,
+            fallback_base_url,
+        )
         if normalized_fallback_provider in {"none", "disabled", "off"}:
             normalized_fallback_provider = ""
         if normalized_fallback_provider and normalized_fallback_provider not in LLM_PROVIDER_DEFAULTS:
@@ -403,13 +430,11 @@ class AppSettingsService:
                     "description": "控制 RAG 后端、向量库、Qdrant 和 rerank 参数。",
                     "status": f"{settings.retrieval_core_backend} / {settings.vector_store_backend}",
                     "fields": [
-                        self._field(section="retrieval", key="retrieval_core_backend", label="Retrieval Core", field_type="select", value=settings.retrieval_core_backend, options=["legacy", "llamaindex"], description="检索核心实现。"),
-                        self._field(section="retrieval", key="vector_store_backend", label="Vector Store", field_type="select", value=settings.vector_store_backend, options=["qdrant", "faiss", "llamaindex"], description="向量存储后端。"),
+                        self._field(section="retrieval", key="retrieval_core_backend", label="Retrieval Core", field_type="select", value=settings.retrieval_core_backend, options=["llamaindex"], description="当前正式检索核心实现。"),
+                        self._field(section="retrieval", key="vector_store_backend", label="Vector Store", field_type="select", value=settings.vector_store_backend, options=["qdrant"], description="当前正式向量存储后端。"),
                         self._field(section="retrieval", key="qdrant_url", label="Qdrant URL", field_type="text", value=settings.qdrant_url or "", description="Qdrant 服务地址。"),
                         self._field(section="retrieval", key="qdrant_collection_prefix", label="Collection Prefix", field_type="text", value=settings.qdrant_collection_prefix, description="Qdrant collection 前缀。"),
                         self._field(section="retrieval", key="qdrant_api_key", label="Qdrant API Key", field_type="secret", configured=bool(settings.qdrant_api_key), description="留空保存会保留已有密钥。"),
-                        self._field(section="retrieval", key="faiss_metric", label="FAISS Metric", field_type="select", value=settings.faiss_metric, options=["cosine", "inner_product", "l2"], description="FAISS 距离度量。"),
-                        self._field(section="retrieval", key="faiss_index_type", label="FAISS Index", field_type="select", value=settings.faiss_index_type, options=["flat", "hnsw"], description="FAISS 索引类型。"),
                         self._field(section="retrieval", key="rerank_mode", label="Rerank 模式", field_type="select", value=rerank_mode, options=["disabled", "heuristic", "local", "api"], description="关闭、轻量启发式、本地 cross-encoder、远程 API 四选一。"),
                         self._field(section="retrieval", key="rerank_local_model", label="本地 Rerank 模型", field_type="text", value=settings.rerank_model or "", description="仅在本地模型模式使用，例如 cross-encoder 模型名。"),
                         self._field(section="retrieval", key="rerank_device", label="本地设备", field_type="text", value=settings.rerank_device or "", description="仅本地模型模式使用，例如 cpu、cuda。"),
@@ -429,7 +454,7 @@ class AppSettingsService:
                     "description": "控制 Docling、MinerU 和文档转换链路。",
                     "status": f"{settings.document_conversion_backend} / {'MinerU on' if settings.mineru_api_enabled else 'MinerU off'}",
                     "fields": [
-                        self._field(section="document", key="document_conversion_backend", label="Conversion Backend", field_type="select", value=settings.document_conversion_backend, options=["docling", "legacy"], description="文档转换后端。"),
+                        self._field(section="document", key="document_conversion_backend", label="Conversion Backend", field_type="select", value=settings.document_conversion_backend, options=["docling"], description="文档转换后端。"),
                         self._field(section="document", key="docling_enabled", label="Docling Enabled", field_type="boolean", value=settings.docling_enabled, description="是否启用 Docling。"),
                         self._field(section="document", key="docling_prefer_ocr", label="Prefer OCR", field_type="boolean", value=settings.docling_prefer_ocr, description="Docling 是否优先 OCR。"),
                         self._field(section="document", key="mineru_api_enabled", label="MinerU Enabled", field_type="boolean", value=settings.mineru_api_enabled, description="是否启用 MinerU API。"),

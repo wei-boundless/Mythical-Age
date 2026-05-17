@@ -63,6 +63,30 @@ def test_non_project_brief_stage_does_not_emit_brief_versions(tmp_path: Path) ->
     assert all(not item.startswith("00_project_brief") for item in result.created_files)
 
 
+def test_artifact_root_does_not_append_session_twice(tmp_path: Path) -> None:
+    result = materialize_task_artifacts(
+        workspace_root=tmp_path,
+        task_run_id="taskrun:test:chapter_draft:0001",
+        session_id="session-chapters",
+        task_ref="task.writing.simple_novel.chapter_draft",
+        coordination_run_id="coordrun:test",
+        final_content="# 第十一章\n\n正文。",
+        user_message="请生成章节。",
+        explicit_inputs={
+            "artifact_root": "output/novel_artifacts/simple_novel/runs/session-chapters",
+            "batch_index": 2,
+            "batch_start_index": 11,
+            "batch_end_index": 20,
+        },
+        task_policy=_base_policy("chapters/batch_{batch_index:03d}_chapters_{batch_start_index:03d}_{batch_end_index:03d}/draft_round_001.md"),
+    )
+
+    artifact_root = tmp_path / "output" / "novel_artifacts" / "simple_novel" / "runs" / "session-chapters"
+    assert result.artifact_root == "output/novel_artifacts/simple_novel/runs/session-chapters"
+    assert (artifact_root / "chapters" / "batch_002_chapters_011_020" / "draft_round_001.md").exists()
+    assert not (artifact_root / "session-chapters").exists()
+
+
 def test_failed_empty_stage_does_not_create_misleading_required_artifact(tmp_path: Path) -> None:
     result = materialize_task_artifacts(
         workspace_root=tmp_path,

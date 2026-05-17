@@ -300,7 +300,7 @@ class MemoryBundleService:
         relevant_notes: list[Any] | None = None,
     ) -> str:
         candidates = self.build_long_term_memory_context_candidates(
-            session_id="legacy",
+            session_id="persistent_memory_preview",
             query=query,
             memory_intent=memory_intent,
             note_limit=note_limit,
@@ -394,41 +394,6 @@ class MemoryBundleService:
 
     def build_durable_manifest_block(self, *, note_limit: int = 5) -> str:
         return self.durable_memory.build_manifest_block(note_limit=note_limit)
-
-    def inspect_query_context(
-        self,
-        session_id: str,
-        *,
-        history: list[dict[str, Any]] | None = None,
-        pending_user_message: str | None = None,
-        memory_intent: Any | None = None,
-        relevant_notes: list[Any] | None = None,
-        note_limit: int = 5,
-        context_compaction: dict[str, Any] | None = None,
-        retrieval_results: list[dict[str, Any]] | None = None,
-    ) -> dict[str, Any]:
-        memory_view = self.build_memory_runtime_view(
-            session_id=session_id,
-            query=pending_user_message,
-            memory_intent=memory_intent,
-            relevant_notes=relevant_notes,
-            note_limit=note_limit,
-        )
-        context_result = build_context_package_result(
-            memory_view,
-            rebuild_reason="legacy_inspect_query_context_result",
-            retrieval_results=retrieval_results,
-            available_context_tokens=int(self._context_budget()["available_context_tokens"]),
-            reserved_output_tokens=int(self._context_budget()["reserved_output_tokens"]),
-            long_term_token_cap=int(self._context_budget()["long_term_token_cap"]),
-        )
-        return {
-            "memory_runtime_view": memory_view.to_dict(),
-            "context_policy_result": context_result.to_dict(),
-            "context_compaction": dict(context_compaction or {}),
-            "legacy_inspection": False,
-            "inspection_mode": "read_only",
-        }
 
     def prefetch_relevant_notes(
         self,

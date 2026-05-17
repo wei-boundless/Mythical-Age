@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from context_management import ContextPackage
 from project_layout import ProjectLayout
 from .bundle_service import MemoryBundleService
 from .conversation_memory import ConversationMemoryStoreAdapter
@@ -18,33 +17,6 @@ from .task_durable_memory_service import TaskDurableMemoryService
 from .working_memory_service import WorkingMemoryService
 from .working_memory_finalizer import WorkingMemoryFinalizer
 from .writeback_service import MemoryWritebackBuilderService
-
-
-def _render_context_package_for_legacy_block(
-    package: ContextPackage,
-    *,
-    include_durable_context: bool,
-) -> str:
-    sections = package.sections_for("model") if hasattr(package, "sections_for") else package.model_visible_sections
-    skipped = set() if include_durable_context else {"exact_durable_context", "relevant_durable_context"}
-    lines: list[str] = []
-    for section_name in (
-        "active_process_context",
-        "hot_truth_window",
-        "retrieval_evidence",
-        "warm_snapshots",
-        "exact_durable_context",
-        "relevant_durable_context",
-    ):
-        if section_name in skipped:
-            continue
-        items = [str(item).strip() for item in list(sections.get(section_name, []) or []) if str(item).strip()]
-        if not items:
-            continue
-        lines.append(f"## {section_name}")
-        lines.extend(f"- {item}" for item in items)
-        lines.append("")
-    return "\n".join(lines).strip()
 
 
 class MemoryFacade:
@@ -116,31 +88,6 @@ class MemoryFacade:
 
     def delete_session_memory(self, session_id: str) -> bool:
         return self.session_memory.delete_session(session_id)
-
-    def build_session_memory_block(
-        self,
-        session_id: str,
-        *,
-        history: list[dict[str, Any]] | None = None,
-        pending_user_message: str | None = None,
-        memory_intent: Any | None = None,
-        relevant_notes: list[Any] | None = None,
-        retrieval_results: list[dict[str, Any]] | None = None,
-        include_durable_context: bool = True,
-    ) -> str:
-        package = self.build_context_package(
-            session_id,
-            history=history,
-            pending_user_message=pending_user_message,
-            memory_intent=memory_intent,
-            relevant_notes=relevant_notes,
-            retrieval_results=retrieval_results,
-            rebuild_reason="legacy_session_memory_block_result",
-        )
-        return _render_context_package_for_legacy_block(
-            package,
-            include_durable_context=include_durable_context,
-        )
 
     def build_context_package(
         self,
@@ -669,40 +616,6 @@ class MemoryFacade:
 
     def build_durable_manifest_block(self, *, note_limit: int = 5) -> str:
         return self.bundle_service.build_durable_manifest_block(note_limit=note_limit)
-
-    def compact_history_for_query(
-        self,
-        session_id: str,
-        history: list[dict[str, Any]],
-    ) -> tuple[list[dict[str, str]], dict[str, Any]]:
-        compacted_history, result = self.inspect_memory_context_compaction(session_id, history)
-        return compacted_history, {
-            **result,
-            "legacy_adapter": "compact_history_for_query",
-        }
-
-    def inspect_query_context(
-        self,
-        session_id: str,
-        *,
-        history: list[dict[str, Any]] | None = None,
-        pending_user_message: str | None = None,
-        memory_intent: Any | None = None,
-        relevant_notes: list[Any] | None = None,
-        note_limit: int = 5,
-        context_compaction: dict[str, Any] | None = None,
-        retrieval_results: list[dict[str, Any]] | None = None,
-    ) -> dict[str, Any]:
-        return self.bundle_service.inspect_query_context(
-            session_id,
-            history=history,
-            pending_user_message=pending_user_message,
-            memory_intent=memory_intent,
-            relevant_notes=relevant_notes,
-            note_limit=note_limit,
-            context_compaction=context_compaction,
-            retrieval_results=retrieval_results,
-        )
 
     def prefetch_relevant_notes(
         self,

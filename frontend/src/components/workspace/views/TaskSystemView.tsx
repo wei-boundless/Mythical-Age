@@ -1467,7 +1467,28 @@ export function TaskSystemView() {
 
   function addTaskGraphRoleNode(role: string) {
     const nextIndex = (taskGraphDraftV2.nodes?.length || 0) + 1;
-    const nodeId = role === "coordinator" ? `coordinator_${nextIndex}` : role === "memory" ? `memory_${nextIndex}` : `agent_${nextIndex}`;
+    const normalizedRole = role === "memory" ? "memory_repository" : role;
+    const resourceNodeTypes = new Set(["memory_repository", "artifact_repository", "progress_ledger", "issue_ledger"]);
+    const resourcePrefixByRole: Record<string, string> = {
+      memory_repository: "memory.repository",
+      artifact_repository: "artifact.repository",
+      progress_ledger: "progress.ledger",
+      issue_ledger: "issue.ledger",
+    };
+    const isResourceNode = resourceNodeTypes.has(normalizedRole);
+    const existingNodeIds = new Set((taskGraphDraftV2.nodes ?? []).map((node) => String(node.node_id ?? "")));
+    let nodeId = normalizedRole === "coordinator"
+      ? `coordinator_${nextIndex}`
+      : isResourceNode
+        ? `${resourcePrefixByRole[normalizedRole]}.1`
+        : `agent_${nextIndex}`;
+    if (isResourceNode) {
+      let resourceIndex = 1;
+      while (existingNodeIds.has(nodeId)) {
+        resourceIndex += 1;
+        nodeId = `${resourcePrefixByRole[normalizedRole]}.${resourceIndex}`;
+      }
+    }
     const titleByRole: Record<string, string> = {
       coordinator: "协调器",
       planner: "规划节点",
@@ -1476,26 +1497,56 @@ export function TaskSystemView() {
       verifier: "验证节点",
       summarizer: "整理节点",
       merge: "汇总节点",
-      memory: "工作记忆节点",
+      memory: "记忆仓库",
+      memory_repository: "记忆仓库",
+      artifact_repository: "产物仓库",
+      progress_ledger: "进度账本",
+      issue_ledger: "问题台账",
       writer: "执行节点",
       acceptance: "验收节点",
       participant: "协作节点",
     };
+    const resourceMetadata = normalizedRole === "memory_repository" || normalizedRole.endsWith("_ledger")
+      ? {
+        memory_repository: {
+          repository_id: nodeId,
+          schema_id: "schema.memory_record",
+          collections: [{
+            collection_id: "default",
+            title: "默认集合",
+            record_kinds: [],
+            key_strategy: "stable_key",
+            default_version_selector: "latest_committed_before_clock",
+            required_receipt_status: "committed",
+          }],
+        },
+      }
+      : normalizedRole === "artifact_repository"
+        ? {
+          artifact_repository: {
+            repository_id: nodeId,
+            schema_id: "schema.artifact_ref",
+          },
+        }
+        : {};
     const node = {
       node_id: nodeId,
-      node_type: role === "memory" ? "memory_resource" : "agent_role",
+      node_type: isResourceNode ? normalizedRole : "agent_role",
       task_id: "",
       task_title: "",
       task_family: graphContextFamily,
       agent_id: "",
-      role,
-      work_posture: role,
-      label: titleByRole[role] ?? "协作节点",
-      title: titleByRole[role] ?? "协作节点",
-      ...(role === "memory" ? {
-        metadata: { operation: "commit" },
-        memory_read_policy: { readable_kinds: ["review_decision"], readable_scopes: ["graph_scope", "project_scope"] },
-        memory_writeback_policy: { writable_kinds: ["review_decision"], writable_scopes: ["project_scope"] },
+      role: isResourceNode ? "resource" : normalizedRole,
+      work_posture: isResourceNode ? "resource" : normalizedRole,
+      label: titleByRole[normalizedRole] ?? "协作节点",
+      title: titleByRole[normalizedRole] ?? "协作节点",
+      ...(isResourceNode ? {
+        metadata: resourceMetadata,
+        resource_lifecycle_policy: {
+          versioning: "append_version",
+          mutable: true,
+          commit_required: normalizedRole !== "artifact_repository",
+        },
       } : {}),
     };
     syncTaskGraphTopology([...(taskGraphDraftV2.nodes ?? []), node], taskGraphDraftV2.edges ?? []);
@@ -2005,13 +2056,23 @@ export function TaskSystemView() {
   const updateTaskGraphDraft = (patch: Partial<TaskGraphDraftV2>) => {
     setTaskGraphDraftV2((current) => {
       const metadataPatch = asRecord(patch.metadata);
+      const nextNodes = patch.nodes ? patch.nodes.map(normalizeTaskGraphNode) : current.nodes;
+      const nextEdges = patch.edges ? patch.edges.map(normalizeTaskGraphEdge) : current.edges;
+      const boundaries = (patch.nodes || patch.edges)
+        ? inferTaskGraphBoundaryNodes(nextNodes, nextEdges, {
+          fallback_entry_node_id: patch.entry_node_id ?? current.entry_node_id,
+          fallback_output_node_id: patch.output_node_id ?? current.output_node_id,
+        })
+        : null;
       return {
         ...current,
         title: patch.title ?? current.title,
         graph_kind: patch.graph_kind ?? current.graph_kind,
-        entry_node_id: patch.entry_node_id ?? current.entry_node_id,
-        output_node_id: patch.output_node_id ?? current.output_node_id,
+        entry_node_id: patch.entry_node_id ?? boundaries?.entry_node_id ?? current.entry_node_id,
+        output_node_id: patch.output_node_id ?? boundaries?.output_node_id ?? current.output_node_id,
         graph_contract_id: patch.graph_contract_id ?? current.graph_contract_id,
+        nodes: nextNodes,
+        edges: nextEdges,
         metadata: {
           ...asRecord(current.metadata),
           ...metadataPatch,

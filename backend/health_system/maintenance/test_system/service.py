@@ -6,7 +6,7 @@ from typing import Any
 
 from health_system.maintenance.experiments import experiment_runner
 from health_system.maintenance.experiments.artifacts import load_run_artifacts, read_json_file, read_text_tail, summarize_run_result
-from health_system.maintenance.experiments.trace_graph import list_turns as list_legacy_turns
+from health_system.maintenance.experiments.trace_graph import list_turns as list_experiment_turns
 from orchestration import summarize_runtime_loop_trace
 
 from .assertions import evaluate_turn_assertions
@@ -168,10 +168,10 @@ class TestSystemService:
         return summarize_runtime_loop_trace(trace)
 
     def _list_turns(self, output_dir: Path) -> list[TestTurn]:
-        legacy_turns = list_legacy_turns(output_dir)
+        experiment_turns = list_experiment_turns(output_dir)
         result: list[TestTurn] = []
-        for legacy in legacy_turns:
-            artifact_path = Path(str(legacy.get("artifact_path") or ""))
+        for experiment_turn in experiment_turns:
+            artifact_path = Path(str(experiment_turn.get("artifact_path") or ""))
             path = artifact_path if artifact_path.is_absolute() else Path.cwd() / artifact_path
             payload = read_json_file(path, {})
             if not isinstance(payload, dict):
@@ -181,26 +181,26 @@ class TestSystemService:
             assertions = tuple(evaluate_turn_assertions(payload, checks))
             runtime_summary = runtime_loop_summary_from_turn_payload(payload)
             failed_assertions = [item for item in assertions if item.status == "failed"]
-            status = str(legacy.get("status") or "unknown")
+            status = str(experiment_turn.get("status") or "unknown")
             if failed_assertions:
                 status = "failed"
             result.append(
                 TestTurn(
-                    turn_id=str(legacy.get("turn_id") or ""),
-                    index=int(legacy.get("index") or 0),
-                    scenario=str(legacy.get("scenario") or ""),
-                    session_alias=str(legacy.get("session_alias") or ""),
+                    turn_id=str(experiment_turn.get("turn_id") or ""),
+                    index=int(experiment_turn.get("index") or 0),
+                    scenario=str(experiment_turn.get("scenario") or ""),
+                    session_alias=str(experiment_turn.get("session_alias") or ""),
                     status=status if status in {"passed", "warning", "failed"} else "unknown",
-                    summary=str(legacy.get("summary") or ""),
-                    artifact_path=str(legacy.get("artifact_path") or ""),
-                    issue_count=int(legacy.get("issue_count") or len(failed_assertions)),
+                    summary=str(experiment_turn.get("summary") or ""),
+                    artifact_path=str(experiment_turn.get("artifact_path") or ""),
+                    issue_count=int(experiment_turn.get("issue_count") or len(failed_assertions)),
                     assertions=assertions,
                     runtime_loop=_runtime_summary_dataclass(runtime_summary),
-                    has_trace=bool(legacy.get("has_trace")),
-                    has_prompt_manifest=bool(legacy.get("has_prompt_manifest")),
-                    has_memory_trace=bool(legacy.get("has_memory_trace")),
-                    problem_node_id=str(legacy.get("problem_node_id") or ""),
-                    problem_node_label=str(legacy.get("problem_node_label") or ""),
+                    has_trace=bool(experiment_turn.get("has_trace")),
+                    has_prompt_manifest=bool(experiment_turn.get("has_prompt_manifest")),
+                    has_memory_trace=bool(experiment_turn.get("has_memory_trace")),
+                    problem_node_id=str(experiment_turn.get("problem_node_id") or ""),
+                    problem_node_label=str(experiment_turn.get("problem_node_label") or ""),
                 )
             )
         return result

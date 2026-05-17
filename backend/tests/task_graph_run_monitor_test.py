@@ -11,6 +11,7 @@ def _base_task_run() -> dict[str, object]:
         "status": "running",
         "graph_ref": "graph.test",
         "updated_at": 100.0,
+        "diagnostics": {"project_id": "project:test"},
     }
 
 
@@ -89,6 +90,8 @@ def test_monitor_preserves_artifact_and_memory_operation_producers() -> None:
                     "node_id": "outline",
                     "status": "completed",
                     "selected_working_memory_refs": ["wm:world"],
+                    "created_at": 10.0,
+                    "sequence_index": 1,
                 },
                 {
                     "operation": "write",
@@ -96,6 +99,8 @@ def test_monitor_preserves_artifact_and_memory_operation_producers() -> None:
                     "node_id": "world",
                     "status": "completed",
                     "created_working_memory_refs": ["wm:world"],
+                    "created_at": 20.0,
+                    "sequence_index": 2,
                 },
             ],
         },
@@ -112,6 +117,78 @@ def test_monitor_preserves_artifact_and_memory_operation_producers() -> None:
     assert view["stage_results"][0]["working_memory_refs"] == ["wm:world"]
     assert [item["operation"] for item in view["memory_operations"]] == ["read", "write"]
     assert view["memory_operations"][0]["refs"] == ["wm:world"]
+    assert view["memory_operations"][0]["sequence_index"] == 1
+    assert view["memory_operations"][1]["created_at"] == 20.0
+
+
+def test_monitor_exposes_timeline_dispatch_packets_and_receipts() -> None:
+    view = build_task_graph_run_monitor_view(
+        task_run=_base_task_run(),
+        coordination_run=_base_coordination_run(),
+        coordination_state={
+            "diagnostics": {"coordination_graph_spec": _graph_spec()},
+            "timeline": {
+                "ledger_id": "tlledger:test",
+                "current_clock_seq": 3,
+                "event_count": 3,
+                "recent_events": [
+                    {"event_id": "tlevent:1", "clock_seq": 1, "event_type": "run_started", "scope_path": ["run"]},
+                    {"event_id": "tlevent:2", "clock_seq": 2, "event_type": "node_dispatch_requested", "scope_path": ["run", "phase.plan"], "node_id": "world"},
+                ],
+            },
+            "stage_execution_request": {
+                "dispatch_context": {"dispatch_event_id": "tlevent:2", "clock_seq": 2, "scope_path": ["run", "phase.plan"]},
+                "memory_snapshot": {"snapshot_id": "memsnap:test", "resolved_record_refs": ["wm:a"]},
+                "artifact_context_packet": {"packet_id": "artctx:test", "artifact_refs": ["artifact:a.md"]},
+                "revision_packet": {},
+                "handoff_packet_refs": ["handoff:test"],
+            },
+            "execution_receipts": [
+                {"receipt_id": "stagereceipt:test", "stage_id": "world", "accepted": True},
+            ],
+        },
+    )
+
+    assert view["timeline"]["current_clock_seq"] == 3
+    assert view["timeline"]["recent_events"][1]["event_type"] == "node_dispatch_requested"
+    assert view["current_dispatch_context"]["dispatch_event_id"] == "tlevent:2"
+    assert view["current_context_packets"]["memory_snapshot"]["snapshot_id"] == "memsnap:test"
+    assert view["execution_receipts"][0]["receipt_id"] == "stagereceipt:test"
+
+
+def test_monitor_uses_tool_call_preview_when_stream_chunks_are_absent() -> None:
+    view = build_task_graph_run_monitor_view(
+        task_run=_base_task_run(),
+        coordination_run=_base_coordination_run(),
+        coordination_state={
+            "diagnostics": {"coordination_graph_spec": _graph_spec()},
+            "stage_execution_request": {
+                "stream_policy": {
+                    "enabled": True,
+                    "mode": "model_text_stream",
+                    "monitor_visibility": "task_graph_monitor",
+                }
+            },
+        },
+        recent_events=[
+            {
+                "event_type": "tool_call_requested",
+                "created_at": 123.0,
+                "payload": {
+                    "action_request": {
+                        "request_id": "rtact:test",
+                        "payload": {
+                            "assistant_content_preview": "先整理世界观主干，再调用写入工具。",
+                        },
+                    }
+                },
+            }
+        ],
+    )
+
+    assert view["streaming"]["enabled"] is True
+    assert view["streaming"]["chunk_count"] == 1
+    assert "世界观主干" in view["streaming"]["preview_text"]
 
 
 def test_monitor_health_reports_invalid_edge_endpoints() -> None:
@@ -156,6 +233,45 @@ def test_monitor_includes_failure_details_from_task_diagnostics() -> None:
     assert view["runtime"]["failure"]["message"] == "模型配置有误，请检查提供商和密钥设置。"
     assert view["runtime"]["failure"]["detail"] == "401 Unauthorized from upstream provider"
     assert view["runtime"]["failure"]["provider"] == "deepseek"
+
+
+def test_monitor_includes_project_progress_and_supervision_status() -> None:
+    view = build_task_graph_run_monitor_view(
+        task_run=_base_task_run(),
+        coordination_run=_base_coordination_run(),
+        coordination_state={"diagnostics": {"coordination_graph_spec": _graph_spec()}},
+        project_ledger={
+            "project_id": "project:test",
+            "project_title": "洪荒时代",
+            "graph_id": "graph.test",
+            "metric_label": "words",
+            "target_metric_total": 1000000,
+            "committed_metric_total": 12000,
+            "committed_unit_count": 3,
+            "last_committed_unit_index": 3,
+        },
+        project_status={
+            "project_id": "project:test",
+            "project_runtime_status": "watching",
+            "active_run_status": "running",
+            "latest_event_at": 100.0,
+            "last_effective_output_at": 99.0,
+            "active_blocker": {"kind": "", "summary": ""},
+            "recovery_state": {"summary": "none"},
+        },
+        supervision_records=[
+            {
+                "supervision_record_id": "supervision:test",
+                "issue_type": "chapter_committed",
+                "repair_action": "",
+            }
+        ],
+    )
+
+    assert view["project"]["project_id"] == "project:test"
+    assert view["progress"]["completed_metric_total"] == 12000
+    assert view["progress"]["remaining_metric_total"] == 988000
+    assert view["supervision"]["project_runtime_status"] == "watching"
 
 
 def test_monitor_prefers_failed_stage_error_details() -> None:

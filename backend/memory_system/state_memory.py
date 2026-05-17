@@ -11,7 +11,7 @@ from .contracts import (
     StateMemoryRestoreCandidate,
     StateMemorySnapshot,
 )
-from .legacy_types import SessionMemoryManager
+from .compat_types import SessionMemoryManager
 
 
 class StateMemoryStoreAdapter:

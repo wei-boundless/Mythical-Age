@@ -51,7 +51,6 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
         "op.model_response",
         "op.mcp_pdf",
         "op.read_file",
-        "op.analyze_multimodal_file",
     )
     assert profile_by_agent["agent:pdf_reader"].can_delegate_to_agents is False
     assert profile_by_agent["agent:table_analyst"].allowed_operations == (

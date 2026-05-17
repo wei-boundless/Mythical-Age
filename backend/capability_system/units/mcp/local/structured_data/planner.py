@@ -57,7 +57,7 @@ class StructuredDataPlanner:
         subset_filters = self._build_subset_filters_from_hints(df, semantic_hints)
         if subset_filters:
             structured_filters.extend(subset_filters)
-            filters.extend(item.legacy_rule for item in subset_filters)
+            filters.extend(item.filter_expression for item in subset_filters)
         metric = self._detect_metric_column(
             query,
             df,

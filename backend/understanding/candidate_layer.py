@@ -14,7 +14,7 @@ def build_understanding_candidates(
     task_id: str,
     message: str,
 ) -> tuple[CandidateEnvelope, ...]:
-    """Convert legacy understanding signals into non-authoritative candidates."""
+    """Convert heuristic understanding signals into non-authoritative candidates."""
 
     memory_intent = analyze_memory_intent(message)
     task_understanding = analyze_task_understanding(message, memory_intent)

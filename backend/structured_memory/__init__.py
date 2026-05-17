@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 __all__ = [
-    "CompactResult",
     "ConsolidationConfig",
     "ConsolidationReport",
     "ConsolidationScheduler",
-    "ContextCompactor",
     "DialogueState",
     "DialogueStateManager",
     "DialogueTurn",
@@ -26,7 +24,6 @@ __all__ = [
     "ReconciliationDecision",
     "SessionMemoryManager",
     "SessionUnderstandingProcessor",
-    "TeamMemoryManager",
     "TurnUnderstandingAnalyzer",
     "TurnUnderstandingSnapshot",
     "UnderstandingReconciler",
@@ -38,13 +35,6 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    if name in {"CompactResult", "ContextCompactor"}:
-        from .compact import CompactResult, ContextCompactor
-
-        return {
-            "CompactResult": CompactResult,
-            "ContextCompactor": ContextCompactor,
-        }[name]
     if name in {"ConsolidationConfig", "ConsolidationScheduler"}:
         from .consolidation_scheduler import ConsolidationConfig, ConsolidationScheduler
 
@@ -60,7 +50,7 @@ def __getattr__(name: str):
             "DurableMemoryConsolidator": DurableMemoryConsolidator,
         }[name]
     if name in {"DialogueState", "DialogueStateManager", "DialogueTurn"}:
-        from .dialogue_state import DialogueState, DialogueStateManager, DialogueTurn
+        from .process_state import DialogueState, DialogueStateManager, DialogueTurn
 
         return {
             "DialogueState": DialogueState,
@@ -129,10 +119,6 @@ def __getattr__(name: str):
         from .session_processor import SessionUnderstandingProcessor
 
         return SessionUnderstandingProcessor
-    if name == "TeamMemoryManager":
-        from .team_memory import TeamMemoryManager
-
-        return TeamMemoryManager
     if name in {"ActiveUnderstanding", "TurnUnderstandingAnalyzer", "TurnUnderstandingSnapshot"}:
         from .turn_understanding import ActiveUnderstanding, TurnUnderstandingAnalyzer, TurnUnderstandingSnapshot
 

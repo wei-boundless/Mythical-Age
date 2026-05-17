@@ -79,6 +79,44 @@ def test_scheduler_bootstrap_marks_downstream_ready_after_upstream_completed() -
     assert edge.status == "ack_waiting"
 
 
+def test_scheduler_consumes_explicit_blocking_temporal_edges() -> None:
+    spec = TaskGraphRuntimeSpec(
+        graph_id="graph.test.temporal_dependency",
+        domain_id="domain.test",
+        task_family="test",
+        coordinator_agent_id="agent:0",
+        nodes=(
+            TaskGraphRuntimeNode(node_id="research", title="Research", node_type="agent", role="worker"),
+            TaskGraphRuntimeNode(node_id="draft", title="Draft", node_type="agent", role="worker"),
+        ),
+        start_node_ids=("research", "draft"),
+        terminal_node_ids=("draft",),
+        temporal_edges=(
+            {
+                "edge_id": "temporal:research->draft",
+                "source_node_id": "research",
+                "target_node_id": "draft",
+                "temporal_type": "after_success",
+                "blocking": True,
+            },
+        ),
+    )
+
+    blocked = bootstrap_scheduler_state(runtime_spec=spec)
+    draft = next(item for item in blocked.node_states if item.node_id == "draft")
+
+    assert blocked.ready_node_ids == ("research",)
+    assert "upstream:research" in draft.blocked_reasons
+    assert blocked.diagnostics["blocking_temporal_edge_count"] == 1
+
+    released = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={"research": "completed", "draft": "pending"},
+    )
+
+    assert released.ready_node_ids == ("draft",)
+
+
 def test_scheduler_bootstrap_groups_phase_state_without_taking_over_runtime() -> None:
     state = bootstrap_scheduler_state(
         runtime_spec=_runtime_spec(),
@@ -233,3 +271,62 @@ def test_scheduler_blocks_partial_join_until_all_upstreams_are_terminal() -> Non
     assert "merge" in state.blocked_node_ids
     merge = next(item for item in state.node_states if item.node_id == "merge")
     assert "upstream:b" in merge.blocked_reasons
+
+
+def test_scheduler_does_not_schedule_conditional_repair_or_failure_routes_by_default() -> None:
+    spec = TaskGraphRuntimeSpec(
+        graph_id="graph.test.conditional_routes",
+        domain_id="domain.test",
+        task_family="test",
+        coordinator_agent_id="agent:0",
+        nodes=(
+            TaskGraphRuntimeNode(node_id="review", title="Review", node_type="review_gate", role="reviewer"),
+            TaskGraphRuntimeNode(node_id="commit", title="Commit", node_type="agent", role="memory"),
+            TaskGraphRuntimeNode(node_id="repair", title="Repair", node_type="agent", role="writer"),
+            TaskGraphRuntimeNode(node_id="fail_closed", title="Fail", node_type="agent", role="memory"),
+        ),
+        edges=(
+            TaskGraphRuntimeEdge(
+                edge_id="review_commit",
+                source_node_id="review",
+                target_node_id="commit",
+                mode="structured_handoff",
+            ),
+            TaskGraphRuntimeEdge(
+                edge_id="review_repair",
+                source_node_id="review",
+                target_node_id="repair",
+                mode="repair_route",
+                metadata={"verdict": "repair_world"},
+            ),
+            TaskGraphRuntimeEdge(
+                edge_id="review_fail",
+                source_node_id="review",
+                target_node_id="fail_closed",
+                mode="fail_closed",
+                metadata={"verdict": "fail_closed"},
+            ),
+        ),
+        start_node_ids=("review",),
+        terminal_node_ids=("commit", "fail_closed"),
+    )
+
+    state = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={
+            "review": "completed",
+            "commit": "pending",
+            "repair": "pending",
+            "fail_closed": "pending",
+        },
+    )
+
+    assert state.ready_node_ids == ("commit",)
+    assert "repair" not in state.ready_node_ids
+    assert "fail_closed" not in state.ready_node_ids
+    repair = next(item for item in state.node_states if item.node_id == "repair")
+    failure = next(item for item in state.node_states if item.node_id == "fail_closed")
+    assert repair.upstream_node_ids == ()
+    assert failure.upstream_node_ids == ()
+    assert "repair" in state.diagnostics["optional_node_ids"]
+    assert "fail_closed" in state.diagnostics["optional_node_ids"]

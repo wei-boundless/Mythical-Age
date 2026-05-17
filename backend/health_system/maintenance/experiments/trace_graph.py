@@ -18,7 +18,7 @@ NODE_LABELS = {
     "runtime-root": "运行时装配中心",
     "query-core": "对话执行引擎",
     "orchestration-control": "编排控制面",
-    "planner": "Legacy 查询规划器",
+    "planner": "查询规划器",
     "prompt": "提示词组装",
     "memory": "记忆门面",
     "retrieval": "检索服务",

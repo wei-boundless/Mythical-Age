@@ -1,9 +1,12 @@
 "use client";
 
+import { useMemo } from "react";
 import type { ContractSpec } from "@/lib/api";
 
 import { TaskSystemField } from "./TaskSystemWorkbenchUi";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
+import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
+import { buildTaskGraphCognitionModel } from "./taskGraphCognitionView";
 
 function contractTitle(contract: ContractSpec) {
   return String(contract.contract_id);
@@ -27,6 +30,7 @@ export function TaskGraphContractQualityPage({
   contractSpecs,
   editorIssueCount,
   editorValid,
+  editorFocus,
   taskGraphDraft,
   updateTaskGraph,
   updateTaskGraphEdge,
@@ -37,6 +41,7 @@ export function TaskGraphContractQualityPage({
   contractSpecs: ContractSpec[];
   editorIssueCount: number;
   editorValid: boolean;
+  editorFocus?: TaskGraphEditorFocus;
   taskGraphDraft: TaskGraphDraftV2;
   updateTaskGraph: (patch: Partial<TaskGraphDraftV2>) => void;
   updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
@@ -44,6 +49,10 @@ export function TaskGraphContractQualityPage({
 }) {
   const graphContractId = String(taskGraphDraft.graph_contract_id ?? "");
   const contractIds = contractSpecs.map((item) => item.contract_id);
+  const cognitionModel = useMemo(
+    () => buildTaskGraphCognitionModel({ nodes: activeGraphNodes, edges: activeGraphEdges }),
+    [activeGraphNodes, activeGraphEdges],
+  );
 
   const contractOptions = (...currentIds: string[]) => {
     const current = currentIds.map((item) => String(item ?? "").trim()).filter(Boolean);
@@ -92,6 +101,12 @@ export function TaskGraphContractQualityPage({
             <p><span>问题</span><strong>{editorIssueCount}</strong></p>
             <p><span>契约库</span><strong>{contractSpecs.length}</strong></p>
           </div>
+          {editorFocus?.issue_id ? (
+            <div className="task-graph-note">
+              <strong>来自发布诊断</strong>
+              <span>{editorFocus.issue_id} / {editorFocus.facet || "quality_gate"}</span>
+            </div>
+          ) : null}
         </article>
       </section>
 
@@ -142,6 +157,36 @@ export function TaskGraphContractQualityPage({
               </article>
             );
           })}
+        </div>
+      </section>
+
+      <section className="boundary-card">
+        <header><strong>契约进入执行包</strong><span>检查输入、输出、交接和 receipt 的配套关系</span></header>
+        <div className="task-graph-node-policy-list">
+          {cognitionModel.packages.map((nodePackage) => (
+            <article className="task-graph-node-policy-row" key={nodePackage.nodeId}>
+              <div className="task-graph-node-policy-row__identity">
+                <strong>{nodePackage.title}</strong>
+                <span>{nodePackage.nodeId}</span>
+              </div>
+              <div className="task-graph-contract-flow-cell">
+                <span>输入契约</span>
+                <strong>{nodePackage.inputContractId || "未绑定"}</strong>
+              </div>
+              <div className="task-graph-contract-flow-cell">
+                <span>输出契约</span>
+                <strong>{nodePackage.outputContractId || "未绑定"}</strong>
+              </div>
+              <div className="task-graph-contract-flow-cell">
+                <span>输入包</span>
+                <strong>{nodePackage.inputPackets.length}</strong>
+              </div>
+              <div className="task-graph-contract-flow-cell">
+                <span>输出交接</span>
+                <strong>{nodePackage.outputs.length}</strong>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
 

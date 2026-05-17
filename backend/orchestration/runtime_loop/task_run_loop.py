@@ -85,8 +85,21 @@ from .runtime_object_store import RuntimeObjectStore
 from .artifact_refs import ArtifactRefIndex, collect_task_result_output_refs, dedupe_refs as dedupe_artifact_refs
 from .agent_delegation_executor import AgentDelegationExecutor
 from .langgraph_coordination_runtime import LangGraphCoordinationRuntime, LangGraphCoordinationRuntimeResult
+from .project_supervision import (
+    build_runtime_status,
+    classify_blocker,
+    clear_recovered_failure,
+    ensure_project_runtime_inputs,
+    latest_artifact_files_from_root,
+    make_initial_project_ledger,
+    make_supervision_record,
+    record_progress_unit_commit,
+    record_delivery_state,
+    record_failure,
+)
 from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
 from .task_artifact_materializer import MaterializedTaskArtifacts, materialize_task_artifacts
+from .timeline_ledger import TimelineLedgerStore
 from .model_adoption import build_model_response_runtime_adoption, build_runtime_capability_state
 from .models import (
     AgentDispatchPlan,
@@ -98,8 +111,11 @@ from .models import (
     CoordinationMergeResult,
     CoordinationNodeRun,
     CoordinationRun,
+    ProjectProgressLedger,
+    ProjectRuntimeStatus,
     QueuedAgentNotification,
     RuntimeLoopState,
+    SupervisionRecord,
     TaskRun,
 )
 from .observation_aggregator import ObservationAggregation, ObservationAggregator
@@ -181,11 +197,13 @@ class TaskRunLoop:
         self.state_index = RuntimeStateIndex(self.root_dir)
         self.runtime_objects = RuntimeObjectStore(self.root_dir)
         self.coordination_checkpoints = LangGraphCheckpointStoreAdapter(self.root_dir)
+        self.timeline_ledger = TimelineLedgerStore(self.root_dir)
         self.trace_reader = RuntimeLoopTraceReader(
             self.state_index,
             self.event_log,
             self.checkpoints,
             self.coordination_checkpoints,
+            self.timeline_ledger,
         )
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
         self.limits = limits or RuntimeLoopLimits()
@@ -231,6 +249,48 @@ class TaskRunLoop:
 
     def get_coordination_run_monitor(self, coordination_run_id: str) -> dict[str, Any] | None:
         return self.trace_reader.get_coordination_run_monitor(coordination_run_id)
+
+    def get_project_runtime_status(self, project_id: str) -> dict[str, Any] | None:
+        status = self.state_index.get_project_runtime_status(project_id)
+        if status is None:
+            return None
+        ledger = self.state_index.get_project_progress_ledger(project_id)
+        return {
+            "project_runtime_status": status.to_dict(),
+            "project_progress_ledger": ledger.to_dict() if ledger is not None else None,
+            "supervision_records": [item.to_dict() for item in self.state_index.list_project_supervision_records(project_id)[-50:]],
+            "authority": "orchestration.project_runtime_status_view",
+        }
+
+    def get_task_run_artifacts(self, task_run_id: str) -> dict[str, Any]:
+        task_run = self.state_index.get_task_run(task_run_id)
+        if task_run is None:
+            return {"task_run_id": task_run_id, "artifact_root": "", "files": [], "authority": "orchestration.task_run_artifacts"}
+        diagnostics = dict(task_run.diagnostics or {})
+        artifact_materialization = dict(diagnostics.get("artifact_materialization") or {})
+        artifact_root = str(artifact_materialization.get("artifact_root") or "")
+        files = latest_artifact_files_from_root(self.root_dir.parent, artifact_root)
+        return {
+            "task_run_id": task_run_id,
+            "artifact_root": artifact_root,
+            "files": files,
+            "created_files": list(artifact_materialization.get("created_files") or []),
+            "artifact_refs": list(artifact_materialization.get("artifact_refs") or []),
+            "authority": "orchestration.task_run_artifacts",
+        }
+
+    def get_task_run_memory_receipts(self, task_run_id: str) -> dict[str, Any]:
+        monitor = self.get_task_graph_run_monitor(task_run_id) or {}
+        return {
+            "task_run_id": task_run_id,
+            "memory_operations": list(monitor.get("memory_operations") or []),
+            "stage_results": [
+                item
+                for item in list(monitor.get("stage_results") or [])
+                if list(dict(item).get("working_memory_refs") or [])
+            ],
+            "authority": "orchestration.task_run_memory_receipts",
+        }
 
     def get_trace(
         self,
@@ -514,14 +574,19 @@ class TaskRunLoop:
         diagnostics: dict[str, Any] | None = None,
     ) -> TaskRunLoopStartResult:
         """Create a durable runtime-loop run from a first-class TaskGraphDefinition."""
-        effective_initial_inputs = dict(initial_inputs or {})
-        if not effective_initial_inputs:
+        source_initial_inputs = dict(initial_inputs or {})
+        if not source_initial_inputs:
             restored_initial_inputs = self._restore_task_graph_initial_inputs(
                 session_id=session_id,
                 graph_id=graph.graph_id,
             )
             if restored_initial_inputs:
-                effective_initial_inputs = restored_initial_inputs
+                source_initial_inputs = restored_initial_inputs
+        effective_initial_inputs = ensure_project_runtime_inputs(
+            initial_inputs=source_initial_inputs,
+            graph_id=graph.graph_id,
+            session_id=session_id,
+        )
         runtime_policy = dict(graph.runtime_policy or {})
         coordinator_agent_id = str(runtime_spec.coordinator_agent_id or runtime_policy.get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
         graph_definition_ref = self.runtime_objects.put_json_once(
@@ -555,7 +620,7 @@ class TaskRunLoop:
                 "session_id": session_id,
                 "task_id": task_id or graph.graph_id,
                 "graph_id": graph.graph_id,
-                "initial_inputs": dict(effective_initial_inputs),
+                "initial_inputs": dict(source_initial_inputs),
             },
         )
         start = self.start(
@@ -579,12 +644,21 @@ class TaskRunLoop:
                 "task_graph_run": True,
                 "task_graph_id": graph.graph_id,
                 "task_graph_title": graph.title,
+                "task_family": str(getattr(graph, "task_family", "") or ""),
                 "task_graph_publish_state": graph.publish_state,
                 "task_graph_definition_ref": graph_definition_ref,
                 "task_graph_runtime_spec_ref": graph_runtime_spec_ref,
                 "task_graph_initial_inputs_ref": initial_inputs_ref,
                 "task_graph_runtime_spec_valid": runtime_spec.valid,
-                "task_graph_initial_input_keys": sorted(str(key) for key in effective_initial_inputs.keys()),
+                "task_graph_initial_input_keys": sorted(str(key) for key in source_initial_inputs.keys()),
+                "project_id": str(effective_initial_inputs.get("project_id") or ""),
+                "project_title": str(effective_initial_inputs.get("project_title") or ""),
+                "metric_label": str(effective_initial_inputs.get("metric_label") or "units"),
+                "target_metric_total": int(
+                    effective_initial_inputs.get("target_metric_total")
+                    or effective_initial_inputs.get("target_words")
+                    or 0
+                ),
                 **dict(diagnostics or {}),
             },
         )
@@ -624,6 +698,66 @@ class TaskRunLoop:
                 },
             }
         )
+        project_id = str(effective_initial_inputs.get("project_id") or "").strip()
+        if project_id:
+            ledger = self.state_index.get_project_progress_ledger(project_id)
+            if ledger is None:
+                ledger = make_initial_project_ledger(
+                    project_id=project_id,
+                    session_id=session_id,
+                    graph_id=graph.graph_id,
+                    task_family=str(getattr(graph, "task_family", "") or ""),
+                    project_title=str(effective_initial_inputs.get("project_title") or project_id),
+                    metric_label=str(effective_initial_inputs.get("metric_label") or "units"),
+                    target_metric_total=int(
+                        effective_initial_inputs.get("target_metric_total")
+                        or effective_initial_inputs.get("target_words")
+                        or 0
+                    ),
+                    task_run_id=refreshed_task_run.task_run_id,
+                )
+            else:
+                ledger = ProjectProgressLedger(
+                    **{
+                        **ledger.to_dict(),
+                        "run_chain": [*list(ledger.run_chain), refreshed_task_run.task_run_id] if refreshed_task_run.task_run_id not in ledger.run_chain else list(ledger.run_chain),
+                        "updated_at": time.time(),
+                    }
+                )
+            self.state_index.upsert_project_progress_ledger(ledger)
+            project_status = build_runtime_status(
+                ledger=ledger,
+                task_run_id=refreshed_task_run.task_run_id,
+                coordination_run_id=refreshed_coordination_run.coordination_run_id,
+                active_run_status=str(refreshed_coordination_run.status or refreshed_task_run.status or "running"),
+                latest_artifact_root=str(dict(refreshed_task_run.diagnostics or {}).get("artifact_materialization", {}).get("artifact_root") or ""),
+                latest_event_offset=int(refreshed_task_run.latest_event_offset or 0),
+                latest_event_at=float(refreshed_task_run.updated_at or time.time()),
+                last_effective_output_at=float(refreshed_task_run.updated_at or time.time()),
+                blocker={},
+                recovery_state={},
+            )
+            self.state_index.upsert_project_runtime_status(project_status)
+            self.state_index.upsert_supervision_record(
+                make_supervision_record(
+                    project_id=project_id,
+                    session_id=session_id,
+                    task_run_id=refreshed_task_run.task_run_id,
+                    coordination_run_id=refreshed_coordination_run.coordination_run_id,
+                    issue_type="formal_run_started",
+                    issue_summary="Formal project run started.",
+                    followup_status="watching",
+                    diagnostics={
+                        "graph_id": graph.graph_id,
+                        "metric_label": str(effective_initial_inputs.get("metric_label") or "units"),
+                        "target_metric_total": int(
+                            effective_initial_inputs.get("target_metric_total")
+                            or effective_initial_inputs.get("target_words")
+                            or 0
+                        ),
+                    },
+                )
+            )
         return TaskRunLoopStartResult(
             task_run=refreshed_task_run,
             agent_run=start.agent_run,
@@ -1005,6 +1139,15 @@ class TaskRunLoop:
                 )
                 yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
         current_turn_context = dict(task_operation.get("current_turn_context") or {})
+        model_stream_policy = _model_stream_policy_from_task_execution_assembly(
+            task_execution_assembly_payload,
+            current_turn_context=current_turn_context,
+        )
+        artifact_policy_for_validation = _artifact_policy_from_task_execution_assembly(
+            selected_recipe_payload=selected_recipe_payload,
+            task_execution_assembly=task_execution_assembly_payload,
+            current_turn_context=current_turn_context,
+        )
         if current_turn_context:
             current_turn_event = self.event_log.append(
                 state.task_run_id,
@@ -1012,6 +1155,7 @@ class TaskRunLoop:
                 payload={
                     "current_turn_context": current_turn_context,
                     "execution_mode": str(current_turn_context.get("execution_mode") or ""),
+                    "stream_policy": model_stream_policy,
                     "bundle_id": str(current_turn_context.get("bundle_id") or ""),
                     "bundle_item_count": len(list(current_turn_context.get("bundle_items") or [])),
                     "followup_target_count": len(list(current_turn_context.get("followup_target_refs") or [])),
@@ -1486,6 +1630,7 @@ class TaskRunLoop:
                 model_messages=list(context_snapshot.model_messages),
                 directive=directive,
                 tool_instances=runtime_tool_instances,
+                model_stream_policy=model_stream_policy,
             ):
                 if event.get("type") == "tool_call_requested":
                     tool_call = dict(event.get("tool_call") or {})
@@ -1863,6 +2008,7 @@ class TaskRunLoop:
                 model_messages=followup_messages,
                 directive=directive,
                 tool_instances=runtime_tool_instances,
+                model_stream_policy=model_stream_policy,
             ):
                 if event.get("type") == "tool_call_requested":
                     tool_call = dict(event.get("tool_call") or {})
@@ -2231,6 +2377,7 @@ class TaskRunLoop:
         artifact_validation = _validate_required_artifact_file(
             root_dir=self.root_dir,
             selected_recipe_payload=selected_recipe_payload,
+            artifact_policy=artifact_policy_for_validation,
             final_content=final_content,
             result_refs=tuple(result_refs),
             event_log_events=[item.to_dict() for item in self.event_log.list_events(state.task_run_id)],
@@ -2283,6 +2430,7 @@ class TaskRunLoop:
                     model_messages=repair_messages,
                     directive=directive,
                     tool_instances=repair_tool_instances,
+                    model_stream_policy=model_stream_policy,
                 ):
                     if event.get("type") == "tool_call_requested":
                         tool_call = dict(event.get("tool_call") or {})
@@ -2411,6 +2559,7 @@ class TaskRunLoop:
                 artifact_validation = _validate_required_artifact_file(
                     root_dir=self.root_dir,
                     selected_recipe_payload=selected_recipe_payload,
+                    artifact_policy=artifact_policy_for_validation,
                     final_content=final_content,
                     result_refs=tuple(result_refs),
                     event_log_events=[item.to_dict() for item in self.event_log.list_events(state.task_run_id)],
@@ -3082,14 +3231,26 @@ class TaskRunLoop:
             ).strip()
             if self.langgraph_coordination_runtime.supports(target_coordination_run):
                 raw_flow_state = dict(target_coordination_run.diagnostics.get("coordination_flow") or {})
-                current_stage_id = str(raw_flow_state.get("current_stage_id") or "").strip()
-                if not current_stage_id:
-                    current_stage_id = self._stage_id_for_task_ref(
-                        coordination_task=graph_record,
-                        task_ref=task_contract_ref or start_task_run.task_id,
-                    )
-                all_output_refs = self._collect_task_result_output_refs(dict(task_result or {}))
                 current_stage_request = dict(dict(current_turn_context or {}).get("stage_execution_request") or {})
+                request_stage_id = str(current_stage_request.get("stage_id") or "").strip()
+                flow_stage_id = str(raw_flow_state.get("current_stage_id") or "").strip()
+                resolved_stage_id = self._stage_id_for_task_ref(
+                    coordination_task=graph_record,
+                    task_ref=task_contract_ref or start_task_run.task_id,
+                )
+                current_stage_id = request_stage_id or resolved_stage_id or flow_stage_id
+                if (
+                    request_stage_id
+                    and flow_stage_id
+                    and request_stage_id != flow_stage_id
+                ):
+                    terminal_state.diagnostics["coordination_flow_stage_repaired"] = {
+                        "request_stage_id": request_stage_id,
+                        "stale_flow_stage_id": flow_stage_id,
+                        "resolved_stage_id": resolved_stage_id,
+                        "authority": "orchestration.task_run_loop",
+                    }
+                all_output_refs = self._collect_task_result_output_refs(dict(task_result or {}))
                 requires_file_artifact_refs = bool(
                     dict(current_stage_request.get("artifact_policy") or {}).get("enabled")
                     or current_stage_request.get("artifact_targets")
@@ -3100,6 +3261,21 @@ class TaskRunLoop:
                     if str(ref or "").startswith("artifact:")
                 ] if requires_file_artifact_refs else all_output_refs
                 task_result_ref = str(dict(task_result or {}).get("result_id") or agent_run_result.agent_run_result_id)
+                coordination_state_before_resume = self.langgraph_coordination_runtime.checkpoints.get_state(
+                    thread_id=target_coordination_run.coordination_run_id,
+                ) or {}
+                stage_contract = dict(
+                    dict(coordination_state_before_resume.get("stage_contracts") or {}).get(current_stage_id) or {}
+                )
+                stage_acceptance = _stage_business_acceptance(
+                    stage_id=current_stage_id,
+                    contract=stage_contract,
+                    explicit_inputs=dict(current_stage_request.get("explicit_inputs") or {}),
+                    final_content=final_content,
+                    output_refs=output_refs,
+                    terminal_status=terminal_state.status,
+                    requires_file_artifact_refs=requires_file_artifact_refs,
+                )
                 ready_event = TaskResultReadyEvent(
                     event_type="task_result_ready",
                     coordination_run_id=target_coordination_run.coordination_run_id,
@@ -3108,15 +3284,13 @@ class TaskRunLoop:
                     task_ref=task_contract_ref or start_task_run.task_id,
                     task_result_ref=task_result_ref,
                     artifact_refs=tuple(output_refs),
-                    accepted=terminal_state.status == "completed" and (bool(output_refs) if requires_file_artifact_refs else True),
+                    accepted=bool(stage_acceptance.get("accepted") is True),
                     agent_run_result_ref=agent_run_result.agent_run_result_id,
                     diagnostics={
                         "terminal_reason": terminal_state.terminal_reason,
                         "last_error": dict(terminal_state.diagnostics.get("last_error") or {}),
-                        "chapter_words": _count_longform_chapter_words(
-                            final_content,
-                            stage_id=current_stage_id,
-                        ),
+                        "content_metric_total": _count_text_units(final_content),
+                        "stage_business_acceptance": stage_acceptance,
                     },
                 )
                 artifact_root = self._artifact_root_from_context_or_events(
@@ -3162,6 +3336,24 @@ class TaskRunLoop:
                             "worker_spawn_summary": worker_spawn_summary,
                         },
                     )
+                )
+                refreshed_task_run = self.state_index.get_task_run(start_task_run.task_run_id) or start_task_run
+                refreshed_coordination_run = (
+                    self.state_index.get_coordination_run(target_coordination_run.coordination_run_id)
+                    or target_coordination_run
+                )
+                self._update_project_supervision_state(
+                    task_run=refreshed_task_run,
+                    coordination_run=refreshed_coordination_run,
+                    current_turn_context=dict(current_turn_context or {}),
+                    stage_id=current_stage_id,
+                    task_result=dict(task_result or {}),
+                    accepted=bool(ready_event.accepted),
+                    terminal_status=str(terminal_state.status or ""),
+                    terminal_reason=str(terminal_state.terminal_reason or ""),
+                    metric_value=int(dict(ready_event.diagnostics or {}).get("content_metric_total") or 0),
+                    coordination_state_before_resume=dict(runtime_result.state or coordination_state_before_resume or {}),
+                    artifact_root=artifact_root,
                 )
                 return FinishedTaskRunResult(events=tuple(events), continuation_payload=continuation_payload)
             raise RuntimeError(
@@ -3827,6 +4019,259 @@ class TaskRunLoop:
             if artifact_root.startswith(workspace_posix + "/"):
                 artifact_root = artifact_root[len(workspace_posix) + 1 :]
         return artifact_root
+
+    def _project_id_for_task_run(
+        self,
+        *,
+        task_run: TaskRun | None,
+        current_turn_context: dict[str, Any] | None = None,
+    ) -> str:
+        turn_inputs = dict(dict(current_turn_context or {}).get("explicit_inputs") or {})
+        if turn_inputs.get("project_id"):
+            return str(turn_inputs.get("project_id") or "").strip()
+        if task_run is not None:
+            diagnostics = dict(task_run.diagnostics or {})
+            if diagnostics.get("project_id"):
+                return str(diagnostics.get("project_id") or "").strip()
+            initial_inputs_ref = str(diagnostics.get("task_graph_initial_inputs_ref") or "").strip()
+            if initial_inputs_ref:
+                payload = dict(self.runtime_objects.get_object(initial_inputs_ref) or {})
+                initial_inputs = dict(payload.get("initial_inputs") or {})
+                if initial_inputs.get("project_id"):
+                    return str(initial_inputs.get("project_id") or "").strip()
+        return ""
+
+    @staticmethod
+    def _coordination_active_node_id(coordination_state: dict[str, Any] | None) -> str:
+        state = dict(coordination_state or {})
+        return str(state.get("active_stage_id") or state.get("active_node_id") or "").strip()
+
+    def _update_project_supervision_state(
+        self,
+        *,
+        task_run: TaskRun | None,
+        coordination_run: CoordinationRun | None,
+        current_turn_context: dict[str, Any] | None = None,
+        stage_id: str = "",
+        task_result: dict[str, Any] | None = None,
+        accepted: bool = False,
+        terminal_status: str = "",
+        terminal_reason: str = "",
+        metric_value: int = 0,
+        coordination_state_before_resume: dict[str, Any] | None = None,
+        artifact_root: str = "",
+    ) -> None:
+        if task_run is None:
+            return
+        project_id = self._project_id_for_task_run(task_run=task_run, current_turn_context=current_turn_context)
+        if not project_id:
+            return
+        current_turn_context = dict(current_turn_context or {})
+        explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
+        diagnostics = dict(task_run.diagnostics or {})
+        ledger = self.state_index.get_project_progress_ledger(project_id)
+        if ledger is None:
+            initial_inputs_ref = str(diagnostics.get("task_graph_initial_inputs_ref") or "").strip()
+            restored_inputs = {}
+            if initial_inputs_ref:
+                restored_inputs = dict(dict(self.runtime_objects.get_object(initial_inputs_ref) or {}).get("initial_inputs") or {})
+            normalized_inputs = ensure_project_runtime_inputs(
+                initial_inputs={**restored_inputs, **explicit_inputs},
+                graph_id=str(diagnostics.get("task_graph_id") or diagnostics.get("graph_ref") or ""),
+                session_id=task_run.session_id,
+            )
+            ledger = make_initial_project_ledger(
+                project_id=project_id,
+                session_id=task_run.session_id,
+                graph_id=str(diagnostics.get("task_graph_id") or diagnostics.get("graph_ref") or ""),
+                task_family=str(diagnostics.get("task_family") or ""),
+                project_title=str(normalized_inputs.get("project_title") or project_id),
+                metric_label=str(normalized_inputs.get("metric_label") or diagnostics.get("metric_label") or "units"),
+                target_metric_total=int(
+                    normalized_inputs.get("target_metric_total")
+                    or normalized_inputs.get("target_words")
+                    or diagnostics.get("target_metric_total")
+                    or diagnostics.get("target_words")
+                    or 0
+                ),
+                task_run_id=task_run.task_run_id,
+            )
+        coordination_state = dict(coordination_state_before_resume or {})
+        pending_inputs = dict(coordination_state.get("pending_inputs") or {})
+        stage_contract = dict(dict(coordination_state.get("stage_contracts") or {}).get(stage_id) or {})
+        progress_policy = dict(stage_contract.get("progress_commit_policy") or {})
+        if progress_policy.get("enabled") is True and accepted:
+            unit_index_key = str(progress_policy.get("unit_index_key") or "unit_index")
+            unit_start_key = str(progress_policy.get("unit_start_key") or unit_index_key)
+            unit_end_key = str(progress_policy.get("unit_end_key") or unit_start_key)
+            unit_count_key = str(progress_policy.get("unit_count_key") or "")
+            metric_value_key = str(progress_policy.get("metric_value_key") or "content_metric_total")
+            metric_target_key = str(progress_policy.get("metric_target_key") or "target_metric_total")
+            unit_index = int(
+                explicit_inputs.get(unit_index_key)
+                or pending_inputs.get(unit_index_key)
+                or 0
+            )
+            units_per_commit = max(
+                _safe_int(
+                    explicit_inputs.get(unit_count_key)
+                    or pending_inputs.get(unit_count_key)
+                    or 1
+                ),
+                1,
+            )
+            batch_start_index = _safe_int(
+                explicit_inputs.get(unit_start_key)
+                or pending_inputs.get(unit_start_key)
+                or unit_index
+                or 0
+            )
+            batch_end_index = _safe_int(
+                explicit_inputs.get(unit_end_key)
+                or pending_inputs.get(unit_end_key)
+                or (batch_start_index + units_per_commit - 1 if batch_start_index else 0)
+            )
+            resolved_metric = int(
+                metric_value
+                or pending_inputs.get(metric_value_key)
+                or dict(dict(coordination_state.get("diagnostics") or {}).get("runtime_loop") or {}).get(metric_value_key)
+                or explicit_inputs.get(metric_target_key)
+                or pending_inputs.get(metric_target_key)
+                or 0
+            )
+            result_payload = dict(task_result or {})
+            artifact_refs = self._collect_task_result_output_refs(result_payload)
+            unit_ref = next((ref for ref in artifact_refs if str(ref).startswith("artifact:")), "")
+            receipt_ref = str(result_payload.get("result_id") or f"{task_run.task_run_id}:{stage_id}:{unit_index}")
+            total_units = max(batch_end_index - batch_start_index + 1, 1)
+            per_unit_metric = max(int(resolved_metric / total_units), 0) if total_units > 1 else resolved_metric
+            remainder_metric = max(resolved_metric - (per_unit_metric * total_units), 0)
+            for offset, current_unit_index in enumerate(range(batch_start_index, batch_end_index + 1)):
+                if current_unit_index <= 0:
+                    continue
+                current_metric = per_unit_metric + (remainder_metric if offset == total_units - 1 else 0)
+                current_ref = f"{unit_ref}#unit_{current_unit_index:03d}" if unit_ref and total_units > 1 else unit_ref
+                current_receipt_ref = f"{receipt_ref}:unit_{current_unit_index:03d}" if total_units > 1 else receipt_ref
+                ledger = record_progress_unit_commit(
+                    ledger,
+                    task_run_id=task_run.task_run_id,
+                    unit_index=current_unit_index,
+                    unit_ref=current_ref,
+                    metric_value=current_metric,
+                    receipt_ref=current_receipt_ref,
+                )
+            self.state_index.upsert_supervision_record(
+                make_supervision_record(
+                    project_id=project_id,
+                    session_id=task_run.session_id,
+                    task_run_id=task_run.task_run_id,
+                    coordination_run_id=coordination_run.coordination_run_id if coordination_run is not None else "",
+                    issue_type="progress_unit_committed",
+                    issue_summary=(
+                        f"Progress unit batch {batch_start_index}-{batch_end_index} committed."
+                        if units_per_commit > 1
+                        else f"Progress unit {unit_index} committed."
+                    ),
+                    repair_result="progress_updated",
+                    followup_status="watching",
+                    diagnostics={
+                        "unit_index": unit_index,
+                        "batch_start_index": batch_start_index,
+                        "batch_end_index": batch_end_index,
+                        "units_per_commit": units_per_commit,
+                        "metric_value": resolved_metric,
+                        "unit_ref": unit_ref,
+                    },
+                )
+            )
+        if stage_id == "memory_finalize" and accepted:
+            ledger = record_delivery_state(
+                ledger,
+                task_run_id=task_run.task_run_id,
+                delivery_state="completed",
+            )
+        elif stage_id == "final_review" and accepted:
+            ledger = record_delivery_state(
+                ledger,
+                task_run_id=task_run.task_run_id,
+                delivery_state="delivery_ready",
+            )
+        if terminal_status in {"failed", "aborted"}:
+            failure = {
+                "terminal_status": terminal_status,
+                "terminal_reason": terminal_reason,
+                "stage_id": stage_id,
+                "task_run_id": task_run.task_run_id,
+            }
+            ledger = record_failure(
+                ledger,
+                task_run_id=task_run.task_run_id,
+                failure=failure,
+            )
+            self.state_index.upsert_supervision_record(
+                make_supervision_record(
+                    project_id=project_id,
+                    session_id=task_run.session_id,
+                    task_run_id=task_run.task_run_id,
+                    coordination_run_id=coordination_run.coordination_run_id if coordination_run is not None else "",
+                    issue_type="run_failed",
+                    issue_summary=str(terminal_reason or terminal_status or "Task run failed"),
+                    followup_status="needs_repair",
+                    diagnostics=failure,
+                )
+            )
+        elif accepted:
+            ledger = clear_recovered_failure(
+                ledger,
+                task_run_id=task_run.task_run_id,
+                stage_id=stage_id,
+            )
+        self.state_index.upsert_project_progress_ledger(ledger)
+        latest_event_at = float(task_run.updated_at or time.time())
+        coordination_active_status = str((coordination_run.status if coordination_run is not None else task_run.status) or "")
+        coordination_terminal_reason = ""
+        if coordination_run is not None:
+            flow = dict(dict(coordination_run.diagnostics or {}).get("coordination_flow") or {})
+            runtime_state = dict(dict(coordination_run.diagnostics or {}).get("langgraph_runtime_state") or {})
+            coordination_terminal = str(flow.get("terminal_status") or runtime_state.get("terminal_status") or "").strip()
+            if coordination_terminal == "completed":
+                coordination_active_status = "completed"
+                coordination_terminal_reason = "completed"
+            elif coordination_terminal in {"failed", "blocked"}:
+                coordination_active_status = "failed"
+                coordination_terminal_reason = coordination_terminal
+            elif coordination_terminal == "waiting_for_human":
+                coordination_active_status = "waiting"
+                coordination_terminal_reason = "waiting_for_human"
+            elif coordination_active_status in {"failed", "aborted"} and not coordination_terminal:
+                coordination_active_status = "running"
+        blocker = classify_blocker(
+            run_status=coordination_active_status,
+            terminal_reason=str(coordination_terminal_reason or terminal_reason or task_run.terminal_reason or ""),
+            active_node_id=self._coordination_active_node_id(coordination_state),
+            stage_execution_request=dict(coordination_state.get("stage_execution_request") or {}),
+            last_event_at=latest_event_at,
+            failure=ledger.last_failure,
+        )
+        recovery_state = dict(ledger.last_repair_action or {})
+        project_active_task_run_id = (
+            str(coordination_run.task_run_id or "")
+            if coordination_run is not None and str(coordination_run.task_run_id or "").strip()
+            else task_run.task_run_id
+        )
+        project_status = build_runtime_status(
+            ledger=ledger,
+            task_run_id=project_active_task_run_id,
+            coordination_run_id=coordination_run.coordination_run_id if coordination_run is not None else "",
+            active_run_status=coordination_active_status,
+            latest_artifact_root=str(artifact_root or dict(diagnostics.get("artifact_materialization") or {}).get("artifact_root") or ""),
+            latest_event_offset=int(task_run.latest_event_offset or 0),
+            latest_event_at=latest_event_at,
+            last_effective_output_at=float(task_run.updated_at or time.time()),
+            blocker=blocker,
+            recovery_state=recovery_state,
+        )
+        self.state_index.upsert_project_runtime_status(project_status)
 
     async def _continue_coordination_delivery_stream(
         self,
@@ -4613,6 +5058,46 @@ class TaskRunLoop:
                 refs={"operation_id": str(gate.get("operation_id") or "")},
                 )
             ]
+        if event_type == "content_delta":
+            delta_text = str(event.get("content") or "")
+            preview_limit = 400
+            delta_preview = delta_text if len(delta_text) <= preview_limit else delta_text[:preview_limit]
+            return [
+                self.event_log.append(
+                    task_run_id,
+                    "model_item_received",
+                    payload={
+                        "stream_ref": str(event.get("stream_ref") or ""),
+                        "delta_index": int(event.get("delta_index") or 0),
+                        "delta_chars": int(event.get("delta_chars") or len(delta_text)),
+                        "accumulated_chars": int(event.get("accumulated_chars") or len(delta_text)),
+                        "delta_preview": delta_preview,
+                        "is_final_chunk": bool(event.get("is_final_chunk") is True),
+                    },
+                    refs={
+                        "directive_ref": str(event.get("stream_ref") or ""),
+                    },
+                )
+            ]
+        if event_type == "stream_recovery":
+            return [
+                self.event_log.append(
+                    task_run_id,
+                    "model_stream_recovery",
+                    payload={
+                        "status": str(event.get("status") or ""),
+                        "reason": str(event.get("reason") or ""),
+                        "code": str(event.get("code") or ""),
+                        "provider": str(event.get("provider") or ""),
+                        "model": str(event.get("model") or ""),
+                        "detail": str(event.get("detail") or ""),
+                        "partial_delta_count": int(event.get("partial_delta_count") or 0),
+                    },
+                    refs={
+                        "directive_ref": str(event.get("directive_ref") or ""),
+                    },
+                )
+            ]
         if event_type == "answer_candidate":
             observation = build_model_response_observation(task_run_id, event)
             context_record = runtime_context_manager.record_observation(observation)
@@ -5380,10 +5865,12 @@ def _validate_required_artifact_file(
     *,
     root_dir: Path,
     selected_recipe_payload: dict[str, Any],
+    artifact_policy: dict[str, Any] | None = None,
     final_content: str,
     result_refs: tuple[str, ...],
     event_log_events: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    artifact_policy_payload = dict(artifact_policy or {})
     rules = [
         dict(item)
         for item in list(selected_recipe_payload.get("validation_rules") or [])
@@ -5391,6 +5878,22 @@ def _validate_required_artifact_file(
         and str(dict(item).get("severity") or "") == "error"
     ]
     if not rules:
+        if _artifact_policy_requires_materialized_content(artifact_policy_payload):
+            target_paths = _artifact_policy_target_paths(artifact_policy_payload)
+            has_content = bool(str(final_content or "").strip())
+            return {
+                "passed": has_content,
+                "required": True,
+                "reason": (
+                    "required artifact policy has final content for materialization"
+                    if has_content
+                    else "artifact_policy requires a final_content artifact but the model returned empty content"
+                ),
+                "source": "task_graph_artifact_policy",
+                "artifact_targets": target_paths,
+                "final_content_chars": len(str(final_content or "")),
+                "result_ref_count": len(result_refs),
+            }
         return {
             "passed": True,
             "required": False,
@@ -5421,6 +5924,36 @@ def _requires_write_file_artifact(selected_recipe_payload: dict[str, Any]) -> bo
         for item in list(selected_recipe_payload.get("validation_rules") or [])
         if isinstance(item, dict)
     )
+
+
+def _artifact_policy_requires_materialized_content(policy: dict[str, Any]) -> bool:
+    artifact_policy = dict(policy or {})
+    if not artifact_policy:
+        return False
+    if artifact_policy.get("enabled") is False:
+        return False
+    specs = [dict(item) for item in list(artifact_policy.get("artifacts") or []) if isinstance(item, dict)]
+    if specs:
+        return any(dict(item).get("required", True) is not False for item in specs)
+    if artifact_policy.get("required") is False:
+        return False
+    return bool(str(artifact_policy.get("artifact_target") or artifact_policy.get("output_path") or "").strip())
+
+
+def _artifact_policy_target_paths(policy: dict[str, Any]) -> list[str]:
+    artifact_policy = dict(policy or {})
+    targets: list[str] = []
+    for item in list(artifact_policy.get("artifacts") or []):
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "").strip()
+        if path and path not in targets:
+            targets.append(path)
+    for key in ("artifact_target", "output_path"):
+        path = str(artifact_policy.get(key) or "").strip()
+        if path and path not in targets:
+            targets.append(path)
+    return targets
 
 
 def _build_required_artifact_write_messages(
@@ -5773,9 +6306,6 @@ def _explicit_project_brief(explicit_inputs: dict[str, Any]) -> str:
     ).strip()
     if constraints:
         parts.append(constraints)
-    requested_batch = str(explicit_inputs.get("requested_batch") or "").strip()
-    if requested_batch:
-        parts.append(f"批次目标：{requested_batch}")
     execution_policy = str(explicit_inputs.get("execution_policy") or "").strip()
     if execution_policy:
         parts.append(f"执行边界：{execution_policy}")
@@ -6705,6 +7235,13 @@ def _runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec 
             communication_modes=tuple(str(item) for item in list(payload.get("communication_modes") or []) if str(item)),
             start_node_ids=tuple(str(item) for item in list(payload.get("start_node_ids") or []) if str(item)),
             terminal_node_ids=tuple(str(item) for item in list(payload.get("terminal_node_ids") or []) if str(item)),
+            resource_nodes=_dict_tuple(payload.get("resource_nodes")),
+            temporal_edges=_dict_tuple(payload.get("temporal_edges")),
+            memory_edges=_dict_tuple(payload.get("memory_edges")),
+            artifact_context_edges=_dict_tuple(payload.get("artifact_context_edges")),
+            revision_edges=_dict_tuple(payload.get("revision_edges")),
+            loop_frames=_dict_tuple(payload.get("loop_frames")),
+            memory_matrix=dict(payload.get("memory_matrix") or {}),
             diagnostics=dict(payload.get("diagnostics") or {}),
         )
     except (TypeError, ValueError):
@@ -6722,6 +7259,10 @@ def _dispatch_nodes_from_payload(graph_payload: dict[str, Any], topology_templat
         if nodes:
             return nodes
     return []
+
+
+def _dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:
+    return tuple(dict(item) for item in list(value or []) if isinstance(item, dict))
 
 
 def _dispatch_edges_from_payload(graph_payload: dict[str, Any], topology_template_payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -6744,6 +7285,64 @@ def _working_memory_root_for_loop(root_dir: Path) -> Path:
     return runtime_root / "working_memory"
 
 
+def _model_stream_policy_from_task_execution_assembly(
+    task_execution_assembly: dict[str, Any],
+    *,
+    current_turn_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    assembly_payload = dict(task_execution_assembly or {})
+    assembly_metadata = dict(assembly_payload.get("metadata") or {})
+    assembly_diagnostics = dict(assembly_payload.get("diagnostics") or {})
+    turn_context = dict(current_turn_context or {})
+    stage_request = dict(turn_context.get("stage_execution_request") or {})
+    policy: dict[str, Any] = {}
+    for candidate in (
+        assembly_metadata.get("stream_policy"),
+        assembly_diagnostics.get("stream_policy"),
+        stage_request.get("stream_policy"),
+        turn_context.get("stream_policy"),
+    ):
+        candidate_dict = dict(candidate or {})
+        if candidate_dict:
+            policy = {**policy, **candidate_dict}
+    return {
+        "enabled": bool(policy.get("enabled") is True),
+        "mode": str(policy.get("mode") or "disabled"),
+        "monitor_visibility": str(policy.get("monitor_visibility") or "none"),
+        "chunk_event_type": str(policy.get("chunk_event_type") or ""),
+        "emit_text_preview": bool(policy.get("emit_text_preview") is True),
+        "preview_char_limit": _safe_int(policy.get("preview_char_limit")),
+        "persist_full_stream_text": bool(policy.get("persist_full_stream_text") is True),
+        "fallback_to_non_stream_on_error": bool(policy.get("fallback_to_non_stream_on_error", True) is not False),
+        "authority": "orchestration.task_stream_policy",
+    }
+
+
+def _artifact_policy_from_task_execution_assembly(
+    *,
+    selected_recipe_payload: dict[str, Any],
+    task_execution_assembly: dict[str, Any],
+    current_turn_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    assembly_payload = dict(task_execution_assembly or {})
+    assembly_metadata = dict(assembly_payload.get("metadata") or {})
+    assembly_diagnostics = dict(assembly_payload.get("diagnostics") or {})
+    turn_context = dict(current_turn_context or {})
+    stage_request = dict(turn_context.get("stage_execution_request") or {})
+    policy: dict[str, Any] = {}
+    for candidate in (
+        selected_recipe_payload.get("artifact_policy"),
+        assembly_metadata.get("artifact_policy"),
+        assembly_diagnostics.get("artifact_policy"),
+        stage_request.get("artifact_policy"),
+        turn_context.get("artifact_policy"),
+    ):
+        candidate_dict = dict(candidate or {})
+        if candidate_dict:
+            policy = {**policy, **candidate_dict}
+    return policy
+
+
 def _safe_int(value: Any) -> int:
     try:
         return int(value or 0)
@@ -6751,15 +7350,249 @@ def _safe_int(value: Any) -> int:
         return 0
 
 
-def _count_longform_chapter_words(content: str, *, stage_id: str = "") -> int:
-    if str(stage_id or "").strip() not in {"chapter_draft", "revision_editor", "style_editor"}:
-        return 0
+def _count_text_units(content: str) -> int:
     text = str(content or "").strip()
     if not text:
         return 0
     cjk_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
     latin_words = len(re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?", text))
     return cjk_chars + latin_words
+
+
+def _stage_business_acceptance(
+    *,
+    stage_id: str,
+    contract: dict[str, Any],
+    explicit_inputs: dict[str, Any] | None = None,
+    final_content: str,
+    output_refs: list[str],
+    terminal_status: str,
+    requires_file_artifact_refs: bool,
+) -> dict[str, Any]:
+    artifact_ok = bool(output_refs) if requires_file_artifact_refs else True
+    base_accepted = str(terminal_status or "") == "completed" and artifact_ok
+    quality_policy = dict(contract.get("quality_retry_policy") or {})
+    accepted_policies = {str(item) for item in list(quality_policy.get("acceptance_policies") or []) if str(item)}
+    if "sectioned_text_batch_quality" in accepted_policies:
+        content_quality = _sectioned_text_batch_quality_gate(
+            final_content,
+            explicit_inputs=dict(explicit_inputs or {}),
+            policy=quality_policy,
+        )
+        return {
+            "accepted": bool(base_accepted and content_quality["accepted"]),
+            "base_accepted": base_accepted,
+            "business_accepted": bool(content_quality["accepted"]),
+            "artifact_ok": artifact_ok,
+            "stage_id": stage_id,
+            "policy": "sectioned_text_batch_quality",
+            **content_quality,
+            "authority": "orchestration.stage_business_acceptance",
+        }
+    node_type = str(contract.get("node_type") or "").strip()
+    review_policy = dict(contract.get("review_gate_policy") or {})
+    gate_policy = str(contract.get("gate_policy") or "").strip()
+    is_review_gate = node_type == "review_gate" or gate_policy == "review_gate" or bool(review_policy)
+    if not is_review_gate:
+        return {
+            "accepted": base_accepted,
+            "base_accepted": base_accepted,
+            "artifact_ok": artifact_ok,
+            "stage_id": stage_id,
+            "policy": "technical_completion",
+            "authority": "orchestration.stage_business_acceptance",
+        }
+    verdict = _extract_review_verdict(final_content)
+    allowed_to_commit = _extract_review_commit_permission(final_content)
+    if verdict in {"pass", "pass_with_notes"}:
+        business_accepted = True
+    elif verdict in {"revise", "revise_volume", "revise_extension", "repair_canon", "fail_closed", "human_review_required", "reject", "blocker_found"}:
+        business_accepted = False
+    elif allowed_to_commit is not None:
+        business_accepted = allowed_to_commit
+    else:
+        business_accepted = False
+    return {
+        "accepted": bool(base_accepted and business_accepted),
+        "base_accepted": base_accepted,
+        "business_accepted": business_accepted,
+        "artifact_ok": artifact_ok,
+        "stage_id": stage_id,
+        "policy": "review_gate_verdict",
+        "verdict": verdict,
+        "allowed_to_commit": allowed_to_commit,
+        "authority": "orchestration.stage_business_acceptance",
+    }
+
+
+def _extract_review_verdict(content: str) -> str:
+    text = str(content or "").strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    explicit_verdict = _extract_explicit_review_verdict(text)
+    if explicit_verdict:
+        return explicit_verdict
+    if "不允许写入" in text or "不允许批次写入" in text or "必须等正文" in text:
+        return "revise"
+    if "允许批次写入记忆：否" in text or "是否允许批次写入记忆：否" in text:
+        return "revise"
+    if re.search(r"\bfail[_ -]?closed\b", lowered):
+        return "fail_closed"
+    for verdict in ("repair_canon", "revise_volume", "revise_extension", "blocker_found", "reject", "human_review_required", "pass_with_notes"):
+        if verdict in lowered:
+            return "pass_with_notes" if verdict == "pass_with_notes" else ("revise" if verdict in {"repair_canon", "revise_volume", "revise_extension", "blocker_found", "reject"} else verdict)
+    return ""
+
+
+def _extract_explicit_review_verdict(text: str) -> str:
+    verdict_map = {
+        "pass": "pass",
+        "approved": "pass",
+        "approve": "pass",
+        "通过": "pass",
+        "同意": "pass",
+        "revise": "revise",
+        "pass_with_notes": "pass",
+        "revision required": "revise",
+        "修订": "revise",
+        "修改": "revise",
+        "返工": "revise",
+        "不通过": "revise",
+        "repair_canon": "revise",
+        "revise_volume": "revise",
+        "revise_extension": "revise",
+        "blocker_found": "revise",
+        "reject": "revise",
+        "human_review_required": "human_review_required",
+        "fail_closed": "fail_closed",
+    }
+    patterns = (
+        r"^\s*[【\[]?\s*(?:裁决|结论|verdict)\s*[】\]]?\s*[:：-]?\s*([^\n\r]+)",
+        r"^\s*(?:裁决|结论|verdict)\s*[:：-]\s*([^\n\r]+)",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, re.IGNORECASE | re.MULTILINE):
+            value = str(match.group(1) or "").strip().lower()
+            for token, verdict in verdict_map.items():
+                if token in value:
+                    return verdict
+    return ""
+
+
+def _extract_review_commit_permission(content: str) -> bool | None:
+    text = str(content or "")
+    if not text.strip():
+        return None
+    if re.search(r"是否允许批次写入记忆\s*[:：]\s*(是|允许|yes|true|pass)", text, re.IGNORECASE):
+        return True
+    if re.search(r"是否允许批次写入记忆\s*[:：]\s*(否|不允许|no|false)", text, re.IGNORECASE):
+        return False
+    if "不允许写入" in text or "不允许批次写入" in text:
+        return False
+    if "允许批次写入记忆" in text and "否" not in text:
+        return True
+    return None
+
+
+def _sectioned_text_batch_quality_gate(
+    content: str,
+    *,
+    explicit_inputs: dict[str, Any],
+    policy: dict[str, Any],
+) -> dict[str, Any]:
+    text = str(content or "").strip()
+    content_metric_total = _count_text_units(text)
+    unit_count_key = str(policy.get("unit_count_key") or "unit_count")
+    unit_start_key = str(policy.get("unit_start_key") or "unit_start_index")
+    unit_end_key = str(policy.get("unit_end_key") or "unit_end_index")
+    unit_index_key = str(policy.get("unit_index_key") or unit_start_key)
+    target_metric_key = str(policy.get("target_metric_key") or "target_metric_total")
+    unit_target_metric_key = str(policy.get("unit_target_metric_key") or "")
+    units_per_batch = max(
+        _safe_int(explicit_inputs.get(unit_count_key)) or 1,
+        1,
+    )
+    start_index = _safe_int(explicit_inputs.get(unit_start_key) or explicit_inputs.get(unit_index_key)) or 1
+    end_index = _safe_int(explicit_inputs.get(unit_end_key)) or (start_index + units_per_batch - 1)
+    expected_indexes = list(range(start_index, end_index + 1)) if end_index >= start_index else [start_index]
+    heading_patterns = tuple(str(item).strip() for item in list(policy.get("required_heading_patterns") or []) if str(item).strip())
+    found_indexes = _extract_indexed_markers(text, heading_patterns)
+    missing_indexes = [index for index in expected_indexes if index not in found_indexes] if heading_patterns else []
+    target_metric_total = _safe_int(explicit_inputs.get(target_metric_key)) or (
+        (_safe_int(explicit_inputs.get(unit_target_metric_key)) or 0) * units_per_batch
+    )
+    min_ratio = float(policy.get("minimum_metric_ratio") or 0.0)
+    min_per_unit = _safe_int(policy.get("minimum_metric_per_unit"))
+    min_metric_total = max(min_per_unit * units_per_batch, int(target_metric_total * min_ratio))
+    refusal_markers = tuple(str(item) for item in list(policy.get("refusal_markers") or [])) or (
+        "抱歉，我无法",
+        "无法执行这个请求",
+        "请先提供",
+        "缺少前置资产",
+        "我没有读取到",
+        "当前可推进步骤",
+        "不能直接产出",
+    )
+    refusal_detected = any(marker in text for marker in refusal_markers)
+    issues: list[str] = []
+    if not text:
+        issues.append("empty_content")
+    if refusal_detected:
+        issues.append("refusal_or_process_text_detected")
+    if min_metric_total > 0 and content_metric_total < min_metric_total:
+        issues.append(f"insufficient_metric:{content_metric_total}<{min_metric_total}")
+    if missing_indexes:
+        issues.append("missing_required_sections:" + ",".join(str(index) for index in missing_indexes))
+    return {
+        "accepted": not issues,
+        "content_metric_total": content_metric_total,
+        "min_required_metric_total": min_metric_total,
+        "expected_unit_indexes": expected_indexes,
+        "found_unit_indexes": sorted(found_indexes),
+        "missing_unit_indexes": missing_indexes,
+        "issues": issues,
+    }
+
+
+def _extract_indexed_markers(content: str, patterns: tuple[str, ...]) -> set[int]:
+    indexes: set[int] = set()
+    for pattern in patterns:
+        try:
+            matches = list(re.finditer(pattern, str(content or ""), flags=re.MULTILINE))
+        except re.error:
+            continue
+        for match in matches:
+            value = ""
+            if "index" in match.groupdict():
+                value = str(match.groupdict().get("index") or "")
+            elif match.groups():
+                value = str(match.group(1) or "")
+            parsed = _parse_index_number(value)
+            if parsed > 0:
+                indexes.add(parsed)
+    return indexes
+
+
+def _parse_index_number(value: str) -> int:
+    raw = str(value or "").strip()
+    if not raw:
+        return 0
+    if raw.isdigit():
+        return int(raw)
+    digits = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+    total = 0
+    current = 0
+    for char in raw:
+        if char in digits:
+            current = digits[char]
+        elif char == "十":
+            total += (current or 1) * 10
+            current = 0
+        elif char == "百":
+            total += (current or 1) * 100
+            current = 0
+    return total + current
 
 
 def _match_bundle_ordinal_for_tool_observation(

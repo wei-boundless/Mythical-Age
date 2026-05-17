@@ -14,9 +14,9 @@ def test_candidates_are_collected_but_not_promoted_to_directives() -> None:
     candidates = CandidateSet()
     candidates.add(
         CandidateEnvelope(
-            candidate_id="legacy:planner:1",
-            producer="query.planner",
-            candidate_type="legacy_plan",
+            candidate_id="candidate:planner:1",
+            producer="intent.planner",
+            candidate_type="route_plan",
             payload={"route": "mcp", "mcp": "pdf"},
             confidence=0.8,
         )
@@ -38,8 +38,8 @@ def test_candidate_envelope_rejects_decision_authority() -> None:
     try:
         CandidateEnvelope(
             candidate_id="bad",
-            producer="legacy",
-            candidate_type="legacy_plan",
+            producer="intent.planner",
+            candidate_type="route_plan",
             authority="decision",  # type: ignore[arg-type]
         )
     except ValueError as exc:

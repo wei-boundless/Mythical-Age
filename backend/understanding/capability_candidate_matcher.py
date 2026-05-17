@@ -120,7 +120,7 @@ def build_capability_resolution(
     }
     diagnostics = {
         "candidate_count": len(candidates),
-        "selection_source": "legacy_route_hint",
+        "selection_source": "route_hint",
     }
     if execution_posture == "direct_rag" and preferred_skill:
         selected = _find_candidate(candidates, candidate_type="skill", name=preferred_skill)
@@ -329,7 +329,7 @@ def _build_tool_candidates(
         has_structural_signal = False
         if tool.name in explicit_tool_names:
             score += 100.0
-            reasons.append("legacy_candidate_tools")
+            reasons.append("explicit_candidate_tools")
             has_structural_signal = True
         overlap = requested & {str(item or "").strip().lower() for item in tool.capability_tags}
         if overlap:

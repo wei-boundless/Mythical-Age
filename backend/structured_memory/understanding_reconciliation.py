@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from understanding.capability_resolution_view import capability_resolution_view
-from .dialogue_state import DialogueState
+from .process_state import DialogueState
 from .turn_understanding import TurnUnderstandingSnapshot
 
 

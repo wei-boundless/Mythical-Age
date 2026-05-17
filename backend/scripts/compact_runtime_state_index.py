@@ -70,10 +70,10 @@ def compact_runtime_state_index(root_dir: Path, *, dry_run: bool = False) -> dic
     }
     timestamp = time.strftime("%Y%m%d-%H%M%S")
     backup = root_dir / f"state_index.json.bak.{timestamp}"
-    legacy_source = state_index.index_path
+    monolithic_source = state_index.index_path
     shard_source = state_index.index_dir
-    if legacy_source.exists():
-        shutil.copy2(legacy_source, backup)
+    if monolithic_source.exists():
+        shutil.copy2(monolithic_source, backup)
         report["backup_path"] = str(backup)
     elif shard_source.exists():
         shard_backup = root_dir / f"state_index.pre_compaction.{timestamp}"

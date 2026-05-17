@@ -16,6 +16,7 @@ export type CoordinationTopologyEdge = {
   from: string;
   to: string;
   label?: string;
+  edgeKind?: string;
   status?: string;
 };
 
@@ -138,6 +139,10 @@ function statusLabel(status = "") {
     return "待执行";
   }
   return status || "待执行";
+}
+
+function classToken(value = "") {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "_") || "default";
 }
 
 export function buildCoordinationTopologyLayout(
@@ -437,10 +442,11 @@ export function CoordinationTopologyGraph({
       <g>
         {topology.edges.map((edge) => {
           const selected = edge.id === selectedEdgeId || selectedEdgeIds.includes(edge.id);
+          const edgeKindClass = `coordination-topology-edge--${classToken(edge.edgeKind)}`;
           return (
             <g key={edge.id}>
               <path
-                className={`coordination-topology-edge ${statusClass(edge.status)} ${edge.current ? "is-current" : ""} ${selected ? "is-selected" : ""}`}
+                className={`coordination-topology-edge ${edgeKindClass} ${statusClass(edge.status)} ${edge.current ? "is-current" : ""} ${selected ? "is-selected" : ""}`}
                 d={edge.path}
                 onClick={(event) => onSelectEdge?.(edge.id, event)}
                 onContextMenu={(event) => {
@@ -450,7 +456,7 @@ export function CoordinationTopologyGraph({
                 }}
               />
               <path
-                className={`coordination-topology-edge-arrow ${statusClass(edge.status)} ${edge.current ? "is-current" : ""} ${selected ? "is-selected" : ""}`}
+                className={`coordination-topology-edge-arrow ${edgeKindClass} ${statusClass(edge.status)} ${edge.current ? "is-current" : ""} ${selected ? "is-selected" : ""}`}
                 d="M -4 -3 L 4 0 L -4 3 Z"
                 transform={`translate(${edge.arrowX}, ${edge.arrowY}) rotate(${edge.arrowRotation})`}
               />
@@ -477,8 +483,18 @@ export function CoordinationTopologyGraph({
           const selected = node.id === selectedNodeId || selectedNodeIds.includes(node.id);
           const linking = node.id === linkingFromNodeId;
           const clickable = Boolean(onSelectNode || onConnectNode);
-          const isMemoryNode = node.nodeKind === "memory" || node.role === "memory";
+          const nodeKind = classToken(String(node.nodeKind || node.role || "executor"));
+          const isBoxNode = ["memory", "artifact", "ledger", "manual_gate"].includes(nodeKind);
+          const isReviewNode = nodeKind === "review_gate";
+          const isLoopNode = nodeKind === "loop";
           const agentLabel = displayNodeAgentLabel(node);
+          const haloClassName = `coordination-topology-node-halo coordination-topology-node-halo--${nodeKind} ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`;
+          const surfaceClassName = `coordination-topology-node-surface coordination-topology-node-surface--${nodeKind} ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`;
+          const coreClassName = `coordination-topology-node-core coordination-topology-node-core--${nodeKind}`;
+          const haloBoxSize = haloRadius * 1.58;
+          const surfaceBoxSize = surfaceRadius * 1.66;
+          const loopHaloPath = `M ${-haloRadius * 0.86} 0 L ${-haloRadius * 0.42} ${-haloRadius * 0.74} L ${haloRadius * 0.42} ${-haloRadius * 0.74} L ${haloRadius * 0.86} 0 L ${haloRadius * 0.42} ${haloRadius * 0.74} L ${-haloRadius * 0.42} ${haloRadius * 0.74} Z`;
+          const loopSurfacePath = `M ${-surfaceRadius * 0.92} 0 L ${-surfaceRadius * 0.46} ${-surfaceRadius * 0.8} L ${surfaceRadius * 0.46} ${-surfaceRadius * 0.8} L ${surfaceRadius * 0.92} 0 L ${surfaceRadius * 0.46} ${surfaceRadius * 0.8} L ${-surfaceRadius * 0.46} ${surfaceRadius * 0.8} Z`;
           return (
             <g
               className={clickable ? "coordination-topology-node-group is-clickable" : "coordination-topology-node-group"}
@@ -500,38 +516,71 @@ export function CoordinationTopologyGraph({
               <text className={`coordination-topology-agent-label ${topology.compact ? "is-compact" : ""} ${current || selected || linking ? "is-current" : ""}`} textAnchor="middle" x="0" y={agentLabelY}>
                 {node.title}
               </text>
-              {isMemoryNode ? (
+              {isReviewNode ? (
                 <>
                   <rect
-                    className={`coordination-topology-node-halo coordination-topology-node-halo--memory ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`}
+                    className={haloClassName}
                     filter={current ? "url(#coordination-node-glow)" : undefined}
-                  height={haloRadius * 1.54}
-                  rx="6"
-                  width={haloRadius * 1.54}
-                  x={-haloRadius * 0.77}
-                  y={-haloRadius * 0.77}
+                    height={haloBoxSize}
+                    rx="4"
+                    transform="rotate(45)"
+                    width={haloBoxSize}
+                    x={-haloBoxSize / 2}
+                    y={-haloBoxSize / 2}
                   />
                   <rect
-                    className={`coordination-topology-node-surface coordination-topology-node-surface--memory ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`}
-                    height={surfaceRadius * 1.62}
-                    rx="5"
-                    width={surfaceRadius * 1.62}
-                    x={-surfaceRadius * 0.81}
-                    y={-surfaceRadius * 0.81}
+                    className={surfaceClassName}
+                    height={surfaceBoxSize}
+                    rx="3"
+                    transform="rotate(45)"
+                    width={surfaceBoxSize}
+                    x={-surfaceBoxSize / 2}
+                    y={-surfaceBoxSize / 2}
                   />
-                  <rect className="coordination-topology-node-core coordination-topology-node-core--memory" height={Math.max(8, surfaceRadius * 0.82)} rx="3" width={Math.max(8, surfaceRadius * 0.82)} x={-Math.max(8, surfaceRadius * 0.82) / 2} y={-Math.max(8, surfaceRadius * 0.82) / 2} />
+                  <rect className={coreClassName} height={Math.max(7, surfaceRadius * 0.62)} rx="2" transform="rotate(45)" width={Math.max(7, surfaceRadius * 0.62)} x={-Math.max(7, surfaceRadius * 0.62) / 2} y={-Math.max(7, surfaceRadius * 0.62) / 2} />
+                </>
+              ) : isLoopNode ? (
+                <>
+                  <path
+                    className={haloClassName}
+                    d={loopHaloPath}
+                    filter={current ? "url(#coordination-node-glow)" : undefined}
+                  />
+                  <path className={surfaceClassName} d={loopSurfacePath} />
+                  <circle className={coreClassName} cx="0" cy="0" r={Math.max(5, surfaceRadius * 0.36)} />
+                </>
+              ) : isBoxNode ? (
+                <>
+                  <rect
+                    className={haloClassName}
+                    filter={current ? "url(#coordination-node-glow)" : undefined}
+                  height={haloBoxSize}
+                  rx="6"
+                  width={haloBoxSize}
+                  x={-haloBoxSize / 2}
+                  y={-haloBoxSize / 2}
+                  />
+                  <rect
+                    className={surfaceClassName}
+                    height={surfaceBoxSize}
+                    rx="5"
+                    width={surfaceBoxSize}
+                    x={-surfaceBoxSize / 2}
+                    y={-surfaceBoxSize / 2}
+                  />
+                  <rect className={coreClassName} height={Math.max(8, surfaceRadius * 0.82)} rx="3" width={Math.max(8, surfaceRadius * 0.82)} x={-Math.max(8, surfaceRadius * 0.82) / 2} y={-Math.max(8, surfaceRadius * 0.82) / 2} />
                 </>
               ) : (
                 <>
                   <circle
-                    className={`coordination-topology-node-halo ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`}
+                    className={haloClassName}
                     cx="0"
                     cy="0"
                     filter={current ? "url(#coordination-node-glow)" : undefined}
                     r={haloRadius}
                   />
-                  <circle className={`coordination-topology-node-surface ${statusClass(node.status)} ${current ? "is-current" : ""} ${selected ? "is-selected" : ""} ${linking ? "is-linking" : ""}`} cx="0" cy="0" r={surfaceRadius} />
-                  <circle className="coordination-topology-node-core" cx="0" cy="0" r={Math.max(5, surfaceRadius * 0.42)} />
+                  <circle className={surfaceClassName} cx="0" cy="0" r={surfaceRadius} />
+                  <circle className={coreClassName} cx="0" cy="0" r={Math.max(5, surfaceRadius * 0.42)} />
                 </>
               )}
               <text className={`coordination-topology-node-glyph ${topology.compact ? "is-compact" : ""}`} textAnchor="middle" x="0" y={glyphY}>

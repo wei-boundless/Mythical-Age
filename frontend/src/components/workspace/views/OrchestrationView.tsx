@@ -551,7 +551,6 @@ export function OrchestrationView() {
     acc[group.category] = group.items.length;
     return acc;
   }, {});
-  const legacySystemKey = String(agentDraft.metadata?.system_key || "");
   const eligibilityChecks = [
     { label: "类别", value: CATEGORY_LABELS[agentDraft.agent_category as AgentCategory] ?? text(agentDraft.agent_category), ready: Boolean(agentDraft.agent_category) },
     { label: "允许操作", value: displayOptionList(allowedOps.slice(0, 4), runtimeOptionLabels), ready: Boolean(allowedOps.length) },
@@ -928,7 +927,6 @@ export function OrchestrationView() {
                   agentDraft={agentDraft}
                   agentMode={agentMode}
                   categoryLabels={CATEGORY_LABELS}
-                  legacySystemKey={legacySystemKey}
                   overlapOps={overlapOps}
                   patchAgentDraft={(patch) => setAgentDraft((current) => ({ ...current, ...patch }))}
                   profileMissing={profileMissing}

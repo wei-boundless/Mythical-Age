@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 import json
 from pathlib import Path
 
-from .dialogue_state import DialogueState
+from .process_state import DialogueState
 from .models import utc_now_iso
 from .text_utils import normalize_storage_text
 

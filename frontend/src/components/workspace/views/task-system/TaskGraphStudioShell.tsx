@@ -3,9 +3,52 @@
 import type { ReactNode } from "react";
 
 import { TaskGraphIssueBar } from "./TaskGraphIssueBar";
-import { TaskGraphLayerNav, type TaskGraphStudioLayerId } from "./TaskGraphLayerNav";
+import { TASK_GRAPH_STUDIO_LAYERS, TaskGraphLayerNav, type TaskGraphStudioLayerId } from "./TaskGraphLayerNav";
 import { TaskGraphTopBar } from "./TaskGraphTopBar";
 import type { TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
+
+const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: string; checkpoints: string[] }> = {
+  blueprint: {
+    title: "图级主控",
+    summary: "定义任务图身份、边界、入口出口和全局运行策略。",
+    checkpoints: ["入口/出口", "运行模式", "上下文策略"],
+  },
+  agents: {
+    title: "执行主体",
+    summary: "把节点绑定到 Agent、运行通道和职责角色。",
+    checkpoints: ["协调者", "参与者", "运行权限"],
+  },
+  topology: {
+    title: "执行拓扑",
+    summary: "编辑业务节点和交接边，决定任务如何从一个节点进入下一个节点。",
+    checkpoints: ["节点", "通信边", "画布结构"],
+  },
+  responsibility: {
+    title: "节点认知包",
+    summary: "把节点身份、输入包、输出契约和 Prompt 使用方式配成同一个执行视图。",
+    checkpoints: ["身份投影", "输入包", "输出交接"],
+  },
+  timeline: {
+    title: "时序系统",
+    summary: "配置阶段、循环框、并发组和审核回退；运行时由 TimelineLedger 分配 clock。",
+    checkpoints: ["阶段", "循环", "Clock 账本"],
+  },
+  memory: {
+    title: "确定性记忆",
+    summary: "用仓库 collection、读写边、selector 和 receipt 可见性控制节点上下文。",
+    checkpoints: ["仓库结构", "读写矩阵", "Snapshot"],
+  },
+  contracts: {
+    title: "质量边界",
+    summary: "管理输入输出契约、载荷契约、质量门和失败策略。",
+    checkpoints: ["输入输出", "审核门", "失败策略"],
+  },
+  publish: {
+    title: "发布闭环",
+    summary: "执行预检、保存、发布和运行绑定，确认配置能被 runtime 消费。",
+    checkpoints: ["预检", "发布", "运行"],
+  },
+};
 
 export function TaskGraphStudioShell({
   activeLayer,
@@ -42,6 +85,8 @@ export function TaskGraphStudioShell({
   title: string;
   valid: boolean;
 }) {
+  const activeLayerMeta = TASK_GRAPH_STUDIO_LAYERS.find((layer) => layer.id === activeLayer);
+  const layerContext = LAYER_CONTEXT[activeLayer];
   return (
     <section className="task-graph-studio-shell" aria-label="多 Agent 持续任务编排平台">
       <TaskGraphTopBar
@@ -60,7 +105,21 @@ export function TaskGraphStudioShell({
       />
       <div className="task-graph-studio-shell__body">
         <TaskGraphLayerNav activeLayer={activeLayer} onChange={onLayerChange} />
-        <main className="task-graph-studio-shell__page">{children}</main>
+        <main className="task-graph-studio-shell__page">
+          <section className="task-graph-layer-context" aria-label="当前编辑层级">
+            <div>
+              <span>{activeLayerMeta?.metric || "图层"}</span>
+              <strong>{layerContext.title}</strong>
+              <p>{layerContext.summary}</p>
+            </div>
+            <ul>
+              {layerContext.checkpoints.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </section>
+          {children}
+        </main>
       </div>
       <TaskGraphIssueBar dirty={dirty} issueCount={issueCount} publishState={publishState} valid={valid} />
     </section>

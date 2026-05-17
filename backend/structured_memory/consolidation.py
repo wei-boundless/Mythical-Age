@@ -64,6 +64,7 @@ class DurableMemoryConsolidator:
         self.manager = MemoryManager(self.root_dir)
 
     def run(self) -> ConsolidationReport:
+        self.manager._migrate_flat_layout()
         repair_payload = self.manager.repair_store()
         notes = self.manager.load_relevant_notes(limit=10_000)
 

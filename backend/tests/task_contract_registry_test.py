@@ -78,7 +78,7 @@ def test_contract_registry_rejects_invalid_contract_kind_and_missing_chinese_tit
             {
                 "contract_id": "contract.test.invalid",
                 "title_zh": "",
-                "contract_kind": "legacy_specific_contract",
+                "contract_kind": "obsolete_specific_contract",
             }
         )
 
@@ -156,7 +156,7 @@ def test_task_system_contract_upsert_returns_http_400_for_invalid_spec(tmp_path:
                     tasks_api.ContractSpecUpsertRequest(
                         contract_id="contract.test.invalid",
                         title_zh="无效契约",
-                        contract_kind="legacy_specific_contract",
+                        contract_kind="obsolete_specific_contract",
                     ),
                 )
             )

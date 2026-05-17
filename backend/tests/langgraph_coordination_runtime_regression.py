@@ -377,8 +377,11 @@ def test_langgraph_coordination_runtime_commits_working_memory_decisions(tmp_pat
     assert committed is not None
     assert committed.status == "accepted"
     operations = list(result.state.get("working_memory_operations") or [])
-    assert operations[-1]["operation"] == "memory_commit"
-    assert operations[-1]["accepted_working_memory_refs"] == [item.work_memory_id]
+    commit_operations = [item for item in operations if item.get("operation") == "memory_commit"]
+    assert commit_operations
+    assert commit_operations[-1]["accepted_working_memory_refs"] == [item.work_memory_id]
+    sequence_indexes = [int(item.get("sequence_index") or 0) for item in operations if isinstance(item, dict)]
+    assert sequence_indexes == sorted(sequence_indexes)
 
 
 def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> None:
@@ -446,6 +449,10 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
     assert result.stage_execution_request.a2a_payload["transport"] == "JSONRPC"
     assert result.stage_execution_request.a2a_payload["message"]["kind"] == "message"
     assert result.stage_execution_request.a2a_payload["message"]["metadata"]["target_stage_id"] == "novel_bible"
+    assert result.stage_execution_request.dispatch_context["dispatch_event_id"].startswith("tlevent:")
+    assert result.stage_execution_request.dispatch_context["clock_seq"] > 0
+    assert result.stage_execution_request.artifact_context_packet["artifact_refs"] == ["ref:project_spec"]
+    assert result.state["timeline"]["current_clock_seq"] >= result.stage_execution_request.dispatch_context["clock_seq"]
     continuation = result.continuation_payload(session_id="session")
     assert continuation["a2a_payload"]["message"]["metadata"]["target_task_ref"] == "task.test.novel_bible"
     assert continuation["current_turn_context"]["a2a_payload"]["message"]["metadata"]["target_stage_id"] == "novel_bible"

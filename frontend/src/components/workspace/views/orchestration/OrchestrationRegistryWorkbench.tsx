@@ -125,7 +125,6 @@ export function OrchestrationRegistryWorkbench({
   agentDeleteBlocked,
   projectionCards,
   soulSeeds,
-  legacySystemKey,
 }: {
   agentDraft: AgentDraftLike;
   patchAgentDraft: (patch: Partial<AgentDraftLike>) => void;
@@ -143,7 +142,6 @@ export function OrchestrationRegistryWorkbench({
   agentDeleteBlocked: boolean;
   projectionCards: SoulProjectionCard[];
   soulSeeds: SoulSystemSeed[];
-  legacySystemKey: string;
 }) {
   const selectedSoulProjectionCards = projectionCards.filter((card) => projectionBelongsToSoul(card, agentDraft.default_soul_id || ""));
 
@@ -260,7 +258,6 @@ export function OrchestrationRegistryWorkbench({
             允许编辑
           </label>
         </div>
-        {legacySystemKey ? <div className="boundary-legacy">legacy system_key：{legacySystemKey}</div> : null}
       </section>
     </>
   );

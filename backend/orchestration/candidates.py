@@ -9,7 +9,7 @@ CandidateAuthority = Literal["candidate_only"]
 
 @dataclass(slots=True, frozen=True)
 class CandidateEnvelope:
-    """Standard envelope for old planners, restore layers, memory, and follow-up signals."""
+    """Standard envelope for non-authoritative planning and recovery signals."""
 
     candidate_id: str
     producer: str
@@ -53,23 +53,3 @@ class CandidateSet:
 
     def to_list(self) -> list[dict[str, Any]]:
         return [item.to_dict() for item in self.candidates]
-
-
-def envelope_from_legacy_execution(
-    *,
-    candidate_id: str,
-    producer: str,
-    execution_snapshot: dict[str, Any],
-    confidence: float = 0.0,
-    reasons: tuple[str, ...] = (),
-) -> CandidateEnvelope:
-    return CandidateEnvelope(
-        candidate_id=candidate_id,
-        producer=producer,
-        candidate_type="legacy_execution",
-        payload=dict(execution_snapshot),
-        confidence=confidence,
-        reasons=reasons,
-        provenance={"source_contract": "legacy.QueryExecutionPlan"},
-        refs={"cutover_rule": "legacy execution may be selected only by ControlKernel"},
-    )

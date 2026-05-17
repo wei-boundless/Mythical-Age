@@ -7,6 +7,7 @@ from tasks.coordination_graph_compiler import compile_task_graph_definition_runt
 from tasks.flow_registry import TaskFlowRegistry
 from tasks.task_graph_models import task_graph_from_dict, validate_task_graph
 from orchestration.runtime_loop.continuation_policy import derive_stage_contracts_from_graph
+from orchestration.runtime_loop.langgraph_coordination_runtime import _runtime_spec_from_payload
 from orchestration.runtime_loop.task_graph_scheduler import bootstrap_scheduler_state
 
 
@@ -381,6 +382,9 @@ def test_task_graph_definition_compiles_direct_runtime_spec_with_policy_diagnost
     assert any(item["field"] == "phase_id" for item in scheduler_support["supported"])
     assert any(item["field"] == "sequence_index" for item in scheduler_support["supported"])
     assert any(issue.code == "scheduler_policy_partial" for issue in spec.issues)
+    layered = spec.diagnostics["layered_graph"]
+    assert layered["authority"] == "task_system.layered_graph_normalizer"
+    assert layered["summary"]["memory_edge_count"] == 1
 
 
 def test_task_graph_runtime_spec_reports_unsupported_scheduler_policy(tmp_path: Path) -> None:
@@ -423,6 +427,134 @@ def test_task_graph_runtime_spec_reports_unsupported_scheduler_policy(tmp_path: 
     supported_fields = {item["field"] for item in scheduler_support["supported"]}
     assert "wait_policy" in supported_fields
     assert any(issue.code == "scheduler_policy_unsupported" and issue.severity == "warning" for issue in spec.issues)
+
+
+def test_task_graph_runtime_spec_exposes_layered_graph_diagnostics(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.layered",
+        title="分层图编译验证",
+        graph_kind="coordination",
+        nodes=(
+            {
+                "node_id": "memory.requirements",
+                "node_type": "memory_repository",
+                "title": "需求记忆库",
+                "resource_lifecycle_policy": {
+                    "versioning": "append_version",
+                    "mutable": True,
+                    "write_owner_node_ids": ["commit"],
+                },
+                "metadata": {"collections": ["accepted_requirements"]},
+            },
+            {
+                "node_id": "draft",
+                "node_type": "agent",
+                "title": "起草",
+                "agent_id": "agent:writer",
+                "phase_id": "phase.write",
+                "sequence_index": 1,
+            },
+            {
+                "node_id": "review",
+                "node_type": "review_gate",
+                "title": "审核",
+                "agent_id": "agent:reviewer",
+                "phase_id": "phase.write",
+                "sequence_index": 2,
+                "review_gate_policy": {"is_review_gate": True},
+            },
+            {
+                "node_id": "commit",
+                "node_type": "agent",
+                "title": "提交",
+                "agent_id": "agent:memory",
+                "phase_id": "phase.commit",
+                "sequence_index": 1,
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "memory.read.draft",
+                "source_node_id": "memory.requirements",
+                "target_node_id": "draft",
+                "edge_type": "memory_read",
+                "metadata": {
+                    "repository": "memory.requirements",
+                    "collection": "accepted_requirements",
+                    "version_selector": "latest_committed_before_stage_start",
+                },
+            },
+            {
+                "edge_id": "draft.review.artifact",
+                "source_node_id": "draft",
+                "target_node_id": "review",
+                "edge_type": "artifact_context",
+                "artifact_ref_policy": {
+                    "source_output_key": "draft:artifact_refs",
+                    "target_input_key": "candidate_ref",
+                    "max_chars": 12000,
+                },
+                "metadata": {"context_mode": "expand_text_for_model"},
+            },
+            {
+                "edge_id": "review.draft.revision",
+                "source_node_id": "review",
+                "target_node_id": "draft",
+                "edge_type": "revision_request",
+                "metadata": {
+                    "trigger": {"verdict": "revise"},
+                    "carry": [
+                        {"source": "current_output", "target_input_key": "previous_review_ref"},
+                        {"source": "inherited_input", "target_input_key": "previous_candidate_ref"},
+                    ],
+                },
+            },
+            {
+                "edge_id": "commit.memory.write",
+                "source_node_id": "commit",
+                "target_node_id": "memory.requirements",
+                "edge_type": "memory_write",
+                "metadata": {
+                    "repository": "memory.requirements",
+                    "collection": "accepted_requirements",
+                    "effective_from": "next_stage",
+                },
+            },
+        ),
+    )
+
+    spec = compile_task_graph_definition_runtime_spec(graph=graph)
+    layered = spec.diagnostics["layered_graph"]
+
+    assert layered["authority"] == "task_system.layered_graph_normalizer"
+    assert layered["summary"]["resource_node_count"] == 1
+    assert layered["summary"]["memory_edge_count"] == 2
+    assert layered["summary"]["artifact_context_edge_count"] == 1
+    assert layered["summary"]["revision_edge_count"] == 1
+    assert layered["resource_nodes"][0]["node_id"] == "memory.requirements"
+    assert layered["resource_nodes"][0]["collections"] == ["accepted_requirements"]
+    assert layered["memory_edges"][0]["memory_edge_type"] == "read"
+    assert layered["artifact_context_edges"][0]["context_mode"] == "expand_text_for_model"
+    assert layered["revision_edges"][0]["carry"]
+    assert spec.resource_nodes[0]["node_id"] == "memory.requirements"
+    assert spec.memory_edges[0]["memory_edge_type"] == "read"
+    assert spec.artifact_context_edges[0]["context_mode"] == "expand_text_for_model"
+    assert spec.revision_edges[0]["edge_id"] == "review.draft.revision"
+    assert spec.memory_matrix["authority"] == "task_system.timeline_memory_matrix"
+    restored = _runtime_spec_from_payload(spec.to_dict())
+    assert restored is not None
+    assert restored.resource_nodes == spec.resource_nodes
+    assert restored.memory_edges == spec.memory_edges
+    assert restored.artifact_context_edges == spec.artifact_context_edges
+    assert restored.revision_edges == spec.revision_edges
+    assert any(
+        cell["phase_id"] == "phase.write"
+        and cell["resource_node_id"] == "memory.requirements"
+        and "read" in cell["operations"]
+        for cell in layered["memory_matrix"]["cells"]
+    )
+    assert not any(issue.code.startswith("layered_graph_") and issue.severity == "error" for issue in spec.issues)
 
 
 def test_task_graph_feedback_edge_does_not_block_initial_forward_stage(tmp_path: Path) -> None:

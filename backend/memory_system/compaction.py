@@ -39,6 +39,5 @@ def build_memory_compaction_result(
             "history_count": int(history_count or 0),
             "context_candidate_count": int(context_candidate_count or 0),
             "restore_candidate_count": int(restore_candidate_count or 0),
-            "legacy_compactor_used": False,
         },
     )

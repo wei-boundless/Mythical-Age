@@ -166,6 +166,22 @@ def test_model_runtime_maps_timeout_errors(monkeypatch: pytest.MonkeyPatch) -> N
     assert exc_info.value.retryable is True
 
 
+def test_model_runtime_maps_read_errors_as_retryable_transport() -> None:
+    runtime = _runtime(retries=0)
+    error = runtime._map_error(
+        RuntimeError("ReadError: peer closed connection during stream"),
+        ModelSpec(
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            api_key="deepseek-key",
+            base_url="https://api.deepseek.com",
+        ),
+    )
+
+    assert error.code == "provider_unavailable"
+    assert error.retryable is True
+
+
 def test_model_runtime_uses_long_output_timeout_for_large_invoke(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = _runtime(
         timeout=0.01,

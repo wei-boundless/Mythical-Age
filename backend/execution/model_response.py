@@ -25,6 +25,7 @@ class ModelResponseRuntimeExecutor:
         model_messages: list[Any],
         directive: RuntimeDirective,
         tool_instances: list[Any] | None = None,
+        model_stream_policy: dict[str, Any] | None = None,
     ):
         if directive.executor_type != "model":
             yield {
@@ -49,24 +50,139 @@ class ModelResponseRuntimeExecutor:
 
         tools = list(tool_instances or [])
         tool_invoker = getattr(self.model_runtime, "invoke_messages_with_tools", None)
+        tool_streamer = getattr(self.model_runtime, "astream_messages_with_tools", None)
+        stream_policy = dict(model_stream_policy or {})
+        stream_enabled = bool(stream_policy.get("enabled") is True)
+        delta_index = 0
+        response: Any = None
         try:
-            if tools and callable(tool_invoker):
+            if stream_enabled and tools and callable(tool_streamer):
+                raw_content = ""
+                aggregated_chunk = None
+                async for chunk in tool_streamer(model_messages, tools):
+                    aggregated_chunk = chunk if aggregated_chunk is None else aggregated_chunk + chunk
+                    delta_text = _chunk_text(chunk)
+                    if not delta_text:
+                        continue
+                    delta_index += 1
+                    raw_content += delta_text
+                    yield {
+                        "type": "content_delta",
+                        "content": delta_text,
+                        "delta_index": delta_index,
+                        "delta_chars": len(delta_text),
+                        "accumulated_chars": len(raw_content),
+                        "stream_ref": directive.directive_id,
+                    }
+                response = aggregated_chunk if aggregated_chunk is not None else raw_content
+            elif stream_enabled:
+                raw_content = ""
+                async for chunk in self.model_runtime.astream_messages(model_messages):
+                    delta_text = _chunk_text(chunk)
+                    if not delta_text:
+                        continue
+                    delta_index += 1
+                    raw_content += delta_text
+                    yield {
+                        "type": "content_delta",
+                        "content": delta_text,
+                        "delta_index": delta_index,
+                        "delta_chars": len(delta_text),
+                        "accumulated_chars": len(raw_content),
+                        "stream_ref": directive.directive_id,
+                    }
+                response = raw_content
+            elif tools and callable(tool_invoker):
                 response = await tool_invoker(model_messages, tools)
             else:
                 response = await invoker(model_messages)
         except ModelRuntimeError as exc:
-            yield {
-                "type": "error",
-                "error": exc.user_message,
-                "content": exc.user_message,
-                "code": exc.code,
-                "provider": exc.provider,
-                "model": exc.model,
-                "detail": exc.detail,
-                "answer_channel": "orchestration_fail_closed",
-                "answer_source": "runtime_directive_executor",
-            }
-            return
+            if stream_enabled and exc.retryable and _stream_recovery_enabled(stream_policy):
+                yield {
+                    "type": "stream_recovery",
+                    "status": "started",
+                    "reason": "retryable_stream_error",
+                    "code": exc.code,
+                    "provider": exc.provider,
+                    "model": exc.model,
+                    "detail": exc.detail,
+                    "partial_delta_count": delta_index,
+                    "directive_ref": directive.directive_id,
+                }
+                try:
+                    response = await _invoke_non_stream_after_stream_error(
+                        invoker=invoker,
+                        tool_invoker=tool_invoker,
+                        model_messages=model_messages,
+                        tools=tools,
+                    )
+                except ModelRuntimeError as fallback_exc:
+                    yield {
+                        "type": "stream_recovery",
+                        "status": "failed",
+                        "reason": "non_stream_fallback_failed",
+                        "code": fallback_exc.code,
+                        "provider": fallback_exc.provider,
+                        "model": fallback_exc.model,
+                        "detail": fallback_exc.detail,
+                        "partial_delta_count": delta_index,
+                        "directive_ref": directive.directive_id,
+                    }
+                    yield {
+                        "type": "error",
+                        "error": fallback_exc.user_message,
+                        "content": fallback_exc.user_message,
+                        "code": fallback_exc.code,
+                        "provider": fallback_exc.provider,
+                        "model": fallback_exc.model,
+                        "detail": fallback_exc.detail,
+                        "answer_channel": "orchestration_fail_closed",
+                        "answer_source": "runtime_directive_executor",
+                    }
+                    return
+                except Exception as fallback_exc:
+                    yield {
+                        "type": "stream_recovery",
+                        "status": "failed",
+                        "reason": "non_stream_fallback_failed",
+                        "code": "model_runtime_error",
+                        "provider": exc.provider,
+                        "model": exc.model,
+                        "detail": str(fallback_exc) or fallback_exc.__class__.__name__,
+                        "partial_delta_count": delta_index,
+                        "directive_ref": directive.directive_id,
+                    }
+                    yield {
+                        "type": "error",
+                        "error": str(fallback_exc) or "model_runtime_error",
+                        "content": "模型运行时失败，本轮停止执行。",
+                        "answer_channel": "orchestration_fail_closed",
+                        "answer_source": "runtime_directive_executor",
+                    }
+                    return
+                yield {
+                    "type": "stream_recovery",
+                    "status": "recovered",
+                    "reason": "non_stream_fallback_succeeded",
+                    "code": exc.code,
+                    "provider": exc.provider,
+                    "model": exc.model,
+                    "partial_delta_count": delta_index,
+                    "directive_ref": directive.directive_id,
+                }
+            else:
+                yield {
+                    "type": "error",
+                    "error": exc.user_message,
+                    "content": exc.user_message,
+                    "code": exc.code,
+                    "provider": exc.provider,
+                    "model": exc.model,
+                    "detail": exc.detail,
+                    "answer_channel": "orchestration_fail_closed",
+                    "answer_source": "runtime_directive_executor",
+                }
+                return
         except Exception as exc:
             yield {
                 "type": "error",
@@ -80,6 +196,19 @@ class ModelResponseRuntimeExecutor:
         tool_calls = _normalize_tool_calls(getattr(response, "tool_calls", None))
         additional_kwargs = dict(getattr(response, "additional_kwargs", {}) or {})
         reasoning_content = str(additional_kwargs.get("reasoning_content") or "").strip()
+        stream_preview_text = ""
+        if stream_enabled and delta_index <= 0:
+            stream_preview_text = raw_content.strip() or reasoning_content
+        if stream_preview_text:
+            yield {
+                "type": "content_delta",
+                "content": stream_preview_text,
+                "delta_index": 1,
+                "delta_chars": len(stream_preview_text),
+                "accumulated_chars": len(stream_preview_text),
+                "stream_ref": directive.directive_id,
+                "is_final_chunk": bool(tool_calls),
+            }
         if tool_calls:
             for tool_call in tool_calls:
                 tool_name = str(tool_call.get("name") or "")
@@ -163,6 +292,34 @@ class ModelResponseRuntimeExecutor:
             if operation_id:
                 return operation_id
         return str(tool_name or "").strip()
+
+
+def _chunk_text(chunk: Any) -> str:
+    content = getattr(chunk, "content", chunk)
+    return stringify_content(content)
+
+
+async def _invoke_non_stream_after_stream_error(
+    *,
+    invoker: Any,
+    tool_invoker: Any,
+    model_messages: list[Any],
+    tools: list[Any],
+) -> Any:
+    if tools and callable(tool_invoker):
+        return await tool_invoker(model_messages, tools)
+    return await invoker(model_messages)
+
+
+def _stream_recovery_enabled(policy: dict[str, Any]) -> bool:
+    for key in (
+        "recover_with_non_stream",
+        "fallback_to_non_stream",
+        "fallback_to_non_stream_on_error",
+    ):
+        if key in policy:
+            return bool(policy.get(key) is not False)
+    return True
 
 
 def _normalize_tool_calls(raw_tool_calls: Any) -> list[dict[str, Any]]:

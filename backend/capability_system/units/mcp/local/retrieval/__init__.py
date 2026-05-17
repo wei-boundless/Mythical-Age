@@ -19,7 +19,6 @@ __all__ = [
     "RAGIndexRegistry",
     "RAGQueryRouter",
     "MultimodalParserAdapter",
-    "RAGAnythingParserAdapter",
     "RoutePlan",
     "build_default_collections",
 ]
@@ -37,7 +36,6 @@ _EXPORTS = {
     "RAGIndexRegistry": ("capability_system.units.mcp.local.retrieval.registry", "RAGIndexRegistry"),
     "RAGQueryRouter": ("capability_system.units.mcp.local.retrieval.router", "RAGQueryRouter"),
     "MultimodalParserAdapter": ("capability_system.units.mcp.local.retrieval.parser_adapter", "MultimodalParserAdapter"),
-    "RAGAnythingParserAdapter": ("capability_system.units.mcp.local.retrieval.parser_adapter", "RAGAnythingParserAdapter"),
     "RoutePlan": ("capability_system.units.mcp.local.retrieval.router", "RoutePlan"),
     "build_default_collections": ("capability_system.units.mcp.local.retrieval.collections", "build_default_collections"),
 }
@@ -45,7 +43,7 @@ _EXPORTS = {
 if TYPE_CHECKING:
     from .collections import CollectionConfig, build_default_collections
     from .models import ParsedChunk, RetrievalHit
-    from .parser_adapter import MultimodalParserAdapter, RAGAnythingParserAdapter
+    from .parser_adapter import MultimodalParserAdapter
     from .query_rewriter import QueryRewriteResult, QueryRewriter
     from .reranker import CrossEncoderReranker, HeuristicReranker, RerankScore, build_reranker
     from .registry import RAGIndexRegistry

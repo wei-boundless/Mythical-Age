@@ -7,7 +7,7 @@ from structured_memory.text_utils import normalize_storage_text
 from token_accounting import count_text_tokens
 
 from .contracts import ConversationMemorySnapshot, MemoryContextCandidate, MemoryWriteCandidate
-from .legacy_types import SessionMemoryManager
+from .compat_types import SessionMemoryManager
 
 
 CONVERSATION_SECTION_HEADERS: tuple[str, ...] = (

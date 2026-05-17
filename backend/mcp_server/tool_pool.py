@@ -87,7 +87,7 @@ def build_mcp_tool_pool(
                         "runtime_visibility": definition.runtime_visibility,
                         "prompt_exposure_policy": definition.prompt_exposure_policy,
                         "safety_tags": list(definition.safety_tags),
-                        "legacy_source": "builtin_tool",
+                        "source_kind": "builtin_tool",
                     },
                 )
             )
@@ -122,7 +122,7 @@ def build_mcp_tool_pool(
                     "local_mcp_unit_id": unit.unit_id,
                     "model_visibility": "deferred_mcp_tool",
                     "tool_pool_policy": "listed_for_discovery_not_direct_prompt_injection",
-                    "legacy_source": "local_mcp",
+                    "source_kind": "local_mcp",
                 },
             )
         )
@@ -175,7 +175,7 @@ def build_mcp_tool_pool(
                     "transport": str(item.get("transport") or ""),
                     "gate": gate,
                     "model_visibility": "external_mcp_tool_pool",
-                    "legacy_source": "external_mcp",
+                    "source_kind": "external_mcp",
                 },
             )
         )

@@ -24,10 +24,17 @@ class StageExecutionRequest:
     message: str = ""
     artifact_root: str = ""
     artifact_policy: dict[str, Any] = field(default_factory=dict)
+    stream_policy: dict[str, Any] = field(default_factory=dict)
     artifact_targets: tuple[dict[str, Any], ...] = ()
     output_contract_id: str = ""
     expected_outputs: tuple[dict[str, Any], ...] = ()
     working_memory_refs: tuple[str, ...] = ()
+    dispatch_context: dict[str, Any] = field(default_factory=dict)
+    memory_snapshot: dict[str, Any] = field(default_factory=dict)
+    artifact_context_packet: dict[str, Any] = field(default_factory=dict)
+    revision_packet: dict[str, Any] = field(default_factory=dict)
+    handoff_packet_refs: tuple[str, ...] = ()
+    execution_receipt_policy: dict[str, Any] = field(default_factory=dict)
     idempotency_key: str = ""
     authority: str = "orchestration.stage_execution_request"
 
@@ -43,10 +50,12 @@ class StageExecutionRequest:
         if not self.task_ref:
             raise ValueError("StageExecutionRequest requires task_ref")
         if not self.request_id:
+            dispatch_event_id = str(self.dispatch_context.get("dispatch_event_id") or "").strip()
+            dispatch_suffix = _stable_hash(dispatch_event_id or self.explicit_inputs)[:8]
             object.__setattr__(
                 self,
                 "request_id",
-                f"stageexec:{_safe_id(self.coordination_run_id)}:{_safe_id(self.stage_id)}:{_stable_hash(self.explicit_inputs)[:8]}",
+                f"stageexec:{_safe_id(self.coordination_run_id)}:{_safe_id(self.stage_id)}:{dispatch_suffix}",
             )
         if not self.idempotency_key:
             object.__setattr__(
@@ -56,6 +65,7 @@ class StageExecutionRequest:
                     coordination_run_id=self.coordination_run_id,
                     stage_id=self.stage_id,
                     explicit_inputs=self.explicit_inputs,
+                    dispatch_context=self.dispatch_context,
                 ),
             )
         if not self.message:
@@ -65,10 +75,17 @@ class StageExecutionRequest:
         payload = asdict(self)
         payload["expected_outputs"] = [dict(item) for item in self.expected_outputs]
         payload["artifact_policy"] = dict(self.artifact_policy)
+        payload["stream_policy"] = dict(self.stream_policy)
         payload["artifact_targets"] = [dict(item) for item in self.artifact_targets]
         payload["a2a_payload"] = dict(self.a2a_payload)
         payload["runtime_assembly"] = dict(self.runtime_assembly)
         payload["working_memory_refs"] = list(self.working_memory_refs)
+        payload["dispatch_context"] = dict(self.dispatch_context)
+        payload["memory_snapshot"] = dict(self.memory_snapshot)
+        payload["artifact_context_packet"] = dict(self.artifact_context_packet)
+        payload["revision_packet"] = dict(self.revision_packet)
+        payload["handoff_packet_refs"] = list(self.handoff_packet_refs)
+        payload["execution_receipt_policy"] = dict(self.execution_receipt_policy)
         return payload
 
     @classmethod
@@ -90,10 +107,17 @@ class StageExecutionRequest:
             message=str(payload.get("message") or ""),
             artifact_root=str(payload.get("artifact_root") or ""),
             artifact_policy=dict(payload.get("artifact_policy") or {}),
+            stream_policy=dict(payload.get("stream_policy") or {}),
             artifact_targets=tuple(dict(item) for item in list(payload.get("artifact_targets") or []) if isinstance(item, dict)),
             output_contract_id=str(payload.get("output_contract_id") or ""),
             expected_outputs=tuple(dict(item) for item in list(payload.get("expected_outputs") or []) if isinstance(item, dict)),
             working_memory_refs=tuple(str(item).strip() for item in list(payload.get("working_memory_refs") or []) if str(item).strip()),
+            dispatch_context=dict(payload.get("dispatch_context") or {}),
+            memory_snapshot=dict(payload.get("memory_snapshot") or {}),
+            artifact_context_packet=dict(payload.get("artifact_context_packet") or {}),
+            revision_packet=dict(payload.get("revision_packet") or {}),
+            handoff_packet_refs=tuple(str(item).strip() for item in list(payload.get("handoff_packet_refs") or []) if str(item).strip()),
+            execution_receipt_policy=dict(payload.get("execution_receipt_policy") or {}),
             idempotency_key=str(payload.get("idempotency_key") or ""),
         )
 
@@ -135,7 +159,16 @@ def build_stage_execution_idempotency_key(
     coordination_run_id: str,
     stage_id: str,
     explicit_inputs: dict[str, Any],
+    dispatch_context: dict[str, Any] | None = None,
 ) -> str:
+    context = dict(dispatch_context or {})
+    dispatch_event_id = str(context.get("dispatch_event_id") or "").strip()
+    if dispatch_event_id:
+        return f"{coordination_run_id}:{stage_id}:dispatch:{dispatch_event_id}"
+    clock_seq = str(context.get("clock_seq") or "").strip()
+    scope_path = context.get("scope_path") or []
+    if clock_seq:
+        return f"{coordination_run_id}:{stage_id}:clock:{clock_seq}:{_stable_hash(scope_path)}"
     return f"{coordination_run_id}:{stage_id}:{_stable_hash(explicit_inputs)}"
 
 

@@ -390,7 +390,7 @@ def _event_node_id(event_name: str) -> str:
 def _event_summary(event_name: str, data: dict[str, Any]) -> str:
     if event_name == "orchestration_runtime_control":
         return (
-            f"runtime control: {data.get('source') or 'legacy'} / "
+            f"runtime control: {data.get('source') or 'runtime'} / "
             f"{data.get('execution_mode') or 'unknown'} / "
             f"primary={bool(data.get('primary_active'))}"
         )
@@ -663,12 +663,6 @@ def _dict(value: Any) -> dict[str, Any]:
 
 def _restore_authority_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     events = _events(payload)
-    runtime_control = _latest_event_payload(events, "orchestration_runtime_control")
-    restore = _dict(
-        _dict(_dict(runtime_control.get("diagnostics")).get("phase7_readiness")).get("restore_authority")
-    )
-    if restore:
-        return restore
     plan = _dict(_latest_event_payload(events, "orchestration_plan").get("plan"))
     return _dict(_dict(plan.get("diagnostics")).get("restore_authority"))
 

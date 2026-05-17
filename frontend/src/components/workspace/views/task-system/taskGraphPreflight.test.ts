@@ -180,4 +180,86 @@ describe("TaskGraph preflight", () => {
     expect(report.warning_count).toBeGreaterThan(0);
     expect(report.valid).toBe(true);
   });
+
+  it("blocks memory reads without an explicit selector collection", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [
+        {
+          node_id: "memory.project",
+          node_type: "memory_repository",
+          metadata: { memory_repository: { repository_id: "memory.project", collections: ["requirements"] } },
+        },
+        { node_id: "draft", agent_id: "agent.draft" },
+      ],
+      edges: [
+        {
+          edge_id: "edge.memory.draft",
+          source_node_id: "memory.project",
+          target_node_id: "draft",
+          edge_type: "memory_read",
+          payload_contract_id: "contract.memory.read",
+          metadata: { repository: "memory.project" },
+        },
+      ],
+    });
+
+    expect(report.valid).toBe(false);
+    expect(report.issues.some((issue) => issue.source === "frontend.preflight.memory_selector" && issue.severity === "error")).toBe(true);
+  });
+
+  it("warns when a write candidate has no reachable commit path", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [
+        {
+          node_id: "memory.project",
+          node_type: "memory_repository",
+          metadata: { memory_repository: { repository_id: "memory.project", collections: ["facts"] } },
+        },
+        { node_id: "worker", agent_id: "agent.worker" },
+      ],
+      edges: [
+        {
+          edge_id: "edge.worker.memory",
+          source_node_id: "worker",
+          target_node_id: "memory.project",
+          edge_type: "memory_write_candidate",
+          payload_contract_id: "contract.memory.write_candidate",
+          metadata: { repository: "memory.project", collection: "facts" },
+        },
+      ],
+    });
+
+    expect(report.valid).toBe(true);
+    expect(report.issues.some((issue) => issue.source === "frontend.preflight.memory_commit_path")).toBe(true);
+  });
+
+  it("warns when revision routes do not carry original artifact and review result references", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [
+        { node_id: "draft", agent_id: "agent.draft" },
+        { node_id: "review", agent_id: "agent.review" },
+      ],
+      edges: [
+        {
+          edge_id: "edge.review.draft",
+          source_node_id: "review",
+          target_node_id: "draft",
+          edge_type: "revision_request",
+          payload_contract_id: "contract.revision",
+          metadata: { usage_instruction: "按审核结果返修。" },
+        },
+      ],
+    });
+
+    expect(report.issues.filter((issue) => issue.source === "frontend.preflight.revision_packet")).toHaveLength(2);
+  });
 });

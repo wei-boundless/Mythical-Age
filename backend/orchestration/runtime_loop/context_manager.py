@@ -132,7 +132,7 @@ class RuntimeContextManager:
         projection_ref = str(getattr(stage_projection_snapshot, "projection_ref", "") or "")
         prompt_manifest_ref = str(getattr(stage_projection_snapshot, "prompt_manifest_ref", "") or "")
         runtime_prompt = _build_runtime_system_prompt(
-            legacy_system_prompt=system_prompt,
+            base_system_prompt=system_prompt,
             stage_projection_snapshot=stage_projection_snapshot,
             context_policy_result=context_policy_result,
             runtime_execution_facts=runtime_execution_facts,
@@ -167,7 +167,7 @@ class RuntimeContextManager:
             prompt_source_report=_prompt_source_report(
                 stage_projection_snapshot=stage_projection_snapshot,
                 context_policy_result=context_policy_result,
-                legacy_system_prompt_chars=len(system_prompt),
+                base_system_prompt_chars=len(system_prompt),
                 runtime_system_prompt_chars=len(runtime_prompt),
             ),
             context_policy_ref=context_policy_ref,
@@ -285,7 +285,7 @@ def _prompt_source_report(
     *,
     stage_projection_snapshot: Any | None,
     context_policy_result: dict[str, Any] | None,
-    legacy_system_prompt_chars: int,
+    base_system_prompt_chars: int,
     runtime_system_prompt_chars: int,
 ) -> dict[str, Any]:
     prompt_manifest = dict(getattr(stage_projection_snapshot, "prompt_manifest", {}) or {})
@@ -329,7 +329,7 @@ def _prompt_source_report(
         )
     return {
         "assembly_mode": "runtime_prompt_assembly",
-        "legacy_system_prompt_chars": legacy_system_prompt_chars,
+        "base_system_prompt_chars": base_system_prompt_chars,
         "runtime_system_prompt_chars": runtime_system_prompt_chars,
         "projection_ref": str(getattr(stage_projection_snapshot, "projection_ref", "") or ""),
         "prompt_manifest_ref": str(getattr(stage_projection_snapshot, "prompt_manifest_ref", "") or ""),
@@ -346,13 +346,13 @@ def _prompt_source_report(
 
 def _build_runtime_system_prompt(
     *,
-    legacy_system_prompt: str,
+    base_system_prompt: str,
     stage_projection_snapshot: Any | None,
     context_policy_result: dict[str, Any] | None,
     runtime_execution_facts: dict[str, Any] | None = None,
     runtime_assembly: dict[str, Any] | None = None,
 ) -> str:
-    parts = [str(legacy_system_prompt or "").strip()]
+    parts = [str(base_system_prompt or "").strip()]
     projection_block = _render_projection_block(stage_projection_snapshot)
     if projection_block:
         parts.append(projection_block)

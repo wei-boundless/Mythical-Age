@@ -15,6 +15,9 @@ from .models import (
     CoordinationMergeResult,
     CoordinationNodeRun,
     CoordinationRun,
+    ProjectProgressLedger,
+    ProjectRuntimeStatus,
+    SupervisionRecord,
     TaskRun,
 )
 from .delegation_models import (
@@ -169,6 +172,29 @@ class RuntimeStateIndex:
             self._append_index_id("task_agent_delegation_results", result.task_run_id, result.result_id)
             self._touch_meta()
 
+    def upsert_project_progress_ledger(self, ledger: ProjectProgressLedger) -> None:
+        with _STATE_INDEX_WRITE_LOCK:
+            self._write_record("project_progress_ledgers", ledger.project_id, ledger.to_dict())
+            self._append_index_id("session_projects", ledger.session_id, ledger.project_id)
+            self._write_index_value("graph_project_index", ledger.graph_id, ledger.project_id)
+            self._touch_meta(updated_at=float(ledger.updated_at or time.time()))
+
+    def upsert_supervision_record(self, record: SupervisionRecord) -> None:
+        with _STATE_INDEX_WRITE_LOCK:
+            self._write_record("supervision_records", record.supervision_record_id, record.to_dict())
+            self._append_index_id("project_supervision_records", record.project_id, record.supervision_record_id)
+            if record.observed_task_run_id:
+                self._append_index_id("task_supervision_records", record.observed_task_run_id, record.supervision_record_id)
+            self._touch_meta(updated_at=float(record.created_at or time.time()))
+
+    def upsert_project_runtime_status(self, status: ProjectRuntimeStatus) -> None:
+        with _STATE_INDEX_WRITE_LOCK:
+            self._write_record("project_runtime_statuses", status.project_id, status.to_dict())
+            self._write_index_value("session_active_project_status", status.session_id, status.project_id)
+            if status.active_task_run_id:
+                self._write_index_value("task_project_status", status.active_task_run_id, status.project_id)
+            self._touch_meta(updated_at=float(status.updated_at or time.time()))
+
     def get_task_run(self, task_run_id: str) -> TaskRun | None:
         task_run = self._read_record("task_runs", task_run_id)
         if not task_run:
@@ -199,6 +225,44 @@ class RuntimeStateIndex:
         if not coordination_run:
             return None
         return _coordination_run_from_payload(coordination_run)
+
+    def get_project_progress_ledger(self, project_id: str) -> ProjectProgressLedger | None:
+        payload = self._read_record("project_progress_ledgers", project_id)
+        if not payload:
+            return None
+        return _project_progress_ledger_from_payload(payload)
+
+    def get_project_runtime_status(self, project_id: str) -> ProjectRuntimeStatus | None:
+        payload = self._read_record("project_runtime_statuses", project_id)
+        if not payload:
+            return None
+        return _project_runtime_status_from_payload(payload)
+
+    def get_session_active_project_status(self, session_id: str) -> ProjectRuntimeStatus | None:
+        project_id = str(self._read_index_value("session_active_project_status", session_id) or "")
+        if project_id:
+            return self.get_project_runtime_status(project_id)
+        project_ids = self._read_index_ids("session_projects", session_id)
+        if not project_ids:
+            return None
+        payloads = [
+            self._read_record("project_runtime_statuses", project_id)
+            for project_id in project_ids
+        ]
+        matches = [_project_runtime_status_from_payload(item) for item in payloads if item]
+        if not matches:
+            return None
+        return sorted(matches, key=lambda item: item.updated_at, reverse=True)[0]
+
+    def list_project_supervision_records(self, project_id: str) -> list[SupervisionRecord]:
+        records = self._read_record_bucket("supervision_records")
+        ids = self._read_index_ids("project_supervision_records", project_id)
+        return [_supervision_record_from_payload(records[item]) for item in ids if item in records]
+
+    def list_task_supervision_records(self, task_run_id: str) -> list[SupervisionRecord]:
+        records = self._read_record_bucket("supervision_records")
+        ids = self._read_index_ids("task_supervision_records", task_run_id)
+        return [_supervision_record_from_payload(records[item]) for item in ids if item in records]
 
     def list_task_agent_run_results(self, task_run_id: str) -> list[AgentRunResult]:
         results = self._read_record_bucket("agent_run_results")
@@ -358,6 +422,14 @@ class RuntimeStateIndex:
             "handoff_envelopes": handoff_envelopes,
             "coordination_handoffs": coordination_handoffs,
             "coordination_merge_results": coordination_merge_results,
+            "project_progress_ledgers": self._read_selected_records(
+                "project_progress_ledgers",
+                self._read_index_ids("session_projects", session_id),
+            ),
+            "project_runtime_statuses": self._read_selected_records(
+                "project_runtime_statuses",
+                self._read_index_ids("session_projects", session_id),
+            ),
             "monitor_index": {
                 "session_id": session_id,
                 "task_run_count": int(session_view.get("task_run_count") or len(task_run_ids)),
@@ -365,6 +437,7 @@ class RuntimeStateIndex:
                 "latest_coordination_task_run_id": latest_coordination_task_run_id,
                 "freshest_task_run_id": freshest_task_run_id,
                 "latest_coordination_run_id": str(session_view.get("latest_coordination_run_id") or ""),
+                "active_project_id": str(self._read_index_value("session_active_project_status", session_id) or ""),
                 "updated_at": float(session_view.get("updated_at") or self._read_meta().get("updated_at") or 0.0),
             },
             "updated_at": self._read_meta().get("updated_at", 0.0),
@@ -553,7 +626,7 @@ class RuntimeStateIndex:
             if self.index_path.exists():
                 payload = self._read_json(self.index_path, self._empty_snapshot())
                 self._write_snapshot_payload(payload)
-                backup_dir = self.root_dir / "legacy_backups"
+                backup_dir = self.root_dir / "migration_backups"
                 backup_dir.mkdir(parents=True, exist_ok=True)
                 backup_path = backup_dir / f"state_index.pre_shard.{time.strftime('%Y%m%d-%H%M%S')}.json"
                 os.replace(self.index_path, backup_path)
@@ -758,6 +831,9 @@ class RuntimeStateIndex:
             "worker_spawn_results": "spawn_result_id",
             "agent_delegation_requests": "request_id",
             "agent_delegation_results": "result_id",
+            "project_progress_ledgers": "project_id",
+            "supervision_records": "supervision_record_id",
+            "project_runtime_statuses": "project_id",
         }
         field = key_field_by_bucket.get(bucket, "")
         return str(payload.get(field) or fallback)
@@ -776,6 +852,9 @@ class RuntimeStateIndex:
             "worker_spawn_results",
             "agent_delegation_requests",
             "agent_delegation_results",
+            "project_progress_ledgers",
+            "supervision_records",
+            "project_runtime_statuses",
         )
 
     @staticmethod
@@ -791,6 +870,9 @@ class RuntimeStateIndex:
             "task_worker_spawn_results",
             "task_agent_delegation_requests",
             "task_agent_delegation_results",
+            "session_projects",
+            "project_supervision_records",
+            "task_supervision_records",
         )
 
     @staticmethod
@@ -800,6 +882,9 @@ class RuntimeStateIndex:
             "session_latest_task_runs",
             "session_latest_coordination_task_runs",
             "task_latest_coordination_runs",
+            "graph_project_index",
+            "session_active_project_status",
+            "task_project_status",
         )
 
     @classmethod
@@ -830,6 +915,12 @@ class RuntimeStateIndex:
             "task_agent_delegation_requests": {},
             "agent_delegation_results": {},
             "task_agent_delegation_results": {},
+            "project_progress_ledgers": {},
+            "supervision_records": {},
+            "project_runtime_statuses": {},
+            "session_projects": {},
+            "project_supervision_records": {},
+            "task_supervision_records": {},
             "updated_at": 0.0,
         }
 
@@ -1085,6 +1176,81 @@ def _coordination_merge_result_from_payload(payload: dict[str, Any]) -> Coordina
         unresolved_issue_refs=tuple(str(item) for item in list(payload.get("unresolved_issue_refs") or []) if str(item)),
         created_at=float(payload.get("created_at") or 0.0),
         diagnostics=dict(payload.get("diagnostics") or {}),
+    )
+
+
+def _project_progress_ledger_from_payload(payload: dict[str, Any]) -> ProjectProgressLedger:
+    committed_unit_refs = payload.get("committed_unit_refs")
+    if committed_unit_refs is None:
+        committed_unit_refs = payload.get("committed_chapter_refs")
+    metric_receipts = payload.get("metric_receipts")
+    if metric_receipts is None:
+        metric_receipts = payload.get("chapter_word_receipts")
+    return ProjectProgressLedger(
+        ledger_id=str(payload.get("ledger_id") or payload.get("project_id") or ""),
+        project_id=str(payload.get("project_id") or ""),
+        session_id=str(payload.get("session_id") or ""),
+        graph_id=str(payload.get("graph_id") or ""),
+        task_family=str(payload.get("task_family") or ""),
+        project_title=str(payload.get("project_title") or ""),
+        metric_label=str(payload.get("metric_label") or "units"),
+        target_metric_total=int(payload.get("target_metric_total") or payload.get("target_words") or 0),
+        committed_metric_total=int(payload.get("committed_metric_total") or payload.get("committed_words_total") or 0),
+        committed_unit_count=int(payload.get("committed_unit_count") or payload.get("committed_chapter_count") or 0),
+        last_committed_unit_index=int(payload.get("last_committed_unit_index") or payload.get("last_committed_chapter_index") or 0),
+        committed_unit_refs=tuple(str(item) for item in list(committed_unit_refs or []) if str(item)),
+        metric_receipts=tuple(dict(item) for item in list(metric_receipts or []) if isinstance(item, dict)),
+        run_chain=tuple(str(item) for item in list(payload.get("run_chain") or []) if str(item)),
+        latest_delivery_state=str(payload.get("latest_delivery_state") or ""),
+        last_failure=dict(payload.get("last_failure") or {}),
+        last_repair_action=dict(payload.get("last_repair_action") or {}),
+        updated_at=float(payload.get("updated_at") or 0.0),
+        created_at=float(payload.get("created_at") or 0.0),
+    )
+
+
+def _supervision_record_from_payload(payload: dict[str, Any]) -> SupervisionRecord:
+    return SupervisionRecord(
+        supervision_record_id=str(payload.get("supervision_record_id") or ""),
+        supervision_session_id=str(payload.get("supervision_session_id") or ""),
+        project_id=str(payload.get("project_id") or ""),
+        observed_task_run_id=str(payload.get("observed_task_run_id") or ""),
+        observed_coordination_run_id=str(payload.get("observed_coordination_run_id") or ""),
+        issue_type=str(payload.get("issue_type") or ""),
+        issue_summary=str(payload.get("issue_summary") or ""),
+        root_cause=str(payload.get("root_cause") or ""),
+        repair_action=str(payload.get("repair_action") or ""),
+        repair_result=str(payload.get("repair_result") or ""),
+        followup_status=str(payload.get("followup_status") or "recorded"),
+        created_at=float(payload.get("created_at") or 0.0),
+        diagnostics=dict(payload.get("diagnostics") or {}),
+    )
+
+
+def _project_runtime_status_from_payload(payload: dict[str, Any]) -> ProjectRuntimeStatus:
+    return ProjectRuntimeStatus(
+        project_id=str(payload.get("project_id") or ""),
+        session_id=str(payload.get("session_id") or ""),
+        graph_id=str(payload.get("graph_id") or ""),
+        task_family=str(payload.get("task_family") or ""),
+        project_title=str(payload.get("project_title") or ""),
+        active_task_run_id=str(payload.get("active_task_run_id") or ""),
+        active_coordination_run_id=str(payload.get("active_coordination_run_id") or ""),
+        active_run_status=str(payload.get("active_run_status") or ""),
+        project_runtime_status=str(payload.get("project_runtime_status") or "watching"),
+        metric_label=str(payload.get("metric_label") or "units"),
+        completed_metric_total=int(payload.get("completed_metric_total") or payload.get("completed_words_total") or 0),
+        target_metric_total=int(payload.get("target_metric_total") or payload.get("target_words") or 0),
+        committed_unit_count=int(payload.get("committed_unit_count") or payload.get("committed_chapter_count") or 0),
+        last_committed_unit_index=int(payload.get("last_committed_unit_index") or payload.get("last_committed_chapter_index") or 0),
+        active_blocker=dict(payload.get("active_blocker") or {}),
+        recovery_state=dict(payload.get("recovery_state") or {}),
+        delivery_state=str(payload.get("delivery_state") or ""),
+        latest_artifact_root=str(payload.get("latest_artifact_root") or ""),
+        latest_event_offset=int(payload.get("latest_event_offset") or 0),
+        latest_event_at=float(payload.get("latest_event_at") or 0.0),
+        last_effective_output_at=float(payload.get("last_effective_output_at") or 0.0),
+        updated_at=float(payload.get("updated_at") or 0.0),
     )
 
 

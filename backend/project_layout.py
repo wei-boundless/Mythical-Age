@@ -108,11 +108,11 @@ class ProjectLayout:
             path.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
-    def _migrate_storage_dir(legacy_path: Path, target_path: Path) -> None:
-        if target_path.exists() or not legacy_path.exists():
+    def _migrate_storage_dir(source_path: Path, target_path: Path) -> None:
+        if target_path.exists() or not source_path.exists():
             return
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(legacy_path), str(target_path))
+        shutil.move(str(source_path), str(target_path))
 
 
 def ensure_project_storage(backend_dir: str | Path) -> ProjectLayout:

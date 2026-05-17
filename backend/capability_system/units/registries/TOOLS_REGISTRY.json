@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 21,
+  "tool_count": 19,
   "tools": [
     {
       "name": "web_search",
@@ -62,130 +62,6 @@
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
-    },
-    {
-      "name": "analyze_multimodal_file",
-      "display_name": "多模态文件分析",
-      "operation_id": "op.analyze_multimodal_file",
-      "module": "tools.analyze_multimodal_file_tool",
-      "contract": {
-        "required_inputs": [
-          "path"
-        ],
-        "required_bindings": [],
-        "optional_inputs": [],
-        "owner_scope": "explicit_path",
-        "allow_catalog_default": false,
-        "allow_history_binding": false,
-        "missing_binding_behavior": "clarify",
-        "context_policy": "isolated",
-        "result_channel": "canonical"
-      },
-      "resolution_contract": {
-        "path_field": "path",
-        "path_kind": "multimodal",
-        "binding_field": "",
-        "allow_message_extraction": false
-      },
-      "output_contract": {
-        "display_mode": "artifact_only",
-        "finalization_policy": "none",
-        "persistence_policy": "persist_canonical"
-      },
-      "projection_contract": {
-        "task_summary_policy": "canonical_only",
-        "result_ref_policy": "default",
-        "memory_projection_policy": "canonical_only"
-      },
-      "capability_tags": [
-        "multimodal",
-        "inspection",
-        "preview"
-      ],
-      "supported_modalities": [
-        "pdf",
-        "table",
-        "image",
-        "document"
-      ],
-      "safety_tags": [
-        "read",
-        "compute"
-      ],
-      "route_hints": [
-        "tool",
-        "file_preview"
-      ],
-      "safe_for_auto_route": false,
-      "schema_identity": "local.tools/analyze_multimodal_file",
-      "runtime_visibility": "agent_internal",
-      "prompt_exposure_policy": "hidden",
-      "resource_exposure_policy": "handle_only",
-      "is_read_only": true,
-      "is_destructive": false,
-      "is_concurrency_safe": true
-    },
-    {
-      "name": "index_multimodal_file",
-      "display_name": "多模态文件索引",
-      "operation_id": "op.index_multimodal_file",
-      "module": "tools.index_multimodal_file_tool",
-      "contract": {
-        "required_inputs": [
-          "path"
-        ],
-        "required_bindings": [],
-        "optional_inputs": [],
-        "owner_scope": "explicit_path",
-        "allow_catalog_default": false,
-        "allow_history_binding": false,
-        "missing_binding_behavior": "deny",
-        "context_policy": "isolated",
-        "result_channel": "artifact_only"
-      },
-      "resolution_contract": {
-        "path_field": "path",
-        "path_kind": "multimodal",
-        "binding_field": "",
-        "allow_message_extraction": false
-      },
-      "output_contract": {
-        "display_mode": "artifact_only",
-        "finalization_policy": "none",
-        "persistence_policy": "do_not_persist"
-      },
-      "projection_contract": {
-        "task_summary_policy": "canonical_only",
-        "result_ref_policy": "default",
-        "memory_projection_policy": "canonical_only"
-      },
-      "capability_tags": [
-        "indexing",
-        "multimodal",
-        "ingest"
-      ],
-      "supported_modalities": [
-        "pdf",
-        "table",
-        "image",
-        "document"
-      ],
-      "safety_tags": [
-        "write",
-        "compute"
-      ],
-      "route_hints": [
-        "tool",
-        "indexing"
-      ],
-      "safe_for_auto_route": false,
-      "schema_identity": "local.tools/index_multimodal_file",
-      "runtime_visibility": "agent_internal",
-      "prompt_exposure_policy": "hidden",
-      "resource_exposure_policy": "handle_only",
-      "is_read_only": false,
-      "is_destructive": false,
-      "is_concurrency_safe": false
     },
     {
       "name": "list_dir",

@@ -7,7 +7,7 @@ from typing import Any, Callable
 from context_management import ContextController
 from context_management.budget_presets import get_context_budget_preset
 from project_layout import ProjectLayout
-from .legacy_types import Message, SessionMemoryManager
+from .compat_types import Message, SessionMemoryManager
 
 
 class SessionMemoryLayer:

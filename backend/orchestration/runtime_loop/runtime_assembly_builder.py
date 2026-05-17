@@ -115,6 +115,7 @@ def build_node_runtime_assembly(
     agent_default_projection_id = str(getattr(agent_profile, "default_projection_id", "") or "").strip()
     resolved_projection_id = node_projection_id or agent_default_projection_id
     context_assembly_policy = _context_assembly_policy_from_node(node)
+    layered_context = _layered_node_context(manifest=manifest, node_id=node_id)
     sections = (
         RuntimeContextSection(
             section_id="coordination_task_state",
@@ -140,6 +141,7 @@ def build_node_runtime_assembly(
             model_visible=True,
             metadata={"profile_context_section": "artifact_refs"},
         ),
+        *_layered_context_sections(layered_context),
         *_working_memory_sections(working_memory_context),
         *_task_durable_memory_sections(task_durable_memory_context),
     )
@@ -173,9 +175,42 @@ def build_node_runtime_assembly(
             max_turns=1,
             context_strategy="node_status_and_upstream_summary",
         ),
+        metadata={
+            "stream_policy": dict(node.metadata.get("stream_policy") or {}),
+            "memory_read_policy": dict(node.metadata.get("memory_read_policy") or {}),
+            "memory_writeback_policy": dict(node.metadata.get("memory_writeback_policy") or {}),
+            "dynamic_memory_read_policy": dict(node.metadata.get("dynamic_memory_read_policy") or {}),
+            "artifact_policy": dict(node.metadata.get("artifact_policy") or {}),
+            "layered_context": layered_context,
+            "execution_timeline": {
+                "timeline_kind": "node_execution_sequence",
+                "steps": [
+                    {
+                        "step_id": "memory_read",
+                        "title": "读取授权记忆包",
+                        "kind": "memory_read",
+                        "enabled": bool(node.metadata.get("memory_read_policy")),
+                    },
+                    {
+                        "step_id": "execute_node",
+                        "title": "执行节点职责",
+                        "kind": "node_execution",
+                        "enabled": True,
+                    },
+                    {
+                        "step_id": "memory_write",
+                        "title": "写入节点结果",
+                        "kind": "memory_write",
+                        "enabled": bool(node.metadata.get("memory_writeback_policy")),
+                    },
+                ],
+                "authority": "orchestration.node_execution_timeline",
+            },
+        },
         diagnostics={
             "manifest_valid": manifest.valid,
             "manifest_issue_count": len(manifest.issues),
+            "stream_policy": dict(node.metadata.get("stream_policy") or {}),
             "full_main_session_history_included": False,
             "handoff_packet_count": len(handoff_packets),
             "node_agent_id": node.agent_id,
@@ -193,12 +228,166 @@ def build_node_runtime_assembly(
             "explicit_input_keys": sorted(str(key) for key in dict(explicit_inputs or {}).keys()),
             **working_diag,
             **task_durable_diag,
+            "layered_context": {
+                "memory_read_edge_count": len(layered_context["memory_reads"]),
+                "memory_write_edge_count": len(layered_context["memory_writes"]),
+                "artifact_context_edge_count": len(layered_context["artifact_context_edges"]),
+                "revision_edge_count": len(layered_context["revision_edges"]),
+                "temporal_incoming_edge_count": len(layered_context["temporal_incoming_edges"]),
+                "memory_snapshot_id": layered_context["memory_snapshot"]["memory_snapshot_id"],
+            },
             "context_assembly_policy": context_assembly_policy,
             "context_sections_requested": [item.section_id for item in sections],
             "context_sections_visible": [item.section_id for item in visible_sections],
             "context_sections_hidden_by_profile": hidden_sections,
         },
     )
+
+
+def _layered_node_context(*, manifest: ContractManifest, node_id: str) -> dict[str, Any]:
+    layered = dict(dict(manifest.metadata or {}).get("layered_graph") or {})
+    memory_edges = [dict(item) for item in list(layered.get("memory_edges") or []) if isinstance(item, dict)]
+    artifact_edges = [dict(item) for item in list(layered.get("artifact_context_edges") or []) if isinstance(item, dict)]
+    revision_edges = [dict(item) for item in list(layered.get("revision_edges") or []) if isinstance(item, dict)]
+    temporal_edges = [dict(item) for item in list(layered.get("temporal_edges") or []) if isinstance(item, dict)]
+    resource_nodes = [dict(item) for item in list(layered.get("resource_nodes") or []) if isinstance(item, dict)]
+    resource_by_id = {str(item.get("node_id") or ""): item for item in resource_nodes if str(item.get("node_id") or "")}
+    memory_reads = [
+        _memory_edge_descriptor(edge, resource_by_id=resource_by_id, direction="read")
+        for edge in memory_edges
+        if _memory_edge_targets_node(edge, node_id=node_id, operation="read")
+    ]
+    memory_writes = [
+        _memory_edge_descriptor(edge, resource_by_id=resource_by_id, direction="write")
+        for edge in memory_edges
+        if _memory_edge_targets_node(edge, node_id=node_id, operation="write")
+    ]
+    incoming_artifact_edges = [
+        dict(edge)
+        for edge in artifact_edges
+        if str(edge.get("target_node_id") or "").strip() == node_id
+    ]
+    incoming_revision_edges = [
+        dict(edge)
+        for edge in revision_edges
+        if str(edge.get("target_node_id") or "").strip() == node_id
+    ]
+    incoming_temporal_edges = [
+        dict(edge)
+        for edge in temporal_edges
+        if str(edge.get("target_node_id") or "").strip() == node_id
+    ]
+    memory_snapshot = {
+        "authority": "task_system.deterministic_memory_snapshot_descriptor",
+        "memory_snapshot_id": _stable_assembly_id(
+            "memory-snapshot",
+            manifest.manifest_id,
+            node_id,
+            {"read_edge_ids": [item["edge_id"] for item in memory_reads]},
+        ),
+        "node_id": node_id,
+        "stage_id": node_id,
+        "configured_scope_ref": f"{manifest.graph_ref or manifest.graph_id}:{node_id}",
+        "runtime_clock_authority": "task_graph.timeline_ledger",
+        "read_edge_ids": [item["edge_id"] for item in memory_reads],
+        "resolved_record_refs": [],
+        "retrieval_mode": "directed_repository_edges",
+    }
+    return {
+        "authority": "task_system.layered_node_context",
+        "node_id": node_id,
+        "memory_reads": memory_reads,
+        "memory_writes": memory_writes,
+        "memory_snapshot": memory_snapshot,
+        "artifact_context_edges": incoming_artifact_edges,
+        "revision_edges": incoming_revision_edges,
+        "temporal_incoming_edges": incoming_temporal_edges,
+    }
+
+
+def _layered_context_sections(layered_context: dict[str, Any]) -> tuple[RuntimeContextSection, ...]:
+    sections: list[RuntimeContextSection] = []
+    if layered_context.get("memory_reads") or layered_context.get("memory_writes"):
+        sections.append(
+            RuntimeContextSection(
+                section_id="memory_snapshot",
+                title="定向记忆快照",
+                content_mode="structured",
+                source_ref=str(dict(layered_context.get("memory_snapshot") or {}).get("memory_snapshot_id") or ""),
+                model_visible=True,
+                metadata={
+                    "profile_context_section": "working_memory",
+                    "memory_reads": list(layered_context.get("memory_reads") or []),
+                    "memory_writes": list(layered_context.get("memory_writes") or []),
+                    "memory_snapshot": dict(layered_context.get("memory_snapshot") or {}),
+                },
+            )
+        )
+    if layered_context.get("artifact_context_edges"):
+        sections.append(
+            RuntimeContextSection(
+                section_id="artifact_context",
+                title="定向产物上下文",
+                content_mode="structured",
+                source_ref=str(layered_context.get("node_id") or ""),
+                model_visible=True,
+                metadata={
+                    "profile_context_section": "artifact_refs",
+                    "artifact_context_edges": list(layered_context.get("artifact_context_edges") or []),
+                },
+            )
+        )
+    if layered_context.get("revision_edges"):
+        sections.append(
+            RuntimeContextSection(
+                section_id="revision_context",
+                title="返修交接上下文",
+                content_mode="structured",
+                source_ref=str(layered_context.get("node_id") or ""),
+                model_visible=True,
+                metadata={
+                    "profile_context_section": "upstream_outputs",
+                    "revision_edges": list(layered_context.get("revision_edges") or []),
+                },
+            )
+        )
+    return tuple(sections)
+
+
+def _memory_edge_targets_node(edge: dict[str, Any], *, node_id: str, operation: str) -> bool:
+    edge_type = str(edge.get("memory_edge_type") or "").strip()
+    source = str(edge.get("source_node_id") or "").strip()
+    target = str(edge.get("target_node_id") or "").strip()
+    if operation == "read":
+        return target == node_id and edge_type in {"read", "handoff"}
+    if operation == "write":
+        return source == node_id and edge_type in {"write", "write_candidate", "commit"}
+    return False
+
+
+def _memory_edge_descriptor(
+    edge: dict[str, Any],
+    *,
+    resource_by_id: dict[str, dict[str, Any]],
+    direction: str,
+) -> dict[str, Any]:
+    source = str(edge.get("source_node_id") or "").strip()
+    target = str(edge.get("target_node_id") or "").strip()
+    resource = resource_by_id.get(source if direction == "read" else target, {})
+    return {
+        "edge_id": str(edge.get("edge_id") or ""),
+        "operation": direction,
+        "memory_edge_type": str(edge.get("memory_edge_type") or ""),
+        "repository": str(edge.get("repository") or resource.get("repository_id") or ""),
+        "collection": str(edge.get("collection") or ""),
+        "resource_node_id": str(resource.get("node_id") or ""),
+        "record_keys": list(edge.get("record_keys") or []),
+        "selector": dict(edge.get("selector") or {}),
+        "version_selector": str(edge.get("version_selector") or ""),
+        "on_missing": str(edge.get("on_missing") or ""),
+        "read_contract": dict(edge.get("read_contract") or {}),
+        "write_contract": dict(edge.get("write_contract") or {}),
+    }
 
 
 def _runtime_output_contracts(
@@ -246,6 +435,7 @@ def _runtime_acceptance_contracts(
 
 
 def _handoff_packet_from_edge(edge: Any, *, manifest: ContractManifest, target_node_id: str) -> HandoffPacket:
+    edge_metadata = dict(edge.metadata or {})
     return HandoffPacket(
         packet_id=_stable_assembly_id("handoff", manifest.manifest_id, edge.edge_id, {"target": target_node_id}),
         source_node_id=edge.source_node_id,
@@ -255,13 +445,23 @@ def _handoff_packet_from_edge(edge: Any, *, manifest: ContractManifest, target_n
             "manifest_ref": manifest.manifest_id,
             "edge_id": edge.edge_id,
             "contract_refs": list(edge.contract_refs),
+            "handoff_summary": str(edge_metadata.get("handoff_summary") or ""),
+            "required_refs": [
+                str(item).strip()
+                for item in list(edge_metadata.get("required_refs") or [])
+                if str(item).strip()
+            ],
+            "memory_expectation": str(edge_metadata.get("memory_expectation") or ""),
         },
         a2a_trace={
             "message_type": edge.message_type,
             "handoff_policy": edge.handoff_policy,
-            "business_mode": dict(edge.metadata or {}).get("business_mode", ""),
+            "business_mode": edge_metadata.get("business_mode", ""),
         },
-        metadata={"graph_id": manifest.graph_id},
+        metadata={
+            "graph_id": manifest.graph_id,
+            "protocol_id": str(edge_metadata.get("protocol_id") or ""),
+        },
     )
 
 

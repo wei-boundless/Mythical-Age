@@ -26,7 +26,6 @@ MemoryCommitAction = Literal[
     "manual_archive",
     "manual_delete",
     "manual_merge",
-    "legacy_blocked",
 ]
 LongTermMemoryType = Literal[
     "user_preference",

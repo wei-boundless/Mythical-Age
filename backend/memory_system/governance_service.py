@@ -11,7 +11,7 @@ from memory_layout import durable_memory_layout_from_backend_dir
 from structured_memory.frontmatter import format_frontmatter, parse_frontmatter
 
 from .governance import MemoryGovernance
-from .legacy_types import MemoryNote, utc_now_iso
+from .compat_types import MemoryNote, utc_now_iso
 from .manifest_scan import MemoryHeader, load_memory_header, scan_memory_headers
 
 
@@ -306,5 +306,5 @@ class DurableMemoryGovernanceService:
             reason=reason,
             actor="memory_governance_ui",
             allowed=True,
-            metadata={"legacy_action": action},
+            metadata={"source_action": action},
         )

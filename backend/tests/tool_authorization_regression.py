@@ -28,9 +28,7 @@ def test_tool_operation_resolution_does_not_use_operation_alias_collision() -> N
     assert resolve_tool_operation_id("web_search", definitions_by_name=index.definitions_by_name) == "op.web_search"
     assert resolve_tool_operation_id("list_dir", definitions_by_name=index.definitions_by_name) == "op.list_dir"
     assert resolve_tool_operation_id("git_status", definitions_by_name=index.definitions_by_name) == "op.git_status"
-    assert resolve_tool_operation_id("index_multimodal_file", definitions_by_name=index.definitions_by_name) == (
-        "op.index_multimodal_file"
-    )
+    assert resolve_tool_operation_id("index_multimodal_file", definitions_by_name=index.definitions_by_name) == ""
 
 
 def test_authorized_tool_set_filters_by_explicit_operation_and_main_runtime_visibility() -> None:

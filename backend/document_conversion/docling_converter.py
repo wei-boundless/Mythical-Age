@@ -28,7 +28,7 @@ class DoclingConverter:
         self.repo_root = repo_root
         self.ocr_language = ocr_language
         self._pdf_parser = pdf_parser or PdfTextParser(root_dir=self._backend_root())
-        self._legacy_adapter: MultimodalParserAdapter | None = None
+        self._fallback_adapter: MultimodalParserAdapter | None = None
 
     def available(self) -> bool:
         if not self.enabled:
@@ -113,24 +113,24 @@ class DoclingConverter:
         )
 
     def _convert_with_fallback(self, record: SourceFileRecord) -> ConversionResult:
-        fallback_blocks = self._convert_with_legacy_adapter(record)
+        fallback_blocks = self._convert_with_local_adapter(record)
         if not fallback_blocks:
             return ConversionResult.empty(
                 record,
-                parser_backend="legacy_fallback",
+                parser_backend="local_fallback",
                 quality_flags=("empty_conversion", "fallback_parser"),
             )
-        flags = infer_quality_flags(tuple(fallback_blocks), parser_backend="legacy_fallback")
+        flags = infer_quality_flags(tuple(fallback_blocks), parser_backend="local_fallback")
         return ConversionResult(
-            doc_id=ConversionResult.empty(record, parser_backend="legacy_fallback").doc_id,
+            doc_id=ConversionResult.empty(record, parser_backend="local_fallback").doc_id,
             collection=record.collection,
             source_path=record.source_path,
             source_type=record.source_type,
             version_digest=record.version_digest,
-            parser_backend="legacy_fallback",
+            parser_backend="local_fallback",
             title=record.absolute_path.stem,
-            structure_contract_version=ConversionResult.empty(record, parser_backend="legacy_fallback").structure_contract_version,
-            parser_route=("docling", "legacy_fallback"),
+            structure_contract_version=ConversionResult.empty(record, parser_backend="local_fallback").structure_contract_version,
+            parser_route=("docling", "local_fallback"),
             fallback_used=True,
             quality_flags=flags,
             blocks=tuple(fallback_blocks),
@@ -210,20 +210,20 @@ class DoclingConverter:
             )
         return pages
 
-    def _legacy_parser(self) -> MultimodalParserAdapter | None:
+    def _fallback_parser(self) -> MultimodalParserAdapter | None:
         if self.repo_root is None:
             return None
-        if self._legacy_adapter is None:
+        if self._fallback_adapter is None:
             from capability_system.units.mcp.local.retrieval.parser_adapter import MultimodalParserAdapter
 
-            self._legacy_adapter = MultimodalParserAdapter(
+            self._fallback_adapter = MultimodalParserAdapter(
                 repo_root=self.repo_root,
                 ocr_language=self.ocr_language,
             )
-        return self._legacy_adapter
+        return self._fallback_adapter
 
-    def _convert_with_legacy_adapter(self, record: SourceFileRecord) -> list[ConversionBlock]:
-        adapter = self._legacy_parser()
+    def _convert_with_local_adapter(self, record: SourceFileRecord) -> list[ConversionBlock]:
+        adapter = self._fallback_parser()
         if adapter is None or not adapter.is_supported_file(record.absolute_path):
             text = self._read_basic_text(record.absolute_path)
             if not text:

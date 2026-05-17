@@ -17,8 +17,6 @@ OWNER_LABELS: dict[str, str] = {
     "model_system": "模型运行系统",
     "orchestration_system": "编排系统",
     "runtime": "运行时基础设施",
-    "legacy_query": "旧 Query 链路",
-    "legacy_worker": "旧 Worker 链路",
     "unknown": "待归属功能",
 }
 
@@ -34,8 +32,6 @@ FEATURE_BOUNDARIES: dict[str, str] = {
     "model_system": "模型运行适配、错误恢复与响应合同。",
     "orchestration_system": "RuntimeLoop、候选收集、提交门禁与 trace。",
     "runtime": "后端应用、配置、SSE 与系统启动合同。",
-    "legacy_query": "旧链路保留为参考，不进入 curated gate。",
-    "legacy_worker": "旧 worker 直连路径保留为迁移参考。",
     "unknown": "已发现测试文件，但尚未声明功能归属。",
 }
 

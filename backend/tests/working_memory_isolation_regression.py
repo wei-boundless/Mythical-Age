@@ -83,7 +83,7 @@ def test_working_memory_handoff_only_requires_explicit_authorization(tmp_path) -
     assert [item.work_memory_id for item in allowed["required_items"]] == [handoff.work_memory_id]
 
 
-def test_working_memory_finalizer_purges_low_value_terminal_items(tmp_path) -> None:
+def test_working_memory_finalizer_preserves_terminal_items_for_audit(tmp_path) -> None:
     service = WorkingMemoryService(tmp_path)
     finalizer = WorkingMemoryFinalizer(service)
     service.create_item(
@@ -112,11 +112,11 @@ def test_working_memory_finalizer_purges_low_value_terminal_items(tmp_path) -> N
     result = finalizer.finalize_task_run("taskrun:test")
     remaining = service.query_items(task_run_id="taskrun:test", limit=20)
 
-    assert result.purged_count == 1
-    assert result.purged_status_counts["discarded"] == 1
-    assert result.store_optimized is True
-    assert [item.work_memory_id for item in remaining] == [accepted.work_memory_id]
-    assert remaining[0].status == "archived"
+    remaining_by_id = {item.work_memory_id: item for item in remaining}
+    assert len(remaining_by_id) == 2
+    assert remaining_by_id[accepted.work_memory_id].status == "archived"
+    discarded_items = [item for item in remaining if item.status == "discarded"]
+    assert len(discarded_items) == 1
 
 
 def test_working_memory_read_operation_exposes_selected_refs_and_denials() -> None:
@@ -150,3 +150,32 @@ def test_working_memory_read_operation_exposes_selected_refs_and_denials() -> No
     assert operation["selected_working_memory_refs"] == ["wm:1", "wm:2"]
     assert operation["excluded_working_memory_refs"] == ["wm:3"]
     assert operation["selected_item_previews"][0]["work_memory_id"] == "wm:1"
+
+
+def test_working_memory_read_logging_is_idempotent_for_replayed_stage(tmp_path) -> None:
+    service = WorkingMemoryService(tmp_path)
+    first = service.record_read(
+        task_run_id="taskrun:test",
+        graph_id="graph:test",
+        owner_node_id="chapter_progress_router",
+        node_run_id="taskrun:test:chapter_progress_router",
+        run_attempt_id="0",
+        reader_agent_id="agent:reviewer",
+        selected_item_ids=(),
+        excluded_item_ids=(),
+        request={"max_items": 5},
+    )
+    second = service.record_read(
+        task_run_id="taskrun:test",
+        graph_id="graph:test",
+        owner_node_id="chapter_progress_router",
+        node_run_id="taskrun:test:chapter_progress_router",
+        run_attempt_id="0",
+        reader_agent_id="agent:reviewer",
+        selected_item_ids=(),
+        excluded_item_ids=(),
+        request={"max_items": 5},
+    )
+
+    assert second.read_log_id == first.read_log_id
+    assert len(service.list_read_logs("taskrun:test", limit=20)) == 1

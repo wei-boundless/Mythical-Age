@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from .dialogue_state import DialogueState
+from .process_state import DialogueState
 
 
 DEFAULT_TEMPLATE = """# Session Title

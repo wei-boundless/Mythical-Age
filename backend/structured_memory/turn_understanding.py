@@ -6,7 +6,7 @@ import re
 from understanding.capability_resolution_view import capability_resolution_view
 from understanding.task_understanding import TaskUnderstanding, analyze_task_understanding
 
-from .dialogue_state import DialogueState, TurnUnderstanding
+from .process_state import DialogueState, TurnUnderstanding
 from .models import Message
 from .text_utils import normalize_storage_text
 

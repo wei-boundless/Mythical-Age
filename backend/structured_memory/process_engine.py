@@ -6,7 +6,7 @@ import re
 from understanding.task_understanding import TaskUnderstanding
 from understanding.capability_resolution_view import capability_resolution_view
 
-from .dialogue_state import ContextSlots, DialogueState, FlowState, TaskState, TurnUnderstanding
+from .process_state import ContextSlots, DialogueState, FlowState, TaskState, TurnUnderstanding
 from .models import Message, utc_now_iso
 from .text_utils import normalize_storage_text
 from .turn_understanding import (

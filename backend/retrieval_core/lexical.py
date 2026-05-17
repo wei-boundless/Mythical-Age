@@ -30,7 +30,7 @@ def _jieba_available() -> bool:
     return jieba is not None
 
 
-def _legacy_bigram_tokens(normalized: str) -> list[str]:
+def _fallback_bigram_tokens(normalized: str) -> list[str]:
     tokens: list[str] = []
     for chunk in re.findall(r"[a-z0-9][a-z0-9_./:-]*|[\u4e00-\u9fff]+", normalized):
         if re.fullmatch(r"[\u4e00-\u9fff]+", chunk):
@@ -84,7 +84,7 @@ def lexical_tokens(text: str) -> list[str]:
     normalized = normalize_text(text)
     if not normalized:
         return []
-    fallback_tokens = _legacy_bigram_tokens(normalized)
+    fallback_tokens = _fallback_bigram_tokens(normalized)
     if not _contains_cjk(normalized):
         return fallback_tokens
     jieba_tokens = _jieba_tokens(normalized)

@@ -160,11 +160,3 @@
 
 - `memory`
 - `structured_memory`
-
-## 八、显式维护动作
-
-旧目录清理不再放在启动链路里自动执行。
-
-如果需要主动清理历史数据目录，使用：
-
-`python -m maintenance.cleanup_legacy_runtime_data`

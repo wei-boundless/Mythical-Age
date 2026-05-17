@@ -17,9 +17,10 @@
   },
   "system_config": {
     "runtime": {
-      "llm_timeout_seconds": 60.0,
-      "llm_max_retries": 2,
+      "llm_timeout_seconds": 180.0,
+      "llm_max_retries": 3,
       "terminal_timeout_seconds": 300,
+      "llm_long_output_timeout_seconds": 360.0,
       "component_char_limit": 20000
     },
     "retrieval": {
@@ -32,8 +33,8 @@
     "provider": "deepseek",
     "model": "deepseek-v4-pro",
     "base_url": "https://api.deepseek.com/v1",
-    "fallback_provider": "openai",
-    "fallback_model": "deepseek-v4-flash",
+    "fallback_provider": "deepseek",
+    "fallback_model": "deepseek-v4-pro",
     "fallback_base_url": "https://api.deepseek.com/v1"
   }
 }

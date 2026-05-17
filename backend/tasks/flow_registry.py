@@ -812,6 +812,19 @@ class TaskFlowRegistry:
         self.agent_runtime_registry = AgentRuntimeRegistry(self.base_dir)
         self.template_registry = TaskTemplateRegistry(self.base_dir)
         self.workflow_registry = TaskWorkflowRegistry(self.base_dir)
+        self._cache: dict[str, Any] = {}
+
+    def _get_cached(self, key: str, loader):
+        if key not in self._cache:
+            self._cache[key] = loader()
+        return self._cache[key]
+
+    def _invalidate_cache(self, *keys: str) -> None:
+        if not keys:
+            self._cache.clear()
+            return
+        for key in keys:
+            self._cache.pop(key, None)
 
     def list_general_task_profiles(self) -> list[GeneralTaskProfile]:
         payload = _read_json(
@@ -872,41 +885,45 @@ class TaskFlowRegistry:
         profiles = [item for item in self.list_general_task_profiles() if item.profile_id != target]
         profiles.append(profile)
         _write_json(_general_profiles_path(self.base_dir), {"profiles": [item.to_dict() for item in profiles]})
+        self._invalidate_cache()
         return profile
 
     def list_flows(self) -> list[TaskFlowDefinition]:
-        default_payload = [item.to_dict() for item in default_task_flows()]
-        payload = _read_json(
-            _flows_path(self.base_dir),
-            {"flows": default_payload},
-        )
-        merged_payload = _merge_default_overlay_by_key(
-            default_payload,
-            [item for item in list(payload.get("flows") or []) if isinstance(item, dict)],
-            key="flow_id",
-        )
-        flows = []
-        for item in merged_payload:
-            flows.append(
-                TaskFlowDefinition(
-                    flow_id=str(item.get("flow_id") or ""),
-                    task_mode=str(item.get("task_mode") or ""),
-                    task_family=str(item.get("task_family") or ""),
-                    title=str(item.get("title") or ""),
-                    input_contract_id=str(item.get("input_contract_id") or ""),
-                    output_contract_id=str(item.get("output_contract_id") or ""),
-                    default_agent_id=str(item.get("default_agent_id") or ""),
-                    default_workflow_id=str(item.get("default_workflow_id") or ""),
-                    default_runtime_lane=str(item.get("default_runtime_lane") or ""),
-                    default_memory_scope=str(item.get("default_memory_scope") or ""),
-                    enabled=bool(item.get("enabled", True)),
-                    metadata=dict(item.get("metadata") or {}),
-                )
+        def load() -> list[TaskFlowDefinition]:
+            default_payload = [item.to_dict() for item in default_task_flows()]
+            payload = _read_json(
+                _flows_path(self.base_dir),
+                {"flows": default_payload},
             )
-        normalized = [item.to_dict() for item in flows]
-        if payload.get("flows") != normalized:
-            _write_json(_flows_path(self.base_dir), {"flows": normalized})
-        return flows
+            merged_payload = _merge_default_overlay_by_key(
+                default_payload,
+                [item for item in list(payload.get("flows") or []) if isinstance(item, dict)],
+                key="flow_id",
+            )
+            flows = []
+            for item in merged_payload:
+                flows.append(
+                    TaskFlowDefinition(
+                        flow_id=str(item.get("flow_id") or ""),
+                        task_mode=str(item.get("task_mode") or ""),
+                        task_family=str(item.get("task_family") or ""),
+                        title=str(item.get("title") or ""),
+                        input_contract_id=str(item.get("input_contract_id") or ""),
+                        output_contract_id=str(item.get("output_contract_id") or ""),
+                        default_agent_id=str(item.get("default_agent_id") or ""),
+                        default_workflow_id=str(item.get("default_workflow_id") or ""),
+                        default_runtime_lane=str(item.get("default_runtime_lane") or ""),
+                        default_memory_scope=str(item.get("default_memory_scope") or ""),
+                        enabled=bool(item.get("enabled", True)),
+                        metadata=dict(item.get("metadata") or {}),
+                    )
+                )
+            normalized = [item.to_dict() for item in flows]
+            if payload.get("flows") != normalized:
+                _write_json(_flows_path(self.base_dir), {"flows": normalized})
+            return flows
+
+        return self._get_cached("flows", load)
 
     def get_flow(self, flow_id: str) -> TaskFlowDefinition | None:
         target = str(flow_id or "").strip()
@@ -954,26 +971,42 @@ class TaskFlowRegistry:
         flows = [item for item in self.list_flows() if item.flow_id != normalized_flow_id]
         flows.append(flow)
         _write_json(_flows_path(self.base_dir), {"flows": [item.to_dict() for item in flows]})
+        self._invalidate_cache()
         return flow
 
     def list_task_assignments(self) -> list[TaskAssignment]:
-        default_assignments = [self._assignment_from_specific_task_record(item).to_dict() for item in self.list_specific_task_records()]
-        payload = _read_json(
-            _assignments_path(self.base_dir),
-            {"assignments": default_assignments},
-        )
-        merged_payload = _merge_items_by_key(
-            default_assignments,
-            [item for item in list(payload.get("assignments") or []) if isinstance(item, dict)],
-            key="task_id",
-        )
-        assignments: list[TaskAssignment] = []
-        for item in merged_payload:
-            assignments.append(_assignment_from_dict(item))
-        normalized = [item.to_dict() for item in assignments]
-        if payload.get("assignments") != normalized:
-            _write_json(_assignments_path(self.base_dir), {"assignments": normalized})
-        return assignments
+        def load() -> list[TaskAssignment]:
+            flow_by_id = {item.flow_id: item for item in self.list_flows()}
+            projection_binding_by_task_id = {
+                item.task_id: item
+                for item in self.list_projection_bindings()
+            }
+            default_assignments = [
+                self._assignment_from_specific_task_record(
+                    item,
+                    flow=flow_by_id.get(str(item.default_flow_contract_id or f"flow.{item.task_id.removeprefix('task.')}").strip()),
+                    projection_binding=projection_binding_by_task_id.get(item.task_id),
+                ).to_dict()
+                for item in self.list_specific_task_records()
+            ]
+            payload = _read_json(
+                _assignments_path(self.base_dir),
+                {"assignments": default_assignments},
+            )
+            merged_payload = _merge_items_by_key(
+                default_assignments,
+                [item for item in list(payload.get("assignments") or []) if isinstance(item, dict)],
+                key="task_id",
+            )
+            assignments: list[TaskAssignment] = []
+            for item in merged_payload:
+                assignments.append(_assignment_from_dict(item))
+            normalized = [item.to_dict() for item in assignments]
+            if payload.get("assignments") != normalized:
+                _write_json(_assignments_path(self.base_dir), {"assignments": normalized})
+            return assignments
+
+        return self._get_cached("task_assignments", load)
 
     def get_general_task_profile(self, profile_id: str) -> GeneralTaskProfile | None:
         target = str(profile_id or "").strip()
@@ -1103,6 +1136,7 @@ class TaskFlowRegistry:
                 "deleted_domain_ids": sorted(deleted_domain_ids),
             },
         )
+        self._invalidate_cache()
         return record
 
     def delete_task_domain(self, domain_id: str) -> dict[str, Any]:
@@ -1409,6 +1443,7 @@ class TaskFlowRegistry:
                 "deleted_task_ids": sorted(deleted_task_ids),
             },
         )
+        self._invalidate_cache()
         return record
 
     def delete_specific_task_record(self, task_id: str) -> dict[str, Any]:
@@ -1466,6 +1501,7 @@ class TaskFlowRegistry:
             {"memory_request_profiles": [item.to_dict() for item in self.list_task_memory_request_profiles() if item.task_id != target]},
         )
         deleted_workflow_ids = self.workflow_registry.delete_workflows(workflow_ids)
+        self._invalidate_cache()
         return {
             "task_id": target,
             "task_family": record.task_family,
@@ -1506,12 +1542,18 @@ class TaskFlowRegistry:
         assignment = self._assignment_from_flow(flow)
         return _specific_task_record_from_assignment(assignment)
 
-    def _assignment_from_specific_task_record(self, record: SpecificTaskRecord) -> TaskAssignment:
+    def _assignment_from_specific_task_record(
+        self,
+        record: SpecificTaskRecord,
+        *,
+        flow: TaskFlowDefinition | None = None,
+        projection_binding: TaskProjectionBinding | None = None,
+    ) -> TaskAssignment:
         flow_id = str(record.default_flow_contract_id or f"flow.{record.task_id.removeprefix('task.')}").strip()
         task_policy = dict(record.task_policy or {})
         task_structure = dict(task_policy.get("task_structure") or {})
         safety_policy = dict(task_policy.get("safety_policy") or {})
-        flow = self.get_flow(flow_id)
+        flow = flow if flow is not None else self.get_flow(flow_id)
         default_agent_id = str(getattr(flow, "default_agent_id", "") or "agent:0").strip() or "agent:0"
         flow_metadata = dict(getattr(flow, "metadata", {}) or {})
         task_structure = {
@@ -1528,7 +1570,7 @@ class TaskFlowRegistry:
             ),
         }
         projection_id = ""
-        projection_binding = self.get_projection_binding(record.task_id)
+        projection_binding = projection_binding if projection_binding is not None else self.get_projection_binding(record.task_id)
         if projection_binding is not None:
             projection_id = str(projection_binding.default_projection_id or "").strip()
         workflow_file_ref = f"workflow:{record.default_workflow_id}" if record.default_workflow_id else ""
@@ -1556,41 +1598,44 @@ class TaskFlowRegistry:
         return [self.build_binding_for_flow(flow) for flow in self.list_flows()]
 
     def list_projection_bindings(self) -> list[TaskProjectionBinding]:
-        default_bindings = [
-            *[_default_projection_binding(_synthetic_task_from_general_profile(item)).to_dict() for item in self.list_general_task_profiles()],
-            *[_default_projection_binding_from_specific_record(item).to_dict() for item in self.list_specific_task_records()],
-        ]
-        payload = _read_json(
-            _projection_bindings_path(self.base_dir),
-            {"projection_bindings": default_bindings},
-        )
-        merged_payload = _merge_items_by_key(
-            default_bindings,
-            [item for item in list(payload.get("projection_bindings") or []) if isinstance(item, dict)],
-            key="binding_id",
-        )
-        bindings: list[TaskProjectionBinding] = []
-        for item in merged_payload:
-            bindings.append(
-                TaskProjectionBinding(
-                    binding_id=str(item.get("binding_id") or ""),
-                    task_id=str(item.get("task_id") or ""),
-                    projection_selection_mode=str(item.get("projection_selection_mode") or "task_default"),
-                    allowed_projection_ids=tuple(
-                        str(value).strip()
-                        for value in list(item.get("allowed_projection_ids") or [])
-                        if str(value).strip()
-                    ),
-                    default_projection_id=str(item.get("default_projection_id") or ""),
-                    projection_required=bool(item.get("projection_required", False)),
-                    notes=str(item.get("notes") or ""),
-                    metadata=dict(item.get("metadata") or {}),
-                )
+        def load() -> list[TaskProjectionBinding]:
+            default_bindings = [
+                *[_default_projection_binding(_synthetic_task_from_general_profile(item)).to_dict() for item in self.list_general_task_profiles()],
+                *[_default_projection_binding_from_specific_record(item).to_dict() for item in self.list_specific_task_records()],
+            ]
+            payload = _read_json(
+                _projection_bindings_path(self.base_dir),
+                {"projection_bindings": default_bindings},
             )
-        normalized = [item.to_dict() for item in bindings]
-        if payload.get("projection_bindings") != normalized:
-            _write_json(_projection_bindings_path(self.base_dir), {"projection_bindings": normalized})
-        return bindings
+            merged_payload = _merge_items_by_key(
+                default_bindings,
+                [item for item in list(payload.get("projection_bindings") or []) if isinstance(item, dict)],
+                key="binding_id",
+            )
+            bindings: list[TaskProjectionBinding] = []
+            for item in merged_payload:
+                bindings.append(
+                    TaskProjectionBinding(
+                        binding_id=str(item.get("binding_id") or ""),
+                        task_id=str(item.get("task_id") or ""),
+                        projection_selection_mode=str(item.get("projection_selection_mode") or "task_default"),
+                        allowed_projection_ids=tuple(
+                            str(value).strip()
+                            for value in list(item.get("allowed_projection_ids") or [])
+                            if str(value).strip()
+                        ),
+                        default_projection_id=str(item.get("default_projection_id") or ""),
+                        projection_required=bool(item.get("projection_required", False)),
+                        notes=str(item.get("notes") or ""),
+                        metadata=dict(item.get("metadata") or {}),
+                    )
+                )
+            normalized = [item.to_dict() for item in bindings]
+            if payload.get("projection_bindings") != normalized:
+                _write_json(_projection_bindings_path(self.base_dir), {"projection_bindings": normalized})
+            return bindings
+
+        return self._get_cached("projection_bindings", load)
 
     def list_explicit_projection_bindings(self) -> list[TaskProjectionBinding]:
         payload = _read_json(_projection_bindings_path(self.base_dir), {"projection_bindings": []})
@@ -1654,6 +1699,7 @@ class TaskFlowRegistry:
             _projection_bindings_path(self.base_dir),
             {"projection_bindings": [item.to_dict() for item in bindings]},
         )
+        self._invalidate_cache()
         return binding
 
     def list_flow_contract_bindings(self) -> list[TaskFlowContractBinding]:
@@ -1739,47 +1785,51 @@ class TaskFlowRegistry:
             _flow_contract_bindings_path(self.base_dir),
             {"flow_contract_bindings": [item.to_dict() for item in bindings]},
         )
+        self._invalidate_cache()
         return binding
 
     def list_task_agent_adoption_plans(self) -> list[TaskAgentAdoptionPlan]:
-        default_tasks = [
-            *[_synthetic_task_from_general_profile(item) for item in self.list_general_task_profiles()],
-            *[self._assignment_from_specific_task_record(item) for item in self.list_specific_task_records()],
-        ]
-        payload = _read_json(
-            _adoption_plans_path(self.base_dir),
-            {"adoption_plans": [_default_adoption_plan(item).to_dict() for item in default_tasks]},
-        )
-        default_plans = [_default_adoption_plan(item).to_dict() for item in default_tasks]
-        merged_payload = _merge_default_overlay_by_key(
-            default_plans,
-            [item for item in list(payload.get("adoption_plans") or []) if isinstance(item, dict)],
-            key="plan_id",
-        )
-        plans: list[TaskAgentAdoptionPlan] = []
-        for item in merged_payload:
-            plans.append(
-                TaskAgentAdoptionPlan(
-                    plan_id=str(item.get("plan_id") or ""),
-                    task_id=str(item.get("task_id") or ""),
-                    adoption_mode=normalize_task_agent_adoption_mode(str(item.get("adoption_mode") or "adopt_existing")),
-                    default_agent_id=str(item.get("default_agent_id") or "agent:0"),
-                    allowed_agent_categories=tuple(
-                        str(value).strip()
-                        for value in list(item.get("allowed_agent_categories") or [])
-                        if str(value).strip()
-                    ),
-                    allow_worker_agent_spawn=bool(item.get("allow_worker_agent_spawn", False)),
-                    worker_agent_blueprint_id=str(item.get("worker_agent_blueprint_id") or ""),
-                    worker_agent_naming_rule=str(item.get("worker_agent_naming_rule") or ""),
-                    notes=str(item.get("notes") or ""),
-                    metadata=dict(item.get("metadata") or {}),
-                )
+        def load() -> list[TaskAgentAdoptionPlan]:
+            default_tasks = [
+                *[_synthetic_task_from_general_profile(item) for item in self.list_general_task_profiles()],
+                *self.list_task_assignments(),
+            ]
+            payload = _read_json(
+                _adoption_plans_path(self.base_dir),
+                {"adoption_plans": [_default_adoption_plan(item).to_dict() for item in default_tasks]},
             )
-        normalized = [item.to_dict() for item in plans]
-        if payload.get("adoption_plans") != normalized:
-            _write_json(_adoption_plans_path(self.base_dir), {"adoption_plans": normalized})
-        return plans
+            default_plans = [_default_adoption_plan(item).to_dict() for item in default_tasks]
+            merged_payload = _merge_default_overlay_by_key(
+                default_plans,
+                [item for item in list(payload.get("adoption_plans") or []) if isinstance(item, dict)],
+                key="plan_id",
+            )
+            plans: list[TaskAgentAdoptionPlan] = []
+            for item in merged_payload:
+                plans.append(
+                    TaskAgentAdoptionPlan(
+                        plan_id=str(item.get("plan_id") or ""),
+                        task_id=str(item.get("task_id") or ""),
+                        adoption_mode=normalize_task_agent_adoption_mode(str(item.get("adoption_mode") or "adopt_existing")),
+                        default_agent_id=str(item.get("default_agent_id") or "agent:0"),
+                        allowed_agent_categories=tuple(
+                            str(value).strip()
+                            for value in list(item.get("allowed_agent_categories") or [])
+                            if str(value).strip()
+                        ),
+                        allow_worker_agent_spawn=bool(item.get("allow_worker_agent_spawn", False)),
+                        worker_agent_blueprint_id=str(item.get("worker_agent_blueprint_id") or ""),
+                        worker_agent_naming_rule=str(item.get("worker_agent_naming_rule") or ""),
+                        notes=str(item.get("notes") or ""),
+                        metadata=dict(item.get("metadata") or {}),
+                    )
+                )
+            normalized = [item.to_dict() for item in plans]
+            if payload.get("adoption_plans") != normalized:
+                _write_json(_adoption_plans_path(self.base_dir), {"adoption_plans": normalized})
+            return plans
+
+        return self._get_cached("task_agent_adoption_plans", load)
 
     def list_explicit_task_agent_adoption_plans(self) -> list[TaskAgentAdoptionPlan]:
         payload = _read_json(_adoption_plans_path(self.base_dir), {"adoption_plans": []})
@@ -1849,6 +1899,7 @@ class TaskFlowRegistry:
             _adoption_plans_path(self.base_dir),
             {"adoption_plans": [item.to_dict() for item in plans]},
         )
+        self._invalidate_cache()
         return plan
 
     def _collect_deletable_workflow_ids(
@@ -2025,6 +2076,7 @@ class TaskFlowRegistry:
             _memory_request_profiles_path(self.base_dir),
             {"memory_request_profiles": [item.to_dict() for item in profiles]},
         )
+        self._invalidate_cache()
         return profile
 
     def derive_coordination_task_view_from_graph(self, graph: TaskGraphDefinition) -> CoordinationTaskDefinition:
@@ -2186,6 +2238,7 @@ class TaskFlowRegistry:
         graphs = [item for item in self.list_task_graphs() if item.graph_id != target]
         graphs.append(graph)
         _write_json(_task_graphs_path(self.base_dir), {"task_graphs": [item.to_dict() for item in graphs]})
+        self._invalidate_cache()
         return graph
 
     def get_topology_template(self, template_id: str) -> TopologyTemplate | None:
@@ -2701,6 +2754,7 @@ class TaskFlowRegistry:
         assignments = self.list_task_assignments()
         bindings = self.list_bindings()
         binding_by_flow = {item.flow_id: item for item in bindings}
+        workflow_ids = {item.workflow_id for item in self.workflow_registry.list_workflows()}
         profiles: list[AgentTaskCarryingProfile] = []
         for agent in self.agent_registry.list_agents():
             carried_general = [
@@ -2721,7 +2775,7 @@ class TaskFlowRegistry:
                     ]
                 )
             )
-            blocked_reasons = list(self._agent_assignment_failures(agent.agent_id, carried_general, carried_specific))
+            blocked_reasons = list(self._agent_assignment_failures(agent.agent_id, carried_general, carried_specific, workflow_ids=workflow_ids))
             for assignment in carried_specific:
                 binding = binding_by_flow.get(assignment.flow_id)
                 if binding is not None and binding.validation_state != "valid":
@@ -2765,6 +2819,7 @@ class TaskFlowRegistry:
         workflows = {item.workflow_id for item in self.workflow_registry.list_workflows()}
         general_profiles = self.list_general_task_profiles()
         assignments = self.list_task_assignments()
+        carrying_profiles = self.list_agent_task_carrying_profiles()
         issues: list[dict[str, Any]] = []
         for profile in general_profiles:
             self._append_ref_issue(issues, profile.profile_id, "general_task", "default_agent_id", profile.default_agent_id, agents)
@@ -2784,7 +2839,7 @@ class TaskFlowRegistry:
                 issues.append(_diagnostic_issue(assignment.task_id, "specific_task", "input_contract_missing", "input_contract_id"))
             if not assignment.output_contract_id:
                 issues.append(_diagnostic_issue(assignment.task_id, "specific_task", "output_contract_missing", "output_contract_id"))
-        for profile in self.list_agent_task_carrying_profiles():
+        for profile in carrying_profiles:
             if profile.validation_state == "unbound":
                 issues.append(_diagnostic_issue(profile.agent_id, "agent", "agent_without_task", "carried_tasks"))
             for reason in profile.blocked_reasons:
@@ -2803,11 +2858,15 @@ class TaskFlowRegistry:
         agent_id: str,
         general_profiles: list[GeneralTaskProfile],
         assignments: list[TaskAssignment],
+        workflow_ids: set[str] | None = None,
     ) -> tuple[str, ...]:
+        workflow_ids = workflow_ids if workflow_ids is not None else {
+            item.workflow_id for item in self.workflow_registry.list_workflows()
+        }
         failures: list[str] = []
-        if any(item.default_workflow_id and self.workflow_registry.get_workflow(item.default_workflow_id) is None for item in general_profiles):
+        if any(item.default_workflow_id and item.default_workflow_id not in workflow_ids for item in general_profiles):
             failures.append("general_workflow_missing")
-        if any(item.workflow_id and self.workflow_registry.get_workflow(item.workflow_id) is None for item in assignments):
+        if any(item.workflow_id and item.workflow_id not in workflow_ids for item in assignments):
             failures.append("specific_workflow_missing")
         if agent_id == "agent:0" and not general_profiles:
             failures.append("main_agent_without_general_task")

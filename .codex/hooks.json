@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Users\\admin\\.conda\\envs\\agent\\python.exe D:\\AI应用\\langchain-agent\\.codex\\hooks\\writing_supervision_watchdog.py"
+          },
+          {
+            "type": "command",
+            "command": "C:\\Users\\admin\\.conda\\envs\\agent\\python.exe D:\\AI应用\\langchain-agent\\.codex\\hooks\\writing_project_monitor.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+ 

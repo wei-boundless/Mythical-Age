@@ -147,7 +147,7 @@ class LongTermMemoryStoreAdapter:
                 "memory_class": str(payload.get("memory_class", "") or ""),
                 "confidence": str(payload.get("confidence", "") or ""),
                 "source_message_excerpt": str(getattr(note, "source_message_excerpt", "") or ""),
-                "legacy_note_slug": str(getattr(note, "slug", "") or ""),
+                "source_note_slug": str(getattr(note, "slug", "") or ""),
             },
         )
 

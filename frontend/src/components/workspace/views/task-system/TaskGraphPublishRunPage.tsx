@@ -17,6 +17,7 @@ import {
 } from "@/lib/api";
 import { TaskSystemToolbarButton } from "./TaskSystemWorkbenchUi";
 import { isTaskGraphPublishedState, taskGraphPublishStateLabel, type TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
+import { focusForPreflightIssue, focusTargetLabel } from "./taskGraphEditorFocus";
 import { buildTaskGraphPreflightReport } from "./taskGraphPreflight";
 import type { TaskGraphPreflightIssue } from "./taskGraphPreflight";
 import { buildTaskGraphSchedulerSummary, schedulerStateFromTrace } from "./taskGraphRuntimeView";
@@ -32,10 +33,27 @@ function runtimeIssueTitle(issue: Record<string, unknown>, index: number) {
 function repairActionLabel(issue: TaskGraphPreflightIssue) {
   if (issue.source === "frontend.preflight.prompt_semantics") return "补全职责字段";
   if (issue.source === "frontend.preflight.projection_binding") return "迁移到投影";
+  if (issue.source === "frontend.preflight.cognition_packet") return "补输入说明";
   if (issue.source === "frontend.preflight.contract" && issue.scope === "edge") return "补默认载荷契约";
   if (issue.source === "frontend.preflight.memory_handoff") return "补摘要交接";
+  if (issue.source === "frontend.preflight.memory_selector") return "配置 Selector";
+  if (issue.source === "frontend.preflight.memory_commit_path") return "补提交路径";
+  if (issue.source === "frontend.preflight.revision_packet") return "补返修包";
   if (issue.source === "frontend.preflight.timeline" && issue.scope === "phase") return "补阶段定义";
   return "";
+}
+
+function preflightIssueGroup(issue: TaskGraphPreflightIssue) {
+  if (issue.source.includes("projection") || issue.source.includes("prompt") || issue.source.includes("cognition")) return "职责与输入包";
+  if (issue.source.includes("memory") || issue.source.includes("receipt")) return "记忆与可见性";
+  if (issue.source.includes("timeline") || issue.source.includes("revision")) return "时序与循环";
+  if (issue.source.includes("contract") || issue.source.includes("review_gate")) return "契约与质量门";
+  if (issue.source.includes("runtime") || issue.source.includes("scheduler")) return "运行装配";
+  return "图结构";
+}
+
+function preflightIssueFocusLabel(issue: TaskGraphPreflightIssue) {
+  return focusTargetLabel(focusForPreflightIssue(issue));
 }
 
 export function TaskGraphPublishRunPage({
@@ -96,6 +114,13 @@ export function TaskGraphPublishRunPage({
     edges,
     runtimeSpec,
   });
+  const preflightGroups = Array.from(
+    preflightReport.issues.reduce((groups, issue) => {
+      const group = preflightIssueGroup(issue);
+      groups.set(group, [...(groups.get(group) ?? []), issue]);
+      return groups;
+    }, new Map<string, TaskGraphPreflightIssue[]>()),
+  );
 
   async function compileRuntimeSpec() {
     if (!graphId) return;
@@ -352,7 +377,7 @@ export function TaskGraphPublishRunPage({
                 </div>
                 <div className="task-graph-note">
                   <strong>当前 active phase：{schedulerSummary.active_phase_ids.join(" / ") || "-"}</strong>
-                  <span>当前时序点：{Object.entries(schedulerSummary.active_sequence_by_phase).map(([phase, value]) => `${phase}=T${value}`).join(" / ") || "-"}</span>
+                  <span>当前阶段顺序：{Object.entries(schedulerSummary.active_sequence_by_phase).map(([phase, value]) => `${phase}=S${value}`).join(" / ") || "-"}</span>
                 </div>
                 <div className="task-graph-preflight-list">
                   {schedulerSummary.phase_states.slice(0, 6).map((phase) => (
@@ -396,26 +421,37 @@ export function TaskGraphPublishRunPage({
       <section className="boundary-card">
         <header><strong>预检问题</strong><span>{preflightReport.error_count} 阻塞 / {preflightReport.warning_count} 警告 / {preflightReport.info_count} 提示</span></header>
         {preflightReport.issues.length ? (
-          <div className="task-graph-preflight-list">
-            {preflightReport.issues.map((issue) => {
-              const repairLabel = repairActionLabel(issue);
-              return (
-                <article className="task-graph-preflight-row" key={issue.issue_id}>
-                  <button className="task-graph-preflight-row__main" onClick={() => onFocusIssue?.(issue)} type="button">
-                    <span className={`task-graph-preflight-row__severity task-graph-preflight-row__severity--${issue.severity}`}>
-                      {issue.severity}
-                    </span>
-                    <div>
-                      <strong>{issue.title}</strong>
-                      <span>{issue.detail}</span>
-                    </div>
-                    <em>{issue.scope}{issue.target_id ? `:${issue.target_id}` : ""}</em>
-                    <small>{issue.source}</small>
-                  </button>
-                  {repairLabel ? <button className="boundary-chip" onClick={() => onRepairIssue?.(issue)} type="button"><span>{repairLabel}</span></button> : null}
-                </article>
-              );
-            })}
+          <div className="task-graph-preflight-groups">
+            {preflightGroups.map(([group, groupIssues]) => (
+              <section className="task-graph-preflight-group" key={group}>
+                <header>
+                  <strong>{group}</strong>
+                  <span>{groupIssues.filter((issue) => issue.severity === "error").length} 阻塞 / {groupIssues.length} 总数</span>
+                </header>
+                <div className="task-graph-preflight-list">
+                  {groupIssues.map((issue) => {
+                    const repairLabel = repairActionLabel(issue);
+                    return (
+                      <article className="task-graph-preflight-row" key={issue.issue_id}>
+                        <button className="task-graph-preflight-row__main" onClick={() => onFocusIssue?.(issue)} type="button">
+                          <span className={`task-graph-preflight-row__severity task-graph-preflight-row__severity--${issue.severity}`}>
+                            {issue.severity}
+                          </span>
+                          <div>
+                            <strong>{issue.title}</strong>
+                            <span>{issue.detail}</span>
+                            <small>修复位置：{preflightIssueFocusLabel(issue)}</small>
+                          </div>
+                          <em>{issue.scope}{issue.target_id ? `:${issue.target_id}` : ""}</em>
+                          <small>{issue.source}</small>
+                        </button>
+                        {repairLabel ? <button className="boundary-chip" onClick={() => onRepairIssue?.(issue)} type="button"><span>{repairLabel}</span></button> : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
           </div>
         ) : (
           <div className="task-graph-note">

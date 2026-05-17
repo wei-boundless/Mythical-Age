@@ -4,6 +4,7 @@ import {
   loadFile,
   createSession,
   deleteSession,
+  getCoordinationRunTaskGraphMonitor,
   getTaskGraphRunMonitor,
   getOrchestrationRuntimeLoopSessionLiveMonitor,
   getRagMode,
@@ -17,6 +18,7 @@ import {
   setRagMode,
   streamChat,
   switchSoulSystemSeed,
+  taskGraphRunIdFromLiveMonitor,
   truncateSessionMessages
 } from "@/lib/api";
 import {
@@ -832,8 +834,15 @@ export class WorkspaceRuntime {
         return;
       }
       const taskRunId = String(liveMonitor.monitor.task_run?.task_run_id ?? "").trim();
+      const coordinationRunId = String(
+        liveMonitor.latest_coordination_run_id
+        ?? taskGraphRunIdFromLiveMonitor(liveMonitor.monitor)
+        ?? ""
+      ).trim();
       let taskGraphRunMonitor = this.store.getState().taskGraphRunMonitor;
-      if (taskRunId) {
+      if (coordinationRunId) {
+        taskGraphRunMonitor = await getCoordinationRunTaskGraphMonitor(coordinationRunId);
+      } else if (taskRunId) {
         taskGraphRunMonitor = await getTaskGraphRunMonitor(taskRunId);
       }
       if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {

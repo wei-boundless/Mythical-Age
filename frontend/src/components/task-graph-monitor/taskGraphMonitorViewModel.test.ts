@@ -84,6 +84,39 @@ describe("buildTaskGraphMonitorViewModel", () => {
     expect(model.memoryOperations[0].refs).toEqual(["wm:world"]);
   });
 
+  it("surfaces project progress and supervision metadata", () => {
+    const monitor = monitorView();
+    monitor.project = {
+      project_id: "project:honghuang",
+      project_title: "洪荒时代",
+      graph_id: "graph.writing.simple",
+    };
+    monitor.progress = {
+      metric_label: "words",
+      target_metric_total: 1000000,
+      completed_metric_total: 12000,
+      committed_unit_count: 3,
+      last_committed_unit_index: 3,
+      remaining_metric_total: 988000,
+    };
+    monitor.supervision = {
+      project_runtime_status: "watching",
+      active_run_status: "running",
+      latest_artifact_root: "output/novel_artifacts/simple_novel/runs/demo",
+      latest_event_at: 100,
+      last_effective_output_at: 98,
+      latest_record: { repair_action: "none" },
+      record_count: 2,
+    };
+
+    const model = buildTaskGraphMonitorViewModel(monitor);
+
+    expect(model.projectId).toBe("project:honghuang");
+    expect(model.completedMetricTotal).toBe(12000);
+    expect(model.remainingMetricTotal).toBe(988000);
+    expect(model.projectRuntimeStatus).toBe("watching");
+  });
+
   it("keeps completed static topology edges out of the realtime canvas", () => {
     const monitor = monitorView();
     monitor.topology.edges = monitor.topology.edges.map((edge) => ({ ...edge, status: "completed" }));

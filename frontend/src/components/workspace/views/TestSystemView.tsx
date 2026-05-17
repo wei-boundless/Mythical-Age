@@ -47,7 +47,7 @@ import {
 import { useAppStore } from "@/lib/store";
 
 type TestPage = "run" | "reports" | "analysis" | "cases";
-type CaseFilter = "active" | "draft" | "issues" | "legacy";
+type CaseFilter = "active" | "draft" | "issues";
 
 const fastProfileOrder = ["chain", "functional", "system", "scenario"];
 const deepProfileOrder = ["long_core", "long_batches", "marathon"];
@@ -100,9 +100,7 @@ const ownerLabels: Record<string, string> = {
   skill_system: "技能系统",
   model_system: "模型运行",
   orchestration_system: "编排系统",
-  runtime: "运行时",
-  legacy_query: "旧 Query",
-  legacy_worker: "旧 Worker"
+  runtime: "运行时"
 };
 
 const pages: Array<{ key: TestPage; title: string; subtitle: string }> = [
@@ -115,8 +113,7 @@ const pages: Array<{ key: TestPage; title: string; subtitle: string }> = [
 const caseFilters: Array<{ key: CaseFilter; title: string; subtitle: string }> = [
   { key: "active", title: "正式用例", subtitle: "当前门禁资产" },
   { key: "draft", title: "用例草案", subtitle: "人工或 agent 待补全" },
-  { key: "issues", title: "问题记录", subtitle: "对话/开发/skills 发现的问题" },
-  { key: "legacy", title: "历史参考", subtitle: "迁移时查证" }
+  { key: "issues", title: "问题记录", subtitle: "对话/开发/skills 发现的问题" }
 ];
 
 const issueOrigins = [
@@ -275,7 +272,6 @@ function runtimeFlowItems(turn: TestTurn | null, artifacts: TestArtifacts | null
 
 function casesForFilter(registry: TestCaseRegistry | null, filter: CaseFilter) {
   if (!registry) return [];
-  if (filter === "legacy") return registry.legacy_cases || [];
   if (filter === "active") return registry.active_cases || [];
   return [];
 }
@@ -414,7 +410,7 @@ export function TestSystemView() {
     try {
       const [profilePayload, casePayload, reportPayload, runPayload] = await Promise.all([
         listTestProfiles(),
-        getTestCases(true),
+        getTestCases(),
         getTestAgentReport(),
         listTestRuns(20)
       ]);
@@ -1072,11 +1068,11 @@ export function TestSystemView() {
             </div>
           ) : null}
 
-          {caseFilter === "active" || caseFilter === "legacy" ? (
+          {caseFilter === "active" ? (
             <div className="test-normalized-list test-normalized-list--wide">
               <div className="workspace-section__head">
                 <ClipboardList size={18} />
-                <h3>{caseFilter === "active" ? "正式用例" : "历史参考"}</h3>
+                <h3>正式用例</h3>
               </div>
               {visibleCases.map((testCase) => (
                 <div className="test-normalized-item" key={testCase.case_id}>

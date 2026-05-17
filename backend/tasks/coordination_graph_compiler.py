@@ -4,6 +4,7 @@ from typing import Any
 
 from .coordination_graph_models import TaskGraphRuntimeEdge, TaskGraphRuntimeNode, TaskGraphRuntimeSpec, TaskGraphRuntimeValidationIssue
 from .flow_models import SpecificTaskRecord, TaskCommunicationProtocol
+from .layered_graph_normalizer import normalize_task_graph_layers
 from .task_graph_models import TaskGraphDefinition, TaskGraphValidationIssue, validate_task_graph
 
 
@@ -121,7 +122,9 @@ def compile_task_graph_definition_runtime_spec(
         edges=edges,
     )
     working_memory_resource_steps = _working_memory_resource_steps(nodes=nodes, edges=edges)
+    layered_graph = normalize_task_graph_layers(graph)
     validation_issues.extend(_runtime_issues_from_scheduler_support(scheduler_support))
+    validation_issues.extend(_runtime_issues_from_layered_graph(layered_graph))
     return TaskGraphRuntimeSpec(
         graph_id=graph.graph_id,
         graph_ref=graph.graph_id,
@@ -135,6 +138,13 @@ def compile_task_graph_definition_runtime_spec(
         communication_modes=communication_modes,
         start_node_ids=start_node_ids,
         terminal_node_ids=terminal_node_ids,
+        resource_nodes=tuple(dict(item) for item in list(layered_graph.get("resource_nodes") or []) if isinstance(item, dict)),
+        temporal_edges=tuple(dict(item) for item in list(layered_graph.get("temporal_edges") or []) if isinstance(item, dict)),
+        memory_edges=tuple(dict(item) for item in list(layered_graph.get("memory_edges") or []) if isinstance(item, dict)),
+        artifact_context_edges=tuple(dict(item) for item in list(layered_graph.get("artifact_context_edges") or []) if isinstance(item, dict)),
+        revision_edges=tuple(dict(item) for item in list(layered_graph.get("revision_edges") or []) if isinstance(item, dict)),
+        loop_frames=tuple(dict(item) for item in list(layered_graph.get("loop_frames") or []) if isinstance(item, dict)),
+        memory_matrix=dict(layered_graph.get("memory_matrix") or {}),
         issues=tuple(validation_issues),
         diagnostics={
             "source": "task_system.task_graph_definition_runtime_compiler",
@@ -150,6 +160,7 @@ def compile_task_graph_definition_runtime_spec(
             "phase_definitions": list(graph_metadata.get("phase_definitions") or []),
             "scheduler_support": scheduler_support,
             "working_memory_resource_steps": working_memory_resource_steps,
+            "layered_graph": layered_graph,
         },
     )
 
@@ -209,6 +220,7 @@ def _runtime_node_from_task_graph_node(
         memory_writeback_policy=dict(raw_node.memory_writeback_policy or {}),
         dynamic_memory_read_policy=dict(raw_node.dynamic_memory_read_policy or {}),
         artifact_policy=artifact_policy,
+        stream_policy=dict(getattr(raw_node, "stream_policy", {}) or {}),
         review_gate_policy=dict(getattr(raw_node, "review_gate_policy", {}) or {}),
         loop_policy=dict(getattr(raw_node, "loop_policy", {}) or {}),
         metadata={
@@ -498,6 +510,26 @@ def _runtime_issues_from_scheduler_support(report: dict[str, Any]) -> list[TaskG
                 severity="warning",
                 node_id=ref_id if scope == "node" else "",
                 edge_id=ref_id if scope == "edge" else "",
+            )
+        )
+    return issues
+
+
+def _runtime_issues_from_layered_graph(layered_graph: dict[str, Any]) -> list[TaskGraphRuntimeValidationIssue]:
+    issues: list[TaskGraphRuntimeValidationIssue] = []
+    for item in list(layered_graph.get("issues") or []):
+        if not isinstance(item, dict):
+            continue
+        severity = str(item.get("severity") or "warning")
+        if severity == "info":
+            continue
+        issues.append(
+            TaskGraphRuntimeValidationIssue(
+                code=f"layered_graph_{item.get('code') or 'issue'}",
+                message=str(item.get("message") or "Layered graph issue"),
+                severity=severity,
+                node_id=str(item.get("node_id") or ""),
+                edge_id=str(item.get("edge_id") or ""),
             )
         )
     return issues

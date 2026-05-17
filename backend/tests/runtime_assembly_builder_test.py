@@ -141,6 +141,89 @@ def test_node_runtime_assembly_hides_main_history_and_links_handoff_packet() -> 
     assert payload["handoff_packets"][0]["contract_refs"] == ["contract.test.handoff"]
 
 
+def test_node_runtime_assembly_exposes_layered_context_sections() -> None:
+    manifest = ContractManifest(
+        manifest_id="contract-manifest:layered",
+        manifest_kind="coordination",
+        graph_id="graph.layered",
+        graph_ref="graph.layered",
+        node_contracts=(
+            CompiledNodeContract(
+                node_id="draft",
+                title="起草",
+                node_type="agent",
+                task_id="task.draft",
+                agent_id="agent:writer",
+            ),
+        ),
+        metadata={
+            "layered_graph": {
+                "resource_nodes": [
+                    {
+                        "node_id": "memory.baseline",
+                        "repository_id": "baseline",
+                        "resource_type": "memory_repository",
+                    }
+                ],
+                "memory_edges": [
+                    {
+                        "edge_id": "memory.baseline.read",
+                        "source_node_id": "memory.baseline",
+                        "target_node_id": "draft",
+                        "memory_edge_type": "read",
+                        "record_keys": ["project_rules"],
+                        "version_selector": "latest_committed_before_stage_start",
+                        "on_missing": "block",
+                    }
+                ],
+                "artifact_context_edges": [
+                    {
+                        "edge_id": "plan.draft.artifact",
+                        "source_node_id": "plan",
+                        "target_node_id": "draft",
+                        "context_mode": "expand_text_for_model",
+                        "source_output_key": "plan_md",
+                        "target_input_key": "plan_context",
+                    }
+                ],
+                "revision_edges": [
+                    {
+                        "edge_id": "review.draft.revision",
+                        "source_node_id": "review",
+                        "target_node_id": "draft",
+                        "carry": ["previous_candidate_ref", "review_result_ref"],
+                    }
+                ],
+                "temporal_edges": [
+                    {
+                        "edge_id": "temporal:plan->draft",
+                        "source_node_id": "plan",
+                        "target_node_id": "draft",
+                        "blocking": True,
+                    }
+                ],
+            }
+        },
+    )
+
+    assembly = build_node_runtime_assembly(
+        manifest=manifest,
+        node_id="draft",
+        agent_profile=AgentRuntimeProfile(agent_profile_id="writer_profile", agent_id="agent:writer"),
+    )
+    payload = assembly.to_dict()
+
+    section_ids = {item["section_id"] for item in payload["context_sections"]}
+    assert {"memory_snapshot", "artifact_context", "revision_context"}.issubset(section_ids)
+    layered = payload["metadata"]["layered_context"]
+    assert layered["memory_snapshot"]["retrieval_mode"] == "directed_repository_edges"
+    assert layered["memory_reads"][0]["repository"] == "baseline"
+    assert layered["artifact_context_edges"][0]["source_output_key"] == "plan_md"
+    assert layered["revision_edges"][0]["carry"] == ["previous_candidate_ref", "review_result_ref"]
+    assert payload["diagnostics"]["layered_context"]["memory_read_edge_count"] == 1
+    assert payload["diagnostics"]["layered_context"]["temporal_incoming_edge_count"] == 1
+
+
 def test_node_runtime_assembly_carries_conversation_memory_suppression_policy() -> None:
     manifest = ContractManifest(
         manifest_id="contract-manifest:test",
@@ -593,8 +676,7 @@ def test_task_run_loop_can_finalize_working_memory_without_durable_promotion(tmp
     result = finalized["result"]
     assert result["artifact_candidate_count"] == 1
     assert result["discarded_count"] == 1
-    assert result["purged_count"] == 1
     assert finalized["event"]["event_type"] == "working_memory_finalized"
     assert loop.working_memory.get_item(stored[0].work_memory_id).status == "archived"
     assert loop.working_memory.get_item(stored[0].work_memory_id).promotion_state == "promoted_to_artifact_store"
-    assert loop.working_memory.get_item(stored[1].work_memory_id) is None
+    assert loop.working_memory.get_item(stored[1].work_memory_id).status == "discarded"

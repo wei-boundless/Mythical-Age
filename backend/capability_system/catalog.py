@@ -291,16 +291,17 @@ def build_binding_graph(
 def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     overrides = dict(tool_overrides or {})
     skills = [skill_payload(runtime, skill) for skill in runtime.skill_registry.skills]
+    tool_runtime = runtime.tool_runtime
     tool_descriptions = {
         str(getattr(instance, "name", "") or ""): str(getattr(instance, "description", "") or "")
-        for instance in runtime.tool_runtime.instances
+        for instance in getattr(tool_runtime, "instances", ())
     }
     raw_tools = [
         {
             **definition.to_registry_record(),
             "description": tool_descriptions.get(definition.name, ""),
         }
-        for definition in runtime.tool_runtime.definitions
+        for definition in tool_runtime.definitions
     ]
     operation_registry = build_default_operation_registry()
     operations = [operation.to_dict() for operation in operation_registry.list_operations()]

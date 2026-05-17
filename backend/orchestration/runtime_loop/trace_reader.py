@@ -10,6 +10,7 @@ from .langgraph_checkpoint_adapter import LangGraphCheckpointStoreAdapter
 from .models import CoordinationRun, TaskRun
 from .state_index import RuntimeStateIndex
 from .task_graph_run_monitor import build_task_graph_run_monitor_view
+from .timeline_ledger import TimelineLedgerStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +21,7 @@ class RuntimeLoopTraceReader:
     event_log: RuntimeEventLog
     checkpoints: RuntimeCheckpointStore
     coordination_checkpoints: LangGraphCheckpointStoreAdapter | None = None
+    timeline_ledger: TimelineLedgerStore | None = None
 
     def list_session_task_runs(self, session_id: str) -> dict[str, Any]:
         task_runs = sorted(
@@ -39,11 +41,29 @@ class RuntimeLoopTraceReader:
         task_runs = _session_task_run_payloads(state_snapshot, session_id)
         latest = _pick_session_monitor_task_run_payload(task_runs, state_snapshot)
         monitor_index = dict(state_snapshot.get("monitor_index") or {})
+        task_run_payloads = dict(state_snapshot.get("task_runs") or {})
+        coordination_run_payloads = dict(state_snapshot.get("coordination_runs") or {})
         task_run_count = int(monitor_index.get("task_run_count") or len(task_runs))
+        latest_coordination_task_run_id = str(monitor_index.get("latest_coordination_task_run_id") or "")
+        if latest_coordination_task_run_id and (
+            latest_coordination_task_run_id not in task_run_payloads
+            or not _task_coordination_run_payloads(state_snapshot, latest_coordination_task_run_id)
+        ):
+            latest_coordination_task_run_id = ""
+        latest_coordination_run_id = str(monitor_index.get("latest_coordination_run_id") or "")
+        if latest_coordination_run_id and latest_coordination_run_id not in coordination_run_payloads:
+            latest_coordination_run_id = ""
         return {
             "session_id": session_id,
             "task_run_count": task_run_count,
             "latest_task_run_id": str(latest.get("task_run_id") or "") if latest is not None else "",
+            "latest_coordination_task_run_id": latest_coordination_task_run_id,
+            "latest_coordination_run_id": latest_coordination_run_id,
+            "project_runtime_status": (
+                self.state_index.get_session_active_project_status(session_id).to_dict()
+                if self.state_index.get_session_active_project_status(session_id) is not None
+                else None
+            ),
             "monitor": (
                 self._get_task_run_live_monitor_from_snapshot(
                     str(latest.get("task_run_id") or ""),
@@ -71,13 +91,28 @@ class RuntimeLoopTraceReader:
         coordination_run = _pick_coordination_run(self.state_index.list_task_coordination_runs(task_run_id))
         if coordination_run is None:
             task_checkpoint = self.checkpoints.load_latest(task_run_id)
+            project_id = str(dict(task_run.diagnostics or {}).get("project_id") or "")
             return build_task_graph_run_monitor_view(
                 task_run=task_run.to_dict(),
                 coordination_run=None,
                 coordination_state={},
                 task_checkpoint=task_checkpoint.to_dict() if task_checkpoint is not None else None,
                 event_count=len(self.event_log.list_events(task_run_id)),
+                recent_events=[item.to_dict() for item in self.event_log.list_events(task_run_id)[-120:]],
                 source="task_run",
+                project_ledger=(
+                    self.state_index.get_project_progress_ledger(project_id).to_dict()
+                    if project_id and self.state_index.get_project_progress_ledger(project_id) is not None
+                    else None
+                ),
+                project_status=(
+                    self.state_index.get_project_runtime_status(project_id).to_dict()
+                    if project_id and self.state_index.get_project_runtime_status(project_id) is not None
+                    else None
+                ),
+                supervision_records=[
+                    item.to_dict() for item in self.state_index.list_project_supervision_records(project_id)[-10:]
+                ] if project_id else None,
             )
         return self.get_coordination_run_monitor(coordination_run.coordination_run_id)
 
@@ -95,15 +130,105 @@ class RuntimeLoopTraceReader:
             else None
         )
         coordination_state = dict(coordination_checkpoint.state) if coordination_checkpoint is not None else {}
+        if self.timeline_ledger is not None:
+            coordination_state["timeline"] = self.timeline_ledger.snapshot(coordination_run_id, limit=80)
+        project_id = str(dict(task_run.diagnostics or {}).get("project_id") or "")
+        root_events = self.event_log.list_events(task_run.task_run_id)
+        stream_source_event_groups = self._coordination_stream_source_event_groups(
+            root_task_run=task_run,
+            coordination_state=coordination_state,
+        )
+        recent_events = _merge_recent_event_groups(
+            [[item.to_dict() for item in root_events[-120:]], *stream_source_event_groups],
+            limit=240,
+        )
         return build_task_graph_run_monitor_view(
             task_run=task_run.to_dict(),
             coordination_run=coordination_run.to_dict(),
             coordination_state=coordination_state,
             coordination_checkpoint=coordination_checkpoint.to_dict() if coordination_checkpoint is not None else None,
             task_checkpoint=task_checkpoint.to_dict() if task_checkpoint is not None else None,
-            event_count=len(self.event_log.list_events(task_run.task_run_id)),
+            event_count=len(root_events) + sum(len(group) for group in stream_source_event_groups),
+            recent_events=recent_events,
             source="coordination_run",
+            project_ledger=(
+                self.state_index.get_project_progress_ledger(project_id).to_dict()
+                if project_id and self.state_index.get_project_progress_ledger(project_id) is not None
+                else None
+            ),
+            project_status=(
+                self.state_index.get_project_runtime_status(project_id).to_dict()
+                if project_id and self.state_index.get_project_runtime_status(project_id) is not None
+                else None
+            ),
+            supervision_records=[
+                item.to_dict() for item in self.state_index.list_project_supervision_records(project_id)[-10:]
+            ] if project_id else None,
         )
+
+    def _coordination_stream_source_event_groups(
+        self,
+        *,
+        root_task_run: TaskRun,
+        coordination_state: dict[str, Any],
+    ) -> list[list[dict[str, Any]]]:
+        """Collect recent output-port events from active TaskGraph node task runs.
+
+        The coordination/root task run owns the graph, clock, and scheduler state,
+        while each dispatched node executes as its own agent task run. Model text
+        stream chunks are emitted by those child task runs, so the monitor must
+        attach to the active node output ports instead of only reading the root log.
+        """
+
+        node_ids = _active_stream_node_ids(coordination_state)
+        if not node_ids:
+            return []
+        selected: list[tuple[str, list[dict[str, Any]]]] = []
+        task_runs = self.state_index.list_session_task_runs(root_task_run.session_id)
+        for node_id in node_ids:
+            candidates = [
+                item
+                for item in task_runs
+                if item.task_run_id != root_task_run.task_run_id
+                and _task_run_matches_graph_node(item, node_id)
+            ]
+            if not candidates:
+                continue
+            best = self._pick_best_stream_source_task_run(candidates)
+            if best is None:
+                continue
+            events = [item.to_dict() for item in self.event_log.list_events(best.task_run_id)[-120:]]
+            if events:
+                selected.append((best.task_run_id, events))
+        deduped: dict[str, list[dict[str, Any]]] = {}
+        for task_run_id, events in selected:
+            deduped[task_run_id] = events
+        return list(deduped.values())
+
+    def _pick_best_stream_source_task_run(self, task_runs: list[TaskRun]) -> TaskRun | None:
+        ranked: list[tuple[float, int, float, str, TaskRun]] = []
+        for item in task_runs:
+            events = self.event_log.list_events(item.task_run_id)
+            latest_model_event_at = max(
+                (
+                    float(event.created_at or 0.0)
+                    for event in events
+                    if str(event.event_type or "") == "model_item_received"
+                ),
+                default=0.0,
+            )
+            ranked.append(
+                (
+                    latest_model_event_at,
+                    1 if latest_model_event_at > 0.0 else 0,
+                    float(item.updated_at or item.created_at or 0.0),
+                    item.task_run_id,
+                    item,
+                )
+            )
+        if not ranked:
+            return None
+        return max(ranked, key=lambda item: item[:4])[-1]
 
     def _get_task_run_live_monitor_from_snapshot(
         self,
@@ -137,6 +262,8 @@ class RuntimeLoopTraceReader:
                 if coordination_checkpoint is not None
                 else dict(diagnostics.get("langgraph_runtime_state_summary") or {})
             )
+            if self.timeline_ledger is not None:
+                coordination_state["timeline"] = self.timeline_ledger.snapshot(active_coordination_run_id, limit=80)
             coordination_view = {
                 "coordination_run": _coordination_run_payload_summary(active_coordination_run),
                 "coordination_flow": _coordination_flow_summary(dict(diagnostics.get("coordination_flow") or {})),
@@ -176,6 +303,12 @@ class RuntimeLoopTraceReader:
             "latest_checkpoint": _checkpoint_summary(checkpoint) if checkpoint is not None else None,
             "loop_state": _loop_state_summary(loop_state),
             "coordination_run": coordination_view,
+            "project_runtime_status": (
+                self.state_index.get_project_runtime_status(str(dict(task_run).get("diagnostics", {}).get("project_id") or "")).to_dict()
+                if str(dict(task_run).get("diagnostics", {}).get("project_id") or "")
+                and self.state_index.get_project_runtime_status(str(dict(task_run).get("diagnostics", {}).get("project_id") or "")) is not None
+                else None
+            ),
             "has_coordination": coordination_view is not None,
             "status": str(task_run.get("status") or loop_state.get("status") or "unknown"),
             "terminal_reason": str(task_run.get("terminal_reason") or loop_state.get("terminal_reason") or ""),
@@ -522,6 +655,108 @@ def _latest_coordination_merge_result_payload(
     if not results:
         return None
     return sorted(results, key=lambda item: float(item.get("created_at") or 0.0), reverse=True)[0]
+
+
+def _active_stream_node_ids(coordination_state: dict[str, Any]) -> list[str]:
+    state = dict(coordination_state or {})
+    diagnostics = dict(state.get("diagnostics") or {})
+    scheduler_state = dict(
+        state.get("task_graph_scheduler_state")
+        or diagnostics.get("task_graph_scheduler_state")
+        or {}
+    )
+    stage_request = dict(state.get("stage_execution_request") or {})
+    dispatch_context = dict(stage_request.get("dispatch_context") or {})
+    values: list[str] = [
+        str(state.get("active_stage_id") or ""),
+        str(state.get("active_node_id") or ""),
+        str(stage_request.get("stage_id") or ""),
+        str(stage_request.get("node_id") or ""),
+        str(dispatch_context.get("stage_id") or ""),
+        str(dispatch_context.get("node_id") or ""),
+    ]
+    values.extend(_string_items(state.get("running_nodes")))
+    values.extend(_string_items(scheduler_state.get("running_nodes")))
+    values.extend(_string_items(state.get("ready_nodes")) if not any(values) else [])
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        cleaned = str(value or "").strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        result.append(cleaned)
+    return result
+
+
+def _task_run_matches_graph_node(task_run: TaskRun, node_id: str) -> bool:
+    target = str(node_id or "").strip()
+    if not target:
+        return False
+    values = [
+        str(task_run.task_id or ""),
+        str(task_run.task_contract_ref or ""),
+    ]
+    diagnostics = dict(task_run.diagnostics or {})
+    values.extend(
+        [
+            str(diagnostics.get("stage_id") or ""),
+            str(diagnostics.get("node_id") or ""),
+            str(diagnostics.get("active_stage_id") or ""),
+            str(diagnostics.get("active_node_id") or ""),
+            str(diagnostics.get("task_ref") or ""),
+        ]
+    )
+    for value in values:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            continue
+        if cleaned == target or cleaned.endswith(f".{target}"):
+            return True
+        if target in _identifier_segments(cleaned):
+            return True
+    return False
+
+
+def _identifier_segments(value: str) -> set[str]:
+    text = str(value or "")
+    for separator in (":", "/", "\\", ".", "|"):
+        text = text.replace(separator, "\n")
+    return {item.strip() for item in text.splitlines() if item.strip()}
+
+
+def _merge_recent_event_groups(
+    event_groups: list[list[dict[str, Any]]],
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for group in event_groups:
+        for item in group:
+            event = dict(item or {})
+            event_id = str(event.get("event_id") or "")
+            if event_id and event_id in seen:
+                continue
+            if event_id:
+                seen.add(event_id)
+            events.append(event)
+    return sorted(
+        events,
+        key=lambda item: (
+            float(dict(item).get("created_at") or 0.0),
+            int(dict(item).get("offset") or 0),
+            str(dict(item).get("event_id") or ""),
+        ),
+    )[-max(int(limit or 0), 1):]
+
+
+def _string_items(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value] if value else []
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    return [str(item) for item in value if str(item)]
 
 
 def _pick_session_monitor_task_run_payload(
@@ -913,6 +1148,16 @@ def _payload_summary(event_type: str, payload: dict[str, Any]) -> dict[str, Any]
                 "needs_model_followup": bool(observation.get("needs_model_followup") is True),
                 "context_record_id": str(context_record.get("record_id") or ""),
                 "context_update_mode": str(dict(context_record.get("context_update") or {}).get("mode") or ""),
+            }
+        )
+    elif event_type == "model_item_received":
+        summary.update(
+            {
+                "stream_ref": str(payload.get("stream_ref") or ""),
+                "delta_index": int(payload.get("delta_index") or 0),
+                "delta_chars": int(payload.get("delta_chars") or 0),
+                "accumulated_chars": int(payload.get("accumulated_chars") or 0),
+                "delta_preview": str(payload.get("delta_preview") or ""),
             }
         )
     elif event_type == "tool_call_requested":

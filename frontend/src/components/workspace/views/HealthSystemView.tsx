@@ -649,7 +649,7 @@ export function HealthSystemView() {
         getHealthSystemOverview(),
         getHealthWorkbenchOverview(),
         listTestProfiles(),
-        getTestCases(true),
+        getTestCases(),
         getHarnessMap(),
         listLongScenarios(),
         getTestCaseTemplates(),

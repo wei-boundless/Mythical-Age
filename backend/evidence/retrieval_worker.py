@@ -47,7 +47,7 @@ class RetrievalWorker:
             return RetrievalExecutionResult(
                 status="ok" if results else "empty",
                 results=tuple(dict(item) for item in results),
-                diagnostics={"result_count": len(results), "compat_mode": "legacy_retrieve_only"},
+                diagnostics={"result_count": len(results), "service_contract": "retrieve_only"},
             )
         return RetrievalExecutionResult(
             status="error",

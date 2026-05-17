@@ -97,7 +97,7 @@ class MultimodalParserAdapter:
         if suffix == ".xlsx":
             return self._parse_xlsx_file(path)
         if suffix in {".doc", ".ppt", ".xls"}:
-            return self._parse_legacy_office_file(path)
+            return self._parse_binary_office_file(path)
         return []
 
     def _source(self, path: Path) -> str:
@@ -343,11 +343,11 @@ class MultimodalParserAdapter:
             )
         return chunks
 
-    def _parse_legacy_office_file(self, path: Path) -> list[ParsedChunk]:
+    def _parse_binary_office_file(self, path: Path) -> list[ParsedChunk]:
         return [
             ParsedChunk(
                 text=(
-                    f"Legacy Office file detected: {path.name}\n"
+                    f"Binary Office file detected: {path.name}\n"
                     "Direct parsing is not implemented for this binary format. "
                     "Please convert it to docx/pptx/xlsx or PDF for better retrieval."
                 ),
@@ -543,7 +543,3 @@ class MultimodalParserAdapter:
         except Exception:
             return False
         return True
-
-
-# Backward-compatible alias so earlier imports do not break.
-RAGAnythingParserAdapter = MultimodalParserAdapter

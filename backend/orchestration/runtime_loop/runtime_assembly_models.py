@@ -104,6 +104,7 @@ class SingleAgentRuntimeAssembly:
     acceptance_contracts: tuple[RuntimeAcceptanceContract, ...] = ()
     failure_contract: RuntimeFailureContract = field(default_factory=RuntimeFailureContract)
     loop_policy: RuntimeLoopPolicy = field(default_factory=RuntimeLoopPolicy)
+    metadata: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.single_agent_runtime_assembly"
 
@@ -122,6 +123,7 @@ class SingleAgentRuntimeAssembly:
             "acceptance_contracts": [item.to_dict() for item in self.acceptance_contracts],
             "failure_contract": self.failure_contract.to_dict(),
             "loop_policy": self.loop_policy.to_dict(),
+            "metadata": dict(self.metadata),
             "diagnostics": dict(self.diagnostics),
         }
 
@@ -145,6 +147,7 @@ class NodeRuntimeAssembly:
     handoff_packets: tuple[HandoffPacket, ...] = ()
     failure_contract: RuntimeFailureContract = field(default_factory=RuntimeFailureContract)
     loop_policy: RuntimeLoopPolicy = field(default_factory=lambda: RuntimeLoopPolicy(loop_mode="coordination_node"))
+    metadata: dict[str, Any] = field(default_factory=dict)
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.node_runtime_assembly"
 
@@ -168,5 +171,6 @@ class NodeRuntimeAssembly:
             "handoff_packets": [item.to_dict() for item in self.handoff_packets],
             "failure_contract": self.failure_contract.to_dict(),
             "loop_policy": self.loop_policy.to_dict(),
+            "metadata": dict(self.metadata),
             "diagnostics": dict(self.diagnostics),
         }

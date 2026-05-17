@@ -109,7 +109,7 @@ export type TestCaseDefinition = {
   path: string;
   owner_system: string;
   runner: "pytest" | "python" | "harness" | string;
-  status: "active" | "legacy" | "quarantined" | "candidate" | string;
+  status: "active" | "quarantined" | "candidate" | string;
   profiles: string[];
   description: string;
   assertions: string[];
@@ -125,7 +125,6 @@ export type TestCaseRegistry = {
   }>;
   layers: string[];
   active_cases: TestCaseDefinition[];
-  legacy_cases: TestCaseDefinition[];
   candidate_cases: TestCaseDefinition[];
   case_count: number;
   authority: string;
@@ -144,7 +143,6 @@ export type TestAgentReport = {
   authority: string;
   summary: {
     active_case_count?: number;
-    legacy_case_count?: number;
     candidate_case_count?: number;
     registered_file_count?: number;
     discovered_test_file_count?: number;
@@ -155,7 +153,6 @@ export type TestAgentReport = {
   profile_targets: Record<string, string[]>;
   registered_paths: string[];
   unregistered_paths: string[];
-  legacy_paths: string[];
 };
 
 export type TestHarnessIssue = {
@@ -276,7 +273,6 @@ export type HarnessMapFeature = {
   case_count: number;
   active_case_count: number;
   candidate_case_count: number;
-  legacy_case_count: number;
   open_issue_count: number;
   governance_finding_count: number;
   case_ids: string[];
@@ -1510,6 +1506,30 @@ export type TaskGraphRunMonitorView = {
     task_checkpoint_ref: string;
     updated_at: number;
   };
+  project?: {
+    project_id: string;
+    project_title: string;
+    graph_id: string;
+  };
+  progress?: {
+    metric_label: string;
+    target_metric_total: number;
+    completed_metric_total: number;
+    committed_unit_count: number;
+    last_committed_unit_index: number;
+    remaining_metric_total: number;
+  };
+  supervision?: {
+    project_runtime_status: string;
+    active_run_status: string;
+    latest_artifact_root: string;
+    latest_event_at: number;
+    last_effective_output_at: number;
+    latest_record?: Record<string, unknown>;
+    record_count: number;
+  };
+  blocker?: Record<string, unknown>;
+  repair?: Record<string, unknown>;
   topology: {
     nodes: TaskGraphRunMonitorNode[];
     edges: TaskGraphRunMonitorEdge[];
@@ -1528,6 +1548,33 @@ export type TaskGraphRunMonitorView = {
   memory_operations: Array<Record<string, unknown>>;
   stage_results: Array<Record<string, unknown>>;
   current_stage_execution_request: Record<string, unknown>;
+  current_dispatch_context?: Record<string, unknown>;
+  current_context_packets?: {
+    memory_snapshot?: Record<string, unknown>;
+    artifact_context_packet?: Record<string, unknown>;
+    revision_packet?: Record<string, unknown>;
+    handoff_packet_refs?: string[];
+  };
+  execution_receipts?: Array<Record<string, unknown>>;
+  timeline?: {
+    ledger_id: string;
+    coordination_run_id: string;
+    root_task_run_id: string;
+    graph_id: string;
+    current_clock_seq: number;
+    event_count: number;
+    recent_events: Array<Record<string, unknown>>;
+    updated_at: number;
+    authority: string;
+  };
+  streaming?: {
+    enabled: boolean;
+    chunk_count: number;
+    accumulated_chars: number;
+    latest_chunk_at: number;
+    preview_text: string;
+    active_stream_ref: string;
+  };
   health: {
     valid: boolean;
     issues: TaskGraphRunMonitorIssue[];
@@ -1569,7 +1616,17 @@ export type RuntimeLoopSessionLiveMonitor = {
   session_id: string;
   task_run_count: number;
   latest_task_run_id: string;
+  latest_coordination_task_run_id?: string;
+  latest_coordination_run_id?: string;
+  project_runtime_status?: Record<string, unknown> | null;
   monitor: RuntimeLoopTaskRunLiveMonitor | null;
+};
+
+export type ProjectRuntimeStatusView = {
+  authority: string;
+  project_runtime_status: Record<string, unknown>;
+  project_progress_ledger: Record<string, unknown> | null;
+  supervision_records: Array<Record<string, unknown>>;
 };
 
 export type SessionTruncateResponse = {
@@ -2408,9 +2465,6 @@ export type WorkingMemoryFinalizationResult = {
   artifact_candidate_count: number;
   unresolved_conflict_count: number;
   unchanged_count: number;
-  purged_count: number;
-  purged_status_counts: Record<string, number>;
-  store_optimized: boolean;
   archive_report_path: string;
   item_actions: Array<{
     work_memory_id: string;
@@ -2601,10 +2655,10 @@ function getApiBase() {
   }
 
   if (typeof window === "undefined") {
-    return "http://127.0.0.1:8002/api";
+    return "http://127.0.0.1:8004/api";
   }
 
-  return "http://127.0.0.1:8002/api";
+  return "http://127.0.0.1:8004/api";
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -3222,6 +3276,36 @@ export async function getCoordinationRunTaskGraphMonitor(coordinationRunId: stri
   );
 }
 
+export async function getRuntimeLoopTaskRunArtifacts(taskRunId: string) {
+  return request<{
+    authority: string;
+    task_run_id: string;
+    artifact_root: string;
+    files: string[];
+    created_files: string[];
+    artifact_refs: string[];
+  }>(
+    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/artifacts`
+  );
+}
+
+export async function getRuntimeLoopTaskRunMemoryReceipts(taskRunId: string) {
+  return request<{
+    authority: string;
+    task_run_id: string;
+    memory_operations: Array<Record<string, unknown>>;
+    stage_results: Array<Record<string, unknown>>;
+  }>(
+    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/memory-receipts`
+  );
+}
+
+export async function getProjectRuntimeStatus(projectId: string) {
+  return request<ProjectRuntimeStatusView>(
+    `/orchestration/projects/${encodeURIComponent(projectId)}/runtime-status`
+  );
+}
+
 export async function startTaskGraphRuntimeLoopRun(
   graphId: string,
   payload: {
@@ -3711,10 +3795,8 @@ export async function listTestProfiles() {
   return request<TestProfile[]>("/health-system/maintenance/test-system/profiles");
 }
 
-export async function getTestCases(includeLegacy = true) {
-  const params = new URLSearchParams();
-  params.set("include_legacy", includeLegacy ? "true" : "false");
-  return request<TestCaseRegistry>(`/health-system/maintenance/test-system/cases?${params.toString()}`);
+export async function getTestCases() {
+  return request<TestCaseRegistry>("/health-system/maintenance/test-system/cases");
 }
 
 export async function getTestAgentReport() {

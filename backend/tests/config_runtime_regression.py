@@ -121,6 +121,35 @@ def test_runtime_override_exposes_llm_fallback(monkeypatch: pytest.MonkeyPatch, 
     assert settings.llm_fallback_api_key == "fallback-key"
 
 
+def test_runtime_override_corrects_fallback_provider_from_model_and_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime_path = tmp_path / "config.json"
+    runtime_path.write_text(
+        """
+{
+  "model_provider": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-pro",
+    "base_url": "https://api.deepseek.com/v1",
+    "fallback_provider": "openai",
+    "fallback_model": "deepseek-v4-flash",
+    "fallback_base_url": "https://api.deepseek.com/v1"
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "_runtime_config_path", lambda: runtime_path)
+
+    settings = config.get_settings()
+
+    assert settings.llm_fallback_provider == "deepseek"
+    assert settings.llm_fallback_model == "deepseek-v4-flash"
+    assert settings.llm_fallback_base_url == "https://api.deepseek.com/v1"
+
+
 def test_runtime_system_config_overrides_static_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     runtime_path = tmp_path / "config.json"
     runtime_path.write_text(
@@ -159,8 +188,8 @@ def test_runtime_system_config_overrides_static_settings(monkeypatch: pytest.Mon
     assert settings.embedding_base_url == "https://example.test/v1"
     assert settings.embedding_dimensions == 3072
     assert settings.embedding_api_key == "runtime-embedding-key"
-    assert settings.vector_store_backend == "faiss"
-    assert settings.retrieval_core_backend == "legacy"
+    assert settings.vector_store_backend == "qdrant"
+    assert settings.retrieval_core_backend == "llamaindex"
     assert settings.rerank_enabled is True
     assert settings.rerank_top_n == 12
     assert settings.llm_timeout_seconds == 300

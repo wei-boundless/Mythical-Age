@@ -28,6 +28,9 @@ def evaluate_turn_assertion(payload: dict[str, Any], assertion: str) -> Assertio
     if expression.startswith("response.contains_any="):
         variants = [item for item in expression.split("=", 1)[1].split("|") if item]
         return _pass(expression, any(item in response_text for item in variants), actual=response_text[:160])
+    if expression.startswith("response.contains_all="):
+        variants = [item for item in expression.split("=", 1)[1].split("|") if item]
+        return _pass(expression, all(item in response_text for item in variants), actual=response_text[:160])
     if expression.startswith("response.not_contains_any="):
         variants = [item for item in expression.split("=", 1)[1].split("|") if item]
         return _pass(expression, not any(item in response_text for item in variants), actual=response_text[:160])
@@ -81,39 +84,7 @@ def evaluate_turn_assertion(payload: dict[str, Any], assertion: str) -> Assertio
         actual = [str(item) for item in list(dict(payload.get("runtime_trace") or {}).get("artifact_refs") or [])]
         return _pass(expression, any(expected in item for item in actual), actual=actual)
 
-    legacy_result = _evaluate_legacy_assertion(expression, turn, result)
-    if legacy_result is not None:
-        return legacy_result
     return AssertionResult(expression=expression, status="unsupported", reason="assertion is not recognized")
-
-
-def _evaluate_legacy_assertion(expression: str, turn: dict[str, Any], result: dict[str, Any]) -> AssertionResult | None:
-    if expression.startswith("event="):
-        expected = expression.split("=", 1)[1]
-        actual = list(result.get("event_types") or [])
-        return _pass(expression, expected in actual, actual=actual)
-    if expression.startswith("event.tool="):
-        expected = expression.split("=", 1)[1]
-        actual = list(result.get("tool_names") or [])
-        return _pass(expression, expected in actual, actual=actual)
-    if expression.startswith("event.mcp="):
-        expected = expression.split("=", 1)[1]
-        actual = list(result.get("mcp_names") or [])
-        return _pass(expression, expected in actual, actual=actual)
-    if expression.startswith("plan."):
-        return AssertionResult(
-            expression=expression,
-            status="unsupported",
-            reason="legacy plan assertions are intentionally not evaluated by the new test system core",
-            actual={"turn": turn, "result_keys": sorted(result.keys())},
-        )
-    if expression.startswith("followup.") or expression.startswith("main.") or expression.startswith("used_task_summary_refs"):
-        return AssertionResult(
-            expression=expression,
-            status="unsupported",
-            reason="legacy state assertions need a state-memory adapter before enforcement",
-        )
-    return None
 
 
 def _pass(expression: str, passed: bool, *, actual: Any) -> AssertionResult:

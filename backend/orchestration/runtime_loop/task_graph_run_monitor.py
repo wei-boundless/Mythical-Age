@@ -12,6 +12,10 @@ def build_task_graph_run_monitor_view(
     task_checkpoint: dict[str, Any] | None = None,
     event_count: int = 0,
     source: str = "task_run",
+    project_ledger: dict[str, Any] | None = None,
+    project_status: dict[str, Any] | None = None,
+    supervision_records: list[dict[str, Any]] | None = None,
+    recent_events: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the canonical TaskGraph run monitor view.
 
@@ -44,11 +48,18 @@ def build_task_graph_run_monitor_view(
     ]
     stage_results = _stage_results(dict(state.get("stage_results") or {}))
     artifacts = _artifact_refs(stage_results)
-    memory_operations = [
+    memory_operations = sorted(
+        [
         _memory_operation(dict(item))
         for item in list(state.get("working_memory_operations") or [])
         if isinstance(item, dict)
-    ][-50:]
+        ],
+        key=lambda item: (
+            float(item.get("created_at") or 0.0),
+            int(item.get("sequence_index") or 0),
+            str(item.get("stage_id") or ""),
+        ),
+    )[-50:]
     failure = _failure_details(task=task, coord=coord, state=state)
     active_node_id = str(state.get("active_stage_id") or state.get("active_node_id") or "")
     issues = _health_issues(
@@ -61,6 +72,70 @@ def build_task_graph_run_monitor_view(
     graph_id = str(graph_spec.get("graph_id") or graph_spec.get("graph_ref") or coord.get("graph_ref") or task.get("graph_ref") or "")
     checkpoint_payload = dict(coordination_checkpoint or {})
     task_checkpoint_payload = dict(task_checkpoint or {})
+    project_progress = dict(project_ledger or {})
+    project_runtime_status = dict(project_status or {})
+    target_metric_total = int(
+        project_progress.get("target_metric_total")
+        or project_progress.get("target_words")
+        or project_runtime_status.get("target_metric_total")
+        or project_runtime_status.get("target_words")
+        or 0
+    )
+    completed_metric_total = int(
+        project_progress.get("committed_metric_total")
+        or project_progress.get("committed_words_total")
+        or project_runtime_status.get("completed_metric_total")
+        or project_runtime_status.get("completed_words_total")
+        or 0
+    )
+    committed_unit_count = int(
+        project_progress.get("committed_unit_count")
+        or project_progress.get("committed_chapter_count")
+        or project_runtime_status.get("committed_unit_count")
+        or project_runtime_status.get("committed_chapter_count")
+        or 0
+    )
+    last_committed_unit_index = int(
+        project_progress.get("last_committed_unit_index")
+        or project_progress.get("last_committed_chapter_index")
+        or project_runtime_status.get("last_committed_unit_index")
+        or project_runtime_status.get("last_committed_chapter_index")
+        or 0
+    )
+    supervision_items = [dict(item) for item in list(supervision_records or []) if isinstance(item, dict)]
+    latest_supervision = dict(supervision_items[-1] or {}) if supervision_items else {}
+    stage_request = dict(state.get("stage_execution_request") or {})
+    active_node = next(
+        (
+            dict(item)
+            for item in list(graph_spec.get("nodes") or [])
+            if str(item.get("node_id") or "") == active_node_id
+        ),
+        {},
+    )
+    runtime_assembly = dict(stage_request.get("runtime_assembly") or {})
+    runtime_assembly_metadata = dict(runtime_assembly.get("metadata") or {})
+    runtime_assembly_diagnostics = dict(runtime_assembly.get("diagnostics") or {})
+    timeline = _timeline_view(dict(state.get("timeline") or {}))
+    dispatch_context = dict(stage_request.get("dispatch_context") or {})
+    context_packets = {
+        "memory_snapshot": dict(stage_request.get("memory_snapshot") or {}),
+        "artifact_context_packet": dict(stage_request.get("artifact_context_packet") or {}),
+        "revision_packet": dict(stage_request.get("revision_packet") or {}),
+        "handoff_packet_refs": _string_list(stage_request.get("handoff_packet_refs")),
+    }
+    if not dict(stage_request.get("stream_policy") or {}):
+        synthesized_stream_policy = (
+            dict(runtime_assembly_metadata.get("stream_policy") or {})
+            or dict(runtime_assembly_diagnostics.get("stream_policy") or {})
+            or dict(active_node.get("stream_policy") or {})
+        )
+        if synthesized_stream_policy:
+            stage_request["stream_policy"] = synthesized_stream_policy
+    stream_preview = _stream_preview(
+        recent_events or [],
+        configured_policy=dict(stage_request.get("stream_policy") or {}),
+    )
     return {
         "authority": "task_graph.run_monitor",
         "source": source,
@@ -89,8 +164,36 @@ def build_task_graph_run_monitor_view(
                 float(task.get("updated_at") or 0.0),
                 float(coord.get("updated_at") or 0.0),
                 float(checkpoint_payload.get("created_at") or 0.0),
+                float(stream_preview.get("latest_chunk_at") or 0.0),
             ),
         },
+        "project": {
+            "project_id": str(project_progress.get("project_id") or project_runtime_status.get("project_id") or dict(task.get("diagnostics") or {}).get("project_id") or ""),
+            "project_title": str(project_progress.get("project_title") or project_runtime_status.get("project_title") or ""),
+            "graph_id": str(project_progress.get("graph_id") or project_runtime_status.get("graph_id") or graph_id),
+        },
+        "progress": {
+            "metric_label": str(project_progress.get("metric_label") or project_runtime_status.get("metric_label") or "units"),
+            "target_metric_total": target_metric_total,
+            "completed_metric_total": completed_metric_total,
+            "committed_unit_count": committed_unit_count,
+            "last_committed_unit_index": last_committed_unit_index,
+            "remaining_metric_total": max(
+                target_metric_total - completed_metric_total,
+                0,
+            ),
+        },
+        "supervision": {
+            "project_runtime_status": str(project_runtime_status.get("project_runtime_status") or ""),
+            "active_run_status": str(project_runtime_status.get("active_run_status") or ""),
+            "latest_artifact_root": str(project_runtime_status.get("latest_artifact_root") or ""),
+            "latest_event_at": float(project_runtime_status.get("latest_event_at") or 0.0),
+            "last_effective_output_at": float(project_runtime_status.get("last_effective_output_at") or 0.0),
+            "latest_record": latest_supervision,
+            "record_count": len(supervision_items),
+        },
+        "blocker": dict(project_runtime_status.get("active_blocker") or {}),
+        "repair": dict(project_runtime_status.get("recovery_state") or {}),
         "topology": {
             "nodes": topology_nodes,
             "edges": topology_edges,
@@ -108,7 +211,13 @@ def build_task_graph_run_monitor_view(
         "artifacts": artifacts,
         "memory_operations": memory_operations,
         "stage_results": stage_results,
-        "current_stage_execution_request": dict(state.get("stage_execution_request") or {}),
+        "current_stage_execution_request": stage_request,
+        "current_dispatch_context": dispatch_context,
+        "current_context_packets": context_packets,
+        "execution_receipts": _execution_receipts(state),
+        "timeline": timeline,
+        "current_stage_timeline": dict(runtime_assembly_metadata.get("execution_timeline") or {}),
+        "streaming": stream_preview,
         "health": {
             "valid": not any(issue.get("severity") == "error" for issue in issues),
             "issues": issues,
@@ -190,6 +299,7 @@ def _stage_results(results: dict[str, Any]) -> list[dict[str, Any]]:
                 "task_result_ref": str(item.get("task_result_ref") or ""),
                 "agent_run_result_ref": str(item.get("agent_run_result_ref") or ""),
                 "working_memory_refs": _string_list(item.get("working_memory_refs")),
+                "execution_receipt": dict(item.get("execution_receipt") or {}),
                 "diagnostics": dict(item.get("diagnostics") or {}),
             }
         )
@@ -265,6 +375,36 @@ def _memory_operation(operation: dict[str, Any]) -> dict[str, Any]:
         + _string_list(operation.get("accepted_working_memory_refs")),
         "transaction_ref": str(operation.get("handoff_transaction_ref") or ""),
         "finalization_ref": str(operation.get("finalization_ref") or ""),
+        "created_at": float(operation.get("created_at") or 0.0),
+        "sequence_index": int(operation.get("sequence_index") or 0),
+        "timeline_kind": str(operation.get("timeline_kind") or ""),
+    }
+
+
+def _execution_receipts(state: dict[str, Any]) -> list[dict[str, Any]]:
+    explicit = [dict(item) for item in list(state.get("execution_receipts") or []) if isinstance(item, dict)]
+    if explicit:
+        return explicit[-80:]
+    receipts: list[dict[str, Any]] = []
+    for item in list(dict(state.get("stage_results") or {}).values()):
+        receipt = dict(dict(item or {}).get("execution_receipt") or {})
+        if receipt:
+            receipts.append(receipt)
+    return receipts[-80:]
+
+
+def _timeline_view(timeline: dict[str, Any]) -> dict[str, Any]:
+    events = [dict(item) for item in list(timeline.get("recent_events") or []) if isinstance(item, dict)]
+    return {
+        "ledger_id": str(timeline.get("ledger_id") or ""),
+        "coordination_run_id": str(timeline.get("coordination_run_id") or ""),
+        "root_task_run_id": str(timeline.get("root_task_run_id") or ""),
+        "graph_id": str(timeline.get("graph_id") or ""),
+        "current_clock_seq": int(timeline.get("current_clock_seq") or 0),
+        "event_count": int(timeline.get("event_count") or len(events)),
+        "recent_events": events[-80:],
+        "updated_at": float(timeline.get("updated_at") or 0.0),
+        "authority": str(timeline.get("authority") or "task_graph.timeline_ledger"),
     }
 
 
@@ -311,3 +451,74 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, (list, tuple)):
         return []
     return [str(item) for item in value if str(item)]
+
+
+def _stream_preview(
+    events: list[dict[str, Any]],
+    *,
+    configured_policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    configured = dict(configured_policy or {})
+    chunks = [
+        dict(item)
+        for item in list(events or [])
+        if str(dict(item).get("event_type") or "") == "model_item_received"
+    ]
+    if not chunks:
+        tool_call_previews = []
+        for item in list(events or []):
+            event = dict(item)
+            if str(event.get("event_type") or "") != "tool_call_requested":
+                continue
+            action_request = dict(dict(event.get("payload") or {}).get("action_request") or {})
+            payload = dict(action_request.get("payload") or {})
+            preview = str(payload.get("assistant_content_preview") or payload.get("assistant_reasoning_preview") or "").strip()
+            if preview:
+                tool_call_previews.append(
+                    {
+                        "preview": preview,
+                        "created_at": float(event.get("created_at") or 0.0),
+                        "request_ref": str(action_request.get("request_id") or ""),
+                    }
+                )
+        if tool_call_previews:
+            preview_text = "".join(item["preview"] for item in tool_call_previews[-4:])
+            if len(preview_text) > 4000:
+                preview_text = preview_text[-4000:]
+            latest = tool_call_previews[-1]
+            return {
+                "enabled": bool(configured.get("enabled") is True),
+                "mode": str(configured.get("mode") or "model_text_stream"),
+                "monitor_visibility": str(configured.get("monitor_visibility") or "task_graph_monitor"),
+                "chunk_count": len(tool_call_previews),
+                "accumulated_chars": len(preview_text),
+                "latest_chunk_at": float(latest.get("created_at") or 0.0),
+                "preview_text": preview_text,
+                "active_stream_ref": str(latest.get("request_ref") or ""),
+            }
+        return {
+            "enabled": bool(configured.get("enabled") is True),
+            "mode": str(configured.get("mode") or "disabled"),
+            "monitor_visibility": str(configured.get("monitor_visibility") or "none"),
+            "chunk_count": 0,
+            "accumulated_chars": 0,
+            "latest_chunk_at": 0.0,
+            "preview_text": "",
+            "active_stream_ref": "",
+        }
+    latest = chunks[-1]
+    previews = [str(dict(item.get("payload") or {}).get("delta_preview") or "") for item in chunks[-12:]]
+    preview_text = "".join(previews)
+    if len(preview_text) > 4000:
+        preview_text = preview_text[-4000:]
+    latest_payload = dict(latest.get("payload") or {})
+    return {
+        "enabled": True,
+        "mode": str(configured.get("mode") or "model_text_stream"),
+        "monitor_visibility": str(configured.get("monitor_visibility") or "task_graph_monitor"),
+        "chunk_count": len(chunks),
+        "accumulated_chars": int(latest_payload.get("accumulated_chars") or 0),
+        "latest_chunk_at": float(latest.get("created_at") or 0.0),
+        "preview_text": preview_text,
+        "active_stream_ref": str(latest_payload.get("stream_ref") or ""),
+    }

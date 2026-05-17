@@ -186,7 +186,7 @@ def __getattr__(name: str):
         "TurnUnderstanding",
         "utc_now_iso",
     }:
-        from .legacy_types import (
+        from .compat_types import (
             ContextSlots,
             FlowState,
             MemoryNote,

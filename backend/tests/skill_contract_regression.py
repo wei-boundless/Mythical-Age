@@ -23,16 +23,16 @@ def test_skill_contract_normalizes_and_validates_runtime_fields() -> None:
     assert "Skill: 演示 Skill" in contract.prompt.render_block()
 
 
-def test_skill_contract_accepts_legacy_registry_payload() -> None:
+def test_skill_contract_accepts_historical_registry_payload() -> None:
     contract = SkillContract.from_payload(
         {
-            "name": "legacy-skill",
-            "title": "旧版 Skill",
+            "name": "historic-skill",
+            "title": "历史 Skill",
             "description": "旧版 registry 仍可兼容。",
-            "path": "capability_system/units/skills/legacy-skill/SKILL.md",
+            "path": "capability_system/units/skills/historic-skill/SKILL.md",
         }
     )
 
-    assert contract.runtime.name == "legacy-skill"
+    assert contract.runtime.name == "historic-skill"
     assert contract.prompt.capability == "旧版 registry 仍可兼容。"
     assert contract.to_registry_record()["schema_version"] == 3

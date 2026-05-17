@@ -59,6 +59,15 @@ CoordinationRunStatus = Literal[
     "killed",
 ]
 
+ProjectRuntimeHealth = Literal[
+    "healthy",
+    "watching",
+    "blocked",
+    "failed",
+    "repairing",
+    "completed",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class AgentDispatchRecord:
@@ -447,6 +456,126 @@ class CoordinationMergeResult:
         payload = asdict(self)
         payload["unresolved_issue_refs"] = list(self.unresolved_issue_refs)
         return payload
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectProgressLedger:
+    """Project-level progress truth source for long-running task campaigns."""
+
+    ledger_id: str
+    project_id: str
+    session_id: str
+    graph_id: str
+    task_family: str = ""
+    project_title: str = ""
+    metric_label: str = "units"
+    target_metric_total: int = 0
+    committed_metric_total: int = 0
+    committed_unit_count: int = 0
+    last_committed_unit_index: int = 0
+    committed_unit_refs: tuple[str, ...] = ()
+    metric_receipts: tuple[dict[str, Any], ...] = ()
+    run_chain: tuple[str, ...] = ()
+    latest_delivery_state: str = ""
+    last_failure: dict[str, Any] = field(default_factory=dict)
+    last_repair_action: dict[str, Any] = field(default_factory=dict)
+    updated_at: float = 0.0
+    created_at: float = 0.0
+    authority: str = "orchestration.project_progress_ledger"
+
+    def __post_init__(self) -> None:
+        if self.authority != "orchestration.project_progress_ledger":
+            raise ValueError("ProjectProgressLedger authority must be orchestration.project_progress_ledger")
+        if not self.ledger_id:
+            raise ValueError("ProjectProgressLedger requires ledger_id")
+        if not self.project_id:
+            raise ValueError("ProjectProgressLedger requires project_id")
+        if not self.session_id:
+            raise ValueError("ProjectProgressLedger requires session_id")
+        if not self.graph_id:
+            raise ValueError("ProjectProgressLedger requires graph_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["committed_unit_refs"] = list(self.committed_unit_refs)
+        payload["metric_receipts"] = [dict(item) for item in self.metric_receipts]
+        payload["run_chain"] = list(self.run_chain)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class SupervisionRecord:
+    """Structured supervision log for observed issues and repairs."""
+
+    supervision_record_id: str
+    supervision_session_id: str
+    project_id: str
+    observed_task_run_id: str = ""
+    observed_coordination_run_id: str = ""
+    issue_type: str = ""
+    issue_summary: str = ""
+    root_cause: str = ""
+    repair_action: str = ""
+    repair_result: str = ""
+    followup_status: str = "recorded"
+    created_at: float = 0.0
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    authority: str = "orchestration.supervision_record"
+
+    def __post_init__(self) -> None:
+        if self.authority != "orchestration.supervision_record":
+            raise ValueError("SupervisionRecord authority must be orchestration.supervision_record")
+        if not self.supervision_record_id:
+            raise ValueError("SupervisionRecord requires supervision_record_id")
+        if not self.supervision_session_id:
+            raise ValueError("SupervisionRecord requires supervision_session_id")
+        if not self.project_id:
+            raise ValueError("SupervisionRecord requires project_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectRuntimeStatus:
+    """Current runtime status view for a long-running project."""
+
+    project_id: str
+    session_id: str
+    graph_id: str
+    task_family: str = ""
+    project_title: str = ""
+    active_task_run_id: str = ""
+    active_coordination_run_id: str = ""
+    active_run_status: str = ""
+    project_runtime_status: ProjectRuntimeHealth = "watching"
+    metric_label: str = "units"
+    completed_metric_total: int = 0
+    target_metric_total: int = 0
+    committed_unit_count: int = 0
+    last_committed_unit_index: int = 0
+    active_blocker: dict[str, Any] = field(default_factory=dict)
+    recovery_state: dict[str, Any] = field(default_factory=dict)
+    delivery_state: str = ""
+    latest_artifact_root: str = ""
+    latest_event_offset: int = 0
+    latest_event_at: float = 0.0
+    last_effective_output_at: float = 0.0
+    updated_at: float = 0.0
+    authority: str = "orchestration.project_runtime_status"
+
+    def __post_init__(self) -> None:
+        if self.authority != "orchestration.project_runtime_status":
+            raise ValueError("ProjectRuntimeStatus authority must be orchestration.project_runtime_status")
+        if not self.project_id:
+            raise ValueError("ProjectRuntimeStatus requires project_id")
+        if not self.session_id:
+            raise ValueError("ProjectRuntimeStatus requires session_id")
+        if not self.graph_id:
+            raise ValueError("ProjectRuntimeStatus requires graph_id")
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)

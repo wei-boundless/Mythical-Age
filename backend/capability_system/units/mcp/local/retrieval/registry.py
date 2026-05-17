@@ -126,7 +126,6 @@ class RAGIndexRegistry:
             "source_dirs": [str(item) for item in config.source_dirs],
             "allowed_roots": [str(item) for item in (config.allowed_roots or config.source_dirs)],
             "storage_dir": str(self.layout.collection_dir(name)),
-            "legacy_storage_dir": str(config.storage_dir),
             "weight": config.weight,
             "allow_chat_queries": config.allow_chat_queries,
             "vector_backend": self.settings.vector_store_backend,

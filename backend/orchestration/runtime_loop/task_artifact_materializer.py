@@ -74,7 +74,6 @@ def materialize_task_artifacts(
         )
     artifact_root = _resolve_artifact_root(workspace, root_value)
     artifact_root.mkdir(parents=True, exist_ok=True)
-    (artifact_root / "chapters").mkdir(parents=True, exist_ok=True)
     (artifact_root / "debug").mkdir(parents=True, exist_ok=True)
 
     sections = _split_markdown_sections(final_content)
@@ -96,7 +95,7 @@ def materialize_task_artifacts(
         relative_path = _render_artifact_path(str(spec.get("path") or "").strip(), explicit_inputs)
         if not relative_path or relative_path == "00_project_brief.md":
             continue
-        if _is_narrative_required_artifact(relative_path) and not _has_required_narrative_artifact(relative_path, final_content, sections):
+        if _required_markers_missing(spec, final_content, sections):
             skipped.append(relative_path)
             continue
         content = _content_for_artifact_spec(spec, sections, final_content, explicit_inputs)
@@ -168,37 +167,7 @@ def _artifact_specs(policy: dict[str, Any]) -> list[dict[str, Any]]:
                 "fallback_to_full_content": True,
             }
         ]
-    return [
-        {"path": "01_project_bible.md", "section_keys": ["项目总纲", "Project Brief"], "required": True},
-        {"path": "02_world_bible.md", "section_keys": ["世界规则", "World Rules"], "required": True},
-        {"path": "03_character_bible.md", "section_keys": ["主角设定", "人物设定", "角色设定", "Protagonist"], "required": True},
-        {"path": "04_volume_plan.md", "section_keys": ["分卷规划", "Volume Plan"], "required": True},
-        {
-            "path": "chapters/chapter_{chapter_index:03d}_plan.md",
-            "section_keys": ["{chapter_label}写作准备", "{chapter_label}规划", "写作准备", "章节规划", "Chapter Plan"],
-            "required": True,
-        },
-        {
-            "path": "chapters/chapter_{chapter_index:03d}_draft.md",
-            "section_keys": ["{chapter_label}正文", "章正文", "正文初稿", "章节正文", "Chapter Draft"],
-            "required": True,
-        },
-        {
-            "path": "chapters/chapter_{chapter_index:03d}_revised.md",
-            "section_keys": ["{chapter_label}综合修订稿", "综合修订稿", "修订稿", "Chapter Revised"],
-            "required": True,
-        },
-        {
-            "path": "chapters/chapter_{chapter_index:03d}_final.md",
-            "section_keys": ["{chapter_label}风格终稿", "风格终稿", "章节终稿", "Chapter Final"],
-            "required": True,
-        },
-        {
-            "path": "memory/memory_candidates_{chapter_index:03d}.md",
-            "section_keys": ["{chapter_label}创作资产整理", "创作资产整理", "记忆候选", "记忆候选批次"],
-            "required": True,
-        },
-    ]
+    return []
 
 
 def _should_materialize_project_brief(*, task_ref: str, artifact_specs: list[dict[str, Any]]) -> bool:
@@ -229,6 +198,8 @@ def _join_artifact_root(root_value: str, subdir: str) -> str:
     clean_root = str(root_value or "").replace("\\", "/").rstrip("/")
     clean_subdir = str(subdir or "").replace("\\", "/").strip("/")
     if not clean_subdir:
+        return clean_root
+    if clean_root == clean_subdir or clean_root.endswith(f"/{clean_subdir}"):
         return clean_root
     return f"{clean_root}/{clean_subdir}" if clean_root else clean_subdir
 
@@ -261,10 +232,33 @@ def _render_artifact_path(path_template: str, explicit_inputs: dict[str, Any]) -
     if not template:
         return ""
     chapter_index = _safe_int(explicit_inputs.get("chapter_index"), 1)
+    volume_index = _safe_int(explicit_inputs.get("volume_index"), 1)
+    chapters_per_round = max(
+        _safe_int(explicit_inputs.get("chapters_per_round") or explicit_inputs.get("chapter_batch_size"), 1),
+        1,
+    )
+    batch_start_index = _safe_int(explicit_inputs.get("batch_start_index"), chapter_index)
+    batch_end_index = _safe_int(explicit_inputs.get("batch_end_index"), batch_start_index + chapters_per_round - 1)
+    batch_index = _safe_int(explicit_inputs.get("batch_index"), ((chapter_index - 1) // chapters_per_round) + 1)
     values = {
+        "volume_index": volume_index,
+        "volume_index_padded": f"{volume_index:03d}",
+        "volume_label": str(explicit_inputs.get("volume_label") or f"第{volume_index}卷"),
+        "volume_current_words": _safe_int(explicit_inputs.get("volume_current_words"), 0),
+        "volume_target_words": _safe_int(explicit_inputs.get("volume_target_words"), 0),
+        "chapters_per_volume": _safe_int(explicit_inputs.get("chapters_per_volume"), 0),
         "chapter_index": chapter_index,
         "chapter_index_padded": f"{chapter_index:03d}",
         "chapter_file_prefix": str(explicit_inputs.get("chapter_file_prefix") or f"chapter_{chapter_index:03d}"),
+        "chapters_per_round": chapters_per_round,
+        "chapter_batch_size": chapters_per_round,
+        "batch_index": batch_index,
+        "batch_index_padded": f"{batch_index:03d}",
+        "batch_start_index": batch_start_index,
+        "batch_start_index_padded": f"{batch_start_index:03d}",
+        "batch_end_index": batch_end_index,
+        "batch_end_index_padded": f"{batch_end_index:03d}",
+        "batch_chapter_range": f"{batch_start_index:03d}-{batch_end_index:03d}",
         "round_index": _safe_int(
             explicit_inputs.get("round_index")
             or explicit_inputs.get("revision_round")
@@ -327,17 +321,6 @@ def _content_for_artifact_spec(
     path = str(spec.get("path") or "")
     if str(spec.get("content_source") or "").strip() == "final_content":
         return str(final_content or "").strip()
-    if "chapter_" in path:
-        if path.endswith("_plan.md"):
-            keys.extend(["写作准备", "章节规划", "章节准备", "Chapter Plan"])
-        elif path.endswith("_draft.md"):
-            keys.extend(["章正文", "正文初稿", "章节正文", "Chapter Draft"])
-        elif path.endswith("_progression.md"):
-            keys.extend(["推进检查", "章节推进", "Chapter Progression"])
-        elif path.endswith("_revised.md"):
-            keys.extend(["综合修订稿", "修订稿", "Chapter Revised"])
-        elif path.endswith("_final.md"):
-            keys.extend(["风格终稿", "章节终稿", "Chapter Final"])
     for key in keys:
         for title, content in sections.items():
             if key == title or key.lower() in title.lower() or title.lower() in key.lower():
@@ -365,24 +348,17 @@ def _project_brief_markdown(*, explicit_inputs: dict[str, Any], user_message: st
 def _required_missing_content(relative_path: str, final_content: str) -> str:
     return (
         f"# {relative_path}\n\n"
-        "本文件由任务产物规则创建，但本轮模型输出中没有可独立拆分的对应章节。\n\n"
+        "本文件由任务产物规则创建，但本轮模型输出中没有可独立拆分的对应内容。\n\n"
         "## 本轮真实输出\n\n"
         f"{str(final_content or '').strip()}\n"
     )
 
 
-def _is_narrative_required_artifact(relative_path: str) -> bool:
-    normalized = str(relative_path or "").replace("\\", "/")
-    return normalized.startswith("chapters/chapter_") and normalized.endswith(("_draft.md", "_revised.md", "_final.md"))
-
-
-def _has_required_narrative_artifact(relative_path: str, final_content: str, sections: dict[str, str]) -> bool:
-    normalized = str(relative_path or "").replace("\\", "/")
-    if normalized.endswith("_revised.md"):
-        return _has_section(final_content, sections, ("综合修订稿", "chapter revised", "revised"))
-    if normalized.endswith("_final.md"):
-        return _has_section(final_content, sections, ("风格终稿", "chapter final", "final"))
-    return _has_chapter_draft(final_content, sections)
+def _required_markers_missing(spec: dict[str, Any], final_content: str, sections: dict[str, str]) -> bool:
+    markers = tuple(str(item).strip() for item in list(spec.get("required_content_markers") or []) if str(item).strip())
+    if not markers:
+        return False
+    return not _has_section(final_content, sections, markers)
 
 
 def _has_section(final_content: str, sections: dict[str, str], markers: tuple[str, ...]) -> bool:
@@ -390,15 +366,6 @@ def _has_section(final_content: str, sections: dict[str, str], markers: tuple[st
     lowered = text.lower()
     return any(marker.lower() in lowered for marker in markers) or any(
         any(marker.lower() in str(title).lower() for marker in markers)
-        for title in sections
-    )
-
-
-def _has_chapter_draft(final_content: str, sections: dict[str, str]) -> bool:
-    text = str(final_content or "")
-    markers = ("章正文", "chapter draft", "正文初稿")
-    return any(marker.lower() in text.lower() for marker in markers) or any(
-        "draft" in title.lower() and ("chapter" in title.lower() or "章" in title)
         for title in sections
     )
 
@@ -418,7 +385,7 @@ def _run_report(
 ) -> str:
     last_error = dict(task_diagnostics.get("last_error") or {})
     lines = [
-        "# 长篇小说任务运行报告",
+        "# 任务产物运行报告",
         "",
         f"- task_run_id: `{task_run_id}`",
         f"- session_id: `{session_id}`",
@@ -451,8 +418,9 @@ def _run_report(
     if skipped_files:
         lines.extend(["", "## 未生成或跳过", ""])
         lines.extend(f"- `{item}`" for item in skipped_files)
-    if any(item.startswith("chapters/chapter_") and item.endswith("_draft.md") for item in skipped_files):
-        lines.extend(["", "说明：本轮没有生成章节正文，因此没有伪造正文文件。"])
+    skipped_required = [item for item in skipped_files if item]
+    if skipped_required:
+        lines.extend(["", "说明：本轮没有生成这些必需产物，因此没有伪造文件内容。"])
     return "\n".join(lines).strip() + "\n"
 
 

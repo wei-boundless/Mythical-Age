@@ -393,7 +393,14 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     explicit_memory_request_profile_models = registry.list_explicit_task_memory_request_profiles()
     projection_bindings = [model.to_dict() for model in projection_binding_models]
     flow_contract_bindings = [model.to_dict() for model in flow_contract_binding_models]
+    explicit_execution_task_ids = {item.task_id for item in explicit_execution_policy_models}
     execution_policies = [item.to_dict() for item in execution_policy_models]
+    execution_policies.sort(
+        key=lambda item: (
+            str(item.get("task_id") or "") not in explicit_execution_task_ids,
+            str(item.get("task_id") or ""),
+        )
+    )
     memory_request_profiles = [model.to_dict() for model in memory_request_profile_models]
     task_domains = [item.to_dict() for item in registry.list_task_domains()]
     task_graphs = [item.to_dict() for item in registry.list_task_graphs()]

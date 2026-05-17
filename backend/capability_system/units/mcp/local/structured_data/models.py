@@ -10,7 +10,7 @@ class StructuredFilter:
     value: str | list[str]
 
     @property
-    def legacy_rule(self) -> str:
+    def filter_expression(self) -> str:
         if self.operator == "in" and isinstance(self.value, list):
             return f"{self.column} in [{', '.join(str(item) for item in self.value)}]"
         separator = "=" if self.operator == "=" else "~"

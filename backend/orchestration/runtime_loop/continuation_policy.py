@@ -42,6 +42,10 @@ class CoordinationStageContract:
     review_gate_policy: dict[str, Any] = field(default_factory=dict)
     human_gate_policy: dict[str, Any] = field(default_factory=dict)
     artifact_policy: dict[str, Any] = field(default_factory=dict)
+    stream_policy: dict[str, Any] = field(default_factory=dict)
+    artifact_context_policy: dict[str, Any] = field(default_factory=dict)
+    revision_context_policy: dict[str, Any] = field(default_factory=dict)
+    quality_retry_policy: dict[str, Any] = field(default_factory=dict)
     artifact_targets: tuple[dict[str, Any], ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -71,6 +75,10 @@ class CoordinationStageContract:
             "review_gate_policy": dict(self.review_gate_policy),
             "human_gate_policy": dict(self.human_gate_policy),
             "artifact_policy": dict(self.artifact_policy),
+            "stream_policy": dict(self.stream_policy),
+            "artifact_context_policy": dict(self.artifact_context_policy),
+            "revision_context_policy": dict(self.revision_context_policy),
+            "quality_retry_policy": dict(self.quality_retry_policy),
             "artifact_targets": [dict(item) for item in self.artifact_targets],
         }
 
@@ -169,6 +177,10 @@ def parse_stage_contracts(
                 review_gate_policy=dict(raw.get("review_gate_policy") or node.get("review_gate_policy") or {}),
                 human_gate_policy=dict(raw.get("human_gate_policy") or node.get("human_gate_policy") or {}),
                 artifact_policy=_artifact_policy_from_node({**node, **raw}),
+                stream_policy=dict(raw.get("stream_policy") or node.get("stream_policy") or {}),
+                artifact_context_policy=dict(raw.get("artifact_context_policy") or node.get("artifact_context_policy") or {}),
+                revision_context_policy=dict(raw.get("revision_context_policy") or node.get("revision_context_policy") or {}),
+                quality_retry_policy=dict(raw.get("quality_retry_policy") or node.get("quality_retry_policy") or {}),
                 artifact_targets=tuple(_artifact_targets_from_node({**node, **raw})),
             )
         )
@@ -253,6 +265,10 @@ def derive_stage_contracts_from_graph(
                 review_gate_policy=dict(node.get("review_gate_policy") or {}),
                 human_gate_policy=dict(node.get("human_gate_policy") or {}),
                 artifact_policy=_artifact_policy_from_node(node),
+                stream_policy=dict(node.get("stream_policy") or {}),
+                artifact_context_policy=dict(node.get("artifact_context_policy") or {}),
+                revision_context_policy=dict(node.get("revision_context_policy") or {}),
+                quality_retry_policy=dict(node.get("quality_retry_policy") or {}),
                 artifact_targets=tuple(_artifact_targets_from_node(node)),
             )
         )

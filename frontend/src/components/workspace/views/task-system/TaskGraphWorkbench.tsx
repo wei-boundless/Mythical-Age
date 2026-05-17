@@ -15,6 +15,12 @@ import { TaskGraphTopologyPage } from "@/components/workspace/views/task-system/
 import type { TaskGraphStudioLayerId } from "./TaskGraphLayerNav";
 import { TaskGraphStudioShell } from "./TaskGraphStudioShell";
 import { asRecord, isTaskGraphPublishedState, type TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
+import {
+  focusForPreflightIssue,
+  mergeTaskGraphEditorFocus,
+  type TaskGraphEditorFocus,
+} from "./taskGraphEditorFocus";
+import { createMemoryEdgeDraft, taskGraphEdgeId } from "./taskGraphMemoryMatrix";
 import type { TaskGraphPreflightIssue } from "./taskGraphPreflight";
 import type { TaskGraphWorkbenchProps } from "./taskGraphTypes";
 
@@ -42,7 +48,9 @@ export function TaskGraphWorkbench({
   activeGraphEdges,
   ...rest
 }: TaskGraphWorkbenchProps) {
-  const [activeLayer, setActiveLayer] = useState<TaskGraphStudioLayerId>("blueprint");
+  const [editorFocus, setEditorFocus] = useState<TaskGraphEditorFocus>({ layer: "blueprint" });
+  const [showTemplateChooser, setShowTemplateChooser] = useState(false);
+  const activeLayer = editorFocus.layer;
   const coordinatorAgentId = String(taskGraphDraftV2.runtime_policy.coordinator_agent_id || "agent:0");
   const issueCount = rest.editorIssueCount;
   const valid = rest.editorValid;
@@ -73,19 +81,94 @@ export function TaskGraphWorkbench({
   const updateWorkingMemoryPolicy = (patch: Partial<typeof taskGraphDraftV2.working_memory_policy>) => {
     updateTaskGraphWorkingMemoryPolicy(patch);
   };
+  const applyEditorFocus = (nextFocus: Partial<TaskGraphEditorFocus> & { layer?: TaskGraphStudioLayerId }) => {
+    setEditorFocus((current) => mergeTaskGraphEditorFocus(current, nextFocus));
+    if (Object.prototype.hasOwnProperty.call(nextFocus, "node_id") || Object.prototype.hasOwnProperty.call(nextFocus, "repository_id")) {
+      rest.setSelectedGraphNodeId(String(nextFocus.node_id ?? nextFocus.repository_id ?? ""));
+      if (!Object.prototype.hasOwnProperty.call(nextFocus, "edge_id")) {
+        rest.setSelectedGraphEdgeId("");
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(nextFocus, "edge_id")) {
+      rest.setSelectedGraphEdgeId(String(nextFocus.edge_id ?? ""));
+      if (!Object.prototype.hasOwnProperty.call(nextFocus, "node_id") && !Object.prototype.hasOwnProperty.call(nextFocus, "repository_id")) {
+        rest.setSelectedGraphNodeId("");
+      }
+    }
+  };
+  const setActiveLayer = (layer: TaskGraphStudioLayerId) => {
+    applyEditorFocus({ layer, facet: undefined, issue_id: undefined });
+  };
+  const focusPreflightIssue = (issue: TaskGraphPreflightIssue) => {
+    applyEditorFocus(focusForPreflightIssue(issue));
+  };
+  const edgeById = (edgeId: string) => activeGraphEdges.find((edge, index) => taskGraphEdgeId(edge, index) === edgeId) ?? null;
+  const repairMemorySelector = (edgeId: string) => {
+    const edge = edgeById(edgeId);
+    if (!edge) return;
+    const metadata = asRecord(edge.metadata);
+    const selector = asRecord(metadata.selector);
+    const collection = String(selector.collection ?? metadata.collection ?? "default").trim() || "default";
+    updateTaskGraphEdge(edgeId, {
+      metadata: {
+        ...metadata,
+        collection,
+        selector: {
+          ...selector,
+          collection,
+          status_filter: Array.isArray(selector.status_filter) ? selector.status_filter : ["committed"],
+          limit: Number(selector.limit ?? 50),
+        },
+        model_visible_label: String(metadata.model_visible_label ?? collection),
+        usage_instruction: String(metadata.usage_instruction ?? "你必须按这个输入包的约束完成当前节点任务，不得把缺失信息自行补写成事实。"),
+      },
+    });
+  };
+  const repairMemoryCommitPath = (edgeId: string) => {
+    const edge = edgeById(edgeId);
+    if (!edge) return;
+    const metadata = asRecord(edge.metadata);
+    const repositoryId = String(metadata.repository ?? metadata.repository_id ?? edge.target_node_id ?? edge.to ?? "").trim();
+    const collectionId = String(asRecord(metadata.selector).collection ?? metadata.collection ?? "default").trim() || "default";
+    const repositoryNodeId = String(edge.target_node_id ?? edge.to ?? repositoryId).trim();
+    const taskNodeId = String(edge.source_node_id ?? edge.from ?? "").trim();
+    if (!repositoryNodeId || !taskNodeId) return;
+    const nextEdge = createMemoryEdgeDraft({
+      operation: "commit",
+      repositoryNodeId,
+      repositoryId: repositoryId || repositoryNodeId,
+      collectionId,
+      taskNodeId,
+    });
+    const nextEdgeId = String(nextEdge.edge_id ?? "");
+    if (activeGraphEdges.some((item, index) => taskGraphEdgeId(item, index) === nextEdgeId)) return;
+    updateTaskGraph({ edges: [...(taskGraphDraftV2.edges ?? []), nextEdge] as typeof taskGraphDraftV2.edges });
+  };
+  const repairRevisionPacket = (edgeId: string) => {
+    const edge = edgeById(edgeId);
+    if (!edge) return;
+    const metadata = asRecord(edge.metadata);
+    updateTaskGraphEdge(edgeId, {
+      metadata: {
+        ...metadata,
+        original_artifact_key: String(metadata.original_artifact_key ?? metadata.original_artifact_ref_key ?? metadata.candidate_ref_key ?? "candidate_ref"),
+        review_result_key: String(metadata.review_result_key ?? metadata.review_receipt_key ?? metadata.verdict_key ?? "review_result"),
+        usage_instruction: String(metadata.usage_instruction ?? "你必须依据审核结果修改被退回的原始产物，只处理审核指出的问题，不要自行替换任务目标。"),
+      },
+    });
+  };
   const repairPreflightIssue = (issue: TaskGraphPreflightIssue) => {
     if (
       (issue.source === "frontend.preflight.prompt_semantics" || issue.source === "frontend.preflight.projection_binding")
       && issue.scope === "node"
       && issue.target_id
     ) {
-      rest.setSelectedGraphNodeId(issue.target_id);
-      rest.setSelectedGraphEdgeId("");
-      setActiveLayer("responsibility");
+      focusPreflightIssue(issue);
       return;
     }
     if (issue.source === "frontend.preflight.contract" && issue.scope === "edge" && issue.target_id) {
       updateTaskGraphEdge(issue.target_id, { payload_contract_id: `${issue.target_id}.payload`, contract_id: `${issue.target_id}.payload` });
+      focusPreflightIssue(issue);
       return;
     }
     if (issue.source === "frontend.preflight.memory_handoff" && issue.scope === "edge" && issue.target_id) {
@@ -97,6 +180,50 @@ export function TaskGraphWorkbench({
           allow_artifact_refs: true,
         },
       });
+      focusPreflightIssue(issue);
+      return;
+    }
+    if (issue.source === "frontend.preflight.memory_selector" && issue.scope === "edge" && issue.target_id) {
+      repairMemorySelector(issue.target_id);
+      focusPreflightIssue(issue);
+      return;
+    }
+    if (issue.source === "frontend.preflight.memory_commit_path" && issue.scope === "edge" && issue.target_id) {
+      repairMemoryCommitPath(issue.target_id);
+      focusPreflightIssue(issue);
+      return;
+    }
+    if (issue.source === "frontend.preflight.receipt_policy" && issue.scope === "edge" && issue.target_id) {
+      const edge = edgeById(issue.target_id);
+      const metadata = asRecord(edge?.metadata);
+      updateTaskGraphEdge(issue.target_id, {
+        metadata: {
+          ...metadata,
+          receipt_policy: {
+            ...asRecord(metadata.receipt_policy),
+            required_status: "committed",
+            visible_after: "next_clock",
+          },
+        },
+      });
+      focusPreflightIssue(issue);
+      return;
+    }
+    if (issue.source === "frontend.preflight.revision_packet" && issue.scope === "edge" && issue.target_id) {
+      repairRevisionPacket(issue.target_id);
+      focusPreflightIssue(issue);
+      return;
+    }
+    if (issue.source === "frontend.preflight.cognition_packet" && issue.scope === "edge" && issue.target_id) {
+      const edge = edgeById(issue.target_id);
+      const metadata = asRecord(edge?.metadata);
+      updateTaskGraphEdge(issue.target_id, {
+        metadata: {
+          ...metadata,
+          usage_instruction: String(metadata.usage_instruction ?? "你必须说明这份输入包在本轮任务中的用途，并按它约束输出。"),
+        },
+      });
+      focusPreflightIssue(issue);
       return;
     }
     if (issue.source === "frontend.preflight.timeline" && issue.scope === "phase" && issue.target_id) {
@@ -108,6 +235,7 @@ export function TaskGraphWorkbench({
           ? phaseDefinitions
           : [...phaseDefinitions, { phase_id: issue.target_id, title: issue.target_id.replace(/^phase\./, ""), exit_policy: { kind: "all_blocking_nodes_complete" } }],
       });
+      focusPreflightIssue(issue);
     }
   };
   const pageContent = (() => {
@@ -121,7 +249,10 @@ export function TaskGraphWorkbench({
           addTaskGraphSuccessorNode={addTaskGraphSuccessorNode}
           addTaskGraphTaskNode={addTaskGraphTaskNode}
           handleTopologyNodeClick={rest.handleTopologyNodeClick}
+          editorFocus={editorFocus}
           linkingFromNodeId={rest.linkingFromNodeId}
+          onEditorFocus={applyEditorFocus}
+          onOpenMemoryLayer={() => applyEditorFocus({ layer: "memory", facet: "repositories" })}
           removeTaskGraphEdge={removeTaskGraphEdge}
           removeTaskGraphNode={removeTaskGraphNode}
           reverseTaskGraphEdge={reverseTaskGraphEdge}
@@ -138,13 +269,20 @@ export function TaskGraphWorkbench({
       );
     }
     if (activeLayer === "blueprint") {
-      if (!activeGraphNodes.length) {
+      if (!activeGraphNodes.length || showTemplateChooser) {
         return (
           <TaskGraphSetupWizard
             domainTitle={rest.selectedDomain?.title || "当前任务域"}
+            existingGraphSummary={activeGraphNodes.length ? {
+              edgeCount: activeGraphEdges.length,
+              nodeCount: activeGraphNodes.length,
+              title: taskGraphDraftV2.title,
+            } : undefined}
+            onCancel={activeGraphNodes.length ? () => setShowTemplateChooser(false) : undefined}
             taskCount={rest.selectedDomainTasks.length}
             onApplyTemplate={(templateId, options) => {
               applyTaskGraphTemplate(templateId, options);
+              setShowTemplateChooser(false);
               setActiveLayer("topology");
             }}
           />
@@ -153,6 +291,7 @@ export function TaskGraphWorkbench({
       return (
         <TaskGraphBlueprintPage
           activeGraphNodes={activeGraphNodes}
+          onOpenTemplateChooser={() => setShowTemplateChooser(true)}
           taskGraphDraft={taskGraphDraftV2}
           updateContextPolicy={updateContextPolicy}
           updateRuntimePolicy={updateRuntimePolicy}
@@ -175,12 +314,16 @@ export function TaskGraphWorkbench({
     if (activeLayer === "responsibility") {
       return (
         <TaskGraphResponsibilityPage
+          activeGraphEdges={activeGraphEdges}
+          activeGraphNodes={activeGraphNodes}
           onCreateProjectionFromPrompt={rest.onCreateProjectionFromPrompt}
           projectionCards={rest.projectionCards}
           selectedGraphEdge={rest.selectedGraphEdge ?? activeGraphEdges[0] ?? null}
           selectedGraphEdgeId={rest.selectedGraphEdgeId || String(activeGraphEdges[0]?.edge_id ?? activeGraphEdges[0]?.id ?? "")}
           selectedGraphNode={rest.selectedGraphNode}
           selectedGraphNodeId={rest.selectedGraphNodeId}
+          editorFocus={editorFocus}
+          onEditorFocus={applyEditorFocus}
           updateTaskGraphEdge={updateTaskGraphEdge}
           updateTaskGraphNode={updateTaskGraphNode}
         />
@@ -191,6 +334,7 @@ export function TaskGraphWorkbench({
         <TaskGraphTimelinePage
           activeGraphEdges={activeGraphEdges}
           activeGraphNodes={activeGraphNodes}
+          editorFocus={editorFocus}
           taskGraphDraft={taskGraphDraftV2}
           updateTaskGraphMetadata={updateTaskGraphMetadata}
           updateTaskGraphNode={updateTaskGraphNode}
@@ -203,7 +347,10 @@ export function TaskGraphWorkbench({
           activeGraphEdges={activeGraphEdges}
           activeGraphNodes={activeGraphNodes}
           taskGraphDraft={taskGraphDraftV2}
+          editorFocus={editorFocus}
+          onEditorFocus={applyEditorFocus}
           updateContextPolicy={updateContextPolicy}
+          updateTaskGraphDraft={updateTaskGraph}
           updateTaskGraphMetadata={updateTaskGraphMetadata}
           updateTaskGraphEdge={updateTaskGraphEdge}
           updateTaskGraphNode={updateTaskGraphNode}
@@ -219,6 +366,7 @@ export function TaskGraphWorkbench({
           contractSpecs={rest.contractSpecs}
           editorIssueCount={rest.editorIssueCount}
           editorValid={rest.editorValid}
+          editorFocus={editorFocus}
           taskGraphDraft={taskGraphDraftV2}
           updateTaskGraph={updateTaskGraph}
           updateTaskGraphEdge={updateTaskGraphEdge}
@@ -240,29 +388,7 @@ export function TaskGraphWorkbench({
           onRunBound={() => updateEditorPublishState("run_bound")}
           onSave={handleSaveDraft}
           onSendToChat={() => sendTaskGraphToChat(rest.selectedTaskGraph, rest.selectedDomain)}
-          onFocusIssue={(issue) => {
-            if (issue.scope === "node" && issue.target_id) {
-              rest.setSelectedGraphNodeId(issue.target_id);
-              rest.setSelectedGraphEdgeId("");
-              setActiveLayer(issue.source.includes("agent") ? "agents" : "responsibility");
-              return;
-            }
-            if (issue.scope === "edge" && issue.target_id) {
-              rest.setSelectedGraphEdgeId(issue.target_id);
-              rest.setSelectedGraphNodeId("");
-              setActiveLayer("responsibility");
-              return;
-            }
-            if (issue.scope === "phase") {
-              setActiveLayer("timeline");
-              return;
-            }
-            if (issue.scope === "graph") {
-              setActiveLayer(issue.source.includes("contract") ? "contracts" : "blueprint");
-              return;
-            }
-            setActiveLayer("publish");
-          }}
+          onFocusIssue={focusPreflightIssue}
           onRepairIssue={repairPreflightIssue}
           publishState={publishState}
           saving={rest.saving}

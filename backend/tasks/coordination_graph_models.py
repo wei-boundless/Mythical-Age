@@ -28,6 +28,7 @@ class TaskGraphRuntimeNode:
     memory_writeback_policy: dict[str, Any] = field(default_factory=dict)
     dynamic_memory_read_policy: dict[str, Any] = field(default_factory=dict)
     artifact_policy: dict[str, Any] = field(default_factory=dict)
+    stream_policy: dict[str, Any] = field(default_factory=dict)
     review_gate_policy: dict[str, Any] = field(default_factory=dict)
     loop_policy: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -84,6 +85,13 @@ class TaskGraphRuntimeSpec:
     communication_modes: tuple[str, ...] = ()
     start_node_ids: tuple[str, ...] = ()
     terminal_node_ids: tuple[str, ...] = ()
+    resource_nodes: tuple[dict[str, Any], ...] = ()
+    temporal_edges: tuple[dict[str, Any], ...] = ()
+    memory_edges: tuple[dict[str, Any], ...] = ()
+    artifact_context_edges: tuple[dict[str, Any], ...] = ()
+    revision_edges: tuple[dict[str, Any], ...] = ()
+    loop_frames: tuple[dict[str, Any], ...] = ()
+    memory_matrix: dict[str, Any] = field(default_factory=dict)
     issues: tuple[TaskGraphRuntimeValidationIssue, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
@@ -95,6 +103,13 @@ class TaskGraphRuntimeSpec:
         payload = asdict(self)
         payload["nodes"] = [item.to_dict() for item in self.nodes]
         payload["edges"] = [item.to_dict() for item in self.edges]
+        payload["resource_nodes"] = [dict(item) for item in self.resource_nodes]
+        payload["temporal_edges"] = [dict(item) for item in self.temporal_edges]
+        payload["memory_edges"] = [dict(item) for item in self.memory_edges]
+        payload["artifact_context_edges"] = [dict(item) for item in self.artifact_context_edges]
+        payload["revision_edges"] = [dict(item) for item in self.revision_edges]
+        payload["loop_frames"] = [dict(item) for item in self.loop_frames]
+        payload["memory_matrix"] = dict(self.memory_matrix)
         payload["issues"] = [item.to_dict() for item in self.issues]
         payload["graph_ref"] = self.graph_ref or self.graph_id
         payload["valid"] = self.valid

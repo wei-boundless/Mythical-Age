@@ -1,5 +1,8 @@
 "use client";
 
+import { GitBranch } from "lucide-react";
+
+import { TaskSystemToolbarButton } from "./TaskSystemWorkbenchUi";
 import { TaskSystemField, TaskSystemSelectField, taskSystemOptionLabel } from "./TaskSystemWorkbenchUi";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import type { TaskGraphNode } from "./taskGraphTypes";
@@ -11,12 +14,14 @@ function nodeTitle(node: Record<string, unknown>) {
 export function TaskGraphBlueprintPage({
   activeGraphNodes,
   taskGraphDraft,
+  onOpenTemplateChooser,
   updateTaskGraph,
   updateRuntimePolicy,
   updateContextPolicy,
 }: {
   activeGraphNodes: Array<Record<string, unknown>>;
   taskGraphDraft: TaskGraphDraftV2;
+  onOpenTemplateChooser: () => void;
   updateTaskGraph: (patch: Partial<TaskGraphDraftV2>) => void;
   updateRuntimePolicy: (patch: Partial<TaskGraphDraftV2["runtime_policy"]>) => void;
   updateContextPolicy: (patch: Partial<TaskGraphDraftV2["context_policy"]>) => void;
@@ -31,6 +36,9 @@ export function TaskGraphBlueprintPage({
         <span>TaskGraph Studio</span>
         <strong>任务蓝图</strong>
         <small>定义任务图身份、边界节点和全局运行语义。</small>
+        <TaskSystemToolbarButton onClick={onOpenTemplateChooser}>
+          <GitBranch size={14} />切换蓝图模板
+        </TaskSystemToolbarButton>
       </header>
       <section className="task-graph-form-grid">
         <article className="boundary-card">

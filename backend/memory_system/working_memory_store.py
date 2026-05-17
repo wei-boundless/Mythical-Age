@@ -260,78 +260,43 @@ class WorkingMemoryStore:
         path.write_text(_json(report), encoding="utf-8")
         return path
 
-    def purge_task_run_terminal_items(
-        self,
-        task_run_id: str,
-        *,
-        purge_statuses: tuple[str, ...] | list[str] = (),
-    ) -> dict[str, Any]:
-        statuses = tuple(str(item).strip() for item in purge_statuses if str(item).strip())
-        if not task_run_id or not statuses:
-            return {"purged_count": 0, "purged_status_counts": {}}
-        status_counts: dict[str, int] = {}
-        with self._connect() as conn:
-            rows = conn.execute(
-                f"""
-                SELECT status, COUNT(*) AS count
-                FROM work_memory_items
-                WHERE task_run_id = ? AND status IN ({",".join("?" for _ in statuses)})
-                GROUP BY status
-                """,
-                (task_run_id, *statuses),
-            ).fetchall()
-            for row in rows:
-                status_counts[str(row["status"])] = int(row["count"] or 0)
-            conn.execute(
-                f"DELETE FROM work_memory_items WHERE task_run_id = ? AND status IN ({','.join('?' for _ in statuses)})",
-                (task_run_id, *statuses),
-            )
-            conn.execute(
-                """
-                DELETE FROM work_memory_temporal_edges
-                WHERE task_run_id = ?
-                  AND (source_item_id NOT IN (SELECT work_memory_id FROM work_memory_items)
-                       OR target_item_id NOT IN (SELECT work_memory_id FROM work_memory_items))
-                """,
-                (task_run_id,),
-            )
-        return {
-            "purged_count": sum(status_counts.values()),
-            "purged_status_counts": status_counts,
-        }
-
-    def optimize_store(self) -> None:
-        with self._connect() as conn:
-            conn.execute("PRAGMA optimize")
-
     def append_read_log(self, log: WorkingMemoryReadLog) -> WorkingMemoryReadLog:
         stored = replace(log, created_at=log.created_at or utc_now_iso())
         with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO work_memory_read_logs (
-                    read_log_id, task_run_id, graph_id, owner_node_id, node_run_id, run_attempt_id,
-                    reader_agent_id, request_json, selected_item_ids_json, excluded_item_ids_json,
-                    token_estimate, denied_reason, created_at, authority
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    stored.read_log_id,
-                    stored.task_run_id,
-                    stored.graph_id,
-                    stored.owner_node_id,
-                    stored.node_run_id,
-                    stored.run_attempt_id,
-                    stored.reader_agent_id,
-                    _json(stored.request),
-                    _json(stored.selected_item_ids),
-                    _json(stored.excluded_item_ids),
-                    stored.token_estimate,
-                    stored.denied_reason,
-                    stored.created_at,
-                    stored.authority,
-                ),
-            )
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO work_memory_read_logs (
+                        read_log_id, task_run_id, graph_id, owner_node_id, node_run_id, run_attempt_id,
+                        reader_agent_id, request_json, selected_item_ids_json, excluded_item_ids_json,
+                        token_estimate, denied_reason, created_at, authority
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        stored.read_log_id,
+                        stored.task_run_id,
+                        stored.graph_id,
+                        stored.owner_node_id,
+                        stored.node_run_id,
+                        stored.run_attempt_id,
+                        stored.reader_agent_id,
+                        _json(stored.request),
+                        _json(stored.selected_item_ids),
+                        _json(stored.excluded_item_ids),
+                        stored.token_estimate,
+                        stored.denied_reason,
+                        stored.created_at,
+                        stored.authority,
+                    ),
+                )
+            except sqlite3.IntegrityError:
+                existing = conn.execute(
+                    "SELECT * FROM work_memory_read_logs WHERE read_log_id = ?",
+                    (stored.read_log_id,),
+                ).fetchone()
+                if existing is not None:
+                    return _read_log_from_row(existing)
+                raise
         return stored
 
     def list_read_logs(self, task_run_id: str = "", *, limit: int = 200) -> tuple[WorkingMemoryReadLog, ...]:

@@ -38,9 +38,12 @@ export type TaskGraphMonitorViewModel = {
   hasSignal: boolean;
   title: string;
   graphId: string;
+  projectId: string;
+  projectTitle: string;
   taskRunId: string;
   coordinationRunId: string;
   status: string;
+  projectRuntimeStatus: string;
   terminalReason: string;
   failureMessage: string;
   failureDetail: string;
@@ -51,17 +54,39 @@ export type TaskGraphMonitorViewModel = {
   activeNodeId: string;
   activeTaskRef: string;
   eventCount: number;
+  latestEventAt: number;
+  lastEffectiveOutputAt: number;
   nodeCount: number;
   edgeCount: number;
   completedCount: number;
   runningCount: number;
   blockedCount: number;
   failedCount: number;
+  progressMetricLabel: string;
+  targetMetricTotal: number;
+  completedMetricTotal: number;
+  remainingMetricTotal: number;
+  committedUnitCount: number;
+  lastCommittedUnitIndex: number;
+  blockerKind: string;
+  blockerSummary: string;
+  repairSummary: string;
   nodes: TaskGraphMonitorNodeView[];
   edges: TaskGraphMonitorEdgeView[];
   artifacts: Array<Record<string, unknown>>;
   memoryOperations: TaskGraphMonitorMemoryOperationView[];
   stageResults: Array<Record<string, unknown>>;
+  timelineClockSeq: number;
+  timelineEventCount: number;
+  timelineEvents: Array<Record<string, unknown>>;
+  dispatchContext: Record<string, unknown>;
+  contextPackets: Record<string, unknown>;
+  executionReceipts: Array<Record<string, unknown>>;
+  streamEnabled: boolean;
+  streamChunkCount: number;
+  streamAccumulatedChars: number;
+  streamLatestAt: number;
+  streamPreviewText: string;
   healthValid: boolean;
   healthIssues: Array<{ severity: string; code: string; message: string; targetId: string }>;
 };
@@ -170,9 +195,12 @@ export function buildTaskGraphMonitorViewModel(monitor: TaskGraphRunMonitorView 
     hasSignal: Boolean(monitor && (nodes.length || text(monitor.graph?.graph_id))),
     title: text(monitor?.graph?.title, "当前没有任务图运行"),
     graphId: text(monitor?.graph?.graph_id),
+    projectId: text(monitor?.project?.project_id),
+    projectTitle: text(monitor?.project?.project_title),
     taskRunId: text(monitor?.task_run_id),
     coordinationRunId: text(monitor?.coordination_run_id),
     status,
+    projectRuntimeStatus: text(monitor?.supervision?.project_runtime_status),
     terminalReason: text(monitor?.runtime?.terminal_reason),
     failureMessage: text(monitor?.runtime?.failure?.message),
     failureDetail: text(monitor?.runtime?.failure?.detail),
@@ -183,17 +211,39 @@ export function buildTaskGraphMonitorViewModel(monitor: TaskGraphRunMonitorView 
     activeNodeId,
     activeTaskRef: text(monitor?.runtime?.active_task_ref),
     eventCount: Number(monitor?.runtime?.event_count ?? 0),
+    latestEventAt: Number(monitor?.supervision?.latest_event_at ?? 0),
+    lastEffectiveOutputAt: Number(monitor?.supervision?.last_effective_output_at ?? 0),
     nodeCount: Number(monitor?.graph?.node_count ?? nodes.length),
     edgeCount: Number(monitor?.graph?.edge_count ?? edges.length),
     completedCount: nodes.filter((node) => node.status === "completed" || node.status === "success").length,
     runningCount: nodes.filter((node) => node.status === "running").length,
     blockedCount: nodes.filter((node) => ["blocked", "waiting", "waiting_for_human", "human_gate"].includes(node.status)).length,
     failedCount: nodes.filter((node) => node.status === "failed").length,
+    progressMetricLabel: text(monitor?.progress?.metric_label, "units"),
+    targetMetricTotal: Number(monitor?.progress?.target_metric_total ?? 0),
+    completedMetricTotal: Number(monitor?.progress?.completed_metric_total ?? 0),
+    remainingMetricTotal: Number(monitor?.progress?.remaining_metric_total ?? 0),
+    committedUnitCount: Number(monitor?.progress?.committed_unit_count ?? 0),
+    lastCommittedUnitIndex: Number(monitor?.progress?.last_committed_unit_index ?? 0),
+    blockerKind: text(monitor?.blocker?.kind),
+    blockerSummary: text(monitor?.blocker?.summary),
+    repairSummary: text(monitor?.repair?.summary || monitor?.repair?.action || monitor?.supervision?.latest_record?.repair_action),
     nodes,
     edges,
     artifacts: monitor?.artifacts ?? [],
     memoryOperations: (monitor?.memory_operations ?? []).map(memoryOperationView),
     stageResults: monitor?.stage_results ?? [],
+    timelineClockSeq: Number(monitor?.timeline?.current_clock_seq ?? 0),
+    timelineEventCount: Number(monitor?.timeline?.event_count ?? 0),
+    timelineEvents: monitor?.timeline?.recent_events ?? [],
+    dispatchContext: monitor?.current_dispatch_context ?? {},
+    contextPackets: monitor?.current_context_packets ?? {},
+    executionReceipts: monitor?.execution_receipts ?? [],
+    streamEnabled: monitor?.streaming?.enabled === true,
+    streamChunkCount: Number(monitor?.streaming?.chunk_count ?? 0),
+    streamAccumulatedChars: Number(monitor?.streaming?.accumulated_chars ?? 0),
+    streamLatestAt: Number(monitor?.streaming?.latest_chunk_at ?? 0),
+    streamPreviewText: text(monitor?.streaming?.preview_text),
     healthValid: monitor?.health?.valid !== false,
     healthIssues: (monitor?.health?.issues ?? []).map((issue) => ({
       severity: text(issue.severity),

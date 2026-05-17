@@ -274,6 +274,99 @@ class ModelRuntime:
             raise last_error
         raise RuntimeError("No model candidates available")
 
+    async def astream_messages(self, messages: list[Any]):
+        last_error: ModelRuntimeError | None = None
+        candidates = self._candidate_specs()
+        for spec_index, spec in enumerate(candidates):
+            for attempt in range(1, self.max_retries + 2):
+                emitted = False
+                model = self._build_chat_model_for_spec(spec)
+                try:
+                    stream = model.astream(messages)
+                    async for chunk in self._iterate_with_timeout(stream):
+                        emitted = True
+                        yield chunk
+                    return
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    last_error = self._map_error(exc, spec)
+                    if emitted:
+                        raise last_error from exc
+                    if attempt <= self.max_retries and last_error.retryable:
+                        logger.warning(
+                            "Retrying model stream after %s (%s/%s): %s",
+                            last_error.code,
+                            attempt,
+                            self.max_retries,
+                            last_error.detail,
+                        )
+                        await asyncio.sleep(min(0.5, 0.1 * attempt))
+                        continue
+                    break
+                finally:
+                    await self._aclose_chat_model(model)
+            if last_error is None:
+                continue
+            if spec_index < len(candidates) - 1:
+                logger.warning(
+                    "Switching stream model candidate after %s on %s/%s: %s",
+                    last_error.code,
+                    spec.provider,
+                    spec.model,
+                    _compact_error_detail(last_error.detail),
+                )
+                continue
+            raise last_error
+        raise RuntimeError("No model candidates available")
+
+    async def astream_messages_with_tools(self, messages: list[Any], tools: list[Any]):
+        last_error: ModelRuntimeError | None = None
+        candidates = self._candidate_specs()
+        for spec_index, spec in enumerate(candidates):
+            for attempt in range(1, self.max_retries + 2):
+                emitted = False
+                model = self._build_chat_model_for_spec(spec)
+                try:
+                    bound_model = model.bind_tools(tools) if tools else model
+                    stream = bound_model.astream(messages)
+                    async for chunk in self._iterate_with_timeout(stream):
+                        emitted = True
+                        yield chunk
+                    return
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    last_error = self._map_error(exc, spec)
+                    if emitted:
+                        raise last_error from exc
+                    if attempt <= self.max_retries and last_error.retryable:
+                        logger.warning(
+                            "Retrying tool-enabled model stream after %s (%s/%s): %s",
+                            last_error.code,
+                            attempt,
+                            self.max_retries,
+                            last_error.detail,
+                        )
+                        await asyncio.sleep(min(0.5, 0.1 * attempt))
+                        continue
+                    break
+                finally:
+                    await self._aclose_chat_model(model)
+            if last_error is None:
+                continue
+            if spec_index < len(candidates) - 1:
+                logger.warning(
+                    "Switching tool-enabled stream model candidate after %s on %s/%s: %s",
+                    last_error.code,
+                    spec.provider,
+                    spec.model,
+                    _compact_error_detail(last_error.detail),
+                )
+                continue
+            raise last_error
+        raise RuntimeError("No model candidates available")
+
     async def astream_conversation(
         self,
         *,
@@ -504,7 +597,7 @@ class ModelRuntime:
             return exc
 
         detail = str(exc) or exc.__class__.__name__
-        lowered = detail.lower()
+        lowered = _exception_chain_text(exc).lower()
 
         if isinstance(exc, asyncio.TimeoutError) or any(
             token in lowered for token in ("timed out", "timeout", "deadline exceeded")
@@ -529,6 +622,21 @@ class ModelRuntime:
         if any(
             token in lowered
             for token in (
+                "readerror",
+                "read error",
+                "remoteprotocolerror",
+                "remote protocol error",
+                "protocolerror",
+                "protocol error",
+                "incomplete read",
+                "incomplete chunk",
+                "chunked",
+                "server disconnected",
+                "peer closed",
+                "httpcore",
+                "httpx",
+                "broken pipe",
+                "ssl",
                 "connection",
                 "temporarily unavailable",
                 "service unavailable",
@@ -572,3 +680,14 @@ def _compact_error_detail(detail: str, *, limit: int = 500) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 3] + "..."
+
+
+def _exception_chain_text(exc: Exception) -> str:
+    parts: list[str] = []
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        parts.append(f"{current.__class__.__name__}: {current}")
+        current = current.__cause__ or current.__context__
+    return " | ".join(parts) or exc.__class__.__name__

@@ -1,4 +1,6 @@
 import { buildTimelinePreflightIssues } from "./taskGraphTimeline";
+import { buildTaskGraphCognitionModel } from "./taskGraphCognitionView";
+import { buildTaskGraphMemoryModel } from "./taskGraphMemoryMatrix";
 
 export type TaskGraphPreflightSeverity = "error" | "warning" | "info";
 
@@ -213,6 +215,19 @@ export function buildTaskGraphPreflightReport({
         source: "frontend.preflight.human_gate",
       });
     }
+
+    const reviewGatePolicy = recordValue(node.review_gate_policy);
+    const isReviewGate = reviewGatePolicy.is_review_gate === true || stringValue(node.node_type) === "review_gate";
+    if (isReviewGate && !stringValue(reviewGatePolicy.verdict_contract_id ?? node.output_contract_id)) {
+      pushIssue(issues, {
+        severity: "warning",
+        scope: "node",
+        target_id: nodeId,
+        title: "审核门缺少裁决契约",
+        detail: "审核门应明确 verdict contract 或输出契约，让运行时和下游节点能区分通过、驳回、返修和阻断。",
+        source: "frontend.preflight.review_gate_contract",
+      });
+    }
   });
 
   if (nodes.some((node) => stringValue(node.execution_mode) === "manual_gate") && !humanGateMode) {
@@ -279,6 +294,116 @@ export function buildTaskGraphPreflightReport({
         source: "frontend.preflight.memory_handoff",
       });
     }
+
+    const edgeType = stringValue(edge.edge_type ?? edge.mode);
+    const metadata = recordValue(edge.metadata);
+    const isRevisionEdge = ["revision_request", "review_feedback", "repair_feedback", "conditional_feedback", "repair_route"].includes(edgeType)
+      || stringValue(metadata.verdict) === "revise";
+    if (isRevisionEdge && !stringValue(metadata.original_artifact_key ?? metadata.original_artifact_ref_key ?? metadata.candidate_ref_key)) {
+      pushIssue(issues, {
+        severity: "warning",
+        scope: "edge",
+        target_id: edgeId,
+        title: "返修边缺少原稿引用",
+        detail: "返修交接必须告诉目标节点本轮要修改哪份原始产物，不能让节点从文件列表或 latest 结果里猜。",
+        source: "frontend.preflight.revision_packet",
+      });
+    }
+    if (isRevisionEdge && !stringValue(metadata.review_result_key ?? metadata.review_receipt_key ?? metadata.verdict_key)) {
+      pushIssue(issues, {
+        severity: "warning",
+        scope: "edge",
+        target_id: edgeId,
+        title: "返修边缺少审核结果引用",
+        detail: "返修交接必须携带审核裁决、问题清单或 receipt 引用，否则出稿节点无法知道退稿原因。",
+        source: "frontend.preflight.revision_packet",
+      });
+    }
+  });
+
+  const memoryModel = buildTaskGraphMemoryModel({ nodes, edges });
+  memoryModel.columns.forEach((column) => {
+    if (column.synthetic) {
+      pushIssue(issues, {
+        severity: "warning",
+        scope: "graph",
+        target_id: column.repositoryId,
+        title: "记忆边声明了未建仓库",
+        detail: `${column.repositoryId}.${column.collectionId} 来自边 metadata，但图中没有对应 memory_repository 节点。建议补成资源节点，避免运行装配时语义不清。`,
+        source: "frontend.preflight.memory_repository",
+      });
+    }
+    if (!stringValue(column.schemaId) || column.schemaId === "schema.memory_record") {
+      pushIssue(issues, {
+        severity: "info",
+        scope: "graph",
+        target_id: column.repositoryId,
+        title: "记忆 Collection 使用默认 Schema",
+        detail: `${column.repositoryId}.${column.collectionId} 未显式绑定 schema_id / schema_ref。通用仓库可以发布，但精确读写建议补 schema。`,
+        source: "frontend.preflight.memory_repository",
+      });
+    }
+  });
+  memoryModel.memoryEdges.forEach((memoryEdge) => {
+    const metadata = recordValue(memoryEdge.edge.metadata);
+    const selector = recordValue(metadata.selector);
+    const explicitCollection = stringValue(selector.collection ?? metadata.collection);
+    if (memoryEdge.operation === "read" && !explicitCollection) {
+      pushIssue(issues, {
+        severity: "error",
+        scope: "edge",
+        target_id: memoryEdge.edgeId,
+        title: "记忆读取缺少 Selector",
+        detail: "memory_read 边必须显式配置 selector.collection，读取路径不能依赖模糊仓库搜索。",
+        source: "frontend.preflight.memory_selector",
+      });
+    }
+    if (memoryEdge.operation === "read" && !memoryEdge.usageInstruction) {
+      pushIssue(issues, {
+        severity: "warning",
+        scope: "edge",
+        target_id: memoryEdge.edgeId,
+        title: "记忆读取缺少使用说明",
+        detail: "memory_read 边应说明这份 MemorySnapshot 在 prompt 中如何称呼、如何使用、是否作为硬约束。",
+        source: "frontend.preflight.memory_selector",
+      });
+    }
+    if (memoryEdge.operation === "write_candidate" && !memoryEdge.hasCommitPath) {
+      pushIssue(issues, {
+        severity: "warning",
+        scope: "edge",
+        target_id: memoryEdge.edgeId,
+        title: "写入候选缺少提交路径",
+        detail: "memory_write_candidate 只产生候选，不会自动对后续节点可见；需要可达的 memory_commit 边或明确这是候选-only 路径。",
+        source: "frontend.preflight.memory_commit_path",
+      });
+    }
+    if (memoryEdge.operation === "commit" && !Object.keys(memoryEdge.receiptPolicy).length) {
+      pushIssue(issues, {
+        severity: "warning",
+        scope: "edge",
+        target_id: memoryEdge.edgeId,
+        title: "记忆提交缺少 Receipt 策略",
+        detail: "memory_commit 边应配置 receipt_policy，说明提交状态和从哪个 clock/scope 起对后续节点可见。",
+        source: "frontend.preflight.receipt_policy",
+      });
+    }
+  });
+
+  const cognitionModel = buildTaskGraphCognitionModel({ nodes, edges });
+  cognitionModel.packages.forEach((nodePackage) => {
+    nodePackage.inputPackets.forEach((packet) => {
+      if (packet.kind !== "dispatch_context" && !packet.usageInstruction) {
+        pushIssue(issues, {
+          severity: "warning",
+          scope: packet.edgeId ? "edge" : "node",
+          target_id: packet.edgeId || nodePackage.nodeId,
+          title: "输入包缺少 Prompt 使用说明",
+          detail: `${nodePackage.title} 收到的 ${packet.title} 没有 usage_instruction，Agent 可能不知道该把它当硬约束、参考资料还是返修依据。`,
+          source: "frontend.preflight.cognition_packet",
+        });
+      }
+    });
   });
 
   buildTimelinePreflightIssues(nodes, edges, metadata).forEach((issue, index) => {

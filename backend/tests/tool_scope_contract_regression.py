@@ -24,7 +24,7 @@ def main() -> None:
         allowed_tools=("web_search",),
         trust_level="project",
         reason="test_skill_scope",
-        skill_name="legacy-test-skill",
+        skill_name="compat-test-skill",
     )
     assert scope.allows("web_search")
     assert not scope.allows("read_file")

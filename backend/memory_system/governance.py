@@ -48,23 +48,6 @@ class MemoryGovernance:
         self.append(record)
         return record
 
-    def record_blocked_legacy_call(
-        self,
-        *,
-        target_refs: tuple[str, ...] | list[str] = (),
-        reason: str,
-        metadata: dict[str, Any] | None = None,
-    ) -> MemoryCommitRecord:
-        return self.record(
-            action="legacy_blocked",
-            commit_layer="governance_log",
-            target_refs=target_refs,
-            reason=reason,
-            actor="runtime_compatibility_guard",
-            allowed=False,
-            metadata=metadata,
-        )
-
     def append(self, record: MemoryCommitRecord) -> None:
         payload = record.to_dict()
         # Preserve the old log keys so the existing UI can keep reading this

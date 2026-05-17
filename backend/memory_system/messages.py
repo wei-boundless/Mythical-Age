@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from output_boundary import sanitize_visible_assistant_content
-from .legacy_types import Message
+from .compat_types import Message
 
 
 class MemoryMessageAdapter:

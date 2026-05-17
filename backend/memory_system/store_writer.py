@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Iterable
 
 from .write_models import DurableMutationPlan
-from .legacy_types import MemoryNote, utc_now_iso
+from .compat_types import MemoryNote, utc_now_iso
 
 
 class DurableStoreWriter:

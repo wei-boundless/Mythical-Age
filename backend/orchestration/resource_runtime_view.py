@@ -34,10 +34,10 @@ class ResourceRuntimeView:
 
 
 def build_resource_runtime_views(policy: ResourcePolicy, registry: OperationRegistry) -> list[ResourceRuntimeView]:
-    return [_view_from_decision(decision, registry) for decision in policy.decisions]
+    return [_view_from_decision(decision, registry, policy) for decision in policy.decisions]
 
 
-def _view_from_decision(decision: ResourceDecision, registry: OperationRegistry) -> ResourceRuntimeView:
+def _view_from_decision(decision: ResourceDecision, registry: OperationRegistry, policy: ResourcePolicy) -> ResourceRuntimeView:
     descriptor = registry.get_operation(decision.operation_id)
     if descriptor is None:
         return ResourceRuntimeView(
@@ -50,7 +50,8 @@ def _view_from_decision(decision: ResourceDecision, registry: OperationRegistry)
         )
 
     authorized = decision.decision == "allow"
-    available_to_model = decision.decision == "allow"
+    runtime_executable = authorized and policy.adopted and policy.runtime_executable
+    available_to_model = authorized
     requires_approval = decision.decision == "requires_approval"
     denied_reason = "" if authorized else decision.reason
     return ResourceRuntimeView(
@@ -62,7 +63,7 @@ def _view_from_decision(decision: ResourceDecision, registry: OperationRegistry)
         denied_reason=denied_reason,
         requires_approval=requires_approval,
         available_to_model=available_to_model,
-        runtime_executable=authorized,
+        runtime_executable=runtime_executable,
         policy_decision=decision.decision,
         input_contract_ref=descriptor.input_contract_ref or str(descriptor.input_contract.get("contract_ref") or ""),
         output_contract_ref=descriptor.output_contract_ref or str(descriptor.output_contract.get("contract_ref") or ""),

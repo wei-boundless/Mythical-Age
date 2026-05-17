@@ -67,7 +67,6 @@ def test_operation_agent_bindings_keep_pdf_tools_off_main_agent() -> None:
     tools = [
         {"name": "web_search", "runtime_visibility": "main_runtime"},
         {"name": "mcp_pdf", "runtime_visibility": "agent_internal"},
-        {"name": "analyze_multimodal_file", "runtime_visibility": "agent_internal"},
     ]
 
     bindings = agent_tool_bindings(tools)

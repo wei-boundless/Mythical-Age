@@ -253,6 +253,12 @@ def compile_coordination_contract_manifest(
                     "explicit_node_contract_refs": explicit_node_contract_refs,
                     "context_visibility_policy": dict(getattr(node, "context_visibility_policy", {}) or {}),
                     "memory_read_policy": dict(getattr(node, "memory_read_policy", {}) or {}),
+                    "memory_writeback_policy": dict(getattr(node, "memory_writeback_policy", {}) or {}),
+                    "dynamic_memory_read_policy": dict(getattr(node, "dynamic_memory_read_policy", {}) or {}),
+                    "review_gate_policy": dict(getattr(node, "review_gate_policy", {}) or {}),
+                    "human_gate_policy": dict(getattr(node, "human_gate_policy", {}) or {}),
+                    "artifact_policy": dict(getattr(node, "artifact_policy", {}) or {}),
+                    "stream_policy": dict(getattr(node, "stream_policy", {}) or {}),
                 },
             )
         )
@@ -323,7 +329,17 @@ def compile_coordination_contract_manifest(
                 message_type=edge.mode if edge.mode.startswith("message/") else DEFAULT_A2A_MESSAGE_TYPE,
                 contract_refs=contract_refs,
                 handoff_policy=coordination_task.handoff_policy,
-                metadata={"business_mode": edge.mode, "protocol_id": getattr(communication_protocol, "protocol_id", "") or ""},
+                metadata={
+                    "business_mode": edge.mode,
+                    "protocol_id": getattr(communication_protocol, "protocol_id", "") or "",
+                    "handoff_summary": str(metadata.get("handoff_summary") or ""),
+                    "required_refs": [
+                        str(item).strip()
+                        for item in list(metadata.get("required_refs") or [])
+                        if str(item).strip()
+                    ],
+                    "memory_expectation": str(metadata.get("memory_expectation") or ""),
+                },
             )
         )
 
@@ -351,8 +367,31 @@ def compile_coordination_contract_manifest(
             "compiler": "contract_compiler.v1",
             "agent_group_id": coordination_task.agent_group_id,
             "communication_protocol_id": getattr(communication_protocol, "protocol_id", "") or "",
+            "layered_graph": _layered_graph_manifest_payload(graph_spec),
         },
     )
+
+
+def _layered_graph_manifest_payload(graph_spec: TaskGraphRuntimeSpec) -> dict[str, Any]:
+    return {
+        "authority": "task_system.layered_graph_runtime_spec",
+        "graph_id": graph_spec.graph_id,
+        "resource_nodes": [dict(item) for item in graph_spec.resource_nodes],
+        "temporal_edges": [dict(item) for item in graph_spec.temporal_edges],
+        "memory_edges": [dict(item) for item in graph_spec.memory_edges],
+        "artifact_context_edges": [dict(item) for item in graph_spec.artifact_context_edges],
+        "revision_edges": [dict(item) for item in graph_spec.revision_edges],
+        "loop_frames": [dict(item) for item in graph_spec.loop_frames],
+        "memory_matrix": dict(graph_spec.memory_matrix),
+        "summary": {
+            "resource_node_count": len(graph_spec.resource_nodes),
+            "temporal_edge_count": len(graph_spec.temporal_edges),
+            "memory_edge_count": len(graph_spec.memory_edges),
+            "artifact_context_edge_count": len(graph_spec.artifact_context_edges),
+            "revision_edge_count": len(graph_spec.revision_edges),
+            "loop_frame_count": len(graph_spec.loop_frames),
+        },
+    }
 
 
 def _collect_contract(

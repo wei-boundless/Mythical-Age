@@ -311,6 +311,7 @@ def build_task_execution_assembly_bundle(
         task_constraints=dict(task_spec.constraints or {}),
         requested_outputs=tuple(task_spec.requested_outputs),
         metadata={
+            "stream_policy": dict(dict((registered_task or {}).get("task_policy") or {}).get("stream_policy") or {}),
             "template_id": selected_recipe.template_id,
             "recipe_id": selected_recipe.recipe_id,
             "execution_kind": selected_recipe.execution_kind,

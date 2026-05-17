@@ -517,6 +517,19 @@
       "authority": "task_system.task_projection_binding"
     },
     {
+      "binding_id": "taskprojbind:task.000001",
+      "task_id": "task.000001",
+      "projection_selection_mode": "workflow_compatible_or_task_default",
+      "allowed_projection_ids": [],
+      "default_projection_id": "",
+      "projection_required": false,
+      "notes": "Derived from specific task record defaults.",
+      "metadata": {
+        "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
       "binding_id": "taskprojbind:task.writing.simple_novel.project_brief",
       "task_id": "task.writing.simple_novel.project_brief",
       "projection_selection_mode": "task_default_required",
@@ -527,23 +540,23 @@
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "creator"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
-      "binding_id": "taskprojbind:task.writing.simple_novel.world_candidate",
-      "task_id": "task.writing.simple_novel.world_candidate",
+      "binding_id": "taskprojbind:task.writing.simple_novel.world_design",
+      "task_id": "task.writing.simple_novel.world_design",
       "projection_selection_mode": "task_default_required",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.world_creator"
+        "projection.writing.simple_novel.world_designer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.world_creator",
+      "default_projection_id": "projection.writing.simple_novel.world_designer",
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "creator"
       },
       "authority": "task_system.task_projection_binding"
@@ -559,7 +572,7 @@
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "reviewer"
       },
       "authority": "task_system.task_projection_binding"
@@ -575,152 +588,56 @@
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "memory_steward"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
-      "binding_id": "taskprojbind:task.writing.simple_novel.outline_candidate",
-      "task_id": "task.writing.simple_novel.outline_candidate",
+      "binding_id": "taskprojbind:task.writing.simple_novel.baseline_memory_seed",
+      "task_id": "task.writing.simple_novel.baseline_memory_seed",
       "projection_selection_mode": "task_default_required",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.outline_creator"
+        "projection.writing.simple_novel.baseline_memory_steward"
       ],
-      "default_projection_id": "projection.writing.simple_novel.outline_creator",
+      "default_projection_id": "projection.writing.simple_novel.baseline_memory_steward",
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "role": "memory_steward"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.writing.simple_novel.volume_plan",
+      "task_id": "task.writing.simple_novel.volume_plan",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing.simple_novel.volume_planner"
+      ],
+      "default_projection_id": "projection.writing.simple_novel.volume_planner",
+      "projection_required": true,
+      "notes": "写作组简易长篇小说节点投影绑定。",
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "creator"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
-      "binding_id": "taskprojbind:task.writing.simple_novel.outline_review",
-      "task_id": "task.writing.simple_novel.outline_review",
+      "binding_id": "taskprojbind:task.writing.simple_novel.chapter_outline",
+      "task_id": "task.writing.simple_novel.chapter_outline",
       "projection_selection_mode": "task_default_required",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.outline_reviewer"
+        "projection.writing.simple_novel.chapter_outliner"
       ],
-      "default_projection_id": "projection.writing.simple_novel.outline_reviewer",
+      "default_projection_id": "projection.writing.simple_novel.chapter_outliner",
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "reviewer"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.memory_commit_outline",
-      "task_id": "task.writing.simple_novel.memory_commit_outline",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "memory_steward"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.character_candidate",
-      "task_id": "task.writing.simple_novel.character_candidate",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.character_creator"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.character_creator",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.character_review",
-      "task_id": "task.writing.simple_novel.character_review",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.character_reviewer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.character_reviewer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "reviewer"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.memory_commit_character",
-      "task_id": "task.writing.simple_novel.memory_commit_character",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "memory_steward"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.chapter_plan_candidate",
-      "task_id": "task.writing.simple_novel.chapter_plan_candidate",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.chapter_plan_creator"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.chapter_plan_creator",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.chapter_plan_review",
-      "task_id": "task.writing.simple_novel.chapter_plan_review",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.chapter_plan_reviewer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.chapter_plan_reviewer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "reviewer"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.memory_commit_chapter_plan",
-      "task_id": "task.writing.simple_novel.memory_commit_chapter_plan",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "memory_steward"
       },
       "authority": "task_system.task_projection_binding"
     },
@@ -735,7 +652,7 @@
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "creator"
       },
       "authority": "task_system.task_projection_binding"
@@ -751,7 +668,7 @@
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "reviewer"
       },
       "authority": "task_system.task_projection_binding"
@@ -767,7 +684,7 @@
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "memory_steward"
       },
       "authority": "task_system.task_projection_binding"
@@ -783,104 +700,120 @@
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "router"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
-      "binding_id": "taskprojbind:task.writing.simple_novel.world_repair_candidate",
-      "task_id": "task.writing.simple_novel.world_repair_candidate",
+      "binding_id": "taskprojbind:task.writing.simple_novel.volume_review",
+      "task_id": "task.writing.simple_novel.volume_review",
       "projection_selection_mode": "task_default_required",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.world_repair_creator"
+        "projection.writing.simple_novel.volume_reviewer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.world_repair_creator",
+      "default_projection_id": "projection.writing.simple_novel.volume_reviewer",
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.world_repair_review",
-      "task_id": "task.writing.simple_novel.world_repair_review",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.world_reviewer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.world_reviewer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "reviewer"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
-      "binding_id": "taskprojbind:task.writing.simple_novel.outline_repair_candidate",
-      "task_id": "task.writing.simple_novel.outline_repair_candidate",
+      "binding_id": "taskprojbind:task.writing.simple_novel.volume_commit",
+      "task_id": "task.writing.simple_novel.volume_commit",
       "projection_selection_mode": "task_default_required",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.outline_repair_creator"
+        "projection.writing.simple_novel.memory_steward"
       ],
-      "default_projection_id": "projection.writing.simple_novel.outline_repair_creator",
+      "default_projection_id": "projection.writing.simple_novel.memory_steward",
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "creator"
+        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "role": "memory_steward"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
-      "binding_id": "taskprojbind:task.writing.simple_novel.outline_repair_review",
-      "task_id": "task.writing.simple_novel.outline_repair_review",
+      "binding_id": "taskprojbind:task.writing.simple_novel.volume_postmortem",
+      "task_id": "task.writing.simple_novel.volume_postmortem",
       "projection_selection_mode": "task_default_required",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.outline_reviewer"
+        "projection.writing.simple_novel.volume_postmortem"
       ],
-      "default_projection_id": "projection.writing.simple_novel.outline_reviewer",
+      "default_projection_id": "projection.writing.simple_novel.volume_postmortem",
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "reviewer"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
-      "binding_id": "taskprojbind:task.writing.simple_novel.character_repair_candidate",
-      "task_id": "task.writing.simple_novel.character_repair_candidate",
+      "binding_id": "taskprojbind:task.writing.simple_novel.world_outline_extension_proposal",
+      "task_id": "task.writing.simple_novel.world_outline_extension_proposal",
       "projection_selection_mode": "task_default_required",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.character_repair_creator"
+        "projection.writing.simple_novel.world_outline_extension_proposer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.character_repair_creator",
+      "default_projection_id": "projection.writing.simple_novel.world_outline_extension_proposer",
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "creator"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
-      "binding_id": "taskprojbind:task.writing.simple_novel.character_repair_review",
-      "task_id": "task.writing.simple_novel.character_repair_review",
+      "binding_id": "taskprojbind:task.writing.simple_novel.extension_review",
+      "task_id": "task.writing.simple_novel.extension_review",
       "projection_selection_mode": "task_default_required",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.character_reviewer"
+        "projection.writing.simple_novel.extension_reviewer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.character_reviewer",
+      "default_projection_id": "projection.writing.simple_novel.extension_reviewer",
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "reviewer"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.writing.simple_novel.extension_commit",
+      "task_id": "task.writing.simple_novel.extension_commit",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing.simple_novel.memory_steward"
+      ],
+      "default_projection_id": "projection.writing.simple_novel.memory_steward",
+      "projection_required": true,
+      "notes": "写作组简易长篇小说节点投影绑定。",
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "role": "memory_steward"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
+      "binding_id": "taskprojbind:task.writing.simple_novel.next_volume_router",
+      "task_id": "task.writing.simple_novel.next_volume_router",
+      "projection_selection_mode": "task_default_required",
+      "allowed_projection_ids": [
+        "projection.writing.simple_novel.next_volume_router"
+      ],
+      "default_projection_id": "projection.writing.simple_novel.next_volume_router",
+      "projection_required": true,
+      "notes": "写作组简易长篇小说节点投影绑定。",
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "role": "router"
       },
       "authority": "task_system.task_projection_binding"
     },
@@ -895,7 +828,7 @@
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "final_assembler"
       },
       "authority": "task_system.task_projection_binding"
@@ -911,7 +844,7 @@
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "reviewer"
       },
       "authority": "task_system.task_projection_binding"
@@ -927,7 +860,7 @@
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "memory_steward"
       },
       "authority": "task_system.task_projection_binding"
@@ -943,7 +876,7 @@
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "human"
       },
       "authority": "task_system.task_projection_binding"
@@ -959,77 +892,8 @@
       "projection_required": true,
       "notes": "写作组简易长篇小说节点投影绑定。",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "role": "memory_steward"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.memory_index_read",
-      "task_id": "task.writing.simple_novel.memory_index_read",
-      "projection_selection_mode": "projection_not_required",
-      "allowed_projection_ids": [],
-      "default_projection_id": "",
-      "projection_required": false,
-      "notes": "系统记忆节点不需要 agent-facing projection。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "memory_system"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.memory_index_write",
-      "task_id": "task.writing.simple_novel.memory_index_write",
-      "projection_selection_mode": "projection_not_required",
-      "allowed_projection_ids": [],
-      "default_projection_id": "",
-      "projection_required": false,
-      "notes": "系统记忆节点不需要 agent-facing projection。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "memory_system"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.memory_index_lock",
-      "task_id": "task.writing.simple_novel.memory_index_lock",
-      "projection_selection_mode": "projection_not_required",
-      "allowed_projection_ids": [],
-      "default_projection_id": "",
-      "projection_required": false,
-      "notes": "系统记忆节点不需要 agent-facing projection。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "memory_system"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.memory_index_release",
-      "task_id": "task.writing.simple_novel.memory_index_release",
-      "projection_selection_mode": "projection_not_required",
-      "allowed_projection_ids": [],
-      "default_projection_id": "",
-      "projection_required": false,
-      "notes": "系统记忆节点不需要 agent-facing projection。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
-        "role": "memory_system"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.000001",
-      "task_id": "task.000001",
-      "projection_selection_mode": "workflow_compatible_or_task_default",
-      "allowed_projection_ids": [],
-      "default_projection_id": "",
-      "projection_required": false,
-      "notes": "Derived from specific task record defaults.",
-      "metadata": {
-        "derived_from": "specific_task_record"
       },
       "authority": "task_system.task_projection_binding"
     }

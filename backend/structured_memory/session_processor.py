@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .dialogue_state import DialogueState
+from .process_state import DialogueState
 from .models import Message
 from .process_engine import ProcessStateEngine
 from .turn_understanding import TurnUnderstandingAnalyzer

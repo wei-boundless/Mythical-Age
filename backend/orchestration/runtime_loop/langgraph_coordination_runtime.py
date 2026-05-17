@@ -38,12 +38,16 @@ from .continuation_policy import (
     validate_stage_contracts,
 )
 from .coordination_trace_adapter import CoordinationTraceAdapter
+from .context_packet_resolver import build_revision_packet_from_review, resolve_context_packets
 from .langgraph_checkpoint_adapter import LangGraphCheckpointStoreAdapter
+from .langgraph_runtime_kernel import LangGraphRuntimeKernel
 from .runtime_object_store import RuntimeObjectStore
 from .models import CoordinationRun
 from .runtime_assembly_builder import build_node_runtime_assembly
 from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
+from .stage_execution_receipt import build_stage_execution_receipt
 from .task_graph_scheduler import bootstrap_scheduler_state
+from .timeline_ledger import TimelineEvent, TimelineLedgerStore
 
 
 class CoordinationRuntimeState(TypedDict, total=False):
@@ -82,6 +86,9 @@ class CoordinationRuntimeState(TypedDict, total=False):
     a2a_payload: dict[str, Any]
     working_memory_contexts: dict[str, dict[str, Any]]
     working_memory_operations: list[dict[str, Any]]
+    revision_packets: list[dict[str, Any]]
+    execution_receipts: list[dict[str, Any]]
+    timeline: dict[str, Any]
     diagnostics: dict[str, Any]
 
 
@@ -181,7 +188,9 @@ class LangGraphCoordinationRuntime:
         self.trace_adapter = CoordinationTraceAdapter(state_index=state_index, event_log=event_log)
         self.working_memory = WorkingMemoryService(_working_memory_root_for_runtime(root_dir))
         self.working_memory_finalizer = WorkingMemoryFinalizer(self.working_memory)
+        self.timeline_ledger = TimelineLedgerStore(root_dir)
         self._app = self._build_app()
+        self.kernel = LangGraphRuntimeKernel(app=self._app, checkpoints=self.checkpoints)
 
     def _resolve_task_graph_view(self, coordination_run: CoordinationRun):
         task_graph = self._resolve_task_graph_definition(coordination_run)
@@ -230,14 +239,33 @@ class LangGraphCoordinationRuntime:
                 **dict(state.get("diagnostics") or {}),
                 "inherited_input_keys": sorted(str(key) for key in dict(inherited_inputs).keys()),
             }
+        self._append_timeline_event(
+            state,
+            event_type="run_started",
+            status="running",
+            payload={"coordination_run_id": coordination_run.coordination_run_id},
+            idempotency_key=f"{coordination_run.coordination_run_id}:run_started",
+        )
         if not dict(state.get("stage_execution_request") or {}):
             prepared = self._stage_execute(state)
             state.update(prepared)
-        checkpoint = self.checkpoints.put_state(
+        state = self._attach_timeline_snapshot(state)
+        kernel_result = self.kernel.checkpoint(
             thread_id=coordination_run.coordination_run_id,
             state=state,
-            metadata={"event": "initialize"},
+            reason="initialize",
+            checkpoint_metadata={"event": "initialize"},
         )
+        checkpoint = kernel_result.checkpoint
+        self._append_timeline_event(
+            state,
+            event_type="checkpoint_linked",
+            status="completed",
+            checkpoint_ref=checkpoint.checkpoint_id,
+            payload={"reason": "initialize"},
+            idempotency_key=f"{coordination_run.coordination_run_id}:checkpoint:{checkpoint.checkpoint_id}",
+        )
+        state = self._attach_timeline_snapshot(state)
         events = self.trace_adapter.write_state(
             coordination_run=coordination_run,
             state=state,
@@ -276,13 +304,23 @@ class LangGraphCoordinationRuntime:
         }
         if artifact_root:
             state["pending_inputs"]["artifact_root"] = artifact_root
-        graph_result = self._app.invoke(state, config={"configurable": {"thread_id": coordination_run.coordination_run_id}})
-        final_state = dict(graph_result or {})
-        checkpoint = self.checkpoints.put_state(
+        kernel_result = self.kernel.invoke(
+            state=state,
             thread_id=coordination_run.coordination_run_id,
-            state=final_state,
-            metadata={"event": "task_result_ready", "task_run_id": event.task_run_id},
+            reason="task_result_ready",
+            checkpoint_metadata={"event": "task_result_ready", "task_run_id": event.task_run_id},
         )
+        final_state = dict(kernel_result.state or {})
+        checkpoint = kernel_result.checkpoint
+        self._append_timeline_event(
+            final_state,
+            event_type="checkpoint_linked",
+            status="completed",
+            checkpoint_ref=checkpoint.checkpoint_id,
+            payload={"reason": "task_result_ready", "task_run_id": event.task_run_id},
+            idempotency_key=f"{coordination_run.coordination_run_id}:checkpoint:{checkpoint.checkpoint_id}",
+        )
+        final_state = self._attach_timeline_snapshot(final_state)
         events = self.trace_adapter.write_state(
             coordination_run=coordination_run,
             state=final_state,
@@ -324,13 +362,32 @@ class LangGraphCoordinationRuntime:
             "stage_id": pending_stage_id,
             **dict(resume_payload or {}),
         }
-        graph_result = self._app.invoke(state, config={"configurable": {"thread_id": coordination_run_id}})
-        final_state = dict(graph_result or state)
-        checkpoint = self.checkpoints.put_state(
-            thread_id=coordination_run_id,
-            state=final_state,
-            metadata={"event": "human_gate_resumed"},
+        self._append_timeline_event(
+            state,
+            event_type="human_gate_resumed",
+            status="resuming",
+            scope_type="stage",
+            scope_path=list(self._stage_scope(state=state, stage_id=pending_stage_id).get("scope_path") or ["run"]),
+            node_id=pending_stage_id,
+            payload={"stage_id": pending_stage_id, "resume_payload": dict(resume_payload or {})},
         )
+        kernel_result = self.kernel.invoke(
+            state=state,
+            thread_id=coordination_run_id,
+            reason="human_gate_resumed",
+            checkpoint_metadata={"event": "human_gate_resumed"},
+        )
+        final_state = dict(kernel_result.state or state)
+        checkpoint = kernel_result.checkpoint
+        self._append_timeline_event(
+            final_state,
+            event_type="checkpoint_linked",
+            status="completed",
+            checkpoint_ref=checkpoint.checkpoint_id,
+            payload={"reason": "human_gate_resumed"},
+            idempotency_key=f"{coordination_run_id}:checkpoint:{checkpoint.checkpoint_id}",
+        )
+        final_state = self._attach_timeline_snapshot(final_state)
         events = self.trace_adapter.write_state(
             coordination_run=coordination_run,
             state=final_state,
@@ -379,6 +436,92 @@ class LangGraphCoordinationRuntime:
         graph.add_edge("complete", END)
         return graph.compile()
 
+    def _append_timeline_event(
+        self,
+        state: dict[str, Any],
+        *,
+        event_type: str,
+        status: str = "recorded",
+        scope_type: str = "run",
+        scope_path: list[str] | tuple[str, ...] | None = None,
+        node_id: str = "",
+        edge_id: str = "",
+        phase_id: str = "",
+        loop_frame_id: str = "",
+        iteration_index: int = 0,
+        revision_cycle_id: str = "",
+        parallel_group_id: str = "",
+        dispatch_id: str = "",
+        request_id: str = "",
+        receipt_id: str = "",
+        payload_ref: str = "",
+        payload: dict[str, Any] | None = None,
+        checkpoint_ref: str = "",
+        causal_event_ids: list[str] | tuple[str, ...] = (),
+        idempotency_key: str = "",
+    ) -> TimelineEvent | None:
+        coordination_run_id = str(state.get("coordination_run_id") or "").strip()
+        if not coordination_run_id:
+            return None
+        graph_id = _graph_id_from_state(state)
+        event = self.timeline_ledger.append_event(
+            coordination_run_id=coordination_run_id,
+            root_task_run_id=str(state.get("root_task_run_id") or ""),
+            graph_id=graph_id,
+            event_type=event_type,
+            status=status,
+            scope_type=scope_type,
+            scope_path=scope_path or ("run",),
+            causal_event_ids=causal_event_ids,
+            node_id=node_id,
+            edge_id=edge_id,
+            phase_id=phase_id,
+            loop_frame_id=loop_frame_id,
+            iteration_index=iteration_index,
+            revision_cycle_id=revision_cycle_id,
+            parallel_group_id=parallel_group_id,
+            dispatch_id=dispatch_id,
+            request_id=request_id,
+            receipt_id=receipt_id,
+            payload_ref=payload_ref,
+            payload=payload or {},
+            checkpoint_ref=checkpoint_ref,
+            idempotency_key=idempotency_key,
+        )
+        state["timeline"] = self.timeline_ledger.snapshot(coordination_run_id, limit=80)
+        return event
+
+    def _attach_timeline_snapshot(self, state: dict[str, Any]) -> dict[str, Any]:
+        coordination_run_id = str(state.get("coordination_run_id") or "").strip()
+        if not coordination_run_id:
+            return state
+        updated = dict(state or {})
+        updated["timeline"] = self.timeline_ledger.snapshot(coordination_run_id, limit=80)
+        return updated
+
+    def _stage_scope(
+        self,
+        *,
+        state: dict[str, Any],
+        stage_id: str,
+        contract: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = dict(contract or dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {}))
+        phase_id = str(payload.get("phase_id") or _runtime_node_value(state, stage_id, "phase_id") or "phase.unassigned")
+        scope_path = ["run", phase_id]
+        retry_index = int(dict(state.get("retry_counts") or {}).get(stage_id) or 0)
+        if retry_index > 0:
+            scope_path.append(f"retry[{retry_index}]")
+        loop_index = _safe_int(dict(state.get("pending_inputs") or {}).get("iteration_index"), 0)
+        if loop_index > 0:
+            scope_path.append(f"iteration[{loop_index}]")
+        return {
+            "scope_type": "stage",
+            "scope_path": scope_path,
+            "phase_id": phase_id,
+            "iteration_index": loop_index,
+        }
+
     def _stage_accept(self, state: CoordinationRuntimeState) -> dict[str, Any]:
         event = dict(state.get("current_event") or {})
         if str(event.get("event_type") or "") == "human_gate_resumed":
@@ -402,6 +545,39 @@ class LangGraphCoordinationRuntime:
             if not output_key:
                 continue
             mapped_outputs[output_key] = artifact_refs if mapping.get("single") is False else (artifact_refs[0] if artifact_refs else "")
+        accepted = bool(event.get("accepted") is True) and _required_artifact_outputs_satisfied(
+            output_mappings,
+            artifact_refs,
+            requires_file_artifact_refs=requires_file_artifact_refs,
+        )
+        node_id = str(contract.get("node_id") or stage_id)
+        request_payload = dict(state.get("stage_execution_request") or {})
+        dispatch_context = dict(request_payload.get("dispatch_context") or {})
+        stage_scope = self._stage_scope(state=state, stage_id=stage_id, contract=contract)
+        result_event = self._append_timeline_event(
+            state,
+            event_type="node_result_received",
+            status="accepted" if accepted else "rejected",
+            scope_type=str(stage_scope.get("scope_type") or "stage"),
+            scope_path=list(stage_scope.get("scope_path") or ["run"]),
+            node_id=node_id,
+            phase_id=str(stage_scope.get("phase_id") or ""),
+            iteration_index=int(stage_scope.get("iteration_index") or 0),
+            request_id=str(request_payload.get("request_id") or ""),
+            payload={
+                "stage_id": stage_id,
+                "task_run_id": str(event.get("task_run_id") or ""),
+                "task_result_ref": str(event.get("task_result_ref") or ""),
+                "agent_run_result_ref": str(event.get("agent_run_result_ref") or ""),
+                "artifact_refs": artifact_refs,
+                "trace_refs": trace_refs,
+                "accepted": accepted,
+                "dispatch_event_id": str(dispatch_context.get("dispatch_event_id") or ""),
+            },
+            causal_event_ids=[str(dispatch_context.get("dispatch_event_id") or "")] if dispatch_context.get("dispatch_event_id") else (),
+            idempotency_key=f"{state.get('coordination_run_id')}:{stage_id}:result:{event.get('task_result_ref') or event.get('agent_run_result_ref') or event.get('task_run_id')}",
+        )
+        result_event_payload = result_event.to_dict() if result_event is not None else {}
         stage_results = dict(state.get("stage_results") or {})
         stage_results[stage_id] = {
             "task_run_id": str(event.get("task_run_id") or ""),
@@ -412,11 +588,7 @@ class LangGraphCoordinationRuntime:
             "trace_refs": trace_refs,
             "outputs": mapped_outputs,
             "diagnostics": dict(event.get("diagnostics") or {}),
-            "accepted": bool(event.get("accepted") is True) and _required_artifact_outputs_satisfied(
-                output_mappings,
-                artifact_refs,
-                requires_file_artifact_refs=requires_file_artifact_refs,
-            ),
+            "accepted": accepted,
         }
         working_memory_operations = list(state.get("working_memory_operations") or [])
         if bool(event.get("accepted") is True):
@@ -429,15 +601,26 @@ class LangGraphCoordinationRuntime:
             )
             if write_operation:
                 stage_results[stage_id]["working_memory_refs"] = list(write_operation.get("created_working_memory_refs") or [])
-                working_memory_operations.append(write_operation)
-                working_memory_operations.extend(
-                    self._resolve_stage_working_memory_handoffs(
-                        state=state,
-                        stage_id=stage_id,
-                        created_working_memory_refs=list(write_operation.get("created_working_memory_refs") or []),
-                        event=event,
+                working_memory_operations.append(
+                    _timeline_working_memory_operation(
+                        write_operation,
+                        existing_operations=working_memory_operations,
                     )
                 )
+                for operation in self._resolve_stage_working_memory_handoffs(
+                    state=state,
+                    stage_id=stage_id,
+                    created_working_memory_refs=list(write_operation.get("created_working_memory_refs") or []),
+                    event=event,
+                ):
+                    if not isinstance(operation, dict):
+                        continue
+                    working_memory_operations.append(
+                        _timeline_working_memory_operation(
+                            operation,
+                            existing_operations=working_memory_operations,
+                        )
+                    )
             commit_operation = self._commit_stage_working_memory_decisions(
                 state=state,
                 stage_id=stage_id,
@@ -445,18 +628,107 @@ class LangGraphCoordinationRuntime:
                 event=event,
             )
             if commit_operation:
-                working_memory_operations.append(commit_operation)
+                working_memory_operations.append(
+                    _timeline_working_memory_operation(
+                        commit_operation,
+                        existing_operations=working_memory_operations,
+                    )
+                )
         node_statuses = dict(state.get("node_statuses") or {})
-        accepted = bool(event.get("accepted") is True) and _required_artifact_outputs_satisfied(
-            output_mappings,
-            artifact_refs,
-            requires_file_artifact_refs=requires_file_artifact_refs,
+        created_memory_refs = _string_list(stage_results[stage_id].get("working_memory_refs"))
+        committed_memory_refs = [
+            ref
+            for operation in working_memory_operations
+            if isinstance(operation, dict) and str(operation.get("operation") or "") == "memory_commit"
+            for ref in _string_list(operation.get("accepted_working_memory_refs"))
+        ]
+        receipt = build_stage_execution_receipt(
+            request_payload=request_payload,
+            result_event=result_event_payload,
+            stage_id=stage_id,
+            node_id=node_id,
+            accepted=accepted,
+            artifact_refs=artifact_refs,
+            trace_refs=trace_refs,
+            memory_write_candidate_refs=created_memory_refs,
+            memory_commit_refs=committed_memory_refs,
+            validation_result={
+                "required_artifact_outputs_satisfied": accepted or not bool(event.get("accepted") is True),
+                "requires_file_artifact_refs": requires_file_artifact_refs,
+            },
+        )
+        stage_results[stage_id]["execution_receipt"] = receipt.to_dict()
+        execution_receipts = [dict(item) for item in list(state.get("execution_receipts") or []) if isinstance(item, dict)]
+        execution_receipts.append(receipt.to_dict())
+        self._append_timeline_event(
+            state,
+            event_type="node_execution_receipt_committed",
+            status=receipt.status,
+            scope_type=str(stage_scope.get("scope_type") or "stage"),
+            scope_path=list(stage_scope.get("scope_path") or ["run"]),
+            node_id=node_id,
+            phase_id=str(stage_scope.get("phase_id") or ""),
+            iteration_index=int(stage_scope.get("iteration_index") or 0),
+            request_id=str(request_payload.get("request_id") or ""),
+            receipt_id=receipt.receipt_id,
+            payload=receipt.to_dict(),
+            causal_event_ids=[str(result_event_payload.get("event_id") or "")] if result_event_payload.get("event_id") else (),
+            idempotency_key=f"{state.get('coordination_run_id')}:{stage_id}:receipt:{receipt.receipt_id}",
         )
         retry_counts = dict(state.get("retry_counts") or {})
         retry_stage_id = ""
         terminal_status = ""
+        revision_packets = [dict(item) for item in list(state.get("revision_packets") or []) if isinstance(item, dict)]
         if accepted:
             node_statuses[stage_id] = "completed"
+            node_statuses = _reset_failed_direct_downstream_after_success(
+                state=state,
+                node_statuses=node_statuses,
+                stage_id=stage_id,
+            )
+        elif _stage_quality_retry_target(contract=contract, stage_id=stage_id, event=event):
+            target_stage_id = _stage_quality_retry_target(contract=contract, stage_id=stage_id, event=event)
+            node_statuses[stage_id] = "pending"
+            retry_stage_id = target_stage_id
+            retry_counts[stage_id] = int(retry_counts.get(stage_id) or 0) + 1
+            state["pending_inputs"] = _pending_inputs_for_stage_quality_retry(
+                state=state,
+                stage_id=stage_id,
+                contract=contract,
+                event=event,
+            )
+        elif _review_revision_target(contract=contract, stage_id=stage_id):
+            target_stage_id = _review_revision_target(contract=contract, stage_id=stage_id)
+            node_statuses[stage_id] = "failed"
+            node_statuses[target_stage_id] = "pending"
+            retry_stage_id = target_stage_id
+            revision_packet = build_revision_packet_from_review(
+                state=state,
+                review_stage_id=stage_id,
+                target_stage_id=target_stage_id,
+                event=event,
+                accepted=accepted,
+            )
+            revision_packets.append(revision_packet)
+            self._append_timeline_event(
+                state,
+                event_type="revision_packet_created",
+                status="open",
+                scope_type=str(stage_scope.get("scope_type") or "stage"),
+                scope_path=list(stage_scope.get("scope_path") or ["run"]),
+                node_id=node_id,
+                phase_id=str(stage_scope.get("phase_id") or ""),
+                revision_cycle_id=str(revision_packet.get("revision_cycle_id") or ""),
+                payload=revision_packet,
+                causal_event_ids=[receipt.receipt_id],
+                idempotency_key=f"{state.get('coordination_run_id')}:{revision_packet.get('revision_packet_id')}",
+            )
+            state["pending_inputs"] = _pending_inputs_for_revision_retry(
+                state=state,
+                review_stage_id=stage_id,
+                target_stage_id=target_stage_id,
+                event=event,
+            )
         elif _retry_allowed(contract=contract, retry_counts=retry_counts, stage_id=stage_id):
             retry_counts[stage_id] = int(retry_counts.get(stage_id) or 0) + 1
             node_statuses[stage_id] = "pending"
@@ -517,9 +789,20 @@ class LangGraphCoordinationRuntime:
                 "created_at": time.time(),
             }
             diagnostics["human_gate"] = {key: value for key, value in human_gate.items() if key != "original_event"}
+            self._append_timeline_event(
+                state,
+                event_type="human_gate_opened",
+                status="waiting",
+                scope_type=str(stage_scope.get("scope_type") or "stage"),
+                scope_path=list(stage_scope.get("scope_path") or ["run"]),
+                node_id=node_id,
+                phase_id=str(stage_scope.get("phase_id") or ""),
+                payload={key: value for key, value in human_gate.items() if key != "original_event"},
+                causal_event_ids=[receipt.receipt_id],
+            )
         elif accepted or retry_stage_id or terminal_status == "failed":
             human_gate = {**human_gate, "status": "cleared"} if human_gate else {}
-        loop_updates = _chapter_loop_after_stage_accept(
+        loop_updates = _loop_after_stage_accept(
             state=state,
             stage_id=stage_id,
             accepted=accepted,
@@ -535,33 +818,70 @@ class LangGraphCoordinationRuntime:
             "human_gate": human_gate,
             "artifact_refs": artifact_payloads,
             "working_memory_operations": working_memory_operations,
+            "revision_packets": revision_packets,
+            "execution_receipts": execution_receipts,
             "final_result_ref": str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
             "stage_execution_request": {},
             "a2a_payload": {},
             "terminal_status": str(loop_updates.get("terminal_status") if "terminal_status" in loop_updates else terminal_status),
             "pending_inputs": dict(loop_updates.get("pending_inputs") or state.get("pending_inputs") or {}),
+            "timeline": self.timeline_ledger.snapshot(str(state.get("coordination_run_id") or ""), limit=80),
             "diagnostics": {**diagnostics, **dict(loop_updates.get("diagnostics") or {})},
         }
 
-    @staticmethod
-    def _route_next(state: CoordinationRuntimeState) -> dict[str, Any]:
+    def _record_scheduler_evaluation(
+        self,
+        *,
+        state: dict[str, Any],
+        scheduler_update: dict[str, Any],
+        node_statuses: dict[str, str],
+    ) -> dict[str, Any]:
+        payload = {
+            "ready_node_ids": list(scheduler_update.get("ready_nodes") or []),
+            "blocked_node_ids": list(scheduler_update.get("blocked_nodes") or []),
+            "running_node_ids": list(scheduler_update.get("running_nodes") or []),
+            "completed_node_ids": list(scheduler_update.get("completed_nodes") or []),
+            "failed_node_ids": list(scheduler_update.get("failed_nodes") or []),
+            "terminal_status": str(scheduler_update.get("terminal_status") or ""),
+            "node_statuses": dict(node_statuses or {}),
+        }
+        event = self._append_timeline_event(
+            state,
+            event_type="scheduler_evaluated",
+            status="completed",
+            payload=payload,
+            idempotency_key="",
+        )
+        diagnostics = {
+            **dict(scheduler_update.get("diagnostics") or {}),
+            "latest_scheduler_event_id": str(event.event_id if event is not None else ""),
+        }
+        return {
+            **scheduler_update,
+            "timeline": self.timeline_ledger.snapshot(str(state.get("coordination_run_id") or ""), limit=80),
+            "diagnostics": diagnostics,
+        }
+
+    def _route_next(self, state: CoordinationRuntimeState) -> dict[str, Any]:
         order = [str(item) for item in list(state.get("stage_order") or []) if str(item)]
         if not order:
             return {"terminal_status": "blocked", "missing_required_inputs": ["stage_order"]}
         if str(state.get("terminal_status") or "") == "waiting_for_human":
-            return _scheduler_node_sets(
+            update = _scheduler_node_sets(
                 order=order,
                 node_statuses=dict(state.get("node_statuses") or {}),
                 state=state,
                 terminal_status="waiting_for_human",
             )
+            return self._record_scheduler_evaluation(state=state, scheduler_update=update, node_statuses=dict(state.get("node_statuses") or {}))
         if str(state.get("terminal_status") or "") == "failed":
-            return _scheduler_node_sets(
+            update = _scheduler_node_sets(
                 order=order,
                 node_statuses=dict(state.get("node_statuses") or {}),
                 state=state,
                 terminal_status="failed",
             )
+            return self._record_scheduler_evaluation(state=state, scheduler_update=update, node_statuses=dict(state.get("node_statuses") or {}))
         node_statuses = dict(state.get("node_statuses") or {})
         retry_stage_id = str(dict(state.get("diagnostics") or {}).get("retry_stage_id") or "").strip()
         if retry_stage_id and retry_stage_id in order and node_statuses.get(retry_stage_id) not in {"completed", "failed"}:
@@ -575,7 +895,7 @@ class LangGraphCoordinationRuntime:
             )
             diagnostics = dict(state.get("diagnostics") or {})
             diagnostics.pop("retry_stage_id", None)
-            return {
+            result = {
                 **next_sets,
                 "active_stage_id": retry_stage_id,
                 "active_node_id": str(contract.get("node_id") or retry_stage_id),
@@ -585,6 +905,7 @@ class LangGraphCoordinationRuntime:
                 "missing_required_inputs": [],
                 "diagnostics": {**dict(next_sets.get("diagnostics") or {}), **diagnostics},
             }
+            return self._record_scheduler_evaluation(state=state, scheduler_update=result, node_statuses=node_statuses)
         sets = _scheduler_node_sets(
             order=order,
             node_statuses=node_statuses,
@@ -592,16 +913,17 @@ class LangGraphCoordinationRuntime:
         )
         ready = list(sets.get("ready_nodes") or [])
         if not ready and sets.get("terminal_status"):
-            return sets
+            return self._record_scheduler_evaluation(state=state, scheduler_update=sets, node_statuses=node_statuses)
         if not ready:
             blocked_nodes = [node for node in order if node_statuses.get(node) not in {"completed", "failed"}]
-            return {
+            result = {
                 **sets,
                 "terminal_status": "blocked",
                 "blocked_nodes": blocked_nodes,
                 "missing_required_inputs": [f"upstream:{node}" for node in blocked_nodes],
             }
-        preferred_stage = str(dict(dict(state.get("diagnostics") or {}).get("chapter_loop") or {}).get("preferred_next_stage_id") or "").strip()
+            return self._record_scheduler_evaluation(state=state, scheduler_update=result, node_statuses=node_statuses)
+        preferred_stage = str(dict(dict(state.get("diagnostics") or {}).get("runtime_loop") or {}).get("preferred_next_stage_id") or "").strip()
         if preferred_stage and preferred_stage in ready:
             ready = [preferred_stage, *[item for item in ready if item != preferred_stage]]
         next_stage = ready[0]
@@ -613,7 +935,7 @@ class LangGraphCoordinationRuntime:
             node_statuses=node_statuses,
             state=state,
         )
-        return {
+        result = {
             **next_sets,
             "active_stage_id": next_stage,
             "active_node_id": str(contract.get("node_id") or next_stage),
@@ -622,6 +944,7 @@ class LangGraphCoordinationRuntime:
             "terminal_status": "",
             "missing_required_inputs": [],
         }
+        return self._record_scheduler_evaluation(state=state, scheduler_update=result, node_statuses=node_statuses)
 
     def _stage_prepare(self, state: CoordinationRuntimeState) -> dict[str, Any]:
         stage_id = str(state.get("active_stage_id") or "").strip()
@@ -709,10 +1032,45 @@ class LangGraphCoordinationRuntime:
             agent_id=str(contract.get("agent_id") or ""),
         )
         if read_operation:
-            working_memory_operations.append(read_operation)
+            working_memory_operations.append(
+                _timeline_working_memory_operation(
+                    read_operation,
+                    existing_operations=working_memory_operations,
+                )
+            )
         working_memory_contexts = {
             **dict(state.get("working_memory_contexts") or {}),
             **({stage_id: working_memory_context} if working_memory_context else {}),
+        }
+        stage_scope = self._stage_scope(state=state, stage_id=stage_id, contract=contract)
+        dispatch_event = self._append_timeline_event(
+            state,
+            event_type="node_dispatch_requested",
+            status="requested",
+            scope_type=str(stage_scope.get("scope_type") or "stage"),
+            scope_path=list(stage_scope.get("scope_path") or ["run"]),
+            node_id=node_id,
+            phase_id=str(stage_scope.get("phase_id") or ""),
+            iteration_index=int(stage_scope.get("iteration_index") or 0),
+            payload={
+                "stage_id": stage_id,
+                "node_id": node_id,
+                "task_ref": str(contract.get("task_ref") or state.get("active_task_ref") or ""),
+                "explicit_input_keys": sorted(str(key) for key in explicit_inputs.keys()),
+            },
+            idempotency_key="",
+        )
+        dispatch_context = {
+            "dispatch_event_id": str(dispatch_event.event_id if dispatch_event is not None else ""),
+            "clock_seq": int(dispatch_event.clock_seq if dispatch_event is not None else 0),
+            "scope_path": list(stage_scope.get("scope_path") or ["run"]),
+            "scope_type": str(stage_scope.get("scope_type") or "stage"),
+            "phase_id": str(stage_scope.get("phase_id") or ""),
+            "node_id": node_id,
+            "stage_id": stage_id,
+            "thread_id": str(state.get("coordination_run_id") or ""),
+            "coordination_run_id": str(state.get("coordination_run_id") or ""),
+            "root_task_run_id": str(state.get("root_task_run_id") or ""),
         }
         runtime_assembly_payload: dict[str, Any] = {}
         handoff_packets: list[dict[str, Any]] = []
@@ -729,6 +1087,55 @@ class LangGraphCoordinationRuntime:
                 handoff_packets = [dict(item) for item in runtime_assembly_payload.get("handoff_packets") or []]
             except ValueError:
                 runtime_assembly_payload = {}
+        context_packets = resolve_context_packets(
+            state=state,
+            stage_id=stage_id,
+            node_id=node_id,
+            explicit_inputs=explicit_inputs,
+            working_memory_context=working_memory_context,
+            dispatch_context=dispatch_context,
+        )
+        memory_snapshot = dict(context_packets.get("memory_snapshot") or {})
+        artifact_context_packet = dict(context_packets.get("artifact_context_packet") or {})
+        revision_packet = dict(context_packets.get("revision_packet") or {})
+        resolved_handoff_packets = [dict(item) for item in list(context_packets.get("handoff_packets") or []) if isinstance(item, dict)]
+        if runtime_assembly_payload:
+            metadata = dict(runtime_assembly_payload.get("metadata") or {})
+            metadata["dispatch_context"] = dict(dispatch_context)
+            metadata["context_packet_summary"] = dict(context_packets.get("context_packet_summary") or {})
+            runtime_assembly_payload["metadata"] = metadata
+        if dispatch_event is not None:
+            self._append_timeline_event(
+                state,
+                event_type="memory_snapshot_resolved",
+                status="completed",
+                scope_type=str(stage_scope.get("scope_type") or "stage"),
+                scope_path=list(stage_scope.get("scope_path") or ["run"]),
+                node_id=node_id,
+                phase_id=str(stage_scope.get("phase_id") or ""),
+                payload=memory_snapshot,
+                causal_event_ids=[dispatch_event.event_id],
+                idempotency_key=f"{state.get('coordination_run_id')}:{stage_id}:memory_snapshot:{dispatch_event.event_id}",
+            )
+            self._append_timeline_event(
+                state,
+                event_type="stage_execution_request_created",
+                status="creating",
+                scope_type=str(stage_scope.get("scope_type") or "stage"),
+                scope_path=list(stage_scope.get("scope_path") or ["run"]),
+                node_id=node_id,
+                phase_id=str(stage_scope.get("phase_id") or ""),
+                payload={
+                    "stage_id": stage_id,
+                    "node_id": node_id,
+                    "dispatch_event_id": dispatch_event.event_id,
+                    "artifact_packet_id": str(artifact_context_packet.get("packet_id") or ""),
+                    "memory_snapshot_id": str(memory_snapshot.get("snapshot_id") or ""),
+                    "revision_packet_id": str(revision_packet.get("revision_packet_id") or ""),
+                },
+                causal_event_ids=[dispatch_event.event_id],
+                idempotency_key="",
+            )
         a2a_payload = build_stage_execution_a2a_payload(
             coordination_run_id=str(state.get("coordination_run_id") or ""),
             root_task_run_id=str(state.get("root_task_run_id") or ""),
@@ -743,6 +1150,10 @@ class LangGraphCoordinationRuntime:
             explicit_inputs=explicit_inputs,
             payload_contracts=payload_contracts,
             handoff_packets=handoff_packets,
+            dispatch_context=dispatch_context,
+            memory_snapshot=memory_snapshot,
+            artifact_context_packet=artifact_context_packet,
+            revision_packet=revision_packet,
             runtime_assembly_ref=str(runtime_assembly_payload.get("assembly_id") or ""),
             contract_manifest_ref=str((state.get("contract_manifest") or {}).get("manifest_id") or ""),
             ack_policy=str(a2a_runtime.get("ack_policy") or "explicit_ack"),
@@ -770,10 +1181,21 @@ class LangGraphCoordinationRuntime:
             ),
             artifact_root=str(explicit_inputs.get("artifact_root") or ""),
             artifact_policy=dict(contract.get("artifact_policy") or {}),
+            stream_policy=dict(contract.get("stream_policy") or {}),
             artifact_targets=tuple(dict(item) for item in list(contract.get("artifact_targets") or []) if isinstance(item, dict)),
             output_contract_id=str(contract.get("output_contract_id") or ""),
             expected_outputs=tuple(dict(item) for item in list(contract.get("output_mappings") or []) if isinstance(item, dict)),
             working_memory_refs=tuple(_working_memory_refs_from_context(working_memory_context)),
+            dispatch_context=dispatch_context,
+            memory_snapshot=memory_snapshot,
+            artifact_context_packet=artifact_context_packet,
+            revision_packet=revision_packet,
+            handoff_packet_refs=tuple(str(item) for item in list(context_packets.get("handoff_packet_refs") or []) if str(item)),
+            execution_receipt_policy={
+                "required": True,
+                "commit_visibility": "accepted_outputs_only",
+                "authority": "task_graph.stage_execution_receipt_policy",
+            },
         )
         next_handoff_packets = list(state.get("handoff_packets") or [])
         next_handoff_packets.extend(handoff_packets)
@@ -783,6 +1205,7 @@ class LangGraphCoordinationRuntime:
             "handoff_packets": next_handoff_packets,
             "working_memory_contexts": working_memory_contexts,
             "working_memory_operations": working_memory_operations,
+            "timeline": self.timeline_ledger.snapshot(str(state.get("coordination_run_id") or ""), limit=80),
             "terminal_status": "",
         }
 
@@ -830,6 +1253,7 @@ class LangGraphCoordinationRuntime:
             owner_node_id=node_id,
             node_run_id=node_run_id,
             run_attempt_id=str(dict(state.get("retry_counts") or {}).get(stage_id) or 0),
+            read_policy=read_policy,
         )
 
     def _submit_stage_working_memory_candidates(
@@ -1021,13 +1445,16 @@ class LangGraphCoordinationRuntime:
                 policy={"promotion_strategy": "archive_only"},
             )
             operations.append(
-                {
+                _timeline_working_memory_operation(
+                    {
                     "operation": "memory_finalize",
                     "task_run_id": task_run_id,
                     "finalization_ref": result.archive_report_path,
                     "status": "completed",
                     "authority": "orchestration.working_memory_resource_node",
-                }
+                    },
+                    existing_operations=operations,
+                )
             )
         return {"terminal_status": "completed", "stage_execution_request": {}, "a2a_payload": {}, "working_memory_operations": operations}
 
@@ -1105,7 +1532,7 @@ class LangGraphCoordinationRuntime:
         if current_stage and current_stage not in order:
             current_stage = order[0] if order else ""
         coordination_metadata = dict(getattr(coordination_task, "metadata", {}) or {})
-        chapter_loop_state = _initial_chapter_loop_state(metadata=coordination_metadata)
+        loop_state = _initial_loop_state(metadata=coordination_metadata)
         contract_map = {contract.stage_id: _contract_payload(contract, topology_nodes=topology_nodes) for contract in contracts}
         for node in topology_nodes:
             node_id = str(node.get("node_id") or "").strip()
@@ -1178,7 +1605,10 @@ class LangGraphCoordinationRuntime:
             "artifact_refs": [],
             "working_memory_contexts": {},
             "working_memory_operations": [],
-            "pending_inputs": dict(chapter_loop_state),
+            "revision_packets": [],
+            "execution_receipts": [],
+            "timeline": self.timeline_ledger.snapshot(coordination_run.coordination_run_id, limit=80),
+            "pending_inputs": dict(loop_state),
             "missing_required_inputs": [],
             "retry_counts": {},
             "human_gate": {},
@@ -1211,8 +1641,8 @@ class LangGraphCoordinationRuntime:
                 "continuation_policy": CoordinationContinuationPolicy.from_metadata(
                     coordination_metadata
                 ).to_dict(),
-                "chapter_loop_policy": dict(coordination_metadata.get("chapter_loop_policy") or {}),
-                "chapter_loop": dict(chapter_loop_state),
+                "runtime_loop_policy": dict(coordination_metadata.get("runtime_loop_policy") or {}),
+                "runtime_loop": dict(loop_state),
             },
         }
 
@@ -1268,8 +1698,12 @@ def _contract_payload(contract: CoordinationStageContract, *, topology_nodes: li
         "dynamic_memory_read_policy",
         "review_gate_policy",
         "human_gate_policy",
+        "artifact_context_policy",
+        "revision_context_policy",
+        "quality_retry_policy",
+        "progress_commit_policy",
         "loop_kind",
-        "chapter_scoped",
+        "loop_scope_id",
         "title_template",
         "loop_route_policy",
     ):
@@ -1308,6 +1742,29 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value] if value else []
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(item) for item in value if str(item)]
+
+
+def _graph_id_from_state(state: dict[str, Any]) -> str:
+    diagnostics = dict(state.get("diagnostics") or {})
+    graph_spec = dict(diagnostics.get("coordination_graph_spec") or {})
+    return str(graph_spec.get("graph_ref") or graph_spec.get("graph_id") or diagnostics.get("graph_ref") or "")
+
+
+def _runtime_node_value(state: dict[str, Any], node_id: str, key: str) -> Any:
+    graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+    for item in list(graph_spec.get("nodes") or []):
+        node = dict(item or {})
+        if str(node.get("node_id") or "") == str(node_id or ""):
+            return node.get(key)
+    return None
+
+
 def _working_memory_root_for_runtime(root_dir: Any) -> Path:
     runtime_root = Path(root_dir).resolve()
     if runtime_root.name == "runtime_state":
@@ -1328,7 +1785,9 @@ def _working_memory_context_from_selection(
     owner_node_id: str,
     node_run_id: str,
     run_attempt_id: str,
+    read_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    policy = dict(read_policy or {})
     required_items = [item for item in list(selection.get("required_items") or []) if hasattr(item, "to_dict")]
     preferred_items = [item for item in list(selection.get("preferred_items") or []) if hasattr(item, "to_dict")]
     excluded_items = [item for item in list(selection.get("excluded_items") or []) if hasattr(item, "to_dict")]
@@ -1378,6 +1837,21 @@ def _working_memory_context_from_selection(
         },
         "diagnostics": {
             **dict(selection.get("diagnostics") or {}),
+            "requested_topics": [
+                str(item).strip()
+                for item in list(policy.get("topics") or [])
+                if str(item).strip()
+            ],
+            "required_topics": [
+                str(item).strip()
+                for item in list(policy.get("required_topics") or [])
+                if str(item).strip()
+            ],
+            "forbidden_topics": [
+                str(item).strip()
+                for item in list(policy.get("forbidden_topics") or [])
+                if str(item).strip()
+            ],
             "excluded_refs": [
                 str(getattr(item, "work_memory_id", "") or "")
                 for item in excluded_items
@@ -1440,6 +1914,19 @@ def _working_memory_refs_from_context(context: dict[str, Any]) -> list[str]:
             if str(ref).strip() and str(ref).strip() not in refs:
                 refs.append(str(ref).strip())
     return refs
+
+
+def _timeline_working_memory_operation(
+    operation: dict[str, Any],
+    *,
+    existing_operations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    payload = dict(operation or {})
+    sequence_index = len([item for item in list(existing_operations or []) if isinstance(item, dict)]) + 1
+    payload.setdefault("created_at", time.time())
+    payload.setdefault("sequence_index", sequence_index)
+    payload.setdefault("timeline_kind", "working_memory_operation")
+    return payload
 
 
 def _contract_requires_file_artifact_refs(contract: dict[str, Any]) -> bool:
@@ -1538,22 +2025,19 @@ def _merge_runtime_nodes(*, compiled_nodes: list[dict[str, Any]], configured_nod
     return merged
 
 
-def _initial_chapter_loop_state(*, metadata: dict[str, Any]) -> dict[str, Any]:
-    policy = dict(metadata.get("chapter_loop_policy") or {})
+def _initial_loop_state(*, metadata: dict[str, Any]) -> dict[str, Any]:
+    policy = dict(metadata.get("runtime_loop_policy") or {})
     if not policy.get("enabled"):
         return {}
-    first_index = _safe_int(policy.get("first_chapter_index"), 1)
-    target_words = _safe_int(policy.get("default_target_words"), 1000000)
-    chapter_target_words = _safe_int(policy.get("default_chapter_target_words"), 5000)
-    return _chapter_loop_inputs(
-        chapter_index=first_index,
-        target_words=target_words,
-        current_words=0,
-        chapter_target_words=chapter_target_words,
-    )
+    pending_inputs = dict(policy.get("initial_inputs") or {})
+    pending_inputs = _apply_loop_derived_fields(pending_inputs, list(policy.get("derived_fields") or []))
+    summary = str(policy.get("summary") or "").strip()
+    if summary:
+        pending_inputs.setdefault("runtime_loop_summary", _render_runtime_template(summary, pending_inputs))
+    return pending_inputs
 
 
-def _chapter_loop_after_stage_accept(
+def _loop_after_stage_accept(
     *,
     state: CoordinationRuntimeState,
     stage_id: str,
@@ -1562,113 +2046,356 @@ def _chapter_loop_after_stage_accept(
     event: dict[str, Any],
 ) -> dict[str, Any]:
     route_policy = dict(contract.get("loop_route_policy") or {})
-    if not accepted:
+    if not accepted or not route_policy:
+        return {}
+    mode = str(route_policy.get("mode") or "").strip()
+    if mode not in {"metric_target", "next_scope_or_final"}:
         return {}
     pending_inputs = dict(state.get("pending_inputs") or {})
-    stage_chapter_words = _safe_int(dict(event.get("diagnostics") or {}).get("chapter_words"), 0)
-    if contract.get("chapter_scoped") is True and stage_chapter_words > 0:
-        pending_inputs["last_chapter_words"] = stage_chapter_words
-    if str(route_policy.get("mode") or "") != "chapter_word_target":
-        if pending_inputs != dict(state.get("pending_inputs") or {}):
-            return {
-                "pending_inputs": pending_inputs,
-                "diagnostics": {
-                    "chapter_loop": {
-                        **dict(dict(state.get("diagnostics") or {}).get("chapter_loop") or {}),
-                        "last_chapter_words": stage_chapter_words,
-                    }
-                },
-            }
-        return {}
-    chapter_index = _safe_int(pending_inputs.get("chapter_index"), 1)
-    current_words = _safe_int(pending_inputs.get("current_words"), 0)
-    target_words = _safe_int(pending_inputs.get("target_words"), 1000000)
-    chapter_words = _safe_int(
-        dict(event.get("diagnostics") or {}).get("chapter_words")
-        or pending_inputs.get("last_chapter_words"),
+    node_statuses = dict(state.get("node_statuses") or {})
+    diagnostics = dict(event.get("diagnostics") or {})
+    metric_key = str(route_policy.get("metric_key") or "runtime_metric").strip()
+    current_key = str(route_policy.get("current_key") or "runtime_current").strip()
+    target_key = str(route_policy.get("target_key") or "runtime_target").strip()
+    increment = _safe_int(
+        diagnostics.get(metric_key)
+        or diagnostics.get(str(route_policy.get("diagnostic_metric_key") or ""))
+        or pending_inputs.get(str(route_policy.get("fallback_increment_key") or ""))
+        or route_policy.get("default_increment"),
         0,
     )
-    if chapter_words <= 0:
-        chapter_words = _safe_int(pending_inputs.get("chapter_target_words"), 5000)
-    current_words += chapter_words
-    continue_stage_id = str(route_policy.get("continue_stage_id") or "chapter_plan")
-    exit_stage_id = str(route_policy.get("exit_stage_id") or "final_assembly")
-    node_statuses = dict(state.get("node_statuses") or {})
-    if current_words < target_words:
-        next_chapter_index = chapter_index + 1 if route_policy.get("increment_chapter_on_continue") is not False else chapter_index
-        pending_inputs.update(
-            _chapter_loop_inputs(
-                chapter_index=next_chapter_index,
-                target_words=target_words,
-                current_words=current_words,
-                chapter_target_words=_safe_int(pending_inputs.get("chapter_target_words"), 5000),
-            )
-        )
-        for loop_stage_id, status in list(node_statuses.items()):
-            loop_contract = dict(dict(state.get("stage_contracts") or {}).get(loop_stage_id) or {})
-            if loop_contract.get("chapter_scoped") is True:
-                node_statuses[loop_stage_id] = "pending"
+    if increment:
+        pending_inputs[str(route_policy.get("last_metric_key") or f"last_{metric_key}")] = increment
+    current_value = _safe_int(pending_inputs.get(current_key), 0) + max(increment, 0)
+    pending_inputs[current_key] = current_value
+    for secondary in [dict(item) for item in list(route_policy.get("secondary_counters") or []) if isinstance(item, dict)]:
+        key = str(secondary.get("current_key") or "").strip()
+        if key:
+            pending_inputs[key] = _safe_int(pending_inputs.get(key), 0) + max(increment, 0)
+    pending_inputs = _advance_loop_counters(pending_inputs, route_policy)
+    pending_inputs = _apply_loop_derived_fields(pending_inputs, list(route_policy.get("derived_fields") or []))
+    continue_stage_id = str(route_policy.get("continue_stage_id") or "").strip()
+    exit_stage_id = str(route_policy.get("exit_stage_id") or "").strip()
+    target_value = _safe_int(pending_inputs.get(target_key), 0)
+    continue_allowed = bool(continue_stage_id) and (target_value <= 0 or current_value < target_value)
+    for secondary in [dict(item) for item in list(route_policy.get("secondary_counters") or []) if isinstance(item, dict)]:
+        current = _safe_int(pending_inputs.get(str(secondary.get("current_key") or "")), 0)
+        target = _safe_int(pending_inputs.get(str(secondary.get("target_key") or "")), 0)
+        if target > 0:
+            continue_allowed = continue_allowed and current < target
+    loop_stage_ids = _loop_chain_stage_ids(
+        state=state,
+        current_stage_id=stage_id,
+        continue_stage_id=continue_stage_id,
+        exit_stage_id=exit_stage_id,
+        loop_scope_id=str(route_policy.get("loop_scope_id") or contract.get("loop_scope_id") or ""),
+    )
+    if continue_allowed:
+        for loop_stage_id in loop_stage_ids:
+            node_statuses[loop_stage_id] = "pending"
         node_statuses[stage_id] = "completed"
-        node_statuses[continue_stage_id] = "pending"
-        node_statuses[exit_stage_id] = "pending"
+        if exit_stage_id:
+            node_statuses[exit_stage_id] = "pending"
         return {
             "node_statuses": node_statuses,
             "pending_inputs": pending_inputs,
             "terminal_status": "",
             "diagnostics": {
-                "chapter_loop": {
+                "runtime_loop": {
                     "status": "continue",
                     "preferred_next_stage_id": continue_stage_id,
-                    "completed_chapter_index": chapter_index,
-                    "next_chapter_index": next_chapter_index,
-                    "current_words": current_words,
-                    "target_words": target_words,
-                    "chapter_words": chapter_words,
+                    "loop_scope_id": str(route_policy.get("loop_scope_id") or contract.get("loop_scope_id") or ""),
+                    "metric_key": metric_key,
+                    "metric_increment": increment,
+                    "current_key": current_key,
+                    "current_value": current_value,
+                    "target_key": target_key,
+                    "target_value": target_value,
                 }
             },
         }
-    pending_inputs.update(
-        _chapter_loop_inputs(
-            chapter_index=chapter_index,
-            target_words=target_words,
-            current_words=current_words,
-            chapter_target_words=_safe_int(pending_inputs.get("chapter_target_words"), 5000),
-        )
-    )
-    node_statuses[exit_stage_id] = "pending"
+    if exit_stage_id:
+        node_statuses[exit_stage_id] = "pending"
     return {
         "node_statuses": node_statuses,
         "pending_inputs": pending_inputs,
         "terminal_status": "",
         "diagnostics": {
-                "chapter_loop": {
-                    "status": "exit",
-                    "preferred_next_stage_id": exit_stage_id,
-                    "completed_chapter_index": chapter_index,
-                "current_words": current_words,
-                "target_words": target_words,
-                "chapter_words": chapter_words,
+            "runtime_loop": {
+                "status": "exit",
+                "preferred_next_stage_id": exit_stage_id,
+                "loop_scope_id": str(route_policy.get("loop_scope_id") or contract.get("loop_scope_id") or ""),
+                "metric_key": metric_key,
+                "metric_increment": increment,
+                "current_key": current_key,
+                "current_value": current_value,
+                "target_key": target_key,
+                "target_value": target_value,
             }
         },
     }
 
 
-def _chapter_loop_inputs(
+def _review_revision_target(*, contract: dict[str, Any], stage_id: str) -> str:
+    node_type = str(contract.get("node_type") or "").strip()
+    gate_policy = str(contract.get("gate_policy") or "").strip()
+    review_policy = dict(contract.get("review_gate_policy") or {})
+    if node_type != "review_gate" and gate_policy != "review_gate" and not review_policy:
+        return ""
+    explicit = str(review_policy.get("revision_stage_id") or review_policy.get("on_revise") or "").strip()
+    return explicit
+
+
+def _stage_quality_retry_target(*, contract: dict[str, Any], stage_id: str, event: dict[str, Any]) -> str:
+    policy = dict(contract.get("quality_retry_policy") or {})
+    if policy.get("enabled") is not True:
+        return ""
+    diagnostics = dict(event.get("diagnostics") or {})
+    acceptance = dict(diagnostics.get("stage_business_acceptance") or {})
+    accepted_policies = {str(item) for item in list(policy.get("acceptance_policies") or []) if str(item)}
+    if accepted_policies and str(acceptance.get("policy") or "") not in accepted_policies:
+        return ""
+    issues = [str(item) for item in list(acceptance.get("issues") or []) if str(item)]
+    recoverable_prefixes = tuple(str(item) for item in list(policy.get("recoverable_issue_prefixes") or []) if str(item))
+    if not recoverable_prefixes or any(issue == prefix or issue.startswith(prefix) for issue in issues for prefix in recoverable_prefixes):
+        return str(policy.get("retry_stage_id") or stage_id or "").strip()
+    return ""
+
+
+def _pending_inputs_for_stage_quality_retry(
     *,
-    chapter_index: int,
-    target_words: int,
-    current_words: int,
-    chapter_target_words: int,
+    state: CoordinationRuntimeState,
+    stage_id: str,
+    contract: dict[str, Any],
+    event: dict[str, Any],
 ) -> dict[str, Any]:
-    return {
-        "chapter_index": chapter_index,
-        "chapter_index_padded": f"{chapter_index:03d}",
-        "chapter_label": f"第{chapter_index}章",
-        "chapter_file_prefix": f"chapter_{chapter_index:03d}",
-        "target_words": target_words,
-        "current_words": current_words,
-        "chapter_target_words": chapter_target_words,
+    pending_inputs = dict(state.get("pending_inputs") or {})
+    policy = dict(contract.get("quality_retry_policy") or {})
+    next_round = _safe_int(pending_inputs.get("round_index"), 1) + 1
+    pending_inputs.update(
+        {
+            "round_index": next_round,
+            "revision_required": True,
+            "force_replay": True,
+            "force_replay_after": time.time(),
+            "previous_quality_failure_stage_id": stage_id,
+        }
+    )
+    current_output_key = str(policy.get("carry_current_output_as") or "").strip()
+    if current_output_key:
+        pending_inputs[current_output_key] = _first_artifact_ref(event)
+    requirements_key = str(policy.get("requirements_input_key") or "").strip()
+    template = str(policy.get("requirements_template") or "").strip()
+    if requirements_key and template:
+        pending_inputs[requirements_key] = _render_runtime_template(
+            template,
+            {
+                **pending_inputs,
+                **dict(event.get("diagnostics") or {}),
+                **dict(dict(event.get("diagnostics") or {}).get("stage_business_acceptance") or {}),
+                "quality_issues": "; ".join(
+                    str(item)
+                    for item in list(dict(dict(event.get("diagnostics") or {}).get("stage_business_acceptance") or {}).get("issues") or [])
+                    if str(item)
+                ),
+            },
+        )
+    for key in list(policy.get("clear_input_keys") or []):
+        if str(key).strip():
+            pending_inputs.pop(str(key).strip(), None)
+    return pending_inputs
+
+
+def _pending_inputs_for_revision_retry(
+    *,
+    state: CoordinationRuntimeState,
+    review_stage_id: str,
+    target_stage_id: str,
+    event: dict[str, Any],
+) -> dict[str, Any]:
+    pending_inputs = dict(state.get("pending_inputs") or {})
+    contract = dict(dict(state.get("stage_contracts") or {}).get(review_stage_id) or {})
+    policy = dict(contract.get("revision_context_policy") or {})
+    next_round = _safe_int(pending_inputs.get("round_index"), 1) + 1
+    pending_inputs.update(
+        {
+            "round_index": next_round,
+            "revision_required": True,
+            "force_replay": True,
+            "force_replay_after": time.time(),
+            "previous_review_stage_id": review_stage_id,
+            "previous_review_ref": _first_artifact_ref(event),
+        }
+    )
+    context_refs: list[dict[str, str]] = []
+    for item in list(policy.get("carry") or []):
+        if not isinstance(item, dict):
+            continue
+        input_key = str(item.get("input_key") or "").strip()
+        if not input_key:
+            continue
+        value = _resolve_revision_context_value(item, pending_inputs=pending_inputs, event=event)
+        if value in ("", None, [], {}):
+            continue
+        pending_inputs[input_key] = value
+        context_refs.append({"input_key": input_key, "ref": str(value)})
+    if context_refs:
+        pending_inputs["previous_revision_context_refs"] = context_refs
+    requirements_key = str(policy.get("requirements_input_key") or "revision_requirements").strip()
+    if requirements_key and requirements_key not in pending_inputs:
+        pending_inputs[requirements_key] = str(policy.get("default_requirements") or "上一轮审核未通过；请按审核意见重做本节点产物。")
+    for key in list(policy.get("clear_input_keys") or []):
+        if str(key).strip():
+            pending_inputs.pop(str(key).strip(), None)
+    return pending_inputs
+
+
+def _resolve_revision_context_value(item: dict[str, Any], *, pending_inputs: dict[str, Any], event: dict[str, Any]) -> Any:
+    source = str(item.get("source") or "").strip()
+    if source == "current_review":
+        return _first_artifact_ref(event)
+    if source == "current_output":
+        return _first_artifact_ref(event)
+    if source == "inherited_input":
+        return pending_inputs.get(str(item.get("from_key") or item.get("input_key") or "").strip())
+    if source == "literal":
+        return item.get("value")
+    if source == "collect":
+        values: list[Any] = []
+        for child in list(item.get("items") or []):
+            if not isinstance(child, dict):
+                continue
+            value = _resolve_revision_context_value(child, pending_inputs=pending_inputs, event=event)
+            if isinstance(value, list):
+                values.extend(value)
+            elif value not in ("", None, [], {}):
+                values.append(value)
+        return values
+    return None
+
+
+def _first_artifact_ref(event: dict[str, Any]) -> str:
+    for item in list(event.get("artifact_refs") or []):
+        ref = str(item or "").strip()
+        if ref.startswith("artifact:"):
+            return ref
+    return ""
+
+
+def _reset_failed_direct_downstream_after_success(
+    *,
+    state: CoordinationRuntimeState,
+    node_statuses: dict[str, str],
+    stage_id: str,
+) -> dict[str, str]:
+    runtime_spec = _runtime_spec_from_state(state)
+    if runtime_spec is None:
+        return node_statuses
+    conditional_modes = {
+        "repair_route",
+        "revision_request",
+        "fail_closed",
+        "human_handoff",
+        "manual_gate",
     }
+    reset_statuses = dict(node_statuses)
+    stage_contract = dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {})
+    stage_loop_scope_id = str(stage_contract.get("loop_scope_id") or "").strip()
+    for edge in runtime_spec.edges:
+        if str(edge.source_node_id or "") != stage_id:
+            continue
+        if str(edge.mode or "") in conditional_modes:
+            continue
+        target = str(edge.target_node_id or "")
+        if not target:
+            continue
+        target_contract = dict(dict(state.get("stage_contracts") or {}).get(target) or {})
+        if reset_statuses.get(target) == "failed":
+            reset_statuses[target] = "pending"
+        elif stage_loop_scope_id and str(target_contract.get("loop_scope_id") or "").strip() == stage_loop_scope_id and reset_statuses.get(target) in {"completed", "blocked"}:
+            reset_statuses[target] = "pending"
+    return reset_statuses
+
+
+def _loop_chain_stage_ids(
+    *,
+    state: CoordinationRuntimeState,
+    current_stage_id: str,
+    continue_stage_id: str,
+    exit_stage_id: str,
+    loop_scope_id: str = "",
+) -> set[str]:
+    order = [str(item) for item in list(state.get("stage_order") or []) if str(item)]
+    if not order or current_stage_id not in order or continue_stage_id not in order:
+        return {continue_stage_id} if continue_stage_id else set()
+    start = order.index(continue_stage_id)
+    end = order.index(current_stage_id)
+    if start <= end:
+        return set(order[start : end + 1])
+    clean_scope = str(loop_scope_id or "").strip()
+    if clean_scope:
+        return {
+            stage_id
+            for stage_id in order
+            if stage_id not in {exit_stage_id}
+            and str(dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {}).get("loop_scope_id") or "").strip() == clean_scope
+        }
+    return {
+        stage_id
+        for stage_id in order
+        if stage_id not in {exit_stage_id}
+        and dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {}).get("loop_policy")
+    }
+
+
+def _advance_loop_counters(pending_inputs: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
+    updated = dict(pending_inputs)
+    for item in [dict(value) for value in list(policy.get("counter_updates") or []) if isinstance(value, dict)]:
+        key = str(item.get("key") or "").strip()
+        if not key:
+            continue
+        mode = str(item.get("mode") or "increment").strip()
+        if mode == "reset":
+            updated[key] = _safe_int(item.get("value"), 0)
+        elif mode == "copy":
+            updated[key] = updated.get(str(item.get("from_key") or ""), item.get("default"))
+        else:
+            updated[key] = _safe_int(updated.get(key), _safe_int(item.get("start"), 0)) + _safe_int(item.get("step"), 1)
+    return updated
+
+
+def _apply_loop_derived_fields(pending_inputs: dict[str, Any], derived_fields: list[Any]) -> dict[str, Any]:
+    updated = dict(pending_inputs)
+    for raw in derived_fields:
+        if not isinstance(raw, dict):
+            continue
+        key = str(raw.get("key") or "").strip()
+        if not key:
+            continue
+        op = str(raw.get("op") or "format").strip()
+        if op == "copy":
+            updated[key] = updated.get(str(raw.get("from_key") or ""), raw.get("default"))
+        elif op == "add":
+            updated[key] = _safe_int(updated.get(str(raw.get("from_key") or "")), 0) + _safe_int(raw.get("value"), 0)
+        elif op == "multiply":
+            updated[key] = _safe_int(updated.get(str(raw.get("from_key") or "")), 0) * _safe_int(raw.get("value"), 1)
+        elif op == "range":
+            start = _safe_int(updated.get(str(raw.get("start_key") or "")), 0)
+            end = _safe_int(updated.get(str(raw.get("end_key") or "")), start)
+            updated[key] = list(range(start, end + 1)) if end >= start else []
+        elif op == "ordinal_group":
+            value = _safe_int(updated.get(str(raw.get("from_key") or "")), 1)
+            size = max(_safe_int(raw.get("size"), 1), 1)
+            updated[key] = ((max(value, 1) - 1) // size) + 1
+        elif op == "join":
+            values = updated.get(str(raw.get("from_key") or ""))
+            prefix = str(raw.get("prefix") or "")
+            suffix = str(raw.get("suffix") or "")
+            sep = str(raw.get("separator") or ", ")
+            updated[key] = sep.join(f"{prefix}{item}{suffix}" for item in list(values or []))
+        elif op == "format":
+            updated[key] = _render_runtime_template(str(raw.get("template") or ""), updated)
+    return updated
 
 
 def _stage_execution_message(
@@ -1692,22 +2419,15 @@ def _stage_execution_message(
         for item in list(contract.get("instructions") or contract.get("stage_instructions") or [])
         if str(item).strip()
     ]
-    chapter_index = _safe_int(explicit_inputs.get("chapter_index"), 0)
-    chapter_target_words = _safe_int(explicit_inputs.get("chapter_target_words"), 0)
-    current_words = _safe_int(explicit_inputs.get("current_words"), 0)
-    target_words = _safe_int(explicit_inputs.get("target_words"), 0)
     lines = [
         f"本轮工作：{title}。",
-        "请直接完成本轮创作或编辑产物，不要写寒暄、等待补充、工作过程说明或系统说明。",
-        "只使用用户给定的硬设定作为不可违背边界；边界之外由你按本轮职责自由发挥。",
+        "请直接完成本节点职责要求的产物，不要写寒暄、等待补充、工作过程说明或系统说明。",
+        "请严格依据本节点收到的任务说明、交接包、记忆快照、产物上下文和输出契约工作；不要自行猜测未提供的上游结果。",
     ]
-    if chapter_index > 0:
-        lines.append(
-            f"当前章节：第{chapter_index}章。"
-            f"本章目标约{chapter_target_words or 5000}字；"
-            f"全书目标约{target_words or 1000000}字；"
-            f"当前已完成约{current_words}字。"
-        )
+    loop_summary = str(explicit_inputs.get("runtime_loop_summary") or "").strip()
+    if loop_summary:
+        lines.append("当前循环上下文：")
+        lines.append(loop_summary)
     user_seed = _explicit_project_brief(explicit_inputs)
     if user_seed:
         lines.append("用户硬设定：")
@@ -1718,6 +2438,9 @@ def _stage_execution_message(
         lines.append(original_request)
     if artifact_paths:
         lines.append("目标文本：" + "、".join(artifact_paths) + "。")
+    readable_artifacts = _readable_artifact_context_for_stage(contract=contract, explicit_inputs=explicit_inputs)
+    if readable_artifacts:
+        lines.extend(readable_artifacts)
     if instructions:
         lines.append("写作要求：")
         lines.extend(f"- {item}" for item in instructions)
@@ -1728,24 +2451,96 @@ def _stage_execution_message(
     return "\n".join(lines)
 
 
+def _readable_artifact_context_for_stage(*, contract: dict[str, Any], explicit_inputs: dict[str, Any]) -> list[str]:
+    policy = dict(contract.get("artifact_context_policy") or {})
+    items = [dict(item) for item in list(policy.get("items") or []) if isinstance(item, dict)]
+    if not items:
+        return []
+    sections: list[str] = []
+    max_items = max(_safe_int(policy.get("max_items"), len(items)), 1)
+    for item in items[:max_items]:
+        refs = _artifact_refs_from_value(_resolve_artifact_context_value(item, explicit_inputs=explicit_inputs))
+        max_refs = max(_safe_int(item.get("max_refs"), 1), 1)
+        for ref in refs[:max_refs]:
+            content = _read_artifact_ref_text(ref)
+            if not content:
+                continue
+            label = str(item.get("label") or "可读上下文").strip()
+            max_chars = max(_safe_int(item.get("max_chars"), _safe_int(policy.get("default_max_chars"), 12000)), 1)
+            sections.append(f"{label}（{ref}）：")
+            sections.append(content[:max_chars])
+    return sections
+
+
+def _resolve_artifact_context_value(item: dict[str, Any], *, explicit_inputs: dict[str, Any]) -> Any:
+    source = str(item.get("source") or "input_key").strip()
+    if source == "input_key":
+        return explicit_inputs.get(str(item.get("input_key") or "").strip())
+    if source == "literal":
+        return item.get("value")
+    if source == "collect":
+        values: list[Any] = []
+        for child in list(item.get("items") or []):
+            if not isinstance(child, dict):
+                continue
+            value = _resolve_artifact_context_value(child, explicit_inputs=explicit_inputs)
+            if isinstance(value, list):
+                values.extend(value)
+            elif value not in ("", None, [], {}):
+                values.append(value)
+        return values
+    return None
+
+
+def _artifact_refs_from_value(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value] if value.startswith("artifact:") else []
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value if str(item).startswith("artifact:")]
+    return []
+
+
+def _read_artifact_ref_text(ref: str) -> str:
+    raw = str(ref or "").strip()
+    if not raw.startswith("artifact:"):
+        return ""
+    rel = raw[len("artifact:") :]
+    candidates = [Path(rel)]
+    for parent in Path(__file__).resolve().parents:
+        candidates.append(parent / rel)
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if path.exists() and path.is_file():
+                return path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+    return ""
+
+
 def _render_runtime_template(template: str, values: dict[str, Any]) -> str:
     text = str(template or "")
     if not text:
         return ""
-    chapter_index = _safe_int(values.get("chapter_index"), 1)
-    replacements = {
-        "chapter_index": chapter_index,
-        "chapter_index_padded": str(values.get("chapter_index_padded") or f"{chapter_index:03d}"),
-        "chapter_label": str(values.get("chapter_label") or f"第{chapter_index}章"),
-        "chapter_file_prefix": str(values.get("chapter_file_prefix") or f"chapter_{chapter_index:03d}"),
-        "target_words": _safe_int(values.get("target_words"), 1000000),
-        "current_words": _safe_int(values.get("current_words"), 0),
-        "chapter_target_words": _safe_int(values.get("chapter_target_words"), 5000),
-    }
-    rendered = text.replace("{chapter_index:03d}", f"{chapter_index:03d}")
-    for key, value in replacements.items():
-        rendered = rendered.replace("{" + key + "}", str(value))
-    return rendered
+    try:
+        return text.format_map(_SafeFormatValues(values))
+    except (KeyError, ValueError, IndexError):
+        rendered = text
+        for key, value in dict(values or {}).items():
+            rendered = rendered.replace("{" + str(key) + "}", str(value))
+        return rendered
+
+
+class _SafeFormatValues(dict):
+    def __init__(self, values: dict[str, Any]) -> None:
+        super().__init__({str(key): value for key, value in dict(values or {}).items()})
+
+    def __missing__(self, key: str) -> str:
+        return "{" + str(key) + "}"
 
 
 def _explicit_project_brief(explicit_inputs: dict[str, Any]) -> str:
@@ -1762,9 +2557,6 @@ def _explicit_project_brief(explicit_inputs: dict[str, Any]) -> str:
     ).strip()
     if constraints:
         parts.append(constraints)
-    requested_batch = str(explicit_inputs.get("requested_batch") or "").strip()
-    if requested_batch:
-        parts.append(f"批次目标：{requested_batch}")
     execution_policy = str(explicit_inputs.get("execution_policy") or "").strip()
     if execution_policy:
         parts.append(f"执行边界：{execution_policy}")
@@ -1785,6 +2577,9 @@ def _contract_from_payload(payload: dict[str, Any]) -> CoordinationStageContract
         on_failure=str(payload.get("on_failure") or "fail_closed"),
         retry_policy=dict(payload.get("retry_policy") or {}),
         human_gate_policy=dict(payload.get("human_gate_policy") or {}),
+        artifact_context_policy=dict(payload.get("artifact_context_policy") or {}),
+        revision_context_policy=dict(payload.get("revision_context_policy") or {}),
+        quality_retry_policy=dict(payload.get("quality_retry_policy") or {}),
     )
 
 
@@ -2056,6 +2851,13 @@ def _runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec 
             communication_modes=tuple(str(item) for item in list(payload.get("communication_modes") or []) if str(item)),
             start_node_ids=tuple(str(item) for item in list(payload.get("start_node_ids") or []) if str(item)),
             terminal_node_ids=tuple(str(item) for item in list(payload.get("terminal_node_ids") or []) if str(item)),
+            resource_nodes=_dict_tuple(payload.get("resource_nodes")),
+            temporal_edges=_dict_tuple(payload.get("temporal_edges")),
+            memory_edges=_dict_tuple(payload.get("memory_edges")),
+            artifact_context_edges=_dict_tuple(payload.get("artifact_context_edges")),
+            revision_edges=_dict_tuple(payload.get("revision_edges")),
+            loop_frames=_dict_tuple(payload.get("loop_frames")),
+            memory_matrix=dict(payload.get("memory_matrix") or {}),
             issues=(),
             diagnostics=dict(payload.get("diagnostics") or {}),
         )
@@ -2066,6 +2868,10 @@ def _runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec 
 def _dataclass_from_payload(model_type: Any, payload: dict[str, Any]) -> Any:
     allowed = {item.name for item in dataclass_fields(model_type)}
     return model_type(**{key: value for key, value in dict(payload or {}).items() if key in allowed})
+
+
+def _dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:
+    return tuple(dict(item) for item in list(value or []) if isinstance(item, dict))
 
 
 def _initial_contract_status(manifest: dict[str, Any]) -> dict[str, Any]:

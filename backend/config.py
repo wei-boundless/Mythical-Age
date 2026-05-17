@@ -79,11 +79,6 @@ class Settings:
     vector_store_backend: str
     document_conversion_backend: str
     retrieval_core_backend: str
-    faiss_metric: str
-    faiss_index_type: str
-    faiss_hnsw_m: int
-    faiss_hnsw_ef_construction: int
-    faiss_hnsw_ef_search: int
     qdrant_url: str | None
     qdrant_api_key: str | None
     qdrant_collection_prefix: str
@@ -163,6 +158,29 @@ def _normalize_provider(
     return default
 
 
+def _provider_hint_from_model_base_url(model: str | None, base_url: str | None) -> str:
+    haystack = f"{model or ''} {base_url or ''}".strip().lower()
+    if not haystack:
+        return ""
+    if "deepseek" in haystack or "api.deepseek.com" in haystack:
+        return "deepseek"
+    if "dashscope" in haystack or "aliyuncs.com" in haystack or "qwen" in haystack:
+        return "bailian"
+    if "bigmodel" in haystack or "zhipu" in haystack or "glm-" in haystack:
+        return "zhipu"
+    if "api.openai.com" in haystack or haystack.startswith(("gpt-", "o1", "o3", "o4")):
+        return "openai"
+    return ""
+
+
+def _normalize_provider_with_payload_hints(provider: str | None, model: str | None, base_url: str | None) -> str | None:
+    normalized = _normalize_provider(provider, default="", defaults=LLM_PROVIDER_DEFAULTS)
+    hint = _provider_hint_from_model_base_url(model, base_url)
+    if hint and normalized and hint != normalized:
+        return hint
+    return normalized or hint or None
+
+
 def _resolve_llm_api_key(provider: str) -> str | None:
     runtime_override = _runtime_llm_override()
     override_api_key = str(runtime_override.get("api_key") or "").strip()
@@ -215,7 +233,11 @@ def _resolve_llm_fallback_provider() -> str | None:
         value = str(runtime_override.get("fallback_provider") or "").strip().lower()
         if value in {"", "none", "disabled", "off"}:
             return None
-        return _normalize_provider(value, default="", defaults=LLM_PROVIDER_DEFAULTS) or None
+        return _normalize_provider_with_payload_hints(
+            value,
+            str(runtime_override.get("fallback_model") or ""),
+            str(runtime_override.get("fallback_base_url") or ""),
+        )
     value = _first_env("LLM_FALLBACK_PROVIDER")
     if not value:
         return None
@@ -373,52 +395,32 @@ def _resolve_embedding_dimensions() -> int | None:
 
 def _resolve_vector_store_backend() -> str:
     override = str(_runtime_system_value("retrieval", "vector_store_backend") or "").strip().lower()
-    if override in {"faiss", "llamaindex", "qdrant"}:
+    if override == "qdrant":
         return override
     value = (_first_env("VECTOR_STORE_BACKEND") or "qdrant").strip().lower()
-    if value in {"faiss", "llamaindex", "qdrant"}:
+    if value == "qdrant":
         return value
     return "qdrant"
 
 
 def _resolve_document_conversion_backend() -> str:
     override = str(_runtime_system_value("document", "document_conversion_backend") or "").strip().lower()
-    if override in {"docling", "legacy"}:
+    if override == "docling":
         return override
     value = (_first_env("DOCUMENT_CONVERSION_BACKEND") or "docling").strip().lower()
-    if value in {"docling", "legacy"}:
+    if value == "docling":
         return value
     return "docling"
 
 
 def _resolve_retrieval_core_backend() -> str:
     override = str(_runtime_system_value("retrieval", "retrieval_core_backend") or "").strip().lower()
-    if override in {"legacy", "llamaindex"}:
+    if override == "llamaindex":
         return override
     value = (_first_env("RETRIEVAL_CORE_BACKEND") or "llamaindex").strip().lower()
-    if value in {"legacy", "llamaindex"}:
+    if value == "llamaindex":
         return value
     return "llamaindex"
-
-
-def _resolve_faiss_metric() -> str:
-    override = str(_runtime_system_value("retrieval", "faiss_metric") or "").strip().lower()
-    if override in {"cosine", "inner_product", "l2"}:
-        return override
-    value = (_first_env("FAISS_METRIC") or "cosine").strip().lower()
-    if value in {"cosine", "inner_product", "l2"}:
-        return value
-    return "cosine"
-
-
-def _resolve_faiss_index_type() -> str:
-    override = str(_runtime_system_value("retrieval", "faiss_index_type") or "").strip().lower()
-    if override in {"flat", "hnsw"}:
-        return override
-    value = (_first_env("FAISS_INDEX_TYPE") or "flat").strip().lower()
-    if value in {"flat", "hnsw"}:
-        return value
-    return "flat"
 
 
 def _resolve_qdrant_url() -> str | None:
@@ -704,11 +706,6 @@ def get_settings() -> Settings:
         vector_store_backend=_resolve_vector_store_backend(),
         document_conversion_backend=_resolve_document_conversion_backend(),
         retrieval_core_backend=_resolve_retrieval_core_backend(),
-        faiss_metric=_resolve_faiss_metric(),
-        faiss_index_type=_resolve_faiss_index_type(),
-        faiss_hnsw_m=_resolve_positive_int("FAISS_HNSW_M", 32),
-        faiss_hnsw_ef_construction=_resolve_positive_int("FAISS_HNSW_EF_CONSTRUCTION", 40),
-        faiss_hnsw_ef_search=_resolve_positive_int("FAISS_HNSW_EF_SEARCH", 64),
         qdrant_url=_resolve_qdrant_url(),
         qdrant_api_key=_resolve_qdrant_api_key(),
         qdrant_collection_prefix=_resolve_qdrant_collection_prefix(),

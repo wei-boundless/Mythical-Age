@@ -89,7 +89,7 @@ def test_skill_scope_is_checked_by_contract_gate() -> None:
             tool_scope=SkillToolScope(
                 source="skill",
                 allowed_tools=("web_search",),
-                skill_name="legacy-test-skill",
+                skill_name="compat-test-skill",
                 reason="regression_scope",
             ),
             binding_context={},

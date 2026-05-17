@@ -29,6 +29,7 @@ TASK_GRAPH_NODE_TYPES = {
     "agent",
     "agent_role",
     "coordinator",
+    "subtask",
     "review_gate",
     "memory",
     "input",
@@ -42,6 +43,14 @@ TASK_GRAPH_NODE_TYPES = {
     "memory_handoff",
     "memory_commit",
     "memory_finalize",
+    "memory_repository",
+    "memory_collection",
+    "artifact_repository",
+    "progress_ledger",
+    "issue_ledger",
+    "runtime_state_store",
+    "working_memory_store",
+    "loop_frame",
 }
 MEMORY_RESOURCE_OPERATIONS = {"read", "write", "handoff", "commit", "finalize"}
 
@@ -76,6 +85,7 @@ class TaskGraphNodeDefinition:
     loop_policy: dict[str, Any] = field(default_factory=dict)
     review_gate_policy: dict[str, Any] = field(default_factory=dict)
     artifact_policy: dict[str, Any] = field(default_factory=dict)
+    stream_policy: dict[str, Any] = field(default_factory=dict)
     artifact_target: str = ""
     output_path: str = ""
     execution_mode: str = "sync"
@@ -205,6 +215,7 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
         loop_policy=dict(payload.get("loop_policy") or {}),
         review_gate_policy=dict(payload.get("review_gate_policy") or {}),
         artifact_policy=dict(payload.get("artifact_policy") or {}),
+        stream_policy=dict(payload.get("stream_policy") or {}),
         artifact_target=str(payload.get("artifact_target") or "").strip(),
         output_path=str(payload.get("output_path") or "").strip(),
         execution_mode=str(payload.get("execution_mode") or "sync").strip() or "sync",

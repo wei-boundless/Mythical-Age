@@ -24,7 +24,6 @@ OPERATION_SOURCE_CLASS = {
     "op.search_files": "local_files",
     "op.search_text": "local_files",
     "op.read_structured_file": "data",
-    "op.analyze_multimodal_file": "document",
 }
 
 

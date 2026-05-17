@@ -21,8 +21,6 @@ _BUILTIN_OPERATION_TO_TOOL = {
     "op.git_diff": "git_diff",
     "op.git_log": "git_log",
     "op.git_show": "git_show",
-    "op.analyze_multimodal_file": "analyze_multimodal_file",
-    "op.index_multimodal_file": "index_multimodal_file",
     "op.write_file": "write_file",
     "op.edit_file": "edit_file",
     "op.shell": "terminal",

@@ -14,7 +14,7 @@ def _is_blank(value: Any) -> bool:
     return False
 
 
-ToolScopeSource = Literal["global", "skill", "agent", "session", "explicit_user", "legacy"]
+ToolScopeSource = Literal["global", "skill", "agent", "session", "explicit_user"]
 ToolScopeTrustLevel = Literal["system", "project", "user", "external", "unknown"]
 ToolRuntimeVisibility = Literal["main_runtime", "agent_internal"]
 ToolPromptExposurePolicy = Literal["schema_only", "hidden", "debug_only"]
@@ -35,7 +35,7 @@ class ToolScope:
         cls,
         allowed_tools: Iterable[str] | None,
         *,
-        source: ToolScopeSource = "legacy",
+        source: ToolScopeSource = "global",
         trust_level: ToolScopeTrustLevel = "unknown",
         reason: str = "",
     ) -> "ToolScope":
@@ -89,7 +89,7 @@ def _normalize_names(values: Iterable[str] | None) -> tuple[str, ...]:
 def coerce_tool_scope(
     scope: ToolScope | Iterable[str] | None,
     *,
-    source: ToolScopeSource = "legacy",
+    source: ToolScopeSource = "global",
     trust_level: ToolScopeTrustLevel = "unknown",
     reason: str = "",
 ) -> ToolScope:
@@ -195,7 +195,7 @@ class ToolContractGate:
             normalized_mode = "enforce"
         effective_scope = coerce_tool_scope(
             tool_scope,
-            source="legacy",
+            source="global",
             reason="tool_contract_gate",
         )
         if not effective_scope.allows(tool_name):

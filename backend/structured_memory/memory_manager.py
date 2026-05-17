@@ -51,7 +51,6 @@ class MemoryManager:
         self.root_dir = Path(root_dir)
         self.layout = DurableMemoryLayout(self.root_dir)
         self.layout.ensure_dirs()
-        self._migrate_legacy_layout()
         self.index_path = self.layout.index_path
         if not self.index_path.exists():
             self.index_path.write_text(
@@ -447,7 +446,7 @@ class MemoryManager:
                 supersedes,
                 invalidation_reason,
                 body_text,
-            ) = self._repair_legacy_note(raw, path)
+            ) = self._repair_markdown_note(raw, path)
 
         note = MemoryNote(
             slug=path.stem,
@@ -462,7 +461,7 @@ class MemoryManager:
             retrieval_hints=retrieval_hints,
             created_at=created_at or updated_at or MemoryNote(slug=path.stem, title="", summary="", body="").created_at,
             updated_at=updated_at or MemoryNote(slug=path.stem, title="", summary="", body="").updated_at,
-            created_by=created_by or "legacy-repair",
+            created_by=created_by or "store-repair",
             source_session_id=source_session_id,
             source_role=source_role or "user",
             source_message_excerpt=source_message_excerpt or summary,
@@ -480,7 +479,7 @@ class MemoryManager:
         path.write_text(note.to_markdown(), encoding="utf-8", newline="\n")
         return note
 
-    def _repair_legacy_note(
+    def _repair_markdown_note(
         self,
         raw: str,
         path: Path,
@@ -497,7 +496,7 @@ class MemoryManager:
         retrieval_hints: list[str] = []
         created_at = ""
         updated_at = ""
-        created_by = "legacy-repair"
+        created_by = "store-repair"
         source_session_id = ""
         source_role = "user"
         source_message_excerpt = ""
@@ -556,7 +555,7 @@ class MemoryManager:
                 created_at = normalize_storage_text(metadata_line.split(":", 1)[1])
                 continue
             if metadata_lowered.startswith("created by:") or metadata_lowered.startswith("created_by:"):
-                created_by = normalize_storage_text(metadata_line.split(":", 1)[1]) or "legacy-repair"
+                created_by = normalize_storage_text(metadata_line.split(":", 1)[1]) or "store-repair"
                 continue
             if metadata_lowered.startswith("source session id:") or metadata_lowered.startswith("source_session_id:"):
                 source_session_id = normalize_storage_text(metadata_line.split(":", 1)[1])
@@ -739,7 +738,7 @@ class MemoryManager:
             _supersedes,
             _invalidation_reason,
             body_text,
-        ) = self._repair_legacy_note(raw, path)
+        ) = self._repair_markdown_note(raw, path)
         return LoadedMemoryNote(
             filename=path.name,
             schema_version=_schema_version,
@@ -874,12 +873,12 @@ class MemoryManager:
             source_message_excerpt=note.source_message_excerpt,
         )
 
-    def _migrate_legacy_layout(self) -> None:
-        legacy_files = sorted(
+    def _migrate_flat_layout(self) -> None:
+        flat_files = sorted(
             path for path in self.root_dir.glob("*.md")
             if path.is_file()
         )
-        for path in legacy_files:
+        for path in flat_files:
             if path.name == "MEMORY.md":
                 target = self.layout.index_path
             elif path.name == "SCHEMA.md":

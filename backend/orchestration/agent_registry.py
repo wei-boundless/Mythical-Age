@@ -140,7 +140,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="projection.worker.rag_evidence_analyst",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "worker_kind": "rag_analysis", "slot_index": 6, "legacy_agent_id": "agent:6"},
+            metadata={"role": "worker_specialist", "worker_kind": "rag_analysis", "slot_index": 6},
         ),
         AgentDescriptor(
             agent_id="agent:pdf_reader",
@@ -155,7 +155,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="projection.worker.pdf_evidence_reader",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "worker_kind": "pdf_analysis", "slot_index": 7, "legacy_agent_id": "agent:7"},
+            metadata={"role": "worker_specialist", "worker_kind": "pdf_analysis", "slot_index": 7},
         ),
         AgentDescriptor(
             agent_id="agent:table_analyst",
@@ -170,7 +170,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="projection.worker.table_evidence_analyst",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "worker_kind": "structured_data_analysis", "slot_index": 8, "legacy_agent_id": "agent:8"},
+            metadata={"role": "worker_specialist", "worker_kind": "structured_data_analysis", "slot_index": 8},
         ),
         AgentDescriptor(
             agent_id="agent:web_researcher",
@@ -185,7 +185,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="projection.worker.web_evidence_researcher",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "worker_kind": "web_research", "slot_index": 9, "legacy_agent_id": "agent:9"},
+            metadata={"role": "worker_specialist", "worker_kind": "web_research", "slot_index": 9},
         ),
     )
 
@@ -410,22 +410,24 @@ def _normalize_agent_category(value: str) -> str:
 def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
     agent_id = str(payload.get("agent_id") or "").strip()
     canonical_agent_id = normalize_agent_id(agent_id)
-    legacy_name = str(payload.get("display_name") or payload.get("agent_name") or agent_id).strip() or agent_id
-    legacy_category = _normalize_agent_category(str(payload.get("agent_category") or payload.get("profile_type") or "worker_sub_agent"))
+    display_name = str(payload.get("display_name") or payload.get("agent_name") or agent_id).strip() or agent_id
+    agent_category = _normalize_agent_category(str(payload.get("agent_category") or payload.get("profile_type") or "worker_sub_agent"))
     owner_system = str(payload.get("owner_system") or payload.get("metadata", {}).get("system_key") or "").strip()
     if canonical_agent_id == "agent:0":
-        legacy_category = "main_agent"
+        agent_category = "main_agent"
     elif owner_system and owner_system not in {"", "task_system", "worker_pool"}:
-        legacy_category = "system_management_agent"
+        agent_category = "system_management_agent"
     normalized_soul_id = str(payload.get("default_soul_id") or "").strip()
     normalized_projection_id = str(payload.get("default_projection_id") or "").strip()
+    metadata = dict(payload.get("metadata") or {})
+    metadata.pop("legacy_agent_id", None)
     return {
         "agent_id": canonical_agent_id,
-        "agent_name": legacy_name,
-        "display_name": legacy_name,
-        "agent_category": legacy_category,
-        "profile_type": legacy_category,
-        "interface_target": str(payload.get("interface_target") or _default_interface_target(canonical_agent_id or "agent:worker", legacy_category)),
+        "agent_name": display_name,
+        "display_name": display_name,
+        "agent_category": agent_category,
+        "profile_type": agent_category,
+        "interface_target": str(payload.get("interface_target") or _default_interface_target(canonical_agent_id or "agent:worker", agent_category)),
         "description": str(payload.get("description") or payload.get("metadata", {}).get("role") or "").strip(),
         "enabled": bool(payload.get("enabled", str(payload.get("lifecycle_state") or "enabled") != "disabled")),
         "builtin": bool(payload.get("builtin", str(payload.get("lifecycle_state") or "") == "system_builtin")),
@@ -435,8 +437,7 @@ def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "created_at": float(payload.get("created_at") or 0.0),
         "updated_at": float(payload.get("updated_at") or 0.0),
         "metadata": {
-            **dict(payload.get("metadata") or {}),
-            **({"legacy_agent_id": agent_id} if agent_id and agent_id != canonical_agent_id else {}),
+            **metadata,
             **(
                 {
                     "definition_source": "system_builtin",

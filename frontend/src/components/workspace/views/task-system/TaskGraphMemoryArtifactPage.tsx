@@ -1,16 +1,72 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
+import { Database, FileStack, ListChecks, Plus, ScrollText } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
 import { ArtifactPolicyEditor } from "./ArtifactPolicyEditor";
 import { TaskSystemField, TaskSystemSelectField, taskSystemOptionLabel } from "./TaskSystemWorkbenchUi";
-import { WorkingMemoryPolicyEditor, WORKING_MEMORY_KIND_OPTIONS, WORKING_MEMORY_SCOPE_OPTIONS } from "./WorkingMemoryPolicyEditor";
+import { WorkingMemoryPolicyEditor } from "./WorkingMemoryPolicyEditor";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
+import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
+import {
+  buildTaskGraphMemoryModel,
+  createMemoryEdgeDraft,
+  memoryCellOperationValue,
+  taskGraphMemoryColumnId,
+  taskGraphEdgeId,
+  taskGraphEdgeSource,
+  taskGraphEdgeTarget,
+  type TaskGraphMemoryMatrixCell,
+  type TaskGraphMemoryOperation,
+  type TaskGraphMemoryRepositoryView,
+} from "./taskGraphMemoryMatrix";
+
+type MemoryFacet = "repositories" | "matrix" | "selector" | "snapshot" | "artifact_context";
+type MatrixOperationValue = "forbidden" | "read" | "write_candidate" | "read_write_candidate" | "commit";
+type ResourceTemplate = {
+  kind: string;
+  title: string;
+  idPrefix: string;
+  icon: LucideIcon;
+  defaultPolicy: Record<string, unknown>;
+};
+
+const RESOURCE_NODE_TEMPLATES: ResourceTemplate[] = [
+  {
+    kind: "memory_repository",
+    title: "记忆仓库",
+    idPrefix: "memory.repository",
+    icon: Database,
+    defaultPolicy: { versioning: "append_version", mutable: true, commit_required: true },
+  },
+  {
+    kind: "artifact_repository",
+    title: "产物仓库",
+    idPrefix: "artifact.repository",
+    icon: FileStack,
+    defaultPolicy: { versioning: "append_version", mutable: true },
+  },
+  {
+    kind: "progress_ledger",
+    title: "进度账本",
+    idPrefix: "progress.ledger",
+    icon: ListChecks,
+    defaultPolicy: { versioning: "append_version", mutable: true },
+  },
+  {
+    kind: "issue_ledger",
+    title: "问题台账",
+    idPrefix: "issue.ledger",
+    icon: ScrollText,
+    defaultPolicy: { versioning: "append_version", mutable: true },
+  },
+];
+
+const MATRIX_OPERATION_OPTIONS: MatrixOperationValue[] = ["forbidden", "read", "write_candidate", "read_write_candidate", "commit"];
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function nodeTitle(node: Record<string, unknown>) {
-  return String(node.title ?? node.label ?? node.node_id ?? "节点");
 }
 
 function splitList(value: string) {
@@ -21,28 +77,68 @@ function listText(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean).join("\n") : "";
 }
 
-function contextPolicyWithoutConversationMemory(policy: Record<string, unknown>) {
-  const next = { ...policy };
-  delete next.conversation_memory;
-  delete next.suppress_conversation_memory;
-  return next;
+function repositoryCollectionsFromNode(node?: Record<string, unknown>) {
+  const metadata = asRecord(node?.metadata);
+  const memoryRepository = asRecord(metadata.memory_repository);
+  const rawCollections = Array.isArray(memoryRepository.collections)
+    ? memoryRepository.collections
+    : Array.isArray(metadata.collections)
+      ? metadata.collections
+      : [];
+  return (rawCollections.length ? rawCollections : ["default"]).map((item, index) => {
+    if (typeof item === "string") {
+      return {
+        collection_id: item,
+        title: item,
+        record_kinds: [],
+        key_strategy: "stable_key",
+        default_version_selector: "latest_committed_before_clock",
+        required_receipt_status: "committed",
+      };
+    }
+    const record = asRecord(item);
+    return {
+      collection_id: String(record.collection_id ?? record.id ?? `collection_${index + 1}`),
+      title: String(record.title ?? record.collection_id ?? record.id ?? `collection_${index + 1}`),
+      record_kinds: Array.isArray(record.record_kinds) ? record.record_kinds : [],
+      key_strategy: String(record.key_strategy ?? "stable_key"),
+      schema_ref: String(record.schema_ref ?? record.schema_id ?? ""),
+      default_version_selector: String(record.default_version_selector ?? "latest_committed_before_clock"),
+      required_receipt_status: String(record.required_receipt_status ?? "committed"),
+    };
+  });
 }
 
-function memoryOperation(node: Record<string, unknown>) {
-  const metadata = asRecord(node.metadata);
-  const explicit = String(metadata.operation ?? "").trim();
-  if (explicit) return explicit;
-  const nodeType = String(node.node_type ?? "");
-  if (nodeType.startsWith("memory_")) return nodeType.replace("memory_", "");
-  return nodeType === "memory_resource" || nodeType === "memory" ? "commit" : "";
+function edgeMatchesCell(edge: Record<string, unknown>, cell: TaskGraphMemoryMatrixCell, index: number) {
+  const edgeId = taskGraphEdgeId(edge, index);
+  return cell.edges.some((item) => item.edgeId === edgeId);
 }
 
-function edgeSource(edge: Record<string, unknown>) {
-  return String(edge.source_node_id ?? edge.from ?? edge.source ?? "");
+function desiredOperations(value: MatrixOperationValue): TaskGraphMemoryOperation[] {
+  if (value === "read") return ["read"];
+  if (value === "write_candidate") return ["write_candidate"];
+  if (value === "read_write_candidate") return ["read", "write_candidate"];
+  if (value === "commit") return ["commit"];
+  return [];
 }
 
-function edgeTarget(edge: Record<string, unknown>) {
-  return String(edge.target_node_id ?? edge.to ?? edge.target ?? "");
+function operationLabel(value: MatrixOperationValue) {
+  const labels: Record<MatrixOperationValue, string> = {
+    forbidden: "禁止",
+    read: "读取",
+    write_candidate: "写候选",
+    read_write_candidate: "读 + 写候选",
+    commit: "提交",
+  };
+  return labels[value];
+}
+
+function artifactContextEdges(edges: Array<Record<string, unknown>>) {
+  return edges.filter((edge) => {
+    const edgeType = String(edge.edge_type ?? edge.mode ?? "");
+    const metadata = asRecord(edge.metadata);
+    return edgeType.startsWith("artifact_") || Object.keys(asRecord(edge.artifact_ref_policy)).length > 0 || String(metadata.context_mode ?? "").includes("artifact");
+  });
 }
 
 export function TaskGraphMemoryArtifactPage({
@@ -50,210 +146,819 @@ export function TaskGraphMemoryArtifactPage({
   activeGraphEdges,
   taskGraphDraft,
   updateContextPolicy,
+  updateTaskGraphDraft,
   updateTaskGraphMetadata,
   updateWorkingMemoryPolicy,
   updateTaskGraphEdge,
   updateTaskGraphNode,
+  editorFocus,
+  onEditorFocus,
 }: {
   activeGraphNodes: Array<Record<string, unknown>>;
   activeGraphEdges: Array<Record<string, unknown>>;
   taskGraphDraft: TaskGraphDraftV2;
   updateContextPolicy: (patch: Partial<TaskGraphDraftV2["context_policy"]>) => void;
+  updateTaskGraphDraft: (patch: Partial<TaskGraphDraftV2>) => void;
   updateTaskGraphMetadata: (patch: Record<string, unknown>) => void;
   updateWorkingMemoryPolicy: (patch: Partial<TaskGraphDraftV2["working_memory_policy"]>) => void;
   updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
+  editorFocus?: TaskGraphEditorFocus;
+  onEditorFocus?: (focus: Partial<TaskGraphEditorFocus> & { layer?: TaskGraphEditorFocus["layer"] }) => void;
 }) {
+  const [facet, setFacet] = useState<MemoryFacet>("repositories");
+  const memoryModel = useMemo(
+    () => buildTaskGraphMemoryModel({ nodes: activeGraphNodes, edges: activeGraphEdges }),
+    [activeGraphNodes, activeGraphEdges],
+  );
+  const firstRepositoryId = memoryModel.repositories[0]?.nodeId ?? "";
+  const firstMemoryEdgeId = memoryModel.memoryEdges[0]?.edgeId ?? "";
+  const firstSnapshotNodeId = memoryModel.snapshots[0]?.nodeId ?? "";
+  const [selectedRepositoryNodeId, setSelectedRepositoryNodeId] = useState(firstRepositoryId);
+  const [selectedMemoryEdgeId, setSelectedMemoryEdgeId] = useState(firstMemoryEdgeId);
+  const [selectedSnapshotNodeId, setSelectedSnapshotNodeId] = useState(firstSnapshotNodeId);
+  const [selectedCellKey, setSelectedCellKey] = useState("");
   const metadata = asRecord(taskGraphDraft.metadata);
   const workingMemoryPolicy = asRecord(taskGraphDraft.working_memory_policy);
-  const artifactPolicy = asRecord(metadata.artifact_policy);
+  const graphArtifactPolicy = asRecord(metadata.artifact_policy);
+  const selectedRepository = memoryModel.repositories.find((repository) => repository.nodeId === selectedRepositoryNodeId)
+    ?? memoryModel.repositories[0]
+    ?? null;
+  const selectedMemoryEdge = memoryModel.memoryEdges.find((edge) => edge.edgeId === selectedMemoryEdgeId)
+    ?? memoryModel.memoryEdges[0]
+    ?? null;
+  const selectedSnapshot = memoryModel.snapshotByNodeId.get(selectedSnapshotNodeId)
+    ?? memoryModel.snapshots[0]
+    ?? null;
+  const selectedCell = memoryModel.matrixRows
+    .flatMap((row) => row.cells.map((cell) => ({ row, cell })))
+    .find((item) => `${item.row.nodeId}:${item.cell.columnId}` === selectedCellKey)
+    ?? null;
+
+  useEffect(() => {
+    if (selectedRepositoryNodeId || !firstRepositoryId) return;
+    setSelectedRepositoryNodeId(firstRepositoryId);
+  }, [firstRepositoryId, selectedRepositoryNodeId]);
+
+  useEffect(() => {
+    if (selectedMemoryEdgeId || !firstMemoryEdgeId) return;
+    setSelectedMemoryEdgeId(firstMemoryEdgeId);
+  }, [firstMemoryEdgeId, selectedMemoryEdgeId]);
+
+  useEffect(() => {
+    if (selectedSnapshotNodeId || !firstSnapshotNodeId) return;
+    setSelectedSnapshotNodeId(firstSnapshotNodeId);
+  }, [firstSnapshotNodeId, selectedSnapshotNodeId]);
+
+  useEffect(() => {
+    if (editorFocus?.layer !== "memory") return;
+    const focusFacet = String(editorFocus.facet ?? "");
+    if (["repositories", "matrix", "selector", "snapshot", "artifact_context"].includes(focusFacet)) {
+      setFacet(focusFacet as MemoryFacet);
+    }
+    if (editorFocus.repository_id) {
+      const focusedRepository = memoryModel.repositories.find((repository) => (
+        repository.nodeId === editorFocus.repository_id || repository.repositoryId === editorFocus.repository_id
+      ));
+      setSelectedRepositoryNodeId(focusedRepository?.nodeId ?? editorFocus.repository_id);
+    }
+    if (editorFocus.edge_id) {
+      setSelectedMemoryEdgeId(editorFocus.edge_id);
+    }
+    if (editorFocus.node_id) {
+      setSelectedSnapshotNodeId(editorFocus.node_id);
+    }
+    if (editorFocus.node_id && editorFocus.repository_id && editorFocus.collection_id) {
+      const focusedRepository = memoryModel.repositories.find((repository) => (
+        repository.nodeId === editorFocus.repository_id || repository.repositoryId === editorFocus.repository_id
+      ));
+      setSelectedCellKey(`${editorFocus.node_id}:${taskGraphMemoryColumnId(focusedRepository?.repositoryId ?? editorFocus.repository_id, editorFocus.collection_id)}`);
+    }
+  }, [
+    editorFocus?.collection_id,
+    editorFocus?.edge_id,
+    editorFocus?.facet,
+    editorFocus?.layer,
+    editorFocus?.node_id,
+    editorFocus?.repository_id,
+    memoryModel.repositories,
+  ]);
 
   const updateArtifactPolicy = (patch: Record<string, unknown>) => {
     updateTaskGraphMetadata({
       artifact_policy: {
-        ...artifactPolicy,
+        ...graphArtifactPolicy,
         ...patch,
       },
     });
   };
 
+  const createResourceNode = (template: ResourceTemplate) => {
+    const existingIds = new Set(activeGraphNodes.map((node) => String(node.node_id ?? "")));
+    let index = 1;
+    let nodeId = `${template.idPrefix}.${index}`;
+    while (existingIds.has(nodeId)) {
+      index += 1;
+      nodeId = `${template.idPrefix}.${index}`;
+    }
+    const memoryMetadata = template.kind === "memory_repository" || template.kind.endsWith("_ledger")
+      ? {
+        memory_repository: {
+          repository_id: nodeId,
+          schema_id: "schema.memory_record",
+          collections: [{
+            collection_id: "default",
+            title: "默认集合",
+            record_kinds: [],
+            key_strategy: "stable_key",
+            default_version_selector: "latest_committed_before_clock",
+            required_receipt_status: "committed",
+          }],
+        },
+      }
+      : {};
+    updateTaskGraphDraft({
+      nodes: [
+        ...(taskGraphDraft.nodes ?? []),
+        {
+          node_id: nodeId,
+          node_type: template.kind,
+          title: template.title,
+          work_posture: "resource",
+          resource_lifecycle_policy: template.defaultPolicy,
+          metadata: memoryMetadata,
+        },
+      ],
+    });
+    setSelectedRepositoryNodeId(nodeId);
+    onEditorFocus?.({ layer: "memory", facet: "repositories", node_id: nodeId, repository_id: nodeId });
+  };
+
+  const updateRepositoryNode = (repository: TaskGraphMemoryRepositoryView, patch: Record<string, unknown>) => {
+    if (repository.synthetic) return;
+    updateTaskGraphNode(repository.nodeId, patch);
+  };
+
+  const updateRepositoryMetadata = (repository: TaskGraphMemoryRepositoryView, patch: Record<string, unknown>) => {
+    if (repository.synthetic || !repository.node) return;
+    const currentMetadata = asRecord(repository.node.metadata);
+    const currentMemoryRepository = asRecord(currentMetadata.memory_repository);
+    updateTaskGraphNode(repository.nodeId, {
+      metadata: {
+        ...currentMetadata,
+        memory_repository: {
+          ...currentMemoryRepository,
+          ...patch,
+        },
+      },
+    });
+  };
+
+  const updateRepositoryCollection = (repository: TaskGraphMemoryRepositoryView, collectionId: string, patch: Record<string, unknown>) => {
+    if (repository.synthetic || !repository.node) return;
+    const currentMetadata = asRecord(repository.node.metadata);
+    const currentMemoryRepository = asRecord(currentMetadata.memory_repository);
+    const collections = repositoryCollectionsFromNode(repository.node);
+    const nextCollections = collections.map((collection) => (
+      String(collection.collection_id) === collectionId ? { ...collection, ...patch } : collection
+    ));
+    updateTaskGraphNode(repository.nodeId, {
+      metadata: {
+        ...currentMetadata,
+        memory_repository: {
+          ...currentMemoryRepository,
+          repository_id: String(currentMemoryRepository.repository_id ?? repository.repositoryId),
+          schema_id: String(currentMemoryRepository.schema_id ?? repository.schemaId),
+          collections: nextCollections,
+        },
+      },
+    });
+  };
+
+  const addRepositoryCollection = (repository: TaskGraphMemoryRepositoryView) => {
+    if (repository.synthetic || !repository.node) return;
+    const currentMetadata = asRecord(repository.node.metadata);
+    const currentMemoryRepository = asRecord(currentMetadata.memory_repository);
+    const collections = repositoryCollectionsFromNode(repository.node);
+    const nextId = `collection_${collections.length + 1}`;
+    updateTaskGraphNode(repository.nodeId, {
+      metadata: {
+        ...currentMetadata,
+        memory_repository: {
+          ...currentMemoryRepository,
+          repository_id: String(currentMemoryRepository.repository_id ?? repository.repositoryId),
+          schema_id: String(currentMemoryRepository.schema_id ?? repository.schemaId),
+          collections: [
+            ...collections,
+            {
+              collection_id: nextId,
+              title: nextId,
+              record_kinds: [],
+              key_strategy: "stable_key",
+              default_version_selector: "latest_committed_before_clock",
+              required_receipt_status: "committed",
+            },
+          ],
+        },
+      },
+    });
+  };
+
+  const setCellOperation = (cell: TaskGraphMemoryMatrixCell, value: MatrixOperationValue) => {
+    const desired = desiredOperations(value);
+    const existingByOperation = new Map(cell.edges.map((edge) => [edge.operation, edge.edge]));
+    const nextEdges = (taskGraphDraft.edges ?? []).filter((edge, index) => !edgeMatchesCell(edge, cell, index));
+    const created = desired.map((operation) => existingByOperation.get(operation) ?? createMemoryEdgeDraft({
+      operation,
+      repositoryNodeId: cell.repositoryNodeId,
+      repositoryId: cell.repositoryId,
+      collectionId: cell.collectionId,
+      taskNodeId: cell.rowNodeId,
+    }));
+    updateTaskGraphDraft({ edges: [...nextEdges, ...created] as TaskGraphDraftV2["edges"] });
+  };
+
+  const patchSelectedMemoryEdgeMetadata = (patch: Record<string, unknown>) => {
+    if (!selectedMemoryEdge) return;
+    const edgeMetadata = asRecord(selectedMemoryEdge.edge.metadata);
+    updateTaskGraphEdge(selectedMemoryEdge.edgeId, {
+      metadata: {
+        ...edgeMetadata,
+        ...patch,
+      },
+    });
+  };
+
+  const artifactEdges = artifactContextEdges(activeGraphEdges);
+
   return (
     <section className="task-graph-studio-page">
       <header className="task-graph-studio-page__head">
         <span>TaskGraph Studio</span>
-        <strong>记忆与产物</strong>
-        <small>定义 Agent 读什么、写什么、交接什么，以及产物如何落盘。</small>
+        <strong>通用记忆与产物</strong>
+        <small>用仓库节点、读写边、selector 和 receipt 可见性决定节点实际能读到什么、能写入什么。</small>
       </header>
 
-      <section className="task-graph-form-grid">
-        <WorkingMemoryPolicyEditor
-          memorySharingPolicy={taskGraphDraft.context_policy.memory_sharing_policy}
-          policy={workingMemoryPolicy}
-          sharedContextPolicy={taskGraphDraft.context_policy.shared_context_policy}
-          onMemorySharingPolicyChange={(value) => updateContextPolicy({ memory_sharing_policy: value })}
-          onPolicyChange={updateWorkingMemoryPolicy}
-          onSharedContextPolicyChange={(value) => updateContextPolicy({ shared_context_policy: value })}
-        />
-
-        <ArtifactPolicyEditor
-          policy={artifactPolicy}
-          onPolicyChange={updateArtifactPolicy}
-        />
+      <section className="task-graph-facet-switch" aria-label="记忆与产物配置分面">
+        {[
+          ["repositories", "仓库结构", "repository / collection"],
+          ["matrix", "读写矩阵", "node x collection"],
+          ["selector", "Selector 配置", "read / version / receipt"],
+          ["snapshot", "Snapshot 预览", "node input preview"],
+          ["artifact_context", "产物上下文", "artifact packet"],
+        ].map(([id, title, desc]) => (
+          <button className={facet === id ? "active" : ""} key={id} onClick={() => setFacet(id as MemoryFacet)} type="button">
+            <strong>{title}</strong>
+            <span>{desc}</span>
+          </button>
+        ))}
       </section>
 
-      <section className="boundary-card">
-        <header><strong>节点记忆与产物边界</strong></header>
-        <div className="task-graph-node-policy-list">
-          {activeGraphNodes.map((node, index) => {
-            const nodeId = String(node.node_id ?? "");
-            const readPolicy = asRecord(node.memory_read_policy);
-            const writePolicy = asRecord(node.memory_writeback_policy);
-            const contextPolicy = asRecord(node.context_visibility_policy);
-            const nodeArtifactPolicy = asRecord(node.artifact_policy);
-            const nodeMetadata = asRecord(node.metadata);
-            const isMemoryResourceNode = ["memory", "memory_resource", "memory_read", "memory_write", "memory_handoff", "memory_commit", "memory_finalize"].includes(String(node.node_type ?? ""));
-            const conversationMemoryPolicy = contextPolicy.suppress_conversation_memory === true || contextPolicy.conversation_memory === "hidden"
-              ? "hidden"
-              : "profile_default";
-            return (
-              <article className="task-graph-node-policy-row" key={nodeId || `node_${index}`}>
-                <div className="task-graph-node-policy-row__identity">
-                  <strong>{nodeTitle(node)}</strong>
-                  <span>{isMemoryResourceNode ? `${nodeId} · resource:${memoryOperation(node) || "commit"}` : nodeId}</span>
+      {facet === "repositories" ? (
+        <section className="task-graph-memory-workbench">
+          <aside className="boundary-card task-graph-memory-sidebar">
+            <header><strong>资源节点</strong><span>{memoryModel.repositories.length} 个记忆仓库</span></header>
+            <div className="task-graph-resource-create">
+              {RESOURCE_NODE_TEMPLATES.map((template) => {
+                const Icon = template.icon;
+                return (
+                  <button key={template.kind} onClick={() => createResourceNode(template)} type="button">
+                    <Icon aria-hidden="true" size={15} />
+                    <span>新增{template.title}</span>
+                    <Plus aria-hidden="true" size={14} />
+                  </button>
+                );
+              })}
+            </div>
+            <div className="task-graph-cognition-list">
+              {memoryModel.repositories.map((repository) => (
+                <button
+                  className={selectedRepository?.nodeId === repository.nodeId ? "task-graph-memory-list-button task-graph-memory-list-button--active" : "task-graph-memory-list-button"}
+                  key={repository.nodeId}
+                  onClick={() => {
+                    setSelectedRepositoryNodeId(repository.nodeId);
+                    onEditorFocus?.({ layer: "memory", facet: "repositories", node_id: repository.nodeId, repository_id: repository.nodeId });
+                  }}
+                  type="button"
+                >
+                  <strong>{repository.title}</strong>
+                  <span>{repository.repositoryId}</span>
+                  <em>{repository.collections.length} collections{repository.synthetic ? " · virtual" : ""}</em>
+                </button>
+              ))}
+              {!memoryModel.repositories.length ? (
+                <div className="task-graph-note">
+                  <strong>还没有记忆仓库</strong>
+                  <span>新增 memory_repository 后，再通过矩阵给节点配置 read / write candidate / commit 边。</span>
                 </div>
-                {isMemoryResourceNode ? (
-                  <TaskSystemSelectField
-                    formatOption={taskSystemOptionLabel}
-                    label="资源操作"
-                    onChange={(value) => updateTaskGraphNode(nodeId, {
-                      node_type: value === "commit" ? "memory_resource" : `memory_${value}`,
-                      metadata: { ...nodeMetadata, operation: value },
-                    })}
-                    options={["read", "write", "handoff", "commit", "finalize"]}
-                    value={memoryOperation(node) || "commit"}
+              ) : null}
+            </div>
+          </aside>
+
+          <article className="boundary-card task-graph-memory-detail">
+            <header><strong>仓库结构</strong><span>{selectedRepository?.synthetic ? "来自边声明的虚拟仓库" : "图内资源节点"}</span></header>
+            {selectedRepository ? (
+              <div className="boundary-form">
+                <TaskSystemField label="节点 ID">
+                  <input disabled value={selectedRepository.nodeId} />
+                </TaskSystemField>
+                <TaskSystemField label="仓库标题">
+                  <input
+                    disabled={selectedRepository.synthetic}
+                    onChange={(event) => updateRepositoryNode(selectedRepository, { title: event.target.value })}
+                    value={String(selectedRepository.node?.title ?? selectedRepository.title)}
                   />
-                ) : null}
+                </TaskSystemField>
+                <TaskSystemField label="Repository ID">
+                  <input
+                    disabled={selectedRepository.synthetic}
+                    onChange={(event) => updateRepositoryMetadata(selectedRepository, { repository_id: event.target.value })}
+                    value={selectedRepository.repositoryId}
+                  />
+                </TaskSystemField>
+                <TaskSystemField label="Schema ID">
+                  <input
+                    disabled={selectedRepository.synthetic}
+                    onChange={(event) => updateRepositoryMetadata(selectedRepository, { schema_id: event.target.value })}
+                    value={selectedRepository.schemaId}
+                  />
+                </TaskSystemField>
                 <TaskSystemSelectField
-                  formatOption={taskSystemOptionLabel}
-                  label="读取范围"
-                  onChange={(value) => updateTaskGraphNode(nodeId, { memory_read_policy: { ...readPolicy, scope: value } })}
-                  options={WORKING_MEMORY_SCOPE_OPTIONS}
-                  value={String(readPolicy.scope ?? "node_scope")}
+                  label="版本策略"
+                  onChange={(value) => updateRepositoryNode(selectedRepository, {
+                    resource_lifecycle_policy: {
+                      ...asRecord(selectedRepository.node?.resource_lifecycle_policy),
+                      versioning: value,
+                    },
+                  })}
+                  options={["append_version", "replace_latest", "immutable_once_committed", "manual_release"]}
+                  value={String(selectedRepository.lifecyclePolicy.versioning ?? "append_version")}
                 />
                 <TaskSystemSelectField
-                  formatOption={(value) => value === "hidden" ? "屏蔽会话记忆" : "按角色配置"}
-                  label="会话记忆"
-                  onChange={(value) => {
-                    const restPolicy = contextPolicyWithoutConversationMemory(contextPolicy);
-                    updateTaskGraphNode(nodeId, {
-                      context_visibility_policy: value === "hidden"
-                        ? { ...restPolicy, conversation_memory: "hidden", suppress_conversation_memory: true }
-                        : restPolicy,
+                  label="提交要求"
+                  onChange={(value) => updateRepositoryNode(selectedRepository, {
+                    resource_lifecycle_policy: {
+                      ...asRecord(selectedRepository.node?.resource_lifecycle_policy),
+                      commit_required: value === "commit_required",
+                    },
+                  })}
+                  options={["commit_required", "candidate_visible"]}
+                  value={selectedRepository.lifecyclePolicy.commit_required === false ? "candidate_visible" : "commit_required"}
+                />
+              </div>
+            ) : (
+              <div className="task-graph-note">
+                <strong>请选择仓库</strong>
+                <span>仓库结构定义 collection、record kind、key strategy 和默认版本选择器。</span>
+              </div>
+            )}
+          </article>
+
+          <article className="boundary-card task-graph-memory-detail">
+            <header>
+              <strong>Collection</strong>
+              {selectedRepository && !selectedRepository.synthetic ? <button className="boundary-chip" onClick={() => addRepositoryCollection(selectedRepository)} type="button"><span>新增集合</span></button> : null}
+            </header>
+            <div className="task-graph-node-policy-list">
+              {(selectedRepository ? (selectedRepository.synthetic ? selectedRepository.collections.map((collection) => ({
+                collection_id: collection.collectionId,
+                title: collection.title,
+                record_kinds: collection.recordKinds,
+                key_strategy: collection.keyStrategy,
+                schema_ref: collection.schemaId,
+                default_version_selector: collection.defaultVersionSelector,
+                required_receipt_status: collection.requiredReceiptStatus,
+              })) : repositoryCollectionsFromNode(selectedRepository.node)) : []).map((collection) => {
+                const collectionId = String(collection.collection_id);
+                return (
+                  <article className="task-graph-node-policy-row task-graph-node-policy-row--wide" key={collectionId}>
+                    <div className="task-graph-node-policy-row__identity">
+                      <strong>{String(collection.title)}</strong>
+                      <span>{collectionId}</span>
+                    </div>
+                    <TaskSystemField label="Collection ID">
+                      <input
+                        disabled={selectedRepository?.synthetic}
+                        onChange={(event) => selectedRepository && updateRepositoryCollection(selectedRepository, collectionId, { collection_id: event.target.value })}
+                        value={collectionId}
+                      />
+                    </TaskSystemField>
+                    <TaskSystemField label="标题">
+                      <input
+                        disabled={selectedRepository?.synthetic}
+                        onChange={(event) => selectedRepository && updateRepositoryCollection(selectedRepository, collectionId, { title: event.target.value })}
+                        value={String(collection.title ?? "")}
+                      />
+                    </TaskSystemField>
+                    <TaskSystemField label="Record Kinds">
+                      <textarea
+                        disabled={selectedRepository?.synthetic}
+                        onChange={(event) => selectedRepository && updateRepositoryCollection(selectedRepository, collectionId, { record_kinds: splitList(event.target.value) })}
+                        value={listText(collection.record_kinds)}
+                      />
+                    </TaskSystemField>
+                    <TaskSystemSelectField
+                      label="Key 策略"
+                      onChange={(value) => selectedRepository && updateRepositoryCollection(selectedRepository, collectionId, { key_strategy: value })}
+                      options={["stable_key", "append_only_id", "scope_key", "manual_key"]}
+                      value={String(collection.key_strategy ?? "stable_key")}
+                    />
+                    <TaskSystemSelectField
+                      label="默认版本"
+                      onChange={(value) => selectedRepository && updateRepositoryCollection(selectedRepository, collectionId, { default_version_selector: value })}
+                      options={["latest_committed_before_clock", "latest_committed_before_scope", "pinned_version", "manual_snapshot"]}
+                      value={String(collection.default_version_selector ?? "latest_committed_before_clock")}
+                    />
+                  </article>
+                );
+              })}
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {facet === "matrix" ? (
+        <section className="boundary-card task-graph-memory-matrix-card">
+          <header><strong>节点 × 仓库 Collection 读写矩阵</strong><span>格子状态来自真实 memory edge，不保存第二份 UI 状态</span></header>
+          {memoryModel.columns.length ? (
+            <div className="task-graph-memory-matrix task-graph-memory-matrix--node">
+              <div className="task-graph-memory-matrix__head">节点 / Collection</div>
+              {memoryModel.columns.map((column) => (
+                <div className="task-graph-memory-matrix__head" key={column.columnId}>
+                  <strong>{column.repositoryTitle}</strong>
+                  <span>{column.collectionId}</span>
+                </div>
+              ))}
+              {memoryModel.matrixRows.map((row) => (
+                <div className="task-graph-memory-matrix__row" key={row.nodeId}>
+                  <strong title={row.nodeId}>{row.title}<span>{row.phaseId}</span></strong>
+                  {row.cells.map((cell) => {
+                    const cellKey = `${row.nodeId}:${cell.columnId}`;
+                    const value = memoryCellOperationValue(cell) as MatrixOperationValue;
+                    return (
+                      <div className={value === "forbidden" ? "task-graph-memory-matrix__cell task-graph-memory-matrix__cell--muted" : "task-graph-memory-matrix__cell task-graph-memory-matrix__cell--active"} key={cellKey}>
+                        <select
+                          onChange={(event) => {
+                            setSelectedCellKey(cellKey);
+                            setCellOperation(cell, event.target.value as MatrixOperationValue);
+                            onEditorFocus?.({
+                              layer: "memory",
+                              facet: "matrix",
+                              node_id: row.nodeId,
+                              repository_id: cell.repositoryId,
+                              collection_id: cell.collectionId,
+                            });
+                          }}
+                          onFocus={() => {
+                            setSelectedCellKey(cellKey);
+                            onEditorFocus?.({
+                              layer: "memory",
+                              facet: "matrix",
+                              node_id: row.nodeId,
+                              repository_id: cell.repositoryId,
+                              collection_id: cell.collectionId,
+                            });
+                          }}
+                          value={value}
+                        >
+                          {MATRIX_OPERATION_OPTIONS.map((option) => (
+                            <option key={option} value={option}>{operationLabel(option)}</option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="task-graph-note">
+              <strong>没有可配置的记忆 collection</strong>
+              <span>先新增 memory_repository 资源节点，或在记忆边 metadata 中声明 repository / collection。</span>
+            </div>
+          )}
+          {selectedCell ? (
+            <aside className="task-graph-memory-cell-inspector">
+              <div>
+                <strong>{selectedCell.row.title}</strong>
+                <span>{selectedCell.cell.repositoryId}.{selectedCell.cell.collectionId}</span>
+              </div>
+              <div className="task-graph-mini-kv">
+                <p><span>读取</span><strong>{selectedCell.cell.readEdge ? "已配置" : "无"}</strong></p>
+                <p><span>写候选</span><strong>{selectedCell.cell.writeCandidateEdge ? "已配置" : "无"}</strong></p>
+                <p><span>提交</span><strong>{selectedCell.cell.commitEdge ? "已配置" : "无"}</strong></p>
+                <p><span>边数</span><strong>{selectedCell.cell.edges.length}</strong></p>
+              </div>
+              <div className="boundary-actions">
+                {selectedCell.cell.edges[0] ? (
+                  <button
+                    className="boundary-chip"
+                    onClick={() => {
+                      const edge = selectedCell.cell.edges[0];
+                      setSelectedMemoryEdgeId(edge.edgeId);
+                      setFacet("selector");
+                      onEditorFocus?.({
+                        layer: "memory",
+                        facet: "selector",
+                        node_id: selectedCell.row.nodeId,
+                        edge_id: edge.edgeId,
+                        repository_id: edge.repositoryId,
+                        collection_id: edge.collectionId,
+                      });
+                    }}
+                    type="button"
+                  >
+                    <span>打开 Selector</span>
+                  </button>
+                ) : null}
+                <button
+                  className="boundary-chip"
+                  onClick={() => {
+                    setSelectedSnapshotNodeId(selectedCell.row.nodeId);
+                    setFacet("snapshot");
+                    onEditorFocus?.({
+                      layer: "memory",
+                      facet: "snapshot",
+                      node_id: selectedCell.row.nodeId,
+                      repository_id: selectedCell.cell.repositoryId,
+                      collection_id: selectedCell.cell.collectionId,
                     });
                   }}
-                  options={["profile_default", "hidden"]}
-                  value={conversationMemoryPolicy}
+                  type="button"
+                >
+                  <span>查看节点 Snapshot</span>
+                </button>
+              </div>
+              <small>已有边：{selectedCell.cell.edges.map((edge) => `${edge.operation}:${edge.edgeId}`).join(" / ") || "无"}</small>
+            </aside>
+          ) : null}
+        </section>
+      ) : null}
+
+      {facet === "selector" ? (
+        <section className="task-graph-memory-workbench">
+          <aside className="boundary-card task-graph-memory-sidebar">
+            <header><strong>记忆边</strong><span>{memoryModel.memoryEdges.length} 条</span></header>
+            <div className="task-graph-cognition-list">
+              {memoryModel.memoryEdges.map((edge) => (
+                <button
+                  className={selectedMemoryEdge?.edgeId === edge.edgeId ? "task-graph-memory-list-button task-graph-memory-list-button--active" : "task-graph-memory-list-button"}
+                  key={edge.edgeId}
+                  onClick={() => {
+                    setSelectedMemoryEdgeId(edge.edgeId);
+                    onEditorFocus?.({
+                      layer: "memory",
+                      facet: "selector",
+                      node_id: edge.taskNodeId,
+                      edge_id: edge.edgeId,
+                      repository_id: edge.repositoryId,
+                      collection_id: edge.collectionId,
+                    });
+                  }}
+                  type="button"
+                >
+                  <strong>{taskSystemOptionLabel(edge.edgeType)}</strong>
+                  <span>{edge.taskNodeId} / {edge.repositoryId}.{edge.collectionId}</span>
+                  <em>{edge.edgeId}</em>
+                </button>
+              ))}
+            </div>
+          </aside>
+
+          <article className="boundary-card task-graph-memory-detail">
+            <header><strong>Selector / Version / Receipt</strong><span>定向读取，不走模糊 RAG 主路径</span></header>
+            {selectedMemoryEdge ? (
+              <div className="boundary-form">
+                <TaskSystemField label="边 ID">
+                  <input disabled value={selectedMemoryEdge.edgeId} />
+                </TaskSystemField>
+                <TaskSystemSelectField
+                  label="边类型"
+                  onChange={(value) => updateTaskGraphEdge(selectedMemoryEdge.edgeId, { edge_type: value })}
+                  options={["memory_read", "memory_write_candidate", "memory_commit", "memory_handoff"]}
+                  value={selectedMemoryEdge.edgeType}
                 />
-                <TaskSystemField label="可读 Kind">
+                <TaskSystemField label="Repository">
+                  <input onChange={(event) => patchSelectedMemoryEdgeMetadata({ repository: event.target.value })} value={selectedMemoryEdge.repositoryId} />
+                </TaskSystemField>
+                <TaskSystemField label="Collection">
+                  <input onChange={(event) => patchSelectedMemoryEdgeMetadata({ collection: event.target.value, selector: { ...selectedMemoryEdge.selector, collection: event.target.value } })} value={selectedMemoryEdge.collectionId} />
+                </TaskSystemField>
+                <TaskSystemField label="Record Kinds">
                   <textarea
-                    onChange={(event) => updateTaskGraphNode(nodeId, { memory_read_policy: { ...readPolicy, readable_kinds: splitList(event.target.value) } })}
-                    value={listText(readPolicy.readable_kinds)}
+                    onChange={(event) => patchSelectedMemoryEdgeMetadata({ selector: { ...selectedMemoryEdge.selector, record_kinds: splitList(event.target.value) } })}
+                    value={listText(selectedMemoryEdge.selector.record_kinds)}
+                  />
+                </TaskSystemField>
+                <TaskSystemField label="Record Keys">
+                  <textarea
+                    onChange={(event) => patchSelectedMemoryEdgeMetadata({ selector: { ...selectedMemoryEdge.selector, record_keys: splitList(event.target.value) } })}
+                    value={listText(selectedMemoryEdge.selector.record_keys)}
                   />
                 </TaskSystemField>
                 <TaskSystemSelectField
-                  formatOption={taskSystemOptionLabel}
-                  label="写回策略"
-                  onChange={(value) => updateTaskGraphNode(nodeId, { memory_writeback_policy: { ...writePolicy, writeback_policy: value } })}
-                  options={["task_default", "task_summary_only", "session_and_durable"]}
-                  value={String(writePolicy.writeback_policy ?? "task_default")}
+                  label="版本选择"
+                  onChange={(value) => patchSelectedMemoryEdgeMetadata({ version_selector: { mode: value } })}
+                  options={["latest_committed_before_clock", "latest_committed_before_scope", "pinned_version", "by_receipt", "manual_snapshot"]}
+                  value={selectedMemoryEdge.versionSelector}
                 />
-                <TaskSystemField label="可写 Kind">
+                <TaskSystemSelectField
+                  label="缺失处理"
+                  onChange={(value) => patchSelectedMemoryEdgeMetadata({ on_missing: value })}
+                  options={["block", "warn", "skip"]}
+                  value={selectedMemoryEdge.onMissing}
+                />
+                <TaskSystemField label="模型可见名称">
+                  <input
+                    onChange={(event) => patchSelectedMemoryEdgeMetadata({ model_visible_label: event.target.value })}
+                    value={selectedMemoryEdge.modelVisibleLabel}
+                  />
+                </TaskSystemField>
+                <TaskSystemField label="Prompt 使用说明" wide>
                   <textarea
-                    onChange={(event) => updateTaskGraphNode(nodeId, { memory_writeback_policy: { ...writePolicy, writable_kinds: splitList(event.target.value) } })}
-                    value={listText(writePolicy.writable_kinds)}
+                    onChange={(event) => patchSelectedMemoryEdgeMetadata({ usage_instruction: event.target.value })}
+                    placeholder="你必须把这些记录作为硬约束；若与上游交接冲突，优先报告冲突而不是自行改写事实。"
+                    value={selectedMemoryEdge.usageInstruction}
                   />
                 </TaskSystemField>
-                <TaskSystemField label="产物目标">
-                  <input
-                    onChange={(event) => updateTaskGraphNode(nodeId, { artifact_target: event.target.value, output_path: event.target.value })}
-                    placeholder="artifacts/result.md"
-                    value={String(node.artifact_target ?? node.output_path ?? "")}
-                  />
-                </TaskSystemField>
-                <label className="boundary-check">
-                  <input
-                    checked={nodeArtifactPolicy.required === true}
-                    onChange={(event) => updateTaskGraphNode(nodeId, { artifact_policy: { ...nodeArtifactPolicy, required: event.target.checked } })}
-                    type="checkbox"
-                  />
-                  阶段必需产物
-                </label>
-              </article>
-            );
-          })}
-        </div>
-      </section>
+                <TaskSystemSelectField
+                  label="提交可见性"
+                  onChange={(value) => patchSelectedMemoryEdgeMetadata({ receipt_policy: { ...selectedMemoryEdge.receiptPolicy, visible_after: value } })}
+                  options={["next_clock", "same_scope_next_node", "next_iteration", "manual_release"]}
+                  value={String(selectedMemoryEdge.receiptPolicy.visible_after ?? "next_clock")}
+                />
+              </div>
+            ) : (
+              <div className="task-graph-note">
+                <strong>没有记忆边</strong>
+                <span>在读写矩阵里给节点授权后，这里会显示 selector、版本选择和 receipt 配置。</span>
+              </div>
+            )}
+          </article>
+        </section>
+      ) : null}
 
-      <section className="boundary-card">
-        <header><strong>边级记忆交接</strong><span>只描述交接携带什么，不替节点扩大权限</span></header>
-        <div className="task-graph-node-policy-list">
-          {activeGraphEdges.map((edge, index) => {
-            const edgeId = String(edge.edge_id ?? edge.id ?? `edge_${index + 1}`);
-            const handoffPolicy = asRecord(edge.working_memory_handoff_policy);
-            return (
-              <article className="task-graph-node-policy-row" key={edgeId}>
-                <div className="task-graph-node-policy-row__identity">
-                  <strong>{edgeSource(edge)} {"->"} {edgeTarget(edge)}</strong>
-                  <span>{edgeId}</span>
-                </div>
-                <TaskSystemField label="携带 Kind">
-                  <textarea
-                    onChange={(event) => updateTaskGraphEdge(edgeId, {
-                      working_memory_handoff_policy: {
-                        ...handoffPolicy,
-                        carry_kinds: splitList(event.target.value),
-                      },
-                    })}
-                    placeholder={WORKING_MEMORY_KIND_OPTIONS.slice(0, 3).join("\n")}
-                    value={listText(handoffPolicy.carry_kinds)}
-                  />
-                </TaskSystemField>
-                <TaskSystemField label="携带 Scope">
-                  <textarea
-                    onChange={(event) => updateTaskGraphEdge(edgeId, {
-                      working_memory_handoff_policy: {
-                        ...handoffPolicy,
-                        carry_scopes: splitList(event.target.value),
-                      },
-                    })}
-                    placeholder={"edge_scope\nartifact_scope"}
-                    value={listText(handoffPolicy.carry_scopes)}
-                  />
-                </TaskSystemField>
-                <label className="boundary-check">
-                  <input
-                    checked={handoffPolicy.summary_only === true}
-                    onChange={(event) => updateTaskGraphEdge(edgeId, {
-                      working_memory_handoff_policy: {
-                        ...handoffPolicy,
-                        summary_only: event.target.checked,
-                      },
-                    })}
-                    type="checkbox"
-                  />
-                  只传摘要或引用
-                </label>
-              </article>
-            );
-          })}
-          {!activeGraphEdges.length ? (
-            <div className="task-graph-note">
-              <strong>暂无通信边</strong>
-              <span>创建边后可以在这里定义工作记忆交接携带的 Kind、Scope 和摘要策略。</span>
+      {facet === "snapshot" ? (
+        <section className="task-graph-memory-workbench">
+          <aside className="boundary-card task-graph-memory-sidebar">
+            <header><strong>节点 Snapshot</strong><span>运行前输入预览</span></header>
+            <div className="task-graph-cognition-list">
+              {memoryModel.snapshots.map((snapshot) => (
+                <button
+                  className={selectedSnapshot?.nodeId === snapshot.nodeId ? "task-graph-memory-list-button task-graph-memory-list-button--active" : "task-graph-memory-list-button"}
+                  key={snapshot.nodeId}
+                  onClick={() => {
+                    setSelectedSnapshotNodeId(snapshot.nodeId);
+                    onEditorFocus?.({ layer: "memory", facet: "snapshot", node_id: snapshot.nodeId });
+                  }}
+                  type="button"
+                >
+                  <strong>{snapshot.title}</strong>
+                  <span>{snapshot.nodeId}</span>
+                  <em>{snapshot.reads.length} read / {snapshot.writeCandidates.length} candidate / {snapshot.commits.length} commit</em>
+                </button>
+              ))}
             </div>
-          ) : null}
-        </div>
-      </section>
+          </aside>
+
+          <article className="boundary-card task-graph-memory-detail">
+            <header><strong>MemorySnapshot 预览</strong><span>{selectedSnapshot?.nodeId || "未选择"}</span></header>
+            {selectedSnapshot ? (
+              <>
+                <div className="task-graph-mini-kv">
+                  <p><span>读取</span><strong>{selectedSnapshot.reads.length}</strong></p>
+                  <p><span>写候选</span><strong>{selectedSnapshot.writeCandidates.length}</strong></p>
+                  <p><span>提交</span><strong>{selectedSnapshot.commits.length}</strong></p>
+                  <p><span>交接</span><strong>{selectedSnapshot.handoffs.length}</strong></p>
+                  <p><span>风险</span><strong>{selectedSnapshot.issues.length}</strong></p>
+                  <p><span>节点</span><strong>{selectedSnapshot.title}</strong></p>
+                </div>
+                <div className="task-graph-cognition-section">
+                  <header><strong>节点会读到</strong><span>repository.collection / version_selector</span></header>
+                  <div className="task-graph-cognition-list">
+                    {selectedSnapshot.reads.map((edge) => (
+                      <article className="task-graph-cognition-item" key={edge.edgeId}>
+                        <div><strong>{edge.modelVisibleLabel || edge.collectionId}</strong><span>{edge.repositoryId}.{edge.collectionId}</span></div>
+                        <p>{edge.usageInstruction || "缺少使用说明"}</p>
+                        <em>{edge.edgeId} / {edge.versionSelector}</em>
+                      </article>
+                    ))}
+                    {!selectedSnapshot.reads.length ? <div className="task-graph-note"><strong>没有记忆读取</strong><span>该节点不会收到 MemorySnapshot 里的仓库记录。</span></div> : null}
+                  </div>
+                </div>
+                <div className="task-graph-cognition-section">
+                  <header><strong>节点会写入</strong><span>候选与提交分离</span></header>
+                  <div className="task-graph-cognition-list">
+                    {[...selectedSnapshot.writeCandidates, ...selectedSnapshot.commits].map((edge) => (
+                      <article className={edge.operation === "write_candidate" && !edge.hasCommitPath ? "task-graph-cognition-item task-graph-cognition-item--warn" : "task-graph-cognition-item"} key={edge.edgeId}>
+                        <div><strong>{taskSystemOptionLabel(edge.edgeType)}</strong><span>{edge.repositoryId}.{edge.collectionId}</span></div>
+                        <p>{edge.operation === "write_candidate" ? (edge.hasCommitPath ? "候选有可达提交路径。" : "候选没有可达提交路径。") : "提交后按 receipt_policy 控制可见性。"}</p>
+                        <em>{edge.operation}</em>
+                      </article>
+                    ))}
+                    {!selectedSnapshot.writeCandidates.length && !selectedSnapshot.commits.length ? <div className="task-graph-note"><strong>没有记忆写入</strong><span>该节点不会更新仓库。</span></div> : null}
+                  </div>
+                </div>
+                {selectedSnapshot.issues.length ? (
+                  <div className="task-graph-note task-graph-note--danger">
+                    <strong>Snapshot 配置风险</strong>
+                    <span>{selectedSnapshot.issues.join(" / ")}</span>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="task-graph-note">
+                <strong>没有可预览节点</strong>
+                <span>添加任务节点后，可以预览该节点运行时会收到的 MemorySnapshot。</span>
+              </div>
+            )}
+          </article>
+        </section>
+      ) : null}
+
+      {facet === "artifact_context" ? (
+        <>
+          <section className="task-graph-form-grid">
+            <WorkingMemoryPolicyEditor
+              memorySharingPolicy={taskGraphDraft.context_policy.memory_sharing_policy}
+              policy={workingMemoryPolicy}
+              sharedContextPolicy={taskGraphDraft.context_policy.shared_context_policy}
+              onMemorySharingPolicyChange={(value) => updateContextPolicy({ memory_sharing_policy: value })}
+              onPolicyChange={updateWorkingMemoryPolicy}
+              onSharedContextPolicyChange={(value) => updateContextPolicy({ shared_context_policy: value })}
+            />
+            <ArtifactPolicyEditor
+              policy={graphArtifactPolicy}
+              onPolicyChange={updateArtifactPolicy}
+            />
+            <article className="boundary-card task-graph-layer-explainer">
+              <header><strong>ArtifactContextPacket</strong></header>
+              <div className="task-graph-mini-kv">
+                <p><span>产物边</span><strong>{artifactEdges.length}</strong></p>
+                <p><span>记忆边</span><strong>{memoryModel.memoryEdges.length}</strong></p>
+                <p><span>仓库列</span><strong>{memoryModel.columns.length}</strong></p>
+              </div>
+              <div className="task-graph-note">
+                <strong>产物和记忆都通过 packet 进入节点</strong>
+                <span>产物上下文负责引用和展开策略；记忆上下文负责 selector 和版本可见性。</span>
+              </div>
+            </article>
+          </section>
+
+          <section className="boundary-card">
+            <header><strong>产物上下文边</strong><span>{artifactEdges.length} 条</span></header>
+            <div className="task-graph-node-policy-list">
+              {(artifactEdges.length ? artifactEdges : activeGraphEdges).map((edge, index) => {
+                const edgeId = taskGraphEdgeId(edge, index);
+                const artifactPolicy = asRecord(edge.artifact_ref_policy);
+                const edgeMetadata = asRecord(edge.metadata);
+                return (
+                  <article className="task-graph-node-policy-row task-graph-node-policy-row--wide" key={edgeId}>
+                    <div className="task-graph-node-policy-row__identity">
+                      <strong>{taskGraphEdgeSource(edge)} {"->"} {taskGraphEdgeTarget(edge)}</strong>
+                      <span>{edgeId}</span>
+                    </div>
+                    <TaskSystemSelectField
+                      label="上下文模式"
+                      onChange={(value) => updateTaskGraphEdge(edgeId, { metadata: { ...edgeMetadata, context_mode: value } })}
+                      options={["refs_only", "summary_and_refs", "expand_text_for_model", "notification_only"]}
+                      value={String(edgeMetadata.context_mode ?? artifactPolicy.context_mode ?? "refs_only")}
+                    />
+                    <TaskSystemField label="Source Output Key">
+                      <input
+                        onChange={(event) => updateTaskGraphEdge(edgeId, { artifact_ref_policy: { ...artifactPolicy, source_output_key: event.target.value } })}
+                        placeholder="contract.output:artifact_refs"
+                        value={String(artifactPolicy.source_output_key ?? "")}
+                      />
+                    </TaskSystemField>
+                    <TaskSystemField label="Target Input Key">
+                      <input
+                        onChange={(event) => updateTaskGraphEdge(edgeId, { artifact_ref_policy: { ...artifactPolicy, target_input_key: event.target.value } })}
+                        placeholder="candidate_ref"
+                        value={String(artifactPolicy.target_input_key ?? "")}
+                      />
+                    </TaskSystemField>
+                    <TaskSystemField label="Prompt 使用说明">
+                      <textarea
+                        onChange={(event) => updateTaskGraphEdge(edgeId, { metadata: { ...edgeMetadata, usage_instruction: event.target.value } })}
+                        value={String(edgeMetadata.usage_instruction ?? artifactPolicy.usage_instruction ?? "")}
+                      />
+                    </TaskSystemField>
+                    <TaskSystemField label="展开上限">
+                      <input
+                        min={0}
+                        onChange={(event) => updateTaskGraphEdge(edgeId, { artifact_ref_policy: { ...artifactPolicy, max_chars: Number(event.target.value || 0) } })}
+                        type="number"
+                        value={Number(artifactPolicy.max_chars ?? 0)}
+                      />
+                    </TaskSystemField>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        </>
+      ) : null}
     </section>
   );
 }

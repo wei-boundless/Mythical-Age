@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Sparkles } from "lucide-react";
+import { CheckCircle2, GitBranch, Sparkles, X } from "lucide-react";
 import { useState } from "react";
 
 import { TASK_GRAPH_TEMPLATE_CARDS, type TaskGraphTemplateBuildInput, type TaskGraphTemplateId } from "./taskGraphTemplates";
@@ -12,10 +12,14 @@ export type TaskGraphSetupWizardOptions = Pick<
 
 export function TaskGraphSetupWizard({
   domainTitle,
+  existingGraphSummary,
+  onCancel,
   taskCount,
   onApplyTemplate,
 }: {
   domainTitle: string;
+  existingGraphSummary?: { nodeCount: number; edgeCount: number; title: string };
+  onCancel?: () => void;
   taskCount: number;
   onApplyTemplate: (templateId: TaskGraphTemplateId, options: TaskGraphSetupWizardOptions) => void;
 }) {
@@ -49,9 +53,22 @@ export function TaskGraphSetupWizard({
         <span>TaskGraph Studio</span>
         <strong>从任务意图生成协同草稿</strong>
         <small>{domainTitle} · {taskCount} 个可绑定任务</small>
+        {onCancel ? (
+          <button className="boundary-chip" onClick={onCancel} type="button">
+            <X size={13} />
+            <span>返回当前蓝图</span>
+          </button>
+        ) : null}
       </header>
 
       <section className="task-graph-setup-wizard__intro">
+        {existingGraphSummary ? (
+          <div className="task-graph-setup-wizard__current">
+            <GitBranch size={20} />
+            <strong>当前蓝图：{existingGraphSummary.title}</strong>
+            <span>已有 {existingGraphSummary.nodeCount} 个节点 / {existingGraphSummary.edgeCount} 条边。重新选择模板会先确认，再替换当前拓扑草稿。</span>
+          </div>
+        ) : null}
         <div>
           <Sparkles size={20} />
           <strong>选择一个持续任务模板</strong>

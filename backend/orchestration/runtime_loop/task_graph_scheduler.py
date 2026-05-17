@@ -27,7 +27,7 @@ def bootstrap_scheduler_state(
     mode: str = "shadow",
 ) -> TaskGraphSchedulerState:
     statuses = _initial_node_statuses(runtime_spec=runtime_spec, node_statuses=node_statuses)
-    incoming, outgoing = _node_adjacency(runtime_spec.nodes, runtime_spec.edges)
+    incoming, outgoing = _node_adjacency(runtime_spec.nodes, runtime_spec.edges, runtime_spec.temporal_edges)
     optional_node_ids = _optional_feedback_subgraph_nodes(runtime_spec.nodes, runtime_spec.edges)
     completed = {node_id for node_id, status in statuses.items() if status in TERMINAL_COMPLETED}
     failed = {node_id for node_id, status in statuses.items() if status in TERMINAL_FAILED}
@@ -143,6 +143,8 @@ def bootstrap_scheduler_state(
             "scheduler_phase": "runtime_bootstrap" if mode == "active" else "shadow_bootstrap",
             "node_count": len(runtime_spec.nodes),
             "edge_count": len(runtime_spec.edges),
+            "temporal_edge_count": len(runtime_spec.temporal_edges),
+            "blocking_temporal_edge_count": len(_blocking_temporal_edges(runtime_spec.temporal_edges)),
             "phase_count": len(phase_states),
             "active_phase_ids": list(active_phase_ids),
             "active_sequence_by_phase": dict(active_sequence_by_phase),
@@ -172,6 +174,7 @@ def _initial_node_statuses(
 def _node_adjacency(
     nodes: tuple[TaskGraphRuntimeNode, ...],
     edges: tuple[TaskGraphRuntimeEdge, ...],
+    temporal_edges: tuple[dict[str, Any], ...] = (),
 ) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
     incoming: dict[str, list[str]] = defaultdict(list)
     outgoing: dict[str, list[str]] = defaultdict(list)
@@ -181,12 +184,41 @@ def _node_adjacency(
         target = str(edge.target_node_id or "").strip()
         if not source or not target:
             continue
-        if _is_feedback_edge(edge) or _is_backward_edge(source=source, target=target, node_order=node_order):
+        if (
+            _is_feedback_edge(edge)
+            or _is_conditional_route_edge(edge)
+            or _is_backward_edge(source=source, target=target, node_order=node_order)
+        ):
             outgoing[source].append(target)
             continue
         incoming[target].append(source)
         outgoing[source].append(target)
+    for edge in _blocking_temporal_edges(temporal_edges):
+        source = str(edge.get("source_node_id") or "").strip()
+        target = str(edge.get("target_node_id") or "").strip()
+        if not source or not target:
+            continue
+        if _is_backward_edge(source=source, target=target, node_order=node_order):
+            outgoing[source].append(target)
+            continue
+        if source not in incoming[target]:
+            incoming[target].append(source)
+        if target not in outgoing[source]:
+            outgoing[source].append(target)
     return dict(incoming), dict(outgoing)
+
+
+def _blocking_temporal_edges(temporal_edges: tuple[dict[str, Any], ...]) -> tuple[dict[str, Any], ...]:
+    selected: list[dict[str, Any]] = []
+    for edge in temporal_edges:
+        item = dict(edge or {})
+        if item.get("blocking", True) is False:
+            continue
+        temporal_type = str(item.get("temporal_type") or "").strip()
+        if temporal_type in {"revision_feedback", "conditional_feedback", "repair_feedback"}:
+            continue
+        selected.append(item)
+    return tuple(selected)
 
 
 def _optional_feedback_subgraph_nodes(
@@ -201,13 +233,17 @@ def _optional_feedback_subgraph_nodes(
         target = str(edge.target_node_id or "").strip()
         if not source or not target:
             continue
-        if _is_feedback_edge(edge) or _is_backward_edge(source=source, target=target, node_order=node_order):
+        if (
+            _is_feedback_edge(edge)
+            or _is_conditional_route_edge(edge)
+            or _is_backward_edge(source=source, target=target, node_order=node_order)
+        ):
             continue
         forward_outgoing[source].append(target)
     roots = {
         str(edge.target_node_id or "").strip()
         for edge in edges
-        if _is_feedback_edge(edge)
+        if (_is_feedback_edge(edge) or _is_conditional_route_edge(edge))
         and str(edge.target_node_id or "").strip() in node_ids
         and not _is_backward_edge(
             source=str(edge.source_node_id or "").strip(),
@@ -368,6 +404,32 @@ def _is_feedback_edge(edge: TaskGraphRuntimeEdge) -> bool:
         "repair_feedback",
         "non_blocking_feedback",
     } or loop_role in {"repair", "feedback"}
+
+
+def _is_conditional_route_edge(edge: TaskGraphRuntimeEdge) -> bool:
+    metadata = dict(edge.metadata or {})
+    mode = str(edge.mode or "").strip()
+    dependency_role = str(metadata.get("dependency_role") or "").strip()
+    verdict = str(metadata.get("verdict") or "").strip()
+    return (
+        mode
+        in {
+            "revision_request",
+            "repair_route",
+            "human_handoff",
+            "fail_closed",
+            "conditional_route",
+        }
+        or dependency_role in {"conditional_route", "repair_route", "failure_route", "human_handoff"}
+        or verdict in {
+            "revise",
+            "repair_world",
+            "repair_outline",
+            "repair_character",
+            "human_review_required",
+            "fail_closed",
+        }
+    )
 
 
 def _is_backward_edge(*, source: str, target: str, node_order: dict[str, int]) -> bool:

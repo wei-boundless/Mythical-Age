@@ -260,8 +260,7 @@
         "slot_index": 6,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin",
-        "system_key": "worker_pool",
-        "legacy_agent_id": "agent:6"
+        "system_key": "worker_pool"
       },
       "display_name": "RAG检索分析Agent",
       "profile_type": "worker_sub_agent",
@@ -302,8 +301,7 @@
         "slot_index": 7,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin",
-        "system_key": "worker_pool",
-        "legacy_agent_id": "agent:7"
+        "system_key": "worker_pool"
       },
       "display_name": "PDF阅读分析Agent",
       "profile_type": "worker_sub_agent",
@@ -344,8 +342,7 @@
         "slot_index": 8,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin",
-        "system_key": "worker_pool",
-        "legacy_agent_id": "agent:8"
+        "system_key": "worker_pool"
       },
       "display_name": "表格分析Agent",
       "profile_type": "worker_sub_agent",
@@ -384,7 +381,6 @@
         "role": "worker_specialist",
         "worker_kind": "web_research",
         "slot_index": 9,
-        "legacy_agent_id": "agent:9",
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin",
         "system_key": "worker_pool"
@@ -780,16 +776,16 @@
       "agent_category": "worker_sub_agent",
       "profile_type": "worker_sub_agent",
       "interface_target": "task_graph_node_runtime",
-      "description": "生成项目启动包、世界观、大纲、人物、分章、章节正文和专项修复候选。",
+      "description": "生成项目启动包、分卷计划、章节正文和卷后补充提案。",
       "enabled": true,
       "builtin": false,
       "editable": true,
       "default_soul_id": "hebo",
       "default_projection_id": "projection.writing.simple_novel.project_brief",
-      "created_at": 1778877788.2980099,
-      "updated_at": 1778877788.2980099,
+      "created_at": 1778979182.3163033,
+      "updated_at": 1778979182.3163033,
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "task_family": "writing_simple_novel",
         "definition_source": "task_graph_assembly",
         "source_task_graph_refs": [
@@ -805,16 +801,16 @@
       "agent_category": "worker_sub_agent",
       "profile_type": "worker_sub_agent",
       "interface_target": "task_graph_node_runtime",
-      "description": "审核每个候选并输出有限裁决、问题台账和下一步要求。",
+      "description": "执行章节轻审、卷级总审、补充边界审和推进裁决。",
       "enabled": true,
       "builtin": false,
       "editable": true,
       "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing.simple_novel.world_reviewer",
-      "created_at": 1778877788.2980099,
-      "updated_at": 1778877788.2980099,
+      "default_projection_id": "projection.writing.simple_novel.volume_reviewer",
+      "created_at": 1778979182.3163033,
+      "updated_at": 1778979182.3163033,
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "task_family": "writing_simple_novel",
         "definition_source": "task_graph_assembly",
         "source_task_graph_refs": [
@@ -830,16 +826,16 @@
       "agent_category": "worker_sub_agent",
       "profile_type": "worker_sub_agent",
       "interface_target": "task_graph_node_runtime",
-      "description": "在 pass 后写入 canon、章节 commit、交付包和归档索引。",
+      "description": "初始化基准库，并写入章节、卷级、可改动库和交付索引。",
       "enabled": true,
       "builtin": false,
       "editable": true,
       "default_soul_id": "hebo",
       "default_projection_id": "projection.writing.simple_novel.memory_steward",
-      "created_at": 1778877788.2980099,
-      "updated_at": 1778877788.2980099,
+      "created_at": 1778979182.3163033,
+      "updated_at": 1778979182.3163033,
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "task_family": "writing_simple_novel",
         "definition_source": "task_graph_assembly",
         "source_task_graph_refs": [
@@ -861,10 +857,10 @@
       "editable": true,
       "default_soul_id": "hebo",
       "default_projection_id": "projection.writing.simple_novel.final_assembler",
-      "created_at": 1778877788.2980099,
-      "updated_at": 1778877788.2980099,
+      "created_at": 1778979182.3163033,
+      "updated_at": 1778979182.3163033,
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "task_family": "writing_simple_novel",
         "definition_source": "task_graph_assembly",
         "source_task_graph_refs": [

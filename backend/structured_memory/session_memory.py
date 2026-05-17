@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .dialogue_state import ContextSlots, DialogueState, FlowState, TaskState, TurnUnderstanding
+from .process_state import ContextSlots, DialogueState, FlowState, TaskState, TurnUnderstanding
 from .flow_snapshots import FlowSnapshot, FlowSnapshotManager
 from .models import Message, utc_now_iso
 from .process_state import ProcessStateManager

@@ -62,8 +62,6 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
                 "op.mcp_retrieval",
                 "op.mcp_pdf",
                 "op.mcp_structured_data",
-                "op.analyze_multimodal_file",
-                "op.index_multimodal_file",
                 "op.write_file",
                 "op.edit_file",
                 "op.shell",
@@ -202,7 +200,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             agent_id="agent:pdf_reader",
             allowed_task_modes=("pdf_analysis", "document_reading", "evidence_lookup"),
             allowed_runtime_lanes=("pdf_delegate", "readonly_exploration"),
-            allowed_operations=("op.model_response", "op.mcp_pdf", "op.read_file", "op.analyze_multimodal_file"),
+            allowed_operations=("op.model_response", "op.mcp_pdf", "op.read_file"),
             blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.memory_write_candidate", "op.delegate_to_agent"),
             allowed_memory_scopes=("conversation_readonly", "state_readonly"),
             allowed_context_sections=("task", "projection", "tool", "runtime_contracts", "artifact_refs"),
@@ -443,9 +441,7 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
         )
     )
     metadata = dict(payload.get("metadata") or {})
-    legacy_agent_id = str(payload.get("agent_id") or "").strip()
-    if legacy_agent_id and legacy_agent_id != next_payload["agent_id"]:
-        metadata["legacy_agent_id"] = legacy_agent_id
+    metadata.pop("legacy_agent_id", None)
     next_payload["metadata"] = metadata
     return next_payload
 

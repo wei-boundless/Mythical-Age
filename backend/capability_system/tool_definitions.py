@@ -15,12 +15,10 @@ from capability_system.tool_contracts import (
     ToolResourceExposurePolicy,
     ToolRuntimeVisibility,
 )
-from capability_system.units.tools.analyze_multimodal_file_tool import AnalyzeMultimodalFileTool
 from capability_system.units.tools.delegate_to_agent_tool import DelegateToAgentTool
 from capability_system.units.tools.fetch_url_tool import FetchURLTool
 from capability_system.units.tools.file_system_tools import GlobPathsTool, ListDirTool, PathExistsTool, StatPathTool
 from capability_system.units.tools.git_tools import GitDiffTool, GitLogTool, GitShowTool, GitStatusTool
-from capability_system.units.tools.index_multimodal_file_tool import IndexMultimodalFileTool
 from capability_system.units.tools.python_repl_tool import PythonReplTool
 from capability_system.units.tools.read_file_tool import ReadFileTool
 from capability_system.units.tools.search_files_tool import SearchFilesTool, SearchTextTool
@@ -91,68 +89,6 @@ def _tool_definitions() -> list[ToolDefinition]:
             is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=True,
-        ),
-        ToolDefinition(
-            name="analyze_multimodal_file",
-            display_name="多模态文件分析",
-            operation_id="op.analyze_multimodal_file",
-            module="tools.analyze_multimodal_file_tool",
-            factory=lambda base_dir: AnalyzeMultimodalFileTool(root_dir=base_dir),
-            contract=ToolExecutionContract(
-                required_inputs=["path"],
-                owner_scope="explicit_path",
-                missing_binding_behavior="clarify",
-                context_policy="isolated",
-                result_channel="canonical",
-            ),
-            resolution_contract=ToolResolutionContract(
-                path_field="path",
-                path_kind="multimodal",
-            ),
-            output_contract=ToolOutputContract(display_mode="artifact_only"),
-            capability_tags=["multimodal", "inspection", "preview"],
-            supported_modalities=["pdf", "table", "image", "document"],
-            safety_tags=["read", "compute"],
-            route_hints=["tool", "file_preview"],
-            safe_for_auto_route=False,
-            schema_identity="local.tools/analyze_multimodal_file",
-            runtime_visibility="agent_internal",
-            prompt_exposure_policy="hidden",
-            resource_exposure_policy="handle_only",
-            is_read_only=True,
-            is_destructive=False,
-            is_concurrency_safe=True,
-        ),
-        ToolDefinition(
-            name="index_multimodal_file",
-            display_name="多模态文件索引",
-            operation_id="op.index_multimodal_file",
-            module="tools.index_multimodal_file_tool",
-            factory=lambda base_dir: IndexMultimodalFileTool(root_dir=base_dir),
-            contract=ToolExecutionContract(
-                required_inputs=["path"],
-                owner_scope="explicit_path",
-                missing_binding_behavior="deny",
-                context_policy="isolated",
-                result_channel="artifact_only",
-            ),
-            resolution_contract=ToolResolutionContract(
-                path_field="path",
-                path_kind="multimodal",
-            ),
-            output_contract=ToolOutputContract(display_mode="artifact_only", persistence_policy="do_not_persist"),
-            capability_tags=["indexing", "multimodal", "ingest"],
-            supported_modalities=["pdf", "table", "image", "document"],
-            safety_tags=["write", "compute"],
-            route_hints=["tool", "indexing"],
-            safe_for_auto_route=False,
-            schema_identity="local.tools/index_multimodal_file",
-            runtime_visibility="agent_internal",
-            prompt_exposure_policy="hidden",
-            resource_exposure_policy="handle_only",
-            is_read_only=False,
-            is_destructive=False,
-            is_concurrency_safe=False,
         ),
         ToolDefinition(
             name="list_dir",

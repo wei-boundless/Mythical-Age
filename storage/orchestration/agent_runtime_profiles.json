@@ -34,11 +34,11 @@
         "op.mcp_retrieval",
         "op.mcp_pdf",
         "op.mcp_structured_data",
-        "op.analyze_multimodal_file",
-        "op.index_multimodal_file",
         "op.write_file",
         "op.edit_file",
-        "op.shell"
+        "op.shell",
+        "op.analyze_multimodal_file",
+        "op.index_multimodal_file"
       ],
       "blocked_operations": [
         "op.python_repl",
@@ -378,8 +378,7 @@
       "lifecycle_policy": "system_builtin",
       "metadata": {
         "worker_kind": "rag_analysis",
-        "delegation_kind": "evidence_lookup",
-        "legacy_agent_id": "agent:6"
+        "delegation_kind": "evidence_lookup"
       }
     },
     {
@@ -436,8 +435,7 @@
       "lifecycle_policy": "system_builtin",
       "metadata": {
         "worker_kind": "pdf_analysis",
-        "delegation_kind": "pdf_reading",
-        "legacy_agent_id": "agent:7"
+        "delegation_kind": "pdf_reading"
       }
     },
     {
@@ -494,8 +492,7 @@
       "lifecycle_policy": "system_builtin",
       "metadata": {
         "worker_kind": "structured_data_analysis",
-        "delegation_kind": "table_analysis",
-        "legacy_agent_id": "agent:8"
+        "delegation_kind": "table_analysis"
       }
     },
     {
@@ -1416,14 +1413,11 @@
       "agent_id": "agent:writing_simple_creator",
       "allowed_task_modes": [
         "chapter_draft",
-        "chapter_plan_candidate",
-        "character_candidate",
-        "character_repair_candidate",
-        "outline_candidate",
-        "outline_repair_candidate",
+        "chapter_outline",
         "project_brief",
-        "world_candidate",
-        "world_repair_candidate"
+        "volume_plan",
+        "world_design",
+        "world_outline_extension_proposal"
       ],
       "allowed_runtime_lanes": [
         "coordination_task"
@@ -1455,13 +1449,10 @@
       "output_contracts": [
         "contract.writing.simple_novel.project_brief",
         "contract.writing.simple_novel.world_candidate",
-        "contract.writing.simple_novel.outline_candidate",
-        "contract.writing.simple_novel.character_candidate",
-        "contract.writing.simple_novel.chapter_plan_candidate",
+        "contract.writing.simple_novel.volume_plan_commit",
+        "contract.writing.simple_novel.chapter_outline",
         "contract.writing.simple_novel.chapter_draft",
-        "contract.writing.simple_novel.world_candidate",
-        "contract.writing.simple_novel.outline_candidate",
-        "contract.writing.simple_novel.character_candidate"
+        "contract.writing.simple_novel.world_outline_extension_proposal"
       ],
       "can_delegate_to_agents": false,
       "allowed_delegate_agent_ids": [],
@@ -1474,7 +1465,7 @@
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "task_graph_managed",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "task_family": "writing_simple_novel",
         "source_task_graph_refs": [
           "graph.writing.simple_novel"
@@ -1485,15 +1476,13 @@
       "agent_profile_id": "writing_simple_reviewer_runtime",
       "agent_id": "agent:writing_simple_reviewer",
       "allowed_task_modes": [
-        "chapter_plan_review",
         "chapter_progress_router",
         "chapter_review",
-        "character_repair_review",
-        "character_review",
+        "extension_review",
         "final_review",
-        "outline_repair_review",
-        "outline_review",
-        "world_repair_review",
+        "next_volume_router",
+        "volume_postmortem",
+        "volume_review",
         "world_review"
       ],
       "allowed_runtime_lanes": [
@@ -1525,14 +1514,12 @@
       "use_shared_contract": true,
       "output_contracts": [
         "contract.writing.simple_novel.world_review",
-        "contract.writing.simple_novel.outline_review",
-        "contract.writing.simple_novel.character_review",
-        "contract.writing.simple_novel.chapter_plan_review",
         "contract.writing.simple_novel.chapter_review",
         "contract.writing.simple_novel.chapter_progress_decision",
-        "contract.writing.simple_novel.world_review",
-        "contract.writing.simple_novel.outline_review",
-        "contract.writing.simple_novel.character_review",
+        "contract.writing.simple_novel.volume_review",
+        "contract.writing.simple_novel.volume_postmortem",
+        "contract.writing.simple_novel.extension_review",
+        "contract.writing.simple_novel.next_volume_decision",
         "contract.writing.simple_novel.final_review"
       ],
       "can_delegate_to_agents": false,
@@ -1546,7 +1533,7 @@
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "task_graph_managed",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "task_family": "writing_simple_novel",
         "source_task_graph_refs": [
           "graph.writing.simple_novel"
@@ -1557,17 +1544,13 @@
       "agent_profile_id": "writing_memory_steward_runtime",
       "agent_id": "agent:writing_memory_steward",
       "allowed_task_modes": [
+        "baseline_memory_seed",
+        "extension_commit",
         "fail_closed",
         "memory_commit_chapter",
-        "memory_commit_chapter_plan",
-        "memory_commit_character",
-        "memory_commit_outline",
         "memory_commit_world",
         "memory_finalize",
-        "memory_index_lock",
-        "memory_index_read",
-        "memory_index_release",
-        "memory_index_write"
+        "volume_commit"
       ],
       "allowed_runtime_lanes": [
         "coordination_task",
@@ -1598,17 +1581,13 @@
       ],
       "use_shared_contract": true,
       "output_contracts": [
-        "contract.writing.simple_novel.world_canon_commit",
-        "contract.writing.simple_novel.outline_canon_commit",
-        "contract.writing.simple_novel.character_canon_commit",
-        "contract.writing.simple_novel.chapter_plan_commit",
+        "contract.writing.simple_novel.memory_commit_world",
+        "contract.writing.simple_novel.baseline_memory_commit",
         "contract.writing.simple_novel.chapter_commit",
+        "contract.writing.simple_novel.volume_commit",
+        "contract.writing.simple_novel.extension_commit",
         "contract.writing.simple_novel.delivery_package",
-        "contract.writing.simple_novel.failure_report",
-        "contract.writing.simple_novel.memory_pack",
-        "contract.writing.simple_novel.memory_write_receipt",
-        "contract.writing.simple_novel.memory_lock_receipt",
-        "contract.writing.simple_novel.memory_release_receipt"
+        "contract.writing.simple_novel.failure_report"
       ],
       "can_delegate_to_agents": false,
       "allowed_delegate_agent_ids": [],
@@ -1621,7 +1600,7 @@
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "task_graph_managed",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "task_family": "writing_simple_novel",
         "source_task_graph_refs": [
           "graph.writing.simple_novel"
@@ -1675,7 +1654,7 @@
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "task_graph_managed",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260516",
+        "managed_by": "codex_writing_simple_novel_config_20260517",
         "task_family": "writing_simple_novel",
         "source_task_graph_refs": [
           "graph.writing.simple_novel"

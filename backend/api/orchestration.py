@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import threading
 import time
 from typing import Any
 from dataclasses import asdict
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -76,14 +79,16 @@ def _schedule_stage_execution_background(
     stage_execution_request: Any,
     current_turn_context: dict[str, Any] | None = None,
 ) -> None:
-    async def runner() -> None:
+    def runner() -> None:
         try:
-            await _execute_stage_request_in_background(
-                runtime=runtime,
-                session_id=session_id,
-                source=source,
-                stage_execution_request=stage_execution_request,
-                current_turn_context=current_turn_context,
+            asyncio.run(
+                _execute_stage_request_in_background(
+                    runtime=runtime,
+                    session_id=session_id,
+                    source=source,
+                    stage_execution_request=stage_execution_request,
+                    current_turn_context=current_turn_context,
+                )
             )
         except Exception as exc:
             runtime.query_runtime.task_run_loop.event_log.append(
@@ -103,7 +108,208 @@ def _schedule_stage_execution_background(
                 },
             )
 
-    asyncio.create_task(runner())
+    thread = threading.Thread(
+        target=runner,
+        name=f"taskgraph-stage-{str(stage_execution_request.stage_id or 'unknown')}",
+        daemon=True,
+    )
+    thread.start()
+
+
+def _sanitize_replayed_writing_stage_request_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Clean stale chapter revision fields before replaying a persisted stage request."""
+    if str(payload.get("stage_id") or payload.get("node_id") or "").strip() != "chapter_draft":
+        return payload
+    explicit_inputs = dict(payload.get("explicit_inputs") or {})
+    if explicit_inputs.get("revision_required") is not True and "chapter_revision_requirements" not in explicit_inputs:
+        return payload
+
+    sanitized_inputs = _sanitize_writing_chapter_revision_inputs(explicit_inputs)
+    sanitized = dict(payload)
+    sanitized["explicit_inputs"] = sanitized_inputs
+    sanitized["request_id"] = ""
+    sanitized["idempotency_key"] = ""
+    sanitized["a2a_payload"] = _replace_nested_explicit_inputs(
+        dict(sanitized.get("a2a_payload") or {}),
+        sanitized_inputs,
+    )
+    sanitized["runtime_assembly"] = _replace_nested_explicit_inputs(
+        dict(sanitized.get("runtime_assembly") or {}),
+        sanitized_inputs,
+    )
+    return sanitized
+
+
+def _sanitize_writing_chapter_revision_inputs(explicit_inputs: dict[str, Any]) -> dict[str, Any]:
+    inputs = dict(explicit_inputs)
+    artifact_root = Path(str(inputs.get("artifact_root") or ""))
+    batch_dir_name = _writing_batch_dir_name(inputs)
+
+    latest_review_ref = _latest_artifact_ref(
+        artifact_root / "reviews" / "chapters" / batch_dir_name,
+        "review_round_*.md",
+    )
+    latest_draft_ref = _latest_artifact_ref(
+        artifact_root / "chapters" / batch_dir_name,
+        "draft_round_*.md",
+    )
+    if latest_review_ref:
+        inputs["previous_chapter_review_ref"] = latest_review_ref
+    if latest_draft_ref:
+        inputs["previous_chapter_draft_ref"] = latest_draft_ref
+
+    batch_start = _safe_int(inputs.get("batch_start_index") or inputs.get("chapter_index"), 1)
+    batch_end = _safe_int(inputs.get("batch_end_index"), batch_start)
+    chapters_per_round = _safe_int(inputs.get("chapters_per_round") or inputs.get("chapter_batch_size"), 10)
+    chapter_target_words = _safe_int(inputs.get("chapter_target_words"), 2000)
+    batch_chapter_numbers = list(range(batch_start, batch_end + 1))
+    inputs["batch_chapter_numbers"] = batch_chapter_numbers
+    inputs["batch_chapter_list"] = "、".join(f"第{i}章" for i in batch_chapter_numbers)
+    review_hint = ""
+    review_text = _read_artifact_text(latest_review_ref)
+    if review_text:
+        review_hint = "\n最新审核意见摘要：\n" + _compact_review_text(review_text, max_chars=6000)
+    inputs["chapter_revision_requirements"] = (
+        f"第{batch_start}章至第{batch_end}章上一轮审核未通过。"
+        f"本轮必须严格依据最新审核意见重写完整批次，共{chapters_per_round}章；"
+        f"每章约{chapter_target_words}字，只输出完整正文，不要输出摘要、提纲、解释、拒绝、等待补充或工作说明。"
+        f"{review_hint}"
+    )
+    inputs["revision_required"] = True
+    inputs["force_replay"] = True
+    inputs["force_replay_after"] = time.time()
+    inputs.pop("contract.writing.simple_novel.chapter_draft:artifact_refs", None)
+    inputs.pop("previous_quality_failure_stage_id", None)
+    return inputs
+
+
+def _replace_nested_explicit_inputs(value: Any, explicit_inputs: dict[str, Any]) -> Any:
+    if isinstance(value, dict):
+        replaced: dict[str, Any] = {}
+        for key, child in value.items():
+            if key == "explicit_inputs" and isinstance(child, dict):
+                replaced[key] = dict(explicit_inputs)
+            else:
+                replaced[key] = _replace_nested_explicit_inputs(child, explicit_inputs)
+        return replaced
+    if isinstance(value, list):
+        return [_replace_nested_explicit_inputs(item, explicit_inputs) for item in value]
+    return value
+
+
+def _writing_batch_dir_name(inputs: dict[str, Any]) -> str:
+    batch_index = _safe_int(inputs.get("batch_index"), 1)
+    batch_start = _safe_int(inputs.get("batch_start_index") or inputs.get("chapter_index"), 1)
+    batch_end = _safe_int(inputs.get("batch_end_index"), batch_start)
+    return f"batch_{batch_index:03d}_chapters_{batch_start:03d}_{batch_end:03d}"
+
+
+def _latest_artifact_ref(directory: Path, pattern: str) -> str:
+    if not directory.exists() or not directory.is_dir():
+        return ""
+    files = [path for path in directory.glob(pattern) if path.is_file()]
+    if not files:
+        return ""
+    latest = max(files, key=lambda path: path.stat().st_mtime)
+    return f"artifact:{latest.as_posix()}"
+
+
+def _read_artifact_text(artifact_ref: str, *, max_chars: int = 8000) -> str:
+    path_text = str(artifact_ref or "")
+    if path_text.startswith("artifact:"):
+        path_text = path_text[len("artifact:") :]
+    if not path_text:
+        return ""
+    path = Path(path_text)
+    if not path.exists() or not path.is_file():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore")[:max_chars]
+    except OSError:
+        return ""
+
+
+def _compact_review_text(text: str, *, max_chars: int = 3000) -> str:
+    raw = str(text or "").strip()
+    sections = _extract_named_review_sections(
+        raw,
+        section_names=(
+            "裁决",
+            "裁决理由",
+            "阻塞问题",
+            "非阻塞问题",
+            "下一轮修改要求",
+            "canon一致性检查",
+            "承接与推进检查",
+            "商业阅读体验检查",
+            "爽点与章末追读检查",
+        ),
+    )
+    if sections:
+        compact = "\n\n".join(sections)
+    else:
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        important = [
+            line
+            for line in lines
+            if any(
+                marker in line
+                for marker in (
+                    "阻塞",
+                    "修改",
+                    "问题",
+                    "必须",
+                    "裁决",
+                    "verdict",
+                    "revise",
+                    "未通过",
+                    "断裂",
+                    "失衡",
+                    "过于简单",
+                    "不允许",
+                )
+            )
+        ]
+        compact = "\n".join(important or lines)
+    return compact[:max_chars]
+
+
+def _extract_named_review_sections(text: str, *, section_names: tuple[str, ...]) -> list[str]:
+    sections: list[tuple[str, list[str]]] = []
+    current_name = ""
+    current_lines: list[str] = []
+    for line in str(text or "").splitlines():
+        stripped = line.strip()
+        matched_name = ""
+        for name in section_names:
+            if stripped.startswith(f"【{name}】"):
+                matched_name = name
+                break
+        if matched_name:
+            if current_name and current_lines:
+                sections.append((current_name, current_lines))
+            current_name = matched_name
+            current_lines = [stripped]
+            continue
+        if current_name:
+            if stripped.startswith("【") and stripped.endswith("】"):
+                if current_lines:
+                    sections.append((current_name, current_lines))
+                current_name = ""
+                current_lines = []
+            else:
+                current_lines.append(line)
+    if current_name and current_lines:
+        sections.append((current_name, current_lines))
+    wanted = set(section_names)
+    return ["\n".join(lines).strip() for name, lines in sections if name in wanted and "\n".join(lines).strip()]
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 class BehaviorDryRunRequest(BaseModel):
@@ -239,8 +445,6 @@ OPTION_LABELS: dict[str, str] = {
     "op.git_diff": "查看 Git 差异",
     "op.git_log": "查看 Git 日志",
     "op.git_show": "查看 Git 对象",
-    "op.analyze_multimodal_file": "分析多模态文件",
-    "op.index_multimodal_file": "索引多模态文件",
     "op.write_file": "写入文件",
     "op.edit_file": "编辑文件",
     "op.shell": "终端命令",
@@ -273,7 +477,7 @@ OPTION_LABELS: dict[str, str] = {
     "assertions": "验收断言",
 }
 
-LEGACY_ORCHESTRATION_TASK_MODES = {
+REMOVED_ORCHESTRATION_TASK_MODES = {
     "issue_triage",
     "trace_analysis",
     "case_draft",
@@ -330,7 +534,7 @@ def _build_task_scope_options(task_registry: TaskFlowRegistry, workflows: list[A
 
     def add(value: str, *, label: str, description: str = "", source: str = "") -> None:
         normalized = str(value or "").strip()
-        if not normalized or normalized in options_by_value or normalized in LEGACY_ORCHESTRATION_TASK_MODES:
+        if not normalized or normalized in options_by_value or normalized in REMOVED_ORCHESTRATION_TASK_MODES:
             return
         options_by_value[normalized] = _task_scope_option(
             normalized,
@@ -750,6 +954,27 @@ async def get_runtime_loop_task_graph_run_monitor(task_run_id: str) -> dict[str,
     return monitor
 
 
+@router.get("/orchestration/runtime-loop/task-runs/{task_run_id}/artifacts")
+async def get_runtime_loop_task_run_artifacts(task_run_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    return runtime.query_runtime.task_run_loop.get_task_run_artifacts(task_run_id)
+
+
+@router.get("/orchestration/runtime-loop/task-runs/{task_run_id}/memory-receipts")
+async def get_runtime_loop_task_run_memory_receipts(task_run_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    return runtime.query_runtime.task_run_loop.get_task_run_memory_receipts(task_run_id)
+
+
+@router.get("/orchestration/projects/{project_id}/runtime-status")
+async def get_project_runtime_status(project_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    status = runtime.query_runtime.task_run_loop.get_project_runtime_status(project_id)
+    if status is None:
+        raise HTTPException(status_code=404, detail="Project runtime status not found")
+    return status
+
+
 @router.post("/orchestration/runtime-loop/task-graphs/{graph_id}/start")
 async def start_task_graph_runtime_loop_run(
     graph_id: str,
@@ -890,7 +1115,7 @@ async def continue_coordination_current_stage(
     coordination_run_id: str,
     payload: CoordinationRunContinueRequest,
 ) -> dict[str, Any]:
-    from orchestration.runtime_loop.stage_execution_request import StageExecutionRequest
+    from orchestration.runtime_loop.stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
 
     runtime = require_runtime()
     coordination_run = runtime.query_runtime.task_run_loop.state_index.get_coordination_run(coordination_run_id)
@@ -901,36 +1126,520 @@ async def continue_coordination_current_stage(
     )
     if not state:
         raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
-    request_payload = dict(state.get("stage_execution_request") or {})
-    if not request_payload:
-        raise HTTPException(status_code=409, detail="CoordinationRun has no current stage execution request")
-    request = StageExecutionRequest.from_dict(request_payload)
     task_run = runtime.query_runtime.task_run_loop.state_index.get_task_run(coordination_run.task_run_id)
     session_id = str(getattr(task_run, "session_id", "") or "").strip()
     if not session_id:
         raise HTTPException(status_code=409, detail="CoordinationRun root TaskRun has no session_id")
-    current_turn_context = {
-        "authority": "context.coordination_run_continue",
-        "coordination_run_id": coordination_run_id,
-        "task_graph_id": coordination_run.graph_ref,
-        "selected_graph_id": coordination_run.graph_ref,
-        **dict(payload.current_turn_context or {}),
-    }
-    _schedule_stage_execution_background(
-        runtime=runtime,
-        session_id=session_id,
-        source=payload.source or "orchestration.coordination_run_continue_api",
-        stage_execution_request=request,
-        current_turn_context=current_turn_context,
+
+    current_event = dict(state.get("current_event") or {})
+    current_stage_payload = dict(state.get("stage_execution_request") or {})
+    active_stage_id = str(
+        state.get("active_stage_id")
+        or current_stage_payload.get("stage_id")
+        or ""
+    ).strip()
+    current_event_stage_id = str(current_event.get("stage_id") or "").strip()
+    current_event_task_run_id = str(current_event.get("task_run_id") or "").strip()
+    current_stage_result_task_run_id = str(
+        dict(dict(state.get("stage_results") or {}).get(active_stage_id) or {}).get("task_run_id") or ""
+    ).strip()
+    current_event_is_active_stage_result = bool(
+        str(current_event.get("event_type") or "") == "task_result_ready"
+        and active_stage_id
+        and current_event_stage_id == active_stage_id
+        and current_event_task_run_id
+        and current_event_task_run_id == current_stage_result_task_run_id
     )
+    latest_unconsumed_stage_result = (
+        {}
+        if current_event_is_active_stage_result
+        else _latest_unconsumed_stage_task_result(
+            runtime=runtime,
+            session_id=session_id,
+            state=state,
+            active_stage_id=active_stage_id,
+            coordination_run_id=coordination_run_id,
+        )
+    )
+    if latest_unconsumed_stage_result:
+        resume_event = TaskResultReadyEvent(**latest_unconsumed_stage_result["event"])
+        result = runtime.query_runtime.task_run_loop.langgraph_coordination_runtime.resume_from_task_result(
+            coordination_run=coordination_run,
+            event=resume_event,
+            current_task_result=dict(latest_unconsumed_stage_result.get("task_result") or {}),
+            inherited_inputs=dict(latest_unconsumed_stage_result.get("explicit_inputs") or {}),
+            artifact_root=str(latest_unconsumed_stage_result.get("artifact_root") or ""),
+        )
+        request = result.stage_execution_request
+        if request is not None:
+            _schedule_stage_execution_background(
+                runtime=runtime,
+                session_id=session_id,
+                source=payload.source or "orchestration.coordination_run_continue_api",
+                stage_execution_request=request,
+                current_turn_context={
+                    "authority": "context.coordination_run_continue",
+                    "coordination_run_id": coordination_run_id,
+                    "task_graph_id": coordination_run.graph_ref,
+                    "selected_graph_id": coordination_run.graph_ref,
+                    **dict(payload.current_turn_context or {}),
+                },
+            )
+        return {
+            "authority": "orchestration.coordination_run_continue_current_stage",
+            "coordination_run_id": coordination_run_id,
+            "task_run_id": coordination_run.task_run_id,
+            "session_id": session_id,
+            "stage_execution_request": request.to_dict() if request is not None else None,
+            "background_started": request is not None,
+            "mode": "resumed_from_unconsumed_stage_task_result",
+            "consumed_task_run_id": str(latest_unconsumed_stage_result.get("task_run_id") or ""),
+        }
+    if current_stage_payload and _stage_request_matches_active_stage(
+        state=state,
+        request_payload=current_stage_payload,
+        active_stage_id=active_stage_id,
+    ):
+        request = StageExecutionRequest.from_dict(
+            _sanitize_replayed_writing_stage_request_payload(current_stage_payload)
+        )
+        current_turn_context = {
+            "authority": "context.coordination_run_continue",
+            "coordination_run_id": coordination_run_id,
+            "task_graph_id": coordination_run.graph_ref,
+            "selected_graph_id": coordination_run.graph_ref,
+            **dict(payload.current_turn_context or {}),
+        }
+        _schedule_stage_execution_background(
+            runtime=runtime,
+            session_id=session_id,
+            source=payload.source or "orchestration.coordination_run_continue_api",
+            stage_execution_request=request,
+            current_turn_context=current_turn_context,
+        )
+        return {
+            "authority": "orchestration.coordination_run_continue_current_stage",
+            "coordination_run_id": coordination_run_id,
+            "task_run_id": coordination_run.task_run_id,
+            "session_id": session_id,
+            "stage_execution_request": request.to_dict(),
+            "background_started": True,
+            "mode": "replayed_active_stage_request",
+        }
+    if str(current_event.get("event_type") or "") != "task_result_ready":
+        request_payload = current_stage_payload
+        if not request_payload:
+            raise HTTPException(status_code=409, detail="CoordinationRun has no resumable stage result or current stage execution request")
+        request = StageExecutionRequest.from_dict(
+            _sanitize_replayed_writing_stage_request_payload(request_payload)
+        )
+        current_turn_context = {
+            "authority": "context.coordination_run_continue",
+            "coordination_run_id": coordination_run_id,
+            "task_graph_id": coordination_run.graph_ref,
+            "selected_graph_id": coordination_run.graph_ref,
+            **dict(payload.current_turn_context or {}),
+        }
+        _schedule_stage_execution_background(
+            runtime=runtime,
+            session_id=session_id,
+            source=payload.source or "orchestration.coordination_run_continue_api",
+            stage_execution_request=request,
+            current_turn_context=current_turn_context,
+        )
+        return {
+            "authority": "orchestration.coordination_run_continue_current_stage",
+            "coordination_run_id": coordination_run_id,
+            "task_run_id": coordination_run.task_run_id,
+            "session_id": session_id,
+            "stage_execution_request": request.to_dict(),
+            "background_started": True,
+            "mode": "replayed_current_stage_request",
+        }
+
+    if not current_stage_payload and active_stage_id and active_stage_id != str(current_event.get("stage_id") or "").strip():
+        repaired_state = dict(state)
+        repaired_statuses = dict(repaired_state.get("node_statuses") or {})
+        if repaired_statuses.get(active_stage_id) == "running":
+            repaired_statuses[active_stage_id] = "pending"
+            repaired_state["node_statuses"] = repaired_statuses
+            repaired_state["terminal_status"] = ""
+            repaired_state["stage_execution_request"] = {}
+            repaired_state["diagnostics"] = {
+                **dict(repaired_state.get("diagnostics") or {}),
+                "continue_current_stage_repaired_pending_active_stage": active_stage_id,
+            }
+            runtime.query_runtime.task_run_loop.langgraph_coordination_runtime.checkpoints.put_state(
+                thread_id=coordination_run_id,
+                state=repaired_state,
+                metadata={"event": "continue_current_stage_repair_pending_active_stage", "stage_id": active_stage_id},
+            )
+
+    current_task_result = dict(dict(state.get("stage_results") or {}).get(str(current_event.get("stage_id") or "")) or {})
+    artifact_root = str(
+        dict(payload.current_turn_context or {}).get("artifact_root")
+        or dict(state.get("pending_inputs") or {}).get("artifact_root")
+        or ""
+    )
+    resume_event = TaskResultReadyEvent(
+        event_type=str(current_event.get("event_type") or "task_result_ready"),
+        coordination_run_id=str(current_event.get("coordination_run_id") or coordination_run_id),
+        task_run_id=str(current_event.get("task_run_id") or coordination_run.task_run_id),
+        stage_id=str(current_event.get("stage_id") or ""),
+        task_ref=str(current_event.get("task_ref") or ""),
+        task_result_ref=str(current_event.get("task_result_ref") or ""),
+        artifact_refs=tuple(str(item) for item in list(current_event.get("artifact_refs") or []) if str(item)),
+        accepted=bool(current_event.get("accepted") is True),
+        agent_run_result_ref=str(current_event.get("agent_run_result_ref") or ""),
+        diagnostics=dict(current_event.get("diagnostics") or {}),
+    )
+    result = runtime.query_runtime.task_run_loop.langgraph_coordination_runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=resume_event,
+        current_task_result=current_task_result,
+        inherited_inputs=dict(payload.current_turn_context or {}),
+        artifact_root=artifact_root,
+    )
+    request = result.stage_execution_request
+    if request is not None:
+        _schedule_stage_execution_background(
+            runtime=runtime,
+            session_id=session_id,
+            source=payload.source or "orchestration.coordination_run_continue_api",
+            stage_execution_request=request,
+            current_turn_context={
+                "authority": "context.coordination_run_continue",
+                "coordination_run_id": coordination_run_id,
+                "task_graph_id": coordination_run.graph_ref,
+                "selected_graph_id": coordination_run.graph_ref,
+                **dict(payload.current_turn_context or {}),
+            },
+        )
     return {
         "authority": "orchestration.coordination_run_continue_current_stage",
         "coordination_run_id": coordination_run_id,
         "task_run_id": coordination_run.task_run_id,
         "session_id": session_id,
-        "stage_execution_request": request.to_dict(),
-        "background_started": True,
+        "stage_execution_request": request.to_dict() if request is not None else None,
+        "background_started": request is not None,
+        "mode": "resumed_from_task_result",
     }
+
+
+def _stage_request_matches_active_stage(
+    *,
+    state: dict[str, Any],
+    request_payload: dict[str, Any],
+    active_stage_id: str,
+) -> bool:
+    request_stage_id = str(request_payload.get("stage_id") or "").strip()
+    if not request_stage_id or request_stage_id != active_stage_id:
+        return False
+    node_status = str(dict(state.get("node_statuses") or {}).get(active_stage_id) or "")
+    if node_status not in {"running", "pending"}:
+        return False
+    current_event_stage_id = str(dict(state.get("current_event") or {}).get("stage_id") or "").strip()
+    if current_event_stage_id != active_stage_id:
+        return True
+    request_inputs = dict(request_payload.get("explicit_inputs") or {})
+    if request_inputs.get("force_replay") is True or request_inputs.get("revision_required") is True:
+        return True
+    current_event = dict(state.get("current_event") or {})
+    if current_event.get("accepted") is False:
+        return True
+    return False
+
+
+def _latest_unconsumed_stage_task_result(
+    *,
+    runtime: Any,
+    session_id: str,
+    state: dict[str, Any],
+    active_stage_id: str,
+    coordination_run_id: str,
+) -> dict[str, Any]:
+    if not active_stage_id:
+        return {}
+    stage_results = dict(state.get("stage_results") or {})
+    already_consumed_task_run_id = str(dict(stage_results.get(active_stage_id) or {}).get("task_run_id") or "")
+    contracts = dict(state.get("stage_contracts") or {})
+    contract = dict(contracts.get(active_stage_id) or {})
+    active_task_ref = str(contract.get("task_ref") or state.get("active_task_ref") or "").strip()
+    expected_task_suffix = active_stage_id
+    candidates = []
+    for task_run in runtime.query_runtime.task_run_loop.state_index.list_session_task_runs(session_id):
+        if str(task_run.status or "") != "completed":
+            continue
+        if str(task_run.task_run_id or "") == already_consumed_task_run_id:
+            continue
+        pending_inputs = dict(state.get("pending_inputs") or {})
+        force_replay_after = float(pending_inputs.get("force_replay_after") or 0.0)
+        if force_replay_after and float(task_run.updated_at or task_run.created_at or 0.0) <= force_replay_after:
+            continue
+        task_id = str(task_run.task_id or "")
+        task_contract_ref = str(task_run.task_contract_ref or "")
+        exact_task_match = bool(active_task_ref and active_task_ref in {task_id, task_contract_ref})
+        stage_suffix_match = bool(
+            task_id.endswith(f":{expected_task_suffix}")
+            or task_contract_ref.endswith(f":{expected_task_suffix}")
+        )
+        if not exact_task_match and not stage_suffix_match:
+            continue
+        diagnostics = dict(task_run.diagnostics or {})
+        materialization = dict(diagnostics.get("artifact_materialization") or {})
+        artifact_refs = [
+            str(item)
+            for item in list(materialization.get("artifact_refs") or [])
+            if str(item).startswith("artifact:")
+        ]
+        checkpoint = runtime.query_runtime.task_run_loop.checkpoints.load_latest(task_run.task_run_id)
+        task_result = dict(getattr(checkpoint, "commit_state", {}) or {}).get("task_result") if checkpoint is not None else {}
+        task_result = dict(task_result or {})
+        if artifact_refs:
+            task_result["output_refs"] = list(dict.fromkeys([*list(task_result.get("output_refs") or []), *artifact_refs]))
+        accepted = bool(str(task_run.status or "") == "completed" and (artifact_refs or not dict(contract.get("artifact_policy") or {}).get("enabled")))
+        acceptance_diagnostics: dict[str, Any] = {
+            "terminal_reason": str(task_run.terminal_reason or ""),
+            "recovered_from_completed_stage_task_run": True,
+        }
+        if active_stage_id == "chapter_draft":
+            artifact_text = _read_first_artifact_text(runtime=runtime, artifact_refs=artifact_refs)
+            quality = _chapter_draft_recovery_quality_gate(
+                artifact_text,
+                explicit_inputs=pending_inputs,
+            )
+            accepted = bool(accepted and quality.get("accepted") is True)
+            acceptance_diagnostics.update(quality)
+        elif _is_review_gate_contract(contract):
+            artifact_text = _read_first_artifact_text(runtime=runtime, artifact_refs=artifact_refs)
+            quality = _review_gate_recovery_quality_gate(artifact_text)
+            accepted = bool(accepted and quality.get("accepted") is True)
+            acceptance_diagnostics.update(quality)
+        candidates.append((float(task_run.updated_at or task_run.created_at or 0.0), task_run, task_result, artifact_refs, materialization, accepted, acceptance_diagnostics))
+    if not candidates:
+        return {}
+    _updated_at, task_run, task_result, artifact_refs, materialization, accepted, acceptance_diagnostics = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
+    pending_inputs = dict(state.get("pending_inputs") or {})
+    artifact_root = str(
+        materialization.get("artifact_root")
+        or pending_inputs.get("artifact_root")
+        or ""
+    )
+    return {
+        "task_run_id": task_run.task_run_id,
+        "task_result": task_result,
+        "explicit_inputs": pending_inputs,
+        "artifact_root": artifact_root,
+        "event": {
+            "event_type": "task_result_ready",
+            "coordination_run_id": coordination_run_id,
+            "task_run_id": task_run.task_run_id,
+            "stage_id": active_stage_id,
+            "task_ref": active_task_ref or task_run.task_id,
+            "task_result_ref": str(task_result.get("result_id") or f"taskresult:{task_run.task_run_id}"),
+            "artifact_refs": tuple(artifact_refs),
+            "accepted": bool(accepted),
+            "agent_run_result_ref": "",
+            "diagnostics": acceptance_diagnostics,
+        },
+    }
+
+
+def _read_first_artifact_text(*, runtime: Any, artifact_refs: list[str]) -> str:
+    root_dir = getattr(runtime.query_runtime.task_run_loop, "root_dir", None)
+    if root_dir is None:
+        return ""
+    root_path = root_dir if hasattr(root_dir, "exists") else None
+    candidate_roots = []
+    if root_path is not None:
+        candidate_roots.extend([root_path, root_path.parent, root_path.parent.parent])
+    for ref in artifact_refs:
+        raw = str(ref or "")
+        if not raw.startswith("artifact:"):
+            continue
+        rel = raw[len("artifact:") :]
+        paths = []
+        try:
+            paths.append(__import__("pathlib").Path(rel))
+        except Exception:
+            paths = []
+        for base in candidate_roots:
+            try:
+                paths.append(base / rel)
+            except TypeError:
+                continue
+        for path in paths:
+            try:
+                if path.exists() and path.is_file():
+                    return path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+    return ""
+
+
+def _is_review_gate_contract(contract: dict[str, Any]) -> bool:
+    node_type = str(contract.get("node_type") or "").strip()
+    gate_policy = str(contract.get("gate_policy") or "").strip()
+    return node_type == "review_gate" or gate_policy == "review_gate" or bool(dict(contract.get("review_gate_policy") or {}))
+
+
+def _review_gate_recovery_quality_gate(content: str) -> dict[str, Any]:
+    text = str(content or "").strip()
+    verdict = _extract_explicit_review_verdict(text)
+    if not verdict:
+        lowered = text.lower()
+        if "不允许写入" in text or "不允许批次写入" in text or "必须等正文" in text:
+            verdict = "revise"
+        elif "允许批次写入记忆：否" in text or "是否允许批次写入记忆：否" in text:
+            verdict = "revise"
+        elif re.search(r"\bfail[_ -]?closed\b", lowered):
+            verdict = "fail_closed"
+        elif any(item in lowered for item in ("repair_world", "repair_outline", "repair_character", "human_review_required")):
+            for item in ("repair_world", "repair_outline", "repair_character", "human_review_required"):
+                if item in lowered:
+                    verdict = item
+                    break
+        elif re.search(r"\b(revise|revision required)\b", lowered):
+            verdict = "revise"
+        elif re.search(r"\b(pass|approved|approve)\b", lowered):
+            verdict = "pass"
+    return {
+        "accepted": verdict == "pass",
+        "stage_business_acceptance": {
+            "accepted": verdict == "pass",
+            "policy": "review_gate_verdict_recovery",
+            "verdict": verdict,
+            "authority": "orchestration.stage_business_acceptance",
+        },
+        "review_verdict": verdict,
+        "accepted_by_recovery_quality_gate": verdict == "pass",
+        "recovered_from_completed_stage_task_run": True,
+    }
+
+
+def _extract_explicit_review_verdict(text: str) -> str:
+    verdict_map = {
+        "pass": "pass",
+        "approved": "pass",
+        "approve": "pass",
+        "通过": "pass",
+        "同意": "pass",
+        "revise": "revise",
+        "revision required": "revise",
+        "修订": "revise",
+        "修改": "revise",
+        "返工": "revise",
+        "不通过": "revise",
+        "repair_world": "repair_world",
+        "repair_outline": "repair_outline",
+        "repair_character": "repair_character",
+        "human_review_required": "human_review_required",
+        "fail_closed": "fail_closed",
+    }
+    patterns = (
+        r"^\s*[【\[]?\s*(?:裁决|结论|verdict)\s*[】\]]?\s*[:：-]?\s*([^\n\r]+)",
+        r"^\s*(?:裁决|结论|verdict)\s*[:：-]\s*([^\n\r]+)",
+    )
+    for pattern in patterns:
+        for match in re.finditer(pattern, str(text or ""), re.IGNORECASE | re.MULTILINE):
+            value = str(match.group(1) or "").strip().lower()
+            for token, verdict in verdict_map.items():
+                if token in value:
+                    return verdict
+    return ""
+
+
+def _chapter_draft_recovery_quality_gate(content: str, *, explicit_inputs: dict[str, Any]) -> dict[str, Any]:
+    text = str(content or "").strip()
+    words = _count_longform_words(text)
+    chapters_per_round = max(_safe_int(explicit_inputs.get("chapters_per_round") or explicit_inputs.get("chapter_batch_size")), 1)
+    start_index = _safe_int(explicit_inputs.get("batch_start_index") or explicit_inputs.get("chapter_index"), 1)
+    end_index = _safe_int(explicit_inputs.get("batch_end_index"), start_index + chapters_per_round - 1)
+    expected_indexes = list(range(start_index, end_index + 1)) if end_index >= start_index else [start_index]
+    found_indexes = _extract_chapter_heading_indexes(text)
+    missing_indexes = [index for index in expected_indexes if index not in found_indexes]
+    target_words = _safe_int(explicit_inputs.get("batch_target_words")) or ((_safe_int(explicit_inputs.get("chapter_target_words")) or 2000) * chapters_per_round)
+    min_words = max(1200 * chapters_per_round, int(target_words * 0.55))
+    refusal_detected = any(
+        marker in text
+        for marker in (
+            "抱歉，我无法",
+            "无法执行这个请求",
+            "请先提供",
+            "缺少前置资产",
+            "我没有读取到",
+            "当前可推进步骤",
+            "不能直接产出",
+        )
+    )
+    issues: list[str] = []
+    if not text:
+        issues.append("empty_content")
+    if refusal_detected:
+        issues.append("refusal_or_process_text_detected")
+    if words < min_words:
+        issues.append(f"insufficient_words:{words}<{min_words}")
+    if missing_indexes:
+        issues.append("missing_chapter_headings:" + ",".join(str(index) for index in missing_indexes))
+    return {
+        "accepted": not issues,
+        "stage_business_acceptance": {
+            "accepted": not issues,
+            "policy": "chapter_draft_batch_quality_recovery",
+            "issues": issues,
+        },
+        "chapter_words": words,
+        "accepted_by_recovery_quality_gate": not issues,
+        "recovery_quality_issues": issues,
+        "expected_chapter_indexes": expected_indexes,
+        "found_chapter_indexes": sorted(found_indexes),
+        "missing_chapter_indexes": missing_indexes,
+        "recovered_from_completed_stage_task_run": True,
+    }
+
+
+def _count_longform_words(content: str) -> int:
+    text = str(content or "").strip()
+    if not text:
+        return 0
+    return len(re.findall(r"[\u4e00-\u9fff]", text)) + len(re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?", text))
+
+
+def _extract_chapter_heading_indexes(content: str) -> set[int]:
+    indexes: set[int] = set()
+    for match in re.finditer(r"第\s*([0-9一二三四五六七八九十百零〇两]+)\s*[章节回]", str(content or "")):
+        parsed = _parse_chapter_heading_number(match.group(1))
+        if parsed > 0:
+            indexes.add(parsed)
+    return indexes
+
+
+def _parse_chapter_heading_number(value: str) -> int:
+    raw = str(value or "").strip()
+    if not raw:
+        return 0
+    if raw.isdigit():
+        return int(raw)
+    digits = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+    total = 0
+    current = 0
+    for char in raw:
+        if char in digits:
+            current = digits[char]
+        elif char == "十":
+            total += (current or 1) * 10
+            current = 0
+        elif char == "百":
+            total += (current or 1) * 100
+            current = 0
+    return total + current
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value if value not in (None, "") else default)
+    except (TypeError, ValueError):
+        return default
 
 
 @router.post("/orchestration/runtime-loop/task-runs/{task_run_id}/stop")

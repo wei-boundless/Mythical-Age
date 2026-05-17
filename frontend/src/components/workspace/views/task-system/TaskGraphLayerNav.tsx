@@ -26,6 +26,7 @@ export type TaskGraphStudioLayer = {
   id: TaskGraphStudioLayerId;
   title: string;
   description: string;
+  category: "foundation" | "structure" | "runtime" | "quality";
   metric: string;
   state: "ready" | "draft" | "blocked";
   icon: LucideIcon;
@@ -36,6 +37,7 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     id: "blueprint",
     title: "任务蓝图",
     description: "身份、入口、出口、运行模式",
+    category: "foundation",
     metric: "图级",
     state: "ready",
     icon: Boxes,
@@ -44,6 +46,7 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     id: "agents",
     title: "Agent 编组",
     description: "协调者、参与者、职责边界",
+    category: "foundation",
     metric: "角色",
     state: "draft",
     icon: Network,
@@ -52,14 +55,16 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     id: "topology",
     title: "拓扑编排",
     description: "节点、边、画布和快速结构",
+    category: "structure",
     metric: "画布",
     state: "ready",
     icon: GitBranch,
   },
   {
     id: "responsibility",
-    title: "职责与交接",
-    description: "节点职责、边交接契约",
+    title: "节点认知包",
+    description: "身份、输入包、输出交接",
+    category: "structure",
     metric: "语义",
     state: "draft",
     icon: Route,
@@ -68,6 +73,7 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     id: "timeline",
     title: "时序与循环",
     description: "阶段、并行、审核门、返修",
+    category: "runtime",
     metric: "生命周期",
     state: "draft",
     icon: PlayCircle,
@@ -75,7 +81,8 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
   {
     id: "memory",
     title: "记忆与产物",
-    description: "上下文、工作记忆、产物落盘",
+    description: "仓库、读写矩阵、Snapshot",
+    category: "runtime",
     metric: "边界",
     state: "draft",
     icon: BrainCircuit,
@@ -84,6 +91,7 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     id: "contracts",
     title: "契约与质量门",
     description: "输入输出、载荷、审核标准",
+    category: "quality",
     metric: "质量",
     state: "draft",
     icon: FileCheck2,
@@ -92,10 +100,22 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     id: "publish",
     title: "预检与运行",
     description: "保存、预检、发布、监控",
+    category: "quality",
     metric: "闭环",
     state: "draft",
     icon: CheckCircle2,
   },
+];
+
+const LAYER_GROUPS: Array<{
+  id: TaskGraphStudioLayer["category"];
+  title: string;
+  description: string;
+}> = [
+  { id: "foundation", title: "基础", description: "图身份、Agent、运行入口" },
+  { id: "structure", title: "结构", description: "执行拓扑和语义交接" },
+  { id: "runtime", title: "运行", description: "时序、循环、记忆、产物" },
+  { id: "quality", title: "质量", description: "契约、预检、发布" },
 ];
 
 export function TaskGraphLayerNav({
@@ -107,25 +127,43 @@ export function TaskGraphLayerNav({
   layers?: TaskGraphStudioLayer[];
   onChange: (layer: TaskGraphStudioLayerId) => void;
 }) {
+  const layersByGroup = new Map<TaskGraphStudioLayer["category"], TaskGraphStudioLayer[]>();
+  for (const layer of layers) {
+    layersByGroup.set(layer.category, [...(layersByGroup.get(layer.category) ?? []), layer]);
+  }
   return (
     <nav className="task-graph-layer-nav" aria-label="多 Agent 任务图层级">
-      {layers.map((layer) => {
-        const Icon = layer.icon;
+      {LAYER_GROUPS.map((group) => {
+        const groupLayers = layersByGroup.get(group.id) ?? [];
+        if (!groupLayers.length) return null;
         return (
-          <button
-            aria-current={activeLayer === layer.id ? "page" : undefined}
-            className={activeLayer === layer.id ? "task-graph-layer-card task-graph-layer-card--active" : "task-graph-layer-card"}
-            key={layer.id}
-            onClick={() => onChange(layer.id)}
-            type="button"
-          >
-            <Icon aria-hidden="true" size={16} />
-            <span>
-              <strong>{layer.title}</strong>
-              <small>{layer.description}</small>
-            </span>
-            <em className={`task-graph-layer-card__state task-graph-layer-card__state--${layer.state}`}>{layer.metric}</em>
-          </button>
+          <section className="task-graph-layer-group" key={group.id}>
+            <header>
+              <strong>{group.title}</strong>
+              <span>{group.description}</span>
+            </header>
+            <div className="task-graph-layer-group__grid">
+              {groupLayers.map((layer) => {
+                const Icon = layer.icon;
+                return (
+                  <button
+                    aria-current={activeLayer === layer.id ? "page" : undefined}
+                    className={activeLayer === layer.id ? "task-graph-layer-card task-graph-layer-card--active" : "task-graph-layer-card"}
+                    key={layer.id}
+                    onClick={() => onChange(layer.id)}
+                    type="button"
+                  >
+                    <Icon aria-hidden="true" size={16} />
+                    <span>
+                      <strong>{layer.title}</strong>
+                      <small>{layer.description}</small>
+                    </span>
+                    <em className={`task-graph-layer-card__state task-graph-layer-card__state--${layer.state}`}>{layer.metric}</em>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
         );
       })}
     </nav>
