@@ -207,6 +207,7 @@ def _runtime_node_from_task_graph_node(
         projection_id=str(raw_node.projection_id or raw_node.projection_overlay_id or "").strip(),
         task_id=str(raw_node.task_id or "").strip(),
         task_family=str(getattr(raw_node, "task_family", "") or getattr(task, "task_family", "") or graph_task_family).strip(),
+        executor_policy=dict(getattr(raw_node, "executor_policy", {}) or node_metadata.get("executor_policy") or {}),
         execution_mode=execution_mode,
         wait_policy=wait_policy,
         join_policy=join_policy,
@@ -230,6 +231,7 @@ def _runtime_node_from_task_graph_node(
             "node_contract_id": str(raw_node.node_contract_id or "").strip(),
             "input_contract_id": str(raw_node.input_contract_id or "").strip(),
             "output_contract_id": str(raw_node.output_contract_id or "").strip(),
+            "executor_policy": dict(getattr(raw_node, "executor_policy", {}) or node_metadata.get("executor_policy") or {}),
             "failure_policy": dict(raw_node.failure_policy or {}),
             "human_gate_policy": dict(raw_node.human_gate_policy or {}),
             "background_policy": dict(raw_node.background_policy or {}),
@@ -391,10 +393,10 @@ def _scheduler_support_report(
         )
 
     for node in nodes:
-        if node.execution_mode == "sync":
-            mark(scope="node", ref_id=node.node_id, field="execution_mode", value=node.execution_mode, status="supported", reason="同步节点可按拓扑依赖顺序执行。")
-        elif node.execution_mode in {"parallel", "background", "barrier", "manual_gate"}:
-            mark(scope="node", ref_id=node.node_id, field="execution_mode", value=node.execution_mode, status="partial", reason="该执行模式已有模型和预检，但运行调度只部分消费其状态语义。")
+        if node.execution_mode in {"sync", "async", "background"}:
+            mark(scope="node", ref_id=node.node_id, field="execution_mode", value=node.execution_mode, status="supported", reason="该执行模式已由统一调度决策消费，并可按是否阻塞主链区分同步与后台执行。")
+        elif node.execution_mode in {"parallel", "barrier", "manual_gate"}:
+            mark(scope="node", ref_id=node.node_id, field="execution_mode", value=node.execution_mode, status="supported", reason="该执行模式已有明确的运行语义，调度器可按节点等待与汇合策略消费。")
         else:
             mark(scope="node", ref_id=node.node_id, field="execution_mode", value=node.execution_mode, status="unsupported", reason="当前调度器未实现该执行模式。")
 
@@ -425,8 +427,8 @@ def _scheduler_support_report(
 
     for edge in edges:
         if edge.wait_policy:
-            status = "partial" if edge.wait_policy in {"wait_all_upstream_completed", "wait_required_contracts"} else "unsupported"
-            mark(scope="edge", ref_id=edge.edge_id, field="wait_policy", value=edge.wait_policy, status=status, reason="边级等待策略已保留，但当前运行调度主要按目标节点上游完成状态推进。")
+            status = "supported" if edge.wait_policy in {"wait_all_upstream_completed", "wait_required_contracts", "wait_any_upstream_completed", "fire_and_continue", "manual_release"} else "unsupported"
+            mark(scope="edge", ref_id=edge.edge_id, field="wait_policy", value=edge.wait_policy, status=status, reason="边级等待策略已纳入统一调度判定，按阻塞/放行语义参与运行推进。")
         if edge.ack_required or edge.ack_policy:
             mark(scope="edge", ref_id=edge.edge_id, field="ack_policy", value=edge.ack_policy, status="partial", reason="ack 策略已进入 RuntimeSpec/A2A payload，但下游 ready/blocked 尚未严格等待边 ack 状态。")
         if edge.failure_propagation_policy != "fail_downstream":

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
+import hashlib
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from pdf_runtime import suppress_pypdf_warnings
 
@@ -44,22 +46,31 @@ class PdfTextParser:
         root_dir: Path | None = None,
         *,
         mineru_client: MinerUApiClient | None = None,
+        ocr_reader: Callable[[Path, int], str] | None = None,
+        enable_ocr_fallback: bool = True,
+        ocr_render_scale: float = 2.2,
     ) -> None:
         self.root_dir = root_dir
         self._mineru_client = mineru_client or build_default_mineru_client()
         self._remote_cache: dict[tuple[str, int, int], MinerUParseResult | None] = {}
+        self._document_cache: dict[tuple[str, int, int], tuple[list[tuple[int, str]], list[PdfSegment], int]] = {}
+        self._ocr_reader = ocr_reader
+        self._ocr_engine: object | None = None
+        self.enable_ocr_fallback = enable_ocr_fallback
+        self.ocr_render_scale = ocr_render_scale
 
     def available(self) -> bool:
-        return self._mineru_client.available() or self._local_pdf_available()
+        return self._mineru_client.available() or self._local_pdf_available() or self._ocr_available()
 
     def extract_pages(self, file_path: Path) -> list[tuple[int, str]]:
-        remote = self._load_remote_result(file_path)
-        if remote is not None and remote.pages:
-            return remote.pages
-        return self._extract_pages_locally(file_path)
+        pages, _segments, _total_pages = self._extract_document_content(file_path)
+        return list(pages)
 
     def extract_segments(self, file_path: Path) -> list[PdfSegment]:
-        remote = self._load_remote_result(file_path)
+        _pages, segments, _total_pages = self._extract_document_content(file_path)
+        return list(segments)
+
+    def _extract_segments_without_ocr(self, file_path: Path, remote: MinerUParseResult | None) -> list[PdfSegment]:
         if remote is not None and remote.blocks:
             segments = [self._segment_from_remote_block(block) for block in remote.blocks]
             segments.extend(self._extract_table_segments_with_pdfplumber(file_path))
@@ -93,11 +104,8 @@ class PdfTextParser:
         return segments
 
     def extract_page_snapshots(self, file_path: Path) -> list[PdfPageSnapshot]:
-        pages = dict(self.extract_pages(file_path))
-        segments = self.extract_segments(file_path)
-        total_pages = self.document_total_pages(file_path)
-        if total_pages <= 0:
-            total_pages = max([*pages.keys(), *[int(segment.page or 0) for segment in segments]], default=0)
+        pages_list, segments, total_pages = self._extract_document_content(file_path)
+        pages = dict(pages_list)
         snapshots: list[PdfPageSnapshot] = []
         for page_number in range(1, max(total_pages, 0) + 1):
             page_segments = [segment for segment in segments if int(segment.page or 0) == page_number]
@@ -222,7 +230,17 @@ class PdfTextParser:
         return re.sub(r"\s+", " ", str(value)).strip()
 
     def document_total_pages(self, file_path: Path) -> int:
-        remote = self._load_remote_result(file_path)
+        _pages, _segments, total_pages = self._extract_document_content(file_path)
+        return total_pages
+
+    def _document_total_pages_without_ocr(
+        self,
+        file_path: Path,
+        *,
+        remote: MinerUParseResult | None,
+        pages: list[tuple[int, str]],
+        segments: list[PdfSegment],
+    ) -> int:
         if remote is not None:
             metadata = dict(remote.metadata or {})
             for key in ("total_pages", "page_count", "document_total_pages"):
@@ -242,6 +260,251 @@ class PdfTextParser:
         if total_pages > 0:
             return total_pages
         return self._count_pages_with_pypdf(file_path)
+
+    def _extract_document_content(self, file_path: Path) -> tuple[list[tuple[int, str]], list[PdfSegment], int]:
+        cache_key = self._file_cache_key(file_path)
+        if cache_key in self._document_cache:
+            return self._document_cache[cache_key]
+
+        local_pages = self._extract_pages_locally(file_path)
+        local_segments = self._extract_segments_with_pdfplumber(file_path)
+        remote: MinerUParseResult | None = None
+
+        if local_pages or local_segments:
+            pages = list(local_pages)
+            segments = self._extract_segments_without_ocr(file_path, None)
+        else:
+            remote = self._load_remote_result(file_path)
+            pages = list(remote.pages) if remote is not None and remote.pages else []
+            segments = self._extract_segments_without_ocr(file_path, remote)
+            if not pages and not segments:
+                pages = list(local_pages)
+                segments = list(local_segments)
+
+        total_pages = self._document_total_pages_without_ocr(
+            file_path,
+            remote=remote,
+            pages=pages,
+            segments=segments,
+        )
+        if total_pages <= 0:
+            total_pages = max(
+                [
+                    *[int(page_number) for page_number, _text in pages if int(page_number) > 0],
+                    *[int(segment.page or 0) for segment in segments if int(segment.page or 0) > 0],
+                ],
+                default=0,
+            )
+
+        if self.enable_ocr_fallback:
+            pages, segments = self._merge_ocr_fallback_pages(
+                file_path=file_path,
+                pages=pages,
+                segments=segments,
+                total_pages=total_pages,
+            )
+
+        result = (pages, segments, total_pages)
+        self._document_cache[cache_key] = result
+        return result
+
+    def _merge_ocr_fallback_pages(
+        self,
+        *,
+        file_path: Path,
+        pages: list[tuple[int, str]],
+        segments: list[PdfSegment],
+        total_pages: int,
+    ) -> tuple[list[tuple[int, str]], list[PdfSegment]]:
+        if total_pages <= 0 or not self._ocr_available():
+            return pages, segments
+
+        page_text = {int(page_number): str(text or "") for page_number, text in pages if int(page_number) > 0}
+        segments_by_page: dict[int, list[PdfSegment]] = {}
+        for segment in segments:
+            page_number = int(segment.page or 0)
+            if page_number <= 0:
+                continue
+            segments_by_page.setdefault(page_number, []).append(segment)
+
+        candidate_pages = [
+            page_number
+            for page_number in range(1, total_pages + 1)
+            if self._page_needs_ocr_fallback(
+                raw_text=page_text.get(page_number, ""),
+                segments=segments_by_page.get(page_number, []),
+            )
+        ]
+        if not candidate_pages:
+            return pages, segments
+
+        ocr_pages: dict[int, str] = {}
+        for page_number in candidate_pages:
+            text = self._read_ocr_page_text(file_path, page_number)
+            if text and not self.looks_unusable_text(text):
+                ocr_pages[page_number] = text
+        if not ocr_pages:
+            return pages, segments
+
+        merged_pages: dict[int, str] = {
+            int(page_number): str(text or "") for page_number, text in pages if int(page_number) > 0
+        }
+        merged_pages.update(ocr_pages)
+        kept_segments = [segment for segment in segments if int(segment.page or 0) not in ocr_pages]
+        for page_number in sorted(ocr_pages):
+            text = ocr_pages[page_number]
+            classification = self._classify_segment(
+                text=text,
+                kind="ocr_text",
+                section=None,
+                modality="text",
+            )
+            kept_segments.append(
+                PdfSegment(
+                    text=text,
+                    page=page_number,
+                    modality="text",
+                    element_type=classification["element_type"],
+                    answer_eligible=bool(classification["answer_eligible"]),
+                    excluded_from_summary=bool(classification["excluded_from_summary"]),
+                    diagnostic_only=bool(classification["diagnostic_only"]),
+                    metadata={
+                        "parser": "rapidocr_page",
+                        "ocr": True,
+                        "ocr_fallback": True,
+                        **classification["metadata"],
+                    },
+                )
+            )
+        kept_segments.sort(key=lambda item: (int(item.page or 0), str(item.metadata.get("parser", ""))))
+        return sorted(merged_pages.items()), kept_segments
+
+    def _page_needs_ocr_fallback(self, *, raw_text: str, segments: list[PdfSegment]) -> bool:
+        normalized = self._normalize_page_text(raw_text)
+        if normalized and self.looks_unusable_text(normalized):
+            return True
+        usable_segments = [
+            segment
+            for segment in segments
+            if not segment.diagnostic_only
+            and segment.element_type in {"body_text", "section_heading", "table_text"}
+            and self._normalize_page_text(segment.text)
+        ]
+        if usable_segments:
+            return False
+        if not normalized:
+            return True
+        return self.looks_unusable_text(normalized)
+
+    def _read_ocr_page_text(self, file_path: Path, page_number: int) -> str:
+        cached = self._read_persisted_ocr_page(file_path=file_path, page_number=page_number)
+        if cached is not None:
+            return cached
+        if self._ocr_reader is not None:
+            text = self._normalize_page_text(self._ocr_reader(file_path, page_number))
+            self._write_persisted_ocr_page(file_path=file_path, page_number=page_number, text=text)
+            return text
+        text = self._normalize_page_text(self._rapidocr_page(file_path=file_path, page_number=page_number))
+        self._write_persisted_ocr_page(file_path=file_path, page_number=page_number, text=text)
+        return text
+
+    def _rapidocr_page(self, *, file_path: Path, page_number: int) -> str:
+        try:
+            image_path = self._render_pdf_page_to_temp_png(file_path=file_path, page_number=page_number)
+        except Exception:
+            return ""
+        try:
+            engine = self._rapidocr_engine()
+            if engine is None:
+                return ""
+            result = engine(str(image_path))
+            texts = list(getattr(result, "txts", ()) or ())
+            return self._normalize_page_text("\n".join(str(item) for item in texts if str(item).strip()))
+        except Exception:
+            return ""
+        finally:
+            try:
+                image_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _render_pdf_page_to_temp_png(self, *, file_path: Path, page_number: int) -> Path:
+        try:
+            import pypdfium2 as pdfium  # type: ignore
+        except Exception as exc:
+            raise RuntimeError("pypdfium2 is required for OCR PDF page rendering.") from exc
+
+        output = Path(tempfile.gettempdir()) / f"pdf_ocr_{self._file_cache_key(file_path)[1]}_{page_number}.png"
+        document = pdfium.PdfDocument(str(file_path))
+        try:
+            page = document[page_number - 1]
+            try:
+                bitmap = page.render(scale=self.ocr_render_scale)
+                image = bitmap.to_pil()
+                image.save(output)
+            finally:
+                close_page = getattr(page, "close", None)
+                if callable(close_page):
+                    close_page()
+        finally:
+            close_doc = getattr(document, "close", None)
+            if callable(close_doc):
+                close_doc()
+        return output
+
+    def _rapidocr_engine(self) -> object | None:
+        if self._ocr_engine is not None:
+            return self._ocr_engine
+        try:
+            from rapidocr import RapidOCR  # type: ignore
+        except Exception:
+            return None
+        self._ocr_engine = RapidOCR()
+        return self._ocr_engine
+
+    def _ocr_available(self) -> bool:
+        if self._ocr_reader is not None:
+            return True
+        try:
+            import pypdfium2  # type: ignore  # noqa: F401
+            from rapidocr import RapidOCR  # type: ignore  # noqa: F401
+            return True
+        except Exception:
+            return False
+
+    def _file_cache_key(self, file_path: Path) -> tuple[str, int, int]:
+        try:
+            stat = file_path.stat()
+        except OSError:
+            return (str(file_path.resolve()), 0, 0)
+        return (str(file_path.resolve()), int(stat.st_mtime_ns), int(stat.st_size))
+
+    def _ocr_cache_path(self, *, file_path: Path, page_number: int) -> Path | None:
+        if self.root_dir is None:
+            return None
+        key = self._file_cache_key(file_path)
+        digest = hashlib.sha1("|".join(str(item) for item in key).encode("utf-8")).hexdigest()
+        cache_root = (self.root_dir / ".." / "storage" / "document_cache" / "pdf_ocr").resolve()
+        return cache_root / digest / f"page_{page_number:04d}.txt"
+
+    def _read_persisted_ocr_page(self, *, file_path: Path, page_number: int) -> str | None:
+        path = self._ocr_cache_path(file_path=file_path, page_number=page_number)
+        if path is None or not path.exists():
+            return None
+        try:
+            return self._normalize_page_text(path.read_text(encoding="utf-8"))
+        except OSError:
+            return None
+
+    def _write_persisted_ocr_page(self, *, file_path: Path, page_number: int, text: str) -> None:
+        path = self._ocr_cache_path(file_path=file_path, page_number=page_number)
+        if path is None:
+            return
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        except OSError:
+            return
 
     def looks_unusable_text(self, text: str) -> bool:
         cleaned = re.sub(r"\s+", "", text or "")
@@ -444,10 +707,22 @@ class PdfTextParser:
         return result
 
     def _extract_pages_locally(self, file_path: Path) -> list[tuple[int, str]]:
-        pages = self._extract_pages_with_pdfplumber(file_path)
-        if pages:
-            return pages
-        return self._extract_pages_with_pypdf(file_path)
+        pdfplumber_pages = self._extract_pages_with_pdfplumber(file_path)
+        pypdf_pages = self._extract_pages_with_pypdf(file_path)
+        if not pdfplumber_pages:
+            return pypdf_pages
+        if not pypdf_pages:
+            return pdfplumber_pages
+
+        pdfplumber_by_page = {page_number: text for page_number, text in pdfplumber_pages}
+        pypdf_by_page = {page_number: text for page_number, text in pypdf_pages}
+        page_numbers = sorted(set(pdfplumber_by_page) | set(pypdf_by_page))
+        merged: list[tuple[int, str]] = []
+        for page_number in page_numbers:
+            plumber_text = str(pdfplumber_by_page.get(page_number, "") or "")
+            pypdf_text = str(pypdf_by_page.get(page_number, "") or "")
+            merged.append((page_number, self._choose_better_page_text(plumber_text, pypdf_text)))
+        return merged
 
     def _extract_pages_with_pdfplumber(self, file_path: Path) -> list[tuple[int, str]]:
         try:
@@ -518,6 +793,41 @@ class PdfTextParser:
         cleaned = "\n".join(lines)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip()
+
+    def _choose_better_page_text(self, pdfplumber_text: str, pypdf_text: str) -> str:
+        plumber_score = self._page_text_quality_score(pdfplumber_text)
+        pypdf_score = self._page_text_quality_score(pypdf_text)
+        if pypdf_score > plumber_score:
+            return self._normalize_page_text(pypdf_text)
+        if plumber_score > pypdf_score:
+            return self._normalize_page_text(pdfplumber_text)
+        if len(self._normalize_page_text(pypdf_text)) >= len(self._normalize_page_text(pdfplumber_text)):
+            return self._normalize_page_text(pypdf_text)
+        return self._normalize_page_text(pdfplumber_text)
+
+    def _page_text_quality_score(self, text: str) -> float:
+        normalized = self._normalize_page_text(text)
+        if not normalized:
+            return 0.0
+        compact = re.sub(r"\s+", "", normalized)
+        if not compact:
+            return 0.0
+        if self.looks_unusable_text(normalized):
+            return 0.05
+        score = 0.0
+        score += min(len(compact) / 200.0, 1.0)
+        alnum_ratio = len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]", compact)) / max(len(compact), 1)
+        score += alnum_ratio
+        line_count = max(len([line for line in normalized.splitlines() if line.strip()]), 1)
+        if line_count <= 40:
+            score += 0.2
+        if re.search(r"[。！？；：]", normalized):
+            score += 0.2
+        if re.search(r"\d{4}", normalized):
+            score += 0.1
+        if re.search(r"[A-Za-z]{4,}", normalized):
+            score += 0.1
+        return score
 
     def _local_pdf_available(self) -> bool:
         try:

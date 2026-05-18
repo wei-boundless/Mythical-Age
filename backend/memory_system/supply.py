@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .contracts import MemoryContextCandidate, MemoryWriteCandidate, StateMemoryRestoreCandidate
+from .contracts import MemoryContextCandidate, StateMemoryRestoreCandidate
 from .runtime_view import MemoryRuntimeView
 
 
@@ -74,28 +74,6 @@ class MemoryBundle:
         payload["restore_candidates"] = [item.to_dict() for item in self.restore_candidates]
         payload["selected_layers"] = list(self.selected_layers)
         payload["selected_topics"] = list(self.selected_topics)
-        return payload
-
-
-@dataclass(frozen=True, slots=True)
-class MemoryWritebackProposal:
-    proposal_id: str
-    session_id: str
-    task_id: str
-    target_layers: tuple[str, ...] = ()
-    write_candidates: tuple[MemoryWriteCandidate, ...] = ()
-    adopted: bool = False
-    authority: str = "memory_system.memory_writeback_proposal"
-    diagnostics: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if self.adopted:
-            raise ValueError("MemoryWritebackProposal cannot self-adopt")
-
-    def to_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["target_layers"] = list(self.target_layers)
-        payload["write_candidates"] = [item.to_dict() for item in self.write_candidates]
         return payload
 
 
@@ -209,28 +187,6 @@ def build_memory_bundle(
         selected_layers=request.requested_memory_layers,
         selected_topics=request.requested_topics,
         diagnostics=diagnostics,
-    )
-
-
-def build_memory_writeback_proposal(
-    *,
-    session_id: str,
-    task_id: str,
-    write_candidates: list[MemoryWriteCandidate] | tuple[MemoryWriteCandidate, ...] | None = None,
-) -> MemoryWritebackProposal:
-    candidates = tuple(write_candidates or ())
-    target_layers = tuple(_normalize_strings([candidate.target_layer for candidate in candidates]))
-    return MemoryWritebackProposal(
-        proposal_id=f"memwrite:{task_id}:{session_id}",
-        session_id=session_id,
-        task_id=task_id,
-        target_layers=target_layers,
-        write_candidates=candidates,
-        adopted=False,
-        diagnostics={
-            "write_candidate_count": len(candidates),
-            "candidate_only": True,
-        },
     )
 
 

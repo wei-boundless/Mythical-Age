@@ -222,7 +222,7 @@ export function HealthReportView({
           <summary>查看技术引用</summary>
           <dl className="health-report-dl">
             <div>
-              <dt>运行通道</dt>
+              <dt>运行场景权限</dt>
               <dd>{laneLabel(selectedRun?.runtime_lane)}</dd>
             </div>
             <div>

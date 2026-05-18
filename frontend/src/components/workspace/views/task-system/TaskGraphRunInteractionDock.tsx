@@ -17,7 +17,7 @@ function arrayValue(value: unknown): Array<Record<string, unknown>> {
 }
 
 function interactionRequest(decision: TaskGraphMonitorDecision | null): Record<string, unknown> {
-  return recordValue(decision?.run_interaction_request ?? decision?.human_review_request);
+  return recordValue(decision?.run_interaction_request);
 }
 
 function numberValue(value: unknown) {
@@ -101,6 +101,10 @@ export function TaskGraphRunInteractionDock({
   const suppressClickRef = useRef(false);
   const autoOpenedRef = useRef("");
   const request = useMemo(() => interactionRequest(decision), [decision]);
+  const monitorHumanWorkPacket = recordValue((monitor as unknown as Record<string, unknown> | null)?.current_human_work_packet);
+  const humanWorkPacket = recordValue(request.human_work_packet ?? monitorHumanWorkPacket);
+  const materialSections = useMemo(() => arrayValue(humanWorkPacket.material_sections), [humanWorkPacket]);
+  const outputFormSchema = recordValue(humanWorkPacket.output_form_schema);
   const requestId = String(request.request_id || decision?.decision_id || "");
   const decisionOptions = useMemo(() => arrayValue(request.decision_options), [request]);
   const needsAttention = Boolean(decision && decision.action !== "no_action");
@@ -335,6 +339,38 @@ export function TaskGraphRunInteractionDock({
                 <strong>{String(recordValue(request.presentation).title || "运行交互请求")}</strong>
                 <span>{String(request.summary || decision.summary || "请根据当前运行状态选择下一步。")}</span>
                 <small>{String(request.interaction_kind || "run_interaction")}</small>
+              </article>
+            ) : null}
+            {Object.keys(humanWorkPacket).length ? (
+              <article className="health-agent-message task-graph-run-interaction-work-packet">
+                <strong>{String(humanWorkPacket.title || "节点人工工作单")}</strong>
+                <span>{String(humanWorkPacket.task_brief || "请按节点输入包和输出契约提交本节点结果。")}</span>
+                <small>{String(humanWorkPacket.role_label || "人工执行者")}</small>
+                <div className="task-graph-run-interaction-work-packet__grid">
+                  {materialSections.map((section, index) => {
+                    const items = arrayValue(section.items);
+                    return (
+                      <section key={`${String(section.section_id || "section")}_${index}`}>
+                        <b>{String(section.title || section.section_id || "输入材料")}</b>
+                        {items.length ? (
+                          <ul>
+                            {items.slice(0, 4).map((item, itemIndex) => (
+                              <li key={`${String(item.input_key || "input")}_${itemIndex}`}>
+                                <span>{String(item.input_key || "输入")}</span>
+                                <small>{String(item.usage_instruction || item.content_preview || item.content_ref || "")}</small>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <small>暂无材料</small>
+                        )}
+                      </section>
+                    );
+                  })}
+                </div>
+                {Array.isArray(outputFormSchema.fields) && outputFormSchema.fields.length ? (
+                  <small>需提交字段：{outputFormSchema.fields.map((field) => String(recordValue(field).label || recordValue(field).field_id || "")).filter(Boolean).join(" / ")}</small>
+                ) : null}
               </article>
             ) : null}
             <details className="task-graph-runtime-spec-details">

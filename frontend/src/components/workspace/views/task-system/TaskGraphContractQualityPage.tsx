@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { ContractSpec } from "@/lib/api";
 
+import { TaskGraphEdgeStandardPage } from "./TaskGraphEdgeStandardPage";
 import { TaskSystemField } from "./TaskSystemWorkbenchUi";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
@@ -31,6 +32,10 @@ export function TaskGraphContractQualityPage({
   editorIssueCount,
   editorValid,
   editorFocus,
+  onEditorFocus,
+  selectedGraphEdge,
+  selectedGraphEdgeId,
+  standardView,
   taskGraphDraft,
   updateTaskGraph,
   updateTaskGraphEdge,
@@ -42,6 +47,10 @@ export function TaskGraphContractQualityPage({
   editorIssueCount: number;
   editorValid: boolean;
   editorFocus?: TaskGraphEditorFocus;
+  onEditorFocus?: (focus: Partial<TaskGraphEditorFocus> & { layer?: TaskGraphEditorFocus["layer"] }) => void;
+  selectedGraphEdge: Record<string, unknown> | null;
+  selectedGraphEdgeId: string;
+  standardView: import("@/lib/api").TaskGraphStandardView | null;
   taskGraphDraft: TaskGraphDraftV2;
   updateTaskGraph: (patch: Partial<TaskGraphDraftV2>) => void;
   updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
@@ -53,6 +62,26 @@ export function TaskGraphContractQualityPage({
     () => buildTaskGraphCognitionModel({ nodes: activeGraphNodes, edges: activeGraphEdges }),
     [activeGraphNodes, activeGraphEdges],
   );
+
+  if (editorFocus?.facet === "edge_standard") {
+    return (
+      <section className="task-graph-studio-page">
+        <header className="task-graph-studio-page__head">
+          <span>TaskGraph Studio</span>
+          <strong>边标准对象</strong>
+          <small>边页负责载荷契约、交接语义和 memory / artifact / revision / temporal 的边级配置。</small>
+        </header>
+        <TaskGraphEdgeStandardPage
+          activeGraphEdges={activeGraphEdges}
+          editorFocus={editorFocus}
+          selectedGraphEdge={selectedGraphEdge}
+          selectedGraphEdgeId={selectedGraphEdgeId}
+          standardView={standardView}
+          updateTaskGraphEdge={updateTaskGraphEdge}
+        />
+      </section>
+    );
+  }
 
   const contractOptions = (...currentIds: string[]) => {
     const current = currentIds.map((item) => String(item ?? "").trim()).filter(Boolean);
@@ -161,7 +190,7 @@ export function TaskGraphContractQualityPage({
       </section>
 
       <section className="boundary-card">
-        <header><strong>契约进入执行包</strong><span>检查输入、输出、交接和 receipt 的配套关系</span></header>
+        <header><strong>契约进入执行包</strong><span>检查输入、输出、交接和提交可见性的配套关系</span></header>
         <div className="task-graph-node-policy-list">
           {cognitionModel.packages.map((nodePackage) => (
             <article className="task-graph-node-policy-row" key={nodePackage.nodeId}>
@@ -215,6 +244,16 @@ export function TaskGraphContractQualityPage({
               </article>
             );
           })}
+        </div>
+        <div className="boundary-actions">
+          <button
+            className="boundary-chip"
+            disabled={!selectedGraphEdgeId}
+            onClick={() => selectedGraphEdgeId && onEditorFocus?.({ layer: "contracts", facet: "edge_standard", edge_id: selectedGraphEdgeId })}
+            type="button"
+          >
+            <span>打开边对象页</span>
+          </button>
         </div>
       </section>
     </section>

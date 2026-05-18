@@ -254,6 +254,11 @@ export function TaskGraphRunMonitorPanel({
           <strong>{selectedNode?.title || "等待启动"}</strong>
           <em>{selectedNode ? taskGraphMonitorStatusLabel(selectedNode.status) : "待启动"}</em>
         </article>
+        <article className={model.temporalViolations.length ? "coordination-overview-card coordination-overview-card--danger" : "coordination-overview-card"}>
+          <span>执行许可</span>
+          <strong>{model.temporalBoundaryValid ? "已签发" : "未闭合"}</strong>
+          <em>{model.temporalActiveExecutionPermitId || model.temporalViolations[0]?.code || "等待节点激活"}</em>
+        </article>
         <article className="coordination-overview-card">
           <span>总节点</span>
           <strong>{model.nodeCount}</strong>
@@ -385,6 +390,42 @@ export function TaskGraphRunMonitorPanel({
       </section>
 
       <section className="coordination-output-board">
+        <article className={model.temporalViolations.length ? "coordination-output-card coordination-contract-card coordination-overview-card--danger" : "coordination-output-card coordination-contract-card"}>
+          <div className="coordination-output-card__head">
+            <span><Clock3 size={14} /> 执行边界</span>
+            <strong>{model.temporalBoundaryValid ? "当前许可有效" : "等待许可闭合"}</strong>
+          </div>
+          <div className="coordination-handoff-list">
+            <article className="coordination-handoff-item">
+              <div>
+                <strong>当前节点</strong>
+                <span>{model.temporalActiveNodeId || model.activeNodeId || "未激活"}</span>
+              </div>
+              <small>request {model.temporalActiveRequestId || "未生成"}</small>
+            </article>
+            <article className="coordination-handoff-item">
+              <div>
+                <strong>Activation</strong>
+                <span>{model.temporalActiveActivationId || "未打开节点窗口"}</span>
+              </div>
+              <small>permit {model.temporalActiveExecutionPermitId || "未签发"}</small>
+            </article>
+            {model.temporalViolations.length ? (
+              model.temporalViolations.map((issue) => (
+                <article className="coordination-handoff-item" key={`${issue.code}:${issue.targetId}`}>
+                  <div>
+                    <strong>{issue.code || "temporal_violation"}</strong>
+                    <span>{issue.severity || "error"} · {issue.targetId || "runtime"}</span>
+                  </div>
+                  <small>{issue.message || "节点运行不在当前拓扑时序许可窗口内。"}</small>
+                </article>
+              ))
+            ) : (
+              <p className="coordination-contract-empty">没有发现越界节点运行。</p>
+            )}
+          </div>
+        </article>
+
         <article className="coordination-output-card coordination-contract-card">
           <div className="coordination-output-card__head">
             <span><Clock3 size={14} /> 时序账本</span>

@@ -79,7 +79,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             task_mode="knowledge_retrieval",
             source_kind="knowledge",
             delegate_target_agent_id="agent:rag_analyst",
-            delegation_kind="retrieval",
+            delegation_kind="evidence_lookup",
             fallback_operation="op.mcp_retrieval",
             steps=(
                 _step("retrieve_evidence", "Retrieve evidence", "execute"),
@@ -94,7 +94,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             task_mode="capability_execution",
             source_kind="pdf",
             delegate_target_agent_id="agent:pdf_reader",
-            delegation_kind="pdf",
+            delegation_kind="pdf_reading",
             fallback_operation="op.mcp_pdf",
             steps=(
                 _step("analyze_pdf", "Analyze PDF", "analyze"),
@@ -110,7 +110,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             task_mode="capability_execution",
             source_kind="dataset",
             delegate_target_agent_id="agent:table_analyst",
-            delegation_kind="structured_data",
+            delegation_kind="table_analysis",
             fallback_operation="op.mcp_structured_data",
             steps=(
                 _step("analyze_dataset", "Analyze dataset", "analyze"),
@@ -258,7 +258,6 @@ def _delegate_profile(
         "metadata": {
             "execution_strategy": "delegate_preferred",
             "delegate_target_agent_id": delegate_target_agent_id,
-            "delegate_target_agent_category": "worker_sub_agent",
             "delegation_kind": delegation_kind,
             "fallback_operation": fallback_operation,
         },

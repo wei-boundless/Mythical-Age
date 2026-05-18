@@ -195,6 +195,7 @@ export function TaskAssemblyPreflightPanel({
 
   const taskGraphReady = Boolean(selectedTaskGraph?.graph_id);
   const nodeReady = Boolean(taskGraphReady && currentNodeId);
+  const graphTaskRefs = Array.isArray(selectedGraphSpec.subtask_refs) ? selectedGraphSpec.subtask_refs : [];
 
   return (
     <section className="boundary-layer-stack task-assembly-preflight">
@@ -241,7 +242,7 @@ export function TaskAssemblyPreflightPanel({
             </TaskSystemToolbarButton>
           </div>
           <div className="boundary-kv">
-            <p><span>单任务</span><strong>{selectedTask?.task_title || "未选择"}</strong></p>
+            <p><span>引用任务定义</span><strong>{graphTaskRefs.length ? graphTaskRefs.join(" / ") : selectedTask?.task_title || "无"}</strong></p>
             <p><span>任务图</span><strong>{selectedTaskGraph?.graph_id || "未选择"}</strong></p>
             <p><span>当前节点</span><strong>{currentNodeId || "未选择"}</strong></p>
             <p><span>任务图契约清单</span><strong>{taskGraphManifest ? `${manifestRefCount(taskGraphManifest)} 引用 / ${taskGraphManifest.issues.length} 问题` : "未生成"}</strong></p>

@@ -67,7 +67,9 @@ def evaluate_task_graph_monitor_snapshot(
     blocker = dict(snapshot.get("blocker") or {})
     streaming = dict(snapshot.get("streaming") or {})
     state = dict(snapshot.get("state") or {})
-    stage_request = dict(snapshot.get("current_stage_execution_request") or {})
+    temporal = dict(snapshot.get("temporal") or {})
+    stage_request = dict(snapshot.get("current_node_execution_request") or snapshot.get("current_stage_execution_request") or {})
+    human_work_packet = dict(snapshot.get("current_human_work_packet") or stage_request.get("human_work_packet") or {})
 
     status = str(runtime.get("status") or "").strip()
     terminal_status = str(runtime.get("terminal_status") or "").strip()
@@ -86,6 +88,11 @@ def evaluate_task_graph_monitor_snapshot(
         running_nodes.append(active_node_id)
     waiting_nodes = [str(item) for item in list(state.get("waiting_node_ids") or []) if str(item)]
     failed_nodes = [str(item) for item in list(state.get("failed_node_ids") or []) if str(item)]
+    temporal_violations = [
+        dict(item)
+        for item in list(temporal.get("violations") or [])
+        if isinstance(item, dict)
+    ]
 
     reason = "healthy"
     severity = "info"
@@ -94,7 +101,19 @@ def evaluate_task_graph_monitor_snapshot(
     recommended_control: dict[str, Any] = {}
     run_interaction_request: dict[str, Any] = {}
 
-    if status in {"completed"} or terminal_status == "completed":
+    if temporal_violations:
+        reason = str(temporal_violations[0].get("code") or "temporal_violation")
+        severity = "critical"
+        action = _first_allowed(("pause", "request_user_decision", "notify", "escalate"), allowed_actions)
+        summary = str(temporal_violations[0].get("message") or "TaskGraph run has an out-of-timeline execution.")
+        recommended_control = _control_packet(
+            action=action,
+            task_run_id=task_run_id,
+            coordination_run_id=coordination_run_id,
+            safe_to_auto_apply=False,
+            requires_human=True,
+        )
+    elif status in {"completed"} or terminal_status == "completed":
         reason = "completed"
         summary = "TaskGraph run has completed."
     elif status in {"failed", "aborted", "killed"} or terminal_status in {"failed", "aborted", "killed"} or failed_nodes:
@@ -114,6 +133,18 @@ def evaluate_task_graph_monitor_snapshot(
         severity = "error"
         action = _first_allowed(("request_user_decision", "request_human_review", "notify", "escalate"), allowed_actions)
         summary = str(blocker.get("summary") or blocker.get("reason") or "TaskGraph run has an active blocker.")
+        recommended_control = _control_packet(
+            action=action,
+            task_run_id=task_run_id,
+            coordination_run_id=coordination_run_id,
+            safe_to_auto_apply=False,
+            requires_human=True,
+        )
+    elif human_work_packet and policy.get("watch_human_executor") is not False:
+        reason = "human_executor_waiting"
+        severity = "warning"
+        action = _first_allowed(("request_user_decision", "notify"), allowed_actions)
+        summary = str(human_work_packet.get("title") or "TaskGraph run is waiting for a human executor.")
         recommended_control = _control_packet(
             action=action,
             task_run_id=task_run_id,
@@ -170,6 +201,9 @@ def evaluate_task_graph_monitor_snapshot(
             "enabled": bool(streaming.get("enabled") is True),
             "latest_chunk_at": _float(streaming.get("latest_chunk_at")),
         },
+        "human_work_packet": human_work_packet,
+        "temporal": temporal,
+        "temporal_violations": temporal_violations,
     }
     if action != "no_action" and reason != "completed":
         run_interaction_request = _run_interaction_request(
@@ -212,6 +246,7 @@ def compact_monitor_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         "supervision": dict(payload.get("supervision") or {}),
         "blocker": dict(payload.get("blocker") or {}),
         "state": dict(payload.get("state") or {}),
+        "temporal": dict(payload.get("temporal") or {}),
         "streaming": dict(payload.get("streaming") or {}),
     }
 
@@ -284,6 +319,7 @@ def _run_interaction_request(
             "title": str(interaction_surface.get("title") or "TaskGraph 运行交互"),
         },
         "decision_options": _interaction_decision_options(action=action, interaction_surface=interaction_surface),
+        "human_work_packet": dict(observed.get("human_work_packet") or {}),
         "safe_state_refs": {
             "active_node_id": str(observed.get("active_node_id") or ""),
             "running_node_ids": list(observed.get("running_node_ids") or []),
@@ -294,6 +330,8 @@ def _run_interaction_request(
 
 
 def _interaction_kind(*, action: str, reason: str) -> str:
+    if reason == "human_executor_waiting":
+        return "human_executor"
     if action in {"request_user_decision", "request_human_review"}:
         return "manual_review"
     if action in {"resume", "restart", "pause"}:

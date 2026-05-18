@@ -42,7 +42,7 @@ class DoclingConverter:
     def convert(self, record: SourceFileRecord) -> ConversionResult:
         if record.source_type == "pdf":
             converted = self._convert_pdf_with_parser(record)
-            if converted is not None:
+            if converted is not None and self._conversion_result_usable(record, converted):
                 return converted
         if self.available():
             converted = self._convert_with_docling(record)
@@ -311,7 +311,14 @@ class DoclingConverter:
         joined = " ".join(block.text.strip() for block in result.blocks if block.text.strip()).strip()
         if not joined:
             return False
-        return not self._pdf_parser.looks_unusable_text(joined)
+        if not self._pdf_parser.looks_unusable_text(joined):
+            return True
+        pages = tuple(result.pages or ())
+        if pages:
+            usable_pages = sum(1 for page in pages if bool(page.has_usable_text))
+            if usable_pages >= max(1, min(2, len(pages))):
+                return True
+        return False
 
     def _backend_root(self) -> Path | None:
         if self.repo_root is None:

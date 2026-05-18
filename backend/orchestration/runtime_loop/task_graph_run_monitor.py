@@ -104,7 +104,7 @@ def build_task_graph_run_monitor_view(
     )
     supervision_items = [dict(item) for item in list(supervision_records or []) if isinstance(item, dict)]
     latest_supervision = dict(supervision_items[-1] or {}) if supervision_items else {}
-    stage_request = dict(state.get("stage_execution_request") or {})
+    stage_request = dict(state.get("node_execution_request") or state.get("stage_execution_request") or {})
     active_node = next(
         (
             dict(item)
@@ -118,11 +118,14 @@ def build_task_graph_run_monitor_view(
     runtime_assembly_diagnostics = dict(runtime_assembly.get("diagnostics") or {})
     timeline = _timeline_view(dict(state.get("timeline") or {}))
     dispatch_context = dict(stage_request.get("dispatch_context") or {})
+    node_execution_boundary = _node_execution_boundary_from_request(stage_request)
     context_packets = {
         "memory_snapshot": dict(stage_request.get("memory_snapshot") or {}),
         "artifact_context_packet": dict(stage_request.get("artifact_context_packet") or {}),
         "revision_packet": dict(stage_request.get("revision_packet") or {}),
         "handoff_packet_refs": _string_list(stage_request.get("handoff_packet_refs")),
+        "standard_input_package": dict(stage_request.get("standard_input_package") or {}),
+        "human_work_packet": dict(stage_request.get("human_work_packet") or {}),
     }
     if not dict(stage_request.get("stream_policy") or {}):
         synthesized_stream_policy = (
@@ -211,11 +214,24 @@ def build_task_graph_run_monitor_view(
         "artifacts": artifacts,
         "memory_operations": memory_operations,
         "stage_results": stage_results,
+        "current_node_execution_request": stage_request,
         "current_stage_execution_request": stage_request,
+        "current_node_execution_boundary": node_execution_boundary,
         "current_dispatch_context": dispatch_context,
         "current_context_packets": context_packets,
+        "current_standard_input_package": dict(stage_request.get("standard_input_package") or {}),
+        "current_human_work_packet": dict(stage_request.get("human_work_packet") or {}),
         "timeline_result_records": _timeline_result_records(state),
         "timeline": timeline,
+        "temporal": {
+            "active_node_id": active_node_id,
+            "active_activation_id": str(node_execution_boundary.get("activation_id") or ""),
+            "active_execution_permit_id": str(node_execution_boundary.get("execution_permit_id") or ""),
+            "active_request_id": str(node_execution_boundary.get("request_id") or ""),
+            "boundary_valid": bool(node_execution_boundary.get("valid") is True),
+            "violations": _temporal_violations(state=state, boundary=node_execution_boundary),
+            "authority": "task_graph.temporal_monitor_view",
+        },
         "current_stage_timeline": dict(runtime_assembly_metadata.get("execution_timeline") or {}),
         "streaming": stream_preview,
         "health": {
@@ -437,10 +453,75 @@ def _health_issues(
             issues.append(_issue("error", "edge_endpoint_missing", "Edge endpoint is not present in topology nodes.", edge_id))
     if active_node_id and active_node_id not in node_ids:
         issues.append(_issue("error", "active_node_missing", "Active node is not present in topology nodes.", active_node_id))
-    if not dict(state.get("stage_execution_request") or {}) and not str(state.get("terminal_status") or ""):
-        issues.append(_issue("warning", "stage_execution_request_missing", "Current stage execution request is missing.", "stage_execution_request"))
+    current_request = dict(state.get("node_execution_request") or state.get("stage_execution_request") or {})
+    if not current_request and not str(state.get("terminal_status") or ""):
+        issues.append(_issue("warning", "node_execution_request_missing", "Current node execution request is missing.", "node_execution_request"))
+    boundary = _node_execution_boundary_from_request(current_request)
+    issues.extend(_temporal_violations(state=state, boundary=boundary))
     issues.extend(_timeline_integrity_issues(state))
     return issues
+
+
+def _node_execution_boundary_from_request(request: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(request or {})
+    dispatch_context = dict(payload.get("dispatch_context") or {})
+    standard_input = dict(payload.get("standard_input_package") or {})
+    activation_id = _first_string(dispatch_context.get("activation_id"), standard_input.get("activation_id"), payload.get("activation_id"))
+    execution_permit_id = _first_string(dispatch_context.get("execution_permit_id"), standard_input.get("execution_permit_id"), payload.get("execution_permit_id"))
+    request_id = _first_string(payload.get("request_id"), standard_input.get("request_id"))
+    node_id = _first_string(payload.get("node_id"), dispatch_context.get("node_id"), standard_input.get("node_id"), payload.get("stage_id"))
+    missing = [
+        key
+        for key, value in {
+            "activation_id": activation_id,
+            "execution_permit_id": execution_permit_id,
+            "request_id": request_id,
+            "node_id": node_id,
+        }.items()
+        if not value
+    ]
+    return {
+        "activation_id": activation_id,
+        "execution_permit_id": execution_permit_id,
+        "request_id": request_id,
+        "node_id": node_id,
+        "stage_id": _first_string(payload.get("stage_id"), dispatch_context.get("stage_id"), standard_input.get("stage_id")),
+        "dispatch_event_id": _first_string(payload.get("dispatch_event_id"), dispatch_context.get("dispatch_event_id")),
+        "valid": not missing,
+        "missing": missing,
+        "authority": "task_graph.node_execution_boundary",
+    }
+
+
+def _temporal_violations(*, state: dict[str, Any], boundary: dict[str, Any]) -> list[dict[str, str]]:
+    violations: list[dict[str, str]] = []
+    terminal_status = str(state.get("terminal_status") or "")
+    running_nodes = set(_string_list(state.get("running_nodes")))
+    node_statuses = {str(key): str(value) for key, value in dict(state.get("node_statuses") or {}).items() if str(key)}
+    running_nodes.update(node_id for node_id, status in node_statuses.items() if status == "running")
+    active = str(state.get("active_stage_id") or state.get("active_node_id") or "")
+    if active and not terminal_status:
+        running_nodes.add(active)
+    if running_nodes and boundary.get("valid") is not True and not terminal_status:
+        violations.append(
+            _issue(
+                "error",
+                "node_running_without_execution_permit",
+                "Running node has no valid activation and execution permit boundary.",
+                ",".join(sorted(running_nodes)),
+            )
+        )
+    boundary_node = str(boundary.get("node_id") or "")
+    if boundary_node and running_nodes and boundary_node not in running_nodes and not terminal_status:
+        violations.append(
+            _issue(
+                "warning",
+                "execution_permit_node_mismatch",
+                "Active execution permit belongs to a node outside the current running node set.",
+                boundary_node,
+            )
+        )
+    return violations
 
 
 def _timeline_integrity_issues(state: dict[str, Any]) -> list[dict[str, str]]:
@@ -501,6 +582,14 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, (list, tuple)):
         return []
     return [str(item) for item in value if str(item)]
+
+
+def _first_string(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 
 
 def _stream_preview(

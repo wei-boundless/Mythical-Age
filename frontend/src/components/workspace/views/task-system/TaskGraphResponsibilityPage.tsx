@@ -4,8 +4,10 @@ import { useMemo } from "react";
 
 import { EdgeHandoffCard } from "./EdgeHandoffCard";
 import { NodeResponsibilityCard } from "./NodeResponsibilityCard";
+import { TaskGraphNodeStandardPage } from "./TaskGraphNodeStandardPage";
 import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
 import { buildTaskGraphCognitionModel, type TaskGraphCognitionPackage } from "./taskGraphCognitionView";
+import type { TaskGraphStandardView } from "@/lib/api";
 
 function CognitionPackagePanel({
   nodePackage,
@@ -60,7 +62,7 @@ function CognitionPackagePanel({
       </section>
 
       <section className="task-graph-cognition-section">
-        <header><strong>输出与生效</strong><span>下游只应接收契约化输出、引用或 receipt</span></header>
+        <header><strong>输出与生效</strong><span>下游只应接收契约化输出、引用、提交确认或交接包</span></header>
         <div className="task-graph-cognition-list">
           {nodePackage.outputs.length ? nodePackage.outputs.map((output) => (
             <article className="task-graph-cognition-item" key={output.outputId}>
@@ -74,7 +76,7 @@ function CognitionPackagePanel({
           )) : (
             <div className="task-graph-note task-graph-note--danger">
               <strong>没有明确输出</strong>
-              <span>节点需要至少有产物、下游交接、记忆候选、提交或 receipt 中的一种。</span>
+              <span>节点需要至少有产物、下游交接、记忆候选或提交确认中的一种。</span>
             </div>
           )}
         </div>
@@ -97,6 +99,7 @@ export function TaskGraphResponsibilityPage({
   selectedGraphNodeId,
   selectedGraphEdge,
   selectedGraphEdgeId,
+  standardView,
   editorFocus,
   onEditorFocus,
   updateTaskGraphNode,
@@ -110,6 +113,7 @@ export function TaskGraphResponsibilityPage({
   selectedGraphNodeId: string;
   selectedGraphEdge: Record<string, unknown> | null;
   selectedGraphEdgeId: string;
+  standardView: TaskGraphStandardView | null;
   editorFocus?: TaskGraphEditorFocus;
   onEditorFocus?: (focus: Partial<TaskGraphEditorFocus> & { layer?: TaskGraphEditorFocus["layer"] }) => void;
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
@@ -130,6 +134,27 @@ export function TaskGraphResponsibilityPage({
     ),
     [cognitionModel.packages],
   );
+
+  if (editorFocus?.facet === "node_standard") {
+    return (
+      <section className="task-graph-studio-page">
+        <header className="task-graph-studio-page__head">
+          <span>TaskGraph Studio</span>
+          <strong>节点标准对象</strong>
+          <small>节点页负责身份、执行者、运行与产物目标；认知包仍然作为节点最终收到什么的语义预览。</small>
+        </header>
+        <TaskGraphNodeStandardPage
+          activeGraphNodes={activeGraphNodes}
+          editorFocus={editorFocus}
+          onEditorFocus={onEditorFocus}
+          selectedGraphNode={selectedGraphNode}
+          selectedGraphNodeId={selectedGraphNodeId}
+          standardView={standardView}
+          updateTaskGraphNode={updateTaskGraphNode}
+        />
+      </section>
+    );
+  }
 
   return (
     <section className="task-graph-studio-page">
@@ -162,6 +187,16 @@ export function TaskGraphResponsibilityPage({
                 </div>
               </section>
             ))}
+          </div>
+          <div className="boundary-actions">
+            <button
+              className="boundary-chip"
+              disabled={!selectedGraphNodeId}
+              onClick={() => selectedGraphNodeId && onEditorFocus?.({ layer: "responsibility", facet: "node_standard", node_id: selectedGraphNodeId })}
+              type="button"
+            >
+              <span>打开节点对象页</span>
+            </button>
           </div>
         </aside>
         <div className="task-graph-cognition-workbench__main">

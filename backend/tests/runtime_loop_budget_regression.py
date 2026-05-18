@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from orchestration.runtime_loop.agent_delegation_executor import _delegation_request_counts_against_budget
-from orchestration.runtime_loop.context_manager import _is_stale_runtime_operational_summary
 from orchestration.runtime_loop.delegation_models import AgentDelegationRequest, AgentDelegationResult
 from orchestration.runtime_loop.task_run_loop import _classify_delegation_goal_alignment
 
@@ -115,9 +114,3 @@ def test_budget_counter_ignores_missing_handle_repair_retry_with_file_paths() ->
     )
 
     assert _delegation_request_counts_against_budget(previous, current_request=current, result=result) is False
-
-
-def test_stale_runtime_summary_filters_limit_language() -> None:
-    assert _is_stale_runtime_operational_summary("委派被限流，无法读取 PDF 第二部分的具体内容。")
-    assert _is_stale_runtime_operational_summary("本轮运行预算达到上限，所以先停止继续调用工具。")
-    assert _is_stale_runtime_operational_summary("下一轮我会优先调用 PDF 第二部分。")

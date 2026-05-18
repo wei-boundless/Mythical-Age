@@ -15,6 +15,7 @@ class TaskGraphRuntimeNode:
     projection_id: str = ""
     task_id: str = ""
     task_family: str = ""
+    executor_policy: dict[str, Any] = field(default_factory=dict)
     execution_mode: str = "sync"
     wait_policy: str = "wait_all_upstream_completed"
     join_policy: str = "all_success"

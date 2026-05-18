@@ -80,6 +80,7 @@ export function NodeResponsibilityCard({
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
 }) {
   const nodeMetadata = asRecord(selectedGraphNode?.metadata);
+  const executorPolicy = asRecord(selectedGraphNode?.executor_policy ?? nodeMetadata.executor_policy);
   const [creatingProjection, setCreatingProjection] = useState(false);
   const [promptDraft, setPromptDraft] = useState("");
 
@@ -108,6 +109,14 @@ export function NodeResponsibilityCard({
     updateTaskGraphNode(selectedGraphNodeId, {
       metadata: {
         ...nodeMetadata,
+        ...patch,
+      },
+    });
+  };
+  const patchExecutorPolicy = (patch: Record<string, unknown>) => {
+    updateTaskGraphNode(selectedGraphNodeId, {
+      executor_policy: {
+        ...executorPolicy,
         ...patch,
       },
     });
@@ -157,6 +166,7 @@ export function NodeResponsibilityCard({
       <div className="task-graph-responsibility-preview">
         <p><span>角色</span><strong>{String(selectedGraphNode.role ?? selectedGraphNode.work_posture ?? "participant")}</strong></p>
         <p><span>Agent</span><strong>{String(selectedGraphNode.agent_id ?? "未绑定")}</strong></p>
+        <p><span>执行器</span><strong>{String(executorPolicy.default_executor ?? "agent")}</strong></p>
         <p><span>投影</span><strong>{projectionLabel(projectionId, projectionCards)}</strong></p>
         <p><span>Legacy Prompt</span><strong>{legacyFieldNames.length > 0 ? "已迁移记录" : "无"}</strong></p>
       </div>
@@ -169,6 +179,32 @@ export function NodeResponsibilityCard({
           options={projectionOptions}
           value={projectionId}
         />
+        <TaskSystemSelectField
+          label="默认执行器"
+          onChange={(value) => patchExecutorPolicy({ default_executor: value, allowed_executors: Array.from(new Set(["agent", value])) })}
+          options={uniqueStrings(["agent", "human", "tool", "subgraph", String(executorPolicy.default_executor ?? "")])}
+          value={String(executorPolicy.default_executor ?? "agent")}
+        />
+        <TaskSystemSelectField
+          label="运行时切换策略"
+          onChange={(value) => patchExecutorPolicy({ override_policy: value })}
+          options={["never", "before_dispatch", "on_failure", "cancel_and_reopen"]}
+          value={String(executorPolicy.override_policy ?? "before_dispatch")}
+        />
+        <TaskSystemField label="人工工作单角色">
+          <input
+            onChange={(event) => patchExecutorPolicy({ human_profile_id: event.target.value })}
+            placeholder="人工审核员 / 人工写手 / 人工修订者 / 自定义"
+            value={String(executorPolicy.human_profile_id ?? "")}
+          />
+        </TaskSystemField>
+        <TaskSystemField label="人工交互说明">
+          <textarea
+            onChange={(event) => patchExecutorPolicy({ instruction: event.target.value })}
+            placeholder="告诉人类执行者如何使用输入包、如何填写输出字段、提交后会进入哪条边。"
+            value={String(executorPolicy.instruction ?? "")}
+          />
+        </TaskSystemField>
         <TaskSystemField label="你是谁（角色身份）">
           <input
             onChange={(event) => patchMetadata({ role_identity: event.target.value })}

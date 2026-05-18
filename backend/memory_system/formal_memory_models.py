@@ -7,6 +7,11 @@ from typing import Any
 @dataclass(slots=True, frozen=True)
 class FormalMemoryRepository:
     repository_id: str
+    logical_repository_id: str = ""
+    effective_repository_id: str = ""
+    task_run_id: str = ""
+    scope_kind: str = "run_scoped"
+    scope_id: str = ""
     graph_id: str = ""
     node_id: str = ""
     title: str = ""
@@ -24,6 +29,11 @@ class FormalMemoryRepository:
 class FormalMemoryCollection:
     repository_id: str
     collection_id: str
+    logical_repository_id: str = ""
+    effective_repository_id: str = ""
+    task_run_id: str = ""
+    scope_kind: str = "run_scoped"
+    scope_id: str = ""
     title: str = ""
     schema_id: str = ""
     record_kinds: tuple[str, ...] = ()
@@ -46,6 +56,11 @@ class FormalMemoryRecord:
     repository_id: str
     collection_id: str
     record_key: str
+    logical_repository_id: str = ""
+    effective_repository_id: str = ""
+    task_run_id: str = ""
+    scope_kind: str = "run_scoped"
+    scope_id: str = ""
     record_kind: str = ""
     status: str = "active"
     current_committed_version: int = 0
@@ -65,6 +80,11 @@ class FormalMemoryRecordVersion:
     repository_id: str
     collection_id: str
     record_key: str
+    logical_repository_id: str = ""
+    effective_repository_id: str = ""
+    task_run_id: str = ""
+    scope_kind: str = "run_scoped"
+    scope_id: str = ""
     record_kind: str = ""
     version: int = 1
     status: str = "candidate"
@@ -101,6 +121,11 @@ class FormalMemoryTransaction:
     collection_id: str = ""
     record_key: str = ""
     record_id: str = ""
+    logical_repository_id: str = ""
+    effective_repository_id: str = ""
+    task_run_id: str = ""
+    scope_kind: str = "run_scoped"
+    scope_id: str = ""
     candidate_version_id: str = ""
     committed_version_id: str = ""
     receipt: dict[str, Any] = field(default_factory=dict)
@@ -120,6 +145,11 @@ class FormalMemoryReadLog:
     node_run_id: str = ""
     repository_id: str = ""
     collection_id: str = ""
+    logical_repository_id: str = ""
+    effective_repository_id: str = ""
+    task_run_id: str = ""
+    scope_kind: str = "run_scoped"
+    scope_id: str = ""
     selector: dict[str, Any] = field(default_factory=dict)
     selected_version_ids: tuple[str, ...] = ()
     clock: str = ""

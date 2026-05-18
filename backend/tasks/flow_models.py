@@ -171,7 +171,6 @@ class TaskAgentAdoptionPlan:
     task_id: str
     adoption_mode: str
     default_agent_id: str = "agent:0"
-    allowed_agent_categories: tuple[str, ...] = ()
     allow_worker_agent_spawn: bool = False
     worker_agent_blueprint_id: str = ""
     worker_agent_naming_rule: str = ""
@@ -190,7 +189,6 @@ class TaskAgentAdoptionPlan:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         metadata = dict(payload.get("metadata") or {})
-        payload["allowed_agent_categories"] = list(self.allowed_agent_categories)
         payload["execution_policy_id"] = payload["plan_id"].replace("taskadopt:", "taskexecpol:", 1)
         execution_chain_type = str(metadata.get("execution_chain_type") or "").strip()
         if not execution_chain_type:
@@ -209,9 +207,7 @@ class TaskAgentAdoptionPlan:
         return payload
 
     def to_legacy_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
-        payload["allowed_agent_categories"] = list(self.allowed_agent_categories)
-        return payload
+        return self.to_dict()
 
 
 @dataclass(frozen=True, slots=True)

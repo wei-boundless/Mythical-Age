@@ -8,7 +8,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from orchestration.agent_runtime_chain import AgentRuntimeChainAssembler
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from orchestration.agent_runtime_models import AgentRuntimeProfile
 from orchestration.runtime_loop.task_run_loop import _task_operation_allows_context_retrieval
 from understanding.capability_resolution_view import capability_resolution_view
 
@@ -39,7 +39,16 @@ def test_explicit_task_selection_suppresses_nested_rag_resolution() -> None:
         base_dir=BACKEND_DIR,
         memory_facade=_MemoryFacadeStub(),
     )
-    profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:world_designer_a")
+    profile = AgentRuntimeProfile(
+        agent_profile_id="writing_team_worker_runtime",
+        agent_id="agent:writing_team_worker",
+        allowed_runtime_lanes=("coordination_task",),
+        allowed_operations=("op.model_response", "op.memory_read"),
+        blocked_operations=("op.delegate_to_agent", "op.web_search"),
+        allowed_memory_scopes=("writing_team_long_novel", "state_readonly"),
+        allowed_context_sections=("task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
+        lifecycle_policy="task_graph_managed",
+    )
     task_selection = {
         "selected_task_id": "task.writing_team.long_novel.world_designer_a",
         "task_id": "task.writing_team.long_novel.world_designer_a",

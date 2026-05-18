@@ -77,7 +77,7 @@ class DelegationCatalogBuilder:
                 parent_gate=parent_gate,
             )
             for agent in agents
-            if agent.agent_category == "worker_sub_agent"
+            if agent.delegation_enabled
         )
         return {
             "authority": "orchestration.delegation_catalog",
@@ -131,19 +131,13 @@ class DelegationCatalogBuilder:
         unavailable: list[str] = []
         if not bool(getattr(agent, "enabled", False)):
             unavailable.append("target_agent_disabled")
-        if str(getattr(agent, "agent_category", "") or "") != "worker_sub_agent":
-            unavailable.append("target_agent_not_worker_sub_agent")
+        if not bool(getattr(agent, "delegation_enabled", False)):
+            unavailable.append("target_agent_delegation_disabled")
         parent_gate = dict(parent_gate or {})
         allowed_ids = set(str(item).strip() for item in list(parent_gate.get("allowed_delegate_agent_ids") or []) if str(item).strip())
-        allowed_categories = set(
-            str(item).strip() for item in list(parent_gate.get("allowed_delegate_agent_categories") or []) if str(item).strip()
-        )
         agent_id = str(getattr(agent, "agent_id", "") or "")
-        agent_category = str(getattr(agent, "agent_category", "") or "")
         if allowed_ids and agent_id not in allowed_ids:
             unavailable.append("target_agent_not_allowed_by_parent")
-        if allowed_categories and agent_category not in allowed_categories:
-            unavailable.append("target_agent_category_not_allowed_by_parent")
         if runtime_profile is None:
             unavailable.append("target_runtime_profile_missing")
             allowed_operations: tuple[str, ...] = ()
@@ -204,7 +198,6 @@ class DelegationCatalogBuilder:
             return {
                 "blocked_reasons": [],
                 "allowed_delegate_agent_ids": (),
-                "allowed_delegate_agent_categories": ("worker_sub_agent",),
             }
         blocked_reasons: list[str] = []
         if parent_profile is None:
@@ -212,7 +205,6 @@ class DelegationCatalogBuilder:
             return {
                 "blocked_reasons": blocked_reasons,
                 "allowed_delegate_agent_ids": (),
-                "allowed_delegate_agent_categories": (),
             }
         if not bool(getattr(parent_profile, "can_delegate_to_agents", False)):
             blocked_reasons.append("parent_delegation_not_authorized")
@@ -223,9 +215,6 @@ class DelegationCatalogBuilder:
         return {
             "blocked_reasons": list(dict.fromkeys(blocked_reasons)),
             "allowed_delegate_agent_ids": tuple(getattr(parent_profile, "allowed_delegate_agent_ids", ()) or ()),
-            "allowed_delegate_agent_categories": tuple(
-                getattr(parent_profile, "allowed_delegate_agent_categories", ()) or ("worker_sub_agent",)
-            ),
         }
 
 

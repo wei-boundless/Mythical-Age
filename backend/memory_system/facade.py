@@ -4,11 +4,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from project_layout import ProjectLayout
+from orchestration import BackgroundTaskManager
 from .bundle_service import MemoryBundleService
 from .conversation_memory import ConversationMemoryStoreAdapter
 from .durable import DurableMemoryLayer
 from .governance_service import DurableMemoryGovernanceService
 from .long_term_memory import LongTermMemoryStoreAdapter
+from .maintenance_agent import MemoryMaintenanceAgent
+from .maintenance_coordinator import MemoryMaintenanceCoordinator
 from .messages import MemoryMessageAdapter
 from .request_service import MemoryRequestService
 from .session import SessionMemoryLayer
@@ -16,7 +19,6 @@ from .state_memory import StateMemoryStoreAdapter
 from .task_durable_memory_service import TaskDurableMemoryService
 from .working_memory_service import WorkingMemoryService
 from .working_memory_finalizer import WorkingMemoryFinalizer
-from .writeback_service import MemoryWritebackBuilderService
 
 
 class MemoryFacade:
@@ -27,8 +29,18 @@ class MemoryFacade:
         self.session_memory = SessionMemoryLayer(base_dir, context_budget_provider=context_budget_provider)
         self.durable_memory = DurableMemoryLayer(base_dir)
         self.memory_manager = self.durable_memory.memory_manager
-        self.extractor = self.durable_memory.extractor
-        self.scheduler = self.durable_memory.scheduler
+        self.maintenance_agent = MemoryMaintenanceAgent()
+        self.maintenance_coordinator = MemoryMaintenanceCoordinator(
+            base_dir=base_dir,
+            session_memory_layer=self.session_memory,
+            memory_manager=self.memory_manager,
+            maintenance_agent=self.maintenance_agent,
+        )
+        self.background_task_manager = BackgroundTaskManager(base_dir)
+        self.background_task_manager.register_handler(
+            "memory_maintenance_after_commit",
+            self._run_background_memory_maintenance,
+        )
         self.session_root = self.session_memory.session_root
         self.conversation_memory = ConversationMemoryStoreAdapter(self.session_root)
         self.state_memory = StateMemoryStoreAdapter(self.session_root)
@@ -49,11 +61,6 @@ class MemoryFacade:
             request_service=self.request_service,
             context_budget_provider=context_budget_provider,
         )
-        self.writeback_builder = MemoryWritebackBuilderService(
-            adapter=self.adapter,
-            durable_memory=self.durable_memory,
-            conversation_memory=self.conversation_memory,
-        )
         self.governance_service = DurableMemoryGovernanceService(
             base_dir,
             memory_manager=self.memory_manager,
@@ -61,30 +68,101 @@ class MemoryFacade:
 
     def set_durable_memory_saved_callback(self, callback: Callable[[int], None]) -> None:
         self.durable_memory.set_saved_callback(callback)
+        self.maintenance_coordinator.set_durable_saved_callback(callback)
+
+    def enqueue_memory_maintenance_after_commit(
+        self,
+        *,
+        session_id: str,
+        messages: list[dict[str, Any]],
+        turn_id: str = "",
+        main_context: dict[str, Any] | None = None,
+        task_summary_refs: list[dict[str, Any]] | None = None,
+        bundle_summary_refs: list[dict[str, Any]] | None = None,
+        durable_lane_enabled: bool = True,
+    ):
+        payload = {
+            "session_id": session_id,
+            "messages": list(messages or []),
+            "turn_id": turn_id,
+            "main_context": dict(main_context or {}),
+            "task_summary_refs": list(task_summary_refs or []),
+            "bundle_summary_refs": list(bundle_summary_refs or []),
+            "durable_lane_enabled": durable_lane_enabled,
+        }
+        record = self.background_task_manager.enqueue(
+            "memory_maintenance_after_commit",
+            payload=payload,
+            source="memory_system.facade",
+            session_id=session_id,
+            lane_id="session_memory_maintenance",
+        )
+        from .maintenance_models import MemoryMaintenanceReceipt
+
+        return MemoryMaintenanceReceipt(
+            run_id=record.task_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            status="queued",
+            queued=True,
+            durable_skipped=True,
+            durable_skip_reason="queued_for_background_execution",
+            processed_message_count=len(messages or []),
+            diagnostics={
+                "background_task_id": record.task_id,
+                "background_task_kind": record.task_kind,
+                "background_task_path": record.receipt_path,
+            },
+        )
 
     def set_model_invoker(self, callback: Callable[[list[dict[str, str]]], Any] | None) -> None:
         self.durable_memory.set_message_invoker(callback)
+        self.maintenance_agent.set_message_invoker(callback)
 
-    def refresh_session_memory(self, session_id: str, messages: list[dict[str, Any]]) -> str:
-        py_messages = self.adapter.to_messages(messages, session_id=session_id)
-        return self.session_memory.refresh(session_id, py_messages)
-
-    def refresh_session_memory_from_context_state(
+    def run_memory_maintenance_after_commit(
         self,
-        session_id: str,
-        main_context: Any,
         *,
-        task_summaries: list[Any] | None = None,
-        bundle_summaries: list[Any] | None = None,
-        corrections: list[str] | None = None,
-    ) -> str:
-        return self.session_memory.refresh_from_context_state(
-            session_id,
-            main_context,
-            task_summaries=task_summaries,
-            bundle_summaries=bundle_summaries,
-            corrections=corrections,
+        session_id: str,
+        messages: list[dict[str, Any]],
+        turn_id: str = "",
+        main_context: dict[str, Any] | None = None,
+        task_summary_refs: list[dict[str, Any]] | None = None,
+        bundle_summary_refs: list[dict[str, Any]] | None = None,
+        durable_lane_enabled: bool = True,
+    ):
+        return self.maintenance_coordinator.run_after_commit_sync(
+            session_id=session_id,
+            messages=messages,
+            turn_id=turn_id,
+            main_context=main_context,
+            task_summary_refs=task_summary_refs,
+            bundle_summary_refs=bundle_summary_refs,
+            durable_lane_enabled=durable_lane_enabled,
         )
+
+    async def arun_memory_maintenance_after_commit(
+        self,
+        *,
+        session_id: str,
+        messages: list[dict[str, Any]],
+        turn_id: str = "",
+        main_context: dict[str, Any] | None = None,
+        task_summary_refs: list[dict[str, Any]] | None = None,
+        bundle_summary_refs: list[dict[str, Any]] | None = None,
+        durable_lane_enabled: bool = True,
+    ):
+        return self.enqueue_memory_maintenance_after_commit(
+            session_id=session_id,
+            messages=messages,
+            turn_id=turn_id,
+            main_context=main_context,
+            task_summary_refs=task_summary_refs,
+            bundle_summary_refs=bundle_summary_refs,
+            durable_lane_enabled=durable_lane_enabled,
+        )
+
+    def describe_memory_maintenance_runtime(self) -> dict[str, Any]:
+        return self.maintenance_coordinator.describe_runtime_state()
 
     def delete_session_memory(self, session_id: str) -> bool:
         return self.session_memory.delete_session(session_id)
@@ -191,6 +269,17 @@ class MemoryFacade:
 
     def create_working_memory_temporal_edge(self, **payload: Any):
         return self.working_memory.create_temporal_edge(**payload)
+
+    async def _run_background_memory_maintenance(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return await self.maintenance_coordinator.run_after_commit(
+            session_id=str(payload.get("session_id") or ""),
+            messages=list(payload.get("messages") or []),
+            turn_id=str(payload.get("turn_id") or ""),
+            main_context=dict(payload.get("main_context") or {}),
+            task_summary_refs=list(payload.get("task_summary_refs") or []),
+            bundle_summary_refs=list(payload.get("bundle_summary_refs") or []),
+            durable_lane_enabled=bool(payload.get("durable_lane_enabled", True)),
+        )
 
     def list_working_memory_temporal_edges(self, task_run_id: str = ""):
         return self.working_memory.list_temporal_edges(task_run_id)
@@ -449,74 +538,6 @@ class MemoryFacade:
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         return self.bundle_service.inspect_memory_context_compaction(session_id, history)
 
-    def build_durable_memory_write_candidates(
-        self,
-        session_id: str,
-        messages: list[dict[str, Any]],
-    ):
-        return self.writeback_builder.build_long_term_write_candidates(
-            session_id,
-            messages,
-            long_term_memory=self.long_term_memory,
-        )
-
-    def build_durable_memory_write_candidates_from_context_state(
-        self,
-        session_id: str,
-        main_context: Any,
-        *,
-        task_summaries: list[Any] | None = None,
-        corrections: list[str] | None = None,
-    ):
-        return self.writeback_builder.build_long_term_write_candidates_from_context_state(
-            session_id,
-            main_context,
-            task_summaries=task_summaries,
-            corrections=corrections,
-            long_term_memory=self.long_term_memory,
-        )
-
-    def build_memory_writeback_proposal(
-        self,
-        *,
-        session_id: str,
-        task_id: str,
-        write_candidates: list[Any] | None = None,
-    ):
-        return self.writeback_builder.build_memory_writeback_proposal(
-            session_id=session_id,
-            task_id=task_id,
-            write_candidates=write_candidates,
-        )
-
-    def build_session_memory_write_candidates_from_context_state(
-        self,
-        session_id: str,
-        main_context: Any,
-        *,
-        task_summaries: list[Any] | None = None,
-        corrections: list[str] | None = None,
-    ):
-        return self.writeback_builder.build_session_memory_write_candidates_from_context_state(
-            session_id,
-            main_context,
-            task_summaries=task_summaries,
-            corrections=corrections,
-        )
-
-    def build_memory_gate(
-        self,
-        write_candidates,
-        *,
-        gate_id: str = "memory-gate:writeback",
-        reason: str = "memory_write_requires_commit_gate",
-    ):
-        return self.writeback_builder.build_memory_gate(
-            write_candidates,
-            gate_id=gate_id,
-            reason=reason,
-        )
-
     def build_persistent_memory_block(
         self,
         *,
@@ -626,74 +647,11 @@ class MemoryFacade:
     ) -> list[Any]:
         return self.bundle_service.prefetch_relevant_notes(query, memory_intent, limit=limit)
 
-    def commit_durable_memory_extraction(
-        self,
-        session_id: str,
-        messages: list[dict[str, Any]],
-    ) -> int:
-        return self.writeback_builder.commit_durable_memory_extraction(session_id, messages)
-
-    async def acommit_durable_memory_extraction(
-        self,
-        session_id: str,
-        messages: list[dict[str, Any]],
-    ) -> int:
-        return await self.writeback_builder.acommit_durable_memory_extraction(session_id, messages)
-
-    def commit_durable_memory_extraction_from_context_state(
-        self,
-        session_id: str,
-        main_context: Any,
-        *,
-        task_summaries: list[Any] | None = None,
-        corrections: list[str] | None = None,
-    ) -> int:
-        return self.writeback_builder.commit_durable_memory_extraction_from_context_state(
-            session_id,
-            main_context,
-            task_summaries=task_summaries,
-            corrections=corrections,
-        )
-
-    async def acommit_durable_memory_extraction_from_context_state(
-        self,
-        session_id: str,
-        main_context: Any,
-        *,
-        task_summaries: list[Any] | None = None,
-        corrections: list[str] | None = None,
-    ) -> int:
-        return await self.writeback_builder.acommit_durable_memory_extraction_from_context_state(
-            session_id,
-            main_context,
-            task_summaries=task_summaries,
-            corrections=corrections,
-        )
-
-    def submit_durable_memory_extraction(
-        self,
-        session_id: str,
-        messages: list[dict[str, Any]],
-    ) -> int:
-        return self.writeback_builder.submit_durable_memory_extraction(session_id, messages)
-
-    def submit_durable_memory_extraction_from_context_state(
-        self,
-        session_id: str,
-        main_context: Any,
-        *,
-        task_summaries: list[Any] | None = None,
-        corrections: list[str] | None = None,
-    ) -> int:
-        return self.writeback_builder.submit_durable_memory_extraction_from_context_state(
-            session_id,
-            main_context,
-            task_summaries=task_summaries,
-            corrections=corrections,
-        )
-
-    def describe_durable_extraction_runtime(self) -> dict[str, object]:
-        return self.bundle_service.describe_durable_extraction_runtime()
+    def describe_durable_maintenance_runtime(self) -> dict[str, object]:
+        return {
+            **self.bundle_service.describe_durable_maintenance_runtime(),
+            "memory_maintenance": self.describe_memory_maintenance_runtime(),
+        }
 
     def govern_durable_notes(self) -> dict[str, Any]:
         return self.governance_service.govern_durable_notes()

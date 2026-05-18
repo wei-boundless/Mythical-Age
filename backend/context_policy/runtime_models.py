@@ -8,9 +8,11 @@ from typing import Any
 class TaskSummaryRef:
     task_id: str
     query: str
+    answer: str = ""
     summary: str = ""
     task_kind: str = ""
     response_style: str = ""
+    source: str = ""
     key_points: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:

@@ -93,10 +93,9 @@ class ContextController:
         if pending_user_message:
             preview_messages.append(Message(role="user", content=pending_user_message))
 
-        preview_views = self.session_memory_manager.preview_views(preview_messages)
-        compaction_view = preview_views["compaction"]
+        compaction_view = self.session_memory_manager.compact_view()
         model_sections = self.session_memory_manager.parse_sections(compaction_view)
-        debug_view = preview_views["debug"]
+        debug_view = self.session_memory_manager.load_debug_view()
         debug_source_sections = self.session_memory_manager.parse_sections(debug_view)
 
         tokens_before = self.compactor.conversation_tokens(messages)
@@ -156,8 +155,6 @@ class ContextController:
         )
 
     def _preview_content(self, messages: list[Message]) -> str:
-        if messages:
-            return self.session_memory_manager.update_from_messages(messages, persist=False)
         return self.session_memory_manager.load()
 
     def _build_budget(self) -> ContextBudget:

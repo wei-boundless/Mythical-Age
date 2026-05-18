@@ -60,6 +60,19 @@ describe("TaskGraph preflight", () => {
     expect(report.issues.some((issue) => issue.source === "backend.runtime_spec")).toBe(true);
   });
 
+  it("warns when nodes have no Chinese name registry or explicit display name", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [{ node_id: "node.raw", node_type: "agent_role", title: "", agent_id: "agent:test" }],
+      edges: [],
+      metadata: {},
+    });
+
+    expect(report.issues.some((issue) => issue.source === "frontend.preflight.name_registry")).toBe(true);
+  });
+
   it("labels scheduler support issues separately from generic runtime issues", () => {
     const report = buildTaskGraphPreflightReport({
       dirty: false,
@@ -317,7 +330,7 @@ describe("TaskGraph preflight", () => {
           metadata: {
             repository: "memory.project",
             collection: "world",
-            receipt_policy: { visible_after: "next_clock" },
+            commit_visibility_policy: { visible_after: "next_clock" },
           },
         },
       ],

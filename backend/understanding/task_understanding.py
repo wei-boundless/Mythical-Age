@@ -145,8 +145,17 @@ def analyze_task_understanding(
 ) -> TaskUnderstanding:
     normalized = (message or "").strip()
     lowered = normalized.lower()
+    signals = _collect_task_signals(
+        normalized,
+        lowered,
+        active_bindings=active_bindings,
+    )
 
-    if memory_intent is not None and memory_intent.should_skip_rag:
+    if (
+        memory_intent is not None
+        and memory_intent.should_skip_rag
+        and not _signals_require_capability_understanding(signals)
+    ):
         understanding = TaskUnderstanding(
             intent=memory_intent.intent,
             source_kind="memory",
@@ -167,12 +176,6 @@ def analyze_task_understanding(
         }
         return understanding
 
-    signals = _collect_task_signals(
-        normalized,
-        lowered,
-        active_bindings=active_bindings,
-    )
-
     if signals.mixed_direct_capabilities:
         understanding = _build_bounded_lookup_task(
             message=normalized,
@@ -192,6 +195,26 @@ def analyze_task_understanding(
     )
     _attach_capability_matching(understanding, message=normalized)
     return understanding
+
+
+def _signals_require_capability_understanding(signals: TaskSignals) -> bool:
+    if signals.explicit_pdf_path or signals.explicit_dataset_path or signals.explicit_workspace_path:
+        return True
+    if signals.bound_pdf_path and (
+        signals.followup_target_kind == "active_pdf"
+        or signals.document_reference
+        or signals.page_reference
+        or signals.section_reference
+        or signals.document_read_intent
+    ):
+        return True
+    if signals.bound_dataset_path and signals.followup_target_kind in {"active_dataset", "active_subset"}:
+        return True
+    if signals.business_dataset_request or signals.workspace_read_request or signals.workspace_write_request or signals.workspace_search_request:
+        return True
+    if signals.external_requirement or signals.official_source_requirement or signals.weather_domain or signals.gold_price_domain:
+        return True
+    return False
 
 
 def _build_fallback_task_from_signals(

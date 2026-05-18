@@ -223,6 +223,27 @@ class ModelResponseRuntimeExecutor:
                     "assistant_additional_kwargs": {"reasoning_content": reasoning_content} if reasoning_content else {},
                 }
             return
+        if _should_auto_delegate_model_answer(directive=directive, model_messages=model_messages):
+            yield {
+                "type": "tool_call_requested",
+                "tool_call": {
+                    "id": f"auto_delegate:{directive.task_id}",
+                    "name": "delegate_to_agent",
+                    "args": {
+                        "instruction": str(user_message or "").strip(),
+                        "input_payload": {"query": str(user_message or "").strip()},
+                    },
+                    "type": "tool_call",
+                },
+                "tool_name": "delegate_to_agent",
+                "operation_id": "op.delegate_to_agent",
+                "directive_ref": directive.directive_id,
+                "assistant_content": "",
+                "assistant_additional_kwargs": {
+                    "auto_dispatch_reason": "delegate_required_model_answer_blocked",
+                },
+            }
+            return
         output_boundary = AssistantOutputBoundary()
         output_boundary.ingest_ai_update(raw_content, has_tool_calls=False)
         output_boundary.finalize_segment(fallback_content=raw_content)
@@ -292,6 +313,17 @@ class ModelResponseRuntimeExecutor:
             if operation_id:
                 return operation_id
         return str(tool_name or "").strip()
+
+
+def _should_auto_delegate_model_answer(*, directive: RuntimeDirective, model_messages: list[Any]) -> bool:
+    if "op.delegate_to_agent" not in {str(item or "").strip() for item in tuple(directive.operation_refs or ())}:
+        return False
+    for message in list(model_messages or []):
+        if str(getattr(message, "type", "") or "").strip().lower() == "tool":
+            return False
+        if message.__class__.__name__ == "ToolMessage":
+            return False
+    return True
 
 
 def _chunk_text(chunk: Any) -> str:

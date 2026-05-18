@@ -92,7 +92,7 @@ export function OrchestrationGroupWorkbench({
   return (
     <section className="boundary-card orchestration-group-main">
       <header>
-        <strong>{groupDraft.title || "子 Agent 组草稿"}</strong>
+        <strong>{groupDraft.title || "自定义 Agent 组草稿"}</strong>
         <div className="boundary-inline-actions">
           {groupMembersChanged ? <Badge tone="warn">未保存</Badge> : <Badge tone="ok">已同步</Badge>}
           <ToolbarButton disabled={saving === "group"} onClick={() => void saveAgentGroup()} variant="primary">
@@ -145,7 +145,7 @@ export function OrchestrationGroupWorkbench({
                 </button>
               </article>
             ))}
-            {!groupDraftMemberAgents.length ? <div className="boundary-empty">当前还没有子 Agent 进入这个组。</div> : null}
+            {!groupDraftMemberAgents.length ? <div className="boundary-empty">当前还没有自定义 Agent 进入这个组。</div> : null}
           </div>
         </section>
         <section className="orchestration-member-column">
@@ -153,7 +153,7 @@ export function OrchestrationGroupWorkbench({
             <strong>未进组</strong>
             <span>{availableCount}</span>
           </header>
-          <p className="orchestration-member-hint">这里是无组子 Agent 池，下方卡片可直接加入当前组。</p>
+          <p className="orchestration-member-hint">这里是无组自定义 Agent 池，下方卡片可直接加入当前组。</p>
           <div className="orchestration-member-picker">
             {groupDraftAvailableAgents.map((agent) => (
               <article className="orchestration-member-card" key={String(agent.agent_id)}>
@@ -171,7 +171,7 @@ export function OrchestrationGroupWorkbench({
                 </button>
               </article>
             ))}
-            {!groupDraftAvailableAgents.length ? <div className="boundary-empty">当前没有可加入的子 Agent。</div> : null}
+            {!groupDraftAvailableAgents.length ? <div className="boundary-empty">当前没有可加入的自定义 Agent。</div> : null}
           </div>
         </section>
       </div>

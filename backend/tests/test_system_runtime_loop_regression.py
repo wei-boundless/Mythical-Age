@@ -5,6 +5,7 @@ from health_system.maintenance.test_system.runtime_loop_probe import (
     runtime_events_from_turn_payload,
     runtime_loop_summary_from_turn_payload,
 )
+from orchestration.runtime_loop.task_run_loop import _memory_commit_state_from_assistant_commit_result
 
 
 def _runtime_event(event_type: str, *, payload=None, payload_summary=None, offset=1):
@@ -205,3 +206,34 @@ def test_runtime_loop_assertions_cover_task_acceptance_trace_contract() -> None:
     )
 
     assert all(result.passed for result in results)
+
+
+def test_memory_commit_state_requires_real_durable_save_to_mark_applied() -> None:
+    commit_state = _memory_commit_state_from_assistant_commit_result(
+        {
+            "session_memory_chars": 42,
+            "durable_saved_count": 0,
+            "durable_memory_commit_attempted": True,
+            "durable_memory_commit_failed": False,
+        }
+    )
+
+    assert commit_state["memory_write_allowed"] is True
+    assert commit_state["durable_memory_commit_attempted"] is True
+    assert commit_state["durable_memory_commit_failed"] is False
+    assert commit_state["durable_memory_commit_applied"] is False
+
+
+def test_memory_commit_state_marks_failed_durable_commit_as_not_applied() -> None:
+    commit_state = _memory_commit_state_from_assistant_commit_result(
+        {
+            "session_memory_chars": 42,
+            "durable_saved_count": 0,
+            "durable_memory_commit_attempted": True,
+            "durable_memory_commit_failed": True,
+        }
+    )
+
+    assert commit_state["durable_memory_commit_attempted"] is True
+    assert commit_state["durable_memory_commit_failed"] is True
+    assert commit_state["durable_memory_commit_applied"] is False

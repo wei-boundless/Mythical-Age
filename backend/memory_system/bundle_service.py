@@ -404,8 +404,8 @@ class MemoryBundleService:
     ) -> list[Any]:
         return self.durable_memory.prefetch_relevant_notes(query, memory_intent, limit=limit)
 
-    def describe_durable_extraction_runtime(self) -> dict[str, object]:
-        return self.durable_memory.describe_extraction_runtime()
+    def describe_durable_maintenance_runtime(self) -> dict[str, object]:
+        return self.durable_memory.describe_maintenance_runtime()
 
     def _context_budget(self) -> dict[str, Any]:
         if self._context_budget_provider is not None:

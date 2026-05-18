@@ -680,7 +680,7 @@
       "identity_anchor": "你是一名世界观设计师 A。",
       "role_type": "world_designer_a",
       "task_mode": "world_designer_a",
-      "agent_profile_id": "agent:world_designer_a",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -761,7 +761,7 @@
       "identity_anchor": "你是一名世界观设计师 B。",
       "role_type": "world_designer_b",
       "task_mode": "world_designer_b",
-      "agent_profile_id": "agent:world_designer_b",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -842,7 +842,7 @@
       "identity_anchor": "你是一名世界观通关裁判。",
       "role_type": "world_judge",
       "task_mode": "world_judge",
-      "agent_profile_id": "agent:world_judge",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -923,7 +923,7 @@
       "identity_anchor": "你是一名世界观资产管理员。",
       "role_type": "memory_steward",
       "task_mode": "memory_steward",
-      "agent_profile_id": "agent:memory_steward",
+      "agent_profile_id": "agent:writing_memory_steward",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1004,7 +1004,7 @@
       "identity_anchor": "你是一名大纲结构师 A。",
       "role_type": "outline_designer_a",
       "task_mode": "outline_designer_a",
-      "agent_profile_id": "agent:outline_designer_a",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1085,7 +1085,7 @@
       "identity_anchor": "你是一名大纲结构师 B。",
       "role_type": "outline_designer_b",
       "task_mode": "outline_designer_b",
-      "agent_profile_id": "agent:outline_designer_b",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1166,7 +1166,7 @@
       "identity_anchor": "你是一名大纲通关裁判。",
       "role_type": "outline_judge",
       "task_mode": "outline_judge",
-      "agent_profile_id": "agent:outline_judge",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1247,7 +1247,7 @@
       "identity_anchor": "你是一名大纲资产管理员。",
       "role_type": "memory_steward",
       "task_mode": "memory_steward",
-      "agent_profile_id": "agent:memory_steward",
+      "agent_profile_id": "agent:writing_memory_steward",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1328,7 +1328,7 @@
       "identity_anchor": "你是一名人物设计师 A。",
       "role_type": "character_designer_a",
       "task_mode": "character_designer_a",
-      "agent_profile_id": "agent:character_designer_a",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1409,7 +1409,7 @@
       "identity_anchor": "你是一名人物设计师 B。",
       "role_type": "character_designer_b",
       "task_mode": "character_designer_b",
-      "agent_profile_id": "agent:character_designer_b",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1490,7 +1490,7 @@
       "identity_anchor": "你是一名人物设定通关裁判。",
       "role_type": "character_judge",
       "task_mode": "character_judge",
-      "agent_profile_id": "agent:character_judge",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1571,7 +1571,7 @@
       "identity_anchor": "你是一名人物资产管理员。",
       "role_type": "memory_steward",
       "task_mode": "memory_steward",
-      "agent_profile_id": "agent:memory_steward",
+      "agent_profile_id": "agent:writing_memory_steward",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1652,7 +1652,7 @@
       "identity_anchor": "你是一名章节规划师。",
       "role_type": "chapter_planner",
       "task_mode": "chapter_planner",
-      "agent_profile_id": "agent:chapter_planner",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1733,7 +1733,7 @@
       "identity_anchor": "你是一名章节初稿作者。",
       "role_type": "writer_a_draft",
       "task_mode": "writer_a_draft",
-      "agent_profile_id": "agent:novel_writer_a",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1814,7 +1814,7 @@
       "identity_anchor": "你是一名章节审读作者。",
       "role_type": "writer_b_review",
       "task_mode": "writer_b_review",
-      "agent_profile_id": "agent:novel_writer_b",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1895,7 +1895,7 @@
       "identity_anchor": "你是一名章节修订作者。",
       "role_type": "writer_a_revision",
       "task_mode": "writer_a_revision",
-      "agent_profile_id": "agent:novel_writer_a",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -1976,7 +1976,7 @@
       "identity_anchor": "你是一名终稿处理作者。",
       "role_type": "writer_b_final_candidate",
       "task_mode": "writer_b_final_candidate",
-      "agent_profile_id": "agent:novel_writer_b",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -2057,7 +2057,7 @@
       "identity_anchor": "你是一名长篇小说通关裁判。",
       "role_type": "novel_quality_judge",
       "task_mode": "novel_quality_judge",
-      "agent_profile_id": "agent:novel_quality_judge",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -2138,7 +2138,7 @@
       "identity_anchor": "你是一名世界观偏差路由员。",
       "role_type": "deviation_router",
       "task_mode": "deviation_router",
-      "agent_profile_id": "agent:novel_quality_judge",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -2219,7 +2219,7 @@
       "identity_anchor": "你是一名世界观偏差修正设计师 A。",
       "role_type": "world_repair_a",
       "task_mode": "world_repair_a",
-      "agent_profile_id": "agent:world_designer_a",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -2300,7 +2300,7 @@
       "identity_anchor": "你是一名世界观偏差修正设计师 B。",
       "role_type": "world_repair_b",
       "task_mode": "world_repair_b",
-      "agent_profile_id": "agent:world_designer_b",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -2381,7 +2381,7 @@
       "identity_anchor": "你是一名大纲偏差路由员。",
       "role_type": "deviation_router",
       "task_mode": "deviation_router",
-      "agent_profile_id": "agent:novel_quality_judge",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -2462,7 +2462,7 @@
       "identity_anchor": "你是一名大纲偏差修正结构师 A。",
       "role_type": "outline_repair_a",
       "task_mode": "outline_repair_a",
-      "agent_profile_id": "agent:outline_designer_a",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -2543,7 +2543,7 @@
       "identity_anchor": "你是一名大纲偏差修正结构师 B。",
       "role_type": "outline_repair_b",
       "task_mode": "outline_repair_b",
-      "agent_profile_id": "agent:outline_designer_b",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -2624,7 +2624,7 @@
       "identity_anchor": "你是一名人物偏差路由员。",
       "role_type": "deviation_router",
       "task_mode": "deviation_router",
-      "agent_profile_id": "agent:novel_quality_judge",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -2705,7 +2705,7 @@
       "identity_anchor": "你是一名人物偏差修正设计师 A。",
       "role_type": "character_repair_a",
       "task_mode": "character_repair_a",
-      "agent_profile_id": "agent:character_designer_a",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -2786,7 +2786,7 @@
       "identity_anchor": "你是一名人物偏差修正设计师 B。",
       "role_type": "character_repair_b",
       "task_mode": "character_repair_b",
-      "agent_profile_id": "agent:character_designer_b",
+      "agent_profile_id": "agent:writing_team_worker",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -2867,7 +2867,7 @@
       "identity_anchor": "你是一名章节资产管理员。",
       "role_type": "memory_steward",
       "task_mode": "memory_steward",
-      "agent_profile_id": "agent:memory_steward",
+      "agent_profile_id": "agent:writing_memory_steward",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -2948,7 +2948,7 @@
       "identity_anchor": "你是一名工作记忆收尾管理员。",
       "role_type": "memory_steward",
       "task_mode": "memory_steward",
-      "agent_profile_id": "agent:memory_steward",
+      "agent_profile_id": "agent:writing_memory_steward",
       "posture_tags": [
         "writing_team",
         "double_creator_single_judge",
@@ -3079,7 +3079,7 @@
       "identity_anchor": "你是一名章节细纲规划者。",
       "role_type": "chapter_outliner",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_creator",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3150,7 +3150,7 @@
       "identity_anchor": "你是一名章节推进审核员。",
       "role_type": "chapter_progress_router",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_reviewer",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3221,7 +3221,7 @@
       "identity_anchor": "你是一名章节审核员。",
       "role_type": "chapter_reviewer",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_reviewer",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3292,7 +3292,7 @@
       "identity_anchor": "你是一名章节作者。",
       "role_type": "chapter_writer",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_creator",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3363,7 +3363,7 @@
       "identity_anchor": "你是一名可改动库更新审核员。",
       "role_type": "extension_reviewer",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_reviewer",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3434,7 +3434,7 @@
       "identity_anchor": "你是一名交付包整编者。",
       "role_type": "final_assembler",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_final_assembler",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3505,7 +3505,7 @@
       "identity_anchor": "你是一名最终交付审核员。",
       "role_type": "final_reviewer",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_reviewer",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3647,7 +3647,7 @@
       "identity_anchor": "你是一名长篇小说分卷推进审核员。",
       "role_type": "next_volume_router",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_reviewer",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3718,7 +3718,7 @@
       "identity_anchor": "你是一名项目启动包整理者。",
       "role_type": "project_brief",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_creator",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3860,7 +3860,7 @@
       "identity_anchor": "你是一名长篇小说分卷规划者。",
       "role_type": "volume_planner",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_creator",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -3931,7 +3931,7 @@
       "identity_anchor": "你是一名长篇小说卷后复盘员。",
       "role_type": "volume_postmortem",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_reviewer",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -4002,7 +4002,7 @@
       "identity_anchor": "你是一名长篇小说卷级总审核员。",
       "role_type": "volume_reviewer",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_reviewer",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -4073,7 +4073,7 @@
       "identity_anchor": "你是一名世界观设定写手。",
       "role_type": "world_designer",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_creator",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -4144,7 +4144,7 @@
       "identity_anchor": "你是一名世界观与大纲补充提案员。",
       "role_type": "world_outline_extension_proposer",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_creator",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",
@@ -4215,7 +4215,7 @@
       "identity_anchor": "你是一名世界观审核员。",
       "role_type": "world_reviewer",
       "task_mode": "",
-      "agent_profile_id": "agent:writing_simple_reviewer",
+      "agent_profile_id": "agent:writing_simple_worker",
       "posture_tags": [
         "writing_simple_novel",
         "bounded_role",

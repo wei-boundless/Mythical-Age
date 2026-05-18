@@ -12,6 +12,7 @@ from understanding.capability_resolution_view import capability_resolution_view
 from understanding.memory_intent import analyze_memory_intent
 from understanding.query_understanding import analyze_query_understanding
 
+from .agent_identity import normalize_agent_id
 from .agent_runtime_registry import AgentRuntimeRegistry
 from .assembly_builder import build_orchestration_runtime_bundle
 
@@ -39,13 +40,15 @@ class AgentRuntimeChainAssembler:
     ) -> dict[str, Any]:
         task_selection_payload = dict(task_selection or {})
         effective_agent_runtime_profile = agent_runtime_profile
-        selected_agent_id = str(task_selection_payload.get("agent_id") or "").strip()
+        selected_agent_id = normalize_agent_id(str(task_selection_payload.get("agent_id") or "").strip())
+        if selected_agent_id:
+            task_selection_payload["agent_id"] = selected_agent_id
         if effective_agent_runtime_profile is None:
             if selected_agent_id:
                 effective_agent_runtime_profile = AgentRuntimeRegistry(self.base_dir).get_profile(selected_agent_id)
                 if effective_agent_runtime_profile is None:
                     raise ValueError(f"TaskGraph node agent has no runtime profile: {selected_agent_id}")
-        elif selected_agent_id and str(getattr(effective_agent_runtime_profile, "agent_id", "") or "").strip() != selected_agent_id:
+        elif selected_agent_id and normalize_agent_id(str(getattr(effective_agent_runtime_profile, "agent_id", "") or "").strip()) != selected_agent_id:
             raise ValueError(
                 "TaskGraph node agent profile mismatch: "
                 f"requested {selected_agent_id}, got {getattr(effective_agent_runtime_profile, 'agent_id', '')}"

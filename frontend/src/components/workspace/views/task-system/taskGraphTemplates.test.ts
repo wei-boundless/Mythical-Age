@@ -14,6 +14,8 @@ describe("task graph templates", () => {
       expect(draft.nodes.length).toBeGreaterThan(0);
       expect(draft.entry_node_id).toBeTruthy();
       expect(draft.output_node_id).toBeTruthy();
+      expect(Array.isArray(draft.metadata.name_registry)).toBe(true);
+      expect(Array.isArray(draft.metadata.timeline_blocks)).toBe(true);
       expect(draft.nodes.some((node) => node.node_id === draft.entry_node_id)).toBe(true);
       expect(draft.nodes.some((node) => node.node_id === draft.output_node_id)).toBe(true);
       expect(draft.participant_agent_ids.length).toBeGreaterThan(0);
@@ -96,6 +98,15 @@ describe("task graph templates", () => {
     expect(draft.output_node_id).toBe("memory_finalize");
     expect(draft.metadata.assembly_namespace).toBe("writing_team_long_novel");
     expect(draft.metadata.loop_policy).toMatchObject({ max_attempts: 4 });
+    expect(draft.metadata.timeline_blocks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ block_id: "block.design", block_type: "design_graph" }),
+      expect.objectContaining({ block_id: "block.creation", block_type: "creation_graph" }),
+      expect.objectContaining({ block_id: "block.closing", block_type: "closing_graph" }),
+    ]));
+    expect(draft.metadata.name_registry).toEqual(expect.arrayContaining([
+      expect.objectContaining({ object_id: "world_designer_a", display_name_zh: "世界观设计师 A" }),
+      expect.objectContaining({ object_id: "memory_finalize", display_name_zh: "工作记忆收尾" }),
+    ]));
     expect(draft.nodes.map((node) => node.node_id)).toEqual([
       "world_designer_a",
       "world_designer_b",
@@ -127,6 +138,9 @@ describe("task graph templates", () => {
       "memory_commit_chapter",
       "memory_finalize"
     ]);
+    expect(new Set(draft.nodes.map((node) => String(node.agent_id ?? "")))).toEqual(
+      new Set(["agent:writing_team_worker", "agent:writing_memory_steward"]),
+    );
     expect(draft.edges.some((edge) => edge.edge_id === "edge.novel_quality_judge.writer_a_revision")).toBe(true);
     expect(draft.edges.some((edge) => edge.edge_id === "edge.novel_quality_judge.world_router")).toBe(true);
     expect(draft.edges.some((edge) => edge.edge_id === "edge.memory_commit_chapter.memory_finalize")).toBe(true);

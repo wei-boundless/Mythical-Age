@@ -1,0 +1,342 @@
+from __future__ import annotations
+
+import asyncio
+import inspect
+import json
+import threading
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Literal
+from uuid import uuid4
+
+
+DispatchMode = Literal["sync", "async", "background", "parallel", "barrier", "manual_gate"]
+TaskStatus = Literal["queued", "running", "succeeded", "failed", "skipped"]
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionDispatchDecision:
+    execution_mode: str
+    dispatch_mode: DispatchMode
+    wait_for_completion: bool
+    background: bool = False
+    lane_id: str = ""
+    reason: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def resolve_execution_dispatch(
+    *,
+    execution_mode: str,
+    wait_policy: str = "",
+    join_policy: str = "",
+    background_policy: dict[str, Any] | None = None,
+    runtime_lane: str = "",
+    blocks_downstream: bool = True,
+) -> ExecutionDispatchDecision:
+    mode = str(execution_mode or "sync").strip() or "sync"
+    wait_policy = str(wait_policy or "").strip()
+    join_policy = str(join_policy or "").strip()
+    runtime_lane = str(runtime_lane or "").strip()
+    background_policy = dict(background_policy or {})
+    background_enabled = bool(background_policy.get("enabled"))
+    background_blocks_downstream = bool(background_policy.get("blocks_downstream", blocks_downstream))
+
+    if mode == "manual_gate":
+        return ExecutionDispatchDecision(
+            execution_mode=mode,
+            dispatch_mode="manual_gate",
+            wait_for_completion=True,
+            lane_id=runtime_lane,
+            reason="manual_gate requires explicit approval before completion.",
+            metadata={
+                "wait_policy": wait_policy,
+                "join_policy": join_policy,
+                "background_policy": background_policy,
+            },
+        )
+    if mode == "barrier":
+        return ExecutionDispatchDecision(
+            execution_mode=mode,
+            dispatch_mode="barrier",
+            wait_for_completion=True,
+            lane_id=runtime_lane,
+            reason="barrier nodes keep the current run open until the barrier resolves.",
+            metadata={
+                "wait_policy": wait_policy,
+                "join_policy": join_policy,
+                "background_policy": background_policy,
+            },
+        )
+    if mode == "background" or (background_enabled and not background_blocks_downstream):
+        return ExecutionDispatchDecision(
+            execution_mode=mode,
+            dispatch_mode="background",
+            wait_for_completion=False,
+            background=True,
+            lane_id=runtime_lane,
+            reason="background nodes are dispatched out of band and do not block the main turn.",
+            metadata={
+                "wait_policy": wait_policy,
+                "join_policy": join_policy,
+                "background_policy": background_policy,
+            },
+        )
+    if mode == "async" or wait_policy == "fire_and_continue":
+        return ExecutionDispatchDecision(
+            execution_mode=mode,
+            dispatch_mode="async",
+            wait_for_completion=False,
+            lane_id=runtime_lane,
+            reason="async dispatch lets the main chain continue without waiting for completion.",
+            metadata={
+                "wait_policy": wait_policy,
+                "join_policy": join_policy,
+                "background_policy": background_policy,
+            },
+        )
+    if mode == "parallel":
+        return ExecutionDispatchDecision(
+            execution_mode=mode,
+            dispatch_mode="parallel",
+            wait_for_completion=False,
+            lane_id=runtime_lane,
+            reason="parallel dispatch fans out work and joins through the scheduler state.",
+            metadata={
+                "wait_policy": wait_policy,
+                "join_policy": join_policy,
+                "background_policy": background_policy,
+            },
+        )
+    return ExecutionDispatchDecision(
+        execution_mode="sync",
+        dispatch_mode="sync",
+        wait_for_completion=True,
+        lane_id=runtime_lane,
+        reason="sync dispatch keeps the work on the main path.",
+        metadata={
+            "wait_policy": wait_policy,
+            "join_policy": join_policy,
+            "background_policy": background_policy,
+        },
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class BackgroundTaskRecord:
+    task_id: str
+    task_kind: str
+    status: TaskStatus = "queued"
+    payload: dict[str, Any] = field(default_factory=dict)
+    result: dict[str, Any] = field(default_factory=dict)
+    error: str = ""
+    source: str = ""
+    session_id: str = ""
+    lane_id: str = ""
+    attempts: int = 0
+    queued_at: str = field(default_factory=utc_now_iso)
+    started_at: str = ""
+    completed_at: str = ""
+    receipt_path: str = ""
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+class BackgroundTaskStore:
+    def __init__(self, base_dir: Path) -> None:
+        self.base_dir = Path(base_dir)
+        self.runtime_dir = self.base_dir / "runtime_state" / "background_tasks"
+        self.runtime_dir.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+
+    def record_path(self, task_id: str, task_kind: str) -> Path:
+        safe_kind = self._safe_segment(task_kind)
+        safe_id = self._safe_segment(task_id)
+        path = self.runtime_dir / safe_kind / f"{safe_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def write(self, record: BackgroundTaskRecord) -> BackgroundTaskRecord:
+        path = self.record_path(record.task_id, record.task_kind)
+        payload = record.to_dict()
+        payload["receipt_path"] = str(path)
+        with self._lock:
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        return BackgroundTaskRecord(**payload)
+
+    def load(self, task_id: str, task_kind: str) -> BackgroundTaskRecord | None:
+        path = self.record_path(task_id, task_kind)
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return BackgroundTaskRecord(**payload)
+
+    def list_records(self, *, task_kind: str | None = None) -> list[BackgroundTaskRecord]:
+        records: list[BackgroundTaskRecord] = []
+        kind_dirs = [self.runtime_dir / self._safe_segment(task_kind)] if task_kind else [item for item in self.runtime_dir.iterdir() if item.is_dir()]
+        for kind_dir in kind_dirs:
+            if not kind_dir.exists():
+                continue
+            for path in sorted(kind_dir.glob("*.json")):
+                try:
+                    payload = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if isinstance(payload, dict):
+                    try:
+                        records.append(BackgroundTaskRecord(**payload))
+                    except Exception:
+                        continue
+        return records
+
+    @staticmethod
+    def _safe_segment(value: str) -> str:
+        normalized = str(value or "").strip().replace("\\", "_").replace("/", "_").replace(":", "_")
+        return normalized or "default"
+
+
+class BackgroundTaskManager:
+    def __init__(self, base_dir: Path) -> None:
+        self.store = BackgroundTaskStore(base_dir)
+        self._handlers: dict[str, Callable[[dict[str, Any]], Any | Awaitable[Any]]] = {}
+        self._lock = threading.RLock()
+        self._active_tasks: dict[str, asyncio.Task[Any]] = {}
+
+    def register_handler(self, task_kind: str, handler: Callable[[dict[str, Any]], Any | Awaitable[Any]]) -> None:
+        self._handlers[str(task_kind or "").strip()] = handler
+
+    def enqueue(
+        self,
+        task_kind: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        source: str = "",
+        session_id: str = "",
+        lane_id: str = "",
+    ) -> BackgroundTaskRecord:
+        kind = str(task_kind or "").strip() or "default"
+        task_id = f"task:{kind}:{uuid4().hex}"
+        record = BackgroundTaskRecord(
+            task_id=task_id,
+            task_kind=kind,
+            payload=dict(payload or {}),
+            source=str(source or ""),
+            session_id=str(session_id or ""),
+            lane_id=str(lane_id or ""),
+        )
+        stored = self.store.write(record)
+        self._schedule(stored.task_id, stored.task_kind)
+        return stored
+
+    def load(self, task_id: str, task_kind: str) -> BackgroundTaskRecord | None:
+        return self.store.load(task_id, task_kind)
+
+    def list_records(self, *, task_kind: str | None = None) -> list[BackgroundTaskRecord]:
+        return self.store.list_records(task_kind=task_kind)
+
+    def describe_runtime_state(self) -> dict[str, Any]:
+        records = self.list_records()
+        return {
+            "authority": "orchestration.background_task_manager",
+            "task_root": str(self.store.runtime_dir),
+            "record_count": len(records),
+            "queued_count": len([item for item in records if item.status == "queued"]),
+            "running_count": len([item for item in records if item.status == "running"]),
+            "succeeded_count": len([item for item in records if item.status == "succeeded"]),
+            "failed_count": len([item for item in records if item.status == "failed"]),
+        }
+
+    def _schedule(self, task_id: str, task_kind: str) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        with self._lock:
+            existing = self._active_tasks.get(task_id)
+            if existing is not None and not existing.done():
+                return
+            task = loop.create_task(self._run_task(task_id=task_id, task_kind=task_kind))
+            self._active_tasks[task_id] = task
+            task.add_done_callback(lambda _task: self._active_tasks.pop(task_id, None))
+
+    async def _run_task(self, *, task_id: str, task_kind: str) -> None:
+        record = self.store.load(task_id, task_kind)
+        if record is None or record.status in {"succeeded", "failed", "skipped"}:
+            return
+        record = self.store.write(
+            BackgroundTaskRecord(
+                **{
+                    **record.to_dict(),
+                    "status": "running",
+                    "attempts": int(record.attempts or 0) + 1,
+                    "started_at": record.started_at or utc_now_iso(),
+                }
+            )
+        )
+        handler = self._handlers.get(task_kind)
+        if handler is None:
+            self.store.write(
+                BackgroundTaskRecord(
+                    **{
+                        **record.to_dict(),
+                        "status": "failed",
+                        "error": "missing_background_task_handler",
+                        "completed_at": utc_now_iso(),
+                    }
+                )
+            )
+            return
+        try:
+            result = handler(dict(record.payload or {}))
+            if inspect.isawaitable(result):
+                result = await result
+            normalized_result = self._normalize_result(result)
+            self.store.write(
+                BackgroundTaskRecord(
+                    **{
+                        **record.to_dict(),
+                        "status": "succeeded",
+                        "result": normalized_result,
+                        "error": "",
+                        "completed_at": utc_now_iso(),
+                    }
+                )
+            )
+        except Exception as exc:
+            self.store.write(
+                BackgroundTaskRecord(
+                    **{
+                        **record.to_dict(),
+                        "status": "failed",
+                        "error": str(exc),
+                        "completed_at": utc_now_iso(),
+                    }
+                )
+            )
+
+    @staticmethod
+    def _normalize_result(result: Any) -> dict[str, Any]:
+        if result is None:
+            return {}
+        if hasattr(result, "to_dict"):
+            try:
+                return dict(result.to_dict())
+            except Exception:
+                return {"value": str(result)}
+        if isinstance(result, dict):
+            return dict(result)
+        return {"value": result}

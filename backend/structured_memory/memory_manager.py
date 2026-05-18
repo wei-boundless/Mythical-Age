@@ -61,14 +61,19 @@ class MemoryManager:
 
     @staticmethod
     def slugify(text: str) -> str:
-        slug = re.sub(r"[^a-zA-Z0-9]+", "-", text.strip().lower()).strip("-")
+        normalized = normalize_storage_text(text).strip().lower()
+        slug = re.sub(r"[^a-zA-Z0-9\u4e00-\u9fff]+", "-", normalized).strip("-")
+        while "--" in slug:
+            slug = slug.replace("--", "-")
+        slug = slug[:96].strip("-")
         slug = slug or "memory-note"
         if slug == "memory":
             return "memory-note"
         return slug
 
     def note_path(self, slug: str) -> Path:
-        return self.layout.notes_dir / f"{slug}.md"
+        normalized_slug = self.slugify(slug)
+        return self.layout.notes_dir / f"{normalized_slug}.md"
 
     def list_note_paths(self) -> list[Path]:
         return sorted(
@@ -77,6 +82,7 @@ class MemoryManager:
         )
 
     def save_note(self, note: MemoryNote) -> Path:
+        note.slug = self.slugify(note.slug or note.title or note.canonical_statement)
         governed_note, notes_to_update = self._apply_save_governance(note)
         for staged_note in notes_to_update:
             self._write_note(staged_note)

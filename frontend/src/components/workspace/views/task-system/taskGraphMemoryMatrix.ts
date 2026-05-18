@@ -11,7 +11,7 @@ export type TaskGraphMemoryCollectionView = {
   recordKinds: string[];
   keyStrategy: string;
   defaultVersionSelector: string;
-  requiredReceiptStatus: string;
+  requiredCommitStatus: string;
   synthetic: boolean;
 };
 
@@ -42,7 +42,7 @@ export type TaskGraphMemoryEdgeView = {
   onMissing: string;
   modelVisibleLabel: string;
   usageInstruction: string;
-  receiptPolicy: Record<string, unknown>;
+  commitVisibilityPolicy: Record<string, unknown>;
   hasCommitPath: boolean;
   edge: Record<string, unknown>;
 };
@@ -151,6 +151,7 @@ function isMemoryRepositoryNode(node: Record<string, unknown>) {
     nodeType === "memory_repository"
     || nodeType === "working_memory_store"
     || nodeType === "runtime_state_store"
+    || nodeType === "thread_ledger"
     || nodeType === "progress_ledger"
     || nodeType === "issue_ledger"
     || (nodeType.includes("repository") && !nodeType.includes("artifact"))
@@ -192,7 +193,7 @@ function collectionViews(
       recordKinds: stringArray(record.record_kinds ?? record.kinds),
       keyStrategy: stringValue(record.key_strategy, "stable_key"),
       defaultVersionSelector: stringValue(record.default_version_selector, "latest_committed_before_clock"),
-      requiredReceiptStatus: stringValue(record.required_receipt_status, "committed"),
+      requiredCommitStatus: stringValue(record.required_commit_status, "committed"),
       synthetic,
     };
   });
@@ -237,7 +238,7 @@ function syntheticRepository(repositoryId: string, collectionId = "default"): Ta
       recordKinds: [],
       keyStrategy: "stable_key",
       defaultVersionSelector: "latest_committed_before_clock",
-      requiredReceiptStatus: "committed",
+      requiredCommitStatus: "committed",
       synthetic: true,
     }],
     synthetic: true,
@@ -361,7 +362,7 @@ function buildMemoryEdge(
     onMissing: stringValue(metadata.on_missing, operation === "read" ? "block" : "warn"),
     modelVisibleLabel: stringValue(metadata.model_visible_label ?? metadata.visible_label ?? selector.model_visible_label),
     usageInstruction: stringValue(metadata.usage_instruction ?? metadata.instructions ?? selector.usage_instruction),
-    receiptPolicy: asRecord(metadata.receipt_policy ?? edge.receipt_policy),
+    commitVisibilityPolicy: asRecord(metadata.commit_visibility_policy ?? metadata.visibility_policy ?? edge.commit_visibility_policy),
     hasCommitPath: false,
     edge,
   };
@@ -430,8 +431,8 @@ function snapshotForNode(
     }
   }
   for (const edge of commits) {
-    if (!Object.keys(edge.receiptPolicy).length) {
-      issues.push(`${edge.edgeId} 提交边缺少 receipt_policy`);
+    if (!Object.keys(edge.commitVisibilityPolicy).length) {
+      issues.push(`${edge.edgeId} 提交边缺少 commit_visibility_policy`);
     }
   }
   return {
@@ -548,11 +549,11 @@ export function createMemoryEdgeDraft({
         status_filter: operation === "read" ? ["committed"] : [],
         limit: operation === "read" ? 50 : 0,
       },
-      version_selector: operation === "read" ? { mode: "latest_committed_before_clock" } : { mode: "current_clock_receipt" },
+      version_selector: operation === "read" ? { mode: "latest_committed_before_clock" } : { mode: "current_clock_acknowledgement" },
       on_missing: operation === "read" ? "block" : "warn",
       model_visible_label: operation === "read" ? collectionId : "",
       usage_instruction: operation === "read" ? "你必须按这个输入包的约束完成当前节点任务，不得把缺失信息自行补写成事实。" : "",
-      receipt_policy: operation === "commit" ? { required_status: "committed", visible_after: "next_clock" } : {},
+      commit_visibility_policy: operation === "commit" ? { required_status: "committed", visible_after: "next_clock" } : {},
     },
   };
 }

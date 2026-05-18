@@ -90,7 +90,7 @@ export function buildTaskGraphUpsertPayload({
       topology_template_id: String(metadata.topology_template_id ?? ""),
       task_family,
       domain_id,
-      task_id,
+      ...(task_id ? { task_id } : {}),
       handoff_policy: String(taskGraphDraft.context_policy.handoff_policy ?? metadata.handoff_policy ?? ""),
       conflict_resolution_policy: String(metadata.conflict_resolution_policy ?? ""),
       output_merge_policy: String(metadata.output_merge_policy ?? ""),

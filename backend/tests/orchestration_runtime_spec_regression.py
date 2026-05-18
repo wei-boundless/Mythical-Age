@@ -137,7 +137,6 @@ def test_orchestration_runtime_bundle_respects_shared_contract_flag() -> None:
         allowed_memory_scopes=profile.allowed_memory_scopes,
         allowed_context_sections=profile.allowed_context_sections,
         use_shared_contract=False,
-        output_contracts=profile.output_contracts,
         approval_policy=profile.approval_policy,
         trace_policy=profile.trace_policy,
         lifecycle_policy=profile.lifecycle_policy,

@@ -396,6 +396,7 @@ def _build_followup_execution_contract(
     resolved_bindings: list[dict[str, Any]],
 ) -> dict[str, Any]:
     explicit_inputs = dict(current_turn_context.get("explicit_inputs") or {})
+    explicit_tool_input = _compact_tool_input(dict(explicit_inputs.get("tool_input") or {}))
     execution_intent = str(getattr(task_intent_contract, "execution_intent", "") or "").strip()
     followup_target_kind = str(explicit_inputs.get("followup_target_kind") or "").strip()
     if execution_intent not in {"subset_followup", "object_followup", "bundle_followup_item"} and not followup_target_kind:
@@ -448,6 +449,7 @@ def _build_followup_execution_contract(
             if execution_intent == "subset_followup" or followup_target_kind == "active_subset"
             else "active_object_followup"
         ),
+        **({"tool_input": explicit_tool_input} if explicit_tool_input else {}),
         **({"subset_labels": subset_labels} if subset_labels else {}),
         **({"subset_filter_column": subset_filter_column} if subset_filter_column else {}),
     }
@@ -473,6 +475,29 @@ def _build_followup_execution_contract(
             result.setdefault("active_pdf", active_source_path)
     result["followup_constraint_policy"] = compact["constraint_policy"]
     return result
+
+
+def _compact_tool_input(tool_input: dict[str, Any]) -> dict[str, Any]:
+    allowed_keys = (
+        "query",
+        "mode",
+        "extract_mode",
+        "path",
+        "file_path",
+        "active_pdf",
+        "active_dataset",
+        "section",
+        "page",
+        "pages",
+        "max_chunks",
+    )
+    compact: dict[str, Any] = {}
+    for key in allowed_keys:
+        value = tool_input.get(key)
+        if value in ("", [], {}, None):
+            continue
+        compact[key] = value
+    return compact
 
 
 def _binding_for_followup_kind(

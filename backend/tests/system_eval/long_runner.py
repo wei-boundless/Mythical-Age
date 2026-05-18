@@ -378,13 +378,13 @@ def _ensure_session(client: TestClient, session_ids: dict[str, str], alias: str,
 
 
 def _sync_memory(runtime, session_id: str, *, durable: bool = False) -> dict[str, Any]:
-    session_summary = runtime.query_runtime.refresh_session_memory(session_id)
-    durable_saved = 0
-    if durable:
-        durable_saved = runtime.query_runtime.commit_durable_memory_extraction(session_id)
+    receipt = runtime.query_runtime.run_memory_maintenance(session_id, durable=durable)
+    session_summary = runtime.memory_facade.session_memory.manager(session_id).load()
+    durable_saved = int(receipt.get("durable_write_count") or 0)
     return {
         "session_summary_chars": len(str(session_summary or "").strip()),
         "durable_saved": durable_saved,
+        "memory_maintenance_status": str(receipt.get("status") or ""),
     }
 
 
@@ -448,6 +448,13 @@ def _runtime_operation_refs(events: list[dict[str, Any]]) -> list[str]:
 def _delegated_capability_markers(events: list[dict[str, Any]]) -> dict[str, list[str]]:
     event_types: list[str] = []
     mcp_names: list[str] = []
+    has_local_retrieval = any(
+        str(dict(item.get("data") or {}).get("tool_name") or "") == "search_text"
+        for item in events
+        if str(item.get("event") or "") == "tool_call_requested"
+    )
+    if has_local_retrieval:
+        event_types.append("retrieval")
     for payload in _runtime_loop_payloads(events, "agent_delegation_result_created"):
         result = dict(payload.get("agent_delegation_result") or {})
         diagnostics = dict(result.get("diagnostics") or {})

@@ -61,7 +61,7 @@ describe("TaskGraph memory matrix", () => {
         metadata: {
           repository: "memory.project",
           collection: "requirements",
-          receipt_policy: { visible_after: "next_clock" },
+          commit_visibility_policy: { visible_after: "next_clock" },
         },
       },
     ];

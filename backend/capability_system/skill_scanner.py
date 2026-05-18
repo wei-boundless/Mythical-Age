@@ -86,6 +86,8 @@ def _contract_from_record(record: SkillRecord, *, body: str = "") -> SkillContra
         ),
         body=body,
         use_when=_build_skill_use_when(record),
+        delegation_protocol=_build_skill_delegation_protocol(record),
+        return_protocol=_build_skill_return_protocol(record),
     )
 
 
@@ -211,6 +213,10 @@ def build_snapshot(skills: list[SkillRecord]) -> str:
         )
         if view.use_when:
             lines.append(f"    <use_when>{view.use_when}</use_when>")
+        if view.delegation_protocol:
+            lines.append(f"    <delegation_protocol>{view.delegation_protocol}</delegation_protocol>")
+        if view.return_protocol:
+            lines.append(f"    <return_protocol>{view.return_protocol}</return_protocol>")
         lines.append(f"    <output_rule>{view.output_rule}</output_rule>")
         lines.append("  </skill>")
     lines.append("</skills>")
@@ -235,12 +241,54 @@ def _build_skill_use_when(skill: SkillRecord) -> str:
     return ""
 
 
+def _build_skill_delegation_protocol(skill: SkillRecord) -> str:
+    if skill.name == "rag-skill":
+        return (
+            "When the main agent delegates, ask for evidence_lookup; pass the user question, the exact answer scope, "
+            "known document anchors, and any active knowledge-base hints. If the question is about a PDF, dataset, or "
+            "page/section, do not expand scope; return that this skill is not the right specialist."
+        )
+    if skill.name == "pdf-analysis":
+        return (
+            "When the main agent delegates, ask for pdf_reading; pass file path, page range or section, reading mode, "
+            "and the exact question. If the user only needs knowledge-base evidence, return that the task belongs to rag-skill."
+        )
+    if skill.name == "structured-data-analysis":
+        return (
+            "When the main agent delegates, ask for table_analysis; pass dataset path, required columns, filter or grouping "
+            "rules, ranking criteria, and the required output shape."
+        )
+    return ""
+
+
+def _build_skill_return_protocol(skill: SkillRecord) -> str:
+    if skill.name == "rag-skill":
+        return (
+            "Return a concise Chinese result with three parts: conclusion, evidence, and limitations. Include the source "
+            "name or retrieval anchor, the key fact fragments, and whether the evidence is sufficient. Do not mention internal "
+            "tool names."
+        )
+    if skill.name == "pdf-analysis":
+        return (
+            "Return a concise Chinese result with page or section anchors, a short summary, and any OCR or extraction limits. "
+            "If the document is not enough, state exactly what is missing."
+        )
+    if skill.name == "structured-data-analysis":
+        return (
+            "Return the computed answer, the calculation basis, and the relevant rows or aggregates. If the data is incomplete, "
+            "state which column or sheet is missing."
+        )
+    return ""
+
+
 def _build_prompt_view(skill: SkillRecord) -> SkillPromptContract:
     return SkillPromptContract(
         name=skill.name,
         title=skill.title,
         capability=skill.description,
         use_when=_build_skill_use_when(skill),
+        delegation_protocol=_build_skill_delegation_protocol(skill),
+        return_protocol=_build_skill_return_protocol(skill),
     )
 
 

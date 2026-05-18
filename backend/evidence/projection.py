@@ -171,8 +171,10 @@ class MCPProjectionAdapter:
             TaskSummaryRef(
                 task_id=f"{canonical_result.result_kind or 'mcp'}:{_slug(query)}",
                 query=str(query or "").strip(),
-                summary=summary[:280],
+                answer=summary,
+                summary=summary[:120],
                 task_kind=task_kind,
+                source="evidence_projection",
                 key_points=key_points,
             )
         ]

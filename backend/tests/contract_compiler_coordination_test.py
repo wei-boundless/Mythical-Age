@@ -42,7 +42,6 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
         task_id="task.test.worker",
         task_title="测试工作节点",
         task_family="test",
-        task_mode="node_work",
         input_contract_id="contract.test.node_input",
         output_contract_id="contract.test.node_output",
     )
@@ -59,7 +58,7 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
                 "node_type": "subtask",
                 "task_id": task.task_id,
                 "agent_id": "agent:test",
-                "runtime_lane": "node_lane",
+                "runtime_lane": "coordination_task",
                 "node_contract_id": "contract.test.node_override",
                 "projection_id": "projection.test.node_worker",
             },
@@ -96,7 +95,7 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
                 title="测试工作节点",
                 task_id=task.task_id,
                 agent_id="agent:test",
-                runtime_lane="node_lane",
+                runtime_lane="coordination_task",
                 node_contract_id="contract.test.node_override",
                 projection_id="projection.test.node_worker",
             ),
@@ -118,15 +117,12 @@ def test_coordination_contract_compiler_builds_node_and_edge_manifest(tmp_path: 
     profile = AgentRuntimeProfile(
         agent_profile_id="worker_test_profile",
         agent_id="agent:test",
-        allowed_task_modes=("node_work",),
-        allowed_runtime_lanes=("node_lane",),
-        output_contracts=("contract.test.node_output", "contract.test.node_override"),
+        allowed_runtime_lanes=("coordination_task",),
     )
     coordinator_profile = AgentRuntimeProfile(
         agent_profile_id="coordinator_test_profile",
         agent_id="agent:0",
-        allowed_task_modes=("coordination",),
-        allowed_runtime_lanes=("coordination",),
+        allowed_runtime_lanes=("coordination_task",),
     )
 
     manifest = compile_coordination_contract_manifest(
@@ -165,7 +161,6 @@ def test_coordination_contract_compiler_reports_missing_edge_contract(tmp_path: 
         task_id="task.test.worker",
         task_title="测试工作节点",
         task_family="test",
-        task_mode="node_work",
         input_contract_id="contract.test.node_input",
         output_contract_id="contract.test.node_output",
     )
@@ -225,8 +220,6 @@ def test_coordination_contract_compiler_reports_missing_edge_contract(tmp_path: 
             AgentRuntimeProfile(
                 agent_profile_id="worker_test_profile",
                 agent_id="agent:test",
-                allowed_task_modes=("node_work",),
-                output_contracts=("contract.test.node_output",),
             ),
         ),
     )

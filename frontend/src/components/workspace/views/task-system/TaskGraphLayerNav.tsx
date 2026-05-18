@@ -10,6 +10,7 @@ import {
   Network,
   PlayCircle,
   Route,
+  ShieldAlert,
 } from "lucide-react";
 
 export type TaskGraphStudioLayerId =
@@ -19,6 +20,7 @@ export type TaskGraphStudioLayerId =
   | "responsibility"
   | "timeline"
   | "memory"
+  | "risk"
   | "contracts"
   | "publish";
 
@@ -44,10 +46,10 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
   },
   {
     id: "agents",
-    title: "Agent 编组",
-    description: "协调者、参与者、职责边界",
+    title: "节点装配",
+    description: "执行器、Agent、Projection 引用",
     category: "foundation",
-    metric: "角色",
+    metric: "装配",
     state: "draft",
     icon: Network,
   },
@@ -71,8 +73,8 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
   },
   {
     id: "timeline",
-    title: "时序与循环",
-    description: "阶段、并行、审核门、返修",
+    title: "拓扑时序",
+    description: "主链、阶段、循环、许可",
     category: "runtime",
     metric: "生命周期",
     state: "draft",
@@ -80,12 +82,21 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
   },
   {
     id: "memory",
-    title: "记忆与产物",
-    description: "仓库、读写矩阵、Snapshot",
+    title: "资源流",
+    description: "仓库、读写边、Snapshot",
     category: "runtime",
-    metric: "边界",
+    metric: "资源",
     state: "draft",
     icon: BrainCircuit,
+  },
+  {
+    id: "risk",
+    title: "风险治理",
+    description: "线程账本、问题台账、边界风险",
+    category: "quality",
+    metric: "治理",
+    state: "draft",
+    icon: ShieldAlert,
   },
   {
     id: "contracts",
@@ -112,7 +123,7 @@ const LAYER_GROUPS: Array<{
   title: string;
   description: string;
 }> = [
-  { id: "foundation", title: "基础", description: "图身份、Agent、运行入口" },
+  { id: "foundation", title: "基础", description: "图身份、节点装配、运行入口" },
   { id: "structure", title: "结构", description: "执行拓扑和语义交接" },
   { id: "runtime", title: "运行", description: "时序、循环、记忆、产物" },
   { id: "quality", title: "质量", description: "契约、预检、发布" },
@@ -169,3 +180,4 @@ export function TaskGraphLayerNav({
     </nav>
   );
 }
+

@@ -28,8 +28,24 @@ export function focusForPreflightIssue(issue: TaskGraphPreflightIssue): TaskGrap
   };
 
   if (
+    issue.source.includes("risk")
+    || issue.source.includes("ledger")
+    || issue.source.includes("thread_ledger")
+    || issue.source.includes("issue_ledger")
+  ) {
+    return {
+      ...base,
+      layer: "risk",
+      facet: issue.source.includes("handoff") ? "handoff" : "ledgers",
+      edge_id: issue.scope === "edge" ? issue.target_id : undefined,
+      repository_id: issue.scope === "graph" || issue.scope === "node" ? issue.target_id : undefined,
+      node_id: issue.scope === "node" ? issue.target_id : undefined,
+    };
+  }
+
+  if (
     issue.source.includes("memory_selector")
-    || issue.source.includes("receipt")
+    || issue.source.includes("commit_visibility")
     || issue.source.includes("memory_commit_path")
     || issue.source.includes("memory_write_contract")
     || issue.source.includes("memory_commit_contract")
@@ -49,6 +65,26 @@ export function focusForPreflightIssue(issue: TaskGraphPreflightIssue): TaskGrap
       layer: "memory",
       facet: "repositories",
       repository_id: issue.target_id,
+    };
+  }
+
+  if (issue.source.includes("artifact")) {
+    return {
+      ...base,
+      layer: "memory",
+      facet: "artifact_context",
+      node_id: issue.scope === "node" ? issue.target_id : undefined,
+      edge_id: issue.scope === "edge" ? issue.target_id : undefined,
+      repository_id: issue.scope === "graph" ? issue.target_id : undefined,
+    };
+  }
+
+  if (issue.source.includes("human_gate") || issue.source.includes("manual")) {
+    return {
+      ...base,
+      layer: issue.scope === "graph" || issue.scope === "runtime" ? "blueprint" : "agents",
+      facet: issue.scope === "graph" || issue.scope === "runtime" ? "human_interaction" : "manual_execution",
+      node_id: issue.scope === "node" ? issue.target_id : undefined,
     };
   }
 
@@ -77,6 +113,16 @@ export function focusForPreflightIssue(issue: TaskGraphPreflightIssue): TaskGrap
       ...base,
       layer: "timeline",
       facet: issue.scope === "phase" ? "phase" : "clock",
+      node_id: issue.scope === "node" ? issue.target_id : undefined,
+      edge_id: issue.scope === "edge" ? issue.target_id : undefined,
+    };
+  }
+
+  if (issue.source.includes("scheduler") || issue.source.includes("runtime_spec")) {
+    return {
+      ...base,
+      layer: issue.scope === "node" || issue.scope === "edge" ? "timeline" : "publish",
+      facet: issue.scope === "node" || issue.scope === "edge" ? "clock" : "runtime",
       node_id: issue.scope === "node" ? issue.target_id : undefined,
       edge_id: issue.scope === "edge" ? issue.target_id : undefined,
     };

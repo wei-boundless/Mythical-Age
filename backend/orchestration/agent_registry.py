@@ -12,7 +12,34 @@ from .agent_models import AgentDescriptor
 from soul import SoulFacade
 
 
-AGENT_CATEGORIES = {"main_agent", "system_management_agent", "worker_sub_agent"}
+AGENT_CATEGORIES = {"main_agent", "builtin_agent", "custom_agent"}
+
+RETIRED_WRITING_AGENT_IDS = {
+    "agent:chapter_planner",
+    "agent:character_designer_a",
+    "agent:character_designer_b",
+    "agent:character_judge",
+    "agent:memory_steward",
+    "agent:novel_quality_judge",
+    "agent:novel_writer_a",
+    "agent:novel_writer_b",
+    "agent:outline_designer_a",
+    "agent:outline_designer_b",
+    "agent:outline_judge",
+    "agent:world_designer_a",
+    "agent:world_designer_b",
+    "agent:world_judge",
+    "agent:writing_simple_creator",
+    "agent:writing_simple_reviewer",
+    "agent:writing_final_assembler",
+}
+
+WRITING_AGENT_TEMPLATE_OVERRIDES = {
+    "agent:writing_team_worker": "task_graph.writing_team.long_novel.runtime_worker",
+    "agent:writing_simple_worker": "task_graph.writing.simple_novel.runtime_worker",
+    "agent:writing_memory_steward": "task_graph.writing.memory_steward",
+    "agent:writing_runtime_monitor": "task_graph.writing.runtime_monitor",
+}
 
 
 def _storage_root(base_dir: Path) -> Path:
@@ -50,14 +77,14 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "main_conversation_entry", "system_key": "task_system", "slot_index": 0},
+            metadata={"role": "main_conversation_entry", "builtin_kind": "primary", "system_key": "task_system", "slot_index": 0, "agent_template_id": "builtin.main.primary", "delegation_enabled": False, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:1",
-            agent_name="权限管理Agent",
-            agent_category="system_management_agent",
-            interface_target="permission_system_window",
-            description="负责权限策略、操作准入和安全边界的系统管理 Agent。",
+            agent_name="记忆管理Agent",
+            agent_category="builtin_agent",
+            interface_target="memory_system_window",
+            description="负责会话记忆、长期记忆、记忆候选和记忆整理治理的系统管理 Agent。",
             enabled=True,
             builtin=True,
             editable=True,
@@ -65,12 +92,12 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "system_manager", "system_key": "permission_system", "slot_index": 1},
+            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "memory_system", "slot_index": 1, "agent_template_id": "builtin.system.memory_manager", "delegation_enabled": False, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:2",
             agent_name="配置管理Agent",
-            agent_category="system_management_agent",
+            agent_category="builtin_agent",
             interface_target="config_system_window",
             description="负责系统配置、运行参数和环境状态的系统管理 Agent。",
             enabled=True,
@@ -80,12 +107,12 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "system_manager", "system_key": "config_system", "slot_index": 2},
+            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "config_system", "slot_index": 2, "agent_template_id": "builtin.system.config_manager", "delegation_enabled": False, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:3",
             agent_name="3号健康管理Agent",
-            agent_category="system_management_agent",
+            agent_category="builtin_agent",
             interface_target="health_system_window",
             description="对接健康系统会话窗口，负责健康维护和健康分析类任务。",
             enabled=True,
@@ -95,12 +122,12 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="xuannv__primary",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "system_manager", "system_key": "health_system", "slot_index": 3},
+            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "health_system", "slot_index": 3, "agent_template_id": "builtin.system.health_manager", "delegation_enabled": False, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:4",
             agent_name="任务管理Agent",
-            agent_category="system_management_agent",
+            agent_category="builtin_agent",
             interface_target="task_system_window",
             description="负责任务注册、任务契约和任务运行状态的系统管理 Agent。",
             enabled=True,
@@ -110,12 +137,12 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "system_manager", "system_key": "task_management_system", "slot_index": 4},
+            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "task_management_system", "slot_index": 4, "agent_template_id": "builtin.system.task_manager", "delegation_enabled": False, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:5",
             agent_name="能力管理Agent",
-            agent_category="system_management_agent",
+            agent_category="builtin_agent",
             interface_target="capability_system_window",
             description="负责工具、技能、MCP 能力目录的系统管理 Agent。",
             enabled=True,
@@ -125,12 +152,12 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "system_manager", "system_key": "capability_system", "slot_index": 5},
+            metadata={"role": "system_manager", "builtin_kind": "system_manager", "system_key": "capability_system", "slot_index": 5, "agent_template_id": "builtin.system.capability_manager", "delegation_enabled": False, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:rag_analyst",
             agent_name="RAG检索分析Agent",
-            agent_category="worker_sub_agent",
+            agent_category="builtin_agent",
             interface_target="worker_task_console",
             description="你是一名证据检索分析员。你负责围绕问题检索知识库，整理证据、引用和不确定性，不负责替主 Agent 做最终回答。",
             enabled=True,
@@ -140,12 +167,12 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="projection.worker.rag_evidence_analyst",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "worker_kind": "rag_analysis", "slot_index": 6},
+            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "rag_analysis", "slot_index": 6, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.rag_analyst", "delegation_enabled": True, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:pdf_reader",
             agent_name="PDF阅读分析Agent",
-            agent_category="worker_sub_agent",
+            agent_category="builtin_agent",
             interface_target="worker_task_console",
             description="你是一名 PDF 阅读分析员。你负责阅读指定 PDF 内容，抽取要点、证据位置和限制说明，不负责替主 Agent 做最终回答。",
             enabled=True,
@@ -155,12 +182,12 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="projection.worker.pdf_evidence_reader",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "worker_kind": "pdf_analysis", "slot_index": 7},
+            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "pdf_analysis", "slot_index": 7, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.pdf_reader", "delegation_enabled": True, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:table_analyst",
             agent_name="表格分析Agent",
-            agent_category="worker_sub_agent",
+            agent_category="builtin_agent",
             interface_target="worker_task_console",
             description="你是一名表格与结构化数据分析员。你负责读取数据结构、执行受限分析并返回结论依据，不负责替主 Agent 做最终回答。",
             enabled=True,
@@ -170,12 +197,12 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="projection.worker.table_evidence_analyst",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "worker_kind": "structured_data_analysis", "slot_index": 8},
+            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "structured_data_analysis", "slot_index": 8, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.table_analyst", "delegation_enabled": True, "group_eligible": False},
         ),
         AgentDescriptor(
             agent_id="agent:web_researcher",
             agent_name="网页证据研究Agent",
-            agent_category="worker_sub_agent",
+            agent_category="builtin_agent",
             interface_target="worker_task_console",
             description="你是一名网页证据研究员。你负责检索公开网页、识别可靠来源、整理事实证据和未知边界，不负责替主 Agent 做最终回答。",
             enabled=True,
@@ -185,7 +212,7 @@ def default_agent_descriptors(now: float | None = None) -> tuple[AgentDescriptor
             default_projection_id="projection.worker.web_evidence_researcher",
             created_at=timestamp,
             updated_at=timestamp,
-            metadata={"role": "worker_specialist", "worker_kind": "web_research", "slot_index": 9},
+            metadata={"role": "worker_specialist", "builtin_kind": "specialist", "worker_kind": "web_research", "slot_index": 9, "system_key": "builtin_specialist_pool", "agent_template_id": "builtin.specialist.web_researcher", "delegation_enabled": True, "group_eligible": False},
         ),
     )
 
@@ -199,7 +226,11 @@ class AgentRegistry:
     def list_agents(self) -> list[AgentDescriptor]:
         default_payload = [item.to_dict() for item in default_agent_descriptors()]
         payload = _read_json(self.agents_path, {"agents": default_payload})
-        stored_agents = [_migrate_agent_payload(item) for item in list(payload.get("agents") or []) if isinstance(item, dict)]
+        stored_agents = [
+            item
+            for item in (_migrate_agent_payload(item) for item in list(payload.get("agents") or []) if isinstance(item, dict))
+            if str(item.get("agent_id") or "").strip() not in RETIRED_WRITING_AGENT_IDS
+        ]
         raw_agents = (
             default_payload
             if not self.agents_path.exists()
@@ -221,18 +252,11 @@ class AgentRegistry:
         return next((item for item in self.list_agents() if item.agent_id in aliases), None)
 
     def next_worker_agent_id(self) -> str:
-        occupied_numbers: set[int] = set()
-        for agent in self.list_agents():
-            raw = str(agent.agent_id or "").strip()
-            if not raw.startswith("agent:"):
-                continue
-            suffix = raw.split(":", 1)[1]
-            if suffix.isdigit():
-                occupied_numbers.add(int(suffix))
+        occupied_ids = {str(agent.agent_id or "").strip() for agent in self.list_agents()}
         candidate = 1
-        while candidate in occupied_numbers:
+        while f"agent:worker:{candidate}" in occupied_ids:
             candidate += 1
-        return f"agent:{candidate}"
+        return f"agent:worker:{candidate}"
 
     def set_agent_enabled(self, agent_id: str, enabled: bool) -> AgentDescriptor:
         current = self.get_agent(agent_id)
@@ -267,7 +291,7 @@ class AgentRegistry:
         target = normalize_agent_id(agent_id)
         if not target.startswith("agent:"):
             raise ValueError("agent_id must start with agent:")
-        normalized_category = _normalize_agent_category(agent_category or profile_type or "worker_sub_agent")
+        normalized_category = _normalize_agent_category(agent_category or profile_type or "custom_agent")
         if normalized_category not in AGENT_CATEGORIES:
             raise ValueError("unsupported agent_category")
         current = self.get_agent(target)
@@ -358,9 +382,10 @@ class AgentRegistry:
                 "agent_count": len(agents),
                 "enabled_agent_count": sum(1 for item in agents if item.enabled),
                 "main_agent_count": sum(1 for item in agents if item.agent_category == "main_agent"),
-                "system_management_agent_count": sum(1 for item in agents if item.agent_category == "system_management_agent"),
-                "worker_sub_agent_count": sum(1 for item in agents if item.agent_category == "worker_sub_agent"),
-                "builtin_agent_count": sum(1 for item in agents if item.builtin),
+                "builtin_agent_count": sum(1 for item in agents if item.agent_category == "builtin_agent"),
+                "custom_agent_count": sum(1 for item in agents if item.agent_category == "custom_agent"),
+                "system_manager_agent_count": sum(1 for item in agents if item.builtin_kind == "system_manager"),
+                "delegation_enabled_agent_count": sum(1 for item in agents if item.delegation_enabled),
             },
         }
 
@@ -393,34 +418,55 @@ def _merge_items_by_key(
 def _default_interface_target(agent_id: str, agent_category: str) -> str:
     if agent_category == "main_agent":
         return "main_conversation"
-    if agent_category == "system_management_agent":
+    if agent_category == "builtin_agent":
         return f"{agent_id.replace('agent:', '').replace(':', '_')}_window"
     return "worker_task_console"
 
 
 def _normalize_agent_category(value: str) -> str:
-    normalized = str(value or "worker_sub_agent").strip()
+    normalized = str(value or "custom_agent").strip()
     if normalized == "main_agent":
         return "main_agent"
-    if normalized == "system_management_agent":
-        return "system_management_agent"
-    return "worker_sub_agent"
+    if normalized in {"builtin_agent", "system_management_agent"}:
+        return "builtin_agent"
+    return "custom_agent"
 
 
 def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
     agent_id = str(payload.get("agent_id") or "").strip()
     canonical_agent_id = normalize_agent_id(agent_id)
     display_name = str(payload.get("display_name") or payload.get("agent_name") or agent_id).strip() or agent_id
-    agent_category = _normalize_agent_category(str(payload.get("agent_category") or payload.get("profile_type") or "worker_sub_agent"))
+    agent_category = _normalize_agent_category(str(payload.get("agent_category") or payload.get("profile_type") or "custom_agent"))
     owner_system = str(payload.get("owner_system") or payload.get("metadata", {}).get("system_key") or "").strip()
     if canonical_agent_id == "agent:0":
         agent_category = "main_agent"
-    elif owner_system and owner_system not in {"", "task_system", "worker_pool"}:
-        agent_category = "system_management_agent"
+    elif bool(payload.get("builtin")) and (
+        owner_system not in {"", "task_system", "worker_pool", "builtin_specialist_pool"}
+        or str(dict(payload.get("metadata") or {}).get("role") or "").strip() == "system_manager"
+    ):
+        agent_category = "builtin_agent"
+    elif bool(payload.get("builtin")):
+        agent_category = "builtin_agent"
+    else:
+        agent_category = "custom_agent"
     normalized_soul_id = str(payload.get("default_soul_id") or "").strip()
     normalized_projection_id = str(payload.get("default_projection_id") or "").strip()
     metadata = dict(payload.get("metadata") or {})
     metadata.pop("legacy_agent_id", None)
+    if "delegation_enabled" not in metadata:
+        metadata["delegation_enabled"] = agent_category == "custom_agent" or bool(payload.get("builtin")) and owner_system in {"worker_pool", "builtin_specialist_pool"}
+    if "group_eligible" not in metadata:
+        metadata["group_eligible"] = agent_category == "custom_agent"
+    if "agent_template_id" not in metadata:
+        if bool(payload.get("builtin")):
+            if str(metadata.get("role") or "").strip() == "system_manager":
+                metadata["agent_template_id"] = f"builtin.system.{canonical_agent_id.removeprefix('agent:')}"
+            else:
+                metadata["agent_template_id"] = f"builtin.specialist.{canonical_agent_id.removeprefix('agent:')}"
+        elif str(metadata.get("task_family") or "").strip():
+            metadata["agent_template_id"] = f"task_graph.{str(metadata.get('task_family')).strip()}.node_agent"
+    if canonical_agent_id in WRITING_AGENT_TEMPLATE_OVERRIDES:
+        metadata["agent_template_id"] = WRITING_AGENT_TEMPLATE_OVERRIDES[canonical_agent_id]
     return {
         "agent_id": canonical_agent_id,
         "agent_name": display_name,
@@ -461,7 +507,7 @@ def _agent_from_dict(payload: dict[str, Any]) -> AgentDescriptor:
     return AgentDescriptor(
         agent_id=str(payload.get("agent_id") or ""),
         agent_name=str(payload.get("agent_name") or payload.get("display_name") or ""),
-        agent_category=_normalize_agent_category(str(payload.get("agent_category") or payload.get("profile_type") or "worker_sub_agent")),
+        agent_category=_normalize_agent_category(str(payload.get("agent_category") or payload.get("profile_type") or "custom_agent")),
         interface_target=str(payload.get("interface_target") or ""),
         description=str(payload.get("description") or ""),
         enabled=bool(payload.get("enabled", True)),
@@ -487,7 +533,7 @@ def _enforce_system_builtin_payload(
     enforced = dict(default_payload)
     enforced.update(payload)
     enforced["agent_id"] = agent_id
-    enforced["agent_category"] = str(default_payload.get("agent_category") or payload.get("agent_category") or "worker_sub_agent")
+    enforced["agent_category"] = str(default_payload.get("agent_category") or payload.get("agent_category") or "custom_agent")
     enforced["profile_type"] = str(default_payload.get("profile_type") or enforced["agent_category"])
     enforced["builtin"] = True
     enforced["created_at"] = float(payload.get("created_at") or default_payload.get("created_at") or 0.0)
@@ -497,7 +543,7 @@ def _enforce_system_builtin_payload(
         **{
             key: value
             for key, value in dict(default_payload.get("metadata") or {}).items()
-            if key in {"role", "system_key", "slot_index"}
+            if key in {"role", "system_key", "slot_index", "builtin_kind", "agent_template_id", "delegation_enabled", "group_eligible"}
         },
         "definition_source": "system_builtin",
         "lifecycle_policy": str(

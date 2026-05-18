@@ -288,7 +288,14 @@ def test_task_graph_monitor_reads_stream_chunks_from_active_node_task_run(tmp_pa
                 }
             },
             "stage_execution_request": {
+                "request_id": "nodeexec:chapter_draft",
                 "stage_id": "chapter_draft",
+                "node_id": "chapter_draft",
+                "dispatch_context": {
+                    "activation_id": "activation:chapter_draft",
+                    "execution_permit_id": "permit:chapter_draft",
+                    "dispatch_event_id": "tlevent:chapter_draft",
+                },
                 "task_ref": "task.writing.chapter_draft",
                 "stream_policy": {
                     "enabled": True,

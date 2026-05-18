@@ -36,6 +36,7 @@ class CoordinationStageContract:
     output_contract_id: str = ""
     projection_id: str = ""
     node_type: str = ""
+    executor_policy: dict[str, Any] = field(default_factory=dict)
     memory_read_policy: dict[str, Any] = field(default_factory=dict)
     memory_writeback_policy: dict[str, Any] = field(default_factory=dict)
     dynamic_memory_read_policy: dict[str, Any] = field(default_factory=dict)
@@ -69,6 +70,7 @@ class CoordinationStageContract:
             "output_contract_id": self.output_contract_id,
             "projection_id": self.projection_id,
             "node_type": self.node_type,
+            "executor_policy": dict(self.executor_policy),
             "memory_read_policy": dict(self.memory_read_policy),
             "memory_writeback_policy": dict(self.memory_writeback_policy),
             "dynamic_memory_read_policy": dict(self.dynamic_memory_read_policy),
@@ -171,6 +173,7 @@ def parse_stage_contracts(
                 output_contract_id=str(raw.get("output_contract_id") or node.get("output_contract_id") or node.get("node_contract_id") or "").strip(),
                 projection_id=str(raw.get("projection_id") or node.get("projection_id") or "").strip(),
                 node_type=str(raw.get("node_type") or node.get("node_type") or "").strip(),
+                executor_policy=dict(raw.get("executor_policy") or node.get("executor_policy") or dict(node.get("metadata") or {}).get("executor_policy") or {}),
                 memory_read_policy=dict(raw.get("memory_read_policy") or node.get("memory_read_policy") or {}),
                 memory_writeback_policy=dict(raw.get("memory_writeback_policy") or node.get("memory_writeback_policy") or {}),
                 dynamic_memory_read_policy=dict(raw.get("dynamic_memory_read_policy") or node.get("dynamic_memory_read_policy") or {}),
@@ -218,7 +221,7 @@ def derive_stage_contracts_from_graph(
         node_id = str(node.get("node_id") or node.get("id") or "").strip()
         if not node_id:
             continue
-        task_ref = str(node.get("task_id") or node.get("task_ref") or node.get("subtask_ref") or "").strip()
+        task_ref = _stage_task_ref(coordination_task=coordination_task, node=node)
         if not task_ref:
             continue
         input_bindings: list[dict[str, Any]] = []
@@ -259,6 +262,7 @@ def derive_stage_contracts_from_graph(
                 output_contract_id=str(node.get("output_contract_id") or node.get("node_contract_id") or "").strip(),
                 projection_id=str(node.get("projection_id") or "").strip(),
                 node_type=str(node.get("node_type") or "").strip(),
+                executor_policy=dict(node.get("executor_policy") or dict(node.get("metadata") or {}).get("executor_policy") or {}),
                 memory_read_policy=dict(node.get("memory_read_policy") or {}),
                 memory_writeback_policy=dict(node.get("memory_writeback_policy") or {}),
                 dynamic_memory_read_policy=dict(node.get("dynamic_memory_read_policy") or {}),
@@ -273,6 +277,27 @@ def derive_stage_contracts_from_graph(
             )
         )
     return tuple(contracts)
+
+
+def _stage_task_ref(*, coordination_task: Any, node: dict[str, Any]) -> str:
+    explicit_task_ref = str(
+        node.get("task_id")
+        or node.get("task_ref")
+        or node.get("subtask_ref")
+        or ""
+    ).strip()
+    if explicit_task_ref:
+        return explicit_task_ref
+    agent_id = str(node.get("agent_id") or "").strip()
+    node_id = str(node.get("node_id") or node.get("id") or "").strip()
+    graph_ref = str(
+        getattr(coordination_task, "graph_ref", "")
+        or getattr(coordination_task, "graph_id", "")
+        or str(dict(getattr(coordination_task, "metadata", {}) or {}).get("graph_id") or "")
+    ).strip()
+    if agent_id and node_id and graph_ref:
+        return f"task_graph.node.{graph_ref}.{node_id}"
+    return ""
 
 
 def validate_stage_contracts(
@@ -300,7 +325,7 @@ def validate_stage_contracts(
             issues.append(_issue("stage_not_declared", f"stage contract not declared in stage_sequence: {contract.stage_id}", contract.stage_id))
         if not contract.task_ref:
             issues.append(_issue("missing_task_ref", "stage contract requires task_ref", contract.stage_id))
-        elif task_refs and contract.task_ref not in task_refs:
+        elif task_refs and contract.task_ref not in task_refs and not str(contract.task_ref).startswith("task_graph.node."):
             issues.append(_issue("task_ref_not_reachable", f"task_ref is not in coordination task refs: {contract.task_ref}", contract.stage_id))
         for binding in contract.input_bindings:
             source = str(binding.get("source") or "").strip()

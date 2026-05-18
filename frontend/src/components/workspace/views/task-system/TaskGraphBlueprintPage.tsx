@@ -4,11 +4,12 @@ import { GitBranch } from "lucide-react";
 
 import { TaskSystemToolbarButton } from "./TaskSystemWorkbenchUi";
 import { TaskSystemField, TaskSystemSelectField, taskSystemOptionLabel } from "./TaskSystemWorkbenchUi";
+import { buildTaskGraphNameRegistryPayload, taskGraphDisplayName, taskGraphNameRegistry } from "./taskGraphNameRegistry";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import type { TaskGraphNode } from "./taskGraphTypes";
 
-function nodeTitle(node: Record<string, unknown>) {
-  return String(node.title ?? node.label ?? node.node_id ?? "节点");
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 export function TaskGraphBlueprintPage({
@@ -17,18 +18,35 @@ export function TaskGraphBlueprintPage({
   onOpenTemplateChooser,
   updateTaskGraph,
   updateRuntimePolicy,
-  updateContextPolicy,
 }: {
   activeGraphNodes: Array<Record<string, unknown>>;
   taskGraphDraft: TaskGraphDraftV2;
   onOpenTemplateChooser: () => void;
   updateTaskGraph: (patch: Partial<TaskGraphDraftV2>) => void;
   updateRuntimePolicy: (patch: Partial<TaskGraphDraftV2["runtime_policy"]>) => void;
-  updateContextPolicy: (patch: Partial<TaskGraphDraftV2["context_policy"]>) => void;
 }) {
   const nodeOptions = activeGraphNodes
     .map((node) => String(node.node_id ?? "").trim())
     .filter(Boolean);
+  const metadata = asRecord(taskGraphDraft.metadata);
+  const nameRegistry = taskGraphNameRegistry(metadata);
+  const phaseDefinitions = Array.isArray(metadata.phase_definitions)
+    ? metadata.phase_definitions.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const nodeTitle = (node: Record<string, unknown>) => taskGraphDisplayName(String(node.node_id ?? ""), node, metadata, "节点");
+  const syncNameRegistry = () => {
+    updateTaskGraph({
+      metadata: {
+        ...metadata,
+        name_registry: buildTaskGraphNameRegistryPayload({
+          graphId: taskGraphDraft.graph_id,
+          graphTitle: taskGraphDraft.title,
+          nodes: activeGraphNodes,
+          phases: phaseDefinitions,
+        }),
+      },
+    });
+  };
 
   return (
     <section className="task-graph-studio-page">
@@ -104,26 +122,8 @@ export function TaskGraphBlueprintPage({
         </article>
 
         <article className="boundary-card">
-          <header><strong>全局策略</strong></header>
+          <header><strong>图级运行边界</strong></header>
           <div className="boundary-form">
-            <TaskSystemField label="共享上下文策略">
-              <input
-                onChange={(event) => updateContextPolicy({ shared_context_policy: event.target.value })}
-                value={taskGraphDraft.context_policy.shared_context_policy}
-              />
-            </TaskSystemField>
-            <TaskSystemField label="记忆共享策略">
-              <input
-                onChange={(event) => updateContextPolicy({ memory_sharing_policy: event.target.value })}
-                value={taskGraphDraft.context_policy.memory_sharing_policy}
-              />
-            </TaskSystemField>
-            <TaskSystemField label="交接策略">
-              <input
-                onChange={(event) => updateContextPolicy({ handoff_policy: event.target.value })}
-                value={String(taskGraphDraft.context_policy.handoff_policy ?? "")}
-              />
-            </TaskSystemField>
             <TaskSystemField label="Agent 组">
               <input
                 onChange={(event) => updateRuntimePolicy({ agent_group_id: event.target.value })}
@@ -139,8 +139,34 @@ export function TaskGraphBlueprintPage({
             />
           </div>
           <div className="task-graph-note">
-            <strong>人工接管由任务图装配决定</strong>
-            <span>选择“人工确认后继续”时，人工门控会阻塞运行；选择“自动继续”或“非阻塞记录”时，运行时不会因为人工接管停住。</span>
+            <strong>资源与上下文不在蓝图页细配</strong>
+            <span>蓝图页只保留图身份、边界节点、协作模式和人工接管边界。共享上下文、记忆读写、产物上下文都应进入节点、边、资源和时序对象页配置。</span>
+          </div>
+        </article>
+
+        <article className="boundary-card">
+          <header><strong>中文名注册</strong><span>{nameRegistry.length} 项</span></header>
+          <div className="task-graph-note">
+            <strong>中文名是图级标准元数据</strong>
+            <span>拓扑图、节点列表、阶段图块和预检都优先读取 name_registry，不再由各页面各自猜测显示名。</span>
+          </div>
+          <TaskSystemToolbarButton onClick={syncNameRegistry} variant="primary">
+            同步中文名注册
+          </TaskSystemToolbarButton>
+          <div className="task-graph-standard-list">
+            {nameRegistry.slice(0, 12).map((entry) => (
+              <article className="task-graph-standard-list__item" key={`${entry.object_type}:${entry.object_id}`}>
+                <strong>{entry.display_name_zh}</strong>
+                <span>{entry.object_id}</span>
+                <em>{entry.object_type}</em>
+              </article>
+            ))}
+            {!nameRegistry.length ? (
+              <div className="task-graph-note">
+                <strong>尚未建立中文名注册</strong>
+                <span>点击同步后会把图、节点、阶段写入 metadata.name_registry。</span>
+              </div>
+            ) : null}
           </div>
         </article>
       </section>

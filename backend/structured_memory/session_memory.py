@@ -5,7 +5,7 @@ from typing import Any
 
 from .process_state import ContextSlots, DialogueState, FlowState, TaskState, TurnUnderstanding
 from .flow_snapshots import FlowSnapshot, FlowSnapshotManager
-from .models import Message, utc_now_iso
+from .models import utc_now_iso
 from .process_state import ProcessStateManager
 from .session_memory_view import DEFAULT_TEMPLATE, SessionMemoryViewBuilder
 from .session_processor import SessionUnderstandingProcessor
@@ -14,7 +14,7 @@ from .turn_understanding import FILE_PATTERN
 
 
 class SessionMemoryManager:
-    """Maintains per-session working memory as a rendered process-state view."""
+    """Stores agent-maintained session memory and runtime process state views."""
 
     def __init__(self, session_dir: str | Path) -> None:
         self.session_dir = Path(session_dir)
@@ -54,63 +54,14 @@ class SessionMemoryManager:
         self.summary_path.write_text(model_rendered, encoding="utf-8")
         self.compaction_view_path.write_text(compaction_rendered, encoding="utf-8")
 
-    def preview_state(
-        self,
-        messages: list[Message],
-        max_items: int = 6,
-        *,
-        previous_state: DialogueState | None = None,
-    ) -> DialogueState:
-        baseline = previous_state if previous_state is not None else self.load_state()
-        return self.processor.process(messages, baseline, max_items=max_items)
-
-    def preview_views(
-        self,
-        messages: list[Message],
-        max_items: int = 6,
-        *,
-        previous_state: DialogueState | None = None,
-    ) -> dict[str, str]:
-        state = self.preview_state(
-            messages,
-            max_items=max_items,
-            previous_state=previous_state,
-        )
-        model_content = self._render_state(state)
-        debug_content = self._render_debug_state(state)
-        return {
-            "model": model_content,
-            "debug": debug_content,
-            "compaction": self.view_builder.render_compaction_view(model_content),
-        }
-
-    def update_from_messages(
-        self,
-        messages: list[Message],
-        max_items: int = 6,
-        *,
-        persist: bool = True,
-    ) -> str:
-        previous_state = self.load_state()
-        state = self.preview_state(messages, max_items=max_items, previous_state=previous_state)
-        content = self._render_state(state)
-        debug_content = self._render_debug_state(state)
-        if persist:
-            self.overwrite(content, debug_content=debug_content)
-            self.state_manager.overwrite(state)
-            self.flow_snapshot_manager.update_for_transition(previous_state, state)
-        return content
-
-    def update_from_context_state(
+    def update_runtime_state_from_context_state(
         self,
         main_context: Any,
         task_summaries: list[Any] | None = None,
         bundle_summaries: list[Any] | None = None,
         corrections: list[str] | None = None,
         max_items: int = 6,
-        *,
-        persist: bool = True,
-    ) -> str:
+    ) -> DialogueState:
         previous_state = self.load_state()
         state = self._build_state_from_context_state(
             main_context=main_context,
@@ -120,13 +71,9 @@ class SessionMemoryManager:
             previous_state=previous_state,
             max_items=max_items,
         )
-        content = self._render_state(state)
-        debug_content = self._render_debug_state(state)
-        if persist:
-            self.overwrite(content, debug_content=debug_content)
-            self.state_manager.overwrite(state)
-            self.flow_snapshot_manager.update_for_transition(previous_state, state)
-        return content
+        self.state_manager.overwrite(state)
+        self.flow_snapshot_manager.update_for_transition(previous_state, state)
+        return state
 
     def compact_view(
         self,
@@ -272,7 +219,7 @@ class SessionMemoryManager:
             normalized_task_summaries=normalized_task_summaries,
         )
         current_result_refs = process_engine._dedupe_items(
-            [item["summary"] for item in normalized_task_summaries if item["summary"]],
+            [item["answer"] or item["summary"] for item in normalized_task_summaries if item["answer"] or item["summary"]],
             max_items=max_items,
             max_chars=260,
         )
@@ -302,7 +249,7 @@ class SessionMemoryManager:
             max_chars=260,
         )
         decision_items = process_engine._dedupe_items(
-            [item["summary"] for item in normalized_task_summaries if item["summary"]],
+            [item["answer"] or item["summary"] for item in normalized_task_summaries if item["answer"] or item["summary"]],
             max_items=max_items,
             max_chars=240,
         )
@@ -384,14 +331,20 @@ class SessionMemoryManager:
         normalized: list[dict[str, str | list[str]]] = []
         for item in task_summaries:
             query = self._coerce_text(self._read_value(item, "query"))
+            answer = self._coerce_text(self._read_value(item, "answer"))
             summary = self._coerce_task_summary_text(item)
+            if not answer:
+                answer = summary
+            if answer and not summary:
+                summary = self._shorten(answer, 120)
             key_points = self._coerce_text_list(self._read_value(item, "key_points"))
-            if not query and not summary and not key_points:
+            if not query and not answer and not summary and not key_points:
                 continue
             normalized.append(
                 {
                     "task_id": self._coerce_text(self._read_value(item, "task_id")),
                     "query": query,
+                    "answer": answer,
                     "summary": summary,
                     "key_points": key_points,
                 }
@@ -409,18 +362,20 @@ class SessionMemoryManager:
             ordinal = self._safe_int(self._read_value(item, "ordinal"))
             task_id = self._coerce_text(self._read_value(item, "task_id"))
             summary = self._coerce_task_summary_text(item)
+            answer = self._coerce_text(self._read_value(item, "answer")) or summary
             query = self._coerce_text(self._read_value(item, "query"))
             task_kind = self._coerce_text(self._read_value(item, "task_kind"))
             capability_kind = self._coerce_text(self._read_value(item, "capability_kind"))
             required_tool = self._coerce_text(self._read_value(item, "required_tool"))
             key_points = self._coerce_text_list(self._read_value(item, "key_points"))
-            if ordinal <= 0 or (not task_id and not summary and not query):
+            if ordinal <= 0 or (not task_id and not answer and not summary and not query):
                 continue
             normalized.append(
                 {
                     "ordinal": ordinal,
                     "task_id": task_id or f"bundle:{ordinal}",
                     "query": query,
+                    "answer": answer,
                     "summary": summary,
                     "task_kind": task_kind,
                     "capability_kind": capability_kind,
@@ -491,7 +446,7 @@ class SessionMemoryManager:
                 )
             )
         for item in normalized_task_summaries:
-            summary_text = self._coerce_text(item.get("summary"))
+            summary_text = self._coerce_text(item.get("answer") or item.get("summary"))
             if not summary_text:
                 continue
             turns.append(
@@ -837,7 +792,7 @@ class SessionMemoryManager:
         if prior_query and not task_switch:
             items.append(f"此前请求：{self._shorten(prior_query, 120)}")
         if len(normalized_task_summaries) > 1:
-            items.append(f"近期结果：{self._shorten(self._coerce_text(normalized_task_summaries[-2].get('summary')), 120)}")
+            items.append(f"近期结果：{self._shorten(self._coerce_text(normalized_task_summaries[-2].get('answer') or normalized_task_summaries[-2].get('summary')), 120)}")
         elif not current_result_refs and historical_result_refs:
             items.append(f"近期结果：{self._shorten(historical_result_refs[0], 120)}")
         if task_switch and current_result_refs:
@@ -910,6 +865,9 @@ class SessionMemoryManager:
         return []
 
     def _coerce_task_summary_text(self, task_summary: Any) -> str:
+        answer_text = self._coerce_text(self._read_value(task_summary, "answer"))
+        if answer_text:
+            return answer_text
         summary_text = self._coerce_text(self._read_value(task_summary, "summary"))
         if summary_text:
             return summary_text

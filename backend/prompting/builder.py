@@ -54,7 +54,10 @@ def _render_context_package_block(
     }
     lines: list[str] = []
     sections = _sections_for_package(package, mode=mode)
+    allow_hot_truth = _package_allows_hot_truth_prompt(package)
     for section_name, heading in section_order:
+        if section_name == "hot_truth_window" and not allow_hot_truth:
+            continue
         if not include_runtime_context and section_name in {
             "static_context",
             "active_process_context",
@@ -89,6 +92,14 @@ def _render_context_package_block(
             else:
                 lines.append(f"- {stripped}")
     return "\n".join(lines).strip()
+
+
+def _package_allows_hot_truth_prompt(package: ContextPackage) -> bool:
+    rebuild_reason = str(getattr(package, "rebuild_reason", "") or "").lower()
+    compaction_strategy = str(getattr(package, "compaction_strategy", "") or "").lower()
+    if compaction_strategy and compaction_strategy != "none":
+        return True
+    return any(marker in rebuild_reason for marker in ("compact", "compaction", "recovery", "restore"))
 
 
 def _sections_for_package(

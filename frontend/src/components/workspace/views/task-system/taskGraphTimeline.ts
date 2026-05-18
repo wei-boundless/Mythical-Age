@@ -37,6 +37,21 @@ export type TaskGraphTimelineFrame = {
   metadata?: Record<string, unknown>;
 };
 
+export type TaskGraphTimelineBlock = {
+  block_id: string;
+  block_type: string;
+  title: string;
+  phase_id: string;
+  linked_graph_id?: string;
+  entry_node_id?: string;
+  exit_node_id?: string;
+  handoff_contract_id?: string;
+  visibility_policy?: string;
+  version_ref?: string;
+  detach_policy?: string;
+  metadata?: Record<string, unknown>;
+};
+
 export type TaskGraphTimelineIssue = {
   code: string;
   message: string;
@@ -176,6 +191,28 @@ export function coordinationTimelineFrames(metadata: Record<string, unknown> | u
     .filter((item) => item.frame_id);
 }
 
+export function coordinationTimelineBlocks(metadata: Record<string, unknown> | undefined): TaskGraphTimelineBlock[] {
+  return asRecordArray(metadata?.timeline_blocks)
+    .map((item, index): TaskGraphTimelineBlock => {
+      const blockId = String(item.block_id ?? item.id ?? `timeline_block_${index + 1}`).trim();
+      return {
+        block_id: blockId || `timeline_block_${index + 1}`,
+        block_type: String(item.block_type ?? "phase_graph").trim() || "phase_graph",
+        title: String(item.title ?? item.name ?? blockId ?? `图块 ${index + 1}`).trim(),
+        phase_id: String(item.phase_id ?? "").trim(),
+        linked_graph_id: String(item.linked_graph_id ?? item.graph_id ?? "").trim() || undefined,
+        entry_node_id: String(item.entry_node_id ?? "").trim() || undefined,
+        exit_node_id: String(item.exit_node_id ?? "").trim() || undefined,
+        handoff_contract_id: String(item.handoff_contract_id ?? "").trim() || undefined,
+        visibility_policy: String(item.visibility_policy ?? "committed_only").trim() || "committed_only",
+        version_ref: String(item.version_ref ?? "").trim() || undefined,
+        detach_policy: String(item.detach_policy ?? "preserve_version_anchor").trim() || "preserve_version_anchor",
+        metadata: asRecord(item.metadata),
+      };
+    })
+    .filter((item) => item.block_id);
+}
+
 export function coordinationPhaseDefinitions(metadata: Record<string, unknown> | undefined, nodes: Array<Record<string, unknown>>): TaskGraphPhaseDefinition[] {
   const explicit = asRecordArray(metadata?.phase_definitions)
     .map((item): TaskGraphPhaseDefinition => ({
@@ -288,6 +325,7 @@ export function buildTimelinePreflightIssues(
   const edgeIds = new Set(edges.map((edge, index) => String(edge.edge_id ?? edge.id ?? `${graphEdgeSource(edge)}-${graphEdgeTarget(edge)}-${index}`).trim()).filter(Boolean));
   const phaseDefinitions = coordinationPhaseDefinitions(metadata, nodes);
   const timelineFrames = coordinationTimelineFrames(metadata);
+  const timelineBlocks = coordinationTimelineBlocks(metadata);
   const explicitPhaseDefinitions = asRecordArray(metadata?.phase_definitions);
   const nodePhaseIds = new Set(nodes.map(nodePhaseId).filter(Boolean));
 
@@ -352,6 +390,44 @@ export function buildTimelinePreflightIssues(
     }
     if (frame.frame_type === "parallel_frame" && !frame.timeline_group_id) {
       issues.push({ code: "timeline_frame_parallel_group_missing", message: `并行 Frame ${frame.title || frame.frame_id} 缺少 timeline_group_id。`, severity: "warning" });
+    }
+  }
+
+  for (const block of timelineBlocks) {
+    if (!block.phase_id) {
+      issues.push({ code: "timeline_block_phase_missing", message: `图块 ${block.title || block.block_id} 缺少 phase_id。`, severity: "error" });
+    } else if (!phaseDefinitions.some((phase) => phase.phase_id === block.phase_id)) {
+      issues.push({ code: "timeline_block_phase_unknown", message: `图块 ${block.title || block.block_id} 绑定的阶段 ${block.phase_id} 不存在。`, severity: "warning", phase_id: block.phase_id });
+    }
+    if (!block.entry_node_id) {
+      issues.push({ code: "timeline_block_entry_missing", message: `图块 ${block.title || block.block_id} 缺少 entry_node_id。`, severity: "warning", phase_id: block.phase_id });
+    } else if (!nodeIds.has(block.entry_node_id)) {
+      issues.push({ code: "timeline_block_entry_unknown", message: `图块 ${block.title || block.block_id} 的入口节点不存在。`, severity: "error", node_id: block.entry_node_id, phase_id: block.phase_id });
+    }
+    if (!block.exit_node_id) {
+      issues.push({ code: "timeline_block_exit_missing", message: `图块 ${block.title || block.block_id} 缺少 exit_node_id。`, severity: "warning", phase_id: block.phase_id });
+    } else if (!nodeIds.has(block.exit_node_id)) {
+      issues.push({ code: "timeline_block_exit_unknown", message: `图块 ${block.title || block.block_id} 的出口节点不存在。`, severity: "error", node_id: block.exit_node_id, phase_id: block.phase_id });
+    }
+    if (!block.handoff_contract_id) {
+      issues.push({ code: "timeline_block_handoff_contract_missing", message: `图块 ${block.title || block.block_id} 缺少 handoff_contract_id。`, severity: "warning", phase_id: block.phase_id });
+    }
+    if (!block.version_ref) {
+      issues.push({ code: "timeline_block_version_anchor_missing", message: `图块 ${block.title || block.block_id} 缺少 version_ref，断开后难以追踪旧引用。`, severity: "info", phase_id: block.phase_id });
+    }
+  }
+
+  for (const edge of edges) {
+    const edgeType = String(edge.edge_type ?? edge.mode ?? "");
+    const metadata = asRecord(edge.metadata);
+    const temporal = asRecord(metadata.temporal_semantics);
+    const isTemporalEdge = edgeType === "temporal_dependency" || String(metadata.dependency_role ?? "").includes("temporal") || Object.keys(temporal).length > 0;
+    if (!isTemporalEdge) continue;
+    const edgeId = String(edge.edge_id ?? edge.id ?? `${graphEdgeSource(edge)}-${graphEdgeTarget(edge)}`).trim();
+    for (const key of ["trigger_timing", "visibility_timing", "acknowledgement_timing", "propagation_timing", "phase_timing"]) {
+      if (!String(temporal[key] ?? "").trim()) {
+        issues.push({ code: `timeline_edge_${key}_missing`, message: `边 ${edgeId} 缺少 ${key}。`, severity: "warning", edge_id: edgeId });
+      }
     }
   }
 

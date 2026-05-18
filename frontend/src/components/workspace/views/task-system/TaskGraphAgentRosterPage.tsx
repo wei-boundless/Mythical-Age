@@ -84,16 +84,16 @@ export function TaskGraphAgentRosterPage({
     const profileId = String(profile.agent_profile_id ?? "").trim();
     const lanes = Array.isArray(profile.allowed_runtime_lanes) ? profile.allowed_runtime_lanes.length : 0;
     const operations = Array.isArray(profile.allowed_operations) ? profile.allowed_operations.length : 0;
-    if (!profileId) return "未绑定 Runtime Profile";
-    return `${profileId} / ${lanes} lanes / ${operations} ops`;
+    if (!profileId) return "未绑定运行档案";
+    return `${profileId} / ${lanes} 个运行场景 / ${operations} 个操作`;
   };
 
   return (
     <section className="task-graph-studio-page">
       <header className="task-graph-studio-page__head">
-        <span>TaskGraph Studio</span>
-        <strong>Agent 编组</strong>
-        <small>定义协调者、参与者与节点职责边界，减少上下文污染。</small>
+        <span>任务图工作台</span>
+        <strong>节点装配</strong>
+        <small>为当前图节点绑定执行器、Agent 与投影引用；Agent 主数据仍归编排资源库管理。</small>
       </header>
 
       <section className="task-graph-form-grid">
@@ -132,10 +132,10 @@ export function TaskGraphAgentRosterPage({
         </article>
 
         <article className="boundary-card">
-          <header><strong>Prompt 主数据</strong></header>
+          <header><strong>提示词主数据</strong></header>
           <div className="task-graph-note">
             <strong>归属已切换到投影系统</strong>
-            <span>图级和节点级 Prompt 不再在 TaskGraph 内直接编辑；请在职责与交接页生成并绑定 Projection。</span>
+            <span>图级和节点级提示词不再在任务图内直接编辑；请在职责与交接页生成并绑定投影。</span>
           </div>
         </article>
       </section>
@@ -172,12 +172,12 @@ export function TaskGraphAgentRosterPage({
                     <em>{agentPolicy.source_label}</em>
                   </p>
                   <p>
-                    <span>Runtime Profile</span>
+                    <span>运行档案</span>
                     <strong>{formatProfileSummary(effectivePolicyDisplayValue(agentPolicy.value))}</strong>
                     <em>编排系统</em>
                   </p>
                   <p>
-                    <span>Projection 来源</span>
+                    <span>投影来源</span>
                     <strong>{projectionPolicy.configured ? effectivePolicyDisplayValue(projectionPolicy.value) : "未绑定"}</strong>
                     <em>{projectionPolicy.source_label}</em>
                   </p>
@@ -196,12 +196,12 @@ export function TaskGraphAgentRosterPage({
                   options={["coordinator", "planner", "executor", "reviewer", "verifier", "summarizer", "merge", "acceptance", "participant"]}
                   value={String(node.work_posture ?? node.role ?? "participant")}
                 />
-                <TaskSystemField label="节点职责 Projection">
+                <TaskSystemField label="节点职责投影">
                   <input readOnly value={String(node.projection_id ?? node.projection_overlay_id ?? "未绑定")} />
                 </TaskSystemField>
                 {legacyFieldNames(nodeMetadata.legacy_prompt_migration).length > 0 ? (
                   <div className="task-graph-note">
-                    <strong>Legacy Prompt 待迁移</strong>
+                    <strong>旧提示词待迁移</strong>
                     <span>该节点仍有旧职责字段，请到职责与交接页生成并绑定投影。</span>
                   </div>
                 ) : null}

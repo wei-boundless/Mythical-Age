@@ -82,6 +82,12 @@ export type TaskGraphMonitorViewModel = {
   dispatchContext: Record<string, unknown>;
   contextPackets: Record<string, unknown>;
   timelineResultRecords: Array<Record<string, unknown>>;
+  temporalActiveActivationId: string;
+  temporalActiveExecutionPermitId: string;
+  temporalActiveNodeId: string;
+  temporalActiveRequestId: string;
+  temporalBoundaryValid: boolean;
+  temporalViolations: Array<{ severity: string; code: string; message: string; targetId: string }>;
   streamEnabled: boolean;
   streamChunkCount: number;
   streamAccumulatedChars: number;
@@ -239,6 +245,17 @@ export function buildTaskGraphMonitorViewModel(monitor: TaskGraphRunMonitorView 
     dispatchContext: monitor?.current_dispatch_context ?? {},
     contextPackets: monitor?.current_context_packets ?? {},
     timelineResultRecords: monitor?.timeline_result_records ?? [],
+    temporalActiveActivationId: text(monitor?.temporal?.active_activation_id),
+    temporalActiveExecutionPermitId: text(monitor?.temporal?.active_execution_permit_id),
+    temporalActiveNodeId: text(monitor?.temporal?.active_node_id),
+    temporalActiveRequestId: text(monitor?.temporal?.active_request_id),
+    temporalBoundaryValid: monitor?.temporal?.boundary_valid === true,
+    temporalViolations: (monitor?.temporal?.violations ?? []).map((issue) => ({
+      severity: text(issue.severity),
+      code: text(issue.code),
+      message: text(issue.message),
+      targetId: text(issue.target_id),
+    })),
     streamEnabled: monitor?.streaming?.enabled === true,
     streamChunkCount: Number(monitor?.streaming?.chunk_count ?? 0),
     streamAccumulatedChars: Number(monitor?.streaming?.accumulated_chars ?? 0),

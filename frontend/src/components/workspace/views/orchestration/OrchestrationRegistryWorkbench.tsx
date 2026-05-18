@@ -10,7 +10,7 @@ import {
   OrchestrationToolbarButton,
 } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 
-type AgentCategory = "main_agent" | "system_management_agent" | "worker_sub_agent";
+type AgentCategory = "main_agent" | "builtin_agent" | "custom_agent";
 
 type AgentDraftLike = {
   agent_id: string;
@@ -160,7 +160,7 @@ export function OrchestrationRegistryWorkbench({
               value={categoryLabels[agentDraft.agent_category as AgentCategory] ?? "未配置"}
             />
             <OrchestrationReadinessCard label="运行" ready={!profileMissing && Boolean(runtimeDraft.agent_profile_id)} value={runtimeDraft.agent_profile_id || "未配置"} />
-            <OrchestrationReadinessCard label="权限冲突" ready={!overlapOps.length} value={overlapOps.length ? String(overlapOps.length) : "0"} />
+            <OrchestrationReadinessCard label="准入冲突" ready={!overlapOps.length} value={overlapOps.length ? String(overlapOps.length) : "0"} />
           </div>
         </div>
         <aside className="boundary-card">
@@ -197,7 +197,7 @@ export function OrchestrationRegistryWorkbench({
         </header>
         <div className="orchestration-identity-note">
           <span>这里定义 Agent 身份本体。</span>
-          <strong>{selectedAgentBuiltin ? "这是系统预置来源的 Agent，默认会对接既定会话口；除此之外按普通 Agent 管理。" : "子 Agent 可自由定义名称、入口、选择灵魂/投影和职责说明。"}</strong>
+          <strong>{selectedAgentBuiltin ? "这是系统预置来源的 Agent，默认会对接既定会话口；除此之外按普通 Agent 管理。" : "自定义 Agent 可自由定义名称、入口、选择灵魂、投影和职责说明。"}</strong>
         </div>
         <div className="boundary-form">
           <OrchestrationField label="Agent 标识">

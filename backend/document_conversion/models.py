@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-STRUCTURE_CONTRACT_VERSION = "structure_contract_v1"
+STRUCTURE_CONTRACT_VERSION = "structure_contract_v2"
 
 
 def _stable_digest(*parts: str) -> str:

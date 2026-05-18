@@ -29,7 +29,7 @@ _SECTION_HINT_RE = re.compile(
     re.IGNORECASE,
 )
 _SECTION_TITLE_RE = re.compile(
-    r"^(第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)[^\n]{0,40})$",
+    r"^(第\s*[零一二三四五六七八九十百千两\d]+\s*(?:部分|章|节)[^\n]{0,40}|[一二三四五六七八九十]+、作为[^\n]{0,40})$",
     re.IGNORECASE,
 )
 _REFERENCE_HINT_RE = re.compile(r"(?:参考文献|references|bibliography|致谢)", re.IGNORECASE)
@@ -574,6 +574,38 @@ class PDFReadAgentRuntime:
             if any(normalized_target and normalized_target in hay for hay in normalized_haystacks):
                 if page.page_has_text:
                     matched.append(page)
+        if matched:
+            return matched
+        implicit_anchors = self._implicit_section_anchors(prepared)
+        if not implicit_anchors:
+            return []
+        ordinal = self._extract_section_ordinal(target_section)
+        if ordinal is not None:
+            anchor_index = ordinal - 1
+            if 0 <= anchor_index < len(implicit_anchors):
+                return self._pages_for_anchor_window(prepared, implicit_anchors, anchor_index)
+            return []
+        target_tokens = {token for token in self._tokens(target_section) if len(token) >= 2}
+        best_anchor_index = -1
+        best_score = 0
+        for index, anchor in enumerate(implicit_anchors):
+            label = str(anchor["label"] or "")
+            label_tokens = {token for token in self._tokens(label) if len(token) >= 2}
+            section_pages = self._pages_for_anchor_window(prepared, implicit_anchors, index)
+            first_sentence = self._first_sentence((section_pages[0].body_text or section_pages[0].text) if section_pages else "")
+            score = 0
+            for token in target_tokens:
+                if token in label_tokens:
+                    score += 5
+                if first_sentence.startswith(token):
+                    score += 3
+                elif token in first_sentence[:40]:
+                    score += 1
+            if score > best_score:
+                best_anchor_index = index
+                best_score = score
+        if best_anchor_index >= 0 and best_score > 0:
+            return self._pages_for_anchor_window(prepared, implicit_anchors, best_anchor_index)
         return matched
 
     def _rank_pages(
@@ -731,6 +763,109 @@ class PDFReadAgentRuntime:
         if not normalized:
             return ""
         return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "-", normalized.lower()).strip("-")
+
+    def _extract_section_ordinal(self, text: str) -> int | None:
+        normalized = str(text or "").strip()
+        digit_match = re.search(r"第\s*(\d+)\s*(?:部分|章|节)", normalized, flags=re.IGNORECASE)
+        if digit_match:
+            return int(digit_match.group(1))
+        chinese_match = re.search(r"第\s*([零一二三四五六七八九十百千两]+)\s*(?:部分|章|节)", normalized)
+        if chinese_match:
+            return self._parse_chinese_number(chinese_match.group(1))
+        return None
+
+    def _implicit_section_anchors(self, prepared: PDFPreparedDocument) -> list[dict[str, int | str]]:
+        anchors: list[dict[str, int | str]] = []
+        for page in prepared.pages:
+            if not self._page_eligible_for_section_summary(page):
+                continue
+            label = self._implicit_section_label(page.body_text or page.text)
+            if not label:
+                continue
+            if anchors and int(page.page_number) - int(anchors[-1]["page_number"]) < 3:
+                continue
+            normalized_label = self._normalize_section_label(label)
+            if any(self._normalize_section_label(str(item["label"])) == normalized_label for item in anchors):
+                continue
+            anchors.append({"label": label, "page_number": int(page.page_number)})
+        return anchors
+
+    def _pages_for_anchor_window(
+        self,
+        prepared: PDFPreparedDocument,
+        anchors: list[dict[str, int | str]],
+        anchor_index: int,
+    ) -> list[PDFPreparedPage]:
+        start_page = int(anchors[anchor_index]["page_number"])
+        end_page = (
+            int(anchors[anchor_index + 1]["page_number"])
+            if anchor_index + 1 < len(anchors)
+            else prepared.total_pages + 1
+        )
+        pages = [
+            page
+            for page in prepared.pages
+            if start_page <= int(page.page_number) < end_page and self._page_eligible_for_section_summary(page)
+        ]
+        return pages
+
+    def _implicit_section_label(self, text: str) -> str:
+        first_sentence = self._first_sentence(text)
+        if not first_sentence:
+            return ""
+        if self._looks_like_section_continuation(first_sentence):
+            return ""
+        if "三大领域" in first_sentence and "分别梳理" in first_sentence:
+            return ""
+        if self._looks_like_section_outline(first_sentence):
+            return ""
+        explicit_topic = self._implicit_topic_from_section_opening(first_sentence)
+        if explicit_topic:
+            return explicit_topic
+        return ""
+
+    def _implicit_topic_from_section_opening(self, text: str) -> str:
+        normalized = self._collapse(text)
+        if not normalized:
+            return ""
+        if re.search(r"数据(?:既是|作为).{0,30}(?:基础原料|关键.*支点|生产要素)", normalized):
+            return "数据"
+        if re.search(r"模型作为.{0,20}(?:关键底座|底座)", normalized):
+            return "模型"
+        if re.search(r"AI应用治理.{0,24}(?:难点在于|强情境性|场景治理)", normalized):
+            return "AI应用治理"
+        if re.search(r"与模型、数据等要素治理相比.{0,24}AI应用治理", normalized):
+            return "AI应用治理"
+        if re.search(r"(?:Agent|智能体).{0,24}(?:系统层面风险|治理|应用场景)", normalized, flags=re.IGNORECASE):
+            return "Agent"
+        if re.search(r"具身智能.{0,24}(?:现实世界|物理安全|治理)", normalized):
+            return "具身智能"
+        return ""
+
+    def _first_sentence(self, text: str) -> str:
+        normalized = self._collapse(text)
+        if not normalized:
+            return ""
+        parts = re.split(r"(?<=[。！？!?；;])\s+", normalized, maxsplit=1)
+        return str(parts[0] or "").strip()
+
+    def _looks_like_section_continuation(self, text: str) -> bool:
+        normalized = self._collapse(text)
+        if not normalized:
+            return False
+        return bool(
+            re.match(
+                r"^(?:围绕|进一步|继续|此外|同时|另外|另一方面|在此基础上|相较而言|相比之下|对于|针对)",
+                normalized,
+            )
+        )
+
+    def _looks_like_section_outline(self, text: str) -> bool:
+        normalized = self._collapse(text)
+        if not normalized:
+            return False
+        numbered_items = re.findall(r"(?:^|\s)\d+[.、].{4,80}?\s\d{1,3}(?:\s|$)", normalized)
+        return len(numbered_items) >= 2
 
     def _looks_sparse(self, text: str) -> bool:
         normalized = self._collapse(text)

@@ -8,8 +8,9 @@ from tasks.contract_registry import TaskContractRegistry
 from tasks.coordination_graph_models import TaskGraphRuntimeSpec
 from tasks.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol
 from tasks.workflow_models import TaskWorkflowBinding
+from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY
 
-from .a2a_stage_payload import DEFAULT_A2A_MESSAGE_TYPE
+from .node_execution_a2a_payload import DEFAULT_A2A_MESSAGE_TYPE
 from .contract_compiler_models import (
     CompiledAcceptanceContract,
     CompiledEdgeHandoffContract,
@@ -98,7 +99,6 @@ def compile_workflow_contract_manifest(
     runtime_contracts = _compile_runtime_contracts(
         agent_profiles=tuple(item for item in (agent_profile,) if item is not None),
         runtime_lane=runtime_lane,
-        output_contract_id=output_contract_id,
         issues=issues,
     )
 
@@ -276,7 +276,6 @@ def compile_coordination_contract_manifest(
             _validate_agent_profile(
                 profile=profile,
                 runtime_lane=node.runtime_lane,
-                output_contract_id=output_contract_id,
                 issues=issues,
                 node_id=node.node_id,
             )
@@ -343,7 +342,6 @@ def compile_coordination_contract_manifest(
     runtime_contracts = _compile_runtime_contracts(
         agent_profiles=agent_profiles,
         runtime_lane="",
-        output_contract_id="",
         issues=issues,
     )
 
@@ -451,7 +449,6 @@ def _compile_runtime_contracts(
     *,
     agent_profiles: tuple[AgentRuntimeProfile, ...],
     runtime_lane: str,
-    output_contract_id: str,
     issues: list[ContractCompileIssue],
 ) -> list[CompiledRuntimeContract]:
     compiled: list[CompiledRuntimeContract] = []
@@ -459,7 +456,6 @@ def _compile_runtime_contracts(
         _validate_agent_profile(
             profile=profile,
             runtime_lane=runtime_lane,
-            output_contract_id=output_contract_id,
             issues=issues,
         )
         profile_issue_count = sum(1 for item in issues if item.agent_id == profile.agent_id and item.severity == "error")
@@ -471,9 +467,7 @@ def _compile_runtime_contracts(
                 allowed_operations=profile.allowed_operations,
                 allowed_memory_scopes=profile.allowed_memory_scopes,
                 validation_state="invalid" if profile_issue_count else "valid",
-                metadata={
-                    "output_contracts": list(profile.output_contracts),
-                },
+                metadata={},
             )
         )
     return compiled
@@ -483,27 +477,36 @@ def _validate_agent_profile(
     *,
     profile: AgentRuntimeProfile,
     runtime_lane: str,
-    output_contract_id: str,
     issues: list[ContractCompileIssue],
     node_id: str = "",
 ) -> None:
+    lane_descriptor = DEFAULT_RUNTIME_LANE_REGISTRY.get(runtime_lane) if runtime_lane else None
+    if runtime_lane and lane_descriptor is None:
+        issues.append(
+            ContractCompileIssue(
+                code="runtime_lane_unknown",
+                message=f"运行场景权限未注册：{runtime_lane}",
+                severity="error",
+                agent_id=profile.agent_id,
+                node_id=node_id,
+            )
+        )
+    elif runtime_lane and lane_descriptor is not None and not lane_descriptor.requestable:
+        issues.append(
+            ContractCompileIssue(
+                code="runtime_lane_not_requestable",
+                message=f"运行场景权限不可由任务显式请求：{runtime_lane}",
+                severity="error",
+                agent_id=profile.agent_id,
+                node_id=node_id,
+            )
+        )
     if runtime_lane and profile.allowed_runtime_lanes and runtime_lane not in profile.allowed_runtime_lanes:
         issues.append(
             ContractCompileIssue(
                 code="runtime_lane_not_allowed",
                 message=f"Agent runtime profile 不允许 runtime lane：{runtime_lane}",
                 severity="error",
-                agent_id=profile.agent_id,
-                node_id=node_id,
-            )
-        )
-    if output_contract_id and profile.output_contracts and output_contract_id not in profile.output_contracts:
-        issues.append(
-            ContractCompileIssue(
-                code="runtime_output_contract_not_allowed",
-                message=f"Agent runtime profile 不允许输出契约：{output_contract_id}",
-                severity="error",
-                contract_id=output_contract_id,
                 agent_id=profile.agent_id,
                 node_id=node_id,
             )

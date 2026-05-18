@@ -28,7 +28,7 @@ export type TaskGraphCognitionPacket = {
 
 export type TaskGraphCognitionOutput = {
   outputId: string;
-  kind: "artifact" | "handoff" | "memory_write_candidate" | "memory_commit" | "receipt";
+  kind: "artifact" | "handoff" | "memory_write_candidate" | "memory_commit" | "timeline_result";
   targetId: string;
   title: string;
   contractId: string;
@@ -86,6 +86,7 @@ function isRepositoryNode(node: Record<string, unknown>) {
   const nodeId = stringValue(node.node_id).toLowerCase();
   return (
     nodeType.includes("repository")
+    || nodeType === "thread_ledger"
     || nodeType === "progress_ledger"
     || nodeType === "issue_ledger"
     || nodeType === "working_memory_store"
@@ -142,7 +143,7 @@ function revisionPacket(edge: Record<string, unknown>, index: number): TaskGraph
   if (!stringValue(metadata.original_artifact_key ?? metadata.original_artifact_ref_key ?? metadata.candidate_ref_key)) {
     issues.push("返修输入包缺少原始产物引用键");
   }
-  if (!stringValue(metadata.review_result_key ?? metadata.review_receipt_key ?? metadata.verdict_key)) {
+  if (!stringValue(metadata.review_result_key ?? metadata.verdict_key)) {
     issues.push("返修输入包缺少审核结果键");
   }
   return {
@@ -236,7 +237,7 @@ function nodeOutputs(
       targetId: `${edge.repositoryId}.${edge.collectionId}`,
       title: "记忆提交",
       contractId: "",
-      visibility: stringValue(edge.receiptPolicy.visible_after, "next_clock"),
+      visibility: stringValue(edge.commitVisibilityPolicy.visible_after, "next_clock"),
     });
   }
   for (const edge of outgoingEdges) {
@@ -308,11 +309,11 @@ export function buildTaskGraphCognitionModel({
       const dispatchPacket: TaskGraphCognitionPacket = {
         packetId: `dispatch:${nodeId}`,
         kind: "dispatch_context",
-        sourceId: "TimelineLedger",
+        sourceId: "TopologyTemporalControl",
         edgeId: "",
         title: "Dispatch Context",
         modelVisibleLabel: "运行时位置",
-        usageInstruction: "你需要按当前 clock、scope、phase 和 iteration 处理本次执行，不要把其他时序实例的内容混入本轮输出。",
+        usageInstruction: "你需要按当前拓扑位置、phase、step 和 iteration 处理本次执行，不要把其他运行窗口的内容混入本轮输出。",
         contractId: "",
         required: true,
         issues: [],
@@ -343,7 +344,7 @@ export function buildTaskGraphCognitionModel({
         basePackage.agentId && !basePackage.projectionId ? "节点已绑定 Agent，但缺少 Projection 引用" : "",
         !basePackage.roleIdentity ? "节点缺少角色身份说明" : "",
         ...basePackage.inputPackets.flatMap((packet) => packet.issues),
-        basePackage.outputs.length === 0 ? "节点没有明确输出、交接或回执配置" : "",
+        basePackage.outputs.length === 0 ? "节点没有明确输出、交接或提交确认配置" : "",
       ].filter(Boolean);
       const packageWithIssues = { ...basePackage, issues };
       return {

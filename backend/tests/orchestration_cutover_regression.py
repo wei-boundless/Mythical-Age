@@ -26,11 +26,17 @@ class _MemoryFacadeStub:
     def build_memory_runtime_view(self, *_args, **_kwargs):
         return {"view_id": "memview:test", "state_snapshot": {}}
 
-    def refresh_session_memory(self, *_args, **_kwargs):
-        return ""
-
-    def commit_durable_memory_extraction(self, *_args, **_kwargs):
-        return 0
+    def enqueue_memory_maintenance_after_commit(self, *_args, **_kwargs):
+        return SimpleNamespace(
+            to_dict=lambda: {
+                "attempted": False,
+                "queued": True,
+                "status": "queued",
+                "session_memory_succeeded": False,
+                "durable_memory_succeeded": False,
+                "durable_write_count": 0,
+            }
+        )
 
 
 class _ToolRuntimeStub:
@@ -181,7 +187,6 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
         task_id="task.dev.light_web_game",
         adoption_mode="adopt_with_projection",
         default_agent_id="agent:0",
-        allowed_agent_categories=("main_agent", "worker_sub_agent"),
         allow_worker_agent_spawn=True,
         worker_agent_blueprint_id="worker.dev.prototype",
         worker_agent_naming_rule="game-worker-{n}",
@@ -273,13 +278,17 @@ def test_runtime_formalizes_worker_spawn_and_coordination_runtime_objects() -> N
     spawned_profile = AgentRuntimeRegistry(base_dir).get_profile(spawned_agent_id)
     assert spawned_agent is not None
     assert spawned_profile is not None
-    assert "light_web_game" in spawned_profile.allowed_task_modes
+    assert spawned_profile.runtime_template_id == "worker.dev.prototype"
+    assert "game_delivery" in spawned_profile.allowed_runtime_lanes
+    assert "op.write_file" in spawned_profile.allowed_operations
+    assert "op.edit_file" in spawned_profile.allowed_operations
+    assert "op.shell" in spawned_profile.blocked_operations
     assert len(trace["agent_runs"]) >= 2
     assert trace["coordination_runs"]
-    assert trace["coordination_runs"][0]["diagnostics"]["coordination_engine"] == "langgraph"
+    assert trace["coordination_runs"][0]["diagnostics"]["coordination_engine"] == "langgraph_runtime"
     assert trace["coordination_runs"][0]["diagnostics"]["coordination_graph_spec"]["valid"] is True
     assert trace["coordination_runs"][0]["node_runs"]
-    assert all(node["diagnostics"]["coordination_engine"] == "langgraph" for node in trace["coordination_runs"][0]["node_runs"])
+    assert all(node["diagnostics"]["coordination_engine"] == "langgraph_runtime" for node in trace["coordination_runs"][0]["node_runs"])
     assert trace["coordination_runs"][0]["handoff_envelopes"]
     assert all(
         handoff["diagnostics"]["coordination_engine"] == "langgraph"
@@ -346,7 +355,7 @@ def test_agent_registry_upsert_preserves_agent_metadata_without_task_scope() -> 
     created = registry.upsert_agent(
         agent_id="agent:rag_analyst",
         agent_name="测试工作Agent",
-        agent_category="worker_sub_agent",
+        agent_category="builtin_agent",
         metadata={"created_by": "regression"},
     )
 

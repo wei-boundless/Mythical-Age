@@ -11,6 +11,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from capability_system.paths import CapabilitySystemPaths
+from capability_system.skill_contracts import SkillPromptContract
 from capability_system.skill_registry import SkillRegistry
 
 
@@ -74,6 +75,18 @@ def main() -> None:
     assert all("runtime" in item and "prompt" in item for item in registry["skills"])
     assert all(item["validation_errors"] == [] for item in registry["skills"])
 
+    prompt = SkillPromptContract(
+        name="rag-skill",
+        title="知识库问答",
+        capability="面向本地知识库",
+        use_when="Use for local knowledge-base lookup.",
+        delegation_protocol="delegate evidence_lookup with scope.",
+        return_protocol="return summary and evidence refs.",
+    )
+    rendered = prompt.render_block()
+    assert "Delegation Protocol:" in rendered
+    assert "Return Protocol:" in rendered
+
     skill_registry = SkillRegistry(ROOT)
     assert skill_registry.get_by_name("skill-creator") is not None
 
@@ -81,6 +94,8 @@ def main() -> None:
     assert "Skill registry snapshot for admin display" in snapshot_text
     assert "Available local capabilities" not in snapshot_text
     assert "<use_when>" in snapshot_text
+    assert "<delegation_protocol>" in snapshot_text
+    assert "<return_protocol>" in snapshot_text
     assert "<output_rule>" in snapshot_text
     assert "<allowed_tools>" not in snapshot_text
     assert "<preferred_route>" not in snapshot_text

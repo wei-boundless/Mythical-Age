@@ -63,7 +63,7 @@ def test_formal_memory_candidate_commit_and_directed_read(tmp_path) -> None:
             "collection": "world",
             "record_key": "world_bible.current",
             "record_kind": "world_bible",
-            "receipt_policy": {"visible_after": "next_clock"},
+            "commit_visibility_policy": {"visible_after": "next_clock"},
         },
         candidate_version_id=version.version_id,
         node_run_id="taskrun:writing:world_review",

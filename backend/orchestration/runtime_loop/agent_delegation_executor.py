@@ -212,17 +212,8 @@ class AgentDelegationExecutor:
                 for item in tuple(getattr(parent_profile, "allowed_delegate_agent_ids", ()) or ())
                 if str(item).strip()
             }
-            allowed_categories = {
-                str(item).strip()
-                for item in tuple(getattr(parent_profile, "allowed_delegate_agent_categories", ()) or ("worker_sub_agent",))
-                if str(item).strip()
-            }
             if allowed_target_ids and request.target_agent_id not in allowed_target_ids:
                 reasons.append("target_agent_not_allowed_by_parent")
-            target_agent = self.agent_registry.get_agent(request.target_agent_id)
-            target_category = str(getattr(target_agent, "agent_category", "") or "")
-            if allowed_categories and target_category and target_category not in allowed_categories:
-                reasons.append("target_agent_category_not_allowed_by_parent")
             if parent_agent_run.spawn_mode == "delegation":
                 reasons.append("nested_delegation_denied")
             max_calls = max(0, int(getattr(parent_profile, "max_delegate_calls_per_turn", 1) or 0))
@@ -251,8 +242,8 @@ class AgentDelegationExecutor:
             reasons.append("target_agent_unavailable")
         elif not agent.enabled:
             reasons.append("target_agent_disabled")
-        elif agent.agent_category != "worker_sub_agent":
-            reasons.append("target_agent_not_worker_sub_agent")
+        elif not agent.delegation_enabled:
+            reasons.append("target_agent_delegation_disabled")
         if profile is None:
             reasons.append("target_runtime_profile_missing")
         else:
@@ -312,7 +303,7 @@ class AgentDelegationExecutor:
         candidates = [
             agent
             for agent in self.agent_registry.list_agents()
-            if agent.agent_category == "worker_sub_agent"
+            if agent.delegation_enabled
             and agent.enabled
             and (not allowed_ids or agent.agent_id in allowed_ids)
         ]

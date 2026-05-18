@@ -35,6 +35,8 @@ class SkillPromptContract:
     title: str
     capability: str
     use_when: str = ""
+    delegation_protocol: str = ""
+    return_protocol: str = ""
     output_rule: str = DEFAULT_SKILL_OUTPUT_RULE
 
     def render_block(self) -> str:
@@ -44,6 +46,10 @@ class SkillPromptContract:
         ]
         if self.use_when:
             lines.append(f"Use When: {self.use_when}")
+        if self.delegation_protocol:
+            lines.append(f"Delegation Protocol: {self.delegation_protocol}")
+        if self.return_protocol:
+            lines.append(f"Return Protocol: {self.return_protocol}")
         lines.append(f"Output Rule: {self.output_rule}")
         return "\n".join(lines)
 
@@ -123,13 +129,23 @@ class SkillContract:
     validation_errors: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_runtime(cls, runtime: SkillRuntimeContract, *, body: str = "", use_when: str = "") -> "SkillContract":
+    def from_runtime(
+        cls,
+        runtime: SkillRuntimeContract,
+        *,
+        body: str = "",
+        use_when: str = "",
+        delegation_protocol: str = "",
+        return_protocol: str = "",
+    ) -> "SkillContract":
         normalized = runtime.normalized()
         prompt = SkillPromptContract(
             name=normalized.name,
             title=normalized.title,
             capability=normalized.description,
             use_when=use_when,
+            delegation_protocol=delegation_protocol,
+            return_protocol=return_protocol,
         )
         return cls(
             runtime=normalized,
@@ -169,6 +185,8 @@ class SkillContract:
                     runtime.description,
                 ) or runtime.description,
                 use_when=normalize_string(prompt_payload.get("use_when")),
+                delegation_protocol=normalize_string(prompt_payload.get("delegation_protocol")),
+                return_protocol=normalize_string(prompt_payload.get("return_protocol")),
                 output_rule=normalize_string(prompt_payload.get("output_rule"), DEFAULT_SKILL_OUTPUT_RULE) or DEFAULT_SKILL_OUTPUT_RULE,
             )
         else:

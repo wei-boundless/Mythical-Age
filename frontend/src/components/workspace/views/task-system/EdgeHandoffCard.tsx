@@ -1,7 +1,7 @@
 "use client";
 
 import { TaskSystemField, TaskSystemSelectField, taskSystemOptionLabel } from "./TaskSystemWorkbenchUi";
-import { WORKING_MEMORY_KIND_OPTIONS, WORKING_MEMORY_SCOPE_OPTIONS } from "./WorkingMemoryPolicyEditor";
+import { TASK_GRAPH_HANDOFF_KIND_OPTIONS, TASK_GRAPH_HANDOFF_SCOPE_OPTIONS } from "./taskGraphHandoffOptions";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -97,14 +97,14 @@ export function EdgeHandoffCard({
         <TaskSystemField label="携带记忆 Kind">
           <textarea
             onChange={(event) => updateHandoffPolicy({ carry_kinds: splitList(event.target.value) })}
-            placeholder={WORKING_MEMORY_KIND_OPTIONS.slice(0, 3).join("\n")}
+            placeholder={TASK_GRAPH_HANDOFF_KIND_OPTIONS.slice(0, 3).join("\n")}
             value={listText(handoffPolicy.carry_kinds)}
           />
         </TaskSystemField>
         <TaskSystemField label="携带记忆 Scope">
           <textarea
             onChange={(event) => updateHandoffPolicy({ carry_scopes: splitList(event.target.value) })}
-            placeholder={WORKING_MEMORY_SCOPE_OPTIONS.slice(0, 3).join("\n")}
+            placeholder={TASK_GRAPH_HANDOFF_SCOPE_OPTIONS.slice(0, 3).join("\n")}
             value={listText(handoffPolicy.carry_scopes)}
           />
         </TaskSystemField>

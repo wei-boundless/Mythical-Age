@@ -170,4 +170,36 @@ describe("buildTaskGraphMonitorViewModel", () => {
     expect(model.failureDetail).toContain("401 Unauthorized");
     expect(model.failureProvider).toBe("deepseek");
   });
+
+  it("surfaces temporal execution boundary fields", () => {
+    const monitor = monitorView();
+    monitor.temporal = {
+      active_node_id: "outline",
+      active_activation_id: "activation:outline:001",
+      active_execution_permit_id: "permit:outline:001",
+      active_request_id: "request:outline:001",
+      boundary_valid: true,
+      authority: "task_graph.temporal_monitor_view",
+      violations: [
+        {
+          severity: "error",
+          code: "node_running_without_execution_permit",
+          message: "节点运行没有执行许可。",
+          target_id: "writer",
+        },
+      ],
+    };
+
+    const model = buildTaskGraphMonitorViewModel(monitor);
+
+    expect(model.temporalActiveNodeId).toBe("outline");
+    expect(model.temporalActiveActivationId).toBe("activation:outline:001");
+    expect(model.temporalActiveExecutionPermitId).toBe("permit:outline:001");
+    expect(model.temporalActiveRequestId).toBe("request:outline:001");
+    expect(model.temporalBoundaryValid).toBe(true);
+    expect(model.temporalViolations[0]).toMatchObject({
+      code: "node_running_without_execution_permit",
+      targetId: "writer",
+    });
+  });
 });

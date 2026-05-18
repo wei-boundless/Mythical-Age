@@ -178,7 +178,7 @@ class QueryRuntime:
                     task_selection={"turn_id": turn_id, **dict(request.task_selection or {})},
                     assistant_message_committer=lambda payload: self._apply_assistant_message_commit_async(
                         request.session_id,
-                        payload,
+                        {**dict(payload or {}), "turn_id": turn_id},
                     ),
                     tool_runtime_executor=self.tool_runtime_executor,
                     tool_instances=self._all_tool_instances(),
@@ -221,39 +221,14 @@ class QueryRuntime:
         ):
             yield event
 
-    def refresh_session_memory(self, session_id: str) -> str:
+    def run_memory_maintenance(self, session_id: str, *, durable: bool = True) -> dict[str, Any]:
         history = self.session_manager.load_session(session_id)
-        return self.memory_facade.refresh_session_memory(session_id, history)
-
-    def inspect_session_memory_refresh(self, session_id: str):
-        builder = getattr(self.memory_facade, "build_memory_compaction_result", None)
-        if callable(builder):
-            result = builder(session_id=session_id)
-            return result.to_dict() if hasattr(result, "to_dict") else dict(result or {})
-        return {"status": "blocked", "reason": "session_memory_refresh_inspection_unavailable"}
-
-    def commit_durable_memory_extraction(self, session_id: str) -> int:
-        history = self.session_manager.load_session(session_id)
-        return self.memory_facade.commit_durable_memory_extraction(session_id, history)
-
-    def schedule_durable_memory_extraction(self, session_id: str) -> int:
-        history = self.session_manager.load_session(session_id)
-        return self.memory_facade.submit_durable_memory_extraction(session_id, history)
-
-    def inspect_durable_memory_extraction(self, session_id: str):
-        history = self.session_manager.load_session_for_agent(session_id, include_compressed_context=False)
-        builder = getattr(self.memory_facade, "build_durable_memory_write_candidates", None)
-        if callable(builder):
-            candidates = builder(session_id, history)
-            return {
-                "status": "candidate_only",
-                "commit_allowed": False,
-                "candidates": [
-                    candidate.to_dict() if hasattr(candidate, "to_dict") else dict(candidate)
-                    for candidate in candidates
-                ],
-            }
-        return {"status": "blocked", "reason": "durable_memory_extraction_inspection_unavailable"}
+        receipt = self.memory_facade.run_memory_maintenance_after_commit(
+            session_id=session_id,
+            messages=history,
+            durable_lane_enabled=durable,
+        )
+        return receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt or {})
 
     async def generate_title(self, first_user_message: str) -> str:
         return await self.model_runtime.generate_title(first_user_message)
@@ -312,31 +287,17 @@ class QueryRuntime:
             for item in list(payload.get("bundle_summary_refs") or [])
             if isinstance(item, dict)
         ]
-        session_memory_chars = 0
-        durable_saved_count = 0
-        try:
-            if main_context or task_summary_refs or bundle_summary_refs:
-                session_memory_chars = len(
-                    self.memory_facade.refresh_session_memory_from_context_state(
-                        session_id,
-                        main_context,
-                        task_summaries=task_summary_refs,
-                        bundle_summaries=bundle_summary_refs,
-                    )
-                    or ""
-                )
-            else:
-                session_memory_chars = len(self.memory_facade.refresh_session_memory(session_id, history) or "")
-        except Exception:
-            logger.warning("session memory refresh failed after assistant commit", exc_info=True)
-        try:
-            durable_saved_count = int(self.memory_facade.commit_durable_memory_extraction(session_id, history) or 0)
-        except Exception:
-            logger.warning("durable memory extraction failed after assistant commit", exc_info=True)
+        receipt = self.memory_facade.enqueue_memory_maintenance_after_commit(
+            session_id=session_id,
+            messages=history,
+            turn_id=str(payload.get("turn_id") or ""),
+            main_context=main_context,
+            task_summary_refs=task_summary_refs,
+            bundle_summary_refs=bundle_summary_refs,
+        )
         return {
             "appended_messages": appended,
-            "session_memory_chars": session_memory_chars,
-            "durable_saved_count": durable_saved_count,
+            **self._memory_receipt_commit_payload(receipt),
             "file_work_context_writeback": bool(main_context or task_summary_refs or bundle_summary_refs),
         }
 
@@ -368,36 +329,44 @@ class QueryRuntime:
             for item in list(payload.get("bundle_summary_refs") or [])
             if isinstance(item, dict)
         ]
-        session_memory_chars = 0
-        durable_saved_count = 0
-        try:
-            if main_context or task_summary_refs or bundle_summary_refs:
-                session_memory_chars = len(
-                    self.memory_facade.refresh_session_memory_from_context_state(
-                        session_id,
-                        main_context,
-                        task_summaries=task_summary_refs,
-                        bundle_summaries=bundle_summary_refs,
-                    )
-                    or ""
-                )
-            else:
-                session_memory_chars = len(self.memory_facade.refresh_session_memory(session_id, history) or "")
-        except Exception:
-            logger.warning("session memory refresh failed after assistant commit", exc_info=True)
-        try:
-            async_committer = getattr(self.memory_facade, "acommit_durable_memory_extraction", None)
-            if callable(async_committer):
-                durable_saved_count = int(await async_committer(session_id, history) or 0)
-            else:
-                durable_saved_count = int(self.memory_facade.commit_durable_memory_extraction(session_id, history) or 0)
-        except Exception:
-            logger.warning("durable memory extraction failed after assistant commit", exc_info=True)
+        receipt = self.memory_facade.enqueue_memory_maintenance_after_commit(
+            session_id=session_id,
+            messages=history,
+            turn_id=str(payload.get("turn_id") or ""),
+            main_context=main_context,
+            task_summary_refs=task_summary_refs,
+            bundle_summary_refs=bundle_summary_refs,
+        )
         return {
             "appended_messages": appended,
-            "session_memory_chars": session_memory_chars,
-            "durable_saved_count": durable_saved_count,
+            **self._memory_receipt_commit_payload(receipt),
             "file_work_context_writeback": bool(main_context or task_summary_refs or bundle_summary_refs),
+        }
+
+    def _memory_receipt_commit_payload(self, receipt: Any) -> dict[str, Any]:
+        payload = receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt or {})
+        session_succeeded = bool(payload.get("session_memory_succeeded") is True)
+        durable_succeeded = bool(payload.get("durable_memory_succeeded") is True)
+        durable_write_count = int(payload.get("durable_write_count") or 0)
+        attempted = bool(payload.get("attempted") is True)
+        failed = str(payload.get("status") or "") == "failed"
+        session_memory_chars = 0
+        try:
+            session_memory_chars = len(self.memory_facade.session_memory.manager(str(payload.get("session_id") or "")).load() or "") if session_succeeded else 0
+        except Exception:
+            session_memory_chars = 0
+        return {
+            "memory_maintenance_attempted": attempted,
+            "memory_maintenance_status": str(payload.get("status") or ""),
+            "memory_maintenance_receipt": payload,
+            "memory_maintenance_error": str(payload.get("error") or ""),
+            "session_memory_succeeded": session_succeeded,
+            "durable_memory_succeeded": durable_succeeded,
+            "durable_write_count": durable_write_count,
+            "session_memory_chars": session_memory_chars,
+            "durable_saved_count": durable_write_count,
+            "durable_memory_commit_attempted": attempted,
+            "durable_memory_commit_failed": failed,
         }
 
     def _all_tool_instances(self) -> list[Any]:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
@@ -17,8 +17,11 @@ from tasks import (
     TaskContractRegistry,
     TaskFlowRegistry,
     TaskWorkflowRegistry,
+    apply_task_graph_standard_view_update,
+    build_task_graph_standard_view,
     compile_task_graph_definition_runtime_spec,
 )
+from tasks.task_graph_models import validate_task_graph
 
 router = APIRouter()
 
@@ -227,22 +230,10 @@ class TaskExecutionPolicyUpsertRequest(BaseModel):
     default_agent_id: str = Field(default="agent:0", max_length=160)
     task_level: str = Field(default="standard", max_length=80)
     task_privilege: str = Field(default="bounded", max_length=80)
-    allowed_agent_categories: list[str] = Field(default_factory=list)
     allow_worker_agent_spawn: bool = False
     worker_agent_blueprint_id: str = Field(default="", max_length=160)
     worker_agent_naming_rule: str = Field(default="", max_length=160)
     notes: str = Field(default="", max_length=1000)
-    metadata: dict[str, object] = Field(default_factory=dict)
-
-
-class TaskMemoryRequestProfileUpsertRequest(BaseModel):
-    task_id: str = Field(..., min_length=3, max_length=160)
-    requested_memory_layers: list[str] = Field(default_factory=list)
-    requested_topics: list[str] = Field(default_factory=list)
-    memory_priority: str = Field(default="normal", max_length=80)
-    writeback_policy: str = Field(default="task_default", max_length=120)
-    allow_long_term_memory: bool = False
-    memory_scope_hint: str = Field(default="", max_length=160)
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
@@ -281,6 +272,16 @@ class TaskGraphUpsertRequest(BaseModel):
     context_policy: dict[str, object] = Field(default_factory=dict)
     publish_state: str = Field(default="draft", max_length=80)
     enabled: bool = False
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class TaskGraphStandardViewUpsertRequest(BaseModel):
+    graph: dict[str, object] = Field(default_factory=dict)
+    nodes: list[dict[str, object]] = Field(default_factory=list)
+    edges: list[dict[str, object]] = Field(default_factory=list)
+    resources: list[dict[str, object]] = Field(default_factory=list)
+    timeline: dict[str, object] = Field(default_factory=dict)
+    runtime_isolation: dict[str, object] = Field(default_factory=dict)
     metadata: dict[str, object] = Field(default_factory=dict)
 
 
@@ -369,6 +370,40 @@ def _display_number(internal_id: str, *, prefix: str, fallback: str) -> str:
     return "未生成"
 
 
+def _task_graph_overview_item(graph) -> dict[str, object]:
+    issues = [item.to_dict() for item in validate_task_graph(graph)]
+    error_count = sum(1 for item in issues if str(item.get("severity") or "") == "error")
+    warning_count = sum(1 for item in issues if str(item.get("severity") or "") == "warning")
+    return {
+        "graph_id": graph.graph_id,
+        "title": graph.title,
+        "domain_id": graph.domain_id,
+        "task_family": graph.task_family,
+        "graph_kind": graph.graph_kind,
+        "entry_node_id": graph.entry_node_id,
+        "output_node_id": graph.output_node_id,
+        "nodes": [],
+        "edges": [],
+        "node_count": len(graph.nodes),
+        "edge_count": len(graph.edges),
+        "graph_contract_id": graph.graph_contract_id,
+        "default_protocol_id": graph.default_protocol_id,
+        "working_memory_policy_profile_id": graph.working_memory_policy_profile_id,
+        "working_memory_policy": graph.working_memory_policy,
+        "runtime_policy": graph.runtime_policy,
+        "context_policy": graph.context_policy,
+        "publish_state": graph.publish_state,
+        "enabled": graph.enabled,
+        "metadata": graph.metadata,
+        "issues": issues[:8],
+        "issue_count": len(issues),
+        "error_count": error_count,
+        "warning_count": warning_count,
+        "valid": error_count == 0,
+        "overview_mode": "summary",
+    }
+
+
 def _task_system_payload(base_dir) -> dict[str, object]:
     registry = TaskFlowRegistry(base_dir)
     workflow_registry = TaskWorkflowRegistry(base_dir)
@@ -385,8 +420,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
     explicit_flow_contract_binding_models = registry.list_explicit_flow_contract_bindings()
     execution_policy_models = registry.list_task_agent_adoption_plans()
     explicit_execution_policy_models = registry.list_explicit_task_agent_adoption_plans()
-    memory_request_profile_models = registry.list_task_memory_request_profiles()
-    explicit_memory_request_profile_models = registry.list_explicit_task_memory_request_profiles()
     projection_bindings = [model.to_dict() for model in projection_binding_models]
     flow_contract_bindings = [model.to_dict() for model in flow_contract_binding_models]
     explicit_execution_task_ids = {item.task_id for item in explicit_execution_policy_models}
@@ -397,10 +430,9 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             str(item.get("task_id") or ""),
         )
     )
-    memory_request_profiles = [model.to_dict() for model in memory_request_profile_models]
     task_domains = [item.to_dict() for item in registry.list_task_domains()]
     workflow_resources = [item.to_dict() for item in workflow_registry.list_workflows()]
-    task_graphs = [item.to_dict() for item in registry.list_task_graphs()]
+    task_graphs = [_task_graph_overview_item(item) for item in registry.list_task_graphs()]
     visible_task_ids = {str(item.get("task_id") or "") for item in specific_task_records}
     specific_task_records_by_id = {
         item.task_id: item
@@ -413,18 +445,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
         str(item.get("protocol_id") or ""): item
         for item in communication_protocols
     }
-    task_graph_specs = [
-        compile_task_graph_definition_runtime_spec(
-            graph=graph,
-            specific_tasks=tuple(specific_task_records_by_id.values()),
-            communication_protocol=registry.get_task_communication_protocol(
-                str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "")
-            )
-            if str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "") in communication_protocol_by_id
-            else None,
-        ).to_dict()
-        for graph in registry.list_task_graphs()
-    ]
     contract_catalog = [item.to_dict() for item in registry.list_contract_descriptors()]
     contract_management = contract_registry.build_catalog()
     runtime_recipe_validation_matrix = {
@@ -434,10 +454,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
         "template_protocol_removed": True,
         "replacement": "TaskGraph + runtime.recipe",
     }
-    link_permission_matrix = registry.build_link_permission_matrix()
-    agent_task_connections = registry.build_agent_task_connection_overview()
-    agent_carrying_profiles = registry.build_agent_carrying_overview()
-    connection_diagnostics = registry.build_connection_diagnostics()
     return {
         "authority": "task_system.management_console",
         "summary": {
@@ -466,13 +482,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
                 key_attr="plan_id",
             ),
             "effective_execution_policy_count": len(execution_policy_models),
-            "memory_request_profile_count": len(explicit_memory_request_profile_models),
-            "derived_memory_request_profile_count": _derived_count(
-                memory_request_profile_models,
-                explicit_memory_request_profile_models,
-                key_attr="profile_id",
-            ),
-            "effective_memory_request_profile_count": len(memory_request_profile_models),
             "task_domain_count": len(task_domains),
             "task_graph_count": len(task_graphs),
             "topology_template_count": len(topology_templates),
@@ -480,8 +489,8 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "contract_descriptor_count": len(contract_catalog),
             "contract_spec_count": int(contract_management["summary"]["contract_spec_count"]),
             "contract_spec_validation_issue_count": int(contract_management["summary"]["validation_issue_count"]),
-            "invalid_task_connection_count": int(agent_task_connections["summary"]["invalid_profile_count"]),
-            "connection_issue_count": int(connection_diagnostics["summary"]["issue_count"]),
+            "invalid_task_connection_count": 0,
+            "connection_issue_count": 0,
         },
         "task_management": {
             "entry_policies": entry_policies,
@@ -491,7 +500,6 @@ def _task_system_payload(base_dir) -> dict[str, object]:
             "projection_bindings": projection_bindings,
             "flow_contract_bindings": flow_contract_bindings,
             "execution_policies": execution_policies,
-            "memory_request_profiles": memory_request_profiles,
             "contract_catalog": contract_catalog,
             "task_assignments": task_assignments,
             "workflow_resources": workflow_resources,
@@ -499,14 +507,14 @@ def _task_system_payload(base_dir) -> dict[str, object]:
         "contract_management": contract_management,
         "task_graph_management": {
             "task_graphs": task_graphs,
-            "task_graph_specs": task_graph_specs,
-            "topology_templates": topology_templates,
+            "task_graph_specs": [],
+            "topology_templates": [],
             "communication_protocols": communication_protocols,
             "a2a": {
                 "protocol_version": "0.3.0",
                 "transport": "JSONRPC",
                 "protocol_locked": True,
-                "agent_cards": agents,
+                "agent_cards": [],
                 "message_types": [
                     "message/send",
                     "message/stream",
@@ -525,15 +533,14 @@ def _task_system_payload(base_dir) -> dict[str, object]:
                     "auth-required",
                     "unknown",
                 ],
+                "overview_mode": "protocol_only",
             },
+            "overview_mode": "lightweight",
         },
         "diagnostics": {
             "runtime_recipe_validation_matrix": runtime_recipe_validation_matrix,
             "template_validation_matrix": runtime_recipe_validation_matrix,
-            "link_permission_matrix": link_permission_matrix,
-            "agent_task_connections": agent_task_connections,
-            "agent_carrying_profiles": agent_carrying_profiles,
-            "connection_diagnostics": connection_diagnostics,
+            "overview_mode": "lightweight",
         },
     }
 
@@ -662,6 +669,71 @@ async def compile_task_system_task_graph_runtime_spec(graph_id: str) -> dict[str
         communication_protocol=protocol,
     )
     return graph_spec.to_dict()
+
+
+@router.get("/tasks/task-graphs/{graph_id}")
+async def get_task_system_task_graph(graph_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    graph = TaskFlowRegistry(runtime.base_dir).get_task_graph(graph_id)
+    if graph is None:
+        raise HTTPException(status_code=404, detail="task graph not found")
+    return graph.to_dict()
+
+
+@router.get("/tasks/task-graphs/{graph_id}/standard-view")
+async def get_task_system_task_graph_standard_view(graph_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = _graph_or_404(registry=registry, graph_id=graph_id)
+    protocol = registry.get_task_communication_protocol(
+        str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "")
+    )
+    view = build_task_graph_standard_view(
+        graph=graph,
+        specific_tasks=tuple(registry.list_specific_task_records()),
+        communication_protocol=protocol,
+    )
+    return view.to_dict()
+
+
+@router.put("/tasks/task-graphs/{graph_id}/standard-view")
+async def upsert_task_system_task_graph_standard_view(
+    graph_id: str,
+    payload: TaskGraphStandardViewUpsertRequest,
+) -> dict[str, object]:
+    runtime = require_runtime()
+    registry = TaskFlowRegistry(runtime.base_dir)
+    current_graph = _graph_or_404(registry=registry, graph_id=graph_id)
+    try:
+        next_graph = apply_task_graph_standard_view_update(
+            graph=current_graph,
+            payload=payload.model_dump(),
+        )
+        TaskFlowRegistry(runtime.base_dir).upsert_task_graph(
+            graph_id=next_graph.graph_id,
+            title=next_graph.title,
+            domain_id=next_graph.domain_id,
+            task_family=next_graph.task_family,
+            graph_kind=next_graph.graph_kind,
+            entry_node_id=next_graph.entry_node_id,
+            output_node_id=next_graph.output_node_id,
+            nodes=tuple(dict(item) for item in next_graph.to_dict().get("nodes", [])),
+            edges=tuple(dict(item) for item in next_graph.to_dict().get("edges", [])),
+            graph_contract_id=next_graph.graph_contract_id,
+            default_protocol_id=next_graph.default_protocol_id,
+            working_memory_policy_profile_id=next_graph.working_memory_policy_profile_id,
+            working_memory_policy=next_graph.working_memory_policy,
+            runtime_policy=next_graph.runtime_policy,
+            context_policy=next_graph.context_policy,
+            publish_state=next_graph.publish_state,
+            enabled=next_graph.enabled,
+            metadata=next_graph.metadata,
+        )
+    except ValueError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await get_task_system_task_graph_standard_view(graph_id)
 
 
 @router.get("/tasks/runtime-assemblies/task-graphs/{graph_id}/nodes/{node_id}")
@@ -913,7 +985,6 @@ async def upsert_task_system_execution_policy(
                 else "adopt_existing"
             ),
             default_agent_id=payload.default_agent_id,
-            allowed_agent_categories=tuple(payload.allowed_agent_categories),
             allow_worker_agent_spawn=payload.allow_worker_agent_spawn,
             worker_agent_blueprint_id=payload.worker_agent_blueprint_id,
             worker_agent_naming_rule=payload.worker_agent_naming_rule,
@@ -925,32 +996,6 @@ async def upsert_task_system_execution_policy(
                 "task_level": payload.task_level,
                 "task_privilege": payload.task_privilege,
             },
-        )
-    except ValueError as exc:
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _task_system_payload(runtime.base_dir)
-
-
-@router.put("/tasks/memory-request-profiles/{task_id}")
-async def upsert_task_system_memory_request_profile(
-    task_id: str,
-    payload: TaskMemoryRequestProfileUpsertRequest,
-) -> dict[str, object]:
-    runtime = require_runtime()
-    if payload.task_id != task_id:
-        payload = payload.model_copy(update={"task_id": task_id})
-    try:
-        TaskFlowRegistry(runtime.base_dir).upsert_task_memory_request_profile(
-            task_id=payload.task_id,
-            requested_memory_layers=tuple(payload.requested_memory_layers),
-            requested_topics=tuple(payload.requested_topics),
-            memory_priority=payload.memory_priority,
-            writeback_policy=payload.writeback_policy,
-            allow_long_term_memory=payload.allow_long_term_memory,
-            memory_scope_hint=payload.memory_scope_hint,
-            metadata=payload.metadata,
         )
     except ValueError as exc:
         from fastapi import HTTPException

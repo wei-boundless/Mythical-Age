@@ -19,7 +19,7 @@ from orchestration.runtime_loop.contract_compiler_models import (
     CompiledNodeContract,
     ContractManifest,
 )
-from orchestration.runtime_loop.stage_execution_request import StageExecutionRequest
+from orchestration.runtime_loop.node_execution_request import NodeExecutionRequest
 from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from tasks.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 
@@ -62,7 +62,7 @@ def _manifest() -> ContractManifest:
                 node_type="subtask",
                 task_id="task.test.worker",
                 agent_id="agent:test",
-                runtime_lane="test_lane",
+                runtime_lane="readonly_exploration",
                 projection_id="projection.test.node_worker",
                 input_contract_id="contract.test.input",
                 output_contract_id="contract.test.output",
@@ -93,14 +93,14 @@ def test_single_agent_runtime_assembly_preserves_manifest_refs_and_output_contra
     profile = AgentRuntimeProfile(
         agent_profile_id="test_profile",
         agent_id="agent:test",
-        allowed_runtime_lanes=("test_lane",),
+        allowed_runtime_lanes=("readonly_exploration",),
     )
 
     assembly = build_single_agent_runtime_assembly(
         manifest=_manifest(),
         agent_profile=profile,
         explicit_inputs={"goal": "测试"},
-        runtime_lane="test_lane",
+        runtime_lane="readonly_exploration",
     )
 
     payload = assembly.to_dict()
@@ -317,7 +317,7 @@ def test_stage_execution_request_carries_runtime_assembly() -> None:
         agent_profile=AgentRuntimeProfile(agent_profile_id="test_profile", agent_id="agent:test"),
     )
 
-    request = StageExecutionRequest(
+    request = NodeExecutionRequest(
         request_id="",
         coordination_run_id="coordrun:test",
         thread_id="thread:test",
@@ -327,7 +327,7 @@ def test_stage_execution_request_carries_runtime_assembly() -> None:
         task_ref="task.test.worker",
         runtime_assembly=assembly.to_dict(),
     )
-    restored = StageExecutionRequest.from_dict(request.to_dict())
+    restored = NodeExecutionRequest.from_dict(request.to_dict())
 
     assert restored.runtime_assembly["assembly_id"] == assembly.assembly_id
     assert restored.to_dict()["runtime_assembly"]["node_id"] == "worker"
@@ -614,7 +614,7 @@ def test_runtime_assembly_includes_task_durable_sections_when_provided() -> None
 
 
 def test_stage_execution_request_carries_working_memory_refs() -> None:
-    request = StageExecutionRequest(
+    request = NodeExecutionRequest(
         request_id="",
         coordination_run_id="coordrun:test",
         thread_id="thread:test",
@@ -625,7 +625,7 @@ def test_stage_execution_request_carries_working_memory_refs() -> None:
         working_memory_refs=("wm:1", "wm:2"),
     )
 
-    restored = StageExecutionRequest.from_dict(request.to_dict())
+    restored = NodeExecutionRequest.from_dict(request.to_dict())
 
     assert restored.working_memory_refs == ("wm:1", "wm:2")
 

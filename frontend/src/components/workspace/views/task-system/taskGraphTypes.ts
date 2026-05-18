@@ -3,6 +3,7 @@ import type {
   OrchestrationAgentRuntimeCatalog,
   SpecificTaskRecord,
   TaskGraphRecord,
+  TaskGraphStandardView,
   TaskSystemOverview,
 } from "@/lib/api";
 import type { TaskGraphTemplateBuildInput, TaskGraphTemplateId } from "./taskGraphTemplates";
@@ -18,6 +19,7 @@ export type TaskGraphNode = Record<string, unknown> & {
   task_id?: string;
   agent_id?: string;
   projection_id?: string;
+  executor_policy?: Record<string, unknown>;
   role?: string;
   work_posture?: string;
   phase_id?: string;
@@ -55,6 +57,10 @@ export type TaskGraphDomainRecordLike = {
 };
 
 export type TaskGraphWorkbenchAgentCatalog = NonNullable<NonNullable<TaskSystemOverview["task_graph_management"]>["a2a"]>;
+
+export type TaskGraphAgentCardCatalog = TaskGraphWorkbenchAgentCatalog & {
+  agent_cards: Array<Record<string, unknown>>;
+};
 
 export type TaskGraphWorkbenchProps = {
   selectedDomain: TaskGraphDomainRecordLike | null;
@@ -97,12 +103,14 @@ export type TaskGraphWorkbenchProps = {
   updateTaskGraphDraft: (patch: Partial<TaskGraphDraftV2>) => void;
   updateTaskGraphMetadata: (patch: Record<string, unknown>) => void;
   updateTaskGraphRuntimePolicy: (patch: Partial<TaskGraphDraftV2["runtime_policy"]>) => void;
-  updateTaskGraphContextPolicy: (patch: Partial<TaskGraphDraftV2["context_policy"]>) => void;
-  updateTaskGraphWorkingMemoryPolicy: (patch: Partial<TaskGraphDraftV2["working_memory_policy"]>) => void;
   updateTaskGraphPublishState: (state: TaskGraphPublishStateV2) => void;
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
   updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
-  a2aCatalog: TaskGraphWorkbenchAgentCatalog | null;
+  taskGraphStandardView: TaskGraphStandardView | null;
+  taskGraphStandardViewLoading: boolean;
+  taskGraphStandardViewError: string;
+  refreshTaskGraphStandardView: () => Promise<void>;
+  a2aCatalog: TaskGraphAgentCardCatalog | null;
   orchestrationAgentCatalog: OrchestrationAgentRuntimeCatalog | null;
   onCreateProjectionFromPrompt?: (input: { node: Record<string, unknown>; nodeId: string; prompt: string }) => Promise<string>;
   contractSpecs: ContractSpec[];

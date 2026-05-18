@@ -48,10 +48,9 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert result.read_only is True
     assert result.authority == "context_policy_result"
     assert package.model_visible_sections["active_process_context"]
-    assert package.model_visible_sections["hot_truth_window"]
+    assert not package.model_visible_sections["hot_truth_window"]
     assert package.model_visible_sections["relevant_durable_context"]
     assert "result-context-policy" in "\n".join(package.model_visible_sections["active_process_context"])
-    assert "三层分明" in "\n".join(package.model_visible_sections["hot_truth_window"])
     assert "长期记忆不能覆盖当前任务事实" in "\n".join(package.model_visible_sections["relevant_durable_context"])
     assert all(decision.decision == "include" for decision in result.decisions)
     assert result.diagnostics["memory_write_allowed"] is False

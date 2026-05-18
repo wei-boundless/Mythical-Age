@@ -7,6 +7,7 @@ from typing import Any
 from .execution_planner import build_health_agent_execution_plan
 from .models import HealthManagementCommand
 from .registry_records import get_health_issue_by_id
+from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY
 
 
 AGENT_EXECUTION_COMMANDS = {"analyze_trace", "draft_case", "verify_fix"}
@@ -114,6 +115,11 @@ def admit_health_command(base_dir: Path, command: HealthManagementCommand) -> He
                 blocked.append(f"operation_not_allowed:{operation_id}")
         if str(runtime_spec.get("runtime_lane") or "") != plan.runtime_lane:
             blocked.append("runtime_spec_lane_mismatch")
+        lane_descriptor = DEFAULT_RUNTIME_LANE_REGISTRY.get(plan.runtime_lane)
+        if lane_descriptor is None:
+            blocked.append("runtime_lane_unknown")
+        elif not lane_descriptor.requestable:
+            blocked.append("runtime_lane_not_requestable")
         allowed_runtime_lanes = tuple(str(item) for item in list(profile.get("allowed_runtime_lanes") or []))
         if plan.runtime_lane not in allowed_runtime_lanes:
             blocked.append("runtime_lane_not_allowed")

@@ -80,12 +80,17 @@ export type MemoryInspectorTarget = {
 };
 
 export type OrchestrationInspectorTarget = {
-  source: "test-system" | "live-session" | "manual";
+  source: "test-system" | "task-system" | "live-session" | "manual";
   runId?: string;
   turnId?: string;
   turnIndex?: number;
   artifactPath?: string;
   reason?: string;
+  orchestrationLayer?: "registry" | "groups" | "runtime" | "permissions" | "context" | "eligibility";
+  agentId?: string;
+  agentProfileId?: string;
+  graphId?: string;
+  nodeId?: string;
 };
 
 export type TaskSelectionState = {

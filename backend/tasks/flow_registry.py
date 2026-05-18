@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from orchestration.agent_identity import normalize_agent_id, normalize_agent_id_sequence
 from orchestration.agent_registry import AgentRegistry
 from project_layout import ProjectLayout
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
@@ -457,8 +458,7 @@ def _default_adoption_plan(task: TaskAssignment) -> TaskAgentAdoptionPlan:
         plan_id=f"taskadopt:{task.task_id}",
         task_id=task.task_id,
         adoption_mode="adopt_existing" if not participant_ids else "adopt_with_projection",
-        default_agent_id=str(task.default_agent_id or "agent:0").strip() or "agent:0",
-        allowed_agent_categories=("main_agent", "system_management_agent", "worker_sub_agent"),
+        default_agent_id=normalize_agent_id(str(task.default_agent_id or "agent:0").strip() or "agent:0"),
         allow_worker_agent_spawn=False,
         worker_agent_blueprint_id="",
         worker_agent_naming_rule="",
@@ -612,7 +612,7 @@ def _synthetic_task_from_general_profile(profile: GeneralTaskProfile) -> TaskAss
         task_family="general",
         flow_id="flow.general.main_conversation",
         runtime_lane="main_conversation",
-        default_agent_id=str(profile.default_agent_id or "agent:0").strip() or "agent:0",
+        default_agent_id=normalize_agent_id(str(profile.default_agent_id or "agent:0").strip() or "agent:0"),
         participant_agent_ids=(),
         workflow_id=str(profile.default_workflow_id or ""),
         workflow_file_ref=f"workflow:{profile.default_workflow_id}" if profile.default_workflow_id else "",
@@ -622,7 +622,7 @@ def _synthetic_task_from_general_profile(profile: GeneralTaskProfile) -> TaskAss
         safety_policy={},
         task_structure={
             "entry_channel": str(profile.entry_channel or "main_conversation"),
-            "memory_scope_hint": "conversation_read_write",
+            "memory_scope_hint": "conversation_readonly",
         },
         enabled=profile.enabled,
         metadata=dict(profile.metadata or {}),
@@ -664,7 +664,7 @@ class TaskFlowRegistry:
                     profile_id=str(item.get("profile_id") or ""),
                     title=str(item.get("title") or ""),
                     entry_channel=str(item.get("entry_channel") or "main_conversation"),
-                    default_agent_id=str(item.get("default_agent_id") or "agent:0"),
+                    default_agent_id=normalize_agent_id(str(item.get("default_agent_id") or "agent:0")),
                     default_workflow_id=str(item.get("default_workflow_id") or ""),
                     default_projection_id=str(item.get("default_projection_id") or ""),
                     input_contract_id=str(item.get("input_contract_id") or ""),
@@ -697,7 +697,7 @@ class TaskFlowRegistry:
             profile_id=target,
             title=str(title or target).strip(),
             entry_channel="main_conversation",
-            default_agent_id=str(default_agent_id or "agent:0").strip() or "agent:0",
+            default_agent_id=normalize_agent_id(str(default_agent_id or "agent:0").strip() or "agent:0"),
             default_workflow_id=str(default_workflow_id or "").strip(),
             default_projection_id=str(default_projection_id or "").strip(),
             input_contract_id=str(input_contract_id or "").strip(),
@@ -733,7 +733,7 @@ class TaskFlowRegistry:
                         title=str(item.get("title") or ""),
                         input_contract_id=str(item.get("input_contract_id") or ""),
                         output_contract_id=str(item.get("output_contract_id") or ""),
-                        default_agent_id=str(item.get("default_agent_id") or ""),
+                        default_agent_id=normalize_agent_id(str(item.get("default_agent_id") or "")),
                         default_workflow_id=str(item.get("default_workflow_id") or ""),
                         default_runtime_lane=str(item.get("default_runtime_lane") or ""),
                         default_memory_scope=str(item.get("default_memory_scope") or ""),
@@ -782,7 +782,7 @@ class TaskFlowRegistry:
             title=str(title or normalized_flow_id).strip(),
             input_contract_id=str(input_contract_id or "").strip(),
             output_contract_id=str(output_contract_id or "").strip(),
-            default_agent_id=str(default_agent_id or "").strip(),
+            default_agent_id=normalize_agent_id(str(default_agent_id or "").strip()),
             default_workflow_id=str(default_workflow_id or "").strip(),
             default_runtime_lane=str(default_runtime_lane or "").strip(),
             default_memory_scope=str(default_memory_scope or "").strip(),
@@ -1180,7 +1180,7 @@ class TaskFlowRegistry:
             title=record.task_title,
             input_contract_id=record.input_contract_id,
             output_contract_id=record.output_contract_id,
-            default_agent_id=str(default_agent_id or "agent:0").strip() or "agent:0",
+            default_agent_id=normalize_agent_id(str(default_agent_id or "agent:0").strip() or "agent:0"),
             default_workflow_id=record.default_workflow_id,
             default_runtime_lane=record.runtime_lane or str(dict(record.task_policy or {}).get("task_structure", {}).get("runtime_lane_hint") or ""),
             default_memory_scope=str(dict(record.task_policy or {}).get("task_structure", {}).get("memory_scope_hint") or ""),
@@ -1194,8 +1194,8 @@ class TaskFlowRegistry:
             task_family=record.task_family,
             flow_id=normalized_flow_id,
             runtime_lane=record.runtime_lane,
-            default_agent_id=str(default_agent_id or "agent:0").strip() or "agent:0",
-            participant_agent_ids=tuple(str(item).strip() for item in participant_agent_ids if str(item).strip()),
+            default_agent_id=normalize_agent_id(str(default_agent_id or "agent:0").strip() or "agent:0"),
+            participant_agent_ids=normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip()),
             workflow_id=record.default_workflow_id,
             workflow_file_ref=str(workflow_file_ref or "").strip(),
             projection_id=str(projection_id or "").strip(),
@@ -1631,12 +1631,7 @@ class TaskFlowRegistry:
                         plan_id=str(item.get("plan_id") or ""),
                         task_id=str(item.get("task_id") or ""),
                         adoption_mode=normalize_task_agent_adoption_mode(str(item.get("adoption_mode") or "adopt_existing")),
-                        default_agent_id=str(item.get("default_agent_id") or "agent:0"),
-                        allowed_agent_categories=tuple(
-                            str(value).strip()
-                            for value in list(item.get("allowed_agent_categories") or [])
-                            if str(value).strip()
-                        ),
+                        default_agent_id=normalize_agent_id(str(item.get("default_agent_id") or "agent:0")),
                         allow_worker_agent_spawn=bool(item.get("allow_worker_agent_spawn", False)),
                         worker_agent_blueprint_id=str(item.get("worker_agent_blueprint_id") or ""),
                         worker_agent_naming_rule=str(item.get("worker_agent_naming_rule") or ""),
@@ -1662,12 +1657,7 @@ class TaskFlowRegistry:
                     plan_id=str(item.get("plan_id") or ""),
                     task_id=str(item.get("task_id") or ""),
                     adoption_mode=normalize_task_agent_adoption_mode(str(item.get("adoption_mode") or "adopt_existing")),
-                    default_agent_id=str(item.get("default_agent_id") or "agent:0"),
-                    allowed_agent_categories=tuple(
-                        str(value).strip()
-                        for value in list(item.get("allowed_agent_categories") or [])
-                        if str(value).strip()
-                    ),
+                    default_agent_id=normalize_agent_id(str(item.get("default_agent_id") or "agent:0")),
                     allow_worker_agent_spawn=bool(item.get("allow_worker_agent_spawn", False)),
                     worker_agent_blueprint_id=str(item.get("worker_agent_blueprint_id") or ""),
                     worker_agent_naming_rule=str(item.get("worker_agent_naming_rule") or ""),
@@ -1687,7 +1677,6 @@ class TaskFlowRegistry:
         task_id: str,
         adoption_mode: str,
         default_agent_id: str = "agent:0",
-        allowed_agent_categories: tuple[str, ...] = (),
         allow_worker_agent_spawn: bool = False,
         worker_agent_blueprint_id: str = "",
         worker_agent_naming_rule: str = "",
@@ -1701,12 +1690,7 @@ class TaskFlowRegistry:
             plan_id=f"taskadopt:{target}",
             task_id=target,
             adoption_mode=normalize_task_agent_adoption_mode(adoption_mode),
-            default_agent_id=str(default_agent_id or "agent:0").strip() or "agent:0",
-            allowed_agent_categories=tuple(
-                str(value).strip()
-                for value in allowed_agent_categories
-                if str(value).strip()
-            ),
+            default_agent_id=normalize_agent_id(str(default_agent_id or "agent:0").strip() or "agent:0"),
             allow_worker_agent_spawn=bool(allow_worker_agent_spawn),
             worker_agent_blueprint_id=str(worker_agent_blueprint_id or "").strip(),
             worker_agent_naming_rule=str(worker_agent_naming_rule or "").strip(),
@@ -1911,7 +1895,7 @@ class TaskFlowRegistry:
             continuation_policy["human_gate_mode"] = human_gate_mode
         if continuation_policy:
             metadata["continuation_policy"] = continuation_policy
-        coordinator_agent_id = str(runtime_policy.get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
+        coordinator_agent_id = normalize_agent_id(str(runtime_policy.get("coordinator_agent_id") or "agent:0").strip() or "agent:0")
         task_family = str(graph.task_family or metadata.get("task_family") or "").strip()
         domain_id = str(graph.domain_id or metadata.get("domain_id") or (f"domain.{task_family}" if task_family else "")).strip()
         stored_nodes = tuple(node.to_dict() for node in graph.nodes)
@@ -1929,7 +1913,7 @@ class TaskFlowRegistry:
         participant_agent_ids = self._resolve_coordination_participants(
             coordinator_agent_id=coordinator_agent_id,
             agent_group_id=str(runtime_policy.get("agent_group_id") or metadata.get("agent_group_id") or ""),
-            participant_agent_ids=tuple(
+            participant_agent_ids=normalize_agent_id_sequence(
                 str(value)
                 for value in list(runtime_policy.get("participant_agent_ids") or metadata.get("participant_agent_ids") or [])
                 if str(value)
@@ -2082,7 +2066,7 @@ class TaskFlowRegistry:
                 TopologyTemplate(
                     template_id=str(item.get("template_id") or ""),
                     title=str(item.get("title") or ""),
-                    nodes=tuple(dict(value) for value in list(item.get("nodes") or []) if isinstance(value, dict)),
+                    nodes=tuple(_normalize_agent_refs_in_mapping(dict(value)) for value in list(item.get("nodes") or []) if isinstance(value, dict)),
                     edges=tuple(dict(value) for value in list(item.get("edges") or []) if isinstance(value, dict)),
                     handoff_rules=tuple(dict(value) for value in list(item.get("handoff_rules") or []) if isinstance(value, dict)),
                     join_policy=str(item.get("join_policy") or "explicit_join"),
@@ -2318,8 +2302,8 @@ class TaskFlowRegistry:
             )
         else:
             normalized_graph_nodes, _ = _default_coordination_graph(
-                coordinator_agent_id=str(coordinator_agent_id or "agent:0").strip() or "agent:0",
-                participant_agent_ids=tuple(str(item).strip() for item in participant_agent_ids if str(item).strip()),
+                coordinator_agent_id=normalize_agent_id(str(coordinator_agent_id or "agent:0").strip() or "agent:0"),
+                participant_agent_ids=normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip()),
                 task_family=normalized_family,
                 subtask_refs=normalized_subtask_refs,
             )
@@ -2334,7 +2318,7 @@ class TaskFlowRegistry:
             domain_id=normalized_domain_id,
             task_family=normalized_family,
             graph_kind="coordination",
-            nodes=tuple(dict(item) for item in normalized_graph_nodes),
+            nodes=tuple(_normalize_agent_refs_in_mapping(dict(item)) for item in normalized_graph_nodes),
             edges=tuple(dict(item) for item in graph_edges if isinstance(item, dict)),
             default_protocol_id=str(dict(metadata or {}).get("protocol_id") or ""),
             runtime_policy={
@@ -2343,9 +2327,9 @@ class TaskFlowRegistry:
                 "coordination_mode": str(coordination_mode or "review_merge").strip(),
                 "participant_agent_ids": list(
                     self._resolve_coordination_participants(
-                        coordinator_agent_id=str(coordinator_agent_id or "agent:0").strip() or "agent:0",
+                        coordinator_agent_id=normalize_agent_id(str(coordinator_agent_id or "agent:0").strip() or "agent:0"),
                         agent_group_id=str(agent_group_id or "").strip(),
-                        participant_agent_ids=tuple(str(item).strip() for item in participant_agent_ids if str(item).strip()),
+                        participant_agent_ids=normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip()),
                     )
                 ),
             },
@@ -2378,7 +2362,7 @@ class TaskFlowRegistry:
         agent_group_id: str,
         participant_agent_ids: tuple[str, ...],
     ) -> tuple[str, ...]:
-        explicit = tuple(str(item).strip() for item in participant_agent_ids if str(item).strip())
+        explicit = normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip())
         if explicit:
             return explicit
         from orchestration.agent_group_registry import AgentGroupRegistry
@@ -2386,11 +2370,11 @@ class TaskFlowRegistry:
         group = AgentGroupRegistry(self.base_dir).get_group(agent_group_id)
         if group is None:
             return ()
-        coordinator = str(coordinator_agent_id or group.coordinator_agent_id or "").strip()
+        coordinator = normalize_agent_id(str(coordinator_agent_id or group.coordinator_agent_id or "").strip())
         return tuple(
-            item
+            normalize_agent_id(item)
             for item in group.member_agent_ids
-            if item and item != coordinator
+            if item and normalize_agent_id(item) != coordinator
         )
 
     def upsert_topology_template(
@@ -2413,7 +2397,7 @@ class TaskFlowRegistry:
         template = TopologyTemplate(
             template_id=target,
             title=str(title or target).strip(),
-            nodes=tuple(dict(item) for item in nodes if isinstance(item, dict)),
+            nodes=tuple(_normalize_agent_refs_in_mapping(dict(item)) for item in nodes if isinstance(item, dict)),
             edges=tuple(dict(item) for item in edges if isinstance(item, dict)),
             handoff_rules=tuple(dict(item) for item in handoff_rules if isinstance(item, dict)),
             join_policy=str(join_policy or "explicit_join").strip(),
@@ -2441,7 +2425,6 @@ class TaskFlowRegistry:
         else:
             _validate_contains(failures, diagnostics, "runtime_lane", flow.default_runtime_lane, profile.allowed_runtime_lanes)
             _validate_contains(failures, diagnostics, "memory_scope", flow.default_memory_scope, profile.allowed_memory_scopes)
-            _validate_contains(failures, diagnostics, "output_contract", flow.output_contract_id, profile.output_contracts)
         self._validate_workflow_ref(failures, diagnostics, flow.default_workflow_id)
         return TaskAgentBinding(
             binding_id=f"binding:{flow.flow_id}:{flow.default_agent_id}",
@@ -2738,16 +2721,16 @@ class TaskFlowRegistry:
         explicit_flow_contract_bindings = self.list_explicit_flow_contract_bindings()
         adoption_plans = self.list_task_agent_adoption_plans()
         explicit_adoption_plans = self.list_explicit_task_agent_adoption_plans()
-        memory_request_profiles = self.list_task_memory_request_profiles()
-        explicit_memory_request_profiles = self.list_explicit_task_memory_request_profiles()
         communication_protocols = self.list_task_communication_protocols()
         return {
             "authority": "task_system.overview",
             "summary": {
                 "agent_count": agent_catalog["summary"]["agent_count"],
                 "main_agent_count": agent_catalog["summary"]["main_agent_count"],
-                "system_management_agent_count": agent_catalog["summary"]["system_management_agent_count"],
-                "worker_sub_agent_count": agent_catalog["summary"]["worker_sub_agent_count"],
+                "builtin_agent_count": agent_catalog["summary"]["builtin_agent_count"],
+                "custom_agent_count": agent_catalog["summary"]["custom_agent_count"],
+                "system_manager_agent_count": agent_catalog["summary"]["system_manager_agent_count"],
+                "delegation_enabled_agent_count": agent_catalog["summary"].get("delegation_enabled_agent_count", 0),
                 "general_task_count": len(general_profiles),
                 "specific_task_count": len(task_assignments),
                 "task_flow_count": len(flows),
@@ -2777,13 +2760,6 @@ class TaskFlowRegistry:
                     key_attr="plan_id",
                 ),
                 "effective_adoption_plan_count": len(adoption_plans),
-                "memory_request_profile_count": len(explicit_memory_request_profiles),
-                "derived_memory_request_profile_count": _derived_count(
-                    memory_request_profiles,
-                    explicit_memory_request_profiles,
-                    key_attr="profile_id",
-                ),
-                "effective_memory_request_profile_count": len(memory_request_profiles),
                 "communication_protocol_count": len(communication_protocols),
                 "invalid_binding_count": len(invalid_bindings),
                 "invalid_template_count": 0,
@@ -2798,7 +2774,6 @@ class TaskFlowRegistry:
             "projection_bindings": [item.to_dict() for item in projection_bindings],
             "flow_contract_bindings": [item.to_dict() for item in flow_contract_bindings],
             "agent_adoption_plans": [item.to_dict() for item in adoption_plans],
-            "memory_request_profiles": [item.to_dict() for item in memory_request_profiles],
             "templates": [],
             "template_validation_matrix": _removed_template_protocol_matrix(),
             "topology_templates": [item.to_dict() for item in self.list_topology_templates()],
@@ -2830,8 +2805,8 @@ def _assignment_from_dict(payload: dict[str, Any]) -> TaskAssignment:
         task_family=str(payload.get("task_family") or ""),
         flow_id=str(payload.get("flow_id") or ""),
         runtime_lane=str(payload.get("runtime_lane") or dict(payload.get("task_structure") or {}).get("runtime_lane_hint") or ""),
-        default_agent_id=str(payload.get("default_agent_id") or "agent:0"),
-        participant_agent_ids=tuple(str(item) for item in list(payload.get("participant_agent_ids") or []) if str(item)),
+        default_agent_id=normalize_agent_id(str(payload.get("default_agent_id") or "agent:0")),
+        participant_agent_ids=normalize_agent_id_sequence(str(item) for item in list(payload.get("participant_agent_ids") or []) if str(item)),
         workflow_id=str(payload.get("workflow_id") or ""),
         workflow_file_ref=str(payload.get("workflow_file_ref") or ""),
         projection_id=str(payload.get("projection_id") or payload.get("projection_template_id") or ""),
@@ -2842,6 +2817,19 @@ def _assignment_from_dict(payload: dict[str, Any]) -> TaskAssignment:
         enabled=bool(payload.get("enabled", True)),
         metadata=dict(payload.get("metadata") or {}),
     )
+
+
+def _normalize_agent_refs_in_mapping(payload: dict[str, Any]) -> dict[str, Any]:
+    next_payload = dict(payload)
+    if "agent_id" in next_payload:
+        next_payload["agent_id"] = normalize_agent_id(str(next_payload.get("agent_id") or "").strip())
+    if "coordinator_agent_id" in next_payload:
+        next_payload["coordinator_agent_id"] = normalize_agent_id(str(next_payload.get("coordinator_agent_id") or "").strip())
+    if "participant_agent_ids" in next_payload:
+        next_payload["participant_agent_ids"] = list(
+            normalize_agent_id_sequence(str(item) for item in list(next_payload.get("participant_agent_ids") or []) if str(item))
+        )
+    return next_payload
 
 
 def _diagnostic_issue(

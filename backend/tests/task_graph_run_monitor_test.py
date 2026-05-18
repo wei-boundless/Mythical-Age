@@ -52,6 +52,16 @@ def test_monitor_topology_comes_from_graph_spec_even_without_flow_stages() -> No
             "active_stage_id": "outline",
             "completed_nodes": ["world"],
             "blocked_nodes": ["chapter"],
+            "stage_execution_request": {
+                "request_id": "nodeexec:outline",
+                "stage_id": "outline",
+                "node_id": "outline",
+                "dispatch_context": {
+                    "activation_id": "activation:outline",
+                    "execution_permit_id": "permit:outline",
+                    "dispatch_event_id": "tlevent:outline",
+                },
+            },
         },
         event_count=7,
     )
@@ -169,6 +179,23 @@ def test_monitor_reports_completed_node_without_timeline_result() -> None:
 
     codes = {issue["code"] for issue in view["health"]["issues"]}
     assert "completed_without_timeline_result" in codes
+
+
+def test_monitor_reports_running_node_without_execution_permit() -> None:
+    view = build_task_graph_run_monitor_view(
+        task_run=_base_task_run(),
+        coordination_run=_base_coordination_run(),
+        coordination_state={
+            "diagnostics": {"coordination_graph_spec": _graph_spec()},
+            "active_stage_id": "outline",
+            "running_nodes": ["outline"],
+        },
+    )
+
+    codes = {issue["code"] for issue in view["health"]["issues"]}
+    assert "node_running_without_execution_permit" in codes
+    assert view["temporal"]["boundary_valid"] is False
+    assert view["temporal"]["violations"][0]["code"] == "node_running_without_execution_permit"
 
 
 def test_monitor_uses_tool_call_preview_when_stream_chunks_are_absent() -> None:

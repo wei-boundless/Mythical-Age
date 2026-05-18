@@ -63,17 +63,6 @@ def _group_from_dict(payload: dict[str, Any]) -> AgentGroup:
         coordinator_agent_id=str(payload.get("coordinator_agent_id") or ""),
         member_agent_ids=tuple(str(item).strip() for item in list(payload.get("member_agent_ids") or []) if str(item).strip()),
         description=str(payload.get("description") or ""),
-        default_topology_template_ids=tuple(
-            str(item).strip() for item in list(payload.get("default_topology_template_ids") or []) if str(item).strip()
-        ),
-        default_communication_protocol_ids=tuple(
-            str(item).strip() for item in list(payload.get("default_communication_protocol_ids") or []) if str(item).strip()
-        ),
-        allowed_task_graph_ids=tuple(
-            str(item).strip()
-            for item in list(payload.get("allowed_task_graph_ids") or [])
-            if str(item).strip()
-        ),
         lifecycle_state=str(payload.get("lifecycle_state") or "enabled"),
         metadata=dict(payload.get("metadata") or {}),
     )
@@ -113,9 +102,6 @@ class AgentGroupRegistry:
         coordinator_agent_id: str,
         member_agent_ids: tuple[str, ...] = (),
         description: str = "",
-        default_topology_template_ids: tuple[str, ...] = (),
-        default_communication_protocol_ids: tuple[str, ...] = (),
-        allowed_task_graph_ids: tuple[str, ...] = (),
         lifecycle_state: str = "enabled",
         metadata: dict[str, Any] | None = None,
     ) -> AgentGroup:
@@ -133,11 +119,6 @@ class AgentGroupRegistry:
             coordinator_agent_id=normalized_coordinator,
             member_agent_ids=normalized_members,
             description=str(description or "").strip(),
-            default_topology_template_ids=tuple(str(item).strip() for item in default_topology_template_ids if str(item).strip()),
-            default_communication_protocol_ids=tuple(
-                str(item).strip() for item in default_communication_protocol_ids if str(item).strip()
-            ),
-            allowed_task_graph_ids=tuple(str(item).strip() for item in allowed_task_graph_ids if str(item).strip()),
             lifecycle_state=str(lifecycle_state or "enabled").strip() or "enabled",
             metadata=dict(metadata or {}),
         )
@@ -164,8 +145,8 @@ class AgentGroupRegistry:
             agent = self.agent_registry.get_agent(agent_id)
             if agent is None:
                 raise ValueError(f"unknown member_agent_id: {agent_id}")
-            if agent.agent_category != "worker_sub_agent":
-                raise PermissionError(f"agent group members must be worker_sub_agent: {agent_id}")
+            if not bool(getattr(agent, "group_eligible", False)):
+                raise PermissionError(f"agent group members must be group eligible custom agents: {agent_id}")
             if not agent.enabled:
                 raise PermissionError(f"disabled agent cannot be a group member: {agent_id}")
 
@@ -176,3 +157,31 @@ class AgentGroupRegistry:
             raise KeyError(target)
         remaining = [item for item in groups if item.group_id != target]
         _write_json(self.path, {"groups": [item.to_dict() for item in remaining]})
+
+    def remove_agent_refs(self, agent_id: str) -> None:
+        target = str(agent_id or "").strip()
+        if not target:
+            return
+        changed = False
+        next_groups: list[AgentGroup] = []
+        for group in self.list_groups():
+            next_members = tuple(item for item in group.member_agent_ids if item != target)
+            next_coordinator = "" if group.coordinator_agent_id == target else group.coordinator_agent_id
+            if next_members != group.member_agent_ids or next_coordinator != group.coordinator_agent_id:
+                changed = True
+                next_groups.append(
+                    AgentGroup(
+                        group_id=group.group_id,
+                        title=group.title,
+                        group_kind=group.group_kind,
+                        coordinator_agent_id=next_coordinator,
+                        member_agent_ids=next_members,
+                        description=group.description,
+                        lifecycle_state=group.lifecycle_state,
+                        metadata=group.metadata,
+                    )
+                )
+            else:
+                next_groups.append(group)
+        if changed:
+            _write_json(self.path, {"groups": [item.to_dict() for item in next_groups]})

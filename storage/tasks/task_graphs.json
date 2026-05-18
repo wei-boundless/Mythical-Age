@@ -25,6 +25,7 @@
           "context_visibility_policy": {},
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {},
@@ -66,6 +67,7 @@
           "context_visibility_policy": {},
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {},
@@ -109,6 +111,7 @@
           "context_visibility_policy": {},
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {},
@@ -228,6 +231,7 @@
           "context_visibility_policy": {},
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {},
@@ -269,6 +273,7 @@
           "context_visibility_policy": {},
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {},
@@ -312,6 +317,7 @@
           "context_visibility_policy": {},
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {},
@@ -398,7 +404,7 @@
           "node_type": "agent_role",
           "title": "项目启动包",
           "task_id": "task.writing.simple_novel.project_brief",
-          "agent_id": "agent:writing_simple_creator",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "creator",
@@ -414,6 +420,7 @@
           },
           "projection_id": "projection.writing.simple_novel.project_brief",
           "projection_overlay_id": "projection.writing.simple_novel.project_brief",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -561,7 +568,7 @@
           "node_type": "agent_role",
           "title": "世界观设定候选",
           "task_id": "task.writing.simple_novel.world_design",
-          "agent_id": "agent:writing_simple_creator",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "creator",
@@ -577,6 +584,7 @@
           },
           "projection_id": "projection.writing.simple_novel.world_designer",
           "projection_overlay_id": "projection.writing.simple_novel.world_designer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -728,7 +736,7 @@
           "node_type": "review_gate",
           "title": "世界观审核",
           "task_id": "task.writing.simple_novel.world_review",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "reviewer",
@@ -744,6 +752,7 @@
           },
           "projection_id": "projection.writing.simple_novel.world_reviewer",
           "projection_overlay_id": "projection.writing.simple_novel.world_reviewer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -925,6 +934,7 @@
           },
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -1092,6 +1102,7 @@
           },
           "projection_id": "projection.writing.simple_novel.baseline_memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.baseline_memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -1243,7 +1254,7 @@
           "node_type": "agent_role",
           "title": "分卷规划",
           "task_id": "task.writing.simple_novel.volume_plan",
-          "agent_id": "agent:writing_simple_creator",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "creator",
@@ -1259,6 +1270,7 @@
           },
           "projection_id": "projection.writing.simple_novel.volume_planner",
           "projection_overlay_id": "projection.writing.simple_novel.volume_planner",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -1412,7 +1424,7 @@
           "node_type": "agent_role",
           "title": "当前批次细纲",
           "task_id": "task.writing.simple_novel.chapter_outline",
-          "agent_id": "agent:writing_simple_creator",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "creator",
@@ -1428,6 +1440,7 @@
           },
           "projection_id": "projection.writing.simple_novel.chapter_outliner",
           "projection_overlay_id": "projection.writing.simple_novel.chapter_outliner",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -1591,7 +1604,7 @@
           "node_type": "agent_role",
           "title": "当前批次正文候选",
           "task_id": "task.writing.simple_novel.chapter_draft",
-          "agent_id": "agent:writing_simple_creator",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "creator",
@@ -1607,6 +1620,7 @@
           },
           "projection_id": "projection.writing.simple_novel.chapter_writer",
           "projection_overlay_id": "projection.writing.simple_novel.chapter_writer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -1773,7 +1787,7 @@
           "node_type": "review_gate",
           "title": "当前批次轻量审核",
           "task_id": "task.writing.simple_novel.chapter_review",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "reviewer",
@@ -1789,6 +1803,7 @@
           },
           "projection_id": "projection.writing.simple_novel.chapter_reviewer",
           "projection_overlay_id": "projection.writing.simple_novel.chapter_reviewer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -1984,6 +1999,7 @@
           },
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -2144,7 +2160,7 @@
           "node_type": "agent_role",
           "title": "章节批次推进判断",
           "task_id": "task.writing.simple_novel.chapter_progress_router",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "router",
@@ -2160,6 +2176,7 @@
           },
           "projection_id": "projection.writing.simple_novel.chapter_progress_router",
           "projection_overlay_id": "projection.writing.simple_novel.chapter_progress_router",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -2315,7 +2332,7 @@
           "node_type": "review_gate",
           "title": "卷级总审核",
           "task_id": "task.writing.simple_novel.volume_review",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "reviewer",
@@ -2331,6 +2348,7 @@
           },
           "projection_id": "projection.writing.simple_novel.volume_reviewer",
           "projection_overlay_id": "projection.writing.simple_novel.volume_reviewer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -2518,6 +2536,7 @@
           },
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -2669,7 +2688,7 @@
           "node_type": "review_gate",
           "title": "卷后复盘",
           "task_id": "task.writing.simple_novel.volume_postmortem",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "reviewer",
@@ -2685,6 +2704,7 @@
           },
           "projection_id": "projection.writing.simple_novel.volume_postmortem",
           "projection_overlay_id": "projection.writing.simple_novel.volume_postmortem",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -2855,7 +2875,7 @@
           "node_type": "agent_role",
           "title": "可改动库更新提案",
           "task_id": "task.writing.simple_novel.world_outline_extension_proposal",
-          "agent_id": "agent:writing_simple_creator",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "creator",
@@ -2871,6 +2891,7 @@
           },
           "projection_id": "projection.writing.simple_novel.world_outline_extension_proposer",
           "projection_overlay_id": "projection.writing.simple_novel.world_outline_extension_proposer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -3028,7 +3049,7 @@
           "node_type": "review_gate",
           "title": "可改动库更新审核",
           "task_id": "task.writing.simple_novel.extension_review",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "reviewer",
@@ -3044,6 +3065,7 @@
           },
           "projection_id": "projection.writing.simple_novel.extension_reviewer",
           "projection_overlay_id": "projection.writing.simple_novel.extension_reviewer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -3231,6 +3253,7 @@
           },
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -3384,7 +3407,7 @@
           "node_type": "agent_role",
           "title": "下一卷推进判断",
           "task_id": "task.writing.simple_novel.next_volume_router",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "router",
@@ -3400,6 +3423,7 @@
           },
           "projection_id": "projection.writing.simple_novel.next_volume_router",
           "projection_overlay_id": "projection.writing.simple_novel.next_volume_router",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -3560,7 +3584,7 @@
           "node_type": "agent_role",
           "title": "交付包整编",
           "task_id": "task.writing.simple_novel.final_assemble",
-          "agent_id": "agent:writing_final_assembler",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "final_assembler",
@@ -3576,6 +3600,7 @@
           },
           "projection_id": "projection.writing.simple_novel.final_assembler",
           "projection_overlay_id": "projection.writing.simple_novel.final_assembler",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -3735,7 +3760,7 @@
           "node_type": "review_gate",
           "title": "最终交付审核",
           "task_id": "task.writing.simple_novel.final_review",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "reviewer",
@@ -3751,6 +3776,7 @@
           },
           "projection_id": "projection.writing.simple_novel.final_reviewer",
           "projection_overlay_id": "projection.writing.simple_novel.final_reviewer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -3937,6 +3963,7 @@
           },
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -4104,6 +4131,7 @@
           },
           "projection_id": "projection.writing.simple_novel.runtime_monitor",
           "projection_overlay_id": "projection.writing.simple_novel.runtime_monitor",
+          "executor_policy": {},
           "failure_policy": {
             "default": "notify_and_continue",
             "on_monitor_error": "record_supervision"
@@ -4344,6 +4372,7 @@
           },
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -4504,6 +4533,7 @@
           },
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed"
           },
@@ -4624,6 +4654,7 @@
           },
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed"
           },
@@ -4745,6 +4776,7 @@
           },
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed"
           },
@@ -4909,6 +4941,7 @@
           },
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed"
           },
@@ -15569,7 +15602,7 @@
           "node_type": "agent_role",
           "title": "项目启动包",
           "task_id": "task.writing.simple_novel.project_brief",
-          "agent_id": "agent:writing_simple_creator",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "creator",
@@ -15585,6 +15618,7 @@
           },
           "projection_id": "projection.writing.simple_novel.project_brief",
           "projection_overlay_id": "projection.writing.simple_novel.project_brief",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -15732,7 +15766,7 @@
           "node_type": "agent_role",
           "title": "世界观设定候选",
           "task_id": "task.writing.simple_novel.world_design",
-          "agent_id": "agent:writing_simple_creator",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "creator",
@@ -15748,6 +15782,7 @@
           },
           "projection_id": "projection.writing.simple_novel.world_designer",
           "projection_overlay_id": "projection.writing.simple_novel.world_designer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -15899,7 +15934,7 @@
           "node_type": "review_gate",
           "title": "世界观审核",
           "task_id": "task.writing.simple_novel.world_review",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "reviewer",
@@ -15915,6 +15950,7 @@
           },
           "projection_id": "projection.writing.simple_novel.world_reviewer",
           "projection_overlay_id": "projection.writing.simple_novel.world_reviewer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -16096,6 +16132,7 @@
           },
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -16263,6 +16300,7 @@
           },
           "projection_id": "projection.writing.simple_novel.baseline_memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.baseline_memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -16414,7 +16452,7 @@
           "node_type": "agent_role",
           "title": "分卷规划",
           "task_id": "task.writing.simple_novel.volume_plan",
-          "agent_id": "agent:writing_simple_creator",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "creator",
@@ -16430,6 +16468,7 @@
           },
           "projection_id": "projection.writing.simple_novel.volume_planner",
           "projection_overlay_id": "projection.writing.simple_novel.volume_planner",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -16583,7 +16622,7 @@
           "node_type": "agent_role",
           "title": "当前批次细纲",
           "task_id": "task.writing.simple_novel.chapter_outline",
-          "agent_id": "agent:writing_simple_creator",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "creator",
@@ -16599,6 +16638,7 @@
           },
           "projection_id": "projection.writing.simple_novel.chapter_outliner",
           "projection_overlay_id": "projection.writing.simple_novel.chapter_outliner",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -16762,7 +16802,7 @@
           "node_type": "agent_role",
           "title": "当前批次正文候选",
           "task_id": "task.writing.simple_novel.chapter_draft",
-          "agent_id": "agent:writing_simple_creator",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "creator",
@@ -16778,6 +16818,7 @@
           },
           "projection_id": "projection.writing.simple_novel.chapter_writer",
           "projection_overlay_id": "projection.writing.simple_novel.chapter_writer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -16944,7 +16985,7 @@
           "node_type": "review_gate",
           "title": "当前批次轻量审核",
           "task_id": "task.writing.simple_novel.chapter_review",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "reviewer",
@@ -16960,6 +17001,7 @@
           },
           "projection_id": "projection.writing.simple_novel.chapter_reviewer",
           "projection_overlay_id": "projection.writing.simple_novel.chapter_reviewer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -17155,6 +17197,7 @@
           },
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -17315,7 +17358,7 @@
           "node_type": "agent_role",
           "title": "章节批次推进判断",
           "task_id": "task.writing.simple_novel.chapter_progress_router",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "router",
@@ -17331,6 +17374,7 @@
           },
           "projection_id": "projection.writing.simple_novel.chapter_progress_router",
           "projection_overlay_id": "projection.writing.simple_novel.chapter_progress_router",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -17486,7 +17530,7 @@
           "node_type": "review_gate",
           "title": "卷级总审核",
           "task_id": "task.writing.simple_novel.volume_review",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "reviewer",
@@ -17502,6 +17546,7 @@
           },
           "projection_id": "projection.writing.simple_novel.volume_reviewer",
           "projection_overlay_id": "projection.writing.simple_novel.volume_reviewer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -17689,6 +17734,7 @@
           },
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -17840,7 +17886,7 @@
           "node_type": "review_gate",
           "title": "卷后复盘",
           "task_id": "task.writing.simple_novel.volume_postmortem",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "reviewer",
@@ -17856,6 +17902,7 @@
           },
           "projection_id": "projection.writing.simple_novel.volume_postmortem",
           "projection_overlay_id": "projection.writing.simple_novel.volume_postmortem",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -18026,7 +18073,7 @@
           "node_type": "agent_role",
           "title": "可改动库更新提案",
           "task_id": "task.writing.simple_novel.world_outline_extension_proposal",
-          "agent_id": "agent:writing_simple_creator",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "creator",
@@ -18042,6 +18089,7 @@
           },
           "projection_id": "projection.writing.simple_novel.world_outline_extension_proposer",
           "projection_overlay_id": "projection.writing.simple_novel.world_outline_extension_proposer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -18199,7 +18247,7 @@
           "node_type": "review_gate",
           "title": "可改动库更新审核",
           "task_id": "task.writing.simple_novel.extension_review",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "reviewer",
@@ -18215,6 +18263,7 @@
           },
           "projection_id": "projection.writing.simple_novel.extension_reviewer",
           "projection_overlay_id": "projection.writing.simple_novel.extension_reviewer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -18402,6 +18451,7 @@
           },
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -18555,7 +18605,7 @@
           "node_type": "agent_role",
           "title": "下一卷推进判断",
           "task_id": "task.writing.simple_novel.next_volume_router",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "router",
@@ -18571,6 +18621,7 @@
           },
           "projection_id": "projection.writing.simple_novel.next_volume_router",
           "projection_overlay_id": "projection.writing.simple_novel.next_volume_router",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -18731,7 +18782,7 @@
           "node_type": "agent_role",
           "title": "交付包整编",
           "task_id": "task.writing.simple_novel.final_assemble",
-          "agent_id": "agent:writing_final_assembler",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "final_assembler",
@@ -18747,6 +18798,7 @@
           },
           "projection_id": "projection.writing.simple_novel.final_assembler",
           "projection_overlay_id": "projection.writing.simple_novel.final_assembler",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -18906,7 +18958,7 @@
           "node_type": "review_gate",
           "title": "最终交付审核",
           "task_id": "task.writing.simple_novel.final_review",
-          "agent_id": "agent:writing_simple_reviewer",
+          "agent_id": "agent:writing_simple_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing.simple_novel",
           "work_posture": "reviewer",
@@ -18922,6 +18974,7 @@
           },
           "projection_id": "projection.writing.simple_novel.final_reviewer",
           "projection_overlay_id": "projection.writing.simple_novel.final_reviewer",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -19108,6 +19161,7 @@
           },
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -19275,6 +19329,7 @@
           },
           "projection_id": "projection.writing.simple_novel.runtime_monitor",
           "projection_overlay_id": "projection.writing.simple_novel.runtime_monitor",
+          "executor_policy": {},
           "failure_policy": {
             "default": "notify_and_continue",
             "on_monitor_error": "record_supervision"
@@ -19515,6 +19570,7 @@
           },
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "projection_overlay_id": "projection.writing.simple_novel.memory_steward",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed",
             "on_missing_required_memory": "fail_closed"
@@ -19675,6 +19731,7 @@
           },
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed"
           },
@@ -19795,6 +19852,7 @@
           },
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed"
           },
@@ -19916,6 +19974,7 @@
           },
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed"
           },
@@ -20080,6 +20139,7 @@
           },
           "projection_id": "",
           "projection_overlay_id": "",
+          "executor_policy": {},
           "failure_policy": {
             "default": "fail_closed"
           },
@@ -30557,7 +30617,7 @@
           "node_type": "agent_role",
           "title": "世界观设计师 A",
           "task_id": "task.writing_team.long_novel.world_designer_a",
-          "agent_id": "agent:world_designer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "world_designer_a",
@@ -30573,6 +30633,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.world_designer_a",
           "projection_overlay_id": "projection.writing_team.long_novel.world_designer_a",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -30655,7 +30716,7 @@
           "node_type": "agent_role",
           "title": "世界观设计师 B",
           "task_id": "task.writing_team.long_novel.world_designer_b",
-          "agent_id": "agent:world_designer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "world_designer_b",
@@ -30671,6 +30732,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.world_designer_b",
           "projection_overlay_id": "projection.writing_team.long_novel.world_designer_b",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -30753,7 +30815,7 @@
           "node_type": "review_gate",
           "title": "世界观裁判",
           "task_id": "task.writing_team.long_novel.world_judge",
-          "agent_id": "agent:world_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "world_judge",
@@ -30767,6 +30829,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.world_judge",
           "projection_overlay_id": "projection.writing_team.long_novel.world_judge",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -30854,7 +30917,7 @@
           "node_type": "memory_resource",
           "title": "世界观入库",
           "task_id": "task.writing_team.long_novel.memory_commit_world",
-          "agent_id": "agent:memory_steward",
+          "agent_id": "agent:writing_memory_steward",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "memory_steward",
@@ -30868,6 +30931,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.memory_commit_world",
           "projection_overlay_id": "projection.writing_team.long_novel.memory_commit_world",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -30954,7 +31018,7 @@
           "node_type": "agent_role",
           "title": "大纲结构师 A",
           "task_id": "task.writing_team.long_novel.outline_designer_a",
-          "agent_id": "agent:outline_designer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "outline_designer_a",
@@ -30968,6 +31032,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.outline_designer_a",
           "projection_overlay_id": "projection.writing_team.long_novel.outline_designer_a",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -31049,7 +31114,7 @@
           "node_type": "agent_role",
           "title": "大纲结构师 B",
           "task_id": "task.writing_team.long_novel.outline_designer_b",
-          "agent_id": "agent:outline_designer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "outline_designer_b",
@@ -31063,6 +31128,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.outline_designer_b",
           "projection_overlay_id": "projection.writing_team.long_novel.outline_designer_b",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -31144,7 +31210,7 @@
           "node_type": "review_gate",
           "title": "大纲裁判",
           "task_id": "task.writing_team.long_novel.outline_judge",
-          "agent_id": "agent:outline_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "outline_judge",
@@ -31158,6 +31224,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.outline_judge",
           "projection_overlay_id": "projection.writing_team.long_novel.outline_judge",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -31243,7 +31310,7 @@
           "node_type": "memory_resource",
           "title": "大纲入库",
           "task_id": "task.writing_team.long_novel.memory_commit_outline",
-          "agent_id": "agent:memory_steward",
+          "agent_id": "agent:writing_memory_steward",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "memory_steward",
@@ -31257,6 +31324,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.memory_commit_outline",
           "projection_overlay_id": "projection.writing_team.long_novel.memory_commit_outline",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -31341,7 +31409,7 @@
           "node_type": "agent_role",
           "title": "人物设计师 A",
           "task_id": "task.writing_team.long_novel.character_designer_a",
-          "agent_id": "agent:character_designer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "character_designer_a",
@@ -31355,6 +31423,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.character_designer_a",
           "projection_overlay_id": "projection.writing_team.long_novel.character_designer_a",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -31437,7 +31506,7 @@
           "node_type": "agent_role",
           "title": "人物设计师 B",
           "task_id": "task.writing_team.long_novel.character_designer_b",
-          "agent_id": "agent:character_designer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "character_designer_b",
@@ -31451,6 +31520,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.character_designer_b",
           "projection_overlay_id": "projection.writing_team.long_novel.character_designer_b",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -31533,7 +31603,7 @@
           "node_type": "review_gate",
           "title": "人物裁判",
           "task_id": "task.writing_team.long_novel.character_judge",
-          "agent_id": "agent:character_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "character_judge",
@@ -31547,6 +31617,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.character_judge",
           "projection_overlay_id": "projection.writing_team.long_novel.character_judge",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -31632,7 +31703,7 @@
           "node_type": "memory_resource",
           "title": "人物入库",
           "task_id": "task.writing_team.long_novel.memory_commit_character",
-          "agent_id": "agent:memory_steward",
+          "agent_id": "agent:writing_memory_steward",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "memory_steward",
@@ -31646,6 +31717,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.memory_commit_character",
           "projection_overlay_id": "projection.writing_team.long_novel.memory_commit_character",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -31730,7 +31802,7 @@
           "node_type": "agent_role",
           "title": "章节细纲",
           "task_id": "task.writing_team.long_novel.chapter_plan",
-          "agent_id": "agent:chapter_planner",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "chapter_planner",
@@ -31744,6 +31816,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.chapter_plan",
           "projection_overlay_id": "projection.writing_team.long_novel.chapter_plan",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -31827,7 +31900,7 @@
           "node_type": "agent_role",
           "title": "作者 A 初稿",
           "task_id": "task.writing_team.long_novel.writer_a_draft",
-          "agent_id": "agent:novel_writer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "writer_a_draft",
@@ -31841,6 +31914,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.writer_a_draft",
           "projection_overlay_id": "projection.writing_team.long_novel.writer_a_draft",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -31924,7 +31998,7 @@
           "node_type": "agent_role",
           "title": "作者 B 审读",
           "task_id": "task.writing_team.long_novel.writer_b_review",
-          "agent_id": "agent:novel_writer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "writer_b_review",
@@ -31938,6 +32012,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.writer_b_review",
           "projection_overlay_id": "projection.writing_team.long_novel.writer_b_review",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -32021,7 +32096,7 @@
           "node_type": "agent_role",
           "title": "作者 A 修订",
           "task_id": "task.writing_team.long_novel.writer_a_revision",
-          "agent_id": "agent:novel_writer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "writer_a_revision",
@@ -32035,6 +32110,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.writer_a_revision",
           "projection_overlay_id": "projection.writing_team.long_novel.writer_a_revision",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -32118,7 +32194,7 @@
           "node_type": "agent_role",
           "title": "作者 B 终稿候选",
           "task_id": "task.writing_team.long_novel.writer_b_final_candidate",
-          "agent_id": "agent:novel_writer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "writer_b_final_candidate",
@@ -32132,6 +32208,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.writer_b_final_candidate",
           "projection_overlay_id": "projection.writing_team.long_novel.writer_b_final_candidate",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -32215,7 +32292,7 @@
           "node_type": "review_gate",
           "title": "独立裁判通关",
           "task_id": "task.writing_team.long_novel.novel_quality_judge",
-          "agent_id": "agent:novel_quality_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "novel_quality_judge",
@@ -32229,6 +32306,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.novel_quality_judge",
           "projection_overlay_id": "projection.writing_team.long_novel.novel_quality_judge",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -32321,7 +32399,7 @@
           "node_type": "agent_role",
           "title": "世界观偏差路由",
           "task_id": "task.writing_team.long_novel.world_deviation_router",
-          "agent_id": "agent:novel_quality_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "deviation_router",
@@ -32335,6 +32413,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.world_deviation_router",
           "projection_overlay_id": "projection.writing_team.long_novel.world_deviation_router",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -32417,7 +32496,7 @@
           "node_type": "agent_role",
           "title": "世界观修正 A",
           "task_id": "task.writing_team.long_novel.world_repair_a",
-          "agent_id": "agent:world_designer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "world_repair_a",
@@ -32433,6 +32512,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.world_repair_a",
           "projection_overlay_id": "projection.writing_team.long_novel.world_repair_a",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -32515,7 +32595,7 @@
           "node_type": "agent_role",
           "title": "世界观修正 B",
           "task_id": "task.writing_team.long_novel.world_repair_b",
-          "agent_id": "agent:world_designer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "world_repair_b",
@@ -32531,6 +32611,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.world_repair_b",
           "projection_overlay_id": "projection.writing_team.long_novel.world_repair_b",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -32613,7 +32694,7 @@
           "node_type": "agent_role",
           "title": "大纲偏差路由",
           "task_id": "task.writing_team.long_novel.outline_deviation_router",
-          "agent_id": "agent:novel_quality_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "deviation_router",
@@ -32627,6 +32708,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.outline_deviation_router",
           "projection_overlay_id": "projection.writing_team.long_novel.outline_deviation_router",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -32708,7 +32790,7 @@
           "node_type": "agent_role",
           "title": "大纲修正 A",
           "task_id": "task.writing_team.long_novel.outline_repair_a",
-          "agent_id": "agent:outline_designer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "outline_repair_a",
@@ -32722,6 +32804,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.outline_repair_a",
           "projection_overlay_id": "projection.writing_team.long_novel.outline_repair_a",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -32803,7 +32886,7 @@
           "node_type": "agent_role",
           "title": "大纲修正 B",
           "task_id": "task.writing_team.long_novel.outline_repair_b",
-          "agent_id": "agent:outline_designer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "outline_repair_b",
@@ -32817,6 +32900,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.outline_repair_b",
           "projection_overlay_id": "projection.writing_team.long_novel.outline_repair_b",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -32898,7 +32982,7 @@
           "node_type": "agent_role",
           "title": "人物偏差路由",
           "task_id": "task.writing_team.long_novel.character_deviation_router",
-          "agent_id": "agent:novel_quality_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "deviation_router",
@@ -32912,6 +32996,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.character_deviation_router",
           "projection_overlay_id": "projection.writing_team.long_novel.character_deviation_router",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -32993,7 +33078,7 @@
           "node_type": "agent_role",
           "title": "人物修正 A",
           "task_id": "task.writing_team.long_novel.character_repair_a",
-          "agent_id": "agent:character_designer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "character_repair_a",
@@ -33007,6 +33092,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.character_repair_a",
           "projection_overlay_id": "projection.writing_team.long_novel.character_repair_a",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -33088,7 +33174,7 @@
           "node_type": "agent_role",
           "title": "人物修正 B",
           "task_id": "task.writing_team.long_novel.character_repair_b",
-          "agent_id": "agent:character_designer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "character_repair_b",
@@ -33102,6 +33188,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.character_repair_b",
           "projection_overlay_id": "projection.writing_team.long_novel.character_repair_b",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -33183,7 +33270,7 @@
           "node_type": "memory_resource",
           "title": "章节入库",
           "task_id": "task.writing_team.long_novel.memory_commit_chapter",
-          "agent_id": "agent:memory_steward",
+          "agent_id": "agent:writing_memory_steward",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "memory_steward",
@@ -33197,6 +33284,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.memory_commit_chapter",
           "projection_overlay_id": "projection.writing_team.long_novel.memory_commit_chapter",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -33281,7 +33369,7 @@
           "node_type": "memory_resource",
           "title": "工作记忆收尾",
           "task_id": "task.writing_team.long_novel.memory_finalize",
-          "agent_id": "agent:memory_steward",
+          "agent_id": "agent:writing_memory_steward",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "memory_steward",
@@ -33295,6 +33383,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.memory_finalize",
           "projection_overlay_id": "projection.writing_team.long_novel.memory_finalize",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -35319,20 +35408,8 @@
         "coordinator_agent_id": "agent:0",
         "agent_group_id": "group.writing_team.long_novel",
         "participant_agent_ids": [
-          "agent:chapter_planner",
-          "agent:character_designer_a",
-          "agent:character_designer_b",
-          "agent:character_judge",
-          "agent:memory_steward",
-          "agent:novel_quality_judge",
-          "agent:novel_writer_a",
-          "agent:novel_writer_b",
-          "agent:outline_designer_a",
-          "agent:outline_designer_b",
-          "agent:outline_judge",
-          "agent:world_designer_a",
-          "agent:world_designer_b",
-          "agent:world_judge"
+          "agent:writing_team_worker",
+          "agent:writing_memory_steward"
         ],
         "default_execution_mode": "sync",
         "default_wait_policy": "wait_all_upstream_completed",
@@ -35610,7 +35687,7 @@
           "node_type": "agent_role",
           "title": "世界观设计师 A",
           "task_id": "task.writing_team.long_novel.world_designer_a",
-          "agent_id": "agent:world_designer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "world_designer_a",
@@ -35626,6 +35703,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.world_designer_a",
           "projection_overlay_id": "projection.writing_team.long_novel.world_designer_a",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -35708,7 +35786,7 @@
           "node_type": "agent_role",
           "title": "世界观设计师 B",
           "task_id": "task.writing_team.long_novel.world_designer_b",
-          "agent_id": "agent:world_designer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "world_designer_b",
@@ -35724,6 +35802,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.world_designer_b",
           "projection_overlay_id": "projection.writing_team.long_novel.world_designer_b",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -35806,7 +35885,7 @@
           "node_type": "review_gate",
           "title": "世界观裁判",
           "task_id": "task.writing_team.long_novel.world_judge",
-          "agent_id": "agent:world_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "world_judge",
@@ -35820,6 +35899,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.world_judge",
           "projection_overlay_id": "projection.writing_team.long_novel.world_judge",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -35907,7 +35987,7 @@
           "node_type": "memory_resource",
           "title": "世界观入库",
           "task_id": "task.writing_team.long_novel.memory_commit_world",
-          "agent_id": "agent:memory_steward",
+          "agent_id": "agent:writing_memory_steward",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "memory_steward",
@@ -35921,6 +36001,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.memory_commit_world",
           "projection_overlay_id": "projection.writing_team.long_novel.memory_commit_world",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -36007,7 +36088,7 @@
           "node_type": "agent_role",
           "title": "大纲结构师 A",
           "task_id": "task.writing_team.long_novel.outline_designer_a",
-          "agent_id": "agent:outline_designer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "outline_designer_a",
@@ -36021,6 +36102,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.outline_designer_a",
           "projection_overlay_id": "projection.writing_team.long_novel.outline_designer_a",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -36102,7 +36184,7 @@
           "node_type": "agent_role",
           "title": "大纲结构师 B",
           "task_id": "task.writing_team.long_novel.outline_designer_b",
-          "agent_id": "agent:outline_designer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "outline_designer_b",
@@ -36116,6 +36198,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.outline_designer_b",
           "projection_overlay_id": "projection.writing_team.long_novel.outline_designer_b",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -36197,7 +36280,7 @@
           "node_type": "review_gate",
           "title": "大纲裁判",
           "task_id": "task.writing_team.long_novel.outline_judge",
-          "agent_id": "agent:outline_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "outline_judge",
@@ -36211,6 +36294,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.outline_judge",
           "projection_overlay_id": "projection.writing_team.long_novel.outline_judge",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -36296,7 +36380,7 @@
           "node_type": "memory_resource",
           "title": "大纲入库",
           "task_id": "task.writing_team.long_novel.memory_commit_outline",
-          "agent_id": "agent:memory_steward",
+          "agent_id": "agent:writing_memory_steward",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "memory_steward",
@@ -36310,6 +36394,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.memory_commit_outline",
           "projection_overlay_id": "projection.writing_team.long_novel.memory_commit_outline",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -36394,7 +36479,7 @@
           "node_type": "agent_role",
           "title": "人物设计师 A",
           "task_id": "task.writing_team.long_novel.character_designer_a",
-          "agent_id": "agent:character_designer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "character_designer_a",
@@ -36408,6 +36493,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.character_designer_a",
           "projection_overlay_id": "projection.writing_team.long_novel.character_designer_a",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -36490,7 +36576,7 @@
           "node_type": "agent_role",
           "title": "人物设计师 B",
           "task_id": "task.writing_team.long_novel.character_designer_b",
-          "agent_id": "agent:character_designer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "character_designer_b",
@@ -36504,6 +36590,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.character_designer_b",
           "projection_overlay_id": "projection.writing_team.long_novel.character_designer_b",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -36586,7 +36673,7 @@
           "node_type": "review_gate",
           "title": "人物裁判",
           "task_id": "task.writing_team.long_novel.character_judge",
-          "agent_id": "agent:character_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "character_judge",
@@ -36600,6 +36687,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.character_judge",
           "projection_overlay_id": "projection.writing_team.long_novel.character_judge",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -36685,7 +36773,7 @@
           "node_type": "memory_resource",
           "title": "人物入库",
           "task_id": "task.writing_team.long_novel.memory_commit_character",
-          "agent_id": "agent:memory_steward",
+          "agent_id": "agent:writing_memory_steward",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "memory_steward",
@@ -36699,6 +36787,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.memory_commit_character",
           "projection_overlay_id": "projection.writing_team.long_novel.memory_commit_character",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -36783,7 +36872,7 @@
           "node_type": "agent_role",
           "title": "章节细纲",
           "task_id": "task.writing_team.long_novel.chapter_plan",
-          "agent_id": "agent:chapter_planner",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "chapter_planner",
@@ -36797,6 +36886,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.chapter_plan",
           "projection_overlay_id": "projection.writing_team.long_novel.chapter_plan",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -36880,7 +36970,7 @@
           "node_type": "agent_role",
           "title": "作者 A 初稿",
           "task_id": "task.writing_team.long_novel.writer_a_draft",
-          "agent_id": "agent:novel_writer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "writer_a_draft",
@@ -36894,6 +36984,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.writer_a_draft",
           "projection_overlay_id": "projection.writing_team.long_novel.writer_a_draft",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -36977,7 +37068,7 @@
           "node_type": "agent_role",
           "title": "作者 B 审读",
           "task_id": "task.writing_team.long_novel.writer_b_review",
-          "agent_id": "agent:novel_writer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "writer_b_review",
@@ -36991,6 +37082,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.writer_b_review",
           "projection_overlay_id": "projection.writing_team.long_novel.writer_b_review",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -37074,7 +37166,7 @@
           "node_type": "agent_role",
           "title": "作者 A 修订",
           "task_id": "task.writing_team.long_novel.writer_a_revision",
-          "agent_id": "agent:novel_writer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "writer_a_revision",
@@ -37088,6 +37180,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.writer_a_revision",
           "projection_overlay_id": "projection.writing_team.long_novel.writer_a_revision",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -37171,7 +37264,7 @@
           "node_type": "agent_role",
           "title": "作者 B 终稿候选",
           "task_id": "task.writing_team.long_novel.writer_b_final_candidate",
-          "agent_id": "agent:novel_writer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "writer_b_final_candidate",
@@ -37185,6 +37278,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.writer_b_final_candidate",
           "projection_overlay_id": "projection.writing_team.long_novel.writer_b_final_candidate",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -37268,7 +37362,7 @@
           "node_type": "review_gate",
           "title": "独立裁判通关",
           "task_id": "task.writing_team.long_novel.novel_quality_judge",
-          "agent_id": "agent:novel_quality_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "novel_quality_judge",
@@ -37282,6 +37376,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.novel_quality_judge",
           "projection_overlay_id": "projection.writing_team.long_novel.novel_quality_judge",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -37374,7 +37469,7 @@
           "node_type": "agent_role",
           "title": "世界观偏差路由",
           "task_id": "task.writing_team.long_novel.world_deviation_router",
-          "agent_id": "agent:novel_quality_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "deviation_router",
@@ -37388,6 +37483,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.world_deviation_router",
           "projection_overlay_id": "projection.writing_team.long_novel.world_deviation_router",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -37470,7 +37566,7 @@
           "node_type": "agent_role",
           "title": "世界观修正 A",
           "task_id": "task.writing_team.long_novel.world_repair_a",
-          "agent_id": "agent:world_designer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "world_repair_a",
@@ -37486,6 +37582,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.world_repair_a",
           "projection_overlay_id": "projection.writing_team.long_novel.world_repair_a",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -37568,7 +37665,7 @@
           "node_type": "agent_role",
           "title": "世界观修正 B",
           "task_id": "task.writing_team.long_novel.world_repair_b",
-          "agent_id": "agent:world_designer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "world_repair_b",
@@ -37584,6 +37681,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.world_repair_b",
           "projection_overlay_id": "projection.writing_team.long_novel.world_repair_b",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -37666,7 +37764,7 @@
           "node_type": "agent_role",
           "title": "大纲偏差路由",
           "task_id": "task.writing_team.long_novel.outline_deviation_router",
-          "agent_id": "agent:novel_quality_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "deviation_router",
@@ -37680,6 +37778,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.outline_deviation_router",
           "projection_overlay_id": "projection.writing_team.long_novel.outline_deviation_router",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -37761,7 +37860,7 @@
           "node_type": "agent_role",
           "title": "大纲修正 A",
           "task_id": "task.writing_team.long_novel.outline_repair_a",
-          "agent_id": "agent:outline_designer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "outline_repair_a",
@@ -37775,6 +37874,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.outline_repair_a",
           "projection_overlay_id": "projection.writing_team.long_novel.outline_repair_a",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -37856,7 +37956,7 @@
           "node_type": "agent_role",
           "title": "大纲修正 B",
           "task_id": "task.writing_team.long_novel.outline_repair_b",
-          "agent_id": "agent:outline_designer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "outline_repair_b",
@@ -37870,6 +37970,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.outline_repair_b",
           "projection_overlay_id": "projection.writing_team.long_novel.outline_repair_b",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -37951,7 +38052,7 @@
           "node_type": "agent_role",
           "title": "人物偏差路由",
           "task_id": "task.writing_team.long_novel.character_deviation_router",
-          "agent_id": "agent:novel_quality_judge",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "deviation_router",
@@ -37965,6 +38066,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.character_deviation_router",
           "projection_overlay_id": "projection.writing_team.long_novel.character_deviation_router",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -38046,7 +38148,7 @@
           "node_type": "agent_role",
           "title": "人物修正 A",
           "task_id": "task.writing_team.long_novel.character_repair_a",
-          "agent_id": "agent:character_designer_a",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "character_repair_a",
@@ -38060,6 +38162,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.character_repair_a",
           "projection_overlay_id": "projection.writing_team.long_novel.character_repair_a",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -38141,7 +38244,7 @@
           "node_type": "agent_role",
           "title": "人物修正 B",
           "task_id": "task.writing_team.long_novel.character_repair_b",
-          "agent_id": "agent:character_designer_b",
+          "agent_id": "agent:writing_team_worker",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "character_repair_b",
@@ -38155,6 +38258,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.character_repair_b",
           "projection_overlay_id": "projection.writing_team.long_novel.character_repair_b",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -38236,7 +38340,7 @@
           "node_type": "memory_resource",
           "title": "章节入库",
           "task_id": "task.writing_team.long_novel.memory_commit_chapter",
-          "agent_id": "agent:memory_steward",
+          "agent_id": "agent:writing_memory_steward",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "memory_steward",
@@ -38250,6 +38354,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.memory_commit_chapter",
           "projection_overlay_id": "projection.writing_team.long_novel.memory_commit_chapter",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {
@@ -38334,7 +38439,7 @@
           "node_type": "memory_resource",
           "title": "工作记忆收尾",
           "task_id": "task.writing_team.long_novel.memory_finalize",
-          "agent_id": "agent:memory_steward",
+          "agent_id": "agent:writing_memory_steward",
           "agent_selection_policy": "explicit_agent",
           "agent_group_id": "group.writing_team.long_novel",
           "work_posture": "memory_steward",
@@ -38348,6 +38453,7 @@
           },
           "projection_id": "projection.writing_team.long_novel.memory_finalize",
           "projection_overlay_id": "projection.writing_team.long_novel.memory_finalize",
+          "executor_policy": {},
           "failure_policy": {},
           "human_gate_policy": {},
           "memory_read_policy": {

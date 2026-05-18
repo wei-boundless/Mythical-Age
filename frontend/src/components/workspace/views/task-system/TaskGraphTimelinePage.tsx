@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from "react";
 
+import type { TaskGraphStandardView } from "@/lib/api";
+
 import { PhaseLifecycleEditor } from "./PhaseLifecycleEditor";
+import { buildTaskGraphTimelineStandardModel } from "./taskGraphStandardView";
 import { TaskSystemField, TaskSystemSelectField, taskSystemOptionLabel } from "./TaskSystemWorkbenchUi";
-import { buildTimelinePhases, buildTimelinePreflightIssues, coordinationPhaseDefinitions } from "./taskGraphTimeline";
+import { buildTimelinePhases, buildTimelinePreflightIssues, coordinationPhaseDefinitions, coordinationTimelineBlocks } from "./taskGraphTimeline";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
 
-type TimelineFacet = "phases" | "sequence" | "loops" | "revision";
+type TimelineFacet = "blocks" | "phases" | "sequence" | "edges" | "loops" | "revision";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -16,6 +19,10 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function nodeTitle(node: Record<string, unknown>) {
   return String(node.title ?? node.label ?? node.node_id ?? "节点");
+}
+
+function nodeId(node: Record<string, unknown>) {
+  return String(node.node_id ?? node.id ?? "").trim();
 }
 
 function booleanValue(value: unknown, fallback = false) {
@@ -31,26 +38,36 @@ export function TaskGraphTimelinePage({
   activeGraphEdges,
   taskGraphDraft,
   editorFocus,
+  standardView,
+  standardViewLoading,
   updateTaskGraphMetadata,
   updateTaskGraphNode,
+  updateTaskGraphEdge,
 }: {
   activeGraphNodes: Array<Record<string, unknown>>;
   activeGraphEdges: Array<Record<string, unknown>>;
   taskGraphDraft: TaskGraphDraftV2;
   editorFocus?: TaskGraphEditorFocus;
+  standardView: TaskGraphStandardView | null;
+  standardViewLoading?: boolean;
   updateTaskGraphMetadata: (patch: Record<string, unknown>) => void;
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
+  updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
 }) {
-  const [facet, setFacet] = useState<TimelineFacet>("phases");
+  const [facet, setFacet] = useState<TimelineFacet>("blocks");
   useEffect(() => {
     if (editorFocus?.layer !== "timeline") return;
     if (editorFocus.facet === "revision") setFacet("revision");
     if (editorFocus.facet === "phase") setFacet("phases");
+    if (editorFocus.facet === "blocks") setFacet("blocks");
+    if (editorFocus.facet === "edge_temporal") setFacet("edges");
     if (editorFocus.facet === "clock") setFacet("sequence");
   }, [editorFocus?.facet, editorFocus?.layer]);
   const metadata = asRecord(taskGraphDraft.metadata);
   const phaseDefinitions = coordinationPhaseDefinitions(metadata, activeGraphNodes);
+  const timelineBlocks = coordinationTimelineBlocks(metadata);
   const timelineIssues = buildTimelinePreflightIssues(activeGraphNodes, activeGraphEdges, metadata);
+  const standardTimelineModel = buildTaskGraphTimelineStandardModel(standardView);
   const issueByPhase = new Map<string, typeof timelineIssues>();
   for (const issue of timelineIssues) {
     const phaseId = String(issue.phase_id ?? "");
@@ -79,28 +96,129 @@ export function TaskGraphTimelinePage({
 
   const reviewNodes = activeGraphNodes.filter((node) => asRecord(node.review_gate_policy).is_review_gate === true || node.node_type === "review_gate");
   const loopNodes = activeGraphNodes.filter((node) => Object.keys(asRecord(node.loop_policy)).length > 0 || String(node.node_type ?? "") === "loop_frame");
+  const mainChainNodes = activeGraphNodes.filter((node) => node.main_chain === true || nodeId(node) === taskGraphDraft.entry_node_id || nodeId(node) === taskGraphDraft.output_node_id);
+  const asyncNodes = activeGraphNodes.filter((node) => ["async", "background", "parallel"].includes(String(node.execution_mode ?? "")));
   const revisionEdges = activeGraphEdges.filter((edge) => {
     const metadata = asRecord(edge.metadata);
     return String(edge.edge_type ?? edge.mode ?? "") === "revision_request" || String(metadata.verdict ?? "") === "revise";
   });
   const temporalEdges = activeGraphEdges.filter((edge) => {
     const metadata = asRecord(edge.metadata);
-    return String(edge.edge_type ?? edge.mode ?? "") === "temporal_dependency" || String(metadata.dependency_role ?? "").includes("temporal");
+    return String(edge.edge_type ?? edge.mode ?? "") === "temporal_dependency" || String(metadata.dependency_role ?? "").includes("temporal") || Object.keys(asRecord(metadata.temporal_semantics)).length > 0;
   });
+
+  const updateTimelineBlock = (blockId: string, patch: Record<string, unknown>) => {
+    const blocks = coordinationTimelineBlocks(metadata);
+    const nextBlocks = blocks.map((block) => block.block_id === blockId ? { ...block, ...patch } : block);
+    updateTaskGraphMetadata({ timeline_blocks: nextBlocks });
+  };
+
+  const addTimelineBlock = () => {
+    const nextIndex = timelineBlocks.length + 1;
+    const phase = phaseDefinitions[0];
+    const blockId = `block.phase.${nextIndex}`;
+    updateTaskGraphMetadata({
+      timeline_blocks: [
+        ...timelineBlocks,
+        {
+          block_id: blockId,
+          block_type: "phase_graph",
+          title: `阶段图块 ${nextIndex}`,
+          phase_id: phase?.phase_id ?? "phase.unassigned",
+          entry_node_id: phase?.entry_node_id ?? taskGraphDraft.entry_node_id,
+          exit_node_id: phase?.exit_node_id ?? taskGraphDraft.output_node_id,
+          handoff_contract_id: `${blockId}.handoff`,
+          visibility_policy: "committed_only",
+          version_ref: "draft",
+          detach_policy: "preserve_version_anchor",
+        },
+      ],
+    });
+  };
+
+  const patchEdgeTemporalSemantics = (edge: Record<string, unknown>, edgeId: string, patch: Record<string, unknown>) => {
+    const currentMetadata = asRecord(edge.metadata);
+    updateTaskGraphEdge(edgeId, {
+      edge_type: String(edge.edge_type ?? edge.mode ?? "") || "temporal_dependency",
+      metadata: {
+        ...currentMetadata,
+        dependency_role: String(currentMetadata.dependency_role ?? "temporal_handoff"),
+        temporal_semantics: {
+          ...asRecord(currentMetadata.temporal_semantics),
+          ...patch,
+        },
+      },
+    });
+  };
 
   return (
     <section className="task-graph-studio-page">
       <header className="task-graph-studio-page__head">
         <span>TaskGraph Studio</span>
-        <strong>时序与循环</strong>
-        <small>定义阶段、并行、审核门、返修和阶段退出条件。</small>
+        <strong>拓扑时序控制</strong>
+        <small>从主链、阶段、循环框、并发组和控制边编译节点激活窗口与执行许可。</small>
       </header>
+
+      <section className="task-graph-form-grid">
+        <article className="boundary-card task-graph-layer-explainer">
+          <header><strong>控制模型摘要</strong><span>由拓扑派生，不是业务数据库</span></header>
+          <div className="task-graph-mini-kv">
+            <p><span>阶段</span><strong>{phaseDefinitions.length}</strong></p>
+            <p><span>阶段图块</span><strong>{timelineBlocks.length}</strong></p>
+            <p><span>主链节点</span><strong>{mainChainNodes.length || "自动识别"}</strong></p>
+            <p><span>循环框</span><strong>{loopNodes.length}</strong></p>
+            <p><span>异步/并发</span><strong>{asyncNodes.length}</strong></p>
+            <p><span>审核门</span><strong>{reviewNodes.length}</strong></p>
+            <p><span>显式时序边</span><strong>{temporalEdges.length}</strong></p>
+          </div>
+        </article>
+        <article className="boundary-card task-graph-layer-explainer">
+          <header><strong>运行语义</strong><span>TaskGraph temporal coordinate</span></header>
+          <div className="task-graph-note">
+            <strong>节点激活窗口决定谁此刻能运行</strong>
+            <span>调度器只会给当前合法窗口签发 execution permit；节点返回时必须带回 activation 和 permit，否则监控会把它视为越界运行。</span>
+          </div>
+          <div className="task-graph-note">
+            <strong>循环框是静态模板，迭代坐标运行时展开</strong>
+            <span>循环体内部仍按 step / wait / join 分层；LangGraph step 只是执行机制，不能替代 TaskGraph 的时序坐标。</span>
+          </div>
+        </article>
+      </section>
+
+      <section className="task-graph-standard-board" aria-label="时序标准对象摘要">
+        <article className="boundary-card task-graph-standard-card">
+          <header><strong>标准时序对象</strong><span>{standardViewLoading ? "编译中" : `${standardTimelineModel.phases.length} phases`}</span></header>
+          <div className="task-graph-mini-kv">
+            <p><span>入口节点</span><strong>{standardTimelineModel.entryNodeId || "-"}</strong></p>
+            <p><span>出口节点</span><strong>{standardTimelineModel.outputNodeId || "-"}</strong></p>
+            <p><span>显式时序边</span><strong>{standardTimelineModel.temporalEdges.length}</strong></p>
+            <p><span>标准图块</span><strong>{standardTimelineModel.timelineBlocks.length}</strong></p>
+            <p><span>循环框</span><strong>{standardTimelineModel.loopFrames.length}</strong></p>
+          </div>
+          <div className="task-graph-note">
+            <strong>时序来自拓扑编译</strong>
+            <span>这里显示后端对主链、phase、loop frame 和 temporal edge 的编译结果，不是业务计划表，也不是运行数据库。</span>
+          </div>
+        </article>
+        <article className="boundary-card task-graph-standard-card">
+          <header><strong>运行提醒</strong><span>{standardTimelineModel.issueCount} issues</span></header>
+          <div className="task-graph-mini-kv">
+            <p><span>异步节点</span><strong>{standardTimelineModel.asyncNodeCount}</strong></p>
+            <p><span>Phase 数</span><strong>{standardTimelineModel.phases.length}</strong></p>
+            <p><span>图块数</span><strong>{standardTimelineModel.timelineBlocks.length}</strong></p>
+            <p><span>Loop frame</span><strong>{standardTimelineModel.loopFrames.length}</strong></p>
+            <p><span>诊断问题</span><strong>{standardTimelineModel.issueCount}</strong></p>
+          </div>
+        </article>
+      </section>
 
       <section className="task-graph-facet-switch" aria-label="时序配置分面">
         {[
-          ["phases", "阶段主数据", "phase / exit / gate"],
-          ["sequence", "调度约束", "sequence / wait / join"],
-          ["loops", "循环框", "loop frame / iteration"],
+          ["phases", "主链阶段", "phase / exit / gate"],
+          ["blocks", "阶段图块", "subgraph / stitch / detach"],
+          ["sequence", "执行许可条件", "sequence / wait / join"],
+          ["edges", "边时序语义", "trigger / visibility / ack"],
+          ["loops", "循环框", "static frame / runtime iteration"],
           ["revision", "审核回退", "revise / fail / carry"],
         ].map(([id, title, desc]) => (
           <button className={facet === id ? "active" : ""} key={id} onClick={() => setFacet(id as TimelineFacet)} type="button">
@@ -115,6 +233,79 @@ export function TaskGraphTimelinePage({
           <strong>来自发布诊断：{editorFocus.issue_id}</strong>
           <span>{editorFocus.edge_id ? `边 ${editorFocus.edge_id}` : editorFocus.node_id ? `节点 ${editorFocus.node_id}` : "请检查当前分面的时序配置。"} </span>
         </div>
+      ) : null}
+
+      {facet === "blocks" ? (
+        <section className="boundary-card">
+          <header><strong>阶段图块拼接</strong><span>{timelineBlocks.length} 个图块</span></header>
+          <div className="task-graph-note">
+            <strong>子图独立，顶层拼接</strong>
+            <span>阶段图块描述设计图、创作图、收尾图这类可独立预检和保存的结构；顶层时序只管理入口、出口、交接契约、可见性和版本锚点。</span>
+          </div>
+          <div className="task-graph-topology-actions">
+            <button onClick={addTimelineBlock} type="button">
+              <span>新增阶段图块</span>
+            </button>
+          </div>
+          <div className="task-graph-node-policy-list">
+            {timelineBlocks.map((block) => (
+              <article className="task-graph-node-policy-row task-graph-node-policy-row--wide" key={block.block_id}>
+                <div className="task-graph-node-policy-row__identity">
+                  <strong>{block.title}</strong>
+                  <span>{block.block_id}</span>
+                </div>
+                <TaskSystemField label="中文名">
+                  <input onChange={(event) => updateTimelineBlock(block.block_id, { title: event.target.value })} value={block.title} />
+                </TaskSystemField>
+                <TaskSystemSelectField
+                  label="图块类型"
+                  onChange={(value) => updateTimelineBlock(block.block_id, { block_type: value })}
+                  options={["phase_graph", "design_graph", "creation_graph", "closing_graph", "review_graph"]}
+                  value={block.block_type}
+                />
+                <TaskSystemSelectField
+                  label="所属阶段"
+                  onChange={(value) => updateTimelineBlock(block.block_id, { phase_id: value })}
+                  options={phaseDefinitions.map((phase) => phase.phase_id)}
+                  value={block.phase_id}
+                />
+                <TaskSystemField label="子图引用">
+                  <input onChange={(event) => updateTimelineBlock(block.block_id, { linked_graph_id: event.target.value })} placeholder="graph.design.initialization" value={block.linked_graph_id ?? ""} />
+                </TaskSystemField>
+                <TaskSystemField label="入口节点">
+                  <input onChange={(event) => updateTimelineBlock(block.block_id, { entry_node_id: event.target.value })} value={block.entry_node_id ?? ""} />
+                </TaskSystemField>
+                <TaskSystemField label="出口节点">
+                  <input onChange={(event) => updateTimelineBlock(block.block_id, { exit_node_id: event.target.value })} value={block.exit_node_id ?? ""} />
+                </TaskSystemField>
+                <TaskSystemField label="交接契约">
+                  <input onChange={(event) => updateTimelineBlock(block.block_id, { handoff_contract_id: event.target.value })} value={block.handoff_contract_id ?? ""} />
+                </TaskSystemField>
+                <TaskSystemSelectField
+                  label="可见性"
+                  onChange={(value) => updateTimelineBlock(block.block_id, { visibility_policy: value })}
+                  options={["committed_only", "summary_and_refs", "manual_release", "isolated_until_commit"]}
+                  value={block.visibility_policy ?? "committed_only"}
+                />
+                <TaskSystemField label="版本锚点">
+                  <input onChange={(event) => updateTimelineBlock(block.block_id, { version_ref: event.target.value })} placeholder="v1 / draft / published" value={block.version_ref ?? ""} />
+                </TaskSystemField>
+                <TaskSystemSelectField
+                  label="断开策略"
+                  onChange={(value) => updateTimelineBlock(block.block_id, { detach_policy: value })}
+                  options={["preserve_version_anchor", "fork_as_independent_graph", "require_rehandoff_packet"]}
+                  value={block.detach_policy ?? "preserve_version_anchor"}
+                />
+              </article>
+            ))}
+            {!timelineBlocks.length ? (
+              <div className="task-graph-note">
+                <strong>还没有阶段图块</strong>
+                <span>新增图块后，设计阶段、正式创作阶段和收尾阶段就可以作为独立子图被顶层时序拼接。</span>
+              </div>
+            ) : null}
+          </div>
+        </section>
       ) : null}
 
       {facet === "phases" ? (
@@ -140,7 +331,7 @@ export function TaskGraphTimelinePage({
               </div>
               <div className="task-graph-note">
                 <strong>阶段是时序容器</strong>
-                <span>阶段和循环框定义 scope，运行时由 TimelineLedger 分配 clock；节点只是事件参与者。</span>
+                <span>阶段和循环框定义拓扑 scope；运行时控制层打开节点窗口并签发执行许可，clock ledger 只记录已经发生的事件顺序。</span>
               </div>
             </article>
 
@@ -163,9 +354,88 @@ export function TaskGraphTimelinePage({
         </>
       ) : null}
 
+      {facet === "edges" ? (
+        <section className="boundary-card">
+          <header><strong>边时序语义</strong><span>{activeGraphEdges.length} 条边</span></header>
+          <div className="task-graph-note">
+            <strong>边不是执行端，但边必须有关系时序</strong>
+            <span>这里声明上游结果何时触发下游、何时可见、是否需要确认、如何传播，以及是否允许跨阶段。</span>
+          </div>
+          <div className="task-graph-node-policy-list">
+            {activeGraphEdges.map((edge, index) => {
+              const edgeId = String(edge.edge_id ?? edge.id ?? `${String(edge.source_node_id ?? edge.from ?? "source")}-${String(edge.target_node_id ?? edge.to ?? "target")}-${index}`);
+              const edgeMetadata = asRecord(edge.metadata);
+              const temporal = asRecord(edgeMetadata.temporal_semantics);
+              return (
+                <article className="task-graph-node-policy-row task-graph-node-policy-row--wide" key={edgeId}>
+                  <div className="task-graph-node-policy-row__identity">
+                    <strong>{String(edge.source_node_id ?? edge.from ?? "")} {"->"} {String(edge.target_node_id ?? edge.to ?? "")}</strong>
+                    <span>{edgeId}</span>
+                  </div>
+                  <TaskSystemSelectField
+                    label="触发时序"
+                    onChange={(value) => patchEdgeTemporalSemantics(edge, edgeId, { trigger_timing: value })}
+                    options={["after_source_success", "after_required_contracts", "manual_release", "phase_entry", "phase_exit"]}
+                    value={String(temporal.trigger_timing ?? "after_source_success")}
+                  />
+                  <TaskSystemSelectField
+                    label="可见时序"
+                    onChange={(value) => patchEdgeTemporalSemantics(edge, edgeId, { visibility_timing: value })}
+                    options={["same_clock", "next_clock", "after_commit", "next_iteration", "manual_release"]}
+                    value={String(temporal.visibility_timing ?? "after_commit")}
+                  />
+                  <TaskSystemSelectField
+                    label="确认时序"
+                    onChange={(value) => patchEdgeTemporalSemantics(edge, edgeId, { acknowledgement_timing: value })}
+                    options={["no_ack", "explicit_ack", "ack_before_downstream", "ack_before_phase_exit"]}
+                    value={String(temporal.acknowledgement_timing ?? "explicit_ack")}
+                  />
+                  <TaskSystemSelectField
+                    label="传播时序"
+                    onChange={(value) => patchEdgeTemporalSemantics(edge, edgeId, { propagation_timing: value })}
+                    options={["immediate", "buffer_until_commit", "summary_only", "refs_only", "blocked_on_failure"]}
+                    value={String(temporal.propagation_timing ?? "buffer_until_commit")}
+                  />
+                  <TaskSystemSelectField
+                    label="阶段时序"
+                    onChange={(value) => patchEdgeTemporalSemantics(edge, edgeId, { phase_timing: value })}
+                    options={["within_phase", "cross_phase_handoff", "blocks_phase_exit", "revision_return", "non_blocking_feedback"]}
+                    value={String(temporal.phase_timing ?? "within_phase")}
+                  />
+                  <TaskSystemField label="说明" wide>
+                    <textarea
+                      onChange={(event) => patchEdgeTemporalSemantics(edge, edgeId, { temporal_note: event.target.value })}
+                      placeholder="说明这条边在时序上的交接规则，尤其是跨阶段、回退、提交可见性。"
+                      value={String(temporal.temporal_note ?? "")}
+                    />
+                  </TaskSystemField>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
       {facet === "sequence" ? (
         <section className="boundary-card">
-          <header><strong>节点调度约束</strong><span>{temporalEdges.length} 条显式时序边</span></header>
+          <header><strong>节点执行许可条件</strong><span>{temporalEdges.length} 条显式时序边</span></header>
+          <div className="task-graph-note">
+            <strong>一个节点是否能启动，由拓扑位置和上游交接共同决定</strong>
+            <span>sequence、wait、join、phase 和显式时序边共同决定 permit 是否可签发；边本身不是一个时序点，但边的交接完成会改变下游节点是否满足条件。</span>
+          </div>
+          {standardTimelineModel.phases.length ? (
+            <div className="task-graph-standard-list">
+              {standardTimelineModel.phases.map((phase) => {
+                const phaseId = String(phase.phase_id ?? phase.id ?? "phase");
+                return (
+                  <article className="task-graph-standard-list__item" key={phaseId}>
+                    <strong>{phaseId}</strong>
+                    <span>{standardTimelineModel.phaseNodeCounts[phaseId] ?? 0} nodes</span>
+                  </article>
+                );
+              })}
+            </div>
+          ) : null}
           <div className="task-graph-node-policy-list">
             {activeGraphNodes.map((node, index) => {
               const nodeId = String(node.node_id ?? "");

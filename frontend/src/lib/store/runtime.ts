@@ -296,7 +296,6 @@ export class WorkspaceRuntime {
         messages: [],
         tokenStats: null
       }));
-      this.startOrchestrationMonitorPolling(created.id);
       return created.id;
     })();
 
@@ -327,12 +326,11 @@ export class WorkspaceRuntime {
       taskGraphRunMonitor: null,
       tokenStats: null
     }));
-    this.startOrchestrationMonitorPolling(sessionId);
     await this.refreshSessions();
   }
 
   private async selectSession(sessionId: string) {
-    this.startOrchestrationMonitorPolling(sessionId);
+    this.stopOrchestrationMonitorPolling();
     const streamingCache = this.streamingSessionCache.get(sessionId);
     if (this.store.getState().activeStreamSessionIds.includes(sessionId) && streamingCache) {
       this.store.setState((prev) => ({
@@ -416,6 +414,7 @@ export class WorkspaceRuntime {
       orchestrationSnapshot: streamState.orchestrationSnapshot
     });
     this.addActiveStreamSession(sessionId);
+    this.startOrchestrationMonitorPolling(sessionId);
     if (this.store.getState().currentSessionId === sessionId) {
       this.applyVisibleStreamState(streamState, this.store.getState().activeStreamSessionIds);
     }
@@ -798,14 +797,20 @@ export class WorkspaceRuntime {
     if (!normalized) {
       return;
     }
+    let shouldPoll = false;
     this.store.setState((prev) => ({
       ...prev,
       taskGraphMonitorBinding: normalized,
       taskGraphMonitorError: "",
       taskGraphRunInteractionOpen: prev.taskGraphRunInteractionOpen || Boolean(prev.taskGraphMonitorDecision?.action && prev.taskGraphMonitorDecision.action !== "no_action"),
     }));
+    shouldPoll = this.store.getState().taskGraphRunInteractionOpen;
     this.persistTaskGraphMonitorBinding(normalized);
-    this.startTaskGraphMonitorPolling(normalized.task_run_id);
+    if (shouldPoll) {
+      this.startTaskGraphMonitorPolling(normalized.task_run_id);
+    } else {
+      this.stopTaskGraphMonitorPolling();
+    }
   }
 
   private clearTaskGraphMonitorRun() {
@@ -824,6 +829,14 @@ export class WorkspaceRuntime {
 
   private setTaskGraphRunInteractionOpen(open: boolean) {
     this.store.setState((prev) => ({ ...prev, taskGraphRunInteractionOpen: open }));
+    const binding = this.store.getState().taskGraphMonitorBinding;
+    if (open && binding?.task_run_id) {
+      this.startTaskGraphMonitorPolling(binding.task_run_id);
+      return;
+    }
+    if (!open) {
+      this.stopTaskGraphMonitorPolling();
+    }
   }
 
   private restoreTaskGraphMonitorBinding() {
@@ -852,7 +865,9 @@ export class WorkspaceRuntime {
         ...prev,
         taskGraphMonitorBinding: normalized,
       }));
-      this.startTaskGraphMonitorPolling(normalized.task_run_id);
+      if (this.store.getState().taskGraphRunInteractionOpen) {
+        this.startTaskGraphMonitorPolling(normalized.task_run_id);
+      }
     } catch {
       // Binding persistence is convenience state only.
     }
@@ -1085,11 +1100,19 @@ export class WorkspaceRuntime {
     }
     this.orchestrationMonitorInFlight = true;
     try {
-      await this.hydrateLatestOrchestrationSnapshot(targetSessionId);
+      const shouldContinue = await this.hydrateLatestOrchestrationSnapshot(targetSessionId);
+      if (!shouldContinue && !this.store.getState().activeStreamSessionIds.includes(targetSessionId)) {
+        this.stopOrchestrationMonitorPolling();
+        return;
+      }
     } finally {
       this.orchestrationMonitorInFlight = false;
       if (this.orchestrationMonitorSessionId === targetSessionId) {
-        this.scheduleNextOrchestrationMonitorPoll(targetSessionId);
+        if (this.store.getState().activeStreamSessionIds.includes(targetSessionId)) {
+          this.scheduleNextOrchestrationMonitorPoll(targetSessionId);
+        } else {
+          this.stopOrchestrationMonitorPolling();
+        }
       }
     }
   }
@@ -1103,15 +1126,16 @@ export class WorkspaceRuntime {
     const sessionId = this.store.getState().currentSessionId;
     if (sessionId) {
       await this.hydrateLatestOrchestrationSnapshot(sessionId);
+      this.startOrchestrationMonitorPolling(sessionId);
     }
   }
 
-  private async hydrateLatestOrchestrationSnapshot(sessionId: string) {
+  private async hydrateLatestOrchestrationSnapshot(sessionId: string): Promise<boolean> {
     const targetSessionId = sessionId.trim();
     const requestId = ++this.orchestrationHydrateRequest;
     if (!targetSessionId) {
       this.store.setState((prev) => ({ ...prev, taskGraphLiveMonitor: null, taskGraphRunMonitor: null }));
-      return;
+      return false;
     }
     try {
       const liveMonitor = await getOrchestrationRuntimeLoopSessionLiveMonitor(targetSessionId);
@@ -1119,8 +1143,10 @@ export class WorkspaceRuntime {
         if (this.store.getState().currentSessionId === targetSessionId && this.orchestrationHydrateRequest === requestId) {
           this.store.setState((prev) => ({ ...prev, taskGraphLiveMonitor: null, taskGraphRunMonitor: null }));
         }
-        return;
+        return false;
       }
+      const liveStatus = String(liveMonitor.monitor.status ?? liveMonitor.monitor.task_run?.status ?? "").trim();
+      const hasActiveGraphRun = Boolean(liveMonitor.monitor.has_coordination) && ["created", "running", "waiting_approval", "blocked"].includes(liveStatus);
       const taskRunId = String(liveMonitor.monitor.task_run?.task_run_id ?? "").trim();
       const coordinationRunId = String(
         liveMonitor.latest_coordination_run_id
@@ -1140,8 +1166,10 @@ export class WorkspaceRuntime {
           taskGraphRunMonitor,
         }));
       }
+      return hasActiveGraphRun;
     } catch {
       // Keep current snapshot on transient runtime-loop query failures.
+      return false;
     }
   }
 

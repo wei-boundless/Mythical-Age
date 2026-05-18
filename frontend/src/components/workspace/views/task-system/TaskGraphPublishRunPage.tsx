@@ -40,14 +40,17 @@ function repairActionLabel(issue: TaskGraphPreflightIssue) {
   if (issue.source === "frontend.preflight.memory_selector") return "配置 Selector";
   if (issue.source === "frontend.preflight.memory_commit_path") return "补提交路径";
   if (issue.source === "frontend.preflight.revision_packet") return "补返修包";
+  if (issue.source === "frontend.preflight.artifact") return "配置产物目标";
+  if (issue.source === "frontend.preflight.human_gate") return "配置人工工作单";
   if (issue.source === "frontend.preflight.timeline" && issue.scope === "phase") return "补阶段定义";
   return "";
 }
 
 function preflightIssueGroup(issue: TaskGraphPreflightIssue) {
   if (issue.source.includes("projection") || issue.source.includes("prompt") || issue.source.includes("cognition")) return "职责与输入包";
-  if (issue.source.includes("memory") || issue.source.includes("receipt")) return "记忆与可见性";
-  if (issue.source.includes("timeline") || issue.source.includes("revision")) return "时序与循环";
+  if (issue.source.includes("memory") || issue.source.includes("artifact") || issue.source.includes("commit_visibility")) return "资源流";
+  if (issue.source.includes("timeline") || issue.source.includes("revision")) return "拓扑时序";
+  if (issue.source.includes("human_gate") || issue.source.includes("manual")) return "人工执行";
   if (issue.source.includes("contract") || issue.source.includes("review_gate")) return "契约与质量门";
   if (issue.source.includes("runtime") || issue.source.includes("scheduler")) return "运行装配";
   return "图结构";
@@ -133,6 +136,8 @@ export function TaskGraphPublishRunPage({
       return groups;
     }, new Map<string, TaskGraphPreflightIssue[]>()),
   );
+  const boundTemporal = taskGraphBoundRunMonitor?.temporal;
+  const boundTemporalViolations = boundTemporal?.violations ?? [];
 
   async function compileRuntimeSpec() {
     if (!graphId) return;
@@ -490,9 +495,30 @@ export function TaskGraphPublishRunPage({
             <div className="task-graph-mini-kv">
               <p><span>状态</span><strong>{taskGraphBoundRunMonitor.runtime?.status || "unknown"}</strong></p>
               <p><span>当前节点</span><strong>{taskGraphBoundRunMonitor.runtime?.active_node_id || "-"}</strong></p>
+              <p><span>Activation</span><strong>{boundTemporal?.active_activation_id || "-"}</strong></p>
+              <p><span>执行许可</span><strong>{boundTemporal?.active_execution_permit_id || "-"}</strong></p>
+              <p><span>边界</span><strong>{boundTemporal?.boundary_valid ? "有效" : "未闭合"}</strong></p>
+              <p><span>时序违规</span><strong>{boundTemporalViolations.length}</strong></p>
               <p><span>事件</span><strong>{taskGraphBoundRunMonitor.runtime?.event_count ?? 0}</strong></p>
               <p><span>流式</span><strong>{taskGraphBoundRunMonitor.streaming?.enabled ? `${taskGraphBoundRunMonitor.streaming.chunk_count} 片 / ${taskGraphBoundRunMonitor.streaming.accumulated_chars} 字` : "未启用"}</strong></p>
             </div>
+            {boundTemporalViolations.length ? (
+              <div className="task-graph-preflight-list">
+                {boundTemporalViolations.slice(0, 4).map((issue, index) => (
+                  <article className="task-graph-preflight-row" key={`${issue.code}:${issue.target_id}:${index}`}>
+                    <span className={`task-graph-preflight-row__severity task-graph-preflight-row__severity--${issue.severity || "error"}`}>
+                      {issue.severity || "error"}
+                    </span>
+                    <div>
+                      <strong>{issue.code || "temporal_violation"}</strong>
+                      <span>{issue.message || "节点运行不在当前拓扑时序许可窗口内。"}</span>
+                    </div>
+                    <em>{issue.target_id || boundTemporal?.active_node_id || "runtime"}</em>
+                    <small>monitor.temporal</small>
+                  </article>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
         {taskGraphMonitorDecision ? (

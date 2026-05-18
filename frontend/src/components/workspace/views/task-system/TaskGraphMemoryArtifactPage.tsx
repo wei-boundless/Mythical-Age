@@ -1,12 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Database, FileStack, ListChecks, Plus, ScrollText } from "lucide-react";
+import { Database, FileStack, Plus } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-import { ArtifactPolicyEditor } from "./ArtifactPolicyEditor";
+import {
+  getArtifactRepositoryOverview,
+  getFormalMemoryOverview,
+  type ArtifactRepositoryOverview,
+  type FormalMemoryOverview,
+  type TaskGraphStandardView,
+} from "@/lib/api";
+
+import { buildTaskGraphResourceStandardModel, describeTaskGraphStandardEdge } from "./taskGraphStandardView";
 import { TaskSystemField, TaskSystemSelectField, taskSystemOptionLabel } from "./TaskSystemWorkbenchUi";
-import { WorkingMemoryPolicyEditor } from "./WorkingMemoryPolicyEditor";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
 import {
@@ -22,7 +29,7 @@ import {
   type TaskGraphMemoryRepositoryView,
 } from "./taskGraphMemoryMatrix";
 
-type MemoryFacet = "repositories" | "matrix" | "selector" | "snapshot" | "artifact_context";
+type MemoryFacet = "repositories" | "matrix" | "selector" | "snapshot" | "artifact_context" | "formal_store" | "artifact_store";
 type MatrixOperationValue = "forbidden" | "read" | "write_candidate" | "read_write_candidate" | "commit";
 type ResourceTemplate = {
   kind: string;
@@ -45,20 +52,6 @@ const RESOURCE_NODE_TEMPLATES: ResourceTemplate[] = [
     title: "产物仓库",
     idPrefix: "artifact.repository",
     icon: FileStack,
-    defaultPolicy: { versioning: "append_version", mutable: true },
-  },
-  {
-    kind: "progress_ledger",
-    title: "进度账本",
-    idPrefix: "progress.ledger",
-    icon: ListChecks,
-    defaultPolicy: { versioning: "append_version", mutable: true },
-  },
-  {
-    kind: "issue_ledger",
-    title: "问题台账",
-    idPrefix: "issue.ledger",
-    icon: ScrollText,
     defaultPolicy: { versioning: "append_version", mutable: true },
   },
 ];
@@ -93,7 +86,7 @@ function repositoryCollectionsFromNode(node?: Record<string, unknown>) {
         record_kinds: [],
         key_strategy: "stable_key",
         default_version_selector: "latest_committed_before_clock",
-        required_receipt_status: "committed",
+        required_commit_status: "committed",
       };
     }
     const record = asRecord(item);
@@ -104,7 +97,7 @@ function repositoryCollectionsFromNode(node?: Record<string, unknown>) {
       key_strategy: String(record.key_strategy ?? "stable_key"),
       schema_ref: String(record.schema_ref ?? record.schema_id ?? ""),
       default_version_selector: String(record.default_version_selector ?? "latest_committed_before_clock"),
-      required_receipt_status: String(record.required_receipt_status ?? "committed"),
+      required_commit_status: String(record.required_commit_status ?? "committed"),
     };
   });
 }
@@ -145,32 +138,31 @@ export function TaskGraphMemoryArtifactPage({
   activeGraphNodes,
   activeGraphEdges,
   taskGraphDraft,
-  updateContextPolicy,
   updateTaskGraphDraft,
-  updateTaskGraphMetadata,
-  updateWorkingMemoryPolicy,
   updateTaskGraphEdge,
   updateTaskGraphNode,
   editorFocus,
   onEditorFocus,
+  standardView,
+  standardViewLoading,
 }: {
   activeGraphNodes: Array<Record<string, unknown>>;
   activeGraphEdges: Array<Record<string, unknown>>;
   taskGraphDraft: TaskGraphDraftV2;
-  updateContextPolicy: (patch: Partial<TaskGraphDraftV2["context_policy"]>) => void;
   updateTaskGraphDraft: (patch: Partial<TaskGraphDraftV2>) => void;
-  updateTaskGraphMetadata: (patch: Record<string, unknown>) => void;
-  updateWorkingMemoryPolicy: (patch: Partial<TaskGraphDraftV2["working_memory_policy"]>) => void;
   updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
   editorFocus?: TaskGraphEditorFocus;
   onEditorFocus?: (focus: Partial<TaskGraphEditorFocus> & { layer?: TaskGraphEditorFocus["layer"] }) => void;
+  standardView: TaskGraphStandardView | null;
+  standardViewLoading?: boolean;
 }) {
   const [facet, setFacet] = useState<MemoryFacet>("repositories");
   const memoryModel = useMemo(
     () => buildTaskGraphMemoryModel({ nodes: activeGraphNodes, edges: activeGraphEdges }),
     [activeGraphNodes, activeGraphEdges],
   );
+  const standardResourceModel = useMemo(() => buildTaskGraphResourceStandardModel(standardView), [standardView]);
   const firstRepositoryId = memoryModel.repositories[0]?.nodeId ?? "";
   const firstMemoryEdgeId = memoryModel.memoryEdges[0]?.edgeId ?? "";
   const firstSnapshotNodeId = memoryModel.snapshots[0]?.nodeId ?? "";
@@ -178,9 +170,11 @@ export function TaskGraphMemoryArtifactPage({
   const [selectedMemoryEdgeId, setSelectedMemoryEdgeId] = useState(firstMemoryEdgeId);
   const [selectedSnapshotNodeId, setSelectedSnapshotNodeId] = useState(firstSnapshotNodeId);
   const [selectedCellKey, setSelectedCellKey] = useState("");
-  const metadata = asRecord(taskGraphDraft.metadata);
-  const workingMemoryPolicy = asRecord(taskGraphDraft.working_memory_policy);
-  const graphArtifactPolicy = asRecord(metadata.artifact_policy);
+  const [managementTaskRunId, setManagementTaskRunId] = useState("");
+  const [formalOverview, setFormalOverview] = useState<FormalMemoryOverview | null>(null);
+  const [artifactOverview, setArtifactOverview] = useState<ArtifactRepositoryOverview | null>(null);
+  const [managementLoading, setManagementLoading] = useState(false);
+  const [managementError, setManagementError] = useState("");
   const selectedRepository = memoryModel.repositories.find((repository) => repository.nodeId === selectedRepositoryNodeId)
     ?? memoryModel.repositories[0]
     ?? null;
@@ -213,7 +207,7 @@ export function TaskGraphMemoryArtifactPage({
   useEffect(() => {
     if (editorFocus?.layer !== "memory") return;
     const focusFacet = String(editorFocus.facet ?? "");
-    if (["repositories", "matrix", "selector", "snapshot", "artifact_context"].includes(focusFacet)) {
+    if (["repositories", "matrix", "selector", "snapshot", "artifact_context", "formal_store", "artifact_store"].includes(focusFacet)) {
       setFacet(focusFacet as MemoryFacet);
     }
     if (editorFocus.repository_id) {
@@ -244,14 +238,37 @@ export function TaskGraphMemoryArtifactPage({
     memoryModel.repositories,
   ]);
 
-  const updateArtifactPolicy = (patch: Record<string, unknown>) => {
-    updateTaskGraphMetadata({
-      artifact_policy: {
-        ...graphArtifactPolicy,
-        ...patch,
-      },
-    });
-  };
+  useEffect(() => {
+    if (facet !== "formal_store" && facet !== "artifact_store") return;
+    let cancelled = false;
+    setManagementLoading(true);
+    setManagementError("");
+    const repositoryId = selectedRepository?.repositoryId ?? "";
+    const payload = {
+      task_run_id: managementTaskRunId,
+      repository_id: repositoryId,
+      limit: 250,
+    };
+    const load = facet === "formal_store" ? getFormalMemoryOverview(payload) : getArtifactRepositoryOverview(payload);
+    void load
+      .then((overview) => {
+        if (cancelled) return;
+        if (facet === "formal_store") {
+          setFormalOverview(overview as FormalMemoryOverview);
+        } else {
+          setArtifactOverview(overview as ArtifactRepositoryOverview);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setManagementError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (!cancelled) setManagementLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [facet, managementTaskRunId, selectedRepository?.repositoryId]);
 
   const createResourceNode = (template: ResourceTemplate) => {
     const existingIds = new Set(activeGraphNodes.map((node) => String(node.node_id ?? "")));
@@ -272,7 +289,7 @@ export function TaskGraphMemoryArtifactPage({
             record_kinds: [],
             key_strategy: "stable_key",
             default_version_selector: "latest_committed_before_clock",
-            required_receipt_status: "committed",
+            required_commit_status: "committed",
           }],
         },
       }
@@ -356,7 +373,7 @@ export function TaskGraphMemoryArtifactPage({
               record_kinds: [],
               key_strategy: "stable_key",
               default_version_selector: "latest_committed_before_clock",
-              required_receipt_status: "committed",
+              required_commit_status: "committed",
             },
           ],
         },
@@ -395,23 +412,50 @@ export function TaskGraphMemoryArtifactPage({
     <section className="task-graph-studio-page">
       <header className="task-graph-studio-page__head">
         <span>TaskGraph Studio</span>
-        <strong>通用记忆与产物</strong>
-        <small>用仓库节点、读写边、selector 和 receipt 可见性决定节点实际能读到什么、能写入什么。</small>
+        <strong>资源流</strong>
+        <small>用仓库节点、读写边、selector 和提交可见性决定节点实际能读到什么、能写入什么。</small>
       </header>
 
-      <section className="task-graph-facet-switch" aria-label="记忆与产物配置分面">
+      <section className="task-graph-facet-switch" aria-label="资源流配置分面">
         {[
           ["repositories", "仓库结构", "repository / collection"],
           ["matrix", "读写矩阵", "node x collection"],
-          ["selector", "Selector 配置", "read / version / receipt"],
+          ["selector", "Selector 配置", "read / version / visibility"],
           ["snapshot", "Snapshot 预览", "node input preview"],
           ["artifact_context", "产物上下文", "artifact packet"],
+          ["formal_store", "记忆库管理", "run records / logs"],
+          ["artifact_store", "产物库管理", "run artifacts"],
         ].map(([id, title, desc]) => (
           <button className={facet === id ? "active" : ""} key={id} onClick={() => setFacet(id as MemoryFacet)} type="button">
             <strong>{title}</strong>
             <span>{desc}</span>
           </button>
         ))}
+      </section>
+
+      <section className="task-graph-standard-board" aria-label="资源标准对象摘要">
+        <article className="boundary-card task-graph-standard-card">
+          <header><strong>标准资源对象</strong><span>{standardViewLoading ? "编译中" : `${standardResourceModel.resources.length} resources`}</span></header>
+          <div className="task-graph-mini-kv">
+            <p><span>记忆仓库</span><strong>{standardResourceModel.memoryResources.length}</strong></p>
+            <p><span>产物仓库</span><strong>{standardResourceModel.artifactResources.length}</strong></p>
+            <p><span>记忆边</span><strong>{standardResourceModel.memoryEdges.length}</strong></p>
+            <p><span>产物边</span><strong>{standardResourceModel.artifactEdges.length}</strong></p>
+          </div>
+          <div className="task-graph-note">
+            <strong>资源页以标准对象视图校对当前配置</strong>
+            <span>前端矩阵和 selector 只是编辑手段；后端编译出的 resource / edge / isolation 才是 runtime 最终消费的结构。</span>
+          </div>
+        </article>
+        <article className="boundary-card task-graph-standard-card">
+          <header><strong>运行隔离</strong><span>{standardResourceModel.runtimeIsolation?.task_run_scope_policy ?? "isolated_per_task_run"}</span></header>
+          <div className="task-graph-mini-kv">
+            <p><span>记忆隔离库</span><strong>{standardResourceModel.runtimeIsolation?.memory_repositories.length ?? 0}</strong></p>
+            <p><span>产物隔离库</span><strong>{standardResourceModel.runtimeIsolation?.artifact_repositories.length ?? 0}</strong></p>
+            <p><span>状态库</span><strong>{standardResourceModel.runtimeIsolation?.runtime_state_stores.length ?? 0}</strong></p>
+            <p><span>诊断问题</span><strong>{standardResourceModel.issueCount}</strong></p>
+          </div>
+        </article>
       </section>
 
       {facet === "repositories" ? (
@@ -450,6 +494,12 @@ export function TaskGraphMemoryArtifactPage({
                 <div className="task-graph-note">
                   <strong>还没有记忆仓库</strong>
                   <span>新增 memory_repository 后，再通过矩阵给节点配置 read / write candidate / commit 边。</span>
+                </div>
+              ) : null}
+              {standardResourceModel.memoryResources.length ? (
+                <div className="task-graph-note">
+                  <strong>标准对象中的仓库</strong>
+                  <span>{standardResourceModel.memoryResources.slice(0, 3).map((resource) => `${resource.title}(${resource.repository_id || resource.node_id})`).join(" / ")}</span>
                 </div>
               ) : null}
             </div>
@@ -527,7 +577,7 @@ export function TaskGraphMemoryArtifactPage({
                 key_strategy: collection.keyStrategy,
                 schema_ref: collection.schemaId,
                 default_version_selector: collection.defaultVersionSelector,
-                required_receipt_status: collection.requiredReceiptStatus,
+                required_commit_status: collection.requiredCommitStatus,
               })) : repositoryCollectionsFromNode(selectedRepository.node)) : []).map((collection) => {
                 const collectionId = String(collection.collection_id);
                 return (
@@ -692,6 +742,16 @@ export function TaskGraphMemoryArtifactPage({
               <small>已有边：{selectedCell.cell.edges.map((edge) => `${edge.operation}:${edge.edgeId}`).join(" / ") || "无"}</small>
             </aside>
           ) : null}
+          {standardResourceModel.memoryEdges.length ? (
+            <div className="task-graph-standard-list">
+              {standardResourceModel.memoryEdges.slice(0, 6).map((edge) => (
+                <article className="task-graph-standard-list__item" key={edge.edge_id}>
+                  <strong>{describeTaskGraphStandardEdge(edge)}</strong>
+                  <span>{`${edge.source_node_id} -> ${edge.target_node_id}`}</span>
+                </article>
+              ))}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -726,7 +786,7 @@ export function TaskGraphMemoryArtifactPage({
           </aside>
 
           <article className="boundary-card task-graph-memory-detail">
-            <header><strong>Selector / Version / Receipt</strong><span>定向读取，不走模糊 RAG 主路径</span></header>
+            <header><strong>Selector / Version / Visibility</strong><span>定向读取，不走模糊 RAG 主路径</span></header>
             {selectedMemoryEdge ? (
               <div className="boundary-form">
                 <TaskSystemField label="边 ID">
@@ -807,7 +867,7 @@ export function TaskGraphMemoryArtifactPage({
                 <TaskSystemSelectField
                   label="版本选择"
                   onChange={(value) => patchSelectedMemoryEdgeMetadata({ version_selector: { mode: value } })}
-                  options={["latest_committed_before_clock", "latest_committed_before_scope", "pinned_version", "by_receipt", "manual_snapshot"]}
+                  options={["latest_committed_before_clock", "latest_committed_before_scope", "pinned_version", "by_commit_acknowledgement", "manual_snapshot"]}
                   value={selectedMemoryEdge.versionSelector}
                 />
                 <TaskSystemSelectField
@@ -831,15 +891,15 @@ export function TaskGraphMemoryArtifactPage({
                 </TaskSystemField>
                 <TaskSystemSelectField
                   label="提交可见性"
-                  onChange={(value) => patchSelectedMemoryEdgeMetadata({ receipt_policy: { ...selectedMemoryEdge.receiptPolicy, visible_after: value } })}
+                  onChange={(value) => patchSelectedMemoryEdgeMetadata({ commit_visibility_policy: { ...selectedMemoryEdge.commitVisibilityPolicy, visible_after: value } })}
                   options={["next_clock", "same_scope_next_node", "next_iteration", "manual_release"]}
-                  value={String(selectedMemoryEdge.receiptPolicy.visible_after ?? "next_clock")}
+                  value={String(selectedMemoryEdge.commitVisibilityPolicy.visible_after ?? "next_clock")}
                 />
               </div>
             ) : (
               <div className="task-graph-note">
                 <strong>没有记忆边</strong>
-                <span>在读写矩阵里配置真实记忆边后，这里会显示 selector、版本选择和 receipt 配置。</span>
+                <span>在读写矩阵里配置真实记忆边后，这里会显示 selector、版本选择和提交可见性配置。</span>
               </div>
             )}
           </article>
@@ -900,7 +960,7 @@ export function TaskGraphMemoryArtifactPage({
                     {[...selectedSnapshot.writeCandidates, ...selectedSnapshot.commits].map((edge) => (
                       <article className={edge.operation === "write_candidate" && !edge.hasCommitPath ? "task-graph-cognition-item task-graph-cognition-item--warn" : "task-graph-cognition-item"} key={edge.edgeId}>
                         <div><strong>{taskSystemOptionLabel(edge.edgeType)}</strong><span>{edge.repositoryId}.{edge.collectionId}</span></div>
-                        <p>{edge.operation === "write_candidate" ? (edge.hasCommitPath ? "候选有可达提交路径。" : "候选没有可达提交路径。") : "提交后按 receipt_policy 控制可见性。"}</p>
+                        <p>{edge.operation === "write_candidate" ? (edge.hasCommitPath ? "候选有可达提交路径。" : "候选没有可达提交路径。") : "提交后按提交可见性策略控制后续节点可读范围。"}</p>
                         <em>{edge.operation}</em>
                       </article>
                     ))}
@@ -924,31 +984,145 @@ export function TaskGraphMemoryArtifactPage({
         </section>
       ) : null}
 
+      {facet === "formal_store" ? (
+        <section className="task-graph-memory-workbench">
+          <aside className="boundary-card task-graph-memory-sidebar">
+            <header><strong>正式记忆库运行数据</strong><span>按 task_run_id 隔离</span></header>
+            <div className="boundary-form">
+              <TaskSystemField label="Task Run ID">
+                <input
+                  onChange={(event) => setManagementTaskRunId(event.target.value)}
+                  placeholder="taskrun:..."
+                  value={managementTaskRunId}
+                />
+              </TaskSystemField>
+            </div>
+            <div className="task-graph-cognition-list">
+              {memoryModel.repositories.map((repository) => (
+                <button
+                  className={selectedRepository?.nodeId === repository.nodeId ? "task-graph-memory-list-button task-graph-memory-list-button--active" : "task-graph-memory-list-button"}
+                  key={repository.nodeId}
+                  onClick={() => setSelectedRepositoryNodeId(repository.nodeId)}
+                  type="button"
+                >
+                  <strong>{repository.title}</strong>
+                  <span>{repository.repositoryId}</span>
+                  <em>{repository.collections.length} collections</em>
+                </button>
+              ))}
+            </div>
+          </aside>
+          <article className="boundary-card task-graph-memory-detail">
+            <header><strong>记忆版本与读取日志</strong><span>{selectedRepository?.repositoryId || "全部仓库"}</span></header>
+            <div className="task-graph-mini-kv">
+              <p><span>task_run_id</span><strong>{managementTaskRunId || "未过滤"}</strong></p>
+              <p><span>仓库</span><strong>{formalOverview?.repository_count ?? 0}</strong></p>
+              <p><span>记录</span><strong>{formalOverview?.record_count ?? 0}</strong></p>
+              <p><span>版本</span><strong>{formalOverview?.version_count ?? 0}</strong></p>
+              <p><span>读取日志</span><strong>{formalOverview?.read_log_count ?? 0}</strong></p>
+            </div>
+            {managementLoading ? <div className="task-graph-note"><strong>加载中</strong><span>正在读取正式记忆库管理视图。</span></div> : null}
+            {managementError ? <div className="task-graph-note task-graph-note--danger"><strong>加载失败</strong><span>{managementError}</span></div> : null}
+            <div className="task-graph-cognition-section">
+              <header><strong>记录版本</strong><span>逻辑仓库 / 有效仓库 / 写入节点</span></header>
+              <div className="task-graph-cognition-list">
+                {(formalOverview?.versions ?? []).slice(0, 80).map((version) => (
+                  <article className="task-graph-cognition-item" key={version.version_id}>
+                    <div><strong>{version.record_key}</strong><span>{version.logical_repository_id}.{version.collection_id}</span></div>
+                    <p>{version.summary || version.canonical_text || "无摘要"}</p>
+                    <em>{version.task_run_id || "无 task_run_id"} / {version.effective_repository_id} / {version.status}</em>
+                  </article>
+                ))}
+                {formalOverview && !formalOverview.versions.length ? (
+                  <div className="task-graph-note"><strong>没有记录</strong><span>当前过滤条件下没有正式记忆版本。</span></div>
+                ) : null}
+              </div>
+            </div>
+            <div className="task-graph-cognition-section">
+              <header><strong>读取日志</strong><span>节点实际读到了哪些版本</span></header>
+              <div className="task-graph-cognition-list">
+                {(formalOverview?.read_logs ?? []).slice(0, 60).map((log) => (
+                  <article className="task-graph-cognition-item" key={log.read_log_id}>
+                    <div><strong>{log.collection_id}</strong><span>{log.logical_repository_id}</span></div>
+                    <p>{log.selected_version_ids.length ? log.selected_version_ids.join(" / ") : "未选中记录"}</p>
+                    <em>{log.task_run_id || "无 task_run_id"} / {log.node_run_id} / {log.edge_id}</em>
+                  </article>
+                ))}
+              </div>
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {facet === "artifact_store" ? (
+        <section className="task-graph-memory-workbench">
+          <aside className="boundary-card task-graph-memory-sidebar">
+            <header><strong>产物库运行数据</strong><span>落盘产物索引</span></header>
+            <div className="boundary-form">
+              <TaskSystemField label="Task Run ID">
+                <input
+                  onChange={(event) => setManagementTaskRunId(event.target.value)}
+                  placeholder="taskrun:..."
+                  value={managementTaskRunId}
+                />
+              </TaskSystemField>
+            </div>
+            <div className="task-graph-note">
+              <strong>产物库隔离</strong>
+              <span>默认只显示当前 task_run_id 作用域内登记的产物；被拒绝产物会以 rejected 状态保留在索引里。</span>
+            </div>
+          </aside>
+          <article className="boundary-card task-graph-memory-detail">
+            <header><strong>产物记录</strong><span>{artifactOverview?.artifact_count ?? 0} artifacts</span></header>
+            <div className="task-graph-mini-kv">
+              <p><span>task_run_id</span><strong>{managementTaskRunId || "未过滤"}</strong></p>
+              <p><span>仓库</span><strong>{artifactOverview?.repository_count ?? 0}</strong></p>
+              <p><span>产物</span><strong>{artifactOverview?.artifact_count ?? 0}</strong></p>
+            </div>
+            {managementLoading ? <div className="task-graph-note"><strong>加载中</strong><span>正在读取产物库管理视图。</span></div> : null}
+            {managementError ? <div className="task-graph-note task-graph-note--danger"><strong>加载失败</strong><span>{managementError}</span></div> : null}
+            <div className="task-graph-cognition-list">
+              {(artifactOverview?.artifacts ?? []).slice(0, 120).map((artifact) => (
+                <article className="task-graph-cognition-item" key={artifact.artifact_id}>
+                  <div><strong>{artifact.path}</strong><span>{artifact.logical_repository_id}.{artifact.collection_id}</span></div>
+                  <p>{artifact.artifact_ref}</p>
+                  <em>{artifact.task_run_id || "无 task_run_id"} / {artifact.stage_id || "无 stage"} / {artifact.status}</em>
+                </article>
+              ))}
+              {artifactOverview && !artifactOverview.artifacts.length ? (
+                <div className="task-graph-note"><strong>没有产物索引</strong><span>当前过滤条件下没有登记的产物。</span></div>
+              ) : null}
+            </div>
+          </article>
+        </section>
+      ) : null}
+
       {facet === "artifact_context" ? (
         <>
           <section className="task-graph-form-grid">
-            <WorkingMemoryPolicyEditor
-              memorySharingPolicy={taskGraphDraft.context_policy.memory_sharing_policy}
-              policy={workingMemoryPolicy}
-              sharedContextPolicy={taskGraphDraft.context_policy.shared_context_policy}
-              onMemorySharingPolicyChange={(value) => updateContextPolicy({ memory_sharing_policy: value })}
-              onPolicyChange={updateWorkingMemoryPolicy}
-              onSharedContextPolicyChange={(value) => updateContextPolicy({ shared_context_policy: value })}
-            />
-            <ArtifactPolicyEditor
-              policy={graphArtifactPolicy}
-              onPolicyChange={updateArtifactPolicy}
-            />
+            <article className="boundary-card task-graph-layer-explainer">
+              <header><strong>资源配置边界</strong><span>不再使用旧图级 work memory / artifact 策略面板</span></header>
+              <div className="task-graph-note">
+                <strong>记忆如何读写，由 memory_* 边决定</strong>
+                <span>仓库节点负责 repository / collection 结构，memory_read / memory_write_candidate / memory_commit 边负责 selector、写入目标和可见性。图级 working memory 不再作为主流程配置入口。</span>
+              </div>
+              <div className="task-graph-note">
+                <strong>产物如何进入上下文，由 artifact_* 边决定</strong>
+                <span>产物仓库节点负责逻辑仓库，artifact_context 边负责 source output、target input、展开模式和 usage instruction。图级 artifact policy 不再作为主要配置来源。</span>
+              </div>
+            </article>
             <article className="boundary-card task-graph-layer-explainer">
               <header><strong>ArtifactContextPacket</strong></header>
               <div className="task-graph-mini-kv">
                 <p><span>产物边</span><strong>{artifactEdges.length}</strong></p>
                 <p><span>记忆边</span><strong>{memoryModel.memoryEdges.length}</strong></p>
                 <p><span>仓库列</span><strong>{memoryModel.columns.length}</strong></p>
+                <p><span>运行隔离</span><strong>{standardResourceModel.runtimeIsolation?.task_run_scope_policy ?? "isolated_per_task_run"}</strong></p>
+                <p><span>记忆仓库</span><strong>{standardResourceModel.memoryResources.length}</strong></p>
               </div>
               <div className="task-graph-note">
                 <strong>产物和记忆都通过 packet 进入节点</strong>
-                <span>产物上下文负责引用和展开策略；记忆上下文负责 selector 和版本可见性。</span>
+                <span>产物上下文由 artifact_* 边决定引用与展开；记忆上下文由 memory_* 边决定 selector、版本选择与提交可见性。</span>
               </div>
             </article>
           </section>

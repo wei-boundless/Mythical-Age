@@ -120,10 +120,15 @@ class CoordinationTraceAdapter:
                     dict(state.get("diagnostics") or {}).get("task_graph_scheduler_state") or {}
                 ),
             },
+            "coordination_graph_spec": dict(
+                dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {}
+            ),
             "task_graph_scheduler_state": dict(
                 dict(state.get("diagnostics") or {}).get("task_graph_scheduler_state") or {}
             ),
         }
+        if not diagnostics["coordination_graph_spec"]:
+            diagnostics.pop("coordination_graph_spec", None)
         updated_run = CoordinationRun(
             coordination_run_id=coordination_run.coordination_run_id,
             task_run_id=coordination_run.task_run_id,

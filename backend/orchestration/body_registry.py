@@ -7,6 +7,7 @@ from .agent_registry import AgentRegistry
 
 from .agent_runtime_models import AgentRuntimeProfile
 from .agent_runtime_registry import AgentRuntimeRegistry
+from .runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY
 from .body_models import (
     AgentBodyProfile,
     MemoryScopeProfile,
@@ -101,7 +102,7 @@ class BodyProfileRegistry:
             if str(item).strip()
         )
         allowed_layers = tuple(str(item).strip() for item in getattr(runtime_profile, "allowed_memory_scopes", ()) if str(item).strip())
-        layers = requested_layers or allowed_layers or ("conversation_read_write",)
+        layers = requested_layers or allowed_layers or ("conversation_readonly", "state_readonly")
         return MemoryScopeProfile(
             profile_id=f"memscope:{agent_id}:default",
             allowed_memory_layers=layers,
@@ -132,14 +133,29 @@ class BodyProfileRegistry:
         requested_lane = str(requested_runtime_lane or "").strip()
         lane_source = "agent_default"
         lane_issue = ""
+        permission_state = "allowed"
+        lane_descriptor = DEFAULT_RUNTIME_LANE_REGISTRY.get(requested_lane) if requested_lane else None
         if requested_lane and (not allowed_lanes or requested_lane in allowed_lanes):
-            lane_id = requested_lane
-            lane_source = "task_binding"
+            if lane_descriptor is None:
+                lane_id = allowed_lanes[0] if allowed_lanes else "full_interactive"
+                lane_source = "task_binding"
+                lane_issue = "runtime_lane_unknown"
+                permission_state = "denied"
+            elif not lane_descriptor.requestable:
+                lane_id = allowed_lanes[0] if allowed_lanes else "full_interactive"
+                lane_source = "task_binding"
+                lane_issue = "runtime_lane_not_requestable"
+                permission_state = "denied"
+            else:
+                lane_id = requested_lane
+                lane_source = "task_binding"
         else:
             lane_id = allowed_lanes[0] if allowed_lanes else "full_interactive"
             if requested_lane:
-                lane_issue = "requested_runtime_lane_not_allowed"
+                lane_issue = "runtime_lane_not_allowed"
+                permission_state = "denied"
         _ = task_mode
+        effective_descriptor = DEFAULT_RUNTIME_LANE_REGISTRY.get(lane_id)
         return RuntimeLaneProfile(
             profile_id=f"lane:{agent_id}:default",
             lane_id=lane_id,
@@ -152,6 +168,11 @@ class BodyProfileRegistry:
                 "requested_runtime_lane": requested_lane,
                 "lane_source": lane_source,
                 "lane_issue": lane_issue,
+                "permission_state": permission_state,
+                "lane_title": effective_descriptor.title if effective_descriptor else lane_id,
+                "lane_category": effective_descriptor.category if effective_descriptor else "未注册运行场景",
+                "lane_requestable": bool(effective_descriptor.requestable) if effective_descriptor else False,
+                "lane_system_only": bool(effective_descriptor.system_only) if effective_descriptor else False,
             },
         )
 
@@ -162,12 +183,8 @@ class BodyProfileRegistry:
         runtime_profile: AgentRuntimeProfile | None,
         output_contract_id: str,
     ) -> OutputBoundaryProfile:
-        profile_contracts = tuple(
-            str(item).strip()
-            for item in getattr(runtime_profile, "output_contracts", ())
-            if str(item).strip()
-        )
-        allowed_contracts = tuple(dict.fromkeys([output_contract_id, *profile_contracts])) if output_contract_id else profile_contracts
+        _ = runtime_profile
+        allowed_contracts = (output_contract_id,) if output_contract_id else ()
         if not allowed_contracts:
             allowed_contracts = ("AssistantFinalAnswer",)
         return OutputBoundaryProfile(

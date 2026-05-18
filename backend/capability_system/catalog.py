@@ -32,6 +32,96 @@ TOOL_RISK_ORDER = {
     "极高": 3,
 }
 
+SKILL_ROUTE_OPERATION_MAP = {
+    "rag": "op.mcp_retrieval",
+    "retrieval": "op.mcp_retrieval",
+    "pdf": "op.mcp_pdf",
+    "structured_data": "op.mcp_structured_data",
+    "data": "op.mcp_structured_data",
+}
+
+CAPABILITY_OPERATION_TYPE_LABELS = {
+    "agent": "子 Agent",
+    "artifact": "产物",
+    "filesystem": "文件系统",
+    "mcp": "本地能力端点",
+    "memory": "记忆",
+    "model": "模型响应",
+    "network": "网络",
+    "session": "会话",
+    "shell": "本地执行",
+    "vcs": "版本控制",
+}
+
+CAPABILITY_SOURCE_CLASS_LABELS = {
+    "data": "数据",
+    "document": "文档",
+    "local_files": "本地文件",
+    "rag": "知识检索",
+    "system_execution": "系统执行",
+    "web": "外部网络",
+}
+
+CAPABILITY_VALUE_LABELS = {
+    "builtin": "内置",
+    "explicit_resource": "显式资源",
+    "handle_only": "仅传递资源句柄",
+    "hidden": "对模型隐藏",
+    "in_process": "进程内",
+    "local": "本地",
+    "local-capability-endpoints": "本地能力端点",
+    "main_runtime": "主运行时",
+    "model_visible": "模型可见",
+    "not_direct_model_tool": "不直接暴露给模型",
+    "debug_only": "仅调试可见",
+}
+
+CAPABILITY_RISK_TAG_LABELS = {
+    "model_response": "模型生成回答",
+    "read_only": "只读访问",
+    "local_read": "读取本地文件",
+    "structured_config": "读取结构化配置",
+    "network_open_world": "访问开放网络",
+    "external_fetch": "抓取外部网页",
+    "git_read": "读取版本库信息",
+    "local_write": "写入本地文件",
+    "shell_execution": "执行本地命令",
+    "python_execution": "执行 Python 代码",
+    "memory_read": "读取记忆",
+    "memory_write_candidate": "提交记忆写入候选",
+    "mcp_execution": "调用本地能力端点",
+    "document_analysis": "分析文档内容",
+    "structured_data": "分析结构化数据",
+    "agent_execution": "调用子 Agent",
+    "delegation": "发起任务委派",
+    "session_write_candidate": "提交会话消息候选",
+    "artifact_write_candidate": "提交产物候选",
+}
+
+
+def capability_display_label(value: Any, fallback: str = "未配置") -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return fallback
+    return CAPABILITY_VALUE_LABELS.get(raw, raw)
+
+
+def capability_operation_type_label(value: Any) -> str:
+    raw = str(value or "").strip()
+    return CAPABILITY_OPERATION_TYPE_LABELS.get(raw, raw or "运行操作")
+
+
+def capability_source_class_label(value: Any) -> str:
+    raw = str(value or "").strip()
+    return CAPABILITY_SOURCE_CLASS_LABELS.get(raw, raw or "运行操作")
+
+
+def capability_risk_tag_label(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return CAPABILITY_RISK_TAG_LABELS.get(raw, raw)
+
 def default_tool_type(tool: dict[str, Any]) -> str:
     tags = tool_text_set(tool, "capability_tags", "supported_modalities")
     safety = tool_text_set(tool, "safety_tags")
@@ -264,7 +354,7 @@ def build_binding_graph(
             from_label=str(mcp.get("name") or mcp.get("route") or ""),
             to_id=str(mcp.get("operation_id") or ""),
             to_label=str(mcp.get("operation_id") or ""),
-            relation="mcp capability 由 orchestration/internal endpoint 调度",
+            relation="本地能力端点由编排系统调度",
         )
         for mcp in list(mcps or [])
         if str(mcp.get("operation_id") or "").strip()
@@ -290,19 +380,24 @@ def build_binding_graph(
 
 def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     overrides = dict(tool_overrides or {})
-    skills = [skill_payload(runtime, skill) for skill in runtime.skill_registry.skills]
-    tool_runtime = runtime.tool_runtime
-    tool_descriptions = {
-        str(getattr(instance, "name", "") or ""): str(getattr(instance, "description", "") or "")
-        for instance in getattr(tool_runtime, "instances", ())
-    }
-    raw_tools = [
-        {
-            **definition.to_registry_record(),
-            "description": tool_descriptions.get(definition.name, ""),
+    skill_registry = getattr(runtime, "skill_registry", None)
+    tool_runtime = getattr(runtime, "tool_runtime", None)
+    skills = [skill_payload(runtime, skill) for skill in getattr(skill_registry, "skills", ())] if skill_registry is not None else []
+    if tool_runtime is None:
+        tool_descriptions: dict[str, str] = {}
+        raw_tools: list[dict[str, Any]] = []
+    else:
+        tool_descriptions = {
+            str(getattr(instance, "name", "") or ""): str(getattr(instance, "description", "") or "")
+            for instance in getattr(tool_runtime, "instances", ())
         }
-        for definition in tool_runtime.definitions
-    ]
+        raw_tools = [
+            {
+                **definition.to_registry_record(),
+                "description": tool_descriptions.get(definition.name, ""),
+            }
+            for definition in tool_runtime.definitions
+        ]
     operation_registry = build_default_operation_registry()
     operations = [operation.to_dict() for operation in operation_registry.list_operations()]
     mcps = build_mcp_catalog(operation_registry)
@@ -367,3 +462,195 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
             "validation_error_count": sum(1 for issue in validation_issues if issue.severity == "error"),
         },
     }
+
+
+def _capability_risk_from_operation(operation: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(operation, dict):
+        return {
+            "risk_label": "注册信息不足",
+            "risk_tone": "warn",
+            "risk_items": ["缺少 operation 描述"],
+        }
+    items = _dedupe_texts([
+        *[capability_risk_tag_label(tag) for tag in list(operation.get("risk_tags") or []) if str(tag).strip()],
+        "只读" if bool(operation.get("read_only")) else "",
+        "破坏性操作" if bool(operation.get("destructive")) else "",
+        "默认需要审批" if bool(operation.get("requires_approval_by_default")) else "",
+        "可并发" if bool(operation.get("concurrency_safe")) else "",
+    ])
+    risk_tags = [str(tag) for tag in list(operation.get("risk_tags") or []) if str(tag).strip()]
+    if bool(operation.get("destructive")):
+        return {"risk_label": "高风险", "risk_tone": "danger", "risk_items": items}
+    if bool(operation.get("requires_approval_by_default")) or any(
+        any(marker in tag for marker in ("write", "execution", "network"))
+        for tag in risk_tags
+    ):
+        return {"risk_label": "需审慎授权", "risk_tone": "warn", "risk_items": items}
+    if bool(operation.get("read_only")):
+        return {"risk_label": "低风险只读", "risk_tone": "ok", "risk_items": items}
+    return {"risk_label": "中性风险", "risk_tone": "neutral", "risk_items": items}
+
+
+def build_orchestration_capability_items(catalog: dict[str, Any]) -> list[dict[str, Any]]:
+    operations = [item for item in list(catalog.get("operations") or []) if isinstance(item, dict)]
+    operation_by_id = {
+        str(item.get("operation_id") or "").strip(): item
+        for item in operations
+        if str(item.get("operation_id") or "").strip()
+    }
+    items: list[dict[str, Any]] = []
+    used_tool_operation_ids: set[str] = set()
+    mcp_operation_ids: set[str] = set()
+
+    for skill in [item for item in list(catalog.get("skills") or []) if isinstance(item, dict)]:
+        runtime = skill.get("runtime") if isinstance(skill.get("runtime"), dict) else {}
+        prompt_view = skill.get("prompt_view") if isinstance(skill.get("prompt_view"), dict) else {}
+        route = str(runtime.get("preferred_route") or "").strip()
+        operation_id = route if route.startswith("op.") else SKILL_ROUTE_OPERATION_MAP.get(route, "")
+        operation = operation_by_id.get(operation_id)
+        risk = _capability_risk_from_operation(operation)
+        items.append({
+            "capability_id": f"skill:{str(runtime.get('name') or '').strip()}",
+            "capability_kind": "skill",
+            "title": str(prompt_view.get("title") or runtime.get("title") or runtime.get("name") or "").strip(),
+            "subtitle": f"依赖 {operation_id}" if operation_id else "未映射到运行操作",
+            "description": str(prompt_view.get("capability") or runtime.get("description") or "未注册说明").strip(),
+            "operation_ids": [operation_id] if operation_id else [],
+            "source_label": "任务能力 · 模型可见入口",
+            "source_detail": f"调用路线：{capability_display_label(route)}；授权落到依赖的运行操作。",
+            "risk_label": risk["risk_label"],
+            "risk_tone": risk["risk_tone"],
+            "risk_items": risk["risk_items"],
+            "tags": [str(tag) for tag in [*list(runtime.get("capability_tags") or []), *list(runtime.get("supported_modalities") or [])] if str(tag).strip()][:8],
+            "metadata": [
+                {"label": "使用时机", "value": str(prompt_view.get("use_when") or "未注册 use_when").strip() or "未注册 use_when"},
+                {"label": "输出规则", "value": str(prompt_view.get("output_rule") or "未注册 output_rule").strip() or "未注册 output_rule"},
+                {"label": "上下文", "value": str(runtime.get("context_mode") or "未配置").strip() or "未配置"},
+            ],
+        })
+
+    for tool in [item for item in list(catalog.get("tools") or []) if isinstance(item, dict)]:
+        operation_id = str(tool.get("operation_id") or "").strip()
+        operation = operation_by_id.get(operation_id)
+        metadata = tool.get("operation_metadata") if isinstance(tool.get("operation_metadata"), dict) else {}
+        risk = _capability_risk_from_operation(operation)
+        if operation_id:
+            used_tool_operation_ids.add(operation_id)
+        items.append({
+            "capability_id": f"tool:{str(tool.get('name') or '').strip()}",
+            "capability_kind": "tool",
+            "title": str((operation or {}).get("title") or tool.get("name") or "").strip(),
+            "subtitle": f"{str(tool.get('name') or '').strip()} · {operation_id}".strip(" ·"),
+            "description": str((operation or {}).get("capability_summary") or metadata.get("note") or " / ".join(str(tag) for tag in list(tool.get("capability_tags") or []))).strip() or "未注册说明",
+            "operation_ids": [operation_id] if operation_id else [],
+            "source_label": f"本地工具 · {capability_source_class_label(metadata.get('source_class') or (operation or {}).get('operation_type'))}",
+            "source_detail": f"{str(metadata.get('tool_boundary') or '未标注边界').strip()} · {str(metadata.get('adapter_type') or tool.get('module') or '本地适配器').strip()}",
+            "risk_label": str(metadata.get("risk_level") or risk["risk_label"]).strip() or risk["risk_label"],
+            "risk_tone": risk["risk_tone"],
+            "risk_items": _dedupe_texts([
+                *risk["risk_items"],
+                *[capability_risk_tag_label(tag) for tag in list(tool.get("safety_tags") or []) if str(tag).strip()],
+                "可自动路由" if bool(tool.get("safe_for_auto_route")) else "需要显式触发",
+                str(metadata.get("runtime_policy") or "").strip(),
+            ])[:10],
+            "tags": [str(tag) for tag in [*list(tool.get("capability_tags") or []), *list(tool.get("supported_modalities") or [])] if str(tag).strip()][:8],
+            "metadata": [
+                {"label": "运行可见性", "value": capability_display_label(tool.get("runtime_visibility"))},
+                {"label": "提示词暴露", "value": capability_display_label(tool.get("prompt_exposure_policy"))},
+                {"label": "资源暴露", "value": capability_display_label(tool.get("resource_exposure_policy"))},
+            ],
+        })
+
+    for operation in operations:
+        operation_id = str(operation.get("operation_id") or "").strip()
+        if not operation_id or operation.get("operation_type") == "mcp" or operation_id in used_tool_operation_ids:
+            continue
+        risk = _capability_risk_from_operation(operation)
+        items.append({
+            "capability_id": f"operation:{operation_id}",
+            "capability_kind": "operation",
+            "title": str(operation.get("title") or operation_id).strip(),
+            "subtitle": f"{capability_operation_type_label(operation.get('operation_type'))} · {operation_id}",
+            "description": str(operation.get("capability_summary") or "未注册说明").strip() or "未注册说明",
+            "operation_ids": [operation_id],
+            "source_label": "运行操作注册表",
+            "source_detail": f"{capability_operation_type_label(operation.get('operation_type'))}，由运行时授权列表直接控制。",
+            "risk_label": risk["risk_label"],
+            "risk_tone": risk["risk_tone"],
+            "risk_items": risk["risk_items"],
+            "tags": [str(tag) for tag in list(operation.get("risk_tags") or []) if str(tag).strip()][:8],
+            "metadata": [
+                {"label": "提供方", "value": capability_display_label(operation.get("provider") or "builtin")},
+                {"label": "审批", "value": "默认需要审批" if bool(operation.get("requires_approval_by_default")) else "默认不要求审批"},
+                {"label": "中断行为", "value": str(operation.get("interrupt_behavior") or "未配置").strip() or "未配置"},
+            ],
+        })
+
+    mcp_entries = [item for item in list(catalog.get("mcps") or []) if isinstance(item, dict)]
+    if not mcp_entries:
+        binding_graph = catalog.get("binding_graph") if isinstance(catalog.get("binding_graph"), dict) else {}
+        mcp_entries = [item for item in list(binding_graph.get("mcp_nodes") or []) if isinstance(item, dict)]
+    for mcp in mcp_entries:
+        operation_id = str(mcp.get("operation_id") or "").strip()
+        operation = operation_by_id.get(operation_id)
+        risk = _capability_risk_from_operation(operation)
+        if operation_id:
+            mcp_operation_ids.add(operation_id)
+        items.append({
+            "capability_id": f"mcp:{str(mcp.get('mcp_id') or operation_id).strip()}",
+            "capability_kind": "mcp",
+            "title": str(mcp.get("name") or (operation or {}).get("title") or operation_id).strip(),
+            "subtitle": f"{str(mcp.get('route') or mcp.get('unit_id') or 'local').strip()} · {operation_id}".strip(" ·"),
+            "description": str(mcp.get("description") or (operation or {}).get("capability_summary") or "未注册说明").strip() or "未注册说明",
+            "operation_ids": [operation_id] if operation_id else [],
+            "source_label": "本地能力端点",
+            "source_detail": f"{capability_display_label(mcp.get('transport') or 'in_process')} · {capability_display_label(mcp.get('model_visibility') or 'not_direct_model_tool')}",
+            "risk_label": risk["risk_label"],
+            "risk_tone": risk["risk_tone"],
+            "risk_items": _dedupe_texts([
+                *risk["risk_items"],
+                *[f"输入 {str(item).strip()}" for item in list(mcp.get("input_modes") or []) if str(item).strip()],
+                *[f"输出 {str(item).strip()}" for item in list(mcp.get("output_modes") or []) if str(item).strip()],
+            ])[:10],
+            "tags": [str(tag) for tag in list(mcp.get("tags") or []) if str(tag).strip()][:8],
+            "metadata": [
+                {"label": "端点标识", "value": str(mcp.get("mcp_id") or "未配置").strip() or "未配置"},
+                {"label": "能力单元", "value": str(mcp.get("unit_id") or "未配置").strip() or "未配置"},
+                {"label": "服务", "value": capability_display_label(mcp.get("server_name") or "local-capability-endpoints")},
+            ],
+        })
+
+    for operation in operations:
+        operation_id = str(operation.get("operation_id") or "").strip()
+        if operation.get("operation_type") != "mcp" or not operation_id or operation_id in mcp_operation_ids:
+            continue
+        risk = _capability_risk_from_operation(operation)
+        items.append({
+            "capability_id": f"mcp-operation:{operation_id}",
+            "capability_kind": "mcp",
+            "title": str(operation.get("title") or operation_id).strip(),
+            "subtitle": operation_id,
+            "description": str(operation.get("capability_summary") or "未注册说明").strip() or "未注册说明",
+            "operation_ids": [operation_id],
+            "source_label": "本地能力端点 · 运行操作后备",
+            "source_detail": "能力系统未返回本地能力端点明细，当前使用运行操作注册信息展示。",
+            "risk_label": risk["risk_label"],
+            "risk_tone": risk["risk_tone"],
+            "risk_items": risk["risk_items"],
+            "tags": [str(tag) for tag in list(operation.get("risk_tags") or []) if str(tag).strip()][:8],
+            "metadata": [{"label": "注册状态", "value": "缺少本地能力端点明细"}],
+        })
+
+    return items
+
+
+def _dedupe_texts(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result

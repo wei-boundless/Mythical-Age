@@ -62,7 +62,6 @@ def test_workflow_contract_compiler_builds_valid_manifest(tmp_path: Path) -> Non
     workflow = workflow_registry.upsert_workflow(
         workflow_id="workflow.test.contract_manifest",
         title="契约编译测试工作流",
-        task_mode="contract_test",
         steps=(
             {"step_id": "understand", "title": "理解目标"},
             {"step_id": "finalize", "title": "形成结果", "contract_id": "contract.test.markdown_result"},
@@ -73,7 +72,6 @@ def test_workflow_contract_compiler_builds_valid_manifest(tmp_path: Path) -> Non
         task_id="task.test.contract_manifest",
         task_title="契约编译测试任务",
         task_family="test",
-        task_mode="contract_test",
         input_contract_id="contract.test.user_goal",
         output_contract_id="contract.test.markdown_result",
         default_workflow_id=workflow.workflow_id,
@@ -81,9 +79,7 @@ def test_workflow_contract_compiler_builds_valid_manifest(tmp_path: Path) -> Non
     profile = AgentRuntimeProfile(
         agent_profile_id="contract_test_profile",
         agent_id="agent:test",
-        allowed_task_modes=("contract_test",),
-        allowed_runtime_lanes=("test_lane",),
-        output_contracts=("contract.test.markdown_result",),
+        allowed_runtime_lanes=("readonly_exploration",),
     )
 
     manifest = compile_workflow_contract_manifest(
@@ -92,7 +88,7 @@ def test_workflow_contract_compiler_builds_valid_manifest(tmp_path: Path) -> Non
         workflow=workflow,
         agent_profile=profile,
         agent_id="agent:test",
-        runtime_lane="test_lane",
+        runtime_lane="readonly_exploration",
     )
 
     assert manifest.valid is True
@@ -115,7 +111,6 @@ def test_workflow_contract_compiler_reports_missing_contract_and_runtime_mismatc
     workflow = workflow_registry.upsert_workflow(
         workflow_id="workflow.test.invalid_contract_manifest",
         title="契约编译失败工作流",
-        task_mode="contract_test",
         steps=({"step_id": "finalize", "title": "形成结果"},),
         output_contract_id="contract.test.missing_output",
     )
@@ -123,7 +118,6 @@ def test_workflow_contract_compiler_reports_missing_contract_and_runtime_mismatc
         task_id="task.test.invalid_contract_manifest",
         task_title="契约编译失败任务",
         task_family="test",
-        task_mode="contract_test",
         input_contract_id="contract.test.user_goal",
         output_contract_id="contract.test.missing_output",
         default_workflow_id=workflow.workflow_id,
@@ -131,9 +125,7 @@ def test_workflow_contract_compiler_reports_missing_contract_and_runtime_mismatc
     profile = AgentRuntimeProfile(
         agent_profile_id="contract_test_profile",
         agent_id="agent:test",
-        allowed_task_modes=("other_mode",),
-        allowed_runtime_lanes=("other_lane",),
-        output_contracts=("contract.test.markdown_result",),
+        allowed_runtime_lanes=("readonly_exploration",),
     )
 
     manifest = compile_workflow_contract_manifest(
@@ -148,6 +140,5 @@ def test_workflow_contract_compiler_reports_missing_contract_and_runtime_mismatc
     issue_codes = {item.code for item in manifest.issues}
     assert manifest.valid is False
     assert "contract_spec_missing" in issue_codes
-    assert "runtime_task_mode_not_allowed" in issue_codes
+    assert "runtime_lane_unknown" in issue_codes
     assert "runtime_lane_not_allowed" in issue_codes
-    assert "runtime_output_contract_not_allowed" in issue_codes

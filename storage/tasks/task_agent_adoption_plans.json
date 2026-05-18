@@ -5,11 +5,6 @@
       "task_id": "task.health.issue_triage",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:3",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -37,11 +32,6 @@
       "task_id": "task.health.trace_analysis",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:3",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -69,11 +59,6 @@
       "task_id": "task.health.case_draft",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:3",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -101,11 +86,6 @@
       "task_id": "task.health.fix_verification",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:3",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -133,11 +113,6 @@
       "task_id": "task.writing_team.long_novel.world_designer_a",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -166,11 +141,6 @@
       "task_id": "task.writing_team.long_novel.world_designer_b",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -199,11 +169,6 @@
       "task_id": "task.writing_team.long_novel.world_judge",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -232,11 +197,6 @@
       "task_id": "task.writing_team.long_novel.memory_commit_world",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -265,11 +225,6 @@
       "task_id": "task.writing_team.long_novel.outline_designer_a",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -298,11 +253,6 @@
       "task_id": "task.writing_team.long_novel.outline_designer_b",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -331,11 +281,6 @@
       "task_id": "task.writing_team.long_novel.outline_judge",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -364,11 +309,6 @@
       "task_id": "task.writing_team.long_novel.memory_commit_outline",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -397,11 +337,6 @@
       "task_id": "task.writing_team.long_novel.character_designer_a",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -430,11 +365,6 @@
       "task_id": "task.writing_team.long_novel.character_designer_b",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -463,11 +393,6 @@
       "task_id": "task.writing_team.long_novel.character_judge",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -496,11 +421,6 @@
       "task_id": "task.writing_team.long_novel.memory_commit_character",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -529,11 +449,6 @@
       "task_id": "task.writing_team.long_novel.chapter_plan",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -562,11 +477,6 @@
       "task_id": "task.writing_team.long_novel.writer_a_draft",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -595,11 +505,6 @@
       "task_id": "task.writing_team.long_novel.writer_b_review",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -628,11 +533,6 @@
       "task_id": "task.writing_team.long_novel.writer_a_revision",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -661,11 +561,6 @@
       "task_id": "task.writing_team.long_novel.writer_b_final_candidate",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -694,11 +589,6 @@
       "task_id": "task.writing_team.long_novel.novel_quality_judge",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -727,11 +617,6 @@
       "task_id": "task.writing_team.long_novel.world_deviation_router",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -760,11 +645,6 @@
       "task_id": "task.writing_team.long_novel.world_repair_a",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -793,11 +673,6 @@
       "task_id": "task.writing_team.long_novel.world_repair_b",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -826,11 +701,6 @@
       "task_id": "task.writing_team.long_novel.outline_deviation_router",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -859,11 +729,6 @@
       "task_id": "task.writing_team.long_novel.outline_repair_a",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -892,11 +757,6 @@
       "task_id": "task.writing_team.long_novel.outline_repair_b",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -925,11 +785,6 @@
       "task_id": "task.writing_team.long_novel.character_deviation_router",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -958,11 +813,6 @@
       "task_id": "task.writing_team.long_novel.character_repair_a",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -991,11 +841,6 @@
       "task_id": "task.writing_team.long_novel.character_repair_b",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1024,11 +869,6 @@
       "task_id": "task.writing_team.long_novel.memory_commit_chapter",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1057,11 +897,6 @@
       "task_id": "task.writing_team.long_novel.memory_finalize",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1090,11 +925,6 @@
       "task_id": "task.writing.simple_novel.project_brief",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1122,11 +952,6 @@
       "task_id": "task.writing.simple_novel.world_design",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1154,11 +979,6 @@
       "task_id": "task.writing.simple_novel.world_review",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1186,11 +1006,6 @@
       "task_id": "task.writing.simple_novel.memory_commit_world",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1218,11 +1033,6 @@
       "task_id": "task.writing.simple_novel.baseline_memory_seed",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1250,11 +1060,6 @@
       "task_id": "task.writing.simple_novel.volume_plan",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1282,11 +1087,6 @@
       "task_id": "task.writing.simple_novel.chapter_outline",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1314,11 +1114,6 @@
       "task_id": "task.writing.simple_novel.chapter_draft",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1346,11 +1141,6 @@
       "task_id": "task.writing.simple_novel.chapter_review",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1378,11 +1168,6 @@
       "task_id": "task.writing.simple_novel.memory_commit_chapter",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1410,11 +1195,6 @@
       "task_id": "task.writing.simple_novel.chapter_progress_router",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1442,11 +1222,6 @@
       "task_id": "task.writing.simple_novel.volume_review",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1474,11 +1249,6 @@
       "task_id": "task.writing.simple_novel.volume_commit",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1506,11 +1276,6 @@
       "task_id": "task.writing.simple_novel.volume_postmortem",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1538,11 +1303,6 @@
       "task_id": "task.writing.simple_novel.world_outline_extension_proposal",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1570,11 +1330,6 @@
       "task_id": "task.writing.simple_novel.extension_review",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1602,11 +1357,6 @@
       "task_id": "task.writing.simple_novel.extension_commit",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1634,11 +1384,6 @@
       "task_id": "task.writing.simple_novel.next_volume_router",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1666,11 +1411,6 @@
       "task_id": "task.writing.simple_novel.final_assemble",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1698,11 +1438,6 @@
       "task_id": "task.writing.simple_novel.final_review",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1730,11 +1465,6 @@
       "task_id": "task.writing.simple_novel.memory_finalize",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1762,11 +1492,6 @@
       "task_id": "task.writing.simple_novel.runtime_monitor",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1794,11 +1519,6 @@
       "task_id": "task.writing.simple_novel.fail_closed",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",
@@ -1826,11 +1546,6 @@
       "task_id": "task.000001",
       "adoption_mode": "adopt_existing",
       "default_agent_id": "agent:0",
-      "allowed_agent_categories": [
-        "main_agent",
-        "system_management_agent",
-        "worker_sub_agent"
-      ],
       "allow_worker_agent_spawn": false,
       "worker_agent_blueprint_id": "",
       "worker_agent_naming_rule": "",

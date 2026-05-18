@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
@@ -488,6 +489,7 @@ def _is_control_plane_projection_section(section: dict[str, Any]) -> bool:
 def _render_context_policy_block(context_policy_result: dict[str, Any] | None) -> str:
     package = dict((context_policy_result or {}).get("package") or {})
     model_sections = dict(package.get("model_visible_sections") or package.get("sections") or {})
+    allow_hot_truth = _context_package_allows_hot_truth_prompt(package)
     section_order = [
         "active_process_context",
         "hot_truth_window",
@@ -506,10 +508,12 @@ def _render_context_policy_block(context_policy_result: dict[str, Any] | None) -
         "relevant_durable_context": "相关长期记忆；只作为当前判断的辅助依据。",
     }
     for section_name in section_order:
+        if section_name == "hot_truth_window" and not allow_hot_truth:
+            continue
         items = [
             str(item).strip()
             for item in list(model_sections.get(section_name) or ())
-            if str(item).strip() and not _is_stale_runtime_operational_summary(str(item))
+            if str(item).strip()
         ]
         if not items:
             continue
@@ -530,34 +534,42 @@ def _render_context_policy_block(context_policy_result: dict[str, Any] | None) -
     )
 
 
-def _is_stale_runtime_operational_summary(value: str) -> bool:
-    text = str(value or "")
-    stale_markers = (
-        "本轮委派次数已用完",
-        "本轮委派次数已达上限",
-        "委派次数已达上限",
-        "max_delegate_calls_per_turn_exceeded",
-        "无法通过子Agent完成全表扫描",
-        "下一轮继续",
-        "委派被限流",
-        "本轮委派全部被限流",
-        "下一轮我会优先调用",
-        "当前无法读取",
-        "当前没有第二部分正文的任何证据",
-        "本轮两次 PDF 委派均未成功",
-        "第一次缺文件句柄",
-        "第二次被限流",
-        "本轮运行预算达到上限",
-        "本轮运行时间达到上限",
-    )
-    return any(marker in text for marker in stale_markers)
+def _context_package_allows_hot_truth_prompt(package: dict[str, Any]) -> bool:
+    rebuild_reason = str(package.get("rebuild_reason") or "").lower()
+    compaction_strategy = str(package.get("compaction_strategy") or "").lower()
+    if compaction_strategy and compaction_strategy != "none":
+        return True
+    return any(marker in rebuild_reason for marker in ("compact", "compaction", "recovery", "restore"))
 
 
 def _render_runtime_execution_block(runtime_execution_facts: dict[str, Any] | None) -> str:
     facts = dict(runtime_execution_facts or {})
     worker_spawn = dict(facts.get("worker_spawn_summary") or {})
     capability_state = dict(facts.get("runtime_capability_state") or {})
+    current_time_fact = _resolve_runtime_current_time_fact(facts, capability_state)
     lines: list[str] = []
+    if current_time_fact:
+        timezone_label = str(current_time_fact.get("timezone") or "").strip()
+        local_date = str(current_time_fact.get("local_date") or "").strip()
+        local_time = str(current_time_fact.get("local_time") or "").strip()
+        lines.extend(
+            [
+                "### Current Time Facts",
+                "以下时间由系统在本轮运行时生成，用于解释今天、当前、现在、latest 这类时间词。",
+            ]
+        )
+        if timezone_label:
+            lines.append(f"- 当前时区：{timezone_label}。")
+        if local_date:
+            lines.append(f"- 当前本地日期：{local_date}。")
+        if local_time:
+            lines.append(f"- 当前本地时间：{local_time}。")
+        lines.extend(
+            [
+                "- 对“今天”“当前”“现在”“latest”这类时间词，默认按上述本地时间理解。",
+                "- 历史回答中的时间戳只表示当时证据时间，不能直接当作本轮实时查询的当前日期。",
+            ]
+        )
     if capability_state:
         profile_write_capable = bool(capability_state.get("profile_write_capable"))
         turn_write_adopted = bool(capability_state.get("turn_write_operation_adopted"))
@@ -616,12 +628,46 @@ def _render_runtime_execution_block(runtime_execution_facts: dict[str, Any] | No
                     if worker_agent_run_ids
                     else "- worker_agent_run_ids: none"
                 ),
-                "- `worker_sub_agent` 指系统编排层的工作子 Agent，不是浏览器 Web Worker。",
+                "- 这里的 worker agent 指系统编排层生成或调用的执行 Agent，不是浏览器 Web Worker。",
             ]
         )
     if not lines:
         return ""
     return "\n".join(["## Runtime Execution Facts", *lines])
+
+
+def _resolve_runtime_current_time_fact(
+    facts: dict[str, Any],
+    capability_state: dict[str, Any],
+) -> dict[str, str]:
+    explicit_fact = dict(facts.get("current_time_fact") or {})
+    if explicit_fact:
+        return {
+            "timezone": str(explicit_fact.get("timezone") or "").strip(),
+            "local_date": str(explicit_fact.get("local_date") or "").strip(),
+            "local_time": str(explicit_fact.get("local_time") or "").strip(),
+        }
+    if not _should_expose_current_time_fact(capability_state):
+        return {}
+    now = datetime.now().astimezone()
+    timezone_label = str(now.tzinfo or "").strip() or "local"
+    return {
+        "timezone": timezone_label,
+        "local_date": now.date().isoformat(),
+        "local_time": now.isoformat(timespec="minutes"),
+    }
+
+
+def _should_expose_current_time_fact(capability_state: dict[str, Any]) -> bool:
+    operations = {
+        str(item).strip()
+        for item in [
+            *list(capability_state.get("turn_requested_operations") or []),
+            *list(capability_state.get("turn_adopted_operations") or []),
+        ]
+        if str(item).strip()
+    }
+    return "op.web_search" in operations
 
 
 def _snapshot_id(

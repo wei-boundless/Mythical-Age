@@ -54,4 +54,60 @@ describe("TaskGraph editor focus", () => {
       edge_id: "edge.review.draft",
     });
   });
+
+  it("routes artifact diagnostics to the resource artifact facet", () => {
+    const focus = focusForPreflightIssue(issue({
+      source: "frontend.preflight.artifact",
+      scope: "node",
+      target_id: "node.writer",
+    }));
+
+    expect(focus).toMatchObject({
+      layer: "memory",
+      facet: "artifact_context",
+      node_id: "node.writer",
+    });
+  });
+
+  it("routes ledger diagnostics to the risk governance layer", () => {
+    const focus = focusForPreflightIssue(issue({
+      source: "frontend.preflight.risk_ledger",
+      scope: "node",
+      target_id: "thread.ledger.1",
+    }));
+
+    expect(focus).toMatchObject({
+      layer: "risk",
+      facet: "ledgers",
+      node_id: "thread.ledger.1",
+      repository_id: "thread.ledger.1",
+    });
+  });
+
+  it("routes manual execution diagnostics to node assembly", () => {
+    const focus = focusForPreflightIssue(issue({
+      source: "frontend.preflight.human_gate",
+      scope: "node",
+      target_id: "node.review",
+    }));
+
+    expect(focus).toMatchObject({
+      layer: "agents",
+      facet: "manual_execution",
+      node_id: "node.review",
+    });
+  });
+
+  it("routes graph-level human interaction diagnostics to blueprint", () => {
+    const focus = focusForPreflightIssue(issue({
+      source: "frontend.preflight.human_gate",
+      scope: "runtime",
+      target_id: "",
+    }));
+
+    expect(focus).toMatchObject({
+      layer: "blueprint",
+      facet: "human_interaction",
+    });
+  });
 });

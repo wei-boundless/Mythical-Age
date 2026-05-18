@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from memory_system.facade import MemoryFacade
 from orchestration.agent_runtime_chain import AgentRuntimeChainAssembler
 from orchestration.agent_runtime_registry import default_agent_runtime_profiles
-from structured_memory.models import Message
 from tasks.definitions import default_task_definitions, select_runtime_task_definitions
 from understanding.memory_intent import analyze_memory_intent
 from understanding.query_understanding import analyze_query_understanding
@@ -33,7 +34,7 @@ def test_memory_route_selects_memory_recall_task_definition() -> None:
 def test_main_runtime_profile_allows_memory_recall_and_memory_read() -> None:
     main_profile = next(item for item in default_agent_runtime_profiles() if item.agent_id == "agent:0")
 
-    assert "memory_recall" in main_profile.allowed_task_modes
+    assert "full_interactive" in main_profile.allowed_runtime_lanes
     assert "op.memory_read" in main_profile.allowed_operations
 
 
@@ -80,23 +81,52 @@ def test_memory_route_requests_long_term_and_declares_memory_read() -> None:
     assert "long_term" in list(memory_profile.get("requested_memory_layers") or [])
     assert memory_profile.get("allow_long_term_memory") is True
     assert "op.memory_read" in list(operation_requirements.get("required_operations") or [])
-    assert int(diagnostics.get("long_term_candidate_count") or 0) >= 1
+    assert "long_term_candidate_count" in diagnostics
+    assert diagnostics.get("memory_write_allowed") is False
 
 
-def test_explicit_insufficient_info_preference_can_be_extracted_as_durable_memory() -> None:
-    base_dir = Path(__file__).resolve().parents[1]
-    facade = MemoryFacade(base_dir)
+def test_explicit_insufficient_info_preference_is_written_by_memory_agent(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
 
-    notes = facade.durable_memory.preview_extraction_notes(
-        [
-            Message(
-                role="user",
-                content="记住：如果信息不足，先明确告诉我缺什么，不要直接猜。",
-                meta={"session_id": "test-memory-write-insufficient-info"},
+    async def invoker(_messages):
+        return SimpleNamespace(
+            content=json.dumps(
+                {
+                    "session_memory": {
+                        "session_title": "信息不足偏好",
+                        "active_goal": "记录用户偏好",
+                        "key_user_requests": ["信息不足时先说明缺什么"],
+                    },
+                    "durable_memory": {
+                        "actions": [
+                            {
+                                "action": "create",
+                                "note_id": "insufficient-info-preference",
+                                "memory_type": "user",
+                                "memory_class": "preference",
+                                "title": "信息不足时先说明缺什么",
+                                "canonical_statement": "用户偏好：如果信息不足，先明确告诉用户缺什么，不要直接猜。",
+                                "summary": "信息不足时先说明缺口。",
+                                "confidence": "high",
+                                "reason": "这是跨会话稳定偏好。",
+                                "evidence_excerpt": "记住：如果信息不足，先明确告诉我缺什么，不要直接猜。",
+                                "source_message_refs": ["message:0"],
+                            }
+                        ]
+                    },
+                },
+                ensure_ascii=False,
             )
-        ]
+        )
+
+    facade.set_model_invoker(invoker)
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="test-memory-write-insufficient-info",
+        messages=[{"role": "user", "content": "记住：如果信息不足，先明确告诉我缺什么，不要直接猜。"}],
     )
 
+    notes = facade.memory_manager.list_notes()
+    assert receipt.durable_write_count == 1
     assert notes
     assert any(note.memory_type == "user" and note.memory_class == "preference" for note in notes)
     assert any("信息不足" in note.canonical_statement and "不要直接猜" in note.canonical_statement for note in notes)

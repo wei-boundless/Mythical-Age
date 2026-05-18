@@ -80,7 +80,6 @@ def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: P
         task_id="task.dev.light_web_game",
         adoption_mode="adopt_with_projection",
         default_agent_id="agent:0",
-        allowed_agent_categories=("main_agent", "worker_sub_agent"),
         allow_worker_agent_spawn=True,
         worker_agent_blueprint_id="worker.dev.prototype",
         worker_agent_naming_rule="game-worker-{n}",
@@ -188,3 +187,30 @@ def test_terminal_state_index_failure_still_yields_done() -> None:
     output_commit = dict(done_event.get("output_commit") or {})
     assert output_commit["state_index_degraded"] is True
     assert dict(done_event.get("runtime_state_index") or {})["phase"] == "finished_task_run_state_write"
+
+
+def test_assistant_commit_enqueues_memory_maintenance_without_waiting(tmp_path: Path) -> None:
+    runtime = QueryRuntime(
+        base_dir=tmp_path,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_ToolRuntimeStub(),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_ModelRuntimeStub(),
+    )
+
+    result = runtime._apply_assistant_message_commit(
+        "session-queued-commit",
+        {
+            "role": "assistant",
+            "content": "已提交。",
+            "turn_id": "turn:queued:1",
+        },
+    )
+
+    assert result["memory_maintenance_status"] == "queued"
+    assert result["memory_maintenance_attempted"] is False
+    assert result["durable_memory_commit_attempted"] is False

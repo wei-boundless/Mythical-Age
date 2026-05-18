@@ -57,7 +57,7 @@ class SessionMemoryLayer:
         )
 
     def refresh(self, session_id: str, messages: list[Message]) -> str:
-        return self.manager(session_id).update_from_messages(messages)
+        return self.manager(session_id).load()
 
     def refresh_from_context_state(
         self,
@@ -68,7 +68,25 @@ class SessionMemoryLayer:
         bundle_summaries: list[Any] | None = None,
         corrections: list[str] | None = None,
     ) -> str:
-        return self.manager(session_id).update_from_context_state(
+        self.update_runtime_state_from_context_state(
+            session_id,
+            main_context,
+            task_summaries=task_summaries,
+            bundle_summaries=bundle_summaries,
+            corrections=corrections,
+        )
+        return self.manager(session_id).load()
+
+    def update_runtime_state_from_context_state(
+        self,
+        session_id: str,
+        main_context: Any,
+        *,
+        task_summaries: list[Any] | None = None,
+        bundle_summaries: list[Any] | None = None,
+        corrections: list[str] | None = None,
+    ):
+        return self.manager(session_id).update_runtime_state_from_context_state(
             main_context,
             task_summaries=task_summaries,
             bundle_summaries=bundle_summaries,

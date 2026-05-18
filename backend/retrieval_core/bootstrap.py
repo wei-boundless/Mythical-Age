@@ -7,7 +7,7 @@ from statistics import mean
 from typing import Any
 
 from document_conversion import DocumentCacheLayout, DoclingConverter, discover_source_files
-from document_conversion.models import build_conversion_doc_id
+from document_conversion.models import STRUCTURE_CONTRACT_VERSION, build_conversion_doc_id
 from config import get_settings
 from normalized_ingestion import ChunkingPolicy, NormalizedDocumentBuilder, build_cleaning_manifest, build_indexable_units
 from capability_system.units.mcp.local.retrieval.collections import CollectionConfig
@@ -120,7 +120,10 @@ class RetrievalBootstrapper:
         doc_id = self._doc_id_for_record(record)
         if reuse_conversion_cache:
             manifest = self.cache.read_conversion_manifest(doc_id)
-            if manifest.get("version_digest") == record.version_digest:
+            if (
+                manifest.get("version_digest") == record.version_digest
+                and manifest.get("structure_contract_version") == STRUCTURE_CONTRACT_VERSION
+            ):
                 cached = self.cache.read_conversion_result(doc_id)
                 if cached is not None:
                     return cached

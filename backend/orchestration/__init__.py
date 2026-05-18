@@ -26,6 +26,8 @@ from .body_models import (
 )
 from .body_registry import BodyProfileRegistry
 from .runtime_directive import RuntimeDirective
+from .execution_scheduler import BackgroundTaskManager, BackgroundTaskRecord, ExecutionDispatchDecision, resolve_execution_dispatch
+from .runtime_lane_registry import RuntimeLaneDescriptor, RuntimeLaneRegistry, default_runtime_lane_descriptors
 from .worker_agent_blueprints import WorkerAgentBlueprint, WorkerAgentSpawnRequest, WorkerAgentSpawnResult
 from .worker_agent_factory import ProvisionedWorkerAgent, WorkerAgentFactory, default_worker_agent_blueprints
 from .resource_gate import (
@@ -121,6 +123,9 @@ __all__ = [
     "ControlKernelResult",
     "ExecutionGraph",
     "ExecutionNode",
+    "BackgroundTaskManager",
+    "BackgroundTaskRecord",
+    "ExecutionDispatchDecision",
     "PolicyHint",
     "RuntimeDirective",
     "AgentRuntimeProfile",
@@ -149,6 +154,8 @@ __all__ = [
     "RuntimeApprovalContext",
     "RuntimeCommitGateDecision",
     "RuntimeLaneProfile",
+    "RuntimeLaneDescriptor",
+    "RuntimeLaneRegistry",
     "BodyProfileRegistry",
     "build_orchestration_runtime_bundle",
     "RuntimeActionRequest",
@@ -202,9 +209,11 @@ __all__ = [
     "build_base_unit_catalog",
     "build_default_operation_registry",
     "build_operation_requirement",
+    "resolve_execution_dispatch",
     "default_agent_descriptors",
     "default_agent_groups",
     "default_agent_runtime_profiles",
+    "default_runtime_lane_descriptors",
     "default_worker_agent_blueprints",
     "build_executor_error_observation",
     "build_execution_receipt",

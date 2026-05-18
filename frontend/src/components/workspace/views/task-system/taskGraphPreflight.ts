@@ -75,6 +75,7 @@ function isMemoryRepositoryNode(node: Record<string, unknown>) {
     nodeType === "memory_repository"
     || nodeType === "working_memory_store"
     || nodeType === "runtime_state_store"
+    || nodeType === "thread_ledger"
     || nodeType === "progress_ledger"
     || nodeType === "issue_ledger"
     || (nodeType.includes("repository") && !nodeType.includes("artifact"))
@@ -140,6 +141,10 @@ export function buildTaskGraphPreflightReport({
   const nodeIdSet = new Set(nodeIds.filter(Boolean));
   const continuationPolicy = recordValue(metadata?.continuation_policy);
   const humanGateMode = stringValue(continuationPolicy.human_gate_mode);
+  const nameRegistry = Array.isArray(metadata?.name_registry)
+    ? metadata.name_registry.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    : [];
+  const registeredNames = new Set(nameRegistry.map((item) => stringValue(item.object_id ?? item.id)).filter(Boolean));
 
   if (!nodes.length) {
     pushIssue(issues, {
@@ -188,6 +193,17 @@ export function buildTaskGraphPreflightReport({
   const seenNodeIds = new Set<string>();
   nodes.forEach((node, index) => {
     const nodeId = nodeIds[index] || `node_${index + 1}`;
+    const explicitZhName = stringValue(node.display_name_zh ?? recordValue(node.metadata).display_name_zh ?? node.title ?? node.label);
+    if (!registeredNames.has(nodeId) && !explicitZhName) {
+      pushIssue(issues, {
+        severity: "warning",
+        scope: "node",
+        target_id: nodeId,
+        title: "节点缺少中文名注册",
+        detail: "图上显示名应来自 metadata.name_registry 或节点显式中文名，避免不同页面显示不一致。",
+        source: "frontend.preflight.name_registry",
+      });
+    }
     if (seenNodeIds.has(nodeId)) {
       pushIssue(issues, {
         severity: "error",
@@ -364,13 +380,13 @@ export function buildTaskGraphPreflightReport({
         source: "frontend.preflight.revision_packet",
       });
     }
-    if (isRevisionEdge && !stringValue(metadata.review_result_key ?? metadata.review_receipt_key ?? metadata.verdict_key)) {
+    if (isRevisionEdge && !stringValue(metadata.review_result_key ?? metadata.verdict_key)) {
       pushIssue(issues, {
         severity: "warning",
         scope: "edge",
         target_id: edgeId,
         title: "返修边缺少审核结果引用",
-        detail: "返修交接必须携带审核裁决、问题清单或 receipt 引用，否则出稿节点无法知道退稿原因。",
+        detail: "返修交接必须携带审核裁决、问题清单或审核结果引用，否则出稿节点无法知道退稿原因。",
         source: "frontend.preflight.revision_packet",
       });
     }
@@ -500,14 +516,14 @@ export function buildTaskGraphPreflightReport({
         source: "frontend.preflight.memory_write_contract",
       });
     }
-    if (memoryEdge.operation === "commit" && !Object.keys(memoryEdge.receiptPolicy).length) {
+    if (memoryEdge.operation === "commit" && !Object.keys(memoryEdge.commitVisibilityPolicy).length) {
       pushIssue(issues, {
         severity: "warning",
         scope: "edge",
         target_id: memoryEdge.edgeId,
-        title: "记忆提交缺少 Receipt 策略",
-        detail: "memory_commit 边应配置 receipt_policy，说明提交状态和从哪个 clock/scope 起对后续节点可见。",
-        source: "frontend.preflight.receipt_policy",
+        title: "记忆提交缺少可见性策略",
+        detail: "memory_commit 边应配置 commit_visibility_policy，说明提交状态和从哪个 clock/scope 起对后续节点可见。",
+        source: "frontend.preflight.memory_commit_visibility",
       });
     }
     if (memoryEdge.operation === "commit" && !stringValue(metadata.candidate_ref_key) && !stringValue(metadata.record_key ?? selector.record_key)) {

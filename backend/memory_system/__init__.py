@@ -3,16 +3,8 @@ from __future__ import annotations
 __all__ = [
     "ConversationMemorySnapshot",
     "ConversationMemoryStoreAdapter",
-    "DurableAdmissionDecision",
-    "DurableAdmissionPolicy",
-    "DurableCandidateDraft",
-    "DurableExtractionBundle",
     "DurableMemoryLayer",
     "DurableMemoryType",
-    "DurableMutationPlan",
-    "DurableMutationPlanner",
-    "DurableStoreWriter",
-    "DurableWriteExtractorAgent",
     "FormalMemoryCollection",
     "FormalMemoryReadLog",
     "FormalMemoryRecord",
@@ -28,25 +20,18 @@ __all__ = [
     "MemoryCompactionResult",
     "MemoryContextCandidate",
     "MemoryFacade",
-    "MemoryGateDecision",
-    "MemoryGovernance",
     "MemoryHeader",
-    "MemoryMessageAdapter",
-    "MemoryReadAgent",
-    "MemoryRecallRequest",
-    "MemoryRecallResult",
-    "MemoryRecallSelection",
+    "MemoryMaintenanceReceipt",
+    "MemoryMaintenanceRequest",
+    "MemoryMaintenanceResult",
     "MemoryRequest",
     "MemoryRuntimeView",
     "MemoryScopePolicy",
     "MemoryBundle",
     "MemoryBundleService",
     "Message",
-    "MemoryWritebackProposal",
     "MemoryRequestService",
-    "MemoryWritebackBuilderService",
     "MemoryWriteCandidate",
-    "MemoryWritebackService",
     "WorkingMemoryHandoffTransaction",
     "WorkingMemoryItem",
     "WorkingMemoryPolicyProfile",
@@ -56,7 +41,6 @@ __all__ = [
     "WorkingMemoryService",
     "WorkingMemoryStore",
     "WorkingMemoryTemporalEdge",
-    "DurableMemoryGovernanceService",
     "SessionMemoryLayer",
     "StateMemoryFileRef",
     "StateMemoryRestoreCandidate",
@@ -70,23 +54,15 @@ __all__ = [
     "ProcessState",
     "SessionMemoryManager",
     "TaskState",
-    "TaskDurableMemoryItem",
-    "TaskDurableMemoryNamespace",
-    "TaskDurableMemoryQuery",
-    "TaskDurableMemoryService",
-    "TaskDurableMemoryStore",
     "TurnUnderstanding",
-    "build_blocked_memory_gate",
     "build_memory_compaction_result",
     "build_memory_bundle",
     "build_memory_request",
     "build_memory_runtime_view",
     "build_memory_scope_policy",
-    "build_memory_writeback_proposal",
     "format_memory_manifest",
     "load_memory_header",
     "load_static_context",
-    "normalize_memory_write_statement",
     "scan_memory_headers",
     "utc_now_iso",
 ]
@@ -135,10 +111,6 @@ def __getattr__(name: str):
             "MemoryCompactionResult": MemoryCompactionResult,
             "build_memory_compaction_result": build_memory_compaction_result,
         }[name]
-    if name in {"DurableAdmissionPolicy"}:
-        from .admission_policy import DurableAdmissionPolicy
-
-        return DurableAdmissionPolicy
     if name in {"DurableMemoryLayer"}:
         from .durable import DurableMemoryLayer
 
@@ -147,10 +119,6 @@ def __getattr__(name: str):
         from .bundle_service import MemoryBundleService
 
         return MemoryBundleService
-    if name in {"DurableMemoryGovernanceService"}:
-        from .governance_service import DurableMemoryGovernanceService
-
-        return DurableMemoryGovernanceService
     if name in {
         "FormalMemoryCollection",
         "FormalMemoryReadLog",
@@ -188,13 +156,6 @@ def __getattr__(name: str):
         from .facade import MemoryFacade
 
         return MemoryFacade
-    if name in {"MemoryGateDecision", "build_blocked_memory_gate"}:
-        from .gate import MemoryGateDecision, build_blocked_memory_gate
-
-        return {
-            "MemoryGateDecision": MemoryGateDecision,
-            "build_blocked_memory_gate": build_blocked_memory_gate,
-        }[name]
     if name in {"MemoryGovernance"}:
         from .governance import MemoryGovernance
 
@@ -212,10 +173,20 @@ def __getattr__(name: str):
             "load_memory_header": load_memory_header,
             "scan_memory_headers": scan_memory_headers,
         }[name]
-    if name in {"MemoryMessageAdapter"}:
-        from .messages import MemoryMessageAdapter
+    if name in {
+        "MemoryMaintenanceReceipt",
+        "MemoryMaintenanceRequest",
+        "MemoryMaintenanceResult",
+    }:
+        from .maintenance_agent import MemoryMaintenanceAgent
+        from .maintenance_coordinator import MemoryMaintenanceCoordinator
+        from .maintenance_models import MemoryMaintenanceReceipt, MemoryMaintenanceRequest, MemoryMaintenanceResult
 
-        return MemoryMessageAdapter
+        return {
+            "MemoryMaintenanceReceipt": MemoryMaintenanceReceipt,
+            "MemoryMaintenanceRequest": MemoryMaintenanceRequest,
+            "MemoryMaintenanceResult": MemoryMaintenanceResult,
+        }[name]
     if name in {
         "ContextSlots",
         "FlowState",
@@ -259,26 +230,10 @@ def __getattr__(name: str):
             "StaticContextEntry": StaticContextEntry,
             "StaticContextSection": StaticContextSection,
         }[name]
-    if name in {"DurableMutationPlanner"}:
-        from .mutation_planner import DurableMutationPlanner
-
-        return DurableMutationPlanner
-    if name in {"MemoryReadAgent"}:
-        from .read_agent import MemoryReadAgent
-
-        return MemoryReadAgent
     if name in {"MemoryRequestService"}:
         from .request_service import MemoryRequestService
 
         return MemoryRequestService
-    if name in {"MemoryRecallRequest", "MemoryRecallResult", "MemoryRecallSelection"}:
-        from .read_models import MemoryRecallRequest, MemoryRecallResult, MemoryRecallSelection
-
-        return {
-            "MemoryRecallRequest": MemoryRecallRequest,
-            "MemoryRecallResult": MemoryRecallResult,
-            "MemoryRecallSelection": MemoryRecallSelection,
-        }[name]
     if name in {"MemoryRuntimeView", "build_memory_runtime_view"}:
         from .runtime_view import MemoryRuntimeView, build_memory_runtime_view
 
@@ -290,32 +245,26 @@ def __getattr__(name: str):
         "MemoryRequest",
         "MemoryScopePolicy",
         "MemoryBundle",
-        "MemoryWritebackProposal",
         "build_memory_request",
         "build_memory_scope_policy",
         "build_memory_bundle",
-        "build_memory_writeback_proposal",
     }:
         from .supply import (
             MemoryBundle,
             MemoryRequest,
             MemoryScopePolicy,
-            MemoryWritebackProposal,
             build_memory_bundle,
             build_memory_request,
             build_memory_scope_policy,
-            build_memory_writeback_proposal,
         )
 
         return {
             "MemoryRequest": MemoryRequest,
             "MemoryScopePolicy": MemoryScopePolicy,
             "MemoryBundle": MemoryBundle,
-            "MemoryWritebackProposal": MemoryWritebackProposal,
             "build_memory_request": build_memory_request,
             "build_memory_scope_policy": build_memory_scope_policy,
             "build_memory_bundle": build_memory_bundle,
-            "build_memory_writeback_proposal": build_memory_writeback_proposal,
         }[name]
     if name in {"SessionMemoryLayer"}:
         from .session import SessionMemoryLayer
@@ -325,26 +274,6 @@ def __getattr__(name: str):
         from .state_memory import StateMemoryStoreAdapter
 
         return StateMemoryStoreAdapter
-    if name in {"TaskDurableMemoryItem", "TaskDurableMemoryNamespace", "TaskDurableMemoryQuery"}:
-        from .task_durable_memory_models import (
-            TaskDurableMemoryItem,
-            TaskDurableMemoryNamespace,
-            TaskDurableMemoryQuery,
-        )
-
-        return {
-            "TaskDurableMemoryItem": TaskDurableMemoryItem,
-            "TaskDurableMemoryNamespace": TaskDurableMemoryNamespace,
-            "TaskDurableMemoryQuery": TaskDurableMemoryQuery,
-        }[name]
-    if name in {"TaskDurableMemoryService"}:
-        from .task_durable_memory_service import TaskDurableMemoryService
-
-        return TaskDurableMemoryService
-    if name in {"TaskDurableMemoryStore"}:
-        from .task_durable_memory_store import TaskDurableMemoryStore
-
-        return TaskDurableMemoryStore
     if name in {
         "WorkingMemoryHandoffTransaction",
         "WorkingMemoryItem",
@@ -389,42 +318,4 @@ def __getattr__(name: str):
         from .static_loader import load_static_context
 
         return load_static_context
-    if name in {"DurableStoreWriter"}:
-        from .store_writer import DurableStoreWriter
-
-        return DurableStoreWriter
-    if name in {"DurableWriteExtractorAgent"}:
-        from .write_agent import DurableWriteExtractorAgent
-
-        return DurableWriteExtractorAgent
-    if name in {
-        "DurableAdmissionDecision",
-        "DurableCandidateDraft",
-        "DurableExtractionBundle",
-        "DurableMutationPlan",
-    }:
-        from .write_models import (
-            DurableAdmissionDecision,
-            DurableCandidateDraft,
-            DurableExtractionBundle,
-            DurableMutationPlan,
-        )
-
-        return {
-            "DurableAdmissionDecision": DurableAdmissionDecision,
-            "DurableCandidateDraft": DurableCandidateDraft,
-            "DurableExtractionBundle": DurableExtractionBundle,
-            "DurableMutationPlan": DurableMutationPlan,
-        }[name]
-    if name in {"MemoryWritebackService", "normalize_memory_write_statement"}:
-        from .writeback import MemoryWritebackService, normalize_memory_write_statement
-
-        return {
-            "MemoryWritebackService": MemoryWritebackService,
-            "normalize_memory_write_statement": normalize_memory_write_statement,
-        }[name]
-    if name in {"MemoryWritebackBuilderService"}:
-        from .writeback_service import MemoryWritebackBuilderService
-
-        return MemoryWritebackBuilderService
     raise AttributeError(f"module 'memory_system' has no attribute {name!r}")

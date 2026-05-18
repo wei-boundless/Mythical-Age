@@ -11,6 +11,7 @@ RESOURCE_NODE_TYPES = {
     "memory_repository",
     "memory_collection",
     "artifact_repository",
+    "thread_ledger",
     "progress_ledger",
     "issue_ledger",
     "runtime_state_store",
@@ -31,6 +32,7 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
     artifact_context_edges = [_artifact_context_edge_payload(edge) for edge in edges if _is_artifact_context_edge(edge)]
     revision_edges = [_revision_edge_payload(edge) for edge in edges if _is_revision_edge(edge)]
     loop_frames = [_loop_frame_payload(node) for node in nodes if _is_loop_frame(node)]
+    timeline_blocks = _timeline_blocks(graph=graph, nodes=nodes)
     matrix = _memory_matrix(nodes=nodes, resource_nodes=resource_nodes, memory_edges=memory_edges)
     issues = _layer_issues(
         graph=graph,
@@ -56,6 +58,7 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
         "artifact_context_edges": artifact_context_edges,
         "revision_edges": revision_edges,
         "loop_frames": loop_frames,
+        "timeline_blocks": timeline_blocks,
         "memory_matrix": matrix,
         "issues": issues,
         "summary": {
@@ -65,6 +68,7 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
             "artifact_context_edge_count": len(artifact_context_edges),
             "revision_edge_count": len(revision_edges),
             "loop_frame_count": len(loop_frames),
+            "timeline_block_count": len(timeline_blocks),
             "issue_count": len(issues),
         },
     }
@@ -73,7 +77,7 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
 def _is_resource_node(node: TaskGraphNodeDefinition) -> bool:
     node_type = str(node.node_type or "").strip()
     node_id = str(node.node_id or "").strip()
-    return node_type in RESOURCE_NODE_TYPES or node_id.startswith(("memory.", "artifact.", "progress.", "issue."))
+    return node_type in RESOURCE_NODE_TYPES or node_id.startswith(("memory.", "artifact.", "thread.", "progress.", "issue."))
 
 
 def _is_loop_frame(node: TaskGraphNodeDefinition) -> bool:
@@ -219,7 +223,11 @@ def _memory_edge_payload(edge: TaskGraphEdgeDefinition) -> dict[str, Any]:
         "candidate_ref_key": str(metadata.get("candidate_ref_key") or ""),
         "verdict_key": str(metadata.get("verdict_key") or ""),
         "required_verdict": str(metadata.get("required_verdict") or ""),
-        "receipt_policy": dict(metadata.get("receipt_policy") or {}),
+        "commit_visibility_policy": dict(
+            metadata.get("commit_visibility_policy")
+            or metadata.get("visibility_policy")
+            or {}
+        ),
         "model_visible_label": str(metadata.get("model_visible_label") or metadata.get("visible_label") or ""),
         "usage_instruction": str(metadata.get("usage_instruction") or metadata.get("instructions") or ""),
         "read_contract": dict(metadata.get("read_contract") or {}),
@@ -287,6 +295,62 @@ def _loop_frame_payload(node: TaskGraphNodeDefinition) -> dict[str, Any]:
         "memory_snapshot_policy": str(policy.get("memory_snapshot_policy") or "latest_committed_before_iteration"),
         "policy": policy,
         "authority": "task_system.loop_frame",
+    }
+
+
+def _timeline_blocks(*, graph: TaskGraphDefinition, nodes: list[TaskGraphNodeDefinition]) -> list[dict[str, Any]]:
+    metadata = dict(graph.metadata or {})
+    explicit = [
+        dict(item)
+        for item in list(metadata.get("timeline_blocks") or [])
+        if isinstance(item, dict)
+    ]
+    if explicit:
+        return [_timeline_block_payload(item, index) for index, item in enumerate(explicit)]
+    phase_ids = list(dict.fromkeys(str(node.phase_id or "").strip() for node in nodes if str(node.phase_id or "").strip()))
+    blocks: list[dict[str, Any]] = []
+    for index, phase_id in enumerate(phase_ids):
+        phase_nodes = sorted(
+            [node for node in nodes if str(node.phase_id or "").strip() == phase_id],
+            key=lambda item: (int(item.sequence_index or 0), item.node_id),
+        )
+        if not phase_nodes:
+            continue
+        blocks.append(
+            {
+                "block_id": f"block.{phase_id}",
+                "block_type": "phase_graph",
+                "title": phase_id.replace("phase.", "") or phase_id,
+                "phase_id": phase_id,
+                "entry_node_id": phase_nodes[0].node_id,
+                "exit_node_id": phase_nodes[-1].node_id,
+                "handoff_contract_id": "",
+                "visibility_policy": "committed_only",
+                "version_ref": "",
+                "detach_policy": "preserve_version_anchor",
+                "derived": True,
+                "authority": "task_system.timeline_block",
+            }
+        )
+    return blocks
+
+
+def _timeline_block_payload(payload: dict[str, Any], index: int) -> dict[str, Any]:
+    block_id = str(payload.get("block_id") or payload.get("id") or f"timeline_block_{index + 1}").strip()
+    return {
+        "block_id": block_id or f"timeline_block_{index + 1}",
+        "block_type": str(payload.get("block_type") or "phase_graph").strip() or "phase_graph",
+        "title": str(payload.get("title") or payload.get("name") or block_id or f"图块 {index + 1}").strip(),
+        "phase_id": str(payload.get("phase_id") or "").strip(),
+        "linked_graph_id": str(payload.get("linked_graph_id") or payload.get("graph_id") or "").strip(),
+        "entry_node_id": str(payload.get("entry_node_id") or "").strip(),
+        "exit_node_id": str(payload.get("exit_node_id") or "").strip(),
+        "handoff_contract_id": str(payload.get("handoff_contract_id") or "").strip(),
+        "visibility_policy": str(payload.get("visibility_policy") or "committed_only").strip() or "committed_only",
+        "version_ref": str(payload.get("version_ref") or "").strip(),
+        "detach_policy": str(payload.get("detach_policy") or "preserve_version_anchor").strip() or "preserve_version_anchor",
+        "metadata": dict(payload.get("metadata") or {}),
+        "authority": "task_system.timeline_block",
     }
 
 

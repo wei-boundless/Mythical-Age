@@ -12,10 +12,8 @@ from .compat_types import SessionMemoryManager
 
 CONVERSATION_SECTION_HEADERS: tuple[str, ...] = (
     "# Key User Requests",
-    "# Errors and Corrections",
     "# Decisions and Learnings",
     "# Key Results",
-    "# Worklog",
 )
 
 
@@ -43,10 +41,9 @@ class ConversationMemoryStoreAdapter:
         key_requests = tuple(_section_items(sections, "# Key User Requests"))
         key_results = tuple(_section_items(sections, "# Key Results"))
         worklog = tuple(_section_items(sections, "# Worklog"))
-        errors = tuple(_section_items(sections, "# Errors and Corrections"))
         decisions = tuple(_section_items(sections, "# Decisions and Learnings"))
 
-        hot_truth_window = _take_nonempty([*key_results, *decisions, *errors], limit=6)
+        hot_truth_window = _take_nonempty([*key_results, *decisions], limit=6)
         recent_dialogue_refs = _take_nonempty([*key_requests, *worklog], limit=8)
 
         return ConversationMemorySnapshot(

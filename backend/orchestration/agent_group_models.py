@@ -12,9 +12,6 @@ class AgentGroup:
     coordinator_agent_id: str
     member_agent_ids: tuple[str, ...] = ()
     description: str = ""
-    default_topology_template_ids: tuple[str, ...] = ()
-    default_communication_protocol_ids: tuple[str, ...] = ()
-    allowed_task_graph_ids: tuple[str, ...] = ()
     lifecycle_state: str = "enabled"
     metadata: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.agent_group"
@@ -28,8 +25,4 @@ class AgentGroup:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["member_agent_ids"] = list(self.member_agent_ids)
-        payload["default_topology_template_ids"] = list(self.default_topology_template_ids)
-        payload["default_communication_protocol_ids"] = list(self.default_communication_protocol_ids)
-        payload["allowed_task_graph_ids"] = list(self.allowed_task_graph_ids)
-        payload["allowed_coordination_task_ids"] = list(self.allowed_task_graph_ids)
         return payload

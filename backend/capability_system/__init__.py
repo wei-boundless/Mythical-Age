@@ -13,6 +13,7 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "MCPRegistryEntry": (".mcp_registry", "MCPRegistryEntry"),
     "agent_tool_bindings": (".catalog", "agent_tool_bindings"),
     "build_capability_catalog": (".catalog", "build_capability_catalog"),
+    "build_orchestration_capability_items": (".catalog", "build_orchestration_capability_items"),
     "build_capability_supply_package": (".supply", "build_capability_supply_package"),
     "build_capability_supply_package_from_base_dir": (".supply", "build_capability_supply_package_from_base_dir"),
     "build_capability_supply_package_from_catalog": (".supply", "build_capability_supply_package_from_catalog"),

@@ -52,7 +52,7 @@ export function TaskGraphSetupWizard({
       <header className="task-graph-studio-page__head">
         <span>TaskGraph Studio</span>
         <strong>从任务意图生成协同草稿</strong>
-        <small>{domainTitle} · {taskCount} 个可绑定任务</small>
+        <small>{domainTitle} · {taskCount} 个可引用任务定义</small>
         {onCancel ? (
           <button className="boundary-chip" onClick={onCancel} type="button">
             <X size={13} />
@@ -77,7 +77,7 @@ export function TaskGraphSetupWizard({
         <div>
           <CheckCircle2 size={20} />
           <strong>生成后进入拓扑编排</strong>
-          <span>你仍然可以继续调整 Agent 编组、职责、时序、记忆、契约和发布状态。</span>
+          <span>你仍然可以继续调整节点装配、职责、时序、资源流、契约和发布状态。</span>
         </div>
       </section>
 

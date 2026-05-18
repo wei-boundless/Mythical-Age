@@ -24,6 +24,7 @@ from orchestration.resource_gate import OperationGate, OperationGatePipelineCont
 from project_layout import ProjectLayout
 from output_boundary.boundary import AssistantOutputBoundary
 from memory_system import WorkingMemoryFinalizer, WorkingMemoryService
+from artifact_system import ArtifactRepositoryService
 from tasks.flow_registry import TaskFlowRegistry
 from tasks.coordination_graph_models import TaskGraphRuntimeEdge, TaskGraphRuntimeNode, TaskGraphRuntimeSpec
 from tasks.task_graph_models import TaskGraphDefinition
@@ -96,7 +97,7 @@ from .project_supervision import (
     record_delivery_state,
     record_failure,
 )
-from .stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
+from .node_execution_request import NodeExecutionRequest, NodeResultReadyEvent
 from .task_artifact_materializer import MaterializedTaskArtifacts, materialize_task_artifacts
 from .task_graph_monitoring import (
     compact_monitor_snapshot,
@@ -227,6 +228,7 @@ class TaskRunLoop:
         self.evidence_orchestrator = evidence_orchestrator
         self.working_memory = WorkingMemoryService(_working_memory_root_for_loop(self.root_dir))
         self.working_memory_finalizer = WorkingMemoryFinalizer(self.working_memory)
+        self.artifact_repository = ArtifactRepositoryService(_artifact_repository_root_for_loop(self.root_dir))
 
     @staticmethod
     def _apply_observation_aggregation(
@@ -1029,8 +1031,14 @@ class TaskRunLoop:
         task_agent_adoption_plan_payload = dict(task_operation.get("task_agent_adoption_plan") or {})
         task_memory_request_profile_payload = dict(task_operation.get("task_memory_request_profile") or {})
         task_communication_protocol_payload = dict(task_operation.get("task_communication_protocol") or {})
-        graph_payload = dict(task_operation.get("graph_record") or {})
+        raw_graph_payload = dict(task_operation.get("graph_record") or {})
         task_graph_payload = dict(task_operation.get("task_graph_record") or task_operation.get("graph_record") or {})
+        runtime_spec_payload = dict(task_operation.get("task_graph_runtime_spec") or {})
+        graph_payload = _normalize_runtime_graph_payload(
+            raw_graph_payload=raw_graph_payload,
+            task_graph_payload=task_graph_payload,
+            runtime_spec_payload=runtime_spec_payload,
+        )
         task_body_orchestration_payload = dict(chain_runtime.get("task_body_orchestration") or task_operation.get("task_body_orchestration") or {})
         agent_runtime_spec_payload = dict(chain_runtime.get("agent_runtime_spec") or task_operation.get("agent_runtime_spec") or {})
         memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
@@ -1121,6 +1129,7 @@ class TaskRunLoop:
                 "task_communication_protocol": task_communication_protocol_payload,
                 "graph_record": graph_payload,
                 "task_graph_record": task_graph_payload,
+                "task_graph_runtime_spec": runtime_spec_payload,
                 "task_body_orchestration": task_body_orchestration_payload,
                 "agent_runtime_spec": agent_runtime_spec_payload,
                 "task_run_ledger": runtime_task_ledger.to_dict() if runtime_task_ledger is not None else {},
@@ -1165,6 +1174,14 @@ class TaskRunLoop:
         )
         for runtime_event in runtime_object_events:
             yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+        latest_streamed_offset = max(
+            [task_event.offset, *[int(getattr(event, "offset", -1)) for event in runtime_object_events]],
+            default=task_event.offset,
+        )
+        for logged_event in self.event_log.list_events(state.task_run_id):
+            if logged_event.offset > latest_streamed_offset:
+                yield {"type": "runtime_loop_event", "event": logged_event.to_dict()}
+                latest_streamed_offset = max(latest_streamed_offset, logged_event.offset)
         initial_coordination_run = (
             self.state_index.list_task_coordination_runs(state.task_run_id)[0]
             if self.state_index.list_task_coordination_runs(state.task_run_id)
@@ -1176,7 +1193,7 @@ class TaskRunLoop:
             )
             initial_request_payload = dict(dict(initial_coordination_state or {}).get("stage_execution_request") or {})
             if initial_request_payload:
-                initial_request = StageExecutionRequest.from_dict(initial_request_payload)
+                initial_request = NodeExecutionRequest.from_dict(initial_request_payload)
                 continuation_payload = LangGraphCoordinationRuntimeResult(
                     state=dict(initial_coordination_state or {}),
                     stage_execution_request=initial_request,
@@ -1692,7 +1709,7 @@ class TaskRunLoop:
             selected_recipe_payload=selected_recipe_payload,
             retrieval_results=retrieval_results,
         ):
-            final_content = str(final_main_context.get("answer") or "")
+            final_content = self._select_final_answer_from_context(final_main_context)
             if not final_content:
                 final_content = str(
                     final_main_context.get("resolved_answer")
@@ -1700,7 +1717,7 @@ class TaskRunLoop:
                     or ""
                 )
             if not final_content and final_task_summary_refs:
-                final_content = str(final_task_summary_refs[0].get("summary") or "")
+                final_content = self._select_final_answer_from_task_summary_refs(final_task_summary_refs)
             if final_content:
                 final_answer_metadata = {
                     "answer_channel": "answer_candidate",
@@ -2423,9 +2440,7 @@ class TaskRunLoop:
                     )
                     if synthesized:
                         final_content = synthesized
-                        final_answer_metadata = _forced_synthesis_answer_metadata(
-                            source="runtime_loop.post_tool_judgement_force_synthesis"
-                        )
+                        final_answer_metadata = _forced_synthesis_answer_metadata(source="runtime_loop.post_tool_judgement_force_synthesis")
                         followup_messages = []
                         break
                 if retrieval_followup_force_synthesis:
@@ -2437,9 +2452,7 @@ class TaskRunLoop:
                     )
                     if synthesized:
                         final_content = synthesized
-                        final_answer_metadata = _forced_synthesis_answer_metadata(
-                            source="runtime_loop.retrieval_followup_force_synthesis"
-                        )
+                        final_answer_metadata = _forced_synthesis_answer_metadata(source="runtime_loop.retrieval_followup_force_synthesis")
                         followup_messages = []
                         break
                 if repeated_tool_halt and final_content:
@@ -3187,6 +3200,29 @@ class TaskRunLoop:
                 },
             )
         artifact_materialization_payload = artifact_materialization.to_dict()
+        artifact_repository_record: dict[str, Any] = {}
+        if artifact_materialization.enabled and artifact_materialization.artifact_refs:
+            artifact_policy = dict(dict(task_policy_for_artifacts.get("artifact_policy") or {}))
+            artifact_repository_record = self.artifact_repository.record_materialization(
+                task_run_id=start_task_run.task_run_id,
+                graph_id=str(dict(start_task_run.diagnostics or {}).get("graph_ref") or ""),
+                stage_id=str(stage_execution_request.get("stage_id") or ""),
+                node_run_id=str(stage_execution_request.get("node_run_id") or stage_execution_request.get("request_id") or ""),
+                task_ref=task_ref_for_artifacts,
+                coordination_run_id=start_coordination_run.coordination_run_id if start_coordination_run is not None else "",
+                artifact_refs=list(artifact_materialization.artifact_refs),
+                artifact_root=artifact_materialization.artifact_root,
+                created_files=list(artifact_materialization.created_files),
+                status=acceptance_status or "accepted",
+                repository_id=str(artifact_policy.get("repository_id") or artifact_policy.get("artifact_repository_id") or "artifact.repository.default"),
+                collection_id=str(artifact_policy.get("collection_id") or artifact_policy.get("collection") or "default"),
+                lifecycle_policy=dict(artifact_policy.get("lifecycle_policy") or {}),
+                metadata={"source": "task_artifact_materializer"},
+            )
+            artifact_materialization_payload = {
+                **artifact_materialization_payload,
+                "artifact_repository": artifact_repository_record,
+            }
         if artifact_materialization.enabled and artifact_materialization.artifact_refs:
             task_result_payload = dict(task_result or {})
             task_result_payload["output_refs"] = _dedupe_refs(
@@ -3216,6 +3252,7 @@ class TaskRunLoop:
             "task_artifacts_materialized" if artifact_materialization.enabled else "task_artifact_materialization_checked",
             payload={
                 "artifact_materialization": artifact_materialization_payload,
+                "artifact_repository": artifact_repository_record,
                 "resolved_task_ref": task_ref_for_artifacts,
                 "artifact_policy_enabled": bool(dict(task_policy_for_artifacts.get("artifact_policy") or {}).get("enabled")),
                 "task_policy_keys": sorted(str(key) for key in task_policy_for_artifacts.keys()),
@@ -3423,7 +3460,7 @@ class TaskRunLoop:
                     terminal_status=terminal_state.status,
                     requires_file_artifact_refs=requires_file_artifact_refs,
                 )
-                ready_event = TaskResultReadyEvent(
+                ready_event = NodeResultReadyEvent(
                     event_type="task_result_ready",
                     coordination_run_id=target_coordination_run.coordination_run_id,
                     task_run_id=start_task_run.task_run_id,
@@ -3655,6 +3692,11 @@ class TaskRunLoop:
         events: list[Any] = []
         adoption_plan_payload = dict(task_agent_adoption_plan_payload or {})
         task_graph_payload = dict(task_graph_payload or graph_payload or {})
+        graph_payload = _normalize_runtime_graph_payload(
+            raw_graph_payload=graph_payload,
+            task_graph_payload=task_graph_payload,
+            runtime_spec_payload={},
+        )
         effective_limits_payload = effective_limits.to_dict() if effective_limits is not None else None
         if effective_limits_payload is not None:
             current_task_run = self.state_index.get_task_run(start_result.task_run.task_run_id) or start_result.task_run
@@ -3840,6 +3882,14 @@ class TaskRunLoop:
                 for notification in dispatch_plan.queued_notifications
             ]
             events.extend(notification_events)
+            envelope_events = self._sync_graph_handoff_runtime_objects(
+                task_run_id=start_result.task_run.task_run_id,
+                coordination_run=coordination_run,
+                parent_agent_run=updated_agent_run,
+                graph_payload=graph_payload,
+                topology_template_payload=topology_template_payload,
+            )
+            events.extend(envelope_events)
             current_coordination_run = coordination_run
             if self.langgraph_coordination_runtime.supports(coordination_run):
                 runtime_result = self.langgraph_coordination_runtime.initialize(
@@ -4121,6 +4171,101 @@ class TaskRunLoop:
                 )
             )
         return events, coordination_run
+
+    def _sync_graph_handoff_runtime_objects(
+        self,
+        *,
+        task_run_id: str,
+        coordination_run: CoordinationRun,
+        parent_agent_run: AgentRun,
+        graph_payload: dict[str, Any],
+        topology_template_payload: dict[str, Any],
+    ) -> list[Any]:
+        events: list[Any] = []
+        edges = _dispatch_edges_from_payload(graph_payload, topology_template_payload)
+        if not edges:
+            return events
+        task_agent_runs = list(self.state_index.list_task_agent_runs(task_run_id))
+        existing_handoffs = {
+            str(item.handoff_id or "")
+            for item in self.state_index.list_coordination_handoffs(coordination_run.coordination_run_id)
+            if str(item.handoff_id or "")
+        }
+        for edge in edges:
+            source_node_id = str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "").strip()
+            target_node_id = str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
+            if not source_node_id or not target_node_id:
+                continue
+            edge_id = str(edge.get("edge_id") or f"{source_node_id}->{target_node_id}").strip()
+            source_agent_run_ref = self._resolve_graph_node_agent_run_ref(
+                task_agent_runs=task_agent_runs,
+                node_id=source_node_id,
+                fallback_agent_run=parent_agent_run,
+            )
+            target_agent_run_ref = self._resolve_graph_node_agent_run_ref(
+                task_agent_runs=task_agent_runs,
+                node_id=target_node_id,
+                fallback_agent_run=parent_agent_run,
+            )
+            handoff_id = f"handoffenv:{_runtime_loop_short_hash({'coordination_run_id': coordination_run.coordination_run_id, 'edge_id': edge_id, 'source_agent_run_ref': source_agent_run_ref, 'target_agent_run_ref': target_agent_run_ref})}"
+            if handoff_id in existing_handoffs:
+                continue
+            envelope = AgentHandoffEnvelope(
+                handoff_id=handoff_id,
+                task_run_id=task_run_id,
+                coordination_run_id=coordination_run.coordination_run_id,
+                source_agent_run_ref=source_agent_run_ref,
+                target_agent_run_ref=target_agent_run_ref,
+                protocol_id=str(coordination_run.communication_protocol_id or ""),
+                message_type=str(edge.get("message_type") or edge.get("policy") or edge.get("edge_type") or "structured_handoff"),
+                payload_ref=edge_id,
+                ack_state="pending" if bool(edge.get("ack_required", True) is not False) else "not_required",
+                created_at=time.time(),
+                diagnostics={
+                    "coordination_engine": "langgraph",
+                    "source_node_id": source_node_id,
+                    "target_node_id": target_node_id,
+                    "edge_id": edge_id,
+                    "handoff_policy": str(edge.get("policy") or edge.get("edge_type") or ""),
+                    "payload_ref_kind": "graph_edge",
+                    "formalized_from": "coordination_dispatch_graph",
+                },
+            )
+            self.state_index.upsert_handoff_envelope(envelope)
+            events.append(
+                self.event_log.append(
+                    task_run_id,
+                    "handoff_envelope_created",
+                    payload={"handoff_envelope": envelope.to_dict()},
+                    refs={
+                        "coordination_run_ref": coordination_run.coordination_run_id,
+                        "handoff_ref": envelope.handoff_id,
+                        "source_agent_run_ref": source_agent_run_ref,
+                        "target_agent_run_ref": target_agent_run_ref,
+                    },
+                )
+            )
+            existing_handoffs.add(handoff_id)
+        return events
+
+    def _resolve_graph_node_agent_run_ref(
+        self,
+        *,
+        task_agent_runs: list[AgentRun],
+        node_id: str,
+        fallback_agent_run: AgentRun,
+    ) -> str:
+        normalized = str(node_id or "").strip()
+        if normalized in {"", "final_merge", "coordinator"}:
+            return str(fallback_agent_run.agent_run_id or "")
+        worker_runs = [
+            item
+            for item in task_agent_runs
+            if str(item.agent_run_id or "") != str(fallback_agent_run.agent_run_id or "")
+        ]
+        if worker_runs:
+            return str(worker_runs[0].agent_run_id or "")
+        return str(fallback_agent_run.agent_run_id or "")
 
     def _resolve_topology_template(self, template_id: str) -> dict[str, Any]:
         target = str(template_id or "").strip()
@@ -5155,6 +5300,9 @@ class TaskRunLoop:
             input_payload,
             followup_contract=_followup_contract_from_task_spec(dict(task_operation or {}).get("task_spec")),
         )
+        recipe_metadata = dict(dict(dict(task_operation or {}).get("selected_recipe") or {}).get("metadata") or {})
+        delegation_kind = str(tool_args.get("delegation_kind") or recipe_metadata.get("delegation_kind") or "").strip()
+        target_agent_id = str(tool_args.get("target_agent_id") or recipe_metadata.get("delegate_target_agent_id") or "").strip()
         diagnostics = {
             "tool_call_id": str(tool_call.get("id") or ""),
             "operation_id": str(action_request.operation_id or ""),
@@ -5174,8 +5322,8 @@ class TaskRunLoop:
             session_id=str(task_run.session_id if task_run is not None else ""),
             parent_agent_run_ref=parent_agent_run_ref,
             source_agent_id=source_agent_id,
-            target_agent_id=str(tool_args.get("target_agent_id") or "").strip(),
-            delegation_kind=str(tool_args.get("delegation_kind") or "").strip(),
+            target_agent_id=target_agent_id,
+            delegation_kind=delegation_kind,
             instruction=instruction,
             input_payload=input_payload,
             context_policy=dict(tool_args.get("context_policy") or {}),
@@ -6565,7 +6713,7 @@ def _forced_tool_synthesis_answer(
     source = str(active_constraints.get("active_pdf") or active_constraints.get("active_dataset") or "").strip()
     summaries: list[str] = []
     for item in final_task_summary_refs[-3:]:
-        summary = _clean_text(item.get("summary"))
+        summary = _clean_text(item.get("answer") or item.get("summary"))
         if not summary:
             continue
         summaries.append(summary)
@@ -6583,6 +6731,26 @@ def _forced_tool_synthesis_answer(
     else:
         prefix += "："
     return f"{prefix}{body}"
+
+
+def _select_final_answer_from_task_summary_refs(final_task_summary_refs: list[dict[str, Any]]) -> str:
+    for item in final_task_summary_refs:
+        answer = _clean_text(item.get("answer"))
+        if answer:
+            return answer
+    for item in final_task_summary_refs:
+        summary = _clean_text(item.get("summary"))
+        if summary:
+            return summary
+    return ""
+
+
+def _select_final_answer_from_context(final_main_context: dict[str, Any]) -> str:
+    for key in ("answer", "resolved_answer", "canonical_answer"):
+        value = _clean_text(final_main_context.get(key))
+        if value:
+            return value
+    return ""
 
 
 def _builtin_tool_lane_answer_from_observation(
@@ -6822,7 +6990,7 @@ def _project_delegated_file_work_context(
             "task_kind": "delegated_retrieval",
             "key_points": [
                 "source=delegated_retrieval",
-                f"target_agent={_clean_text(result_payload.get('target_agent_id')) or 'worker_sub_agent'}",
+                f"target_agent={_clean_text(result_payload.get('target_agent_id')) or 'delegated_agent'}",
             ],
         }
         return main_context, [task_summary]
@@ -6935,6 +7103,7 @@ def _merge_followup_contract_into_payload(
         merged.setdefault("followup_constraint_policy", constraint_policy)
     source_path = _clean_text(followup_contract.get("source_path"))
     source_kind = _clean_text(followup_contract.get("source_kind"))
+    current_tool_input = _compact_followup_tool_input(dict(followup_contract.get("tool_input") or {}))
     if source_path:
         if source_kind == "dataset":
             merged.setdefault("active_dataset", source_path)
@@ -6942,6 +7111,15 @@ def _merge_followup_contract_into_payload(
         elif source_kind == "pdf":
             merged.setdefault("active_pdf", source_path)
             merged.setdefault("path", source_path)
+    if current_tool_input:
+        for key in ("query", "mode", "extract_mode", "section", "page", "pages", "max_chunks"):
+            value = current_tool_input.get(key)
+            if value not in ("", [], {}, None):
+                merged[key] = value
+        for key in ("path", "file_path", "active_pdf", "active_dataset"):
+            value = current_tool_input.get(key)
+            if value not in ("", [], {}, None):
+                merged.setdefault(key, value)
     if followup_contract.get("subset_labels") or followup_contract.get("subset_filter_column"):
         semantic_hints = dict(merged.get("semantic_hints") or {})
         if followup_contract.get("subset_labels"):
@@ -6950,6 +7128,28 @@ def _merge_followup_contract_into_payload(
             semantic_hints.setdefault("subset_filter_column", followup_contract.get("subset_filter_column"))
         merged["semantic_hints"] = semantic_hints
     return merged
+
+
+def _compact_followup_tool_input(tool_input: dict[str, Any]) -> dict[str, Any]:
+    compact: dict[str, Any] = {}
+    for key in (
+        "query",
+        "mode",
+        "extract_mode",
+        "path",
+        "file_path",
+        "active_pdf",
+        "active_dataset",
+        "section",
+        "page",
+        "pages",
+        "max_chunks",
+    ):
+        value = tool_input.get(key)
+        if value in ("", [], {}, None):
+            continue
+        compact[key] = value
+    return compact
 
 
 def _safe_positive_int(value: Any) -> int | None:
@@ -7222,16 +7422,36 @@ def _memory_commit_state_from_assistant_commit_result(result: Any) -> dict[str, 
         return {
             "memory_write_allowed": False,
             "session_memory_refresh_applied": False,
+            "durable_memory_commit_attempted": False,
+            "durable_memory_commit_failed": False,
             "durable_memory_commit_applied": False,
+            "memory_maintenance_attempted": False,
+            "memory_maintenance_status": "",
+            "session_memory_succeeded": False,
+            "durable_memory_succeeded": False,
+            "durable_write_count": 0,
             "session_memory_chars": 0,
             "durable_saved_count": 0,
         }
     session_memory_chars = _safe_int(result.get("session_memory_chars"))
-    durable_saved_count = _safe_int(result.get("durable_saved_count"))
+    durable_saved_count = _safe_int(result.get("durable_write_count", result.get("durable_saved_count")))
+    maintenance_attempted = bool(result.get("memory_maintenance_attempted") is True)
+    maintenance_status = str(result.get("memory_maintenance_status") or "")
+    session_memory_succeeded = bool(result.get("session_memory_succeeded") is True)
+    durable_memory_succeeded = bool(result.get("durable_memory_succeeded") is True)
+    durable_commit_attempted = maintenance_attempted or bool(result.get("durable_memory_commit_attempted") is True)
+    durable_commit_failed = maintenance_status == "failed" or bool(result.get("durable_memory_commit_failed") is True)
     return {
         "memory_write_allowed": True,
-        "session_memory_refresh_applied": session_memory_chars > 0,
-        "durable_memory_commit_applied": durable_saved_count >= 0,
+        "session_memory_refresh_applied": session_memory_succeeded or session_memory_chars > 0,
+        "durable_memory_commit_attempted": durable_commit_attempted,
+        "durable_memory_commit_failed": durable_commit_failed,
+        "durable_memory_commit_applied": durable_commit_attempted and not durable_commit_failed and durable_saved_count > 0,
+        "memory_maintenance_attempted": maintenance_attempted,
+        "memory_maintenance_status": maintenance_status,
+        "session_memory_succeeded": session_memory_succeeded,
+        "durable_memory_succeeded": durable_memory_succeeded,
+        "durable_write_count": durable_saved_count,
         "session_memory_chars": session_memory_chars,
         "durable_saved_count": durable_saved_count,
     }
@@ -7456,6 +7676,55 @@ def _dispatch_graph_payload_from_task_graph_runtime_spec(
     }
 
 
+def _normalize_runtime_graph_payload(
+    *,
+    raw_graph_payload: dict[str, Any],
+    task_graph_payload: dict[str, Any],
+    runtime_spec_payload: dict[str, Any],
+) -> dict[str, Any]:
+    graph_payload = dict(raw_graph_payload or {})
+    task_graph = dict(task_graph_payload or {})
+    if not graph_payload and not task_graph:
+        return {}
+    if graph_payload.get("authority") == "orchestration.task_graph_dispatch_payload":
+        return graph_payload
+    metadata = dict(task_graph.get("metadata") or graph_payload.get("metadata") or {})
+    runtime_policy = dict(task_graph.get("runtime_policy") or graph_payload.get("runtime_policy") or {})
+    context_policy = dict(task_graph.get("context_policy") or graph_payload.get("context_policy") or {})
+    working_memory_policy = dict(task_graph.get("working_memory_policy") or graph_payload.get("working_memory_policy") or {})
+    runtime_spec = _runtime_spec_from_payload(runtime_spec_payload) if runtime_spec_payload else None
+    if runtime_spec is not None:
+        graph_definition = task_graph_from_dict(task_graph) if task_graph else task_graph_from_dict(graph_payload)
+        return _dispatch_graph_payload_from_task_graph_runtime_spec(
+            graph=graph_definition,
+            runtime_spec=runtime_spec,
+        )
+    return {
+        **graph_payload,
+        "authority": "orchestration.task_graph_dispatch_payload",
+        "graph_id": str(task_graph.get("graph_id") or graph_payload.get("graph_id") or graph_payload.get("task_graph_id") or ""),
+        "task_graph_id": str(task_graph.get("graph_id") or graph_payload.get("task_graph_id") or graph_payload.get("graph_id") or ""),
+        "title": str(task_graph.get("title") or graph_payload.get("title") or ""),
+        "domain_id": str(task_graph.get("domain_id") or graph_payload.get("domain_id") or ""),
+        "task_family": str(task_graph.get("task_family") or graph_payload.get("task_family") or ""),
+        "graph_kind": str(task_graph.get("graph_kind") or graph_payload.get("graph_kind") or "coordination"),
+        "coordinator_agent_id": str(runtime_policy.get("coordinator_agent_id") or graph_payload.get("coordinator_agent_id") or "agent:0"),
+        "agent_group_id": str(runtime_policy.get("agent_group_id") or graph_payload.get("agent_group_id") or ""),
+        "topology_template_id": str(metadata.get("topology_template_id") or graph_payload.get("topology_template_id") or ""),
+        "handoff_policy": str(metadata.get("handoff_policy") or graph_payload.get("handoff_policy") or "handoff"),
+        "conflict_resolution_policy": str(metadata.get("conflict_resolution_policy") or graph_payload.get("conflict_resolution_policy") or "coordinator_review"),
+        "output_merge_policy": str(metadata.get("output_merge_policy") or graph_payload.get("output_merge_policy") or "coordinator_final_merge"),
+        "shared_context_policy": str(context_policy.get("shared_context_policy") or graph_payload.get("shared_context_policy") or "explicit_refs_only"),
+        "memory_sharing_policy": str(context_policy.get("memory_sharing_policy") or working_memory_policy.get("memory_sharing_policy") or graph_payload.get("memory_sharing_policy") or "isolated_by_default"),
+        "graph_nodes": list(task_graph.get("graph_nodes") or task_graph.get("nodes") or graph_payload.get("graph_nodes") or graph_payload.get("nodes") or []),
+        "graph_edges": list(task_graph.get("graph_edges") or task_graph.get("edges") or graph_payload.get("graph_edges") or graph_payload.get("edges") or []),
+        "metadata": {
+            **metadata,
+            **dict(graph_payload.get("metadata") or {}),
+        },
+    }
+
+
 def _runtime_spec_from_payload(payload: dict[str, Any]) -> TaskGraphRuntimeSpec | None:
     if not payload:
         return None
@@ -7524,11 +7793,26 @@ def _dispatch_edges_from_payload(graph_payload: dict[str, Any], topology_templat
     return []
 
 
+def _runtime_loop_short_hash(value: Any) -> str:
+    import hashlib
+    import json
+
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
 def _working_memory_root_for_loop(root_dir: Path) -> Path:
     runtime_root = Path(root_dir).resolve()
     if runtime_root.name == "runtime_state":
         return runtime_root.parent / "working_memory"
     return runtime_root / "working_memory"
+
+
+def _artifact_repository_root_for_loop(root_dir: Path) -> Path:
+    runtime_root = Path(root_dir).resolve()
+    if runtime_root.name == "runtime_state":
+        return runtime_root.parent / "artifact_repository"
+    return runtime_root / "artifact_repository"
 
 
 def _model_stream_policy_from_task_execution_assembly(

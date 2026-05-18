@@ -8,6 +8,7 @@ from soul import SoulFacade
 from soul.projection_store import get_projection_card
 
 from .agent_registry import AgentRegistry
+from .agent_identity import normalize_agent_id
 from .agent_runtime_models import AgentRuntimeProfile
 from .agent_runtime_registry import AgentRuntimeRegistry
 from .assembly_models import AgentRuntimeSpec, TaskBodyOrchestration
@@ -50,15 +51,17 @@ def build_orchestration_runtime_bundle(
     memory_view = dict(memory_runtime_view or {})
     context_policy = dict(context_policy_result or {})
 
-    explicit_context_agent_id = str(current_turn_payload.get("agent_id") or "").strip()
-    agent_id = str(getattr(agent_runtime_profile, "agent_id", "") or explicit_context_agent_id or "").strip()
+    explicit_context_agent_id = normalize_agent_id(str(current_turn_payload.get("agent_id") or "").strip())
+    if explicit_context_agent_id:
+        current_turn_payload["agent_id"] = explicit_context_agent_id
+    agent_id = normalize_agent_id(str(getattr(agent_runtime_profile, "agent_id", "") or explicit_context_agent_id or "").strip())
     if explicit_context_agent_id and not agent_id:
         raise ValueError(f"TaskGraph node agent has no runtime profile: {explicit_context_agent_id}")
     runtime_profile = agent_runtime_profile or AgentRuntimeRegistry(base_dir).get_profile(agent_id)
     if explicit_context_agent_id:
         if runtime_profile is None:
             raise ValueError(f"TaskGraph node agent has no runtime profile: {explicit_context_agent_id}")
-        if str(getattr(runtime_profile, "agent_id", "") or "").strip() != explicit_context_agent_id:
+        if normalize_agent_id(str(getattr(runtime_profile, "agent_id", "") or "").strip()) != explicit_context_agent_id:
             raise ValueError(
                 "TaskGraph node agent profile mismatch: "
                 f"requested {explicit_context_agent_id}, got {getattr(runtime_profile, 'agent_id', '')}"

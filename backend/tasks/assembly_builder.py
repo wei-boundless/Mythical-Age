@@ -236,14 +236,21 @@ def build_task_execution_assembly_bundle(
         or current_turn_payload.get("specific_task_id")
         or ""
     ).strip()
-    registered_task_id = str((registered_task or {}).get("task_id") or explicit_task_id or task_contract.task_id).strip()
-    projection_binding = flow_registry.get_projection_binding(registered_task_id)
-    flow_contract_binding = flow_registry.get_flow_contract_binding(registered_task_id)
-    execution_policy = flow_registry.get_task_agent_adoption_plan(registered_task_id)
-    memory_request_profile = flow_registry.get_task_memory_request_profile(registered_task_id)
+    registered_task_id = str((registered_task or {}).get("task_id") or "").strip()
+    binding_task_id = ""
+    if explicit_task_id.startswith("task."):
+        binding_task_id = explicit_task_id
+    elif registered_task_id.startswith("task."):
+        binding_task_id = registered_task_id
+    else:
+        binding_task_id = str(explicit_task_id or registered_task_id or task_contract.task_id).strip()
+    projection_binding = flow_registry.get_projection_binding(binding_task_id)
+    flow_contract_binding = flow_registry.get_flow_contract_binding(binding_task_id)
+    execution_policy = flow_registry.get_task_agent_adoption_plan(binding_task_id)
+    memory_request_profile = flow_registry.get_task_memory_request_profile(binding_task_id)
     memory_request_profile_payload = _memory_request_profile_payload(
         memory_request_profile,
-        task_id=registered_task_id or task_contract.task_id,
+        task_id=binding_task_id or task_contract.task_id,
         task_family=task_family,
         task_mode=task_mode,
         query_understanding=dict(query_understanding or {}),
@@ -318,7 +325,8 @@ def build_task_execution_assembly_bundle(
             "recipe_id": selected_recipe.recipe_id,
             "execution_kind": selected_recipe.execution_kind,
             "source_kind": selected_recipe.source_kind,
-            "registered_task_id": str((registered_task or {}).get("task_id") or ""),
+            "registered_task_id": registered_task_id,
+            "binding_task_id": binding_task_id,
             "registered_task_type": str((registered_task or {}).get("task_type") or ""),
             "specific_task_title": str(getattr(specific_task_record, "task_title", "") or ""),
             "workflow_title": str((task_workflow or {}).get("title") or ""),
@@ -390,11 +398,9 @@ def _resolve_runtime_recipe_operations(
         }
     fallback_operation = str(metadata.get("fallback_operation") or "").strip()
     target_agent_id = str(metadata.get("delegate_target_agent_id") or "").strip()
-    target_agent_category = str(metadata.get("delegate_target_agent_category") or "worker_sub_agent").strip()
     if _can_profile_delegate_to_target(
         agent_runtime_profile,
         target_agent_id=target_agent_id,
-        target_agent_category=target_agent_category,
     ):
         return {
             "strategy": "delegate_preferred",
@@ -402,7 +408,6 @@ def _resolve_runtime_recipe_operations(
             "required_operations": ("op.model_response", "op.delegate_to_agent"),
             "optional_operations": (),
             "delegate_target_agent_id": target_agent_id,
-            "delegate_target_agent_category": target_agent_category,
             "delegation_kind": str(metadata.get("delegation_kind") or "").strip(),
             "delegate_context_policy": str(getattr(agent_runtime_profile, "delegate_context_policy", "") or "").strip(),
             "fallback_operation": fallback_operation,
@@ -413,7 +418,6 @@ def _resolve_runtime_recipe_operations(
         "required_operations": tuple(_dedupe(["op.model_response", fallback_operation])),
         "optional_operations": tuple(getattr(selected_recipe, "optional_operations", ()) or ()),
         "delegate_target_agent_id": target_agent_id,
-        "delegate_target_agent_category": target_agent_category,
         "delegation_kind": str(metadata.get("delegation_kind") or "").strip(),
         "fallback_operation": fallback_operation,
     }
@@ -423,7 +427,6 @@ def _can_profile_delegate_to_target(
     profile: AgentRuntimeProfile | None,
     *,
     target_agent_id: str,
-    target_agent_category: str,
 ) -> bool:
     if profile is None or not bool(getattr(profile, "can_delegate_to_agents", False)):
         return False
@@ -445,13 +448,6 @@ def _can_profile_delegate_to_target(
         if str(item).strip()
     }
     if allowed_ids and target_agent_id and target_agent_id not in allowed_ids:
-        return False
-    allowed_categories = {
-        str(item).strip()
-        for item in tuple(getattr(profile, "allowed_delegate_agent_categories", ()) or ())
-        if str(item).strip()
-    }
-    if allowed_categories and target_agent_category and target_agent_category not in allowed_categories:
         return False
     return True
 

@@ -1,5 +1,5 @@
 param(
-    [string]$BaseUrl = "http://127.0.0.1:8004/api",
+    [string]$BaseUrl = "http://127.0.0.1:8002/api",
     [string]$GraphId = "graph.writing.simple_novel",
     [string]$TaskId = "task.writing.simple_novel.formal_million_word_run",
     [string]$SessionId = "",

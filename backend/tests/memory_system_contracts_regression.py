@@ -9,14 +9,11 @@ from memory_system.contracts import (
     ConversationMemorySnapshot,
     LongTermMemoryRecord,
     MemoryContextCandidate,
-    MemoryWriteCandidate,
     StateMemoryRestoreCandidate,
 )
-from memory_system.gate import MemoryGateDecision
 from memory_system.runtime_view import MemoryRuntimeView
 from memory_system.supply import (
     MemoryBundle,
-    MemoryWritebackProposal,
     build_memory_request,
     build_memory_scope_policy,
 )
@@ -145,6 +142,7 @@ _Short chronological bullets of meaningful events._
 
     assert isinstance(snapshot, ConversationMemorySnapshot)
     assert "已完成 StateMemory 候选化" in snapshot.hot_truth_window
+    assert "不要把状态记忆写进长期记忆" not in snapshot.hot_truth_window
     assert "用户要求先保持记忆分层" in snapshot.recent_dialogue_refs
     assert len(candidates) == 1
     candidate = candidates[0]
@@ -152,6 +150,8 @@ _Short chronological bullets of meaningful events._
     assert candidate.authority == "candidate_only"
     assert candidate.can_override_current_turn is False
     assert "Key User Requests" in candidate.rendered_preview
+    assert "Errors and Corrections" not in candidate.rendered_preview
+    assert "不要把状态记忆写进长期记忆" not in candidate.rendered_preview
     assert "Context Slots" not in candidate.rendered_preview
     assert "should not be in conversation candidate" not in candidate.rendered_preview
 
@@ -294,11 +294,7 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert isinstance(view, MemoryRuntimeView)
     assert view.read_only is True
     assert view.memory_write_allowed is False
-    assert {candidate.memory_layer for candidate in view.context_candidates} == {
-        "conversation",
-        "state",
-        "long_term",
-    }
+    assert {candidate.memory_layer for candidate in view.context_candidates} == {"state", "long_term"}
     assert view.restore_candidates
     assert view.state_snapshot is not None
     assert view.state_snapshot.context_slots["active_constraints"]["subset_filter_column"] == "name"
@@ -307,23 +303,71 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert view.diagnostics["memory_write_allowed"] is False
 
 
-def test_durable_extraction_preview_builds_write_candidates_without_saving(tmp_path) -> None:
+def test_memory_runtime_view_collects_conversation_only_when_requested(tmp_path) -> None:
+    session_id = "session-h-conversation"
     facade = MemoryFacade(tmp_path)
+    manager = facade.session_memory.manager(session_id)
+    manager.overwrite(
+        """# Key User Requests
+_Stable instructions or constraints from the user within this session._
+- 用户要求保持会话连续性
 
-    candidates = facade.build_durable_memory_write_candidates(
-        "session-i",
-        [{"role": "user", "content": "请记住：我偏好复杂问题先讲结论。"}],
+# Errors and Corrections
+_Failures, corrections, and approaches to avoid repeating._
+- 本轮委派被限流，下一轮继续
+
+# Key Results
+_Current-turn outputs, conclusions, or artifacts that remain active._
+- 已完成会话连续性检查
+"""
     )
 
-    assert len(candidates) == 1
-    candidate = candidates[0]
-    assert isinstance(candidate, MemoryWriteCandidate)
-    assert candidate.target_layer == "long_term"
-    assert candidate.write_kind == "propose_long_term_fact"
-    assert candidate.gate_decision == "pending"
-    assert candidate.authority == "candidate_only"
-    assert "no_auto_commit" in candidate.risk_flags
+    default_view = facade.build_memory_runtime_view(
+        session_id=session_id,
+        query="继续",
+    )
+    requested_view = facade.build_memory_runtime_view(
+        session_id=session_id,
+        query="继续",
+        memory_request_profile={"requested_memory_layers": ["conversation"]},
+    )
+
+    assert all(candidate.memory_layer != "conversation" for candidate in default_view.context_candidates)
+    assert {candidate.memory_layer for candidate in requested_view.context_candidates} == {"conversation"}
+    rendered = "\n".join(candidate.rendered_preview for candidate in requested_view.context_candidates)
+    assert "已完成会话连续性检查" in rendered
+    assert "本轮委派被限流" not in rendered
+
+
+def test_memory_maintenance_without_agent_does_not_use_heuristic_fallback(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-i",
+        messages=[{"role": "user", "content": "请记住：我偏好复杂问题先讲结论。"}],
+    )
+
+    assert receipt.status == "failed"
+    assert receipt.durable_write_count == 0
     assert facade.memory_manager.list_notes() == []
+
+
+def test_memory_manager_normalizes_incoming_note_slug_before_persisting(tmp_path) -> None:
+    facade = MemoryFacade(tmp_path)
+    note = MemoryNote(
+        slug="记住：以后复杂问题先给结论。",
+        title="记住：以后复杂问题先给结论。",
+        summary="以后复杂问题先给结论。",
+        canonical_statement="以后复杂问题先给结论。",
+        body="回答复杂问题时先给结论。",
+        memory_type="project",
+        memory_class="work",
+    )
+
+    path = facade.memory_manager.save_note(note)
+
+    assert path.name == "记住-以后复杂问题先给结论.md"
+    assert path.exists()
 
 
 def test_memory_message_adapter_excludes_control_plane_contracts_from_memory(tmp_path) -> None:
@@ -358,38 +402,12 @@ def test_memory_message_adapter_excludes_control_plane_contracts_from_memory(tmp
     ):
         assert marker not in rendered
 
-    candidates = facade.build_durable_memory_write_candidates("session-contract-isolation", messages)
-    serialized = "\n".join(candidate.content for candidate in candidates)
-
-    assert candidates
-    assert "我偏好复杂问题先给结论" in serialized
-    for marker in (
-        "Runtime Stage Projection",
-        "Runtime Context Package",
-        "OperationGate",
-        "ResourcePolicy",
-        "ResourceRuntimeView",
-        "runtime_view_only",
-    ):
-        assert marker not in serialized
-
-
-def test_memory_gate_preview_blocks_write_candidates(tmp_path) -> None:
-    facade = MemoryFacade(tmp_path)
-    candidates = facade.build_durable_memory_write_candidates(
-        "session-j",
-        [{"role": "user", "content": "请记住：我偏好设计讨论先给结论。"}],
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id="session-contract-isolation",
+        messages=messages,
     )
-
-    gate = facade.build_memory_gate(candidates, gate_id="memory-gate:session-j:writeback")
-
-    assert isinstance(gate, MemoryGateDecision)
-    assert gate.status == "blocked"
-    assert gate.read_only is True
-    assert gate.memory_write_allowed is False
-    assert gate.commit_allowed is False
-    assert gate.write_candidates == candidates
-    assert gate.diagnostics["write_candidate_count"] == len(candidates)
+    assert receipt.status == "failed"
+    assert receipt.durable_write_count == 0
     assert facade.memory_manager.list_notes() == []
 
 
@@ -454,24 +472,3 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert bundle.context_package
     assert bundle.runtime_view.read_only is True
     assert bundle.diagnostics["context_policy_attached"] is True
-
-
-def test_memory_writeback_proposal_remains_candidate_only(tmp_path) -> None:
-    facade = MemoryFacade(tmp_path)
-    write_candidates = facade.build_durable_memory_write_candidates(
-        "session-m",
-        [{"role": "user", "content": "请记住：我偏好复杂问题先讲结论。"}],
-    )
-
-    proposal = facade.build_memory_writeback_proposal(
-        session_id="session-m",
-        task_id="task.memory.writeback",
-        write_candidates=write_candidates,
-    )
-
-    assert write_candidates
-    assert isinstance(proposal, MemoryWritebackProposal)
-    assert proposal.authority == "memory_system.memory_writeback_proposal"
-    assert proposal.adopted is False
-    assert proposal.target_layers == ("long_term",)
-    assert proposal.diagnostics["candidate_only"] is True

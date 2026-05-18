@@ -10,10 +10,7 @@ from memory_layout import durable_memory_layout_from_backend_dir
 from .read_agent import MemoryReadAgent
 from .read_models import MemoryRecallRequest, MemoryRecallResult, MemoryRecallSelection
 from structured_memory.exact_lookup import ExactMemoryMatch, find_exact_memory_matches
-from structured_memory.extraction_scheduler import ExtractionConfig, ExtractionScheduler
-from structured_memory.extractor import MemoryExtractor
 from structured_memory.memory_manager import MemoryManager
-from structured_memory.models import Message
 
 
 class DurableMemoryLayer:
@@ -22,104 +19,20 @@ class DurableMemoryLayer:
         layout = durable_memory_layout_from_backend_dir(base_dir)
         self.memory_manager = MemoryManager(layout.root_dir)
         self.read_agent = MemoryReadAgent()
-        self.extractor = MemoryExtractor(self.memory_manager)
-        self.scheduler = ExtractionScheduler(
-            self.extractor,
-            config=ExtractionConfig(min_messages_between_runs=4),
-        )
         self._runtime_governed = False
 
     def set_saved_callback(self, callback: Callable[[int], None]) -> None:
-        self.scheduler.on_saved = callback
+        return None
 
     def set_message_invoker(self, callback: Callable[[list[dict[str, str]]], Any] | None) -> None:
         self.read_agent.set_message_invoker(callback)
-        self.extractor.set_message_invoker(callback)
 
-    def schedule_extraction(self, messages: list[Message]) -> int:
-        return self.scheduler.submit(messages)
-
-    def describe_extraction_runtime(self) -> dict[str, object]:
-        return self.scheduler.describe_runtime_state()
-
-    def commit_extraction(self, messages: list[Message]) -> int:
-        notes = self.extractor.save_extracted(messages)
-        return len(notes)
-
-    async def acommit_extraction(self, messages: list[Message]) -> int:
-        notes = await self.extractor.asave_extracted(messages)
-        return len(notes)
-
-    def preview_extraction_notes(self, messages: list[Message]) -> list[Any]:
-        """Build durable-memory note candidates without writing the store."""
-
-        return self.extractor.extract(messages)
-
-    def schedule_extraction_from_context_state(
-        self,
-        session_id: str,
-        main_context: Any,
-        *,
-        task_summaries: list[Any] | None = None,
-        corrections: list[str] | None = None,
-    ) -> int:
-        projected = self._project_context_state_messages(
-            session_id,
-            main_context,
-            task_summaries=task_summaries,
-            corrections=corrections,
-        )
-        return self.scheduler.submit(projected)
-
-    def commit_extraction_from_context_state(
-        self,
-        session_id: str,
-        main_context: Any,
-        *,
-        task_summaries: list[Any] | None = None,
-        corrections: list[str] | None = None,
-    ) -> int:
-        projected = self._project_context_state_messages(
-            session_id,
-            main_context,
-            task_summaries=task_summaries,
-            corrections=corrections,
-        )
-        notes = self.extractor.save_extracted(projected)
-        return len(notes)
-
-    async def acommit_extraction_from_context_state(
-        self,
-        session_id: str,
-        main_context: Any,
-        *,
-        task_summaries: list[Any] | None = None,
-        corrections: list[str] | None = None,
-    ) -> int:
-        projected = self._project_context_state_messages(
-            session_id,
-            main_context,
-            task_summaries=task_summaries,
-            corrections=corrections,
-        )
-        notes = await self.extractor.asave_extracted(projected)
-        return len(notes)
-
-    def preview_extraction_notes_from_context_state(
-        self,
-        session_id: str,
-        main_context: Any,
-        *,
-        task_summaries: list[Any] | None = None,
-        corrections: list[str] | None = None,
-    ) -> list[Any]:
-        projected = self._project_context_state_messages(
-            session_id,
-            main_context,
-            task_summaries=task_summaries,
-            corrections=corrections,
-        )
-        return self.preview_extraction_notes(projected)
+    def describe_maintenance_runtime(self) -> dict[str, object]:
+        return {
+            "authority": "memory_system.maintenance_coordinator",
+            "durable_memory_maintained_by": "agent:1",
+            "model_understanding_required": True,
+        }
 
     def build_persistent_memory_block(
         self,
@@ -653,45 +566,3 @@ class DurableMemoryLayer:
         for key, value in payload.items():
             setattr(note, key, value)
         return note
-
-    def _project_context_state_messages(
-        self,
-        session_id: str,
-        main_context: Any,
-        *,
-        task_summaries: list[Any] | None = None,
-        corrections: list[str] | None = None,
-    ) -> list[Message]:
-        active_goal = ""
-        latest_correction = ""
-        if isinstance(main_context, dict):
-            active_goal = str(main_context.get("active_goal", "") or "").strip()
-            latest_correction = str(main_context.get("latest_correction", "") or "").strip()
-        else:
-            active_goal = str(getattr(main_context, "active_goal", "") or "").strip()
-            latest_correction = str(getattr(main_context, "latest_correction", "") or "").strip()
-
-        label_parts = [item for item in [active_goal, latest_correction] if item]
-        if not label_parts and task_summaries:
-            first_summary = task_summaries[0]
-            if isinstance(first_summary, dict):
-                label_parts.append(str(first_summary.get("query", "") or "").strip())
-            else:
-                label_parts.append(str(getattr(first_summary, "query", "") or "").strip())
-        if not label_parts and corrections:
-            label_parts.extend(str(item).strip() for item in corrections if str(item).strip())
-
-        signature_text = " | ".join(part for part in label_parts if part) or "session-state-projection"
-        return [
-            Message(
-                role="assistant",
-                content=signature_text,
-                meta={
-                    "session_id": session_id,
-                    "projection": "durable_context_state",
-                    "main_context": main_context,
-                    "task_summaries": list(task_summaries or []),
-                    "corrections": list(corrections or []),
-                },
-            )
-        ]

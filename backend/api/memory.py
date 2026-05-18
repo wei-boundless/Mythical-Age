@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import Counter
-import json
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +8,9 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
+from artifact_system import ArtifactRepositoryService
 from memory_system import MemoryHeader
+from memory_system.formal_memory_service import FormalMemoryService
 from project_layout import ProjectLayout
 from understanding.memory_intent import analyze_memory_intent
 
@@ -46,52 +47,19 @@ class DurableMemoryMergeRequest(BaseModel):
     reason: str = Field(default="", max_length=600)
 
 
-class WorkingMemoryFinalizeRequest(BaseModel):
-    actor_id: str = Field(default="memory_governance_ui", max_length=160)
-    terminal_reason: str = Field(default="completed", max_length=120)
-    policy: dict[str, Any] = Field(default_factory=dict)
+def _layout_from_runtime(runtime: Any) -> ProjectLayout:
+    assert runtime.base_dir is not None
+    return ProjectLayout.from_backend_dir(runtime.base_dir)
 
 
-class WorkingMemoryPromoteTaskDurableRequest(BaseModel):
-    title: str = Field(default="", max_length=160)
-    canonical_statement: str = Field(default="", max_length=1600)
-    summary: str = Field(default="", max_length=1000)
-    namespace_id: str = Field(default="", max_length=180)
-    task_family: str = Field(default="", max_length=120)
-    domain_id: str = Field(default="", max_length=160)
-    task_id: str = Field(default="", max_length=160)
-    graph_id: str = Field(default="", max_length=160)
-    project_id: str = Field(default="", max_length=160)
-    artifact_namespace: str = Field(default="", max_length=180)
-    memory_type: str = Field(default="project", max_length=40)
-    memory_class: str = Field(default="work", max_length=40)
-    retrieval_hints: list[str] = Field(default_factory=list, max_length=8)
-    confidence: str = Field(default="medium", max_length=40)
-    actor_id: str = Field(default="memory_governance_ui", max_length=160)
-    reason: str = Field(default="", max_length=600)
+def _formal_memory_service(runtime: Any) -> FormalMemoryService:
+    layout = _layout_from_runtime(runtime)
+    return FormalMemoryService(layout.storage_root / "formal_memory")
 
 
-class WorkingMemoryGovernRequest(BaseModel):
-    actor_id: str = Field(default="memory_governance_ui", max_length=160)
-    reason: str = Field(default="", max_length=600)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class TaskDurableGlobalCandidateRequest(BaseModel):
-    actor_id: str = Field(default="memory_governance_ui", max_length=160)
-    reason: str = Field(default="", max_length=600)
-
-
-class TaskDurablePromoteGlobalRequest(BaseModel):
-    title: str = Field(default="", max_length=160)
-    canonical_statement: str = Field(default="", max_length=1600)
-    summary: str = Field(default="", max_length=1000)
-    global_kind: str = Field(default="", max_length=80)
-    memory_type: str = Field(default="project", max_length=40)
-    memory_class: str = Field(default="work", max_length=40)
-    confidence: str = Field(default="medium", max_length=40)
-    actor_id: str = Field(default="memory_governance_ui", max_length=160)
-    reason: str = Field(default="", max_length=600)
+def _artifact_repository_service(runtime: Any) -> ArtifactRepositoryService:
+    layout = _layout_from_runtime(runtime)
+    return ArtifactRepositoryService(layout.storage_root / "artifact_repository")
 
 
 SESSION_MEMORY_FILE_TARGETS: tuple[tuple[str, str, str, str], ...] = (
@@ -123,281 +91,133 @@ async def get_memory_overview(
     return {
         "session_id": session_id or "",
         "query": query,
-        "durable_memory": _durable_overview(headers, runtime.memory_facade.describe_durable_extraction_runtime()),
+        "durable_memory": _durable_overview(headers, runtime.memory_facade.describe_durable_maintenance_runtime()),
         "session_memory": session_inspect,
-        "working_memory": _working_memory_overview(runtime, query=query, limit=limit),
-        "task_durable_memory": _task_durable_memory_overview(runtime, query=query, limit=limit),
     }
 
 
-@router.get("/memory/working/overview")
-async def get_working_memory_overview(
+@router.get("/memory/formal/overview")
+async def get_formal_memory_overview(
     task_run_id: str = "",
-    graph_id: str = "",
-    owner_node_id: str = "",
-    node_run_id: str = "",
-    writer_agent_id: str = "",
-    status: str = "",
-    kind: str = "",
-    query: str = "",
-    limit: int = Query(default=160, ge=1, le=500),
+    repository_id: str = "",
+    collection_id: str = "",
+    limit: int = Query(default=500, ge=1, le=2000),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    assert runtime.memory_facade is not None
+    return _formal_memory_service(runtime).overview(
+        task_run_id=task_run_id.strip(),
+        repository_id=repository_id.strip(),
+        collection_id=collection_id.strip(),
+        limit=limit,
+    )
 
-    filters = {
+
+@router.get("/memory/formal/repositories")
+async def list_formal_memory_repositories(
+    task_run_id: str = "",
+    repository_id: str = "",
+    limit: int = Query(default=500, ge=1, le=2000),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    overview = _formal_memory_service(runtime).overview(
+        task_run_id=task_run_id.strip(),
+        repository_id=repository_id.strip(),
+        limit=limit,
+    )
+    return {
         "task_run_id": task_run_id,
-        "graph_id": graph_id,
-        "owner_node_id": owner_node_id,
-        "node_run_id": node_run_id,
-        "writer_agent_id": writer_agent_id,
-        "status": status,
-        "kind": kind,
-    }
-    return _working_memory_overview(runtime, query=query, limit=limit, filters=filters)
-
-
-@router.get("/memory/working/items/{work_memory_id}")
-async def get_working_memory_item(work_memory_id: str) -> dict[str, Any]:
-    runtime = require_runtime()
-    assert runtime.memory_facade is not None
-
-    safe_id = work_memory_id.strip()
-    if not safe_id:
-        raise HTTPException(status_code=400, detail="Invalid working memory id")
-    item = runtime.memory_facade.get_working_memory_item(safe_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Working memory item not found")
-    item_payload = item.to_dict()
-    task_run_id = str(item_payload.get("task_run_id") or "")
-    return {
-        "item": _working_memory_item_payload(item_payload),
-        "read_logs": [
-            _working_memory_read_log_payload(log.to_dict())
-            for log in runtime.memory_facade.list_working_memory_read_logs(task_run_id, limit=200)
-            if safe_id in set(log.selected_item_ids) or safe_id in set(log.excluded_item_ids)
-        ],
-        "temporal_edges": [
-            _working_memory_temporal_edge_payload(edge.to_dict())
-            for edge in runtime.memory_facade.list_working_memory_temporal_edges(task_run_id)
-            if edge.source_item_id == safe_id or edge.target_item_id == safe_id
-        ],
-        "handoff_transactions": [
-            _working_memory_handoff_payload(transaction.to_dict())
-            for transaction in runtime.memory_facade.list_working_memory_handoff_transactions(task_run_id)
-            if safe_id in set(transaction.candidate_work_memory_ids)
-            or safe_id in set(transaction.adopted_work_memory_ids)
-            or safe_id in set(transaction.rejected_work_memory_ids)
-        ],
+        "repository_id": repository_id,
+        "repositories": overview["repositories"],
+        "authority": "formal_memory.repositories_api",
     }
 
 
-@router.post("/memory/working/runs/{task_run_id}/finalize")
-async def finalize_working_memory_task_run(task_run_id: str, payload: WorkingMemoryFinalizeRequest) -> dict[str, Any]:
+@router.get("/memory/formal/records")
+async def list_formal_memory_records(
+    task_run_id: str = "",
+    repository_id: str = "",
+    collection_id: str = "",
+    limit: int = Query(default=500, ge=1, le=2000),
+) -> dict[str, Any]:
     runtime = require_runtime()
-    assert runtime.memory_facade is not None
-
-    safe_id = task_run_id.strip()
-    if not safe_id:
-        raise HTTPException(status_code=400, detail="Invalid task run id")
-    result = runtime.memory_facade.finalize_working_memory_task_run(
-        safe_id,
-        actor_id=payload.actor_id,
-        terminal_reason=payload.terminal_reason,
-        policy=dict(payload.policy or {}),
+    overview = _formal_memory_service(runtime).overview(
+        task_run_id=task_run_id.strip(),
+        repository_id=repository_id.strip(),
+        collection_id=collection_id.strip(),
+        limit=limit,
     )
     return {
-        "ok": True,
-        "result": result.to_dict(),
+        "task_run_id": task_run_id,
+        "repository_id": repository_id,
+        "collection_id": collection_id,
+        "records": overview["records"],
+        "versions": overview["versions"],
+        "authority": "formal_memory.records_api",
     }
 
 
-@router.get("/memory/task-durable/overview")
-async def get_task_durable_memory_overview(
-    namespace_id: str = "",
-    task_family: str = "",
-    domain_id: str = "",
-    task_id: str = "",
-    graph_id: str = "",
-    project_id: str = "",
-    artifact_namespace: str = "",
-    kind: str = "",
-    memory_semantics: str = "",
+@router.get("/memory/formal/read-logs")
+async def list_formal_memory_read_logs(
+    task_run_id: str = "",
+    repository_id: str = "",
+    limit: int = Query(default=500, ge=1, le=2000),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    overview = _formal_memory_service(runtime).overview(
+        task_run_id=task_run_id.strip(),
+        repository_id=repository_id.strip(),
+        limit=limit,
+    )
+    return {
+        "task_run_id": task_run_id,
+        "repository_id": repository_id,
+        "read_logs": overview["read_logs"],
+        "authority": "formal_memory.read_logs_api",
+    }
+
+
+@router.get("/memory/artifacts/overview")
+async def get_artifact_repository_overview(
+    task_run_id: str = "",
+    repository_id: str = "",
+    collection_id: str = "",
     status: str = "",
-    query: str = "",
-    limit: int = Query(default=160, ge=1, le=500),
+    limit: int = Query(default=500, ge=1, le=2000),
 ) -> dict[str, Any]:
     runtime = require_runtime()
-    filters = {
-        "namespace_id": namespace_id,
-        "task_family": task_family,
-        "domain_id": domain_id,
-        "task_id": task_id,
-        "graph_id": graph_id,
-        "project_id": project_id,
-        "artifact_namespace": artifact_namespace,
-        "kind": kind,
-        "memory_semantics": memory_semantics,
+    return _artifact_repository_service(runtime).overview(
+        task_run_id=task_run_id.strip(),
+        repository_id=repository_id.strip(),
+        collection_id=collection_id.strip(),
+        status=status.strip(),
+        limit=limit,
+    )
+
+
+@router.get("/memory/artifacts/records")
+async def list_artifact_repository_records(
+    task_run_id: str = "",
+    repository_id: str = "",
+    collection_id: str = "",
+    status: str = "",
+    limit: int = Query(default=500, ge=1, le=2000),
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    overview = _artifact_repository_service(runtime).overview(
+        task_run_id=task_run_id.strip(),
+        repository_id=repository_id.strip(),
+        collection_id=collection_id.strip(),
+        status=status.strip(),
+        limit=limit,
+    )
+    return {
+        "task_run_id": task_run_id,
+        "repository_id": repository_id,
+        "collection_id": collection_id,
         "status": status,
+        "artifacts": overview["artifacts"],
+        "authority": "artifact_repository.records_api",
     }
-    return _task_durable_memory_overview(runtime, query=query, limit=limit, filters=filters)
-
-
-@router.get("/memory/task-durable/namespaces")
-async def list_task_durable_memory_namespaces() -> dict[str, Any]:
-    runtime = require_runtime()
-    assert runtime.memory_facade is not None
-    namespaces = runtime.memory_facade.list_task_durable_memory_namespaces()
-    return {
-        "namespaces": [_task_durable_namespace_payload(namespace.to_dict()) for namespace in namespaces],
-    }
-
-
-@router.get("/memory/task-durable/items/{task_memory_id}")
-async def get_task_durable_memory_item(task_memory_id: str) -> dict[str, Any]:
-    runtime = require_runtime()
-    assert runtime.memory_facade is not None
-    safe_id = task_memory_id.strip()
-    if not safe_id:
-        raise HTTPException(status_code=400, detail="Invalid task durable memory id")
-    item = runtime.memory_facade.get_task_durable_memory_item(safe_id)
-    if item is None:
-        raise HTTPException(status_code=404, detail="Task durable memory item not found")
-    return {"item": _task_durable_item_payload(item.to_dict())}
-
-
-@router.post("/memory/task-durable/items/{task_memory_id}/promote-global-candidate")
-async def mark_task_durable_global_candidate(
-    task_memory_id: str,
-    payload: TaskDurableGlobalCandidateRequest,
-) -> dict[str, Any]:
-    runtime = require_runtime()
-    assert runtime.memory_facade is not None
-    safe_id = task_memory_id.strip()
-    if not safe_id:
-        raise HTTPException(status_code=400, detail="Invalid task durable memory id")
-    try:
-        result = runtime.memory_facade.mark_task_durable_item_global_candidate(
-            safe_id,
-            actor_id=payload.actor_id,
-            reason=payload.reason,
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {
-        "ok": True,
-        "action": "mark_global_candidate",
-        "task_memory": _task_durable_item_payload(result["task_memory"].to_dict()),
-    }
-
-
-@router.post("/memory/task-durable/items/{task_memory_id}/promote-global")
-async def promote_task_durable_to_global(
-    task_memory_id: str,
-    payload: TaskDurablePromoteGlobalRequest,
-) -> dict[str, Any]:
-    runtime = require_runtime()
-    assert runtime.memory_facade is not None
-    safe_id = task_memory_id.strip()
-    if not safe_id:
-        raise HTTPException(status_code=400, detail="Invalid task durable memory id")
-    try:
-        result = runtime.memory_facade.promote_task_durable_item_to_global_durable(
-            safe_id,
-            title=payload.title,
-            canonical_statement=payload.canonical_statement,
-            summary=payload.summary,
-            global_kind=payload.global_kind,
-            memory_type=payload.memory_type,
-            memory_class=payload.memory_class,
-            confidence=payload.confidence,
-            actor_id=payload.actor_id,
-            reason=payload.reason,
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    if hasattr(runtime, "refresh_indexes_for_path"):
-        runtime.refresh_indexes_for_path("durable_memory/notes")
-    return {
-        "ok": True,
-        "action": "promote_to_global_durable",
-        "filename": result["filename"],
-        "header": _header_payload(result["header"]) if result.get("header") else None,
-        "task_memory": _task_durable_item_payload(result["task_memory"].to_dict()),
-    }
-
-
-@router.post("/memory/working/items/{work_memory_id}/promote-task-durable")
-async def promote_working_memory_item_to_task_durable(
-    work_memory_id: str,
-    payload: WorkingMemoryPromoteTaskDurableRequest,
-) -> dict[str, Any]:
-    runtime = require_runtime()
-    assert runtime.memory_facade is not None
-
-    safe_id = work_memory_id.strip()
-    if not safe_id:
-        raise HTTPException(status_code=400, detail="Invalid working memory id")
-    try:
-        result = runtime.memory_facade.promote_working_memory_item_to_task_durable(
-            safe_id,
-            title=payload.title,
-            canonical_statement=payload.canonical_statement,
-            summary=payload.summary,
-            namespace_id=payload.namespace_id,
-            task_family=payload.task_family,
-            domain_id=payload.domain_id,
-            task_id=payload.task_id,
-            graph_id=payload.graph_id,
-            project_id=payload.project_id,
-            artifact_namespace=payload.artifact_namespace,
-            memory_type=payload.memory_type,
-            memory_class=payload.memory_class,
-            retrieval_hints=list(payload.retrieval_hints),
-            confidence=payload.confidence,
-            actor_id=payload.actor_id,
-            reason=payload.reason,
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {
-        "ok": True,
-        "action": "promote_to_task_durable",
-        "work_memory_id": safe_id,
-        "task_memory": _task_durable_item_payload(result["task_memory"].to_dict()),
-        "item": _working_memory_item_payload(result["item"].to_dict()),
-    }
-
-
-@router.post("/memory/working/items/{work_memory_id}/accept")
-async def accept_working_memory_item(work_memory_id: str, payload: WorkingMemoryGovernRequest) -> dict[str, Any]:
-    return _govern_working_memory_item(
-        work_memory_id,
-        action="accept",
-        payload=payload,
-    )
-
-
-@router.post("/memory/working/items/{work_memory_id}/discard")
-async def discard_working_memory_item(work_memory_id: str, payload: WorkingMemoryGovernRequest) -> dict[str, Any]:
-    return _govern_working_memory_item(
-        work_memory_id,
-        action="discard",
-        payload=payload,
-    )
-
-
-@router.post("/memory/working/items/{work_memory_id}/conflict")
-async def mark_working_memory_item_conflict(work_memory_id: str, payload: WorkingMemoryGovernRequest) -> dict[str, Any]:
-    return _govern_working_memory_item(
-        work_memory_id,
-        action="conflict",
-        payload=payload,
-    )
 
 
 @router.post("/memory/durable")
@@ -645,303 +465,7 @@ def _inspect_session_memory(runtime: Any, session_id: str, *, query: str = "", l
         "storage": {"memory_runtime_view": memory_view.view_id},
         "context_management": package,
         "durable_matches": {"long_term_record_count": len(memory_view.long_term_records)},
-    }
-
-
-def _durable_overview(headers: list[MemoryHeader], extraction_runtime: dict[str, object]) -> dict[str, Any]:
-    by_type = Counter(header.memory_type for header in headers)
-    by_class = Counter(header.memory_class for header in headers)
-    active = [header for header in headers if header.status == "active"]
-    injectable = [header for header in headers if header.eligible_for_injection and header.status == "active"]
-    return {
-        "total": len(headers),
-        "active": len(active),
-        "injectable": len(injectable),
-        "by_type": dict(by_type),
-        "by_class": dict(by_class),
-        "headers": [_header_payload(header) for header in headers],
-        "extraction_runtime": extraction_runtime,
-    }
-
-
-def _working_memory_overview(
-    runtime: Any,
-    *,
-    query: str = "",
-    limit: int = 160,
-    filters: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    assert runtime.memory_facade is not None
-    normalized_filters = dict(filters or {})
-    normalized_limit = _safe_int(limit, 160)
-    items = [
-        item.to_dict()
-        for item in runtime.memory_facade.query_working_memory_items(
-            limit=normalized_limit,
-            **normalized_filters,
-        )
-    ]
-    normalized_query = query.strip().lower()
-    if normalized_query:
-        items = [
-            item
-            for item in items
-            if normalized_query
-            in " ".join(
-                [
-                    str(item.get("title") or ""),
-                    str(item.get("summary") or ""),
-                    str(item.get("kind") or ""),
-                    str(item.get("memory_semantics") or ""),
-                    str(item.get("status") or ""),
-                    str(item.get("owner_node_id") or ""),
-                    str(item.get("writer_agent_id") or ""),
-                    json.dumps(item.get("payload") or {}, ensure_ascii=False),
-                    " ".join(str(part) for part in list(item.get("tags") or [])),
-                ]
-            ).lower()
-        ]
-    read_logs = [log.to_dict() for log in runtime.memory_facade.list_working_memory_read_logs(normalized_filters.get("task_run_id", ""), limit=400)]
-    temporal_edges = [edge.to_dict() for edge in runtime.memory_facade.list_working_memory_temporal_edges(normalized_filters.get("task_run_id", ""))]
-    handoff_transactions = [tx.to_dict() for tx in runtime.memory_facade.list_working_memory_handoff_transactions(normalized_filters.get("task_run_id", ""))]
-
-    by_status = Counter(str(item.get("status") or "") for item in items)
-    by_kind = Counter(str(item.get("kind") or "") for item in items)
-    by_owner_node = Counter(str(item.get("owner_node_id") or "") for item in items)
-    by_writer_agent = Counter(str(item.get("writer_agent_id") or "") for item in items)
-
-    conflict_items = [item for item in items if str(item.get("status") or "") == "conflicted" or str(item.get("memory_semantics") or "") == "conflict"]
-    promotion_candidates = [
-        item
-        for item in items
-        if str(item.get("promotion_state") or "") not in {"", "not_applicable", "rejected"}
-    ]
-    archived_items = [item for item in items if str(item.get("status") or "") in {"archived", "promoted", "discarded"}]
-    active_runs = sorted({str(item.get("task_run_id") or "") for item in items if str(item.get("task_run_id") or "").strip()})
-
-    return {
-        "query": query,
-        "filters": normalized_filters,
-        "total": len(items),
-        "active_run_ids": active_runs,
-        "by_status": dict(by_status),
-        "by_kind": dict(by_kind),
-        "by_owner_node": dict(by_owner_node),
-        "by_writer_agent": dict(by_writer_agent),
-        "items": [_working_memory_item_payload(item) for item in items],
-        "conflict_items": [_working_memory_item_payload(item) for item in conflict_items],
-        "promotion_candidates": [_working_memory_item_payload(item) for item in promotion_candidates],
-        "archived_items": [_working_memory_item_payload(item) for item in archived_items],
-        "read_logs": [_working_memory_read_log_payload(log) for log in read_logs],
-        "temporal_edges": [_working_memory_temporal_edge_payload(edge) for edge in temporal_edges],
-        "handoff_transactions": [_working_memory_handoff_payload(tx) for tx in handoff_transactions],
-    }
-
-
-def _working_memory_item_payload(item: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(item)
-    payload["summary"] = _compact_text(str(item.get("summary") or ""), 420)
-    payload["title"] = _compact_text(str(item.get("title") or ""), 180)
-    payload["payload_preview"] = _compact_text(json.dumps(item.get("payload") or {}, ensure_ascii=False), 800)
-    payload["tags"] = list(item.get("tags") or [])
-    payload["artifact_refs"] = list(item.get("artifact_refs") or [])
-    payload["contract_refs"] = list(item.get("contract_refs") or [])
-    payload["source_event_refs"] = list(item.get("source_event_refs") or [])
-    payload["source_message_refs"] = list(item.get("source_message_refs") or [])
-    payload["temporal_refs"] = list(item.get("temporal_refs") or [])
-    payload["conflict_refs"] = list(item.get("conflict_refs") or [])
-    return payload
-
-
-def _task_durable_memory_overview(
-    runtime: Any,
-    *,
-    query: str = "",
-    limit: int = 160,
-    filters: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    assert runtime.memory_facade is not None
-    normalized_filters = dict(filters or {})
-    items = [
-        item.to_dict()
-        for item in runtime.memory_facade.query_task_durable_memory_items(
-            limit=_safe_int(limit, 160),
-            **normalized_filters,
-        )
-    ]
-    normalized_query = query.strip().lower()
-    if normalized_query:
-        items = [
-            item
-            for item in items
-            if normalized_query
-            in " ".join(
-                [
-                    str(item.get("title") or ""),
-                    str(item.get("summary") or ""),
-                    str(item.get("canonical_statement") or ""),
-                    str(item.get("kind") or ""),
-                    str(item.get("memory_semantics") or ""),
-                    str(item.get("namespace_id") or ""),
-                    str(item.get("task_id") or ""),
-                    str(item.get("graph_id") or ""),
-                    str(item.get("project_id") or ""),
-                    " ".join(str(part) for part in list(item.get("retrieval_hints") or [])),
-                ]
-            ).lower()
-        ]
-    namespaces = [namespace.to_dict() for namespace in runtime.memory_facade.list_task_durable_memory_namespaces()]
-    by_status = Counter(str(item.get("status") or "") for item in items)
-    by_namespace = Counter(str(item.get("namespace_id") or "") for item in items)
-    by_kind = Counter(str(item.get("kind") or "") for item in items)
-    global_candidates = [
-        item
-        for item in items
-        if bool(item.get("eligible_for_global_promotion"))
-        or str(item.get("global_promotion_state") or "") not in {"", "not_applicable"}
-    ]
-    return {
-        "query": query,
-        "filters": normalized_filters,
-        "total": len(items),
-        "namespace_count": len(namespaces),
-        "by_status": dict(by_status),
-        "by_namespace": dict(by_namespace),
-        "by_kind": dict(by_kind),
-        "namespaces": [_task_durable_namespace_payload(namespace) for namespace in namespaces],
-        "items": [_task_durable_item_payload(item) for item in items],
-        "global_promotion_candidates": [_task_durable_item_payload(item) for item in global_candidates],
-    }
-
-
-def _task_durable_namespace_payload(namespace: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "namespace_id": str(namespace.get("namespace_id") or ""),
-        "task_family": str(namespace.get("task_family") or ""),
-        "domain_id": str(namespace.get("domain_id") or ""),
-        "task_id": str(namespace.get("task_id") or ""),
-        "graph_id": str(namespace.get("graph_id") or ""),
-        "project_id": str(namespace.get("project_id") or ""),
-        "artifact_namespace": str(namespace.get("artifact_namespace") or ""),
-        "item_count": int(namespace.get("item_count") or 0),
-        "updated_at": str(namespace.get("updated_at") or ""),
-    }
-
-
-def _task_durable_item_payload(item: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(item)
-    payload["summary"] = _compact_text(str(item.get("summary") or ""), 520)
-    payload["canonical_statement"] = _compact_text(str(item.get("canonical_statement") or ""), 700)
-    payload["payload_preview"] = _compact_text(json.dumps(item.get("payload") or {}, ensure_ascii=False), 900)
-    payload["source_work_memory_ids"] = list(item.get("source_work_memory_ids") or [])
-    payload["source_artifact_refs"] = list(item.get("source_artifact_refs") or [])
-    payload["retrieval_hints"] = list(item.get("retrieval_hints") or [])
-    return payload
-
-
-def _govern_working_memory_item(
-    work_memory_id: str,
-    *,
-    action: str,
-    payload: WorkingMemoryGovernRequest,
-) -> dict[str, Any]:
-    runtime = require_runtime()
-    assert runtime.memory_facade is not None
-
-    safe_id = work_memory_id.strip()
-    if not safe_id:
-        raise HTTPException(status_code=400, detail="Invalid working memory id")
-    metadata = {
-        **dict(payload.metadata or {}),
-        "governance_reason": payload.reason,
-        "governance_action": action,
-    }
-    try:
-        if action == "accept":
-            item = runtime.memory_facade.accept_working_memory_item(
-                safe_id,
-                actor_id=payload.actor_id,
-                metadata=metadata,
-            )
-        elif action == "discard":
-            item = runtime.memory_facade.discard_working_memory_item(
-                safe_id,
-                actor_id=payload.actor_id,
-                metadata=metadata,
-            )
-        elif action == "conflict":
-            item = runtime.memory_facade.mark_working_memory_conflict(
-                safe_id,
-                actor_id=payload.actor_id,
-                metadata=metadata,
-            )
-        else:
-            raise HTTPException(status_code=400, detail="Invalid working memory governance action")
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return {
-        "ok": True,
-        "action": action,
-        "work_memory_id": safe_id,
-        "item": _working_memory_item_payload(item.to_dict()),
-    }
-
-
-def _working_memory_read_log_payload(log: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "read_log_id": str(log.get("read_log_id") or ""),
-        "task_run_id": str(log.get("task_run_id") or ""),
-        "graph_id": str(log.get("graph_id") or ""),
-        "owner_node_id": str(log.get("owner_node_id") or ""),
-        "node_run_id": str(log.get("node_run_id") or ""),
-        "run_attempt_id": str(log.get("run_attempt_id") or ""),
-        "reader_agent_id": str(log.get("reader_agent_id") or ""),
-        "request": dict(log.get("request") or {}),
-        "selected_item_ids": list(log.get("selected_item_ids") or []),
-        "excluded_item_ids": list(log.get("excluded_item_ids") or []),
-        "token_estimate": int(log.get("token_estimate") or 0),
-        "denied_reason": str(log.get("denied_reason") or ""),
-        "created_at": str(log.get("created_at") or ""),
-        "authority": str(log.get("authority") or ""),
-    }
-
-
-def _working_memory_temporal_edge_payload(edge: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "edge_id": str(edge.get("edge_id") or ""),
-        "task_run_id": str(edge.get("task_run_id") or ""),
-        "graph_id": str(edge.get("graph_id") or ""),
-        "source_item_id": str(edge.get("source_item_id") or ""),
-        "target_item_id": str(edge.get("target_item_id") or ""),
-        "relation": str(edge.get("relation") or ""),
-        "confidence": float(edge.get("confidence") or 0.0),
-        "source_node_id": str(edge.get("source_node_id") or ""),
-        "created_at": str(edge.get("created_at") or ""),
-        "metadata": dict(edge.get("metadata") or {}),
-        "authority": str(edge.get("authority") or ""),
-    }
-
-
-def _working_memory_handoff_payload(transaction: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "transaction_id": str(transaction.get("transaction_id") or ""),
-        "task_run_id": str(transaction.get("task_run_id") or ""),
-        "graph_id": str(transaction.get("graph_id") or ""),
-        "edge_id": str(transaction.get("edge_id") or ""),
-        "source_node_run_id": str(transaction.get("source_node_run_id") or ""),
-        "target_node_run_id": str(transaction.get("target_node_run_id") or ""),
-        "handoff_id": str(transaction.get("handoff_id") or ""),
-        "source_message_hash": str(transaction.get("source_message_hash") or ""),
-        "idempotency_key": str(transaction.get("idempotency_key") or ""),
-        "candidate_work_memory_ids": list(transaction.get("candidate_work_memory_ids") or []),
-        "adopted_work_memory_ids": list(transaction.get("adopted_work_memory_ids") or []),
-        "rejected_work_memory_ids": list(transaction.get("rejected_work_memory_ids") or []),
-        "ephemeral_context_refs": list(transaction.get("ephemeral_context_refs") or []),
-        "transaction_status": str(transaction.get("transaction_status") or ""),
-        "created_at": str(transaction.get("created_at") or ""),
-        "committed_at": str(transaction.get("committed_at") or ""),
-        "metadata": dict(transaction.get("metadata") or {}),
-        "authority": str(transaction.get("authority") or ""),
+        "maintenance_runtime": runtime.memory_facade.describe_memory_maintenance_runtime(),
     }
 
 
@@ -950,6 +474,20 @@ def _safe_int(value: Any, fallback: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return fallback
+
+
+def _durable_overview(headers: list[MemoryHeader], maintenance_runtime: dict[str, object]) -> dict[str, Any]:
+    by_type = Counter(header.memory_type or "project" for header in headers)
+    by_class = Counter(header.memory_class or "work" for header in headers)
+    return {
+        "total": len(headers),
+        "active": sum(1 for header in headers if header.status == "active"),
+        "injectable": sum(1 for header in headers if header.eligible_for_injection),
+        "by_type": dict(by_type),
+        "by_class": dict(by_class),
+        "headers": [_header_payload(header) for header in headers],
+        "maintenance_runtime": maintenance_runtime,
+    }
 
 
 def _header_payload(header: MemoryHeader) -> dict[str, Any]:

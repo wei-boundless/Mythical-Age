@@ -9,6 +9,12 @@ export type OrchestrationOption = {
   value: string;
   label: string;
   description?: string;
+  category?: string;
+  requestable?: boolean;
+  system_only?: boolean;
+  deprecated?: boolean;
+  replacement_lane_id?: string;
+  metadata?: Record<string, unknown>;
 };
 
 export function OrchestrationBadge({
@@ -109,7 +115,7 @@ export function OrchestrationOptionGrid({
       {items.slice(0, 18).map((item) => (
         <button className="boundary-chip" key={item.value || item.id} onClick={() => onAdd(item)} title={item.description || item.value || item.id} type="button">
           <CheckCircle2 size={13} />
-          <span>{item.label || taskSystemDisplayLabel(item.value || item.id)}</span>
+          <span>{item.category ? `${item.category} · ` : ""}{item.label || taskSystemDisplayLabel(item.value || item.id)}</span>
         </button>
       ))}
     </div>

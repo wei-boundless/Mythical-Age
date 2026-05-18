@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from orchestration.runtime_loop.event_log import RuntimeEventLog
 from orchestration.runtime_loop.langgraph_coordination_runtime import LangGraphCoordinationRuntime
 from orchestration.runtime_loop.models import CoordinationRun, TaskRun
-from orchestration.runtime_loop.stage_execution_request import TaskResultReadyEvent
+from orchestration.runtime_loop.node_execution_request import NodeResultReadyEvent
 from orchestration.runtime_loop.state_index import RuntimeStateIndex
 from tasks import TaskContractRegistry
 from tasks.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol, TopologyTemplate
@@ -343,7 +343,7 @@ class _FormalMemoryRegistry:
                         "candidate_ref_key": "reviewed_candidate_ref",
                         "verdict_key": "verdict",
                         "required_verdict": "pass",
-                        "receipt_policy": {"visible_after": "next_clock"},
+                        "commit_visibility_policy": {"visible_after": "next_clock"},
                     },
                 },
             ),
@@ -462,7 +462,7 @@ class _FormalMemoryRegistry:
                         "candidate_ref_key": "reviewed_candidate_ref",
                         "verdict_key": "verdict",
                         "required_verdict": "pass",
-                        "receipt_policy": {"visible_after": "next_clock"},
+                        "commit_visibility_policy": {"visible_after": "next_clock"},
                     },
                 ),
             ),
@@ -605,7 +605,7 @@ def test_stage_message_expands_current_artifact_handoff(tmp_path) -> None:
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:artifact-context",
             task_run_id="taskrun:outline",
@@ -647,7 +647,7 @@ def test_langgraph_coordination_runtime_injects_working_memory_context(tmp_path)
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:wm",
             task_run_id="taskrun:source",
@@ -710,7 +710,7 @@ def test_formal_memory_write_edge_uses_source_output_key(tmp_path) -> None:
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:formal-memory",
             task_run_id="taskrun:world-author",
@@ -776,7 +776,7 @@ def test_formal_memory_write_edge_blocks_missing_source_output_key(tmp_path) -> 
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:formal-memory-missing",
             task_run_id="taskrun:world-author",
@@ -836,7 +836,7 @@ def test_formal_memory_commit_edge_uses_candidate_ref_and_verdict(tmp_path) -> N
 
     source_result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:formal-memory-commit",
             task_run_id="taskrun:world-author",
@@ -862,7 +862,7 @@ def test_formal_memory_commit_edge_uses_candidate_ref_and_verdict(tmp_path) -> N
 
     review_result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:formal-memory-commit",
             task_run_id="taskrun:world-review",
@@ -881,7 +881,7 @@ def test_formal_memory_commit_edge_uses_candidate_ref_and_verdict(tmp_path) -> N
 
     operations = list(review_result.state.get("working_memory_operations") or [])
     commit_operation = [item for item in operations if item.get("operation") == "memory_commit"][-1]
-    assert commit_operation["formal_memory_receipts"][0]["status"] == "committed"
+    assert commit_operation["formal_memory_acknowledgements"][0]["status"] == "committed"
     versions, _read_log = runtime.formal_memory.store.select_versions(
         repository_id="memory.world",
         collection_id="world",
@@ -968,7 +968,7 @@ def test_formal_memory_read_edge_does_not_fallback_to_working_memory(tmp_path) -
             "collection": "world",
             "record_key": "world_bible.current",
             "record_kind": "world_bible",
-            "receipt_policy": {"visible_after": "same_clock"},
+            "commit_visibility_policy": {"visible_after": "same_clock"},
         },
         candidate_version_id=candidate.version_id,
         node_run_id="taskrun:formal-read:world_review",
@@ -1053,7 +1053,7 @@ def test_langgraph_coordination_runtime_commits_working_memory_decisions(tmp_pat
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:wm-commit",
             task_run_id="taskrun:source",
@@ -1120,7 +1120,7 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:test",
             task_run_id="taskrun:project",
@@ -1317,7 +1317,7 @@ def test_langgraph_coordination_runtime_routes_ready_nodes_before_join(tmp_path)
 
     result_a = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:diamond",
             task_run_id="taskrun:a",
@@ -1336,7 +1336,7 @@ def test_langgraph_coordination_runtime_routes_ready_nodes_before_join(tmp_path)
 
     result_b = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:diamond",
             task_run_id="taskrun:b",
@@ -1353,7 +1353,7 @@ def test_langgraph_coordination_runtime_routes_ready_nodes_before_join(tmp_path)
 
     result_c = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:diamond",
             task_run_id="taskrun:c",
@@ -1375,7 +1375,7 @@ def test_langgraph_coordination_runtime_ignores_stale_dispatch_result(tmp_path) 
     runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
     first = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:diamond",
             task_run_id="taskrun:a",
@@ -1391,7 +1391,7 @@ def test_langgraph_coordination_runtime_ignores_stale_dispatch_result(tmp_path) 
 
     stale = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:diamond",
             task_run_id="taskrun:b:old",
@@ -1400,7 +1400,7 @@ def test_langgraph_coordination_runtime_ignores_stale_dispatch_result(tmp_path) 
             task_result_ref="taskresult:b:old",
             artifact_refs=("ref:b:old",),
             accepted=True,
-            request_id="stageexec:stale",
+            request_id="nodeexec:stale",
             dispatch_event_id="tlevent:stale",
         ),
     )
@@ -1504,7 +1504,7 @@ def test_langgraph_coordination_runtime_uses_scheduler_sequence_gate(tmp_path) -
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:sequence",
             task_run_id="taskrun:a",
@@ -1530,7 +1530,7 @@ def test_langgraph_coordination_runtime_blocks_when_required_input_missing(tmp_p
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:diamond",
             task_run_id="taskrun:a",
@@ -1553,7 +1553,7 @@ def test_langgraph_coordination_runtime_retries_failed_stage_when_policy_allows(
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:diamond",
             task_run_id="taskrun:a",
@@ -1578,7 +1578,7 @@ def test_langgraph_coordination_runtime_enters_human_gate_when_policy_requires(t
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:diamond",
             task_run_id="taskrun:a",
@@ -1609,7 +1609,7 @@ def test_langgraph_coordination_runtime_does_not_block_human_gate_when_auto_cont
 
     result = runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:diamond",
             task_run_id="taskrun:a",
@@ -1649,7 +1649,7 @@ def test_langgraph_coordination_runtime_human_gate_approve_routes_next(tmp_path)
     stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
     runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:diamond",
             task_run_id="taskrun:a",
@@ -1679,7 +1679,7 @@ def test_langgraph_coordination_runtime_human_gate_retry_routes_same_stage(tmp_p
     stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
     runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:diamond",
             task_run_id="taskrun:a",
@@ -1708,7 +1708,7 @@ def test_langgraph_coordination_runtime_human_gate_reject_fails_closed(tmp_path)
     stage_contracts[0]["retry_policy"] = {"retry_limit": 0}
     runtime.resume_from_task_result(
         coordination_run=coordination_run,
-        event=TaskResultReadyEvent(
+        event=NodeResultReadyEvent(
             event_type="task_result_ready",
             coordination_run_id="coordrun:diamond",
             task_run_id="taskrun:a",

@@ -255,12 +255,12 @@ def test_assistant_commit_uses_context_state_writeback_for_file_work_objects(tmp
     assert state.context_slots.active_subset_labels == ["Alice", "Bob", "Chen", "Diaz", "Eve"]
 
 
-def test_history_refresh_preserves_bound_pdf_followup_slots(tmp_path: Path) -> None:
+def test_memory_maintenance_without_model_does_not_rewrite_bound_pdf_followup_slots(tmp_path: Path) -> None:
     facade = MemoryFacade(tmp_path)
     session_id = "session-pdf-history-refresh"
     pdf_path = "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
 
-    facade.refresh_session_memory_from_context_state(
+    facade.session_memory.update_runtime_state_from_context_state(
         session_id,
         {
             "active_goal": "第四页如果要给业务负责人看，应该重点看哪几句？",
@@ -294,9 +294,10 @@ def test_history_refresh_preserves_bound_pdf_followup_slots(tmp_path: Path) -> N
         ],
     )
 
-    facade.refresh_session_memory(
-        session_id,
-        [
+    receipt = facade.run_memory_maintenance_after_commit(
+        session_id=session_id,
+        durable_lane_enabled=False,
+        messages=[
             {"role": "user", "content": f"现在打开 {pdf_path}，给我一个全文总览。"},
             {"role": "assistant", "content": "已定位与当前问题最相关的页面。"},
             {"role": "user", "content": "第四页如果要给业务负责人看，应该重点看哪几句？"},
@@ -306,6 +307,7 @@ def test_history_refresh_preserves_bound_pdf_followup_slots(tmp_path: Path) -> N
     )
 
     state = facade.session_memory.manager(session_id).load_state()
+    assert receipt.status == "failed"
     assert state.context_slots.active_pdf == pdf_path
     assert state.context_slots.active_pdf_mode == "page"
     assert state.context_slots.active_pdf_pages == [4]
@@ -313,6 +315,33 @@ def test_history_refresh_preserves_bound_pdf_followup_slots(tmp_path: Path) -> N
     assert state.context_slots.active_binding_owner_task_id == "result:pdf_answer:turn7"
     assert state.context_slots.active_result_handle_id == "result:pdf_answer:turn7"
 
+
+def test_session_memory_prefers_structured_answer_over_short_summary(tmp_path: Path) -> None:
+    facade = MemoryFacade(tmp_path)
+    session_id = "session-answer-preferred"
+
+    facade.session_memory.update_runtime_state_from_context_state(
+        session_id,
+        {
+            "active_goal": "请给出完整结论。",
+            "active_work_item": "structured_data",
+            "active_constraints": {"source_kind": "dataset"},
+        },
+        task_summaries=[
+            {
+                "task_id": "result:structured:turn1",
+                "query": "请给出完整结论。",
+                "answer": "这是完整答案，包含三点结论与行动建议。",
+                "summary": "这是完整答案",
+                "task_kind": "structured_data",
+                "key_points": ["dataset=inventory.xlsx"],
+            }
+        ],
+    )
+
+    state = facade.session_memory.manager(session_id).load_state()
+    assert state.current_result_refs[0] == "这是完整答案，包含三点结论与行动建议。"
+    assert state.key_results[0] == "这是完整答案，包含三点结论与行动建议。"
 
 class _SessionManager:
     def __init__(self) -> None:

@@ -15,6 +15,18 @@ class _RuntimeStub:
 
 
 def test_orchestration_agents_payload_keeps_removed_legacy_groups_absent(tmp_path: Path) -> None:
+    TaskFlowRegistry(tmp_path).upsert_task_graph(
+        graph_id="graph.test.runtime_lane",
+        title="Runtime Lane Smoke Graph",
+        nodes=(
+            {
+                "node_id": "node_a",
+                "node_type": "agent",
+                "title": "Node A",
+                "runtime_lane": "coordination_task",
+            },
+        ),
+    )
     original = orchestration_api.require_runtime
     orchestration_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
     try:
@@ -25,6 +37,12 @@ def test_orchestration_agents_payload_keeps_removed_legacy_groups_absent(tmp_pat
     groups = payload["agent_groups"]
 
     assert payload["authority"] == "orchestration.agent_runtime_registry"
+    assert "coordination_task" in payload["options"]["runtime_lanes"]
+    assert "output_contracts" not in payload["options"]
+    assert "output_contract_options" not in payload["options"]
+    assert "runtime_contracts" in payload["options"]["context_sections"]
+    assert "artifact_refs" in payload["options"]["context_sections"]
+    assert "formal_memory_read" in payload["options"]["memory_scopes"]
     removed_group_ids = {"group.writing.longform_novel_core"}
     assert all(item["group_id"] not in removed_group_ids for item in groups)
 
@@ -53,9 +71,6 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
     assert summary["execution_policy_count"] == 0
     assert summary["derived_execution_policy_count"] == len(task_management["execution_policies"])
     assert summary["effective_execution_policy_count"] == len(task_management["execution_policies"])
-    assert summary["memory_request_profile_count"] == 0
-    assert summary["derived_memory_request_profile_count"] == len(task_management["memory_request_profiles"])
-    assert summary["effective_memory_request_profile_count"] == len(task_management["memory_request_profiles"])
     assert summary["communication_protocol_count"] == 0
     assert summary["contract_spec_count"] >= 5
     assert "agent_management" not in payload
@@ -66,15 +81,13 @@ def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Pa
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["projection_bindings"])
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["flow_contract_bindings"])
     assert all("writing" not in str(item.get("task_id") or "") for item in task_management["execution_policies"])
-    assert all("writing" not in str(item.get("task_id") or "") for item in task_management["memory_request_profiles"])
     assert task_graph_management["communication_protocols"] == []
+    assert task_graph_management["task_graph_specs"] == []
     assert payload["contract_management"]["contract_specs"]
     assert diagnostics["runtime_recipe_validation_matrix"]["authority"] == "task_system.runtime_recipe_validation"
     assert diagnostics["runtime_recipe_validation_matrix"]["template_protocol_removed"] is True
-    assert diagnostics["link_permission_matrix"]["authority"] == "task_system.link_permission_matrix"
-    assert diagnostics["agent_task_connections"]["authority"] == "task_system.agent_task_connections"
-    assert diagnostics["agent_carrying_profiles"]["authority"] == "task_system.agent_carrying_profiles"
-    assert diagnostics["connection_diagnostics"]["authority"] == "task_system.connection_diagnostics"
+    assert diagnostics["overview_mode"] == "lightweight"
+    assert "compatibility" not in diagnostics
 
 
 def test_task_domain_upsert_persists_and_returns_formal_domain_catalog(tmp_path: Path) -> None:
@@ -214,7 +227,6 @@ def test_specific_task_delete_cascades_task_assembly_objects(tmp_path: Path) -> 
     assert all(item["task_id"] != "task.research.experiment" for item in task_management["projection_bindings"])
     assert all(item["task_id"] != "task.research.experiment" for item in task_management["flow_contract_bindings"])
     assert all(item["task_id"] != "task.research.experiment" for item in task_management["execution_policies"])
-    assert all(item["task_id"] != "task.research.experiment" for item in task_management["memory_request_profiles"])
     assert all(item["workflow_id"] != "workflow.900102" for item in task_management["workflow_resources"])
     assert payload["last_deletion"]["task_id"] == "task.research.experiment"
     assert payload["last_deletion"]["deleted_workflow_ids"] == ["workflow.900102"]
@@ -282,25 +294,10 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
                     default_agent_id="agent:3",
                     task_level="standard",
                     task_privilege="bounded",
-                    allowed_agent_categories=["main_agent", "worker_sub_agent"],
                     allow_worker_agent_spawn=True,
                     worker_agent_blueprint_id="worker.dev.prototype",
                     worker_agent_naming_rule="game-worker-{n}",
                     notes="test adoption plan",
-                ),
-            )
-        )
-        memory_payload = asyncio.run(
-            tasks_api.upsert_task_system_memory_request_profile(
-                "task.dev.light_web_game",
-                tasks_api.TaskMemoryRequestProfileUpsertRequest(
-                    task_id="task.dev.light_web_game",
-                    requested_memory_layers=["conversation", "state", "long_term"],
-                    requested_topics=["project_background", "game_requirements"],
-                    memory_priority="high",
-                    writeback_policy="task_summary_only",
-                    allow_long_term_memory=True,
-                    memory_scope_hint="conversation_read_write",
                 ),
             )
         )
@@ -328,13 +325,11 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
     projection_binding = registry.get_projection_binding("task.dev.light_web_game")
     flow_binding = registry.get_flow_contract_binding("task.dev.light_web_game")
     execution_policy = registry.get_task_agent_adoption_plan("task.dev.light_web_game")
-    memory_profile = registry.get_task_memory_request_profile("task.dev.light_web_game")
     protocol = registry.get_task_communication_protocol("protocol.dev.parallel_review")
 
     assert projection_payload["task_management"]["projection_bindings"]
     assert flow_contract_payload["task_management"]["flow_contract_bindings"]
     assert execution_payload["task_management"]["execution_policies"]
-    assert memory_payload["task_management"]["memory_request_profiles"]
     assert protocol_payload["task_graph_management"]["communication_protocols"]
 
     assert projection_binding is not None
@@ -355,11 +350,6 @@ def test_task_system_formal_object_upserts_persist_and_return_management_payload
     assert execution_policy.allow_worker_agent_spawn is True
     assert execution_policy.worker_agent_blueprint_id == "worker.dev.prototype"
 
-    assert memory_profile is not None
-    assert "long_term" in memory_profile.requested_memory_layers
-    assert memory_profile.allow_long_term_memory is True
-    assert memory_profile.writeback_policy == "task_summary_only"
-
     assert protocol is not None
     assert protocol.enabled is True
     assert "review_feedback" in protocol.message_types
@@ -372,7 +362,6 @@ def test_task_execution_policy_normalizes_legacy_worker_spawn_mode(tmp_path: Pat
         task_id="task.dev.light_web_game",
         adoption_mode="spawn_worker_allowed",
         default_agent_id="agent:0",
-        allowed_agent_categories=("main_agent", "worker_sub_agent"),
         allow_worker_agent_spawn=True,
         worker_agent_blueprint_id="worker.dev.prototype",
     )
@@ -440,6 +429,8 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
                 ),
             )
         )
+        graph_spec = asyncio.run(tasks_api.compile_task_system_task_graph_runtime_spec("graph.research.test_parent"))
+        coordination_detail = asyncio.run(tasks_api.get_task_system_task_graph("graph.research.test_parent"))
     finally:
         tasks_api.require_runtime = original  # type: ignore[assignment]
 
@@ -448,15 +439,12 @@ def test_coordination_task_is_domain_parent_with_specific_subtask_refs(tmp_path:
         for item in payload["task_graph_management"]["task_graphs"]
         if item["graph_id"] == "graph.research.test_parent"
     )
-    graph_spec = next(
-        item
-        for item in payload["task_graph_management"]["task_graph_specs"]
-        if item["graph_id"] == "graph.research.test_parent"
-    )
     assert coordination["domain_id"] == "domain.research"
     assert coordination["task_family"] == "research"
-    assert coordination["subtask_refs"] == ["task.research.plan", "task.research.report"]
-    assert {node["task_id"] for node in coordination["graph_nodes"] if node.get("task_id")} == set(coordination["subtask_refs"])
+    assert coordination["overview_mode"] == "summary"
+    assert coordination["node_count"] == 3
+    assert coordination_detail["subtask_refs"] == ["task.research.plan", "task.research.report"]
+    assert {node["task_id"] for node in coordination_detail["graph_nodes"] if node.get("task_id")} == set(coordination_detail["subtask_refs"])
     assert graph_spec["valid"] is True
     assert graph_spec["domain_id"] == "domain.research"
     assert graph_spec["start_node_ids"]
@@ -484,7 +472,7 @@ def test_task_system_specific_record_is_canonical_and_assignment_becomes_compat_
                     default_projection_policy="workflow_compatible_or_task_default",
                     task_policy={
                         "safety_policy": {"verification_mode": "qa_required"},
-                        "task_structure": {"memory_scope_hint": "conversation_read_write"},
+                        "task_structure": {"memory_scope_hint": "conversation_readonly"},
                     },
                     enabled=True,
                     metadata={"runtime_recipe_id": "runtime.recipe.light_web_game"},
@@ -608,6 +596,7 @@ def test_task_graph_api_persists_working_memory_strategy_fields(tmp_path: Path) 
                 ),
             )
         )
+        graph_detail = asyncio.run(tasks_api.get_task_system_task_graph("graph.test.working_memory"))
     finally:
         tasks_api.require_runtime = original  # type: ignore[assignment]
 
@@ -616,12 +605,13 @@ def test_task_graph_api_persists_working_memory_strategy_fields(tmp_path: Path) 
         for item in payload["task_graph_management"]["task_graphs"]
         if item["graph_id"] == "graph.test.working_memory"
     )
-    planner = next(item for item in graph["nodes"] if item["node_id"] == "planner")
-    edge = graph["edges"][0]
-
     assert graph["working_memory_policy_profile_id"] == "wmprofile.test"
     assert graph["working_memory_policy"]["default_scope"] == "graph_scope"
     assert graph["runtime_policy"]["working_memory_profile_id"] == "wmprofile.test"
+    assert graph["overview_mode"] == "summary"
+    assert graph["node_count"] == 2
+    planner = next(item for item in graph_detail["nodes"] if item["node_id"] == "planner")
+    edge = graph_detail["edges"][0]
     assert planner["memory_read_policy"]["readable_kinds"] == ["task_goal", "decision_record"]
     assert planner["dynamic_memory_read_policy"]["max_dynamic_reads_per_node_run"] == 2
     assert edge["working_memory_handoff_policy"]["carry_kinds"] == ["plan_fragment"]
@@ -654,6 +644,7 @@ def test_task_graph_api_migrates_legacy_prompt_metadata_to_projection(tmp_path: 
                 ),
             )
         )
+        graph_detail = asyncio.run(tasks_api.get_task_system_task_graph("graph.test.prompt_migration"))
     finally:
         tasks_api.require_runtime = original  # type: ignore[assignment]
 
@@ -662,7 +653,8 @@ def test_task_graph_api_migrates_legacy_prompt_metadata_to_projection(tmp_path: 
         for item in payload["task_graph_management"]["task_graphs"]
         if item["graph_id"] == "graph.test.prompt_migration"
     )
-    node = graph["nodes"][0]
+    assert graph["overview_mode"] == "summary"
+    node = graph_detail["nodes"][0]
     metadata = node["metadata"]
 
     assert node["projection_id"] == "projection.taskgraph.graph.test.prompt.migration.world.review"
@@ -729,8 +721,8 @@ def test_task_graph_api_exposes_direct_runtime_spec_in_overview(tmp_path: Path) 
     finally:
         tasks_api.require_runtime = original  # type: ignore[assignment]
 
-    graph_specs = payload["task_graph_management"]["task_graph_specs"]
-    spec = next(item for item in graph_specs if item["graph_id"] == "graph.test.direct_spec")
+    assert payload["task_graph_management"]["task_graph_specs"] == []
+    spec = runtime_spec
     draft = next(item for item in spec["nodes"] if item["node_id"] == "draft")
     edge = spec["edges"][0]
 

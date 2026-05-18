@@ -451,30 +451,11 @@ export type TaskExecutionPolicy = {
   default_agent_id: string;
   task_level?: string;
   task_privilege?: string;
-  allowed_agent_categories: string[];
   allow_worker_agent_spawn: boolean;
   worker_agent_blueprint_id: string;
   worker_agent_naming_rule: string;
   notes: string;
   authority?: string;
-  metadata?: Record<string, unknown>;
-};
-
-export type TaskMemoryRequestProfile = {
-  profile_id?: string;
-  task_id: string;
-  requested_memory_layers: string[];
-  requested_topics: string[];
-  memory_priority: string;
-  writeback_policy: string;
-  allow_long_term_memory: boolean;
-  working_memory_policy_profile_id?: string;
-  working_memory_policy?: Record<string, unknown>;
-  allow_working_memory?: boolean;
-  allow_dynamic_working_memory_read?: boolean;
-  working_memory_default_scope?: string;
-  working_memory_default_visibility?: string;
-  memory_scope_hint: string;
   metadata?: Record<string, unknown>;
 };
 
@@ -679,6 +660,91 @@ export type TaskGraphRuntimeSpec = {
   diagnostics?: Record<string, unknown>;
 };
 
+export type TaskGraphStandardNodeSpec = {
+  node_id: string;
+  title: string;
+  node_type: string;
+  task_id?: string;
+  phase_id?: string;
+  sequence_index?: number;
+  timeline_group_id?: string;
+  main_chain?: boolean;
+  blocks_phase_exit?: boolean;
+  executor?: Record<string, unknown>;
+  contracts?: Record<string, unknown>;
+  context?: Record<string, unknown>;
+  runtime?: Record<string, unknown>;
+  artifacts?: Record<string, unknown>;
+  loop?: Record<string, unknown>;
+  resource?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskGraphStandardEdgeSpec = {
+  edge_id: string;
+  source_node_id: string;
+  target_node_id: string;
+  edge_type: string;
+  payload_contract_id?: string;
+  handoff?: Record<string, unknown>;
+  memory?: Record<string, unknown>;
+  artifact_context?: Record<string, unknown>;
+  revision?: Record<string, unknown>;
+  temporal?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskGraphStandardResourceSpec = {
+  node_id: string;
+  title: string;
+  resource_type: string;
+  repository_id: string;
+  collections: string[];
+  lifecycle?: Record<string, unknown>;
+  readable_by?: string[];
+  write_owner_node_ids?: string[];
+  metadata?: Record<string, unknown>;
+};
+
+export type TaskGraphStandardTimelineSpec = {
+  entry_node_id: string;
+  output_node_id: string;
+  temporal_edges: Array<Record<string, unknown>>;
+  loop_frames: Array<Record<string, unknown>>;
+  timeline_blocks?: Array<Record<string, unknown>>;
+  phases: Array<Record<string, unknown>>;
+  scheduler?: Record<string, unknown>;
+};
+
+export type TaskGraphRuntimeIsolationSpec = {
+  task_run_scope_policy: string;
+  memory_repositories: Array<Record<string, unknown>>;
+  artifact_repositories: Array<Record<string, unknown>>;
+  runtime_state_stores: Array<Record<string, unknown>>;
+};
+
+export type TaskGraphStandardIssue = {
+  code: string;
+  message: string;
+  severity: string;
+  node_id?: string;
+  edge_id?: string;
+  source?: string;
+};
+
+export type TaskGraphStandardView = {
+  authority: string;
+  graph: Record<string, unknown>;
+  nodes: TaskGraphStandardNodeSpec[];
+  edges: TaskGraphStandardEdgeSpec[];
+  resources: TaskGraphStandardResourceSpec[];
+  timeline: TaskGraphStandardTimelineSpec;
+  runtime_isolation: TaskGraphRuntimeIsolationSpec;
+  memory_matrix: Record<string, unknown>;
+  diagnostics: Record<string, unknown>;
+  issues: TaskGraphStandardIssue[];
+};
+
 export type TaskGraphNodeRecord = {
   node_id: string;
   node_type: string;
@@ -687,6 +753,7 @@ export type TaskGraphNodeRecord = {
   agent_id?: string;
   agent_selection_policy?: string;
   agent_group_id?: string;
+  role?: string;
   work_posture?: string;
   node_contract_id?: string;
   input_contract_id?: string;
@@ -749,6 +816,8 @@ export type TaskGraphRecord = {
   output_node_id: string;
   nodes: TaskGraphNodeRecord[];
   edges: TaskGraphEdgeRecord[];
+  node_count?: number;
+  edge_count?: number;
   graph_contract_id?: string;
   default_protocol_id?: string;
   working_memory_policy_profile_id?: string;
@@ -759,7 +828,11 @@ export type TaskGraphRecord = {
   enabled: boolean;
   metadata?: Record<string, unknown>;
   issues?: Array<Record<string, unknown>>;
+  issue_count?: number;
+  error_count?: number;
+  warning_count?: number;
   valid?: boolean;
+  overview_mode?: string;
 };
 
 export type TaskCommunicationProtocol = {
@@ -818,10 +891,18 @@ export type SpecificTaskRecordUpsertPayload = SpecificTaskRecord;
 export type TaskProjectionBindingUpsertPayload = TaskProjectionBinding;
 export type TaskFlowContractBindingUpsertPayload = TaskFlowContractBinding;
 export type TaskExecutionPolicyUpsertPayload = TaskExecutionPolicy;
-export type TaskMemoryRequestProfileUpsertPayload = TaskMemoryRequestProfile;
 export type ContractSpecUpsertPayload = ContractSpec;
 
 export type TaskGraphUpsertPayload = TaskGraphRecord;
+export type TaskGraphStandardViewUpsertPayload = {
+  graph: Record<string, unknown>;
+  nodes: TaskGraphStandardNodeSpec[];
+  edges: TaskGraphStandardEdgeSpec[];
+  resources?: TaskGraphStandardResourceSpec[];
+  timeline?: Partial<TaskGraphStandardTimelineSpec>;
+  runtime_isolation?: Partial<TaskGraphRuntimeIsolationSpec>;
+  metadata?: Record<string, unknown>;
+};
 
 export type TaskAgentConnectionOverview = {
   authority: string;
@@ -847,7 +928,6 @@ export type TaskSystemOverview = {
     projection_bindings: TaskProjectionBinding[];
     flow_contract_bindings: TaskFlowContractBinding[];
     execution_policies: TaskExecutionPolicy[];
-    memory_request_profiles: TaskMemoryRequestProfile[];
     contract_catalog?: TaskContractDescriptor[];
     task_assignments?: Array<Record<string, unknown>>;
   };
@@ -895,10 +975,8 @@ export type OrchestrationAgentRuntimeProfile = {
   allowed_memory_scopes: string[];
   allowed_context_sections: string[];
   use_shared_contract: boolean;
-  output_contracts: string[];
   can_delegate_to_agents: boolean;
   allowed_delegate_agent_ids: string[];
-  allowed_delegate_agent_categories: string[];
   max_delegate_calls_per_turn: number;
   delegate_context_policy: string;
   approval_policy: string;
@@ -914,9 +992,6 @@ export type OrchestrationAgentGroup = {
   coordinator_agent_id: string;
   member_agent_ids: string[];
   description: string;
-  default_topology_template_ids: string[];
-  default_communication_protocol_ids: string[];
-  allowed_coordination_task_ids: string[];
   lifecycle_state: string;
   metadata?: Record<string, unknown>;
 };
@@ -926,7 +1001,32 @@ export type OrchestrationOption = {
   value: string;
   label: string;
   description?: string;
+  category?: string;
+  requestable?: boolean;
+  system_only?: boolean;
+  deprecated?: boolean;
+  replacement_lane_id?: string;
+  metadata?: Record<string, unknown>;
   operation_type?: string;
+};
+
+export type OrchestrationCapabilityItem = {
+  capability_id: string;
+  capability_kind: "skill" | "tool" | "mcp" | "operation" | string;
+  title: string;
+  subtitle: string;
+  description: string;
+  operation_ids: string[];
+  source_label: string;
+  source_detail: string;
+  risk_label: string;
+  risk_tone: "ok" | "warn" | "danger" | "neutral" | string;
+  risk_items: string[];
+  tags: string[];
+  metadata: Array<{
+    label: string;
+    value: string;
+  }>;
 };
 
 export type OrchestrationAgentRuntimeCatalog = {
@@ -939,9 +1039,10 @@ export type OrchestrationAgentRuntimeCatalog = {
     operations: OperationDescriptor[];
     task_graphs: string[];
     runtime_lanes: string[];
+    runtime_lane_registry?: Record<string, unknown>;
+    runtime_lane_diagnostics?: Record<string, unknown>;
     memory_scopes: string[];
     context_sections: string[];
-    output_contracts: string[];
     approval_policies: string[];
     trace_policies: string[];
     operation_options?: OrchestrationOption[];
@@ -949,10 +1050,10 @@ export type OrchestrationAgentRuntimeCatalog = {
     runtime_lane_options?: OrchestrationOption[];
     memory_scope_options?: OrchestrationOption[];
     context_section_options?: OrchestrationOption[];
-    output_contract_options?: OrchestrationOption[];
     approval_policy_options?: OrchestrationOption[];
     trace_policy_options?: OrchestrationOption[];
     worker_blueprints?: Array<Record<string, unknown>>;
+    capability_items?: OrchestrationCapabilityItem[];
   };
 };
 
@@ -1429,6 +1530,11 @@ export type RuntimeLoopTaskRunTrace = {
   latest_checkpoint: Record<string, unknown> | null;
 };
 
+export type OrchestrationRuntimeOptionsPayload = {
+  authority: string;
+  options: OrchestrationAgentRuntimeCatalog["options"];
+};
+
 export type RuntimeLoopTaskRunLiveMonitor = {
   authority: string;
   task_run: Record<string, unknown>;
@@ -1551,7 +1657,9 @@ export type TaskGraphRunMonitorView = {
   artifacts: Array<Record<string, unknown>>;
   memory_operations: Array<Record<string, unknown>>;
   stage_results: Array<Record<string, unknown>>;
+  current_node_execution_request?: Record<string, unknown>;
   current_stage_execution_request: Record<string, unknown>;
+  current_node_execution_boundary?: Record<string, unknown>;
   current_dispatch_context?: Record<string, unknown>;
   current_context_packets?: {
     memory_snapshot?: Record<string, unknown>;
@@ -1560,6 +1668,15 @@ export type TaskGraphRunMonitorView = {
     handoff_packet_refs?: string[];
   };
   timeline_result_records?: Array<Record<string, unknown>>;
+  temporal?: {
+    active_node_id: string;
+    active_activation_id: string;
+    active_execution_permit_id: string;
+    active_request_id: string;
+    boundary_valid: boolean;
+    violations: TaskGraphRunMonitorIssue[];
+    authority: string;
+  };
   timeline?: {
     ledger_id: string;
     coordination_run_id: string;
@@ -1669,8 +1786,6 @@ export type TaskGraphMonitorDecision = {
   observed: Record<string, unknown>;
   recommended_control: Record<string, unknown>;
   run_interaction_request?: Record<string, unknown>;
-  /** Compatibility only for monitor decisions persisted before the unified run interaction request. */
-  human_review_request?: Record<string, unknown>;
   created_at: number;
 };
 
@@ -2374,240 +2489,129 @@ export type MemorySessionFilesResponse = {
   files: MemorySessionFile[];
 };
 
-export type WorkingMemoryItem = {
-  work_memory_id: string;
+export type FormalMemoryRepository = {
+  repository_id: string;
+  logical_repository_id: string;
+  effective_repository_id: string;
   task_run_id: string;
-  task_id: string;
+  scope_kind: string;
+  scope_id: string;
   graph_id: string;
-  owner_node_id: string;
-  owner_node_role: string;
-  node_run_id: string;
-  run_attempt_id: string;
-  stage_id: string;
-  writer_agent_id: string;
-  last_writer_agent_id: string;
-  scope: string;
-  kind: string;
-  memory_semantics: string;
+  node_id: string;
   title: string;
-  payload: Record<string, unknown>;
-  payload_preview: string;
-  summary: string;
+  repository_kind?: string;
+  lifecycle_policy?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  authority: string;
+};
+
+export type FormalMemoryRecord = {
+  record_id: string;
+  repository_id: string;
+  logical_repository_id: string;
+  effective_repository_id: string;
+  task_run_id: string;
+  scope_kind: string;
+  scope_id: string;
+  collection_id: string;
+  record_key: string;
+  record_kind: string;
   status: string;
-  visibility: string;
-  read_policy: Record<string, unknown>;
-  write_policy: Record<string, unknown>;
+  current_committed_version?: number;
+  head_version_id?: string;
+  created_at: string;
+  updated_at: string;
+  authority: string;
+};
+
+export type FormalMemoryVersion = FormalMemoryRecord & {
+  version_id: string;
   version: number;
-  parent_item_id: string;
-  source_event_refs: string[];
-  source_message_refs: string[];
-  artifact_refs: string[];
-  contract_refs: string[];
-  reader_policy: Record<string, unknown>;
-  tags: string[];
-  temporal_refs: string[];
-  conflict_refs: string[];
-  adopted_from_handoff_id: string;
-  idempotency_key: string;
-  source_message_hash: string;
-  created_at: string;
-  updated_at: string;
-  expires_at: string;
-  promotion_state: string;
-  metadata: Record<string, unknown>;
-  authority: string;
-};
-
-export type WorkingMemoryReadLog = {
-  read_log_id: string;
-  task_run_id: string;
-  graph_id: string;
-  owner_node_id: string;
-  node_run_id: string;
-  run_attempt_id: string;
-  reader_agent_id: string;
-  request: Record<string, unknown>;
-  selected_item_ids: string[];
-  excluded_item_ids: string[];
-  token_estimate: number;
-  denied_reason: string;
-  created_at: string;
-  authority: string;
-};
-
-export type WorkingMemoryTemporalEdge = {
-  edge_id: string;
-  task_run_id: string;
-  graph_id: string;
-  source_item_id: string;
-  target_item_id: string;
-  relation: string;
-  confidence: number;
-  source_node_id: string;
-  created_at: string;
-  metadata: Record<string, unknown>;
-  authority: string;
-};
-
-export type WorkingMemoryHandoffTransaction = {
-  transaction_id: string;
-  task_run_id: string;
-  graph_id: string;
-  edge_id: string;
-  source_node_run_id: string;
-  target_node_run_id: string;
-  handoff_id: string;
-  source_message_hash: string;
-  idempotency_key: string;
-  candidate_work_memory_ids: string[];
-  adopted_work_memory_ids: string[];
-  rejected_work_memory_ids: string[];
-  ephemeral_context_refs: string[];
-  transaction_status: string;
-  created_at: string;
-  committed_at: string;
-  metadata: Record<string, unknown>;
-  authority: string;
-};
-
-export type WorkingMemoryOverview = {
-  query: string;
-  filters: Record<string, unknown>;
-  total: number;
-  active_run_ids: string[];
-  by_status: Record<string, number>;
-  by_kind: Record<string, number>;
-  by_owner_node: Record<string, number>;
-  by_writer_agent: Record<string, number>;
-  items: WorkingMemoryItem[];
-  conflict_items: WorkingMemoryItem[];
-  promotion_candidates: WorkingMemoryItem[];
-  archived_items: WorkingMemoryItem[];
-  read_logs: WorkingMemoryReadLog[];
-  temporal_edges: WorkingMemoryTemporalEdge[];
-  handoff_transactions: WorkingMemoryHandoffTransaction[];
-};
-
-export type WorkingMemoryItemDetail = {
-  item: WorkingMemoryItem;
-  read_logs: WorkingMemoryReadLog[];
-  temporal_edges: WorkingMemoryTemporalEdge[];
-  handoff_transactions: WorkingMemoryHandoffTransaction[];
-};
-
-export type WorkingMemoryFinalizationResult = {
-  task_run_id: string;
-  finalized_count: number;
-  archived_count: number;
-  discarded_count: number;
-  promotion_candidate_count: number;
-  artifact_candidate_count: number;
-  unresolved_conflict_count: number;
-  unchanged_count: number;
-  archive_report_path: string;
-  item_actions: Array<{
-    work_memory_id: string;
-    kind: string;
-    memory_semantics: string;
-    before_status: string;
-    before_promotion_state: string;
-    after_status?: string;
-    after_promotion_state?: string;
-    owner_node_id: string;
-    node_run_id: string;
-    action: string;
-  }>;
-  authority: string;
-};
-
-export type WorkingMemoryFinalizationResponse = {
-  ok: boolean;
-  result: WorkingMemoryFinalizationResult;
-};
-
-export type TaskDurableMemoryNamespace = {
-  namespace_id: string;
-  task_family: string;
-  domain_id: string;
-  task_id: string;
-  graph_id: string;
-  project_id: string;
-  artifact_namespace: string;
-  item_count: number;
-  updated_at: string;
-};
-
-export type TaskDurableMemoryItem = {
-  task_memory_id: string;
-  namespace_id: string;
-  task_family: string;
-  domain_id: string;
-  task_id: string;
-  graph_id: string;
-  project_id: string;
-  artifact_namespace: string;
-  source_work_memory_ids: string[];
-  source_artifact_refs: string[];
-  memory_type: string;
-  memory_class: string;
-  kind: string;
-  memory_semantics: string;
-  title: string;
-  canonical_statement: string;
-  summary: string;
   payload: Record<string, unknown>;
-  payload_preview: string;
-  retrieval_hints: string[];
-  status: string;
-  confidence: string;
-  stability: string;
-  eligible_for_task_injection: boolean;
-  eligible_for_global_promotion: boolean;
-  global_promotion_state: string;
+  canonical_text: string;
+  summary: string;
+  artifact_refs: string[];
+  source_node_id: string;
+  source_edge_id: string;
+  source_node_run_id: string;
+  source_clock: string;
+  source_clock_seq: number;
+  visible_after_clock: string;
+  visible_after_clock_seq: number;
+  content_hash: string;
+};
+
+export type FormalMemoryReadLog = {
+  read_log_id: string;
+  edge_id: string;
+  node_run_id: string;
+  repository_id: string;
+  logical_repository_id: string;
+  effective_repository_id: string;
+  task_run_id: string;
+  scope_kind: string;
+  scope_id: string;
+  collection_id: string;
+  selector: Record<string, unknown>;
+  selected_version_ids: string[];
+  clock: string;
+  clock_seq: number;
   created_at: string;
-  updated_at: string;
-  metadata: Record<string, unknown>;
   authority: string;
 };
 
-export type TaskDurableMemoryOverview = {
-  query: string;
-  filters: Record<string, unknown>;
-  total: number;
-  namespace_count: number;
-  by_status: Record<string, number>;
-  by_namespace: Record<string, number>;
-  by_kind: Record<string, number>;
-  namespaces: TaskDurableMemoryNamespace[];
-  items: TaskDurableMemoryItem[];
-  global_promotion_candidates: TaskDurableMemoryItem[];
+export type FormalMemoryOverview = {
+  task_run_id: string;
+  repository_id: string;
+  collection_id: string;
+  repository_count: number;
+  collection_count: number;
+  record_count: number;
+  version_count: number;
+  read_log_count: number;
+  repositories: FormalMemoryRepository[];
+  collections: Array<Record<string, unknown>>;
+  records: FormalMemoryRecord[];
+  versions: FormalMemoryVersion[];
+  read_logs: FormalMemoryReadLog[];
+  authority: string;
 };
 
-export type TaskDurableMemoryItemDetail = {
-  item: TaskDurableMemoryItem;
+export type ArtifactRepositoryRecord = {
+  artifact_id: string;
+  artifact_ref: string;
+  path: string;
+  repository_id: string;
+  logical_repository_id: string;
+  effective_repository_id: string;
+  task_run_id: string;
+  scope_kind: string;
+  scope_id: string;
+  collection_id: string;
+  graph_id: string;
+  stage_id: string;
+  node_run_id: string;
+  task_ref: string;
+  coordination_run_id: string;
+  status: string;
+  content_hash: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  authority: string;
 };
 
-export type WorkingMemoryPromoteTaskDurableResponse = {
-  ok: boolean;
-  action: string;
-  work_memory_id: string;
-  task_memory: TaskDurableMemoryItem;
-  item: WorkingMemoryItem;
-};
-
-export type TaskDurableMemoryGovernanceResponse = {
-  ok: boolean;
-  action: string;
-  task_memory: TaskDurableMemoryItem;
-  filename?: string;
-  header?: MemoryHeader | null;
-};
-
-export type WorkingMemoryGovernanceResponse = {
-  ok: boolean;
-  action: string;
-  work_memory_id: string;
-  item: WorkingMemoryItem;
+export type ArtifactRepositoryOverview = {
+  task_run_id: string;
+  repository_id: string;
+  collection_id: string;
+  status: string;
+  repository_count: number;
+  artifact_count: number;
+  repositories: Array<Record<string, unknown>>;
+  artifacts: ArtifactRepositoryRecord[];
+  authority: string;
 };
 
 export type MemoryOverview = {
@@ -2620,11 +2624,9 @@ export type MemoryOverview = {
     by_type: Record<string, number>;
     by_class: Record<string, number>;
     headers: MemoryHeader[];
-    extraction_runtime: Record<string, unknown>;
+    maintenance_runtime: Record<string, unknown>;
   };
   session_memory: MemorySessionInspect | null;
-  working_memory?: WorkingMemoryOverview;
-  task_durable_memory?: TaskDurableMemoryOverview;
 };
 
 export type MemoryRecallPreview = {
@@ -2694,10 +2696,10 @@ function getApiBase() {
   }
 
   if (typeof window === "undefined") {
-    return "http://127.0.0.1:8004/api";
+    return "http://127.0.0.1:8002/api";
   }
 
-  return "http://127.0.0.1:8004/api";
+  return "/api";
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -2887,173 +2889,37 @@ export async function getMemoryOverview(sessionId?: string, query = "") {
   return request<MemoryOverview>(`/memory/overview${suffix}`);
 }
 
-export async function getWorkingMemoryOverview(payload?: {
+export async function getFormalMemoryOverview(payload?: {
   task_run_id?: string;
-  graph_id?: string;
-  owner_node_id?: string;
-  node_run_id?: string;
-  writer_agent_id?: string;
-  status?: string;
-  kind?: string;
-  query?: string;
+  repository_id?: string;
+  collection_id?: string;
   limit?: number;
 }) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(payload ?? {})) {
-    if (value === undefined || value === null) {
-      continue;
-    }
+    if (value === undefined || value === null) continue;
     const text = String(value).trim();
-    if (text) {
-      params.set(key, text);
-    }
+    if (text) params.set(key, text);
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  return request<WorkingMemoryOverview>(`/memory/working/overview${suffix}`);
+  return request<FormalMemoryOverview>(`/memory/formal/overview${suffix}`);
 }
 
-export async function getWorkingMemoryItem(workMemoryId: string) {
-  return request<WorkingMemoryItemDetail>(`/memory/working/items/${encodeURIComponent(workMemoryId)}`);
-}
-
-export async function finalizeWorkingMemoryTaskRun(
-  taskRunId: string,
-  payload?: {
-    actor_id?: string;
-    terminal_reason?: string;
-    policy?: Record<string, unknown>;
-  }
-) {
-  return request<WorkingMemoryFinalizationResponse>(
-    `/memory/working/runs/${encodeURIComponent(taskRunId)}/finalize`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload ?? {})
-    }
-  );
-}
-
-export async function getTaskDurableMemoryOverview(payload?: {
-  namespace_id?: string;
-  task_family?: string;
-  domain_id?: string;
-  task_id?: string;
-  graph_id?: string;
-  project_id?: string;
-  artifact_namespace?: string;
-  kind?: string;
-  memory_semantics?: string;
+export async function getArtifactRepositoryOverview(payload?: {
+  task_run_id?: string;
+  repository_id?: string;
+  collection_id?: string;
   status?: string;
-  query?: string;
   limit?: number;
 }) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(payload ?? {})) {
-    if (value === undefined || value === null) {
-      continue;
-    }
+    if (value === undefined || value === null) continue;
     const text = String(value).trim();
-    if (text) {
-      params.set(key, text);
-    }
+    if (text) params.set(key, text);
   }
   const suffix = params.toString() ? `?${params.toString()}` : "";
-  return request<TaskDurableMemoryOverview>(`/memory/task-durable/overview${suffix}`);
-}
-
-export async function getTaskDurableMemoryItem(taskMemoryId: string) {
-  return request<TaskDurableMemoryItemDetail>(`/memory/task-durable/items/${encodeURIComponent(taskMemoryId)}`);
-}
-
-export async function listTaskDurableMemoryNamespaces() {
-  return request<{ namespaces: TaskDurableMemoryNamespace[] }>("/memory/task-durable/namespaces");
-}
-
-export async function markTaskDurableGlobalCandidate(
-  taskMemoryId: string,
-  payload?: {
-    actor_id?: string;
-    reason?: string;
-  }
-) {
-  return request<TaskDurableMemoryGovernanceResponse>(
-    `/memory/task-durable/items/${encodeURIComponent(taskMemoryId)}/promote-global-candidate`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload ?? {})
-    }
-  );
-}
-
-export async function promoteTaskDurableToGlobal(
-  taskMemoryId: string,
-  payload?: {
-    title?: string;
-    canonical_statement?: string;
-    summary?: string;
-    global_kind?: string;
-    memory_type?: string;
-    memory_class?: string;
-    confidence?: string;
-    actor_id?: string;
-    reason?: string;
-  }
-) {
-  return request<TaskDurableMemoryGovernanceResponse>(
-    `/memory/task-durable/items/${encodeURIComponent(taskMemoryId)}/promote-global`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload ?? {})
-    }
-  );
-}
-
-export async function promoteWorkingMemoryToTaskDurable(
-  workMemoryId: string,
-  payload?: {
-    title?: string;
-    canonical_statement?: string;
-    summary?: string;
-    namespace_id?: string;
-    task_family?: string;
-    domain_id?: string;
-    task_id?: string;
-    graph_id?: string;
-    project_id?: string;
-    artifact_namespace?: string;
-    memory_type?: string;
-    memory_class?: string;
-    retrieval_hints?: string[];
-    confidence?: string;
-    actor_id?: string;
-    reason?: string;
-  }
-) {
-  return request<WorkingMemoryPromoteTaskDurableResponse>(
-    `/memory/working/items/${encodeURIComponent(workMemoryId)}/promote-task-durable`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload ?? {})
-    }
-  );
-}
-
-export async function governWorkingMemoryItem(
-  workMemoryId: string,
-  action: "accept" | "discard" | "conflict",
-  payload?: {
-    actor_id?: string;
-    reason?: string;
-    metadata?: Record<string, unknown>;
-  }
-) {
-  return request<WorkingMemoryGovernanceResponse>(
-    `/memory/working/items/${encodeURIComponent(workMemoryId)}/${action}`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload ?? {})
-    }
-  );
+  return request<ArtifactRepositoryOverview>(`/memory/artifacts/overview${suffix}`);
 }
 
 export async function getSessionMemoryFiles(sessionId: string) {
@@ -3220,6 +3086,14 @@ export async function setOrchestrationPlanMode(mode: string) {
 
 export async function getOrchestrationAgents() {
   return request<OrchestrationAgentRuntimeCatalog>("/orchestration/agents");
+}
+
+export async function getOrchestrationRuntimeOptions() {
+  return request<OrchestrationRuntimeOptionsPayload>("/orchestration/runtime-options");
+}
+
+export async function getOrchestrationCapabilityItems() {
+  return request<{ authority: string; capability_items: OrchestrationCapabilityItem[] }>("/orchestration/capability-items");
 }
 
 export async function getNextOrchestrationWorkerAgentId() {
@@ -3671,6 +3545,23 @@ export async function compileTaskSystemTaskGraphRuntimeSpec(graphId: string) {
   );
 }
 
+export async function getTaskSystemTaskGraph(graphId: string) {
+  return request<TaskGraphRecord>(`/tasks/task-graphs/${encodeURIComponent(graphId)}`);
+}
+
+export async function getTaskSystemTaskGraphStandardView(graphId: string) {
+  return request<TaskGraphStandardView>(
+    `/tasks/task-graphs/${encodeURIComponent(graphId)}/standard-view`
+  );
+}
+
+export async function upsertTaskSystemTaskGraphStandardView(graphId: string, payload: TaskGraphStandardViewUpsertPayload) {
+  return request<TaskGraphStandardView>(`/tasks/task-graphs/${encodeURIComponent(graphId)}/standard-view`, {
+    method: "PUT",
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function buildTaskSystemWorkflowRuntimeAssembly(workflowId: string, taskId: string) {
   const params = new URLSearchParams({ task_id: taskId });
   return request<RuntimeAssembly>(
@@ -3737,13 +3628,6 @@ export async function upsertTaskSystemFlowContractBinding(taskId: string, payloa
 
 export async function upsertTaskSystemExecutionPolicy(taskId: string, payload: TaskExecutionPolicyUpsertPayload) {
   return request<TaskSystemOverview>(`/tasks/execution-policies/${encodeURIComponent(taskId)}`, {
-    method: "PUT",
-    body: JSON.stringify(payload)
-  });
-}
-
-export async function upsertTaskSystemMemoryRequestProfile(taskId: string, payload: TaskMemoryRequestProfileUpsertPayload) {
-  return request<TaskSystemOverview>(`/tasks/memory-request-profiles/${encodeURIComponent(taskId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
   });

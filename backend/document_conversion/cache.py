@@ -56,6 +56,7 @@ class DocumentCacheLayout:
                     "doc_id": result.doc_id,
                     "source_path": result.source_path,
                     "version_digest": result.version_digest,
+                    "structure_contract_version": result.structure_contract_version,
                     "parser_backend": result.parser_backend,
                     "quality_flags": list(result.quality_flags),
                     "page_count": len(result.pages) or int(result.page_count or 0),

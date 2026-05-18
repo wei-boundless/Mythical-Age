@@ -56,6 +56,10 @@ class AppRuntime:
             on_completed=self._on_durable_memory_consolidated,
         )
         self.memory_facade.set_durable_memory_saved_callback(self._on_durable_memory_saved)
+        self.memory_facade.background_task_manager.register_handler(
+            "durable_memory_index_rebuild",
+            self._run_durable_memory_index_rebuild,
+        )
         self.query_runtime = QueryRuntime(
             base_dir=base_dir,
             settings_service=self.settings,
@@ -98,7 +102,12 @@ class AppRuntime:
             self.refresh_catalogs()
             return
         if normalized.startswith("durable_memory/"):
-            runtime.retrieval_service.rebuild_durable_memory()
+            runtime.memory_facade.background_task_manager.enqueue(
+                "durable_memory_index_rebuild",
+                payload={"collection": "durable_memory", "source_path": normalized},
+                source="bootstrap.app_runtime",
+                lane_id="durable_memory_extraction",
+            )
             return
         if normalized.startswith("session-memory/"):
             runtime.retrieval_service.rebuild_session_memory()
@@ -110,7 +119,13 @@ class AppRuntime:
         runtime = self.require_ready()
         if saved_count <= 0:
             return
-        runtime.retrieval_service.rebuild_durable_memory()
+        if runtime.memory_facade is not None:
+            runtime.memory_facade.background_task_manager.enqueue(
+                "durable_memory_index_rebuild",
+                payload={"collection": "durable_memory", "saved_count": saved_count},
+                source="bootstrap.app_runtime",
+                lane_id="durable_memory_extraction",
+            )
         if runtime.consolidation_scheduler is not None:
             runtime.consolidation_scheduler.notify_saved(saved_count)
 
@@ -118,7 +133,21 @@ class AppRuntime:
         runtime = self.require_ready()
         if report.status != "ok":
             return
-        runtime.retrieval_service.rebuild_durable_memory()
+        if runtime.memory_facade is not None:
+            runtime.memory_facade.background_task_manager.enqueue(
+                "durable_memory_index_rebuild",
+                payload={"collection": "durable_memory", "reason": "consolidation"},
+                source="bootstrap.app_runtime",
+                lane_id="durable_memory_extraction",
+            )
+
+    async def _run_durable_memory_index_rebuild(self, payload: dict[str, object]) -> dict[str, object]:
+        runtime = self.require_ready()
+        collection = str(payload.get("collection") or "durable_memory")
+        if collection != "durable_memory":
+            return {"collection": collection, "status": "skipped"}
+        result = runtime.retrieval_service.rebuild_durable_memory()
+        return {"collection": collection, "status": "queued_or_completed", "result": result}
 
 
 app_runtime = AppRuntime()

@@ -11,7 +11,6 @@ import {
   type ContractManifest,
   type ContractSpec,
   type RuntimeAssembly,
-  type SpecificTaskRecord,
   type TaskGraphRecord,
 } from "@/lib/api";
 
@@ -45,12 +44,10 @@ export function ContractOverviewPanel({
   contractSpecs,
   selectedTaskGraph,
   selectedNodeId,
-  selectedTask,
 }: {
   contractSpecs: ContractSpec[];
   selectedTaskGraph: TaskGraphRecord | null;
   selectedNodeId: string;
-  selectedTask?: SpecificTaskRecord | null;
 }) {
   const [loading, setLoading] = useState("");
   const [error, setError] = useState("");
@@ -129,7 +126,6 @@ export function ContractOverviewPanel({
         </div>
         <div className="boundary-kv">
           <p><span>任务图</span><strong>{selectedTaskGraph?.title || "未选择"}</strong></p>
-          <p><span>当前任务</span><strong>{selectedTask?.task_title || selectedTask?.task_id || "未选择"}</strong></p>
           <p><span>选中节点</span><strong>{selectedNodeId || "未选择"}</strong></p>
           <p><span>任务图契约清单</span><strong>{taskGraphManifest ? `${refCount(taskGraphManifest)} 引用 / ${taskGraphManifest.issues.length} 问题` : "未生成"}</strong></p>
           <p><span>运行装配</span><strong>{assembly?.assembly_id || "未生成"}</strong></p>

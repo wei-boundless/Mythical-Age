@@ -6,8 +6,8 @@ from typing import Any
 
 AGENT_CATEGORY_TO_SYSTEM_SLUG = {
     "main_agent": "task_system",
-    "system_management_agent": "system_management",
-    "worker_sub_agent": "worker_pool",
+    "builtin_agent": "builtin_system",
+    "custom_agent": "custom_agent_pool",
 }
 
 
@@ -37,9 +37,45 @@ class AgentDescriptor:
 
     @property
     def owner_system(self) -> str:
-        if self.agent_category == "system_management_agent":
-            return str(self.metadata.get("system_key") or self.metadata.get("managed_system") or "system_management")
+        if self.agent_category == "builtin_agent":
+            return str(self.metadata.get("system_key") or self.metadata.get("managed_system") or "builtin_system")
         return AGENT_CATEGORY_TO_SYSTEM_SLUG.get(self.agent_category, "task_system")
+
+    @property
+    def builtin_kind(self) -> str:
+        explicit = str(self.metadata.get("builtin_kind") or "").strip()
+        if explicit:
+            return explicit
+        role = str(self.metadata.get("role") or "").strip()
+        if self.agent_category == "main_agent":
+            return "primary"
+        if self.agent_category == "builtin_agent":
+            if role == "system_manager" or self.metadata.get("system_key"):
+                return "system_manager"
+            return "specialist"
+        return ""
+
+    @property
+    def agent_template_id(self) -> str:
+        return str(self.metadata.get("agent_template_id") or "").strip()
+
+    @property
+    def delegation_enabled(self) -> bool:
+        explicit = self.metadata.get("delegation_enabled")
+        if isinstance(explicit, bool):
+            return explicit
+        if self.agent_category == "main_agent":
+            return False
+        if self.agent_category == "builtin_agent":
+            return self.builtin_kind == "specialist"
+        return True
+
+    @property
+    def group_eligible(self) -> bool:
+        explicit = self.metadata.get("group_eligible")
+        if isinstance(explicit, bool):
+            return explicit
+        return self.agent_category == "custom_agent"
 
     @property
     def lifecycle_state(self) -> str:
@@ -94,6 +130,10 @@ class AgentDescriptor:
         payload["governance_status"] = self.governance_status
         payload["deletable"] = self.deletable
         payload["disable_allowed"] = self.disable_allowed
+        payload["builtin_kind"] = self.builtin_kind
+        payload["agent_template_id"] = self.agent_template_id
+        payload["delegation_enabled"] = self.delegation_enabled
+        payload["group_eligible"] = self.group_eligible
         return payload
 
 

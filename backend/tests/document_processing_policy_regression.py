@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from capability_system.units.mcp.local.pdf.analysis.parser import PdfPageSnapshot, PdfSegment
 from capability_system.units.mcp.local.retrieval.parser_adapter import MultimodalParserAdapter
 from document_conversion.docling_converter import DoclingConverter
-from document_conversion.models import SourceFileRecord
+from document_conversion.models import ConversionBlock, ConversionResult, SourceFileRecord
 from normalized_ingestion import NormalizedDocumentBuilder, build_indexable_units
 from normalized_ingestion.policy import ChunkingPolicy
 
@@ -27,6 +28,34 @@ class _FakePdfParser:
         return False
 
 
+class _BadPdfParser(_FakePdfParser):
+    def extract_page_snapshots(self, path: Path):
+        return [
+            PdfPageSnapshot(
+                page_number=1,
+                raw_text="隠㚵蔠裮䅳熱閔",
+                text_block_count=1,
+                has_text=True,
+                has_usable_text=False,
+                likely_page_state="text_corrupted",
+                state_confidence=0.9,
+            )
+        ]
+
+    def extract_segments(self, path: Path):
+        return [
+            PdfSegment(
+                text="隠㚵蔠裮䅳熱閔",
+                page=1,
+                modality="text",
+                metadata={"parser": "bad_pdf"},
+            )
+        ]
+
+    def looks_unusable_text(self, text: str) -> bool:
+        return True
+
+
 def _record(path: Path, *, collection: str = "knowledge") -> SourceFileRecord:
     return SourceFileRecord.from_path(path, collection=collection, root_dir=path.parent)
 
@@ -44,6 +73,36 @@ def test_pdf_conversion_prefers_page_aware_parser(tmp_path: Path) -> None:
     assert [page.page_number for page in result.pages] == [1, 2]
     assert result.pages[0].page_state == "body_content"
     assert [block.page for block in result.blocks] == [1, 2]
+
+
+def test_pdf_conversion_rejects_unusable_page_aware_result_and_falls_back(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "sample.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n")
+    converter = DoclingConverter(enabled=False, pdf_parser=_BadPdfParser(), repo_root=tmp_path)
+    record = _record(pdf_path)
+    fallback_result = replace(
+        ConversionResult.empty(
+            record,
+            parser_backend="local_fallback",
+            quality_flags=("fallback_parser",),
+            metadata={"fallback_used": True},
+        ),
+        blocks=(
+            ConversionBlock(
+                block_id=f"{record.version_digest}:fallback:0",
+                block_type="paragraph",
+                text="这是 fallback 提取出的稳定正文。",
+                metadata={"parser": "fallback_stub"},
+            ),
+        ),
+    )
+
+    converter._convert_with_fallback = lambda _record: fallback_result  # type: ignore[method-assign]
+
+    result = converter.convert(record)
+
+    assert result.parser_backend == "local_fallback"
+    assert result.blocks[0].text == "这是 fallback 提取出的稳定正文。"
 
 
 def test_csv_parser_emits_table_row_windows(tmp_path: Path) -> None:

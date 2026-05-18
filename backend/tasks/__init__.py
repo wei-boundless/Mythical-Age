@@ -32,6 +32,9 @@ __all__ = [
     "TaskGraphNodeDefinition",
     "TaskGraphEdgeDefinition",
     "TaskGraphValidationIssue",
+    "TaskGraphStandardView",
+    "build_task_graph_standard_view",
+    "apply_task_graph_standard_view_update",
     "TaskGraphRuntimeSpec",
     "compile_task_graph_definition_runtime_spec",
     "ProjectionSelectionResult",
@@ -185,6 +188,18 @@ def __getattr__(name: str) -> Any:
             "TaskGraphNodeDefinition": TaskGraphNodeDefinition,
             "TaskGraphEdgeDefinition": TaskGraphEdgeDefinition,
             "TaskGraphValidationIssue": TaskGraphValidationIssue,
+        }[name]
+    if name in {"TaskGraphStandardView", "build_task_graph_standard_view", "apply_task_graph_standard_view_update"}:
+        from tasks.task_graph_standard_models import (
+            TaskGraphStandardView,
+            apply_task_graph_standard_view_update,
+            build_task_graph_standard_view,
+        )
+
+        return {
+            "TaskGraphStandardView": TaskGraphStandardView,
+            "build_task_graph_standard_view": build_task_graph_standard_view,
+            "apply_task_graph_standard_view_update": apply_task_graph_standard_view_update,
         }[name]
     if name == "TaskGraphRuntimeSpec":
         from tasks.coordination_graph_models import (

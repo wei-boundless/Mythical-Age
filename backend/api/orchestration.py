@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from capability_system import build_default_operation_registry
+from capability_system import build_capability_catalog, build_orchestration_capability_items
 from orchestration import (
     AgentGroupRegistry,
     AgentRegistry,
@@ -23,6 +24,7 @@ from orchestration import (
     default_worker_agent_blueprints,
     build_base_unit_catalog,
 )
+from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY, runtime_lane_option_payloads
 from orchestration.runtime_loop import TaskRun
 from orchestration.runtime_loop.langgraph_coordination_runtime import LangGraphCoordinationRuntimeResult
 from orchestration.delegation_catalog import DelegationCatalogBuilder
@@ -110,7 +112,7 @@ def _schedule_stage_execution_background(
 
     thread = threading.Thread(
         target=runner,
-        name=f"taskgraph-stage-{str(stage_execution_request.stage_id or 'unknown')}",
+        name=f"taskgraph-node-{str(stage_execution_request.stage_id or 'unknown')}",
         daemon=True,
     )
     thread.start()
@@ -331,10 +333,8 @@ class AgentRuntimeProfileRequest(BaseModel):
     allowed_memory_scopes: list[str] = Field(default_factory=list)
     allowed_context_sections: list[str] = Field(default_factory=list)
     use_shared_contract: bool = True
-    output_contracts: list[str] = Field(default_factory=list)
     can_delegate_to_agents: bool = False
     allowed_delegate_agent_ids: list[str] = Field(default_factory=list)
-    allowed_delegate_agent_categories: list[str] = Field(default_factory=lambda: ["worker_sub_agent"])
     max_delegate_calls_per_turn: int = Field(default=1, ge=0)
     delegate_context_policy: str = Field(default="summary_and_refs_only", max_length=120)
     approval_policy: str = Field(default="default", max_length=80)
@@ -346,7 +346,7 @@ class AgentRuntimeProfileRequest(BaseModel):
 class OrchestrationAgentUpsertRequest(BaseModel):
     agent_id: str = Field(..., min_length=3, max_length=160)
     agent_name: str = Field(..., min_length=1, max_length=160)
-    agent_category: str = Field(default="worker_sub_agent", max_length=80)
+    agent_category: str = Field(default="custom_agent", max_length=80)
     interface_target: str = Field(default="", max_length=160)
     description: str = Field(default="", max_length=1000)
     enabled: bool = True
@@ -363,9 +363,6 @@ class OrchestrationAgentGroupUpsertRequest(BaseModel):
     coordinator_agent_id: str = Field(default="", max_length=160)
     member_agent_ids: list[str] = Field(default_factory=list)
     description: str = Field(default="", max_length=1000)
-    default_topology_template_ids: list[str] = Field(default_factory=list)
-    default_communication_protocol_ids: list[str] = Field(default_factory=list)
-    allowed_task_graph_ids: list[str] = Field(default_factory=list)
     lifecycle_state: str = Field(default="enabled", max_length=80)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -434,6 +431,9 @@ OPTION_LABELS: dict[str, str] = {
     "trace_analysis": "健康链路分析",
     "case_draft": "健康用例草案",
     "fix_verification": "健康修复验证",
+    "session_memory_maintenance": "会话记忆维护",
+    "durable_memory_extraction": "长期记忆提取",
+    "memory_candidate_review": "记忆候选审核",
     "op.model_response": "模型响应",
     "op.read_file": "读取文件",
     "op.search_files": "搜索文件",
@@ -478,7 +478,22 @@ OPTION_LABELS: dict[str, str] = {
     "runtime_trace": "运行追踪",
     "prompt_manifest": "提示结构",
     "memory_runtime_view": "记忆视图",
+    "runtime_contracts": "运行契约",
+    "artifact_refs": "产物引用",
+    "upstream_outputs": "上游交接",
+    "working_memory": "工作记忆包",
+    "task_durable_memory": "任务持久记忆",
+    "coordination_task_state": "协调任务状态",
     "assertions": "验收断言",
+    "conversation_readonly": "会话记忆只读",
+    "state_readonly": "状态记忆只读",
+    "long_term_candidate": "长期记忆候选",
+    "session_memory_write_candidate": "会话记忆写入候选",
+    "durable_memory_write_candidate": "长期记忆写入候选",
+    "issue_local_readonly": "事项局部只读",
+    "health_trace_readonly": "健康追踪只读",
+    "formal_memory_read": "正式记忆读取",
+    "formal_memory_write_candidate": "正式记忆写入候选",
 }
 
 def _option_label(value: str, fallback: str = "") -> str:
@@ -512,11 +527,35 @@ def _operation_option(operation: Any) -> dict[str, str]:
     }
 
 
+def _memory_scope_option(value: str) -> dict[str, str]:
+    descriptions = {
+        "conversation_readonly": "只读取会话连续性候选；普通主回答不直接读取 Session Memory 热摘要。",
+        "state_readonly": "只读取 process_state.json 派生的状态快照和恢复候选。",
+        "long_term_candidate": "读取长期记忆候选；不能直接写入长期记忆。",
+        "session_memory_write_candidate": "仅记忆管理 Agent 使用：提交后维护 Session Memory。",
+        "durable_memory_write_candidate": "仅记忆管理 Agent 使用：提交长期记忆写入计划并接受沙箱校验。",
+        "formal_memory_read": "读取正式记忆模型。",
+        "formal_memory_write_candidate": "提交正式记忆候选，不自动落盘。",
+        "issue_local_readonly": "读取健康事项局部记忆。",
+        "health_trace_readonly": "读取健康追踪记忆。",
+    }
+    normalized = str(value or "").strip()
+    return _option(normalized, description=descriptions.get(normalized, ""))
+
+
 def _choice_label_from_map(value: str, labels: dict[str, str]) -> str:
     normalized = str(value or "").strip()
     if not normalized:
         return "未配置"
     return str(labels.get(normalized) or _option_label(normalized, normalized)).strip()
+
+
+def _record_field_text(record: Any, field: str) -> str:
+    if isinstance(record, dict):
+        value = record.get(field)
+    else:
+        value = getattr(record, field, "")
+    return str(value or "").strip()
 
 
 def _task_graph_option(value: str, *, label: str, description: str = "", source: str = "") -> dict[str, str]:
@@ -551,6 +590,57 @@ def _build_task_graph_options(task_registry: TaskFlowRegistry) -> tuple[list[str
 
     options = sorted(options_by_value.values(), key=lambda item: (item.get("source", ""), item["label"], item["value"]))
     return [item["value"] for item in options], options
+
+
+DEFAULT_ORCHESTRATION_CONTEXT_SECTIONS = (
+    "conversation",
+    "state",
+    "task",
+    "projection",
+    "tool",
+    "runtime_contracts",
+    "artifact_refs",
+    "upstream_outputs",
+    "working_memory",
+    "task_durable_memory",
+    "health_issue",
+    "runtime_trace",
+    "prompt_manifest",
+    "memory_runtime_view",
+    "assertions",
+)
+
+
+DEFAULT_ORCHESTRATION_MEMORY_SCOPES = (
+    "conversation_readonly",
+    "state_readonly",
+    "long_term_candidate",
+    "session_memory_write_candidate",
+    "durable_memory_write_candidate",
+    "formal_memory_read",
+    "formal_memory_write_candidate",
+    "issue_local_readonly",
+    "health_trace_readonly",
+)
+
+
+def _build_runtime_profile_option_values(
+    profiles: list[Any],
+    *,
+    field: str,
+    defaults: tuple[str, ...],
+) -> list[str]:
+    values = {
+        str(item).strip()
+        for profile in profiles
+        for item in tuple(getattr(profile, field, ()) or ())
+        if str(item).strip()
+    }
+    values.update(defaults)
+    values.discard("")
+    values.discard("conversation_read_write")
+    values.discard("state_read_write")
+    return sorted(values)
 
 
 @router.post("/orchestration/dry-run")
@@ -614,78 +704,113 @@ async def orchestration_agents() -> dict[str, Any]:
     registry = AgentRuntimeRegistry(runtime.base_dir)
     catalog = registry.build_catalog()
     groups = AgentGroupRegistry(runtime.base_dir).list_groups()
-    task_registry = TaskFlowRegistry(runtime.base_dir)
-    operations = build_default_operation_registry().list_operations()
-    task_graph_refs, task_graph_options = _build_task_graph_options(task_registry)
-    runtime_lane_labels = {
-        "main_conversation": "主会话通道",
-        "general_task": "通用任务通道",
-        "workspace_task": "工作区任务通道",
-        "coordination_task": "协调任务通道",
-        "health_task": "健康任务通道",
-    }
-    runtime_lanes = sorted(
-        {
-            lane
-            for profile in registry.list_profiles()
-            for lane in profile.allowed_runtime_lanes
-            if lane
-        }
-        | {
-            str(dict(node).get("runtime_lane") or "").strip()
-            for graph in task_registry.list_task_graphs()
-            for node in graph.nodes
-            if str(dict(node).get("runtime_lane") or "").strip()
-        }
-    )
-    memory_scope_labels = {
-        "session_read": "会话只读记忆",
-        "session_working_set": "会话工作记忆",
-        "workspace_context": "工作区上下文",
-        "health_case_memory": "健康案例记忆",
-    }
-    memory_scopes = sorted(
-        {
-            scope
-            for profile in registry.list_profiles()
-            for scope in profile.allowed_memory_scopes
-            if scope
-        }
-    )
-    context_sections = [
-        "conversation",
-        "state",
-        "task",
-        "projection",
-        "tool",
-        "health_issue",
-        "runtime_trace",
-        "prompt_manifest",
-        "memory_runtime_view",
-        "assertions",
-    ]
-    approval_policies = ["default", "read_only_first", "manual_approval_required", "deny_destructive"]
-    trace_policies = ["runtime_event_log", "full_trace", "minimal_trace"]
     return {
         **catalog,
         "agent_groups": [item.to_dict() for item in groups],
+        "options": _empty_orchestration_runtime_options(),
+    }
+
+
+def _empty_orchestration_runtime_options() -> dict[str, Any]:
+    return {
+        "operations": [],
+        "task_graphs": [],
+        "runtime_lanes": [],
+        "runtime_lane_registry": {},
+        "runtime_lane_diagnostics": {"authority": "orchestration.runtime_lane_registry"},
+        "memory_scopes": [],
+        "context_sections": [],
+        "approval_policies": [],
+        "trace_policies": [],
+        "operation_options": [],
+        "task_graph_options": [],
+        "runtime_lane_options": [],
+        "memory_scope_options": [],
+        "context_section_options": [],
+        "approval_policy_options": [],
+        "trace_policy_options": [],
+        "worker_blueprints": [],
+        "capability_items": [],
+    }
+
+
+@router.get("/orchestration/runtime-options")
+async def orchestration_runtime_options() -> dict[str, Any]:
+    runtime = require_runtime()
+    registry = AgentRuntimeRegistry(runtime.base_dir)
+    task_registry = TaskFlowRegistry(runtime.base_dir)
+    profiles = registry.list_profiles()
+    operations = build_default_operation_registry().list_operations()
+    task_graph_refs, task_graph_options = _build_task_graph_options(task_registry)
+    profile_runtime_lanes = {
+        lane
+        for profile in profiles
+        for lane in profile.allowed_runtime_lanes
+        if lane
+    }
+    task_graph_runtime_lanes = {
+        lane
+        for graph in task_registry.list_task_graphs()
+        for node in graph.nodes
+        for lane in [_record_field_text(node, "runtime_lane")]
+        if lane
+    }
+    registered_runtime_lanes = {item.lane_id for item in DEFAULT_RUNTIME_LANE_REGISTRY.list_lanes()}
+    runtime_lanes = [item["value"] for item in runtime_lane_option_payloads(include_non_requestable=False)]
+    runtime_lane_diagnostics = {
+        "authority": "orchestration.runtime_lane_registry",
+        "profile_unregistered_lanes": sorted(profile_runtime_lanes - registered_runtime_lanes),
+        "task_graph_unregistered_lanes": sorted(task_graph_runtime_lanes - registered_runtime_lanes),
+        "task_graph_non_requestable_lanes": sorted(
+            lane
+            for lane in task_graph_runtime_lanes
+            if (descriptor := DEFAULT_RUNTIME_LANE_REGISTRY.get(lane)) is not None and not descriptor.requestable
+        ),
+    }
+    memory_scopes = _build_runtime_profile_option_values(
+        profiles,
+        field="allowed_memory_scopes",
+        defaults=DEFAULT_ORCHESTRATION_MEMORY_SCOPES,
+    )
+    context_sections = _build_runtime_profile_option_values(
+        profiles,
+        field="allowed_context_sections",
+        defaults=DEFAULT_ORCHESTRATION_CONTEXT_SECTIONS,
+    )
+    approval_policies = ["default", "read_only_first", "manual_approval_required", "deny_destructive"]
+    trace_policies = ["runtime_event_log", "full_trace", "minimal_trace"]
+    return {
+        "authority": "orchestration.runtime_options",
         "options": {
             "operations": [item.to_dict() for item in operations],
             "task_graphs": task_graph_refs,
             "runtime_lanes": runtime_lanes,
+            "runtime_lane_registry": DEFAULT_RUNTIME_LANE_REGISTRY.catalog_payload(),
+            "runtime_lane_diagnostics": runtime_lane_diagnostics,
             "memory_scopes": memory_scopes,
             "context_sections": context_sections,
             "approval_policies": approval_policies,
             "trace_policies": trace_policies,
             "operation_options": [_operation_option(item) for item in operations],
             "task_graph_options": task_graph_options,
-            "runtime_lane_options": [_option(item, label=_choice_label_from_map(item, runtime_lane_labels)) for item in runtime_lanes],
-            "memory_scope_options": [_option(item, label=_choice_label_from_map(item, memory_scope_labels)) for item in memory_scopes],
+            "runtime_lane_options": runtime_lane_option_payloads(include_non_requestable=False),
+            "memory_scope_options": [_memory_scope_option(item) for item in memory_scopes],
             "context_section_options": [_option(item) for item in context_sections],
             "approval_policy_options": [_option(item) for item in approval_policies],
             "trace_policy_options": [_option(item) for item in trace_policies],
             "worker_blueprints": [item.to_dict() for item in default_worker_agent_blueprints()],
+            "capability_items": [],
         },
+    }
+
+
+@router.get("/orchestration/capability-items")
+async def orchestration_capability_items() -> dict[str, Any]:
+    runtime = require_runtime()
+    capability_catalog = build_capability_catalog(runtime, {})
+    return {
+        "authority": "orchestration.capability_items",
+        "capability_items": build_orchestration_capability_items(capability_catalog),
     }
 
 
@@ -732,6 +857,7 @@ async def delete_orchestration_agent(agent_id: str) -> dict[str, Any]:
     try:
         AgentRegistry(runtime.base_dir).delete_agent(agent_id)
         AgentRuntimeRegistry(runtime.base_dir).delete_profile(agent_id)
+        AgentGroupRegistry(runtime.base_dir).remove_agent_refs(agent_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Agent not found") from exc
     except PermissionError as exc:
@@ -755,9 +881,6 @@ async def upsert_orchestration_agent_group(
             coordinator_agent_id=payload.coordinator_agent_id,
             member_agent_ids=tuple(payload.member_agent_ids),
             description=payload.description,
-            default_topology_template_ids=tuple(payload.default_topology_template_ids),
-            default_communication_protocol_ids=tuple(payload.default_communication_protocol_ids),
-            allowed_task_graph_ids=tuple(payload.allowed_task_graph_ids),
             lifecycle_state=payload.lifecycle_state,
             metadata={**payload.metadata, "managed_by": "orchestration_console"},
         )
@@ -846,10 +969,8 @@ async def upsert_orchestration_agent_runtime_profile(
             allowed_memory_scopes=tuple(payload.allowed_memory_scopes),
             allowed_context_sections=tuple(payload.allowed_context_sections),
             use_shared_contract=payload.use_shared_contract,
-            output_contracts=tuple(payload.output_contracts),
             can_delegate_to_agents=payload.can_delegate_to_agents,
             allowed_delegate_agent_ids=tuple(payload.allowed_delegate_agent_ids),
-            allowed_delegate_agent_categories=tuple(payload.allowed_delegate_agent_categories),
             max_delegate_calls_per_turn=payload.max_delegate_calls_per_turn,
             delegate_context_policy=payload.delegate_context_policy,
             approval_policy=payload.approval_policy,
@@ -1027,9 +1148,9 @@ async def start_task_graph_runtime_loop_run(
     initial_stage_execution_error: dict[str, Any] | None = None
     initial_stage_execution_background = False
     if payload.execute_initial_stage and stage_execution_request:
-        from orchestration.runtime_loop.stage_execution_request import StageExecutionRequest
+        from orchestration.runtime_loop.node_execution_request import NodeExecutionRequest
 
-        request = StageExecutionRequest.from_dict(stage_execution_request)
+        request = NodeExecutionRequest.from_dict(stage_execution_request)
         try:
             _schedule_stage_execution_background(
                 runtime=runtime,
@@ -1117,7 +1238,7 @@ async def continue_coordination_current_stage(
     coordination_run_id: str,
     payload: CoordinationRunContinueRequest,
 ) -> dict[str, Any]:
-    from orchestration.runtime_loop.stage_execution_request import StageExecutionRequest, TaskResultReadyEvent
+    from orchestration.runtime_loop.node_execution_request import NodeExecutionRequest, NodeResultReadyEvent
 
     runtime = require_runtime()
     coordination_run = runtime.query_runtime.task_run_loop.state_index.get_coordination_run(coordination_run_id)
@@ -1164,7 +1285,7 @@ async def continue_coordination_current_stage(
         )
     )
     if latest_unconsumed_stage_result:
-        resume_event = TaskResultReadyEvent(**latest_unconsumed_stage_result["event"])
+        resume_event = NodeResultReadyEvent(**latest_unconsumed_stage_result["event"])
         result = runtime.query_runtime.task_run_loop.langgraph_coordination_runtime.resume_from_task_result(
             coordination_run=coordination_run,
             event=resume_event,
@@ -1202,7 +1323,7 @@ async def continue_coordination_current_stage(
         request_payload=current_stage_payload,
         active_stage_id=active_stage_id,
     ):
-        request = StageExecutionRequest.from_dict(
+        request = NodeExecutionRequest.from_dict(
             _sanitize_replayed_writing_stage_request_payload(current_stage_payload)
         )
         current_turn_context = {
@@ -1232,7 +1353,7 @@ async def continue_coordination_current_stage(
         request_payload = current_stage_payload
         if not request_payload:
             raise HTTPException(status_code=409, detail="CoordinationRun has no resumable stage result or current stage execution request")
-        request = StageExecutionRequest.from_dict(
+        request = NodeExecutionRequest.from_dict(
             _sanitize_replayed_writing_stage_request_payload(request_payload)
         )
         current_turn_context = {
@@ -1283,7 +1404,7 @@ async def continue_coordination_current_stage(
         or dict(state.get("pending_inputs") or {}).get("artifact_root")
         or ""
     )
-    resume_event = TaskResultReadyEvent(
+    resume_event = NodeResultReadyEvent(
         event_type=str(current_event.get("event_type") or "task_result_ready"),
         coordination_run_id=str(current_event.get("coordination_run_id") or coordination_run_id),
         task_run_id=str(current_event.get("task_run_id") or coordination_run.task_run_id),

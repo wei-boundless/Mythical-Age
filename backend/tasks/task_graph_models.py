@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from orchestration.agent_identity import normalize_agent_id
+
 
 TaskGraphKind = Literal["single_agent", "multi_agent", "coordination"]
 TaskGraphPublishState = Literal["draft", "published", "archived"]
@@ -47,6 +49,7 @@ TASK_GRAPH_NODE_TYPES = {
     "memory_repository",
     "memory_collection",
     "artifact_repository",
+    "thread_ledger",
     "progress_ledger",
     "issue_ledger",
     "runtime_state_store",
@@ -73,6 +76,7 @@ class TaskGraphNodeDefinition:
     context_visibility_policy: dict[str, Any] = field(default_factory=dict)
     projection_id: str = ""
     projection_overlay_id: str = ""
+    executor_policy: dict[str, Any] = field(default_factory=dict)
     failure_policy: dict[str, Any] = field(default_factory=dict)
     human_gate_policy: dict[str, Any] = field(default_factory=dict)
     memory_read_policy: dict[str, Any] = field(default_factory=dict)
@@ -192,7 +196,7 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
         node_type=str(payload.get("node_type") or payload.get("type") or "agent").strip(),
         title=str(payload.get("title") or payload.get("label") or payload.get("node_id") or "未命名节点").strip(),
         task_id=str(payload.get("task_id") or "").strip(),
-        agent_id=str(payload.get("agent_id") or "").strip(),
+        agent_id=normalize_agent_id(str(payload.get("agent_id") or "").strip()),
         agent_selection_policy=str(payload.get("agent_selection_policy") or "explicit_agent").strip(),
         agent_group_id=str(payload.get("agent_group_id") or "").strip(),
         work_posture=str(payload.get("work_posture") or payload.get("role") or "").strip(),
@@ -203,6 +207,7 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
         context_visibility_policy=dict(payload.get("context_visibility_policy") or {}),
         projection_id=str(payload.get("projection_id") or payload.get("projection_overlay_id") or "").strip(),
         projection_overlay_id=str(payload.get("projection_overlay_id") or "").strip(),
+        executor_policy=dict(payload.get("executor_policy") or {}),
         failure_policy=dict(payload.get("failure_policy") or {}),
         human_gate_policy=dict(payload.get("human_gate_policy") or {}),
         memory_read_policy=dict(payload.get("memory_read_policy") or {}),

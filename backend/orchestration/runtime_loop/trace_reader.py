@@ -354,7 +354,11 @@ class RuntimeLoopTraceReader:
             ],
             "coordination_runs": [
                 {
-                    **item.to_dict(),
+                    **_coordination_run_trace_payload(
+                        item,
+                        state_index=self.state_index,
+                        include_payloads=include_payloads,
+                    ),
                     "node_runs": [node.to_dict() for node in self.state_index.list_coordination_node_runs(item.coordination_run_id)],
                     "handoff_envelopes": [
                         handoff.to_dict()
@@ -858,6 +862,23 @@ def _merge_result_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "final_result_ref": str(payload.get("final_result_ref") or ""),
         "created_at": float(payload.get("created_at") or 0.0),
     }
+
+
+def _coordination_run_trace_payload(
+    coordination_run: CoordinationRun,
+    *,
+    state_index: RuntimeStateIndex,
+    include_payloads: bool,
+) -> dict[str, Any]:
+    payload = coordination_run.to_dict()
+    diagnostics = dict(payload.get("diagnostics") or {})
+    graph_spec_ref = str(diagnostics.get("coordination_graph_spec_ref") or "")
+    if include_payloads and graph_spec_ref and "coordination_graph_spec" not in diagnostics:
+        graph_spec = state_index.runtime_objects.get_object(graph_spec_ref)
+        if graph_spec:
+            diagnostics["coordination_graph_spec"] = graph_spec
+    payload["diagnostics"] = diagnostics
+    return payload
 
 
 def _event_view(

@@ -8,12 +8,9 @@ __all__ = [
     "DialogueStateManager",
     "DialogueTurn",
     "DurableMemoryConsolidator",
-    "ExtractionConfig",
-    "ExtractionScheduler",
     "ExactMemoryMatch",
     "FlowSnapshot",
     "FlowSnapshotManager",
-    "MemoryExtractor",
     "MemoryManager",
     "MemoryNote",
     "Message",
@@ -64,17 +61,6 @@ def __getattr__(name: str):
             "ExactMemoryMatch": ExactMemoryMatch,
             "find_exact_memory_matches": find_exact_memory_matches,
         }[name]
-    if name in {"ExtractionConfig", "ExtractionScheduler"}:
-        from .extraction_scheduler import ExtractionConfig, ExtractionScheduler
-
-        return {
-            "ExtractionConfig": ExtractionConfig,
-            "ExtractionScheduler": ExtractionScheduler,
-        }[name]
-    if name == "MemoryExtractor":
-        from .extractor import MemoryExtractor
-
-        return MemoryExtractor
     if name in {"FlowSnapshot", "FlowSnapshotManager"}:
         from .flow_snapshots import FlowSnapshot, FlowSnapshotManager
 

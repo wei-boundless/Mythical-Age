@@ -138,7 +138,7 @@ def test_rejected_stage_artifact_is_isolated_from_official_output(tmp_path: Path
         task_status="completed",
         acceptance_status="rejected",
         stage_id="chapter_draft",
-        request_id="stageexec:test:chapter_draft:old",
+        request_id="nodeexec:test:chapter_draft:old",
     )
 
     artifact_root = tmp_path / "output" / "novel_artifacts" / "simple_novel" / "runs" / "session-rejected"
@@ -148,7 +148,7 @@ def test_rejected_stage_artifact_is_isolated_from_official_output(tmp_path: Path
         / "rejected"
         / "chapter-draft"
         / "chapter_001_010_round_006"
-        / "stageexec-test-chapter-draft-old"
+        / "nodeexec-test-chapter-draft-old"
         / "volume_001"
         / "chapters"
         / "chapter_001_010"

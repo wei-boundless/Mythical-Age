@@ -39,7 +39,6 @@ export function ChatPanel() {
     setTaskSelection,
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
-  const coordinationWasActiveRef = useRef(false);
   const [activePage, setActivePage] = useState<ChatPage>("conversation");
   const activeSoul =
     soulOptions.find((soul) => soul.key === activeSoulKey) ?? soulOptions[0] ?? null;
@@ -62,12 +61,6 @@ export function ChatPanel() {
   }, [messages, activePage]);
 
   useEffect(() => {
-    if (currentSessionStreaming && taskGraphActive) {
-      setActivePage("monitor");
-    }
-  }, [currentSessionStreaming, taskGraphActive]);
-
-  useEffect(() => {
     if (taskSelection?.mode === "coordination") {
       setActivePage("monitor");
       return;
@@ -76,14 +69,6 @@ export function ChatPanel() {
       setActivePage("conversation");
     }
   }, [taskGraphActive, taskSelection]);
-
-  useEffect(() => {
-    const justActivated = taskGraphActive && !coordinationWasActiveRef.current;
-    if (justActivated) {
-      setActivePage("monitor");
-    }
-    coordinationWasActiveRef.current = taskGraphActive;
-  }, [taskGraphActive]);
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col gap-4">

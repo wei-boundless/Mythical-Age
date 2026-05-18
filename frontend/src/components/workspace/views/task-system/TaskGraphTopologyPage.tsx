@@ -17,6 +17,7 @@ import { CoordinationTopologyGraph as TaskGraphTopologyCanvas } from "@/componen
 import { graphEdgeSource, graphEdgeTarget, isTaskGraphPublishedState } from "./taskGraphDraftV2";
 import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
 import { buildTaskGraphMemoryModel } from "./taskGraphMemoryMatrix";
+import { taskGraphDisplayName } from "./taskGraphNameRegistry";
 import type { TaskGraphWorkbenchProps } from "./taskGraphTypes";
 
 type TaskGraphTopologyPageProps = Pick<
@@ -58,7 +59,7 @@ const ROLE_QUICK_ADDS = [
 const RESOURCE_QUICK_ADDS = [
   { role: "memory_repository", label: "记忆库" },
   { role: "artifact_repository", label: "产物库" },
-  { role: "progress_ledger", label: "进度账本" },
+  { role: "thread_ledger", label: "线程账本" },
   { role: "issue_ledger", label: "问题台账" },
 ];
 
@@ -109,6 +110,7 @@ function topologyNodeKind(node: Record<string, unknown>) {
     || nodeType === "memory_repository"
     || nodeType === "memory_resource"
     || nodeType === "working_memory_store"
+    || nodeType === "thread_ledger"
     || nodeType === "progress_ledger"
     || nodeType === "issue_ledger"
     || String(node.node_id ?? "").startsWith("memory.")
@@ -116,13 +118,13 @@ function topologyNodeKind(node: Record<string, unknown>) {
     return "memory";
   }
   if (nodeType === "artifact_repository") return "artifact";
-  if (nodeType === "progress_ledger" || nodeType === "issue_ledger") return "ledger";
+  if (nodeType === "thread_ledger" || nodeType === "progress_ledger" || nodeType === "issue_ledger") return "ledger";
   return nodeType || "executor";
 }
 
 function isResourceNode(node: Record<string, unknown> | null) {
   const nodeType = String(node?.node_type ?? "");
-  return ["memory_repository", "artifact_repository", "progress_ledger", "issue_ledger", "working_memory_store", "memory_resource"].includes(nodeType)
+  return ["memory_repository", "artifact_repository", "thread_ledger", "progress_ledger", "issue_ledger", "working_memory_store", "memory_resource"].includes(nodeType)
     || String(node?.work_posture ?? "") === "resource";
 }
 
@@ -175,6 +177,19 @@ function nodeKindLabel(kind: string) {
   return labels[kind] ?? kind;
 }
 
+function selectedEdgeControlSummary(edge: Record<string, unknown> | null) {
+  if (!edge) return "";
+  const edgeType = String(edge.edge_type ?? edge.mode ?? "").trim();
+  const metadata = asRecord(edge.metadata);
+  if (edgeType === "memory_read") return "资源读取边：把仓库记录装配进目标节点输入包，不直接推进主链。";
+  if (edgeType === "memory_write_candidate" || edgeType === "memory_write") return "候选写入边：源节点产出候选版本，是否可见取决于后续提交边。";
+  if (edgeType === "memory_commit") return "提交边：把候选版本转为已提交记录，并按提交可见性进入后续节点。";
+  if (edgeType.startsWith("artifact_") || Object.keys(asRecord(edge.artifact_ref_policy)).length > 0) return "产物上下文边：传递产物引用或展开策略，不替代控制流。";
+  if (["revision_request", "review_feedback", "repair_feedback", "conditional_feedback", "repair_route"].includes(edgeType) || String(metadata.verdict ?? "") === "revise") return "返修边：把审核结论和原始产物交回指定节点，形成受控回退。";
+  if (edgeType === "temporal_dependency" || String(metadata.dependency_role ?? "").includes("temporal")) return "显式时序边：补充拓扑因果约束，由编译器纳入执行许可判断。";
+  return "交接边：把上游契约化输出交给下游节点，是否阻塞由 wait/join 策略决定。";
+}
+
 export function TaskGraphTopologyPage({
   activeGraphEdges,
   activeGraphNodes,
@@ -202,6 +217,7 @@ export function TaskGraphTopologyPage({
 }: TaskGraphTopologyPageProps) {
   const [edgeFlowFilter, setEdgeFlowFilter] = useState<EdgeFlowFilter>("all");
   const published = isTaskGraphPublishedState(taskGraphDraftV2.publish_state);
+  const graphMetadata = asRecord(taskGraphDraftV2.metadata);
   const memoryModel = useMemo(
     () => buildTaskGraphMemoryModel({ nodes: activeGraphNodes, edges: activeGraphEdges }),
     [activeGraphNodes, activeGraphEdges],
@@ -210,7 +226,7 @@ export function TaskGraphTopologyPage({
     const nodeId = nodeIdOf(node, index);
     return {
       id: nodeId,
-      title: titleOfNode(node, index),
+      title: taskGraphDisplayName(nodeId, node, graphMetadata, titleOfNode(node, index)),
       agentLabel: String(node.role ?? node.node_type ?? "").trim(),
       role: String(node.role ?? "").trim(),
       nodeKind: topologyNodeKind(node),
@@ -241,6 +257,9 @@ export function TaskGraphTopologyPage({
   const selectedRepositoryReadCount = selectedRepository ? memoryModel.memoryEdges.filter((edge) => edge.repositoryNodeId === selectedRepository.nodeId && edge.operation === "read").length : 0;
   const selectedRepositoryWriteCount = selectedRepository ? memoryModel.memoryEdges.filter((edge) => edge.repositoryNodeId === selectedRepository.nodeId && edge.operation === "write_candidate").length : 0;
   const selectedRepositoryCommitCount = selectedRepository ? memoryModel.memoryEdges.filter((edge) => edge.repositoryNodeId === selectedRepository.nodeId && edge.operation === "commit").length : 0;
+  const selectedNodeSequence = Number(selectedGraphNode?.sequence_index ?? 0);
+  const selectedNodeMainChain = selectedGraphNode ? (selectedGraphNode.main_chain === true || selectedNodeId === taskGraphDraftV2.entry_node_id || selectedNodeId === taskGraphDraftV2.output_node_id) : false;
+  const selectedEdgeSummary = selectedEdgeControlSummary(selectedGraphEdge);
 
   return (
     <section className="task-graph-topology-page" aria-label="TaskGraph 拓扑编排">
@@ -276,7 +295,7 @@ export function TaskGraphTopologyPage({
         <section className="task-graph-topology-panel">
           <header className="task-graph-topology-panel__head">
             <Route size={16} />
-            <strong>任务节点</strong>
+            <strong>任务定义模板</strong>
           </header>
           <div className="task-graph-topology-task-list">
             {selectedDomainTasks.length ? selectedDomainTasks.map((task) => (
@@ -285,7 +304,7 @@ export function TaskGraphTopologyPage({
                 <small>{task.task_id}</small>
               </button>
             )) : (
-              <p>当前任务域暂无可绑定任务。</p>
+              <p>当前任务域暂无可引用的具体任务定义。</p>
             )}
           </div>
         </section>
@@ -366,13 +385,17 @@ export function TaskGraphTopologyPage({
           </header>
           <div className="task-graph-topology-selection">
             <span>节点</span>
-            <strong>{selectedNodeTitle(selectedGraphNode)}</strong>
+            <strong>{selectedGraphNode ? taskGraphDisplayName(selectedNodeId, selectedGraphNode, graphMetadata, selectedNodeTitle(selectedGraphNode)) : selectedNodeTitle(selectedGraphNode)}</strong>
             <small>{selectedNodeId || "无"}</small>
           </div>
           {selectedGraphNode ? (
             <div className="task-graph-topology-resource-summary">
               <p><span>类型</span><strong>{nodeKindLabel(selectedNodeKind)}</strong></p>
               <p><span>Phase</span><strong>{String(selectedGraphNode.phase_id ?? "未分配")}</strong></p>
+              <p><span>Step</span><strong>{selectedNodeSequence > 0 ? `S${selectedNodeSequence}` : "未设置"}</strong></p>
+              <p><span>主链</span><strong>{selectedNodeMainChain ? "是" : "否"}</strong></p>
+              <p><span>执行模式</span><strong>{String(selectedGraphNode.execution_mode ?? "sync")}</strong></p>
+              <p><span>等待策略</span><strong>{String(selectedGraphNode.wait_policy ?? "wait_all")}</strong></p>
               <p><span>入边</span><strong>{incomingSelectedEdgeCount}</strong></p>
               <p><span>出边</span><strong>{outgoingSelectedEdgeCount}</strong></p>
             </div>
@@ -443,6 +466,12 @@ export function TaskGraphTopologyPage({
               <p><span>图层</span><strong>{selectedEdgeFlow}</strong></p>
               <p><span>起点</span><strong>{graphEdgeSource(selectedGraphEdge)}</strong></p>
               <p><span>终点</span><strong>{graphEdgeTarget(selectedGraphEdge)}</strong></p>
+            </div>
+          ) : null}
+          {selectedEdgeSummary ? (
+            <div className="task-graph-note">
+              <strong>边的控制含义</strong>
+              <span>{selectedEdgeSummary}</span>
             </div>
           ) : null}
           <div className="task-graph-topology-actions task-graph-topology-actions--stacked">

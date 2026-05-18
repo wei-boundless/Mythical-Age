@@ -14,9 +14,9 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
     checkpoints: ["入口/出口", "运行模式", "上下文策略"],
   },
   agents: {
-    title: "执行主体",
-    summary: "把节点绑定到 Agent、运行通道和职责角色。",
-    checkpoints: ["协调者", "参与者", "运行权限"],
+    title: "节点装配",
+    summary: "给当前图节点绑定执行器、Agent、Projection 与运行场景权限引用。",
+    checkpoints: ["执行器", "Agent 引用", "Projection"],
   },
   topology: {
     title: "执行拓扑",
@@ -29,14 +29,19 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
     checkpoints: ["身份投影", "输入包", "输出交接"],
   },
   timeline: {
-    title: "时序系统",
-    summary: "配置阶段、循环框、并发组和审核回退；运行时由 TimelineLedger 分配 clock。",
-    checkpoints: ["阶段", "循环", "Clock 账本"],
+    title: "拓扑时序控制",
+    summary: "从主链、阶段、循环框、并发组和审核回退编译运行位置与执行许可。",
+    checkpoints: ["主链", "循环展开", "执行许可"],
   },
   memory: {
-    title: "确定性记忆",
-    summary: "用仓库 collection、读写边、selector 和 receipt 可见性控制节点上下文。",
-    checkpoints: ["仓库结构", "读写矩阵", "Snapshot"],
+    title: "资源流",
+    summary: "用仓库节点、collection、读写边、selector 和提交条件控制节点上下文。",
+    checkpoints: ["仓库结构", "读写边", "Snapshot"],
+  },
+  risk: {
+    title: "风险治理",
+    summary: "把长线程续接、问题闭环和上下文边界风险从资源流中拆成独立治理层。",
+    checkpoints: ["线程账本", "问题台账", "边界风险"],
   },
   contracts: {
     title: "质量边界",
@@ -45,8 +50,8 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
   },
   publish: {
     title: "发布闭环",
-    summary: "执行预检、保存、发布和运行绑定，确认配置能被 runtime 消费。",
-    checkpoints: ["预检", "发布", "运行"],
+    summary: "执行预检、保存、发布、运行绑定和监控诊断，确认配置能被 runtime 消费。",
+    checkpoints: ["预检", "发布", "监控"],
   },
 };
 
@@ -106,11 +111,11 @@ export function TaskGraphStudioShell({
       <div className="task-graph-studio-shell__body">
         <TaskGraphLayerNav activeLayer={activeLayer} onChange={onLayerChange} />
         <main className="task-graph-studio-shell__page">
-          <section className="task-graph-layer-context" aria-label="当前编辑层级">
+          <section className="task-graph-layer-strip" aria-label="当前编辑层级">
             <div>
               <span>{activeLayerMeta?.metric || "图层"}</span>
               <strong>{layerContext.title}</strong>
-              <p>{layerContext.summary}</p>
+              <small>{layerContext.summary}</small>
             </div>
             <ul>
               {layerContext.checkpoints.map((item) => (

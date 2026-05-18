@@ -16,8 +16,9 @@ from .formal_memory_store import FormalMemoryStore
 class FormalMemoryService:
     def __init__(self, root_dir: str | Path) -> None:
         self.store = FormalMemoryStore(root_dir)
+        self._scope_policies_by_logical_repository: dict[str, dict[str, Any]] = {}
 
-    def sync_graph_spec(self, *, graph_id: str = "", graph_spec: dict[str, Any] | None = None) -> dict[str, Any]:
+    def sync_graph_spec(self, *, graph_id: str = "", graph_spec: dict[str, Any] | None = None, task_run_id: str = "") -> dict[str, Any]:
         graph = dict(graph_spec or {})
         repositories: list[FormalMemoryRepository] = []
         collections: list[FormalMemoryCollection] = []
@@ -33,9 +34,20 @@ class FormalMemoryService:
             repository_id = str(repo_config.get("repository_id") or metadata.get("repository_id") or node_id).strip()
             if not repository_id:
                 continue
+            scope = self.resolve_repository_scope(
+                logical_repository_id=repository_id,
+                task_run_id=task_run_id,
+                lifecycle_policy=dict(node.get("resource_lifecycle_policy") or repo_config.get("lifecycle_policy") or {}),
+            )
+            self._scope_policies_by_logical_repository[repository_id] = dict(scope)
             repository = self.store.upsert_repository(
                 FormalMemoryRepository(
-                    repository_id=repository_id,
+                    repository_id=scope["effective_repository_id"],
+                    logical_repository_id=repository_id,
+                    effective_repository_id=scope["effective_repository_id"],
+                    task_run_id=scope["task_run_id"],
+                    scope_kind=scope["scope_kind"],
+                    scope_id=scope["scope_id"],
                     graph_id=str(graph_id or graph.get("graph_ref") or graph.get("graph_id") or ""),
                     node_id=node_id,
                     title=str(repo_config.get("title") or node.get("title") or node.get("label") or repository_id),
@@ -64,8 +76,13 @@ class FormalMemoryService:
                     continue
                 collection = self.store.upsert_collection(
                     FormalMemoryCollection(
-                        repository_id=repository_id,
+                        repository_id=scope["effective_repository_id"],
                         collection_id=collection_id,
+                        logical_repository_id=repository_id,
+                        effective_repository_id=scope["effective_repository_id"],
+                        task_run_id=scope["task_run_id"],
+                        scope_kind=scope["scope_kind"],
+                        scope_id=scope["scope_id"],
                         title=str(collection_payload.get("title") or collection_payload.get("label") or collection_id),
                         schema_id=str(collection_payload.get("schema_id") or collection_payload.get("schema_ref") or repo_config.get("schema_id") or "schema.formal_memory_record"),
                         record_kinds=tuple(_strings(collection_payload.get("record_kinds") or collection_payload.get("kinds"))),
@@ -78,8 +95,44 @@ class FormalMemoryService:
         return {
             "repository_count": len(repositories),
             "collection_count": len(collections),
+            "task_run_id": task_run_id,
             "repositories": [item.to_dict() for item in repositories],
             "collections": [item.to_dict() for item in collections],
+        }
+
+    def resolve_repository_scope(
+        self,
+        *,
+        logical_repository_id: str,
+        task_run_id: str = "",
+        lifecycle_policy: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
+        logical_id = str(logical_repository_id or "").strip()
+        policy = dict(lifecycle_policy or self._scope_policies_by_logical_repository.get(logical_id) or {})
+        scope_kind = str(
+            policy.get("scope_kind")
+            or policy.get("scope")
+            or policy.get("lifecycle_scope")
+            or "run_scoped"
+        ).strip() or "run_scoped"
+        if scope_kind not in {"run_scoped", "project_scoped", "durable"}:
+            scope_kind = "run_scoped"
+        requested_scope_id = str(policy.get("scope_id") or policy.get("project_id") or "").strip()
+        if scope_kind == "run_scoped":
+            scope_id = task_run_id or requested_scope_id or "unbound_run"
+            effective_repository_id = f"run:{_safe_scope_id(scope_id)}:{logical_id}"
+        elif scope_kind == "project_scoped":
+            scope_id = requested_scope_id or "default_project"
+            effective_repository_id = f"project:{_safe_scope_id(scope_id)}:{logical_id}"
+        else:
+            scope_id = requested_scope_id or "global"
+            effective_repository_id = logical_id
+        return {
+            "logical_repository_id": logical_id,
+            "effective_repository_id": effective_repository_id,
+            "task_run_id": task_run_id if scope_kind == "run_scoped" else "",
+            "scope_kind": scope_kind,
+            "scope_id": scope_id,
         }
 
     def write_candidate_from_edge(
@@ -95,7 +148,13 @@ class FormalMemoryService:
         source_clock_seq: int = 0,
         artifact_refs: list[str] | tuple[str, ...] = (),
     ) -> tuple[FormalMemoryRecordVersion, FormalMemoryTransaction]:
-        repository_id = str(edge.get("repository") or edge.get("repository_id") or "").strip()
+        logical_repository_id = str(edge.get("repository") or edge.get("repository_id") or "").strip()
+        scope = self.resolve_repository_scope(
+            logical_repository_id=logical_repository_id,
+            task_run_id=task_run_id,
+            lifecycle_policy=dict(edge.get("resource_lifecycle_policy") or edge.get("lifecycle_policy") or {}),
+        )
+        repository_id = scope["effective_repository_id"]
         collection_id = str(edge.get("collection") or edge.get("collection_id") or "").strip()
         selector = dict(edge.get("selector") or {})
         record_kind = str(
@@ -130,6 +189,10 @@ class FormalMemoryService:
             repository_id=repository_id,
             collection_id=collection_id,
             record_key=record_key,
+            logical_repository_id=logical_repository_id,
+            task_run_id=scope["task_run_id"],
+            scope_kind=scope["scope_kind"],
+            scope_id=scope["scope_id"],
             record_kind=record_kind,
             payload=payload,
             canonical_text=canonical_text,
@@ -157,11 +220,11 @@ class FormalMemoryService:
     ) -> tuple[FormalMemoryRecordVersion, FormalMemoryTransaction]:
         required = str(required_verdict or edge.get("required_verdict") or "").strip()
         reject = bool(required and verdict and verdict != required)
-        receipt_policy = dict(edge.get("receipt_policy") or {})
+        commit_visibility_policy = dict(edge.get("commit_visibility_policy") or edge.get("visibility_policy") or {})
         visible_after_clock, visible_after_clock_seq = _visible_after_clock(
             source_clock=source_clock,
             source_clock_seq=int(source_clock_seq or 0),
-            visible_after=str(receipt_policy.get("visible_after") or "next_clock"),
+            visible_after=str(commit_visibility_policy.get("visible_after") or "next_clock"),
         )
         return self.store.commit_version(
             candidate_version_id=candidate_version_id,
@@ -180,25 +243,37 @@ class FormalMemoryService:
         self,
         *,
         read_edges: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+        task_run_id: str = "",
         node_run_id: str = "",
         clock: str = "",
         clock_seq: int = 0,
         limit: int = 50,
     ) -> dict[str, Any]:
+        task_run_id = task_run_id or _task_run_id_from_node_run_id(node_run_id)
         records: list[dict[str, Any]] = []
         read_logs: list[dict[str, Any]] = []
         missing: list[dict[str, Any]] = []
         for raw_edge in read_edges:
             edge = dict(raw_edge or {})
             selector = dict(edge.get("selector") or {})
-            repository_id = str(edge.get("repository") or edge.get("repository_id") or selector.get("repository") or "").strip()
+            logical_repository_id = str(edge.get("repository") or edge.get("repository_id") or selector.get("repository") or "").strip()
+            scope = self.resolve_repository_scope(
+                logical_repository_id=logical_repository_id,
+                task_run_id=task_run_id,
+                lifecycle_policy=dict(edge.get("resource_lifecycle_policy") or edge.get("lifecycle_policy") or {}),
+            )
+            repository_id = scope["effective_repository_id"]
             collection_id = str(edge.get("collection") or edge.get("collection_id") or selector.get("collection") or "").strip()
-            if not repository_id or not collection_id:
+            if not logical_repository_id or not collection_id:
                 missing.append({"edge_id": str(edge.get("edge_id") or ""), "reason": "missing_repository_or_collection"})
                 continue
             versions, read_log = self.store.select_versions(
                 repository_id=repository_id,
                 collection_id=collection_id,
+                logical_repository_id=logical_repository_id,
+                task_run_id=scope["task_run_id"],
+                scope_kind=scope["scope_kind"],
+                scope_id=scope["scope_id"],
                 selector=selector,
                 version_selector=edge.get("version_selector") or selector.get("version_selector") or "",
                 clock=clock,
@@ -213,6 +288,7 @@ class FormalMemoryService:
                     {
                         "edge_id": str(edge.get("edge_id") or ""),
                         "repository": repository_id,
+                        "logical_repository_id": logical_repository_id,
                         "collection": collection_id,
                         "selector": selector,
                         "on_missing": str(edge.get("on_missing") or selector.get("on_missing") or ""),
@@ -235,6 +311,61 @@ class FormalMemoryService:
 
     def get_version(self, version_id: str) -> FormalMemoryRecordVersion | None:
         return self.store.get_version(version_id)
+
+    def overview(self, *, task_run_id: str = "", repository_id: str = "", collection_id: str = "", limit: int = 500) -> dict[str, Any]:
+        repositories = [item.to_dict() for item in self.store.list_repositories()]
+        if task_run_id:
+            repositories = [item for item in repositories if str(item.get("task_run_id") or "") == task_run_id]
+        if repository_id:
+            repositories = [
+                item for item in repositories
+                if repository_id in {str(item.get("repository_id") or ""), str(item.get("logical_repository_id") or "")}
+            ]
+        collections = [item.to_dict() for item in self.store.list_collections()]
+        if task_run_id:
+            collections = [item for item in collections if str(item.get("task_run_id") or "") == task_run_id]
+        if repository_id:
+            collections = [
+                item for item in collections
+                if repository_id in {str(item.get("repository_id") or ""), str(item.get("logical_repository_id") or "")}
+            ]
+        if collection_id:
+            collections = [item for item in collections if str(item.get("collection_id") or "") == collection_id]
+        records = [
+            item.to_dict()
+            for item in self.store.list_records(
+                task_run_id=task_run_id,
+                repository_id=repository_id,
+                collection_id=collection_id,
+                limit=limit,
+            )
+        ]
+        versions = [
+            item.to_dict()
+            for item in self.store.list_versions(
+                task_run_id=task_run_id,
+                repository_id=repository_id,
+                collection_id=collection_id,
+                limit=limit,
+            )
+        ]
+        read_logs = list(self.store.list_read_logs(task_run_id=task_run_id, repository_id=repository_id, limit=limit))
+        return {
+            "task_run_id": task_run_id,
+            "repository_id": repository_id,
+            "collection_id": collection_id,
+            "repository_count": len(repositories),
+            "collection_count": len(collections),
+            "record_count": len(records),
+            "version_count": len(versions),
+            "read_log_count": len(read_logs),
+            "repositories": repositories,
+            "collections": collections,
+            "records": records,
+            "versions": versions,
+            "read_logs": read_logs,
+            "authority": "formal_memory.management_overview",
+        }
 
 
 def _record_payload(*, version: FormalMemoryRecordVersion, edge: dict[str, Any], read_log_id: str) -> dict[str, Any]:
@@ -274,7 +405,7 @@ def _is_memory_repository_node(node: dict[str, Any]) -> bool:
     if node_type == "artifact_repository":
         return False
     return (
-        node_type in {"memory_repository", "working_memory_store", "runtime_state_store", "progress_ledger", "issue_ledger"}
+        node_type in {"memory_repository", "working_memory_store", "runtime_state_store", "thread_ledger", "progress_ledger", "issue_ledger"}
         or (node_type.endswith("repository") and "artifact" not in node_type)
         or (work_posture == "resource" and node_id.startswith("memory."))
     )
@@ -310,3 +441,14 @@ def _loads_json(value: Any) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _safe_scope_id(value: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in str(value or "").strip()) or "scope"
+
+
+def _task_run_id_from_node_run_id(node_run_id: str) -> str:
+    value = str(node_run_id or "").strip()
+    if value.startswith("taskrun:") and ":" in value:
+        return value.rsplit(":", 1)[0]
+    return ""

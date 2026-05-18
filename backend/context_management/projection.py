@@ -44,7 +44,7 @@ def projection_from_file_work(
     bundle_items: list[dict[str, Any]] | None = None,
 ) -> ContextProjection:
     context = dict(main_context or {})
-    summaries = [dict(item) for item in list(task_summary_refs or []) if isinstance(item, dict)]
+    summaries = [_normalize_task_summary_ref(item) for item in list(task_summary_refs or []) if isinstance(item, dict)]
     bundle_refs = _bundle_refs_from_summaries(summaries, bundle_items=bundle_items)
     active_constraints = dict(context.get("active_constraints") or {})
     return ContextProjection(
@@ -95,9 +95,10 @@ def projection_from_bundle_answer(
         if not allowed_ordinals and not has_existing and ordinal not in sections:
             continue
         task_id = str(existing.get("task_id") or f"bundle:{ordinal}:{_slug(item.get('user_text') or capability)}").strip()
-        summary = str(existing.get("summary") or sections.get(ordinal) or "").strip()
+        answer = str(existing.get("answer") or sections.get(ordinal) or "").strip()
+        summary = str(existing.get("summary") or answer or "").strip()
         if not summary and ordinal == single_allowed_ordinal:
-            summary = str(content or "").strip()
+            summary = _compact(str(content or "").strip(), 120)
         if not summary:
             summary = str(item.get("user_text") or "").strip()
         query = str(existing.get("query") or item.get("user_text") or "").strip()
@@ -108,6 +109,7 @@ def projection_from_bundle_answer(
                 "item_id": str(item.get("item_id") or "").strip(),
                 "ordinal": ordinal,
                 "query": query,
+                "answer": answer,
                 "summary": _compact(summary, 420),
                 "task_kind": task_kind,
                 "recipe_id": str(item.get("recipe_id") or "").strip(),
@@ -226,7 +228,8 @@ def projection_from_bound_answer(
     task_summary = {
         "task_id": result_handle_id,
         "query": query,
-        "summary": answer,
+        "answer": answer,
+        "summary": _compact(answer, 120),
         "task_kind": task_kind,
         "key_points": key_points,
         "source": "bound_answer_projection",
@@ -285,6 +288,17 @@ def _dedupe_dicts(values: list[dict[str, Any]], key: str) -> list[dict[str, Any]
             continue
         seen.add(item_key)
         result.append(dict(value))
+    return result
+
+
+def _normalize_task_summary_ref(item: dict[str, Any]) -> dict[str, Any]:
+    result = dict(item)
+    answer = str(result.get("answer") or result.get("summary") or result.get("response") or "").strip()
+    summary = str(result.get("summary") or "").strip()
+    if answer and not summary:
+        summary = _compact(answer, 120)
+    result["answer"] = answer
+    result["summary"] = summary
     return result
 
 

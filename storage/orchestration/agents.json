@@ -12,13 +12,17 @@
       "default_soul_id": "hebo",
       "default_projection_id": "hebo__primary",
       "created_at": 1778178166.2262201,
-      "updated_at": 1779025138.611974,
+      "updated_at": 1779062992.0968692,
       "metadata": {
         "role": "main_conversation_entry",
         "system_key": "task_system",
         "slot_index": 0,
         "definition_source": "system_builtin",
-        "lifecycle_policy": "system_builtin"
+        "lifecycle_policy": "system_builtin",
+        "delegation_enabled": false,
+        "group_eligible": false,
+        "agent_template_id": "builtin.main.primary",
+        "builtin_kind": "primary"
       },
       "display_name": "agent:0",
       "profile_type": "main_agent",
@@ -38,14 +42,18 @@
       ],
       "governance_status": "system_builtin",
       "deletable": "delete_allowed",
-      "disable_allowed": true
+      "disable_allowed": true,
+      "builtin_kind": "primary",
+      "agent_template_id": "builtin.main.primary",
+      "delegation_enabled": false,
+      "group_eligible": false
     },
     {
       "agent_id": "agent:1",
-      "agent_name": "权限管理Agent",
-      "agent_category": "system_management_agent",
-      "interface_target": "permission_system_window",
-      "description": "负责权限策略、操作准入和安全边界的系统管理 Agent。",
+      "agent_name": "记忆管理Agent",
+      "agent_category": "builtin_agent",
+      "interface_target": "memory_system_window",
+      "description": "负责会话记忆、长期记忆、记忆候选和记忆整理治理的系统管理 Agent。",
       "enabled": true,
       "builtin": true,
       "editable": true,
@@ -55,14 +63,18 @@
       "updated_at": 1778506377.1307912,
       "metadata": {
         "role": "system_manager",
-        "system_key": "permission_system",
+        "system_key": "memory_system",
         "slot_index": 1,
         "definition_source": "system_builtin",
-        "lifecycle_policy": "system_builtin"
+        "lifecycle_policy": "system_builtin",
+        "builtin_kind": "system_manager",
+        "agent_template_id": "builtin.system.memory_manager",
+        "delegation_enabled": false,
+        "group_eligible": false
       },
-      "display_name": "权限管理Agent",
-      "profile_type": "system_management_agent",
-      "owner_system": "permission_system",
+      "display_name": "记忆管理Agent",
+      "profile_type": "builtin_agent",
+      "owner_system": "memory_system",
       "lifecycle_state": "system_builtin",
       "definition_source": "system_builtin",
       "lifecycle_policy": "system_builtin",
@@ -78,12 +90,16 @@
       ],
       "governance_status": "system_builtin",
       "deletable": "delete_allowed",
-      "disable_allowed": true
+      "disable_allowed": true,
+      "builtin_kind": "system_manager",
+      "agent_template_id": "builtin.system.memory_manager",
+      "delegation_enabled": false,
+      "group_eligible": false
     },
     {
       "agent_id": "agent:2",
       "agent_name": "配置管理Agent",
-      "agent_category": "system_management_agent",
+      "agent_category": "builtin_agent",
       "interface_target": "config_system_window",
       "description": "负责系统配置、运行参数和环境状态的系统管理 Agent。",
       "enabled": true,
@@ -98,10 +114,14 @@
         "system_key": "config_system",
         "slot_index": 2,
         "definition_source": "system_builtin",
-        "lifecycle_policy": "system_builtin"
+        "lifecycle_policy": "system_builtin",
+        "builtin_kind": "system_manager",
+        "agent_template_id": "builtin.system.config_manager",
+        "delegation_enabled": false,
+        "group_eligible": false
       },
       "display_name": "配置管理Agent",
-      "profile_type": "system_management_agent",
+      "profile_type": "builtin_agent",
       "owner_system": "config_system",
       "lifecycle_state": "system_builtin",
       "definition_source": "system_builtin",
@@ -118,12 +138,16 @@
       ],
       "governance_status": "system_builtin",
       "deletable": "delete_allowed",
-      "disable_allowed": true
+      "disable_allowed": true,
+      "builtin_kind": "system_manager",
+      "agent_template_id": "builtin.system.config_manager",
+      "delegation_enabled": false,
+      "group_eligible": false
     },
     {
       "agent_id": "agent:3",
       "agent_name": "健康管理Agent",
-      "agent_category": "system_management_agent",
+      "agent_category": "builtin_agent",
       "interface_target": "health_system_window",
       "description": "对接健康系统会话窗口，负责健康维护和健康分析类任务。",
       "enabled": true,
@@ -139,10 +163,14 @@
         "slot_index": 3,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin",
-        "managed_by": "orchestration_console"
+        "managed_by": "orchestration_console",
+        "builtin_kind": "system_manager",
+        "agent_template_id": "builtin.system.health_manager",
+        "delegation_enabled": false,
+        "group_eligible": false
       },
       "display_name": "健康管理Agent",
-      "profile_type": "system_management_agent",
+      "profile_type": "builtin_agent",
       "owner_system": "health_system",
       "lifecycle_state": "system_builtin",
       "definition_source": "system_builtin",
@@ -159,12 +187,16 @@
       ],
       "governance_status": "system_builtin",
       "deletable": "delete_allowed",
-      "disable_allowed": true
+      "disable_allowed": true,
+      "builtin_kind": "system_manager",
+      "agent_template_id": "builtin.system.health_manager",
+      "delegation_enabled": false,
+      "group_eligible": false
     },
     {
       "agent_id": "agent:4",
       "agent_name": "任务管理Agent",
-      "agent_category": "system_management_agent",
+      "agent_category": "builtin_agent",
       "interface_target": "task_system_window",
       "description": "负责任务注册、任务契约和任务运行状态的系统管理 Agent。",
       "enabled": true,
@@ -179,10 +211,14 @@
         "system_key": "task_management_system",
         "slot_index": 4,
         "definition_source": "system_builtin",
-        "lifecycle_policy": "system_builtin"
+        "lifecycle_policy": "system_builtin",
+        "builtin_kind": "system_manager",
+        "agent_template_id": "builtin.system.task_manager",
+        "delegation_enabled": false,
+        "group_eligible": false
       },
       "display_name": "任务管理Agent",
-      "profile_type": "system_management_agent",
+      "profile_type": "builtin_agent",
       "owner_system": "task_management_system",
       "lifecycle_state": "system_builtin",
       "definition_source": "system_builtin",
@@ -199,12 +235,16 @@
       ],
       "governance_status": "system_builtin",
       "deletable": "delete_allowed",
-      "disable_allowed": true
+      "disable_allowed": true,
+      "builtin_kind": "system_manager",
+      "agent_template_id": "builtin.system.task_manager",
+      "delegation_enabled": false,
+      "group_eligible": false
     },
     {
       "agent_id": "agent:5",
       "agent_name": "能力管理Agent",
-      "agent_category": "system_management_agent",
+      "agent_category": "builtin_agent",
       "interface_target": "capability_system_window",
       "description": "负责工具、技能、MCP 能力目录的系统管理 Agent。",
       "enabled": true,
@@ -219,10 +259,14 @@
         "system_key": "capability_system",
         "slot_index": 5,
         "definition_source": "system_builtin",
-        "lifecycle_policy": "system_builtin"
+        "lifecycle_policy": "system_builtin",
+        "builtin_kind": "system_manager",
+        "agent_template_id": "builtin.system.capability_manager",
+        "delegation_enabled": false,
+        "group_eligible": false
       },
       "display_name": "能力管理Agent",
-      "profile_type": "system_management_agent",
+      "profile_type": "builtin_agent",
       "owner_system": "capability_system",
       "lifecycle_state": "system_builtin",
       "definition_source": "system_builtin",
@@ -239,12 +283,16 @@
       ],
       "governance_status": "system_builtin",
       "deletable": "delete_allowed",
-      "disable_allowed": true
+      "disable_allowed": true,
+      "builtin_kind": "system_manager",
+      "agent_template_id": "builtin.system.capability_manager",
+      "delegation_enabled": false,
+      "group_eligible": false
     },
     {
       "agent_id": "agent:rag_analyst",
       "agent_name": "RAG检索分析Agent",
-      "agent_category": "worker_sub_agent",
+      "agent_category": "builtin_agent",
       "interface_target": "worker_task_console",
       "description": "你是一名证据检索分析员。你负责围绕问题检索知识库，整理证据、引用和不确定性，不负责替主 Agent 做最终回答。",
       "enabled": true,
@@ -260,11 +308,15 @@
         "slot_index": 6,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin",
-        "system_key": "worker_pool"
+        "system_key": "builtin_specialist_pool",
+        "builtin_kind": "specialist",
+        "agent_template_id": "builtin.specialist.rag_analyst",
+        "delegation_enabled": true,
+        "group_eligible": false
       },
       "display_name": "RAG检索分析Agent",
-      "profile_type": "worker_sub_agent",
-      "owner_system": "worker_pool",
+      "profile_type": "builtin_agent",
+      "owner_system": "builtin_specialist_pool",
       "lifecycle_state": "system_builtin",
       "definition_source": "system_builtin",
       "lifecycle_policy": "system_builtin",
@@ -280,12 +332,16 @@
       ],
       "governance_status": "system_builtin",
       "deletable": "delete_allowed",
-      "disable_allowed": true
+      "disable_allowed": true,
+      "builtin_kind": "specialist",
+      "agent_template_id": "builtin.specialist.rag_analyst",
+      "delegation_enabled": true,
+      "group_eligible": false
     },
     {
       "agent_id": "agent:pdf_reader",
       "agent_name": "PDF阅读分析Agent",
-      "agent_category": "worker_sub_agent",
+      "agent_category": "builtin_agent",
       "interface_target": "worker_task_console",
       "description": "你是一名 PDF 阅读分析员。你负责阅读指定 PDF 内容，抽取要点、证据位置和限制说明，不负责替主 Agent 做最终回答。",
       "enabled": true,
@@ -301,11 +357,15 @@
         "slot_index": 7,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin",
-        "system_key": "worker_pool"
+        "system_key": "builtin_specialist_pool",
+        "builtin_kind": "specialist",
+        "agent_template_id": "builtin.specialist.pdf_reader",
+        "delegation_enabled": true,
+        "group_eligible": false
       },
       "display_name": "PDF阅读分析Agent",
-      "profile_type": "worker_sub_agent",
-      "owner_system": "worker_pool",
+      "profile_type": "builtin_agent",
+      "owner_system": "builtin_specialist_pool",
       "lifecycle_state": "system_builtin",
       "definition_source": "system_builtin",
       "lifecycle_policy": "system_builtin",
@@ -321,12 +381,16 @@
       ],
       "governance_status": "system_builtin",
       "deletable": "delete_allowed",
-      "disable_allowed": true
+      "disable_allowed": true,
+      "builtin_kind": "specialist",
+      "agent_template_id": "builtin.specialist.pdf_reader",
+      "delegation_enabled": true,
+      "group_eligible": false
     },
     {
       "agent_id": "agent:table_analyst",
       "agent_name": "表格分析Agent",
-      "agent_category": "worker_sub_agent",
+      "agent_category": "builtin_agent",
       "interface_target": "worker_task_console",
       "description": "你是一名表格与结构化数据分析员。你负责读取数据结构、执行受限分析并返回结论依据，不负责替主 Agent 做最终回答。",
       "enabled": true,
@@ -342,11 +406,15 @@
         "slot_index": 8,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin",
-        "system_key": "worker_pool"
+        "system_key": "builtin_specialist_pool",
+        "builtin_kind": "specialist",
+        "agent_template_id": "builtin.specialist.table_analyst",
+        "delegation_enabled": true,
+        "group_eligible": false
       },
       "display_name": "表格分析Agent",
-      "profile_type": "worker_sub_agent",
-      "owner_system": "worker_pool",
+      "profile_type": "builtin_agent",
+      "owner_system": "builtin_specialist_pool",
       "lifecycle_state": "system_builtin",
       "definition_source": "system_builtin",
       "lifecycle_policy": "system_builtin",
@@ -362,12 +430,16 @@
       ],
       "governance_status": "system_builtin",
       "deletable": "delete_allowed",
-      "disable_allowed": true
+      "disable_allowed": true,
+      "builtin_kind": "specialist",
+      "agent_template_id": "builtin.specialist.table_analyst",
+      "delegation_enabled": true,
+      "group_eligible": false
     },
     {
       "agent_id": "agent:web_researcher",
       "agent_name": "网页证据研究Agent",
-      "agent_category": "worker_sub_agent",
+      "agent_category": "builtin_agent",
       "interface_target": "worker_task_console",
       "description": "你是一名网页证据研究员。你负责检索公开网页、识别可靠来源、整理事实证据和未知边界，不负责替主 Agent 做最终回答。",
       "enabled": true,
@@ -383,11 +455,15 @@
         "slot_index": 9,
         "definition_source": "system_builtin",
         "lifecycle_policy": "system_builtin",
-        "system_key": "worker_pool"
+        "system_key": "builtin_specialist_pool",
+        "builtin_kind": "specialist",
+        "agent_template_id": "builtin.specialist.web_researcher",
+        "delegation_enabled": true,
+        "group_eligible": false
       },
       "display_name": "网页证据研究Agent",
-      "profile_type": "worker_sub_agent",
-      "owner_system": "worker_pool",
+      "profile_type": "builtin_agent",
+      "owner_system": "builtin_specialist_pool",
       "lifecycle_state": "system_builtin",
       "definition_source": "system_builtin",
       "lifecycle_policy": "system_builtin",
@@ -403,428 +479,48 @@
       ],
       "governance_status": "system_builtin",
       "deletable": "delete_allowed",
-      "disable_allowed": true
-    },
-    {
-      "agent_id": "agent:chapter_planner",
-      "agent_name": "chapter planner",
-      "display_name": "chapter planner",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：chapter_planner。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.chapter_plan",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "chapter_planner",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:character_designer_a",
-      "agent_name": "character designer a",
-      "display_name": "character designer a",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：character_designer_a。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.character_designer_a",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "character_designer_a",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:character_designer_b",
-      "agent_name": "character designer b",
-      "display_name": "character designer b",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：character_designer_b。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.character_designer_b",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "character_designer_b",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:character_judge",
-      "agent_name": "character judge",
-      "display_name": "character judge",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：character_judge。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.character_judge",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "character_judge",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:memory_steward",
-      "agent_name": "memory steward",
-      "display_name": "memory steward",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：memory_steward。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.memory_commit_world",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "memory_steward",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:novel_quality_judge",
-      "agent_name": "novel quality judge",
-      "display_name": "novel quality judge",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：novel_quality_judge。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.novel_quality_judge",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "novel_quality_judge",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:novel_writer_a",
-      "agent_name": "novel writer a",
-      "display_name": "novel writer a",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：writer_a_draft。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.writer_a_draft",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "writer_a_draft",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:novel_writer_b",
-      "agent_name": "novel writer b",
-      "display_name": "novel writer b",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：writer_b_review。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.writer_b_review",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "writer_b_review",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:outline_designer_a",
-      "agent_name": "outline designer a",
-      "display_name": "outline designer a",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：outline_designer_a。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.outline_designer_a",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "outline_designer_a",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:outline_designer_b",
-      "agent_name": "outline designer b",
-      "display_name": "outline designer b",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：outline_designer_b。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.outline_designer_b",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "outline_designer_b",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:outline_judge",
-      "agent_name": "outline judge",
-      "display_name": "outline judge",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：outline_judge。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.outline_judge",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "outline_judge",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:world_designer_a",
-      "agent_name": "world designer a",
-      "display_name": "world designer a",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：world_designer_a。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.world_designer_a",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "world_designer_a",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:world_designer_b",
-      "agent_name": "world designer b",
-      "display_name": "world designer b",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：world_designer_b。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.world_designer_b",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "world_designer_b",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:world_judge",
-      "agent_name": "world judge",
-      "display_name": "world judge",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇小说写作团队角色：world_judge。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing_team.long_novel.world_judge",
-      "created_at": 1778822811.7868743,
-      "updated_at": 1778822811.7868743,
-      "metadata": {
-        "managed_by": "codex_writing_team_full_plan",
-        "task_family": "writing_team_long_novel",
-        "role": "world_judge",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:writing_final_assembler",
-      "agent_name": "写作组交付包整编者",
-      "display_name": "写作组交付包整编者",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "基于 manifest、章节文件引用和摘要整理交付包。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing.simple_novel.final_assembler",
-      "created_at": 1779023441.0055075,
-      "updated_at": 1779023441.0055075,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "task_family": "writing_simple_novel",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing.simple_novel"
-        ],
-        "system_key": "worker_pool"
-      }
+      "disable_allowed": true,
+      "builtin_kind": "specialist",
+      "agent_template_id": "builtin.specialist.web_researcher",
+      "delegation_enabled": true,
+      "group_eligible": false
     },
     {
       "agent_id": "agent:writing_memory_steward",
-      "agent_name": "写作组记忆管家",
-      "display_name": "写作组记忆管家",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
+      "agent_name": "写作记忆管家",
+      "display_name": "写作记忆管家",
+      "agent_category": "custom_agent",
+      "profile_type": "custom_agent",
       "interface_target": "task_graph_node_runtime",
-      "description": "初始化基准库，并写入章节、卷级、可改动库和交付索引。",
+      "description": "写作 TaskGraph 的记忆提交、归档和索引维护 Agent。",
       "enabled": true,
       "builtin": false,
       "editable": true,
       "default_soul_id": "hebo",
       "default_projection_id": "projection.writing.simple_novel.memory_steward",
       "created_at": 1779023441.0055075,
-      "updated_at": 1779023441.0055075,
+      "updated_at": 1779110782.930994,
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "task_family": "writing_simple_novel",
-        "definition_source": "task_graph_assembly",
+        "managed_by": "task_graph_order_from_task_system",
+        "role": "writing_memory_steward",
+        "task_family": "writing_memory",
+        "definition_source": "task_graph_assembly_order",
         "source_task_graph_refs": [
-          "graph.writing.simple_novel"
+          "graph.writing.simple_novel",
+          "graph.writing_team.long_novel"
         ],
-        "system_key": "worker_pool"
+        "system_key": "custom_agent_pool",
+        "delegation_enabled": true,
+        "group_eligible": true,
+        "agent_template_id": "task_graph.writing.memory_steward"
       }
     },
     {
       "agent_id": "agent:writing_runtime_monitor",
-      "agent_name": "写作组运行监测员",
-      "display_name": "写作组运行监测员",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
+      "agent_name": "写作运行监测 Agent",
+      "display_name": "写作运行监测 Agent",
+      "agent_category": "custom_agent",
+      "profile_type": "custom_agent",
       "interface_target": "task_graph_node_runtime",
       "description": "观察 TaskGraph 运行快照，向统一运行交互窗口输出提醒、续跑或人工确认请求。",
       "enabled": true,
@@ -833,65 +529,77 @@
       "default_soul_id": "hebo",
       "default_projection_id": "projection.writing.simple_novel.runtime_monitor",
       "created_at": 1779023441.0055075,
-      "updated_at": 1779023441.0055075,
+      "updated_at": 1779110782.9594817,
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "task_graph_order_from_task_system",
+        "role": "writing_runtime_monitor",
         "task_family": "writing_simple_novel",
-        "definition_source": "task_graph_assembly",
+        "definition_source": "task_graph_assembly_order",
         "source_task_graph_refs": [
           "graph.writing.simple_novel"
         ],
-        "system_key": "worker_pool"
+        "system_key": "custom_agent_pool",
+        "delegation_enabled": true,
+        "group_eligible": true,
+        "agent_template_id": "task_graph.writing.runtime_monitor"
       }
     },
     {
-      "agent_id": "agent:writing_simple_creator",
-      "agent_name": "写作组创作者",
-      "display_name": "写作组创作者",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
+      "agent_id": "agent:writing_simple_worker",
+      "agent_name": "写作组通用执行 Agent",
+      "display_name": "写作组通用执行 Agent",
+      "agent_category": "custom_agent",
+      "profile_type": "custom_agent",
       "interface_target": "task_graph_node_runtime",
-      "description": "生成项目启动包、分卷计划、章节正文和卷后补充提案。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing.simple_novel.project_brief",
-      "created_at": 1779023441.0055075,
-      "updated_at": 1779023441.0055075,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "task_family": "writing_simple_novel",
-        "definition_source": "task_graph_assembly",
-        "source_task_graph_refs": [
-          "graph.writing.simple_novel"
-        ],
-        "system_key": "worker_pool"
-      }
-    },
-    {
-      "agent_id": "agent:writing_simple_reviewer",
-      "agent_name": "写作组审核员",
-      "display_name": "写作组审核员",
-      "agent_category": "worker_sub_agent",
-      "profile_type": "worker_sub_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "执行章节轻审、卷级总审、补充边界审和推进裁决。",
+      "description": "简写作 TaskGraph 的通用执行 Agent。具体创作、审核、整编身份由任务图节点投影和职责契约决定。",
       "enabled": true,
       "builtin": false,
       "editable": true,
       "default_soul_id": "hebo",
       "default_projection_id": "projection.writing.simple_novel.volume_reviewer",
       "created_at": 1779023441.0055075,
-      "updated_at": 1779023441.0055075,
+      "updated_at": 1779110782.9023774,
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "task_graph_order_from_task_system",
+        "role": "writing_simple_runtime_worker",
         "task_family": "writing_simple_novel",
-        "definition_source": "task_graph_assembly",
+        "definition_source": "task_graph_assembly_order",
         "source_task_graph_refs": [
           "graph.writing.simple_novel"
         ],
-        "system_key": "worker_pool"
+        "system_key": "custom_agent_pool",
+        "delegation_enabled": true,
+        "group_eligible": true,
+        "agent_template_id": "task_graph.writing.simple_novel.runtime_worker"
+      }
+    },
+    {
+      "agent_id": "agent:writing_team_worker",
+      "agent_name": "长篇写作组通用执行 Agent",
+      "display_name": "长篇写作组通用执行 Agent",
+      "agent_category": "custom_agent",
+      "profile_type": "custom_agent",
+      "interface_target": "task_graph_node_runtime",
+      "description": "长篇写作 TaskGraph 的通用执行 Agent。具体节点身份由任务图节点投影和职责契约决定。",
+      "enabled": true,
+      "builtin": false,
+      "editable": true,
+      "default_soul_id": "hebo",
+      "default_projection_id": "",
+      "created_at": 1779110782.8700097,
+      "updated_at": 1779110782.8700097,
+      "metadata": {
+        "managed_by": "task_graph_order_from_task_system",
+        "role": "writing_team_runtime_worker",
+        "task_family": "writing_team_long_novel",
+        "definition_source": "task_graph_assembly_order",
+        "source_task_graph_refs": [
+          "graph.writing_team.long_novel"
+        ],
+        "system_key": "custom_agent_pool",
+        "delegation_enabled": true,
+        "group_eligible": true,
+        "agent_template_id": "task_graph.writing_team.long_novel.runtime_worker"
       }
     }
   ]

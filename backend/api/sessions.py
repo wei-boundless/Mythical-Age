@@ -77,7 +77,11 @@ async def truncate_session_messages(session_id: str, payload: TruncateMessagesRe
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
-        runtime.memory_facade.refresh_session_memory(session_id, record.get("messages", []))
+        await runtime.memory_facade.arun_memory_maintenance_after_commit(
+            session_id=session_id,
+            messages=list(record.get("messages", []) or []),
+            durable_lane_enabled=False,
+        )
     except Exception:
         pass
     return record

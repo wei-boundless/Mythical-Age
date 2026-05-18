@@ -106,7 +106,7 @@ def build_memory_runtime_view(
         effective_note_limit = max(effective_note_limit, min(len(requested_topics) + 2, 8))
     conversation_snapshot = _call(memory_facade, "build_conversation_memory_snapshot", session_id)
     state_snapshot = _call(memory_facade, "build_state_memory_snapshot", session_id)
-    conversation_candidates = tuple(_call(memory_facade, "build_conversation_memory_context_candidates", session_id) or ()) if not requested_layers or "conversation" in requested_layers else ()
+    conversation_candidates = tuple(_call(memory_facade, "build_conversation_memory_context_candidates", session_id) or ()) if "conversation" in requested_layers else ()
     state_candidates = tuple(_call(memory_facade, "build_state_memory_context_candidates", session_id) or ()) if not requested_layers or "state" in requested_layers else ()
     working_candidates = tuple(
         _call_kwargs(

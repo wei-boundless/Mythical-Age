@@ -3,7 +3,11 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  ClipboardList,
+  Database,
+  FileStack,
   Loader2,
+  Monitor,
   Network,
   Plus,
   RefreshCw,
@@ -18,7 +22,15 @@ import { ContractOverviewPanel } from "@/components/workspace/views/task-system/
 import { TaskContractPanel } from "@/components/workspace/views/task-system/TaskContractPanel";
 import { TaskAssemblyPreflightPanel } from "@/components/workspace/views/task-system/TaskAssemblyPreflightPanel";
 import { TaskGraphWorkbench } from "@/components/workspace/views/task-system/TaskGraphWorkbench";
-import { TaskRunLoopWorkbenchPanel } from "@/components/workspace/views/task-system/TaskRunLoopWorkbenchPanel";
+import {
+  TaskDefinitionPage,
+  TaskContractManagementPage,
+  TaskDomainManagementPage,
+  TaskGraphManagementPage,
+  TaskOrchestrationResourcePage,
+  TaskRuntimeManagementPage,
+} from "@/components/workspace/views/task-system/TaskSystemPages";
+import { TaskSystemShell } from "@/components/workspace/views/task-system/TaskSystemShell";
 import {
   asRecord,
   emptyTaskGraphDraftV2,
@@ -28,6 +40,10 @@ import {
   type TaskGraphPublishStateV2,
 } from "@/components/workspace/views/task-system/taskGraphDraftV2";
 import { buildTaskGraphUpsertPayload } from "@/components/workspace/views/task-system/taskGraphSaveMapper";
+import {
+  buildTaskGraphResourceStandardModel,
+  buildTaskGraphTimelineStandardModel,
+} from "@/components/workspace/views/task-system/taskGraphStandardView";
 import { buildTaskGraphTemplateDraft, type TaskGraphTemplateId } from "@/components/workspace/views/task-system/taskGraphTemplates";
 import {
   graphEdgeId,
@@ -48,8 +64,15 @@ import {
   deleteTaskSystemDomain,
   deleteTaskSystemSpecificRecord,
   createSoulProjectionCard,
+  getArtifactRepositoryOverview,
+  getFormalMemoryOverview,
   getOrchestrationAgents,
+  getOrchestrationRuntimeLoopTaskRunLiveMonitor,
+  listOrchestrationRuntimeLoopTaskRuns,
   getSoulProjectionCards,
+  compileTaskSystemTaskGraphRuntimeSpec,
+  getTaskSystemTaskGraph,
+  getTaskSystemTaskGraphStandardView,
   getTaskSystemNextIds,
   getTaskSystemOverview,
   deleteTaskSystemContract,
@@ -58,14 +81,17 @@ import {
   upsertTaskSystemEntryPolicy,
   upsertTaskSystemExecutionPolicy,
   upsertTaskSystemFlowContractBinding,
-  upsertTaskSystemMemoryRequestProfile,
   upsertTaskSystemProjectionBinding,
   upsertTaskSystemSpecificRecord,
   upsertTaskSystemTaskGraph,
   upsertTaskWorkflow,
   type ConversationEntryPolicy,
   type ContractSpec,
+  type ArtifactRepositoryOverview,
+  type FormalMemoryOverview,
   type OrchestrationAgentRuntimeCatalog,
+  type RuntimeLoopTaskRunLiveMonitor,
+  type RuntimeLoopTaskRunSummary,
   type SoulProjectionCard,
   type SoulProjectionCatalog,
   type SpecificTaskRecord,
@@ -77,7 +103,7 @@ import {
   type TaskGraphNodeRecord,
   type TaskGraphRecord,
   type TaskGraphRuntimeSpec,
-  type TaskMemoryRequestProfile,
+  type TaskGraphStandardView,
   type TaskProjectionBinding,
   type TaskSystemOverview,
   type TaskWorkflowRecord,
@@ -85,7 +111,8 @@ import {
 import { useAppStore } from "@/lib/store";
 
 type TaskLayer = "management" | "editor";
-type TaskConfigPanel = "definition" | "contracts" | "preflight" | "runloop";
+type TaskSystemLayer = "domains" | "tasks" | "graphs" | "contracts" | "orchestration" | "runtime";
+type TaskConfigPanel = "definition";
 type ContractPanel = "library" | "templates" | "bindings" | "manifest";
 type ChromeSelectOption = {
   value: string;
@@ -211,8 +238,43 @@ function dictOf(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function recordFieldText(record: Record<string, unknown> | null | undefined, keys: string[], fallback = "-") {
+  for (const key of keys) {
+    const value = record?.[key];
+    if (value !== null && value !== undefined && String(value).trim()) {
+      return String(value);
+    }
+  }
+  return fallback;
+}
+
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.map((item) => String(item ?? "").trim()).filter(Boolean)));
+}
+
+function getRuntimeTaskRunId(summary: RuntimeLoopTaskRunSummary | null | undefined) {
+  return recordFieldText(dictOf(summary?.task_run), ["task_run_id", "id", "run_id"], "");
+}
+
+function runtimeTaskRunGraphId(summary: RuntimeLoopTaskRunSummary | null | undefined) {
+  return recordFieldText(dictOf(summary?.task_run), ["graph_id", "coordination_task_id", "task_graph_id"], "");
+}
+
+function formatRuntimeTime(value: unknown) {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return "-";
+  }
+  const millis = numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
+  return new Date(millis).toLocaleString();
+}
+
+function statusBadgeClass(status: string) {
+  const normalized = status.toLowerCase();
+  if (["completed", "committed", "pass", "passed", "ok", "success"].includes(normalized)) return "boundary-badge boundary-badge--ok";
+  if (["failed", "error", "rejected", "stale"].includes(normalized)) return "boundary-badge boundary-badge--danger";
+  if (["running", "active", "pending", "staging", "warning"].includes(normalized)) return "boundary-badge boundary-badge--warn";
+  return "boundary-badge";
 }
 
 function slugFromTitle(value: string, fallback = "custom") {
@@ -230,22 +292,6 @@ function domainIdToLegacyFamily(domainId: string, fallback = "general") {
   const normalized = raw.replace(/^domain\./, "").trim();
   return normalized || fallback;
 }
-
-type ContractView = {
-  key: string;
-  title: string;
-  kind: string;
-  usage: string;
-  source: string;
-  raw: string;
-};
-
-const CONTRACT_KIND_LABELS: Record<string, string> = {
-  input: "输入契约",
-  output: "输出契约",
-  flow: "流程契约",
-  payload: "通信载荷契约",
-};
 
 function parseJsonObject(value: string, label: string) {
   const parsed = JSON.parse(value || "{}");
@@ -475,36 +521,10 @@ function emptyExecutionPolicy(taskId = ""): TaskExecutionPolicy {
     default_agent_id: "agent:0",
     task_level: "standard",
     task_privilege: "bounded",
-    allowed_agent_categories: ["main_agent"],
     allow_worker_agent_spawn: false,
     worker_agent_blueprint_id: "",
     worker_agent_naming_rule: "",
     notes: "",
-    metadata: { managed_by: "task_domain_console" },
-  };
-}
-
-function emptyMemoryProfile(taskId = ""): TaskMemoryRequestProfile {
-  return {
-    task_id: taskId,
-    requested_memory_layers: [],
-    requested_topics: [],
-    memory_priority: "normal",
-    writeback_policy: "task_default",
-    allow_long_term_memory: false,
-    working_memory_policy_profile_id: "",
-    working_memory_policy: {
-      enabled: false,
-      default_scope: "node_scope",
-      default_visibility: "private_to_node",
-      finalize_requires_human_review: true,
-      promotion_requires_human_review: true,
-    },
-    allow_working_memory: false,
-    allow_dynamic_working_memory_read: false,
-    working_memory_default_scope: "node_scope",
-    working_memory_default_visibility: "private_to_node",
-    memory_scope_hint: "",
     metadata: { managed_by: "task_domain_console" },
   };
 }
@@ -532,10 +552,10 @@ function displayId(value: unknown, fallback = "未配置") {
     "task_default": "任务默认",
     "workflow_compatible_or_task_default": "流程兼容优先",
     "standard": "标准级",
-    "bounded": "受限权限",
+    "bounded": "受限准入",
     "main_agent": "主 Agent",
-    "system_management_agent": "系统管理 Agent",
-    "worker_sub_agent": "子 Agent",
+    "builtin_agent": "内置 Agent",
+    "custom_agent": "自定义 Agent",
     "development": "开发任务域",
     "writing": "写作任务域",
     "health": "健康任务域",
@@ -579,7 +599,7 @@ function displayId(value: unknown, fallback = "未配置") {
     ["domain.", "任务域"],
     ["agent:", "Agent"],
     ["group.", "Agent 组"],
-    ["op.", "操作权限"],
+    ["op.", "操作准入"],
   ];
   const matched = prefixLabels.find(([prefix]) => raw.startsWith(prefix));
   return matched ? `${matched[1]} · ${raw}` : raw;
@@ -592,9 +612,6 @@ const FLOW_FALLBACK_POLICY_CHOICES = ["fail_closed"];
 const RUNTIME_SELECTION_POLICY_CHOICES = ["orchestration_default"];
 const COMMON_CONTRACT_CHOICES = ["UserMessage", "WorkspaceTaskInput", "AssistantFinalAnswer", "LightWebGameResult"];
 const COORDINATION_MODE_CHOICES = ["review_merge", "pipeline", "parallel_review"];
-const CONTEXT_POLICY_CHOICES = ["explicit_refs_only", "shared_task_context"];
-const MEMORY_SHARING_POLICY_CHOICES = ["isolated_by_default", "shared_readonly"];
-const HANDOFF_POLICY_CHOICES = ["filtered_handoff", "direct_handoff"];
 const CONFLICT_POLICY_CHOICES = ["coordinator_review", "majority_vote"];
 const MERGE_POLICY_CHOICES = ["coordinator_final_merge", "ordered_append", "section_merge"];
 
@@ -613,8 +630,7 @@ function contractBelongsToDomain(spec: ContractSpec, domain: DomainRecord | null
   if (domainId || taskFamily) {
     return domainId === domain.domain_id || taskFamily === domainIdToLegacyFamily(domain.domain_id);
   }
-  const familyToken = domainIdToLegacyFamily(domain.domain_id).replace(/[^a-zA-Z0-9_]+/g, "_");
-  return Boolean(familyToken && spec.contract_id.includes(familyToken));
+  return true;
 }
 
 function scopedContractSpecs(contractSpecs: ContractSpec[], domain: DomainRecord | null) {
@@ -936,7 +952,16 @@ function LayerNav<T extends string>({
 
 
 export function TaskSystemView() {
-  const { activeWorkspaceView, setTaskSelection, setWorkspaceView } = useAppStore();
+  const {
+    activeWorkspaceView,
+    currentSessionId,
+    setOrchestrationInspectorTarget,
+    setTaskGraphRunInteractionOpen,
+    setTaskSelection,
+    setWorkspaceView,
+    taskGraphLiveMonitor,
+    taskGraphMonitorBinding,
+  } = useAppStore();
   const [consolePayload, setConsolePayload] = useState<TaskSystemOverview | null>(null);
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
   const [orchestrationAgentCatalog, setOrchestrationAgentCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
@@ -949,9 +974,9 @@ export function TaskSystemView() {
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [selectedTaskGraphId, setSelectedTaskGraphId] = useState("");
   const [editorDomainId, setEditorDomainId] = useState("");
-  const [editorTaskId, setEditorTaskId] = useState("");
   const [editorTaskGraphId, setEditorTaskGraphId] = useState("");
   const [taskLayer, setTaskLayer] = useState<TaskLayer>("management");
+  const [taskSystemLayer, setTaskSystemLayer] = useState<TaskSystemLayer>("domains");
   const [editingDomainName, setEditingDomainName] = useState(false);
   const [selectedGraphNodeId, setSelectedGraphNodeId] = useState("");
   const [selectedGraphEdgeId, setSelectedGraphEdgeId] = useState("");
@@ -967,13 +992,27 @@ export function TaskSystemView() {
   const [projectionDraft, setProjectionDraft] = useState<TaskProjectionBinding>(emptyProjectionBinding());
   const [flowDraft, setFlowDraft] = useState<TaskFlowContractBinding>(emptyFlowBinding());
   const [executionDraft, setExecutionDraft] = useState<TaskExecutionPolicy>(emptyExecutionPolicy());
-  const [memoryDraft, setMemoryDraft] = useState<TaskMemoryRequestProfile>(emptyMemoryProfile());
   const [taskPolicyText, setTaskPolicyText] = useState("{}");
   const [artifactPolicyDraft, setArtifactPolicyDraft] = useState<ArtifactPolicyDraft>(defaultArtifactPolicyDraft());
   const [taskGraphDraftV2, setTaskGraphDraftV2] = useState<TaskGraphDraftV2>(() => emptyTaskGraphDraftV2());
+  const [taskGraphStandardView, setTaskGraphStandardView] = useState<TaskGraphStandardView | null>(null);
+  const [taskGraphStandardViewLoading, setTaskGraphStandardViewLoading] = useState(false);
+  const [taskGraphStandardViewError, setTaskGraphStandardViewError] = useState("");
+  const [activeTaskGraphDetail, setActiveTaskGraphDetail] = useState<TaskGraphRecord | null>(null);
+  const [activeTaskGraphDetailError, setActiveTaskGraphDetailError] = useState("");
+  const [activeTaskGraphRuntimeSpec, setActiveTaskGraphRuntimeSpec] = useState<TaskGraphRuntimeSpec | null>(null);
+  const [activeTaskGraphRuntimeSpecError, setActiveTaskGraphRuntimeSpecError] = useState("");
+  const [runtimeTaskRunId, setRuntimeTaskRunId] = useState("");
+  const [runtimeTaskRuns, setRuntimeTaskRuns] = useState<RuntimeLoopTaskRunSummary[]>([]);
+  const [runtimeFormalOverview, setRuntimeFormalOverview] = useState<FormalMemoryOverview | null>(null);
+  const [runtimeArtifactOverview, setRuntimeArtifactOverview] = useState<ArtifactRepositoryOverview | null>(null);
+  const [runtimeLiveMonitor, setRuntimeLiveMonitor] = useState<RuntimeLoopTaskRunLiveMonitor | null>(null);
+  const [runtimeLoading, setRuntimeLoading] = useState(false);
+  const [runtimeError, setRuntimeError] = useState("");
   const selectedDomainIdRef = useRef("");
   const projectionCatalogLoadRef = useRef<Promise<void> | null>(null);
   const orchestrationAgentCatalogLoadRef = useRef<Promise<void> | null>(null);
+  const runtimeDefaultedRef = useRef(false);
 
   useEffect(() => {
     selectedDomainIdRef.current = selectedDomainId;
@@ -993,7 +1032,6 @@ export function TaskSystemView() {
     setSelectedTaskId((current) => current || selectedDomain?.tasks[0]?.task_id || overview.task_management.specific_task_records[0]?.task_id || "");
     setEditorDomainId((current) => current || selectedDomain?.domain_id || "");
     setSelectedTaskGraphId((current) => current || taskGraphs[0]?.graph_id || "");
-    setEditorTaskId((current) => current && overview.task_management.specific_task_records.some((task) => task.task_id === current) ? current : "");
     setEditorTaskGraphId((current) => current && taskGraphs.some((graph) => graph.graph_id === current) ? current : "");
   }, []);
 
@@ -1107,14 +1145,22 @@ export function TaskSystemView() {
   const projectionBinding = (consolePayload?.task_management.projection_bindings ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const flowBinding = (consolePayload?.task_management.flow_contract_bindings ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const executionPolicy = (consolePayload?.task_management.execution_policies ?? []).find((item) => item.task_id === selectedTask?.task_id);
-  const memoryProfile = (consolePayload?.task_management.memory_request_profiles ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const selectedWorkflow = workflows.find((item) => item.workflow_id === selectedTask?.default_workflow_id);
   const allTaskGraphs = useMemo(() => consolePayload?.task_graph_management?.task_graphs ?? [], [consolePayload]);
   const allTaskGraphSpecs = useMemo(
     () => consolePayload?.task_graph_management?.task_graph_specs ?? [],
     [consolePayload],
   );
-  const a2aCatalog = consolePayload?.task_graph_management?.a2a ?? null;
+  const a2aCatalog = useMemo(() => {
+    const protocol = consolePayload?.task_graph_management?.a2a;
+    if (!protocol) return null;
+    const runtimeAgents = orchestrationAgentCatalog?.agents ?? [];
+    const agentCards = protocol.agent_cards?.length ? protocol.agent_cards : runtimeAgents;
+    return {
+      ...protocol,
+      agent_cards: agentCards,
+    };
+  }, [consolePayload, orchestrationAgentCatalog]);
   const activeDomainId = selectedDomain?.domain_id || "";
   const taskGraphs = useMemo(
     () => activeDomainId ? allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === activeDomainId) : [],
@@ -1122,18 +1168,20 @@ export function TaskSystemView() {
   );
   const selectedTaskGraph = taskGraphs.find((item) => item.graph_id === selectedTaskGraphId) ?? taskGraphs[0] ?? null;
   const editorDomain = visibleDomains.find((domain) => domain.domain_id === editorDomainId) ?? visibleDomains[0] ?? null;
-  const editorDomainTaskList = useMemo(() => editorDomain?.tasks ?? [], [editorDomain]);
-  const editorTask = editorDomainTaskList.find((item) => item.task_id === editorTaskId) ?? editorDomainTaskList[0] ?? null;
-  const editorDomainFilterId = editorDomain?.domain_id || (editorTask ? taskDomainId(editorTask) : "");
-  const editorDomainTasks = editorDomainTaskList;
+  const editorDomainTasks = useMemo(() => editorDomain?.tasks ?? [], [editorDomain]);
+  const editorDomainFilterId = editorDomain?.domain_id || "";
   const editorContractSpecs = useMemo(() => scopedContractSpecs(contractSpecs, editorDomain), [contractSpecs, editorDomain]);
   const editorTaskGraphs = useMemo(
     () => editorDomainFilterId ? allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === editorDomainFilterId) : [],
     [allTaskGraphs, editorDomainFilterId],
   );
   const editorSelectedTaskGraph = editorTaskGraphs.find((item) => item.graph_id === editorTaskGraphId) ?? null;
-  const activeTaskGraph = taskLayer === "editor" ? editorSelectedTaskGraph : selectedTaskGraph;
-  const activeTaskGraphSpec = allTaskGraphSpecs.find((item) => item.graph_id === activeTaskGraph?.graph_id) ?? null;
+  const activeTaskGraphSummary = taskLayer === "editor" ? editorSelectedTaskGraph : selectedTaskGraph;
+  const activeTaskGraph = activeTaskGraphDetail?.graph_id === activeTaskGraphSummary?.graph_id
+    ? activeTaskGraphDetail
+    : activeTaskGraphSummary;
+  const activeTaskGraphHasFullTopology = Boolean((activeTaskGraphDetail?.nodes?.length || activeTaskGraphDetail?.edges?.length) && activeTaskGraphDetail.graph_id === activeTaskGraphSummary?.graph_id);
+  const activeTaskGraphSpec = activeTaskGraphRuntimeSpec ?? allTaskGraphSpecs.find((item) => item.graph_id === activeTaskGraph?.graph_id) ?? null;
   const workflowOptions = useMemo(() => uniqueStrings(workflows.map((item) => item.workflow_id)), [workflows]);
   const commonContractOptions = useMemo(
     () => uniqueStrings([...COMMON_CONTRACT_CHOICES, ...contractCatalog.map((item) => item.contract_id), ...domainContractSpecs.map((item) => item.contract_id)]),
@@ -1154,17 +1202,94 @@ export function TaskSystemView() {
     const domainToken = selectedDomain.domain_id.replace(/^domain\./, "").toLowerCase();
     return haystack.includes(domainToken) || haystack.includes(selectedDomain.title.toLowerCase());
   }), [projectionCards, selectedDomain]);
-  const contractViews = useMemo<ContractView[]>(() => (
-    domainContractSpecs.map((contract) => ({
-      key: `${contract.contract_kind}:${contract.contract_id}`,
-      title: contractSpecTitle(contract),
-      kind: CONTRACT_KIND_LABELS[contract.contract_kind] || contract.contract_kind,
-      usage: contract.description || "通用 ContractSpec",
-      source: contract.metadata?.default_seed ? "内置通用契约" : "用户契约库",
-      raw: contract.contract_id,
-    }))
-  ), [domainContractSpecs]);
+  const activeTaskGraphId = activeTaskGraphSummary?.graph_id || "";
+  const activeTaskGraphResourceModel = useMemo(
+    () => buildTaskGraphResourceStandardModel(taskGraphStandardView),
+    [taskGraphStandardView],
+  );
+  const activeTaskGraphTimelineModel = useMemo(
+    () => buildTaskGraphTimelineStandardModel(taskGraphStandardView),
+    [taskGraphStandardView],
+  );
 
+  useEffect(() => {
+    if (activeWorkspaceView !== "task-system") return;
+    if (!activeTaskGraphId) {
+      setActiveTaskGraphDetail(null);
+      setActiveTaskGraphDetailError("");
+      return;
+    }
+    let cancelled = false;
+    setActiveTaskGraphDetailError("");
+    void getTaskSystemTaskGraph(activeTaskGraphId)
+      .then((payload) => {
+        if (!cancelled) setActiveTaskGraphDetail(payload);
+      })
+      .catch((exc) => {
+        if (!cancelled) {
+          setActiveTaskGraphDetail(null);
+          setActiveTaskGraphDetailError(exc instanceof Error ? exc.message : "任务图详情加载失败");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTaskGraphId, activeWorkspaceView]);
+
+  const refreshTaskGraphStandardView = useCallback(async () => {
+    if (!activeTaskGraphId) {
+      setTaskGraphStandardView(null);
+      setTaskGraphStandardViewError("");
+      return;
+    }
+    setTaskGraphStandardViewLoading(true);
+    setTaskGraphStandardViewError("");
+    try {
+      const payload = await getTaskSystemTaskGraphStandardView(activeTaskGraphId);
+      setTaskGraphStandardView(payload);
+    } catch (exc) {
+      setTaskGraphStandardView(null);
+      setTaskGraphStandardViewError(exc instanceof Error ? exc.message : "标准对象视图加载失败");
+    } finally {
+      setTaskGraphStandardViewLoading(false);
+    }
+  }, [activeTaskGraphId]);
+
+  useEffect(() => {
+    if (activeWorkspaceView !== "task-system") return;
+    if (!activeTaskGraphId) {
+      setTaskGraphStandardView(null);
+      setTaskGraphStandardViewError("");
+      setActiveTaskGraphRuntimeSpec(null);
+      setActiveTaskGraphRuntimeSpecError("");
+      return;
+    }
+    void refreshTaskGraphStandardView();
+  }, [activeTaskGraphId, activeWorkspaceView, refreshTaskGraphStandardView]);
+
+  useEffect(() => {
+    if (activeWorkspaceView !== "task-system") return;
+    if (!activeTaskGraphId) {
+      setActiveTaskGraphRuntimeSpec(null);
+      setActiveTaskGraphRuntimeSpecError("");
+      return;
+    }
+    let cancelled = false;
+    setActiveTaskGraphRuntimeSpecError("");
+    void compileTaskSystemTaskGraphRuntimeSpec(activeTaskGraphId)
+      .then((payload) => {
+        if (!cancelled) setActiveTaskGraphRuntimeSpec(payload);
+      })
+      .catch((exc) => {
+        if (!cancelled) {
+          setActiveTaskGraphRuntimeSpec(null);
+          setActiveTaskGraphRuntimeSpecError(exc instanceof Error ? exc.message : "任务图运行规格加载失败");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTaskGraphId, activeWorkspaceView]);
   const sendTaskToChat = useCallback((task: SpecificTaskRecord | null, domain: DomainRecord | null) => {
     if (!task) return;
     setTaskSelection({
@@ -1179,10 +1304,7 @@ export function TaskSystemView() {
 
   const sendTaskGraphToChat = useCallback((graph: TaskGraphRecord | null, domain: DomainRecord | null) => {
     if (!graph) return;
-    const metadata = dictOf(graph.metadata);
-    const subtaskId = String(metadata.task_id ?? "").trim();
     setTaskSelection({
-      selected_task_id: subtaskId,
       coordination_task_id: graph.graph_id,
       domain_id: domain?.domain_id || graph.domain_id || "",
       label: graph.title,
@@ -1191,6 +1313,28 @@ export function TaskSystemView() {
     setWorkspaceView("chat");
     setNotice(`已将任务图“${graph.title}”带入主会话。`);
   }, [setTaskSelection, setWorkspaceView]);
+
+  const openOrchestrationControl = useCallback((focus?: {
+    agentId?: string;
+    agentProfileId?: string;
+    layer?: "registry" | "groups" | "runtime" | "eligibility";
+    nodeId?: string;
+    reason?: string;
+  }) => {
+    const focusedGraphId = taskLayer === "editor"
+      ? (editorTaskGraphId || taskGraphDraftV2.graph_id)
+      : (selectedTaskGraphId || taskGraphDraftV2.graph_id);
+    setOrchestrationInspectorTarget({
+      source: "task-system",
+      orchestrationLayer: focus?.layer ?? "runtime",
+      agentId: focus?.agentId,
+      agentProfileId: focus?.agentProfileId,
+      graphId: focusedGraphId || undefined,
+      nodeId: focus?.nodeId,
+      reason: focus?.reason ?? "从任务系统进入编排页：配置 Agent 运行档案。",
+    });
+    setWorkspaceView("orchestration");
+  }, [editorTaskGraphId, selectedTaskGraphId, setOrchestrationInspectorTarget, setWorkspaceView, taskGraphDraftV2.graph_id, taskLayer]);
 
   const createProjectionFromNodePrompt = useCallback(async ({
     node,
@@ -1230,18 +1374,18 @@ export function TaskSystemView() {
       source_task_graph_refs: [graphRef].filter(Boolean),
       projection_name: `${text(node.title ?? node.label ?? nodeId, nodeId)} / 节点职责`,
       role_type: role,
-      task_mode: editorTask?.task_mode || selectedTask?.task_mode || "task_graph_node",
+      task_mode: editorDomainTasks.find((task) => task.task_id === graphNodeTaskId(node))?.task_mode || selectedTask?.task_mode || "task_graph_node",
       agent_profile_id: agentProfileId,
       projection_prompt: prompt,
       usage_summary: "由 TaskGraph Studio 节点职责生成的静态投影，用于运行装配时绑定节点 Prompt。",
-      memory_policy_summary: "记忆读写权限由 TaskGraph 节点策略与 Agent Runtime Profile 决定。",
+      memory_policy_summary: "记忆读写连接由 TaskGraph 资源节点、读写边与 Agent 运行档案共同决定。",
       output_contract_summary: "输出边界由 TaskGraph 节点契约和边交接契约决定。",
       select_after_create: false,
     });
     setProjectionCatalog(nextCatalog);
     return nextProjectionId;
   }, [
-    editorTask?.task_mode,
+    editorDomainTasks,
     editorTaskGraphId,
     orchestrationAgentCatalog?.profiles,
     projectionCatalog,
@@ -1287,21 +1431,10 @@ export function TaskSystemView() {
   }, [taskGraphs, selectedTaskGraphId]);
 
   useEffect(() => {
-    if (!editorTaskId) {
-      if (editorTaskGraphId) setEditorTaskGraphId("");
-      return;
-    }
     if (!editorTaskGraphs.some((item) => item.graph_id === editorTaskGraphId)) {
       setEditorTaskGraphId(editorTaskGraphs[0]?.graph_id || "");
     }
-  }, [editorTaskGraphId, editorTaskGraphs, editorTaskId]);
-
-  useEffect(() => {
-    if (!editorDomain) return;
-    if (!editorTaskId || !editorDomain.tasks.some((task) => task.task_id === editorTaskId)) {
-      setEditorTaskId(editorDomain.tasks[0]?.task_id || "");
-    }
-  }, [editorDomain, editorTaskId]);
+  }, [editorTaskGraphId, editorTaskGraphs]);
 
   useEffect(() => {
     if (!selectedTask) return;
@@ -1312,12 +1445,17 @@ export function TaskSystemView() {
     setProjectionDraft(projectionBinding ?? emptyProjectionBinding(selectedTask.task_id, ""));
     setFlowDraft(flowBinding ?? emptyFlowBinding(selectedTask.task_id, selectedTask.default_flow_contract_id));
     setExecutionDraft(executionPolicy ?? emptyExecutionPolicy(selectedTask.task_id));
-    setMemoryDraft(memoryProfile ?? emptyMemoryProfile(selectedTask.task_id));
-  }, [selectedTask, selectedWorkflow, projectionBinding, flowBinding, executionPolicy, memoryProfile]);
+  }, [selectedTask, selectedWorkflow, projectionBinding, flowBinding, executionPolicy]);
 
   useEffect(() => {
     if (!activeTaskGraph) {
+      if (taskLayer === "editor" && editorTaskGraphId && editorTaskGraphId === taskGraphDraftV2.graph_id) {
+        return;
+      }
       setTaskGraphDraftV2(emptyTaskGraphDraftV2());
+      return;
+    }
+    if (!activeTaskGraphHasFullTopology && activeTaskGraph.overview_mode === "summary") {
       return;
     }
     const nextNodes = (activeTaskGraph.nodes ?? []).map(normalizeTaskGraphNode);
@@ -1331,7 +1469,7 @@ export function TaskSystemView() {
     setSelectedGraphNodeId(String((activeTaskGraph.nodes ?? [])[0]?.node_id ?? ""));
     setSelectedGraphEdgeId("");
     setLinkingFromNodeId("");
-  }, [activeTaskGraph]);
+  }, [activeTaskGraph, activeTaskGraphHasFullTopology, editorTaskGraphId, taskGraphDraftV2.graph_id, taskLayer]);
 
   async function createTaskDraft() {
     setSaving("task-create");
@@ -1362,7 +1500,6 @@ export function TaskSystemView() {
       setProjectionDraft(emptyProjectionBinding(nextTask.task_id, ""));
       setFlowDraft(emptyFlowBinding(nextTask.task_id, ids.flow_id));
       setExecutionDraft(emptyExecutionPolicy(nextTask.task_id));
-      setMemoryDraft(emptyMemoryProfile(nextTask.task_id));
       setNotice("已生成任务草稿，请补充任务名称与装配配置后保存。");
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "生成任务草稿失败");
@@ -1468,10 +1605,11 @@ export function TaskSystemView() {
   function addTaskGraphRoleNode(role: string) {
     const nextIndex = (taskGraphDraftV2.nodes?.length || 0) + 1;
     const normalizedRole = role === "memory" ? "memory_repository" : role;
-    const resourceNodeTypes = new Set(["memory_repository", "artifact_repository", "progress_ledger", "issue_ledger"]);
+    const resourceNodeTypes = new Set(["memory_repository", "artifact_repository", "thread_ledger", "progress_ledger", "issue_ledger"]);
     const resourcePrefixByRole: Record<string, string> = {
       memory_repository: "memory.repository",
       artifact_repository: "artifact.repository",
+      thread_ledger: "thread.ledger",
       progress_ledger: "progress.ledger",
       issue_ledger: "issue.ledger",
     };
@@ -1500,7 +1638,8 @@ export function TaskSystemView() {
       memory: "记忆仓库",
       memory_repository: "记忆仓库",
       artifact_repository: "产物仓库",
-      progress_ledger: "进度账本",
+      thread_ledger: "线程账本",
+      progress_ledger: "线程账本（旧名）",
       issue_ledger: "问题台账",
       writer: "执行节点",
       acceptance: "验收节点",
@@ -1517,7 +1656,7 @@ export function TaskSystemView() {
             record_kinds: [],
             key_strategy: "stable_key",
             default_version_selector: "latest_committed_before_clock",
-            required_receipt_status: "committed",
+            required_commit_status: "committed",
           }],
         },
       }
@@ -1561,7 +1700,7 @@ export function TaskSystemView() {
     const metadata = asRecord(taskGraphDraftV2.metadata);
     const communicationModes = Array.isArray(metadata.business_communication_modes) ? metadata.business_communication_modes : [];
     const mode = String(communicationModes[0] ?? "structured_handoff");
-    const selectedTaskForNode = graphContextTask ?? graphContextDomainTasks[0] ?? null;
+    const selectedTaskForNode = graphContextDomainTasks[0] ?? null;
     const templateDraft = buildTaskGraphTemplateDraft({
       template_id: template,
       task_family: graphContextFamily,
@@ -1699,11 +1838,10 @@ export function TaskSystemView() {
 
   async function createTaskGraphDraft() {
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
-    const draftTask = taskLayer === "editor" ? editorTask : selectedTask;
-    const draftDomainId = draftDomain?.domain_id || (draftTask ? taskDomainId(draftTask) : "");
-    const draftFamily = draftTask?.task_family || domainIdToLegacyFamily(draftDomainId, "");
-    if (taskLayer === "editor" && !draftTask) {
-      setError("请先在图编辑器中打开一个任务。");
+    const draftDomainId = draftDomain?.domain_id || taskGraphDraftV2.domain_id || "";
+    const draftFamily = domainIdToLegacyFamily(draftDomainId, "");
+    if (!draftDomainId) {
+      setError("请先选择任务域，再创建任务图。");
       return;
     }
     setSaving("task-graph-create");
@@ -1718,21 +1856,19 @@ export function TaskSystemView() {
         title: `${ids.display_numbers.graph} 任务图`,
         domain_id: draftDomainId,
         task_family: draftFamily,
-        task_id: draftTask?.task_id || "",
+        task_id: "",
         metadata: {
           managed_by: "task_domain_console",
           graph_source: "task_graph_editor_v2",
           draft_identity_locked: true,
           task_family: draftFamily,
           domain_id: draftDomainId,
-          task_id: draftTask?.task_id || "",
         },
       };
       nextDraft.metadata = {
         ...nextDraft.metadata,
         task_family: draftFamily,
         domain_id: draftDomainId,
-        task_id: draftTask?.task_id || "",
       };
       if (taskLayer === "editor") {
         setEditorTaskGraphId(nextDraft.graph_id);
@@ -1778,7 +1914,7 @@ export function TaskSystemView() {
         title: nextTitle,
         domain_id: draftDomainId,
         task_family: draftFamily,
-        task_id: sourceDraft.task_id,
+        task_id: "",
         nodes: nextNodes,
         edges: nextEdges,
         entry_node_id: boundaries.entry_node_id,
@@ -1790,6 +1926,7 @@ export function TaskSystemView() {
           duplicated_from_graph_id: sourceDraft.graph_id,
           task_family: draftFamily,
           domain_id: draftDomainId,
+          task_id: undefined,
         },
       };
       if (taskLayer === "editor") {
@@ -1918,10 +2055,9 @@ export function TaskSystemView() {
       await upsertTaskSystemSpecificRecord(taskPayload.task_id, taskPayload);
       await upsertTaskSystemProjectionBinding(taskPayload.task_id, projectionDraft);
       await upsertTaskSystemFlowContractBinding(taskPayload.task_id, flowDraft);
-      await upsertTaskSystemExecutionPolicy(taskPayload.task_id, {
+      const payload = await upsertTaskSystemExecutionPolicy(taskPayload.task_id, {
         ...executionDraft,
       });
-      const payload = await upsertTaskSystemMemoryRequestProfile(taskPayload.task_id, memoryDraft);
       setConsolePayload(payload);
       setSelectedTaskId(taskPayload.task_id);
       setNotice("任务定义与单任务装配已保存。");
@@ -1934,11 +2070,10 @@ export function TaskSystemView() {
 
   async function saveTaskGraphStack(nextPublished?: boolean, nextEditorPublishState?: "draft" | "saved" | "preflight_passed" | "published" | "run_bound" | "archived") {
     const draftDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
-    const draftTask = taskLayer === "editor" ? editorTask : selectedTask;
-    const draftDomainId = draftDomain?.domain_id || (draftTask ? taskDomainId(draftTask) : "") || taskGraphDraftV2.domain_id || "";
-    const draftFamily = draftTask?.task_family || taskGraphDraftV2.task_family || domainIdToLegacyFamily(draftDomainId, "");
-    if (taskLayer === "editor" && !draftTask) {
-      setError("请先在图编辑器中打开一个任务。");
+    const draftDomainId = draftDomain?.domain_id || taskGraphDraftV2.domain_id || "";
+    const draftFamily = taskGraphDraftV2.task_family || domainIdToLegacyFamily(draftDomainId, "");
+    if (!draftDomainId) {
+      setError("请先选择任务域，再保存任务图。");
       return;
     }
     setSaving("task-graph");
@@ -1951,7 +2086,7 @@ export function TaskSystemView() {
         ...taskGraphDraftV2,
         domain_id: draftDomainId,
         task_family: draftFamily,
-        task_id: draftTask?.task_id || taskGraphDraftV2.task_id || "",
+        task_id: "",
         nodes: graphNodes,
         edges: graphEdges,
         publish_state: nextPublished === true
@@ -1964,14 +2099,14 @@ export function TaskSystemView() {
           ...(nextEditorPublishState ? { editor_publish_state: nextEditorPublishState } : {}),
           domain_id: draftDomainId,
           task_family: draftFamily,
-          task_id: draftTask?.task_id || taskGraphDraftV2.task_id || "",
+          task_id: undefined,
         },
       };
       const taskGraphPayload = buildTaskGraphUpsertPayload({
         taskGraphDraft: effectiveTaskGraphDraftV2,
         domain_id: draftDomainId,
         task_family: draftFamily,
-        task_id: draftTask?.task_id || "",
+        task_id: "",
         publish_state: nextPublished === true
           ? "published"
           : nextPublished === false
@@ -1988,6 +2123,13 @@ export function TaskSystemView() {
         setEditorTaskGraphId(effectiveTaskGraphDraftV2.graph_id);
       } else {
         setSelectedTaskGraphId(effectiveTaskGraphDraftV2.graph_id);
+      }
+      try {
+        setTaskGraphStandardView(await getTaskSystemTaskGraphStandardView(effectiveTaskGraphDraftV2.graph_id));
+        setTaskGraphStandardViewError("");
+      } catch (viewExc) {
+        setTaskGraphStandardView(null);
+        setTaskGraphStandardViewError(viewExc instanceof Error ? viewExc.message : "标准对象视图刷新失败");
       }
       setNotice(nextPublished === true ? "任务图已发布。" : "任务图已保存。");
     } catch (exc) {
@@ -2105,45 +2247,12 @@ export function TaskSystemView() {
       },
     }));
   };
-  const updateTaskGraphContextPolicy = (patch: Partial<TaskGraphDraftV2["context_policy"]>) => {
-    setTaskGraphDraftV2((current) => ({
-      ...current,
-      context_policy: {
-        ...current.context_policy,
-        ...patch,
-      },
-      metadata: {
-        ...asRecord(current.metadata),
-        context_policy: {
-          ...asRecord(asRecord(current.metadata).context_policy),
-          ...patch,
-        },
-      },
-    }));
-  };
-  const updateTaskGraphWorkingMemoryPolicy = (patch: Partial<TaskGraphDraftV2["working_memory_policy"]>) => {
-    setTaskGraphDraftV2((current) => ({
-      ...current,
-      working_memory_policy: {
-        ...asRecord(current.working_memory_policy),
-        ...patch,
-      },
-      metadata: {
-        ...asRecord(current.metadata),
-        working_memory_policy: {
-          ...asRecord(asRecord(current.metadata).working_memory_policy),
-          ...patch,
-        },
-      },
-    }));
-  };
   const selectedGraphNode = activeGraphNodes.find((node) => String(node.node_id ?? "") === selectedGraphNodeId) ?? null;
   const selectedGraphEdge = activeGraphEdges.find((edge, index) => graphEdgeId(edge, index) === selectedGraphEdgeId) ?? null;
   const boundTaskGraphTaskIds = new Set(activeGraphNodes.map((node) => graphNodeTaskId(node)).filter(Boolean));
   const graphContextDomain = taskLayer === "editor" ? editorDomain : selectedDomain;
   const graphContextDomainTasks = taskLayer === "editor" ? editorDomainTasks : selectedDomainTasks;
-  const graphContextTask = taskLayer === "editor" ? editorTask : selectedTask;
-  const graphContextFamily = graphContextTask?.task_family || taskGraphDraftV2.task_family || domainIdToLegacyFamily(graphContextDomain?.domain_id || taskGraphDraftV2.domain_id || "", "");
+  const graphContextFamily = taskGraphDraftV2.task_family || domainIdToLegacyFamily(graphContextDomain?.domain_id || taskGraphDraftV2.domain_id || "", "");
   const graphContextDomainId = graphContextDomain?.domain_id || taskGraphDraftV2.domain_id || "";
   const draftGraphSpec = deriveTaskGraphSpec(
     taskGraphDraftV2.graph_id || "",
@@ -2164,37 +2273,215 @@ export function TaskSystemView() {
     ],
   };
   editorGraphSpec.valid = editorGraphSpec.issues.length === 0 && draftGraphSpec.valid;
+  if (activeTaskGraphRuntimeSpecError) {
+    editorGraphSpec.issues = [
+      ...editorGraphSpec.issues,
+      {
+        severity: "warning",
+        code: "runtime_spec_load_failed",
+        message: activeTaskGraphRuntimeSpecError,
+      },
+    ];
+    editorGraphSpec.valid = false;
+  }
+  if (activeTaskGraphDetailError) {
+    editorGraphSpec.issues = [
+      ...editorGraphSpec.issues,
+      {
+        severity: "warning",
+        code: "task_graph_detail_load_failed",
+        message: activeTaskGraphDetailError,
+      },
+    ];
+    editorGraphSpec.valid = false;
+  }
   const editorIssueCount = editorGraphSpec.issues.length;
   const editorValid = editorGraphSpec.valid;
   const editorPublished = taskGraphDraftV2.publish_state === "published" || taskGraphDraftV2.publish_state === "run_bound";
   const topologyDirty = false;
-  const taskReadiness = [
-    { label: "任务定义", value: taskDraft.task_title || taskDraft.task_id, ready: Boolean(taskDraft.task_id && taskDraft.task_title) },
-    { label: "执行流程", value: workflowDraft.title || "已选择", ready: Boolean(workflowDraft.workflow_id) },
-    { label: "投影", value: projectionDraft.default_projection_id ? projectionLabel(projectionDraft.default_projection_id, projectionCards) : "未使用投影", ready: true },
-    { label: "执行方式", value: "单任务运行", ready: true },
-    { label: "记忆", value: memoryDraft.memory_priority, ready: Boolean(memoryDraft.memory_priority) },
-  ];
   const eligibilityRows = [
-    { label: "允许 Agent", value: executionDraft.allowed_agent_categories?.map((item) => displayId(item)).join(" / ") || "未配置" },
     { label: "任务范围", value: selectedTaskDomain?.title || domainTitle(domainIdToLegacyFamily(taskDomainId(taskDraft))) },
-    { label: "权限口径", value: `${displayId(executionDraft.task_level)} / ${displayId(executionDraft.task_privilege)}` },
+    { label: "运行准入", value: `${displayId(executionDraft.task_level)} / ${displayId(executionDraft.task_privilege)}` },
     { label: "输出契约", value: contractLabel(taskDraft.output_contract_id || workflowDraft.output_contract_id || "", domainContractSpecs, contractCatalog) },
   ];
-  const taskLayerItems: Array<LayerNavItem<TaskLayer>> = [
+  const orchestrationAgents = orchestrationAgentCatalog?.agents ?? [];
+  const orchestrationProfiles = orchestrationAgentCatalog?.profiles ?? [];
+  const orchestrationAgentById = new Map(orchestrationAgents.map((agent) => [String(agent.agent_id ?? ""), agent]));
+  const graphNodeAssemblyRows = activeGraphNodes.map((node, index) => {
+    const nodeId = String(node.node_id ?? `node_${index}`);
+    const agentId = String(node.agent_id ?? "").trim();
+    const agent = orchestrationAgentById.get(agentId);
+    const runtimeProfile =
+      orchestrationProfiles.find((profile) => String(profile.agent_id ?? "") === agentId)
+      ?? (agent?.runtime_profile as Partial<(typeof orchestrationProfiles)[number]> | undefined);
+    const profileId = String(runtimeProfile?.agent_profile_id ?? "").trim();
+    const memoryScopes = Array.isArray(runtimeProfile?.allowed_memory_scopes) ? runtimeProfile.allowed_memory_scopes : [];
+    const contextSections = Array.isArray(runtimeProfile?.allowed_context_sections) ? runtimeProfile.allowed_context_sections : [];
+    const projectionId = String(node.projection_id ?? node.projection_overlay_id ?? "").trim();
+    return {
+      agentId,
+      agentLabel: String(agent?.display_name ?? agent?.agent_name ?? (agentId || "未绑定 Agent")),
+      contextSummary: contextSections.length ? contextSections.map((item) => displayId(item)).join(" / ") : "未配置上下文段",
+      memorySummary: memoryScopes.length ? memoryScopes.map((item) => displayId(item)).join(" / ") : "未配置可接收记忆范围",
+      node,
+      nodeId,
+      profileId,
+      projectionId,
+      projectionLabel: projectionId ? projectionLabel(projectionId, projectionCards) : "未绑定 Projection",
+      ready: Boolean(agentId && profileId && contextSections.length),
+    };
+  });
+  const graphResourceEdges = activeGraphEdges.filter((edge) => {
+    const edgeType = String(edge.edge_type ?? edge.a2a_message_type ?? "");
+    return [
+      "memory_read",
+      "memory_write_candidate",
+      "memory_commit",
+      "artifact_context",
+      "artifact_write_candidate",
+      "artifact_commit",
+    ].includes(edgeType);
+  });
+  const selectedTaskGraphReferences = useMemo(() => {
+    const taskId = String(selectedTask?.task_id ?? "").trim();
+    if (!taskId) return [];
+    return allTaskGraphs
+      .map((graph) => {
+        const nodeRefs = (graph.nodes ?? [])
+          .map((node, index) => {
+            const nodeRecord = asRecord(node);
+            return {
+              nodeId: String(node.node_id ?? nodeRecord.id ?? `node_${index + 1}`),
+              title: String(nodeRecord.title ?? nodeRecord.label ?? node.node_id ?? `节点 ${index + 1}`),
+              taskId: graphNodeTaskId(node),
+            };
+          })
+          .filter((item) => item.taskId === taskId);
+        return { graph, nodeRefs };
+      })
+      .filter((item) => item.nodeRefs.length > 0);
+  }, [allTaskGraphs, selectedTask?.task_id]);
+  const runtimeBoundTaskRunId = String(taskGraphMonitorBinding?.task_run_id ?? "").trim();
+  const runtimeRunsForSelectedGraph = useMemo(() => {
+    const graphId = String(selectedTaskGraph?.graph_id ?? "").trim();
+    if (!graphId) return runtimeTaskRuns;
+    const matched = runtimeTaskRuns.filter((item) => runtimeTaskRunGraphId(item) === graphId);
+    return matched.length ? matched : runtimeTaskRuns;
+  }, [runtimeTaskRuns, selectedTaskGraph?.graph_id]);
+  const selectedRuntimeSummary = runtimeTaskRuns.find((item) => getRuntimeTaskRunId(item) === runtimeTaskRunId.trim()) ?? null;
+  const selectedRuntimeRunRecord = dictOf(selectedRuntimeSummary?.task_run);
+  const runtimeMonitorForSelectedRun = runtimeTaskRunId.trim()
+    && taskGraphLiveMonitor
+    && recordFieldText(dictOf(taskGraphLiveMonitor.task_run), ["task_run_id", "id", "run_id"], "") === runtimeTaskRunId.trim()
+    ? taskGraphLiveMonitor
+    : runtimeLiveMonitor;
+  const runtimeArtifactStatusCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const artifact of runtimeArtifactOverview?.artifacts ?? []) {
+      const status = String(artifact.status || "unknown");
+      counts[status] = (counts[status] ?? 0) + 1;
+    }
+    return counts;
+  }, [runtimeArtifactOverview?.artifacts]);
+  const runtimePageActive = activeWorkspaceView === "task-system" && taskLayer === "management" && taskSystemLayer === "runtime";
+  const loadRuntimeTaskRuns = useCallback(async () => {
+    if (!currentSessionId) {
+      setRuntimeTaskRuns([]);
+      return;
+    }
+    try {
+      const response = await listOrchestrationRuntimeLoopTaskRuns(currentSessionId);
+      setRuntimeTaskRuns(response.task_runs ?? []);
+    } catch (exc) {
+      setRuntimeError(exc instanceof Error ? `运行实例列表加载失败：${exc.message}` : "运行实例列表加载失败");
+    }
+  }, [currentSessionId]);
+  const loadRuntimeStores = useCallback(async () => {
+    const taskRunId = runtimeTaskRunId.trim();
+    setRuntimeLoading(true);
+    setRuntimeError("");
+    try {
+      const [formal, artifacts, monitor] = await Promise.all([
+        getFormalMemoryOverview({ task_run_id: taskRunId, limit: 80 }),
+        getArtifactRepositoryOverview({ task_run_id: taskRunId, limit: 80 }),
+        taskRunId ? getOrchestrationRuntimeLoopTaskRunLiveMonitor(taskRunId).catch(() => null) : Promise.resolve(null),
+      ]);
+      setRuntimeFormalOverview(formal);
+      setRuntimeArtifactOverview(artifacts);
+      setRuntimeLiveMonitor(monitor);
+    } catch (exc) {
+      setRuntimeError(exc instanceof Error ? exc.message : "运行库加载失败");
+    } finally {
+      setRuntimeLoading(false);
+    }
+  }, [runtimeTaskRunId]);
+  const refreshRuntimeManagement = useCallback(async () => {
+    await Promise.all([
+      loadRuntimeTaskRuns(),
+      loadRuntimeStores(),
+    ]);
+  }, [loadRuntimeStores, loadRuntimeTaskRuns]);
+
+  useEffect(() => {
+    if (!runtimePageActive) return;
+    void loadRuntimeTaskRuns();
+  }, [loadRuntimeTaskRuns, runtimePageActive]);
+
+  useEffect(() => {
+    if (!runtimePageActive || runtimeDefaultedRef.current || runtimeTaskRunId.trim()) return;
+    const nextTaskRunId = runtimeBoundTaskRunId
+      || getRuntimeTaskRunId(runtimeRunsForSelectedGraph[0])
+      || getRuntimeTaskRunId(runtimeTaskRuns[0]);
+    if (!nextTaskRunId) return;
+    runtimeDefaultedRef.current = true;
+    setRuntimeTaskRunId(nextTaskRunId);
+  }, [runtimeBoundTaskRunId, runtimePageActive, runtimeRunsForSelectedGraph, runtimeTaskRunId, runtimeTaskRuns]);
+
+  useEffect(() => {
+    if (!runtimePageActive) return;
+    void loadRuntimeStores();
+  }, [loadRuntimeStores, runtimePageActive]);
+
+  const taskSystemLayerItems: Array<LayerNavItem<TaskSystemLayer>> = [
     {
-      value: "management",
-      label: "任务管理",
+      value: "domains",
+      label: "任务域",
       meta: selectedDomain?.title || "未选择任务域",
-      detail: "管理任务域、任务定义、契约、任务包和运行策略",
+      detail: "管理任务分类、入口策略和域级边界",
     },
     {
-      value: "editor",
-      label: "图编辑器",
-      meta: editorTask ? (taskGraphDraftV2.title || editorSelectedTaskGraph?.title || editorTask.task_title) : "未打开任务",
-      detail: "打开任务并编辑它的 Agent 能力拓扑",
+      value: "tasks",
+      label: "任务定义库",
+      meta: selectedTask?.task_title || "未选择任务",
+      detail: "管理可被单独执行或被图节点引用的具体任务定义",
+    },
+    {
+      value: "graphs",
+      label: "任务图库",
+      meta: `${taskGraphs.length} 张图`,
+      detail: "管理任务域下的一等 TaskGraph 编排对象",
+    },
+    {
+      value: "contracts",
+      label: "契约库",
+      meta: `${domainContractSpecs.length} 个契约`,
+      detail: "管理任务域下的节点契约、边载荷契约和质量门模板",
+    },
+    {
+      value: "orchestration",
+      label: "编排资源",
+      meta: `${orchestrationAgentCatalog?.agents?.length ?? 0} Agent / ${projectionCards.length} Projection`,
+      detail: "Agent、运行档案、Projection",
+    },
+    {
+      value: "runtime",
+      label: "运行管理",
+      meta: activeTaskGraph?.graph_id || "未绑定运行",
+      detail: "task_run、监控、记忆与产物",
     },
   ];
+  const primaryTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["domains", "tasks", "graphs"].includes(item.value));
+  const supportingTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["contracts", "orchestration", "runtime"].includes(item.value));
   const taskConfigPanelItems: Array<LayerNavItem<TaskConfigPanel>> = [
     {
       value: "definition",
@@ -2202,37 +2489,20 @@ export function TaskSystemView() {
       meta: selectedTask ? (taskDraft.task_title || selectedTask.task_title) : "未选择任务",
       detail: "任务身份、输入输出、Workflow、投影与执行策略",
     },
-    {
-      value: "contracts",
-      label: "契约",
-      meta: `${contractViews.length} 项`,
-      detail: "当前任务的契约库、契约绑定与 Manifest",
-    },
-    {
-      value: "preflight",
-      label: "预检",
-      meta: editorValid ? "图校验通过" : `${editorIssueCount} 个问题`,
-      detail: "当前任务图的 ContractManifest、RuntimeAssembly 与 A2A 预检",
-    },
-    {
-      value: "runloop",
-      label: "RunLoop",
-      meta: memoryDraft.allow_long_term_memory ? "长期记忆已启用" : "运行配置",
-      detail: "当前任务的循环、记忆、上下文连续性与写回策略",
-    },
   ];
+  const taskDetailPanelItems = taskConfigPanelItems;
   const contractPanelItems: Array<LayerNavItem<ContractPanel>> = [
     {
       value: "library",
       label: "契约库",
-      meta: `${contractSpecs.length} 个契约`,
+      meta: `${domainContractSpecs.length} 个契约`,
       detail: "管理契约主数据、字段、通信与治理策略",
     },
     {
       value: "templates",
       label: "契约模板",
-      meta: "待重建",
-      detail: "旧业务模板已清理；新模板将按任务域隔离注册",
+      meta: "域级模板",
+      detail: "模板只作为契约草案入口，按任务域隔离管理",
     },
     {
       value: "bindings",
@@ -2247,60 +2517,62 @@ export function TaskSystemView() {
       detail: "查看当前任务图的契约覆盖与校验摘要",
     },
   ];
-  function selectTaskForEditor(taskId: string) {
-    const nextTask = editorDomainTasks.find((item) => item.task_id === taskId) ?? null;
-    const nextDomainId = editorDomain?.domain_id || (nextTask ? taskDomainId(nextTask) : "");
-    const nextGraph = allTaskGraphs.find((item) => String(item.domain_id ?? "").trim() === nextDomainId);
-    setEditorTaskId(nextTask?.task_id || "");
-    setEditorTaskGraphId(nextGraph?.graph_id || "");
-    setSelectedGraphNodeId("");
-    setSelectedGraphEdgeId("");
-    setLinkingFromNodeId("");
-  }
-
-  function enterManagementLayer() {
-    setTaskLayer("management");
-  }
-
-  function selectEditorDomain(domainId: string) {
-    const nextDomain = visibleDomains.find((domain) => domain.domain_id === domainId) ?? null;
-    const nextTask = nextDomain?.tasks[0] ?? null;
-    const nextDomainId = nextDomain?.domain_id || (nextTask ? taskDomainId(nextTask) : "");
-    const nextGraph = allTaskGraphs.find((item) => String(item.domain_id ?? "").trim() === nextDomainId);
-    setEditorDomainId(nextDomain?.domain_id || "");
-    setEditorTaskId(nextTask?.task_id || "");
-    setEditorTaskGraphId(nextGraph?.graph_id || "");
-    setSelectedGraphNodeId("");
-    setSelectedGraphEdgeId("");
-    setLinkingFromNodeId("");
-  }
-
-  return (
-    <div className={`workspace-view boundary-console task-system-boundary task-system-boundary--${taskLayer}`}>
-      <header className={taskLayer === "editor" ? "boundary-hero boundary-hero--editor" : "boundary-hero"}>
-        <div>
-          <span>{taskLayer === "editor" ? "任务图编辑器" : "任务边界工作台"}</span>
-          <h2>{taskLayer === "editor" ? editorTask?.task_title || "任务图编辑器" : "任务系统工作台"}</h2>
-          <p>{taskLayer === "editor" ? `${editorDomain?.title || "未选择任务域"} / ${taskGraphDraftV2.title || editorSelectedTaskGraph?.title || "任务图"}` : "任务域是第一管理边界；图编辑器只编辑当前任务域下的 Agent 拓扑。"}</p>
-        </div>
-        <div className="boundary-actions">
-          <ToolbarButton onClick={() => void load()}><RefreshCw size={15} />刷新</ToolbarButton>
-        </div>
-      </header>
-
-      <section className="task-system-page-strip" aria-label="任务系统页面">
-        {taskLayerItems.map((item) => (
+  const domainContextSlot = (
+    <>
+      <div className="task-system-domain-context__identity">
+        <span>当前任务域</span>
+        <TaskGraphChromeSelect
+          emptyLabel="暂无任务域"
+          label="任务域"
+          onChange={(domainId) => {
+            const domain = visibleDomains.find((item) => item.domain_id === domainId);
+            setSelectedDomainId(domainId);
+            setEditorDomainId(domainId);
+            setSelectedTaskId(domain?.tasks[0]?.task_id || "");
+            const nextGraph = (consolePayload?.task_graph_management?.task_graphs ?? []).find((item) => String(item.domain_id ?? "").trim() === domainId);
+            setSelectedTaskGraphId(nextGraph?.graph_id || "");
+            setEditingDomainName(false);
+          }}
+          options={visibleDomains.map((domain) => ({ value: domain.domain_id, label: domain.title }))}
+          placeholder="选择任务域"
+          value={selectedDomain?.domain_id || ""}
+        />
+        <small>{selectedDomain?.domain_id || "未选择任务域"}</small>
+      </div>
+      <div className="task-system-domain-context__metrics">
+        <ReadinessCard label="具体任务" value={`${selectedDomainTasks.length}`} ready={selectedDomainTasks.length > 0} />
+        <ReadinessCard label="任务图" value={`${taskGraphs.length}`} ready={taskGraphs.length > 0} />
+        <ReadinessCard label="契约" value={`${domainContractSpecs.length}`} ready={domainContractSpecs.length > 0} />
+        <ReadinessCard label="Projection" value={`${domainProjectionCards.length}`} ready={domainProjectionCards.length > 0} />
+      </div>
+      <div className="task-system-domain-context__actions">
+        <ToolbarButton onClick={createDomainDraft}><Plus size={15} />新任务域</ToolbarButton>
+        <ToolbarButton disabled={!selectedDomain} onClick={() => setTaskSystemLayer("domains")}>编辑任务域</ToolbarButton>
+      </div>
+    </>
+  );
+  const managementLayerSlot = (
+    <div className="task-system-workspace-switcher-grid">
+      <section className="task-system-workspace-switcher-group task-system-workspace-switcher-group--primary" aria-label="任务系统主对象">
+        {primaryTaskSystemLayerItems.map((item) => (
+        <button
+          className={taskSystemLayer === item.value ? "task-system-workspace-card task-system-workspace-card--active" : "task-system-workspace-card"}
+          key={item.value}
+          onClick={() => selectTaskSystemLayer(item.value)}
+          type="button"
+        >
+          <span>{item.label}</span>
+          <strong>{item.meta}</strong>
+          <small>{item.detail}</small>
+        </button>
+        ))}
+      </section>
+      <section className="task-system-workspace-switcher-group task-system-workspace-switcher-group--support" aria-label="任务系统支撑对象">
+        {supportingTaskSystemLayerItems.map((item) => (
           <button
-            className={taskLayer === item.value ? "task-system-page-tab task-system-page-tab--active" : "task-system-page-tab"}
+            className={taskSystemLayer === item.value ? "task-system-workspace-card task-system-workspace-card--support task-system-workspace-card--active" : "task-system-workspace-card task-system-workspace-card--support"}
             key={item.value}
-            onClick={() => {
-              void load();
-              if (item.value === "management") {
-                enterManagementLayer();
-                return;
-              }
-              setTaskLayer("editor");
-            }}
+            onClick={() => selectTaskSystemLayer(item.value)}
             type="button"
           >
             <span>{item.label}</span>
@@ -2308,155 +2580,181 @@ export function TaskSystemView() {
           </button>
         ))}
       </section>
+    </div>
+  );
+  function openTaskGraphEditor(graphId = selectedTaskGraph?.graph_id || "") {
+    const nextDomain = selectedDomain ?? editorDomain;
+    const nextDomainId = nextDomain?.domain_id || "";
+    const nextGraph = allTaskGraphs.find((item) => String(item.graph_id ?? "") === graphId)
+      ?? allTaskGraphs.find((item) => String(item.domain_id ?? "").trim() === nextDomainId)
+      ?? null;
+    setEditorDomainId(nextDomain?.domain_id || "");
+    setEditorTaskGraphId(nextGraph?.graph_id || "");
+    setSelectedTaskGraphId(nextGraph?.graph_id || graphId || "");
+    setSelectedGraphNodeId("");
+    setSelectedGraphEdgeId("");
+    setLinkingFromNodeId("");
+    setTaskLayer("editor");
+    setTaskSystemLayer("graphs");
+  }
 
-      {error ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{error}</div> : null}
-      {notice ? <div className="boundary-notice"><CheckCircle2 size={16} />{notice}</div> : null}
+  function enterManagementLayer() {
+    setTaskLayer("management");
+  }
+
+  function selectTaskSystemLayer(layer: TaskSystemLayer) {
+    setTaskSystemLayer(layer);
+    setTaskLayer("management");
+    if (layer === "tasks") {
+      setTaskConfigPanel("definition");
+    }
+  }
+
+  function selectEditorDomain(domainId: string) {
+    const nextDomain = visibleDomains.find((domain) => domain.domain_id === domainId) ?? null;
+    const nextDomainId = nextDomain?.domain_id || "";
+    const nextGraph = allTaskGraphs.find((item) => String(item.domain_id ?? "").trim() === nextDomainId);
+    setEditorDomainId(nextDomain?.domain_id || "");
+    setEditorTaskGraphId(nextGraph?.graph_id || "");
+    setSelectedGraphNodeId("");
+    setSelectedGraphEdgeId("");
+    setLinkingFromNodeId("");
+  }
+
+  return (
+    <TaskSystemShell
+      activeLayer={taskSystemLayer}
+      error={error}
+      contextSlot={taskLayer === "management" ? domainContextSlot : undefined}
+      layerSlot={taskLayer === "management" ? managementLayerSlot : undefined}
+      mode={taskLayer}
+      navItems={taskSystemLayerItems}
+      notice={notice}
+      onBackToGraphs={() => selectTaskSystemLayer("graphs")}
+      onRefresh={() => void load()}
+      onSelectLayer={(layer) => {
+        void load();
+        selectTaskSystemLayer(layer);
+      }}
+      path={taskLayer === "editor"
+        ? `${editorDomain?.title || "未选择任务域"} / ${taskGraphDraftV2.title || editorSelectedTaskGraph?.title || "任务图"}`
+        : `${selectedDomain?.title || "未选择任务域"} / ${taskSystemLayerItems.find((item) => item.value === taskSystemLayer)?.label || "任务系统"}`}
+      title={taskLayer === "editor" ? taskGraphDraftV2.title || editorSelectedTaskGraph?.title || "任务图编辑器" : taskSystemLayerItems.find((item) => item.value === taskSystemLayer)?.label || "任务系统"}
+    >
 
       {taskLayer === "management" ? (
-      <section className="boundary-workbench">
-        <aside className="boundary-rail">
-          <div className="boundary-rail__head">
-            <strong>任务域</strong>
-            <div className="boundary-inline-actions">
-              <span>{visibleDomains.length}</span>
-              {taskLayer === "management" ? (
-                <button className="boundary-icon-button" onClick={createDomainDraft} type="button" aria-label="新增任务域">
-                  <Plus size={14} />
-                </button>
-              ) : null}
-            </div>
-          </div>
-          {loading ? <div className="boundary-empty"><Loader2 className="spin" size={16} />加载中</div> : null}
-          {!loading && projectionLoading ? <div className="boundary-empty">投影卡片加载中，任务系统已可用</div> : null}
-          {visibleDomains.map((domain) => {
-            const active = domain.domain_id === selectedDomainId;
-            return (
-              <article className={active ? "boundary-domain boundary-domain--active" : "boundary-domain"} key={domain.domain_id}>
-                <button
-                  className="boundary-domain__select"
-                  onClick={() => {
-                    setSelectedDomainId(domain.domain_id);
-                    setSelectedTaskId(domain.tasks[0]?.task_id || "");
-                    const nextGraph = (consolePayload?.task_graph_management?.task_graphs ?? []).find((item) => String(item.domain_id ?? "").trim() === domain.domain_id);
-                    setSelectedTaskGraphId(nextGraph?.graph_id || "");
-                    setEditingDomainName(false);
-                  }}
-                  type="button"
-                >
-                  <strong>{domain.title}</strong>
-                  <small>{domain.tasks.length} 个任务</small>
-                </button>
-                {active && taskLayer === "management" ? (
-                  <div className="boundary-domain__tools">
-                    <button className="boundary-domain__save" onClick={() => setEditingDomainName(true)} type="button" aria-label="修改任务域名称">
-                      <Pencil size={14} />
-                    </button>
-                    <button className="boundary-domain__save boundary-domain__save--danger" disabled={saving === "domain-delete"} onClick={() => void deleteDomain(domain)} type="button" aria-label="删除任务域">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ) : null}
-              </article>
-            );
-          })}
-        </aside>
-
-        <main className="boundary-main">
-          {taskLayer === "management" ? (
-            <section className="boundary-layer-grid task-domain-workbench">
-              <div className="boundary-directory task-domain-directory">
-                <div className="boundary-panel-head">
-                  {editingDomainName ? (
-                    <input
-                      className="boundary-title-input"
-                      autoFocus
-                      value={domainDraft.title}
-                      onChange={(event) => updateDomainTitle(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") void saveDomain();
-                        if (event.key === "Escape") setEditingDomainName(false);
-                      }}
-                    />
-                  ) : (
-                    <strong>{selectedDomain?.title || "任务域"}</strong>
-                  )}
-                  <div className="boundary-inline-actions">
-                    <span>{selectedDomain?.tasks.length || 0}</span>
+        <section className={`task-management-stage task-management-stage--${taskSystemLayer}`}>
+          {taskSystemLayer === "domains" ? (
+            <TaskDomainManagementPage>
+              <main className="task-management-workbench task-management-workbench--full">
+                <header className="task-management-titlebar">
+                  <div>
+                    <span>Domain Boundary</span>
                     {editingDomainName ? (
-                      <button className="boundary-icon-button" disabled={saving === "domain"} onClick={() => void saveDomain()} type="button" aria-label="保存任务域名称">
-                        <Save size={14} />
-                      </button>
+                      <input
+                        className="boundary-title-input"
+                        autoFocus
+                        value={domainDraft.title}
+                        onChange={(event) => updateDomainTitle(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") void saveDomain();
+                          if (event.key === "Escape") setEditingDomainName(false);
+                        }}
+                      />
                     ) : (
-                      <button className="boundary-icon-button" onClick={() => setEditingDomainName(true)} type="button" aria-label="修改任务域名称">
-                        <Pencil size={14} />
-                      </button>
+                      <h3>{selectedDomain?.title || "任务域"}</h3>
                     )}
+                    <p>任务域只负责分类、入口策略和域级边界，不编辑图节点和运行产物。</p>
                   </div>
-                </div>
-                <section className="boundary-card task-domain-compact-editor">
-                  <header>
-                    <strong>任务域设置</strong>
-                    <div className="boundary-actions">
-                      <ToolbarButton disabled={saving === "domain"} onClick={() => void saveDomain()}><Save size={15} />保存域</ToolbarButton>
-                      <ToolbarButton disabled={saving === "entry"} onClick={() => void saveEntry()}><Save size={15} />保存入口</ToolbarButton>
-                    </div>
-                  </header>
+                  <div className="boundary-actions">
+                    <ToolbarButton onClick={() => setEditingDomainName(true)}><Pencil size={15} />改名</ToolbarButton>
+                    <ToolbarButton disabled={saving === "domain-delete" || !selectedDomain} onClick={() => selectedDomain ? void deleteDomain(selectedDomain) : undefined}><Trash2 size={15} />删除域</ToolbarButton>
+                    <ToolbarButton disabled={saving === "domain"} onClick={() => void saveDomain()} variant="primary"><Save size={15} />保存域</ToolbarButton>
+                  </div>
+                </header>
+                <section className="boundary-card">
+                  <header><strong>任务域设置</strong><span>{selectedDomain?.domain_id || domainDraft.domain_id}</span></header>
                   <div className="boundary-form">
                     <label className="boundary-check"><input checked={domainDraft.enabled} onChange={(event) => setDomainDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用任务域</label>
                     <Field label="任务域描述" wide><textarea value={domainDraft.description} onChange={(event) => setDomainDraft((value) => ({ ...value, description: event.target.value }))} /></Field>
+                    <SystemFields>
+                      <Field label="任务域 ID"><input value={domainDraft.domain_id} onChange={(event) => setDomainDraft((value) => ({ ...value, domain_id: event.target.value }))} /></Field>
+                      <Field label="入口策略 ID"><input value={entryDraft.profile_id} onChange={(event) => setEntryDraft((value) => ({ ...value, profile_id: event.target.value }))} /></Field>
+                      <SelectField label="默认 Workflow" onChange={(value) => setEntryDraft((current) => ({ ...current, default_workflow_id: value }))} options={workflowOptions} value={entryDraft.default_workflow_id} />
+                    </SystemFields>
+                  </div>
+                  <div className="boundary-actions">
+                    <ToolbarButton disabled={saving === "entry"} onClick={() => void saveEntry()}><Save size={15} />保存入口策略</ToolbarButton>
+                    <div className="task-domain-quick-jumps">
+                      <ToolbarButton onClick={() => selectTaskSystemLayer("tasks")}>任务定义库</ToolbarButton>
+                      <ToolbarButton onClick={() => selectTaskSystemLayer("graphs")}>任务图库</ToolbarButton>
+                      <ToolbarButton onClick={() => selectTaskSystemLayer("contracts")}>契约库</ToolbarButton>
+                    </div>
                   </div>
                 </section>
-                <div className="task-domain-list-head">
-                  <strong>域内任务</strong>
+                {loading ? <div className="boundary-empty"><Loader2 className="spin" size={16} />加载中</div> : null}
+                {!loading && projectionLoading ? <div className="boundary-empty">投影卡片加载中，任务系统已可用</div> : null}
+                <div className="task-management-status-row">
+                  <ReadinessCard label="域内任务" value={`${selectedDomain?.tasks.length ?? 0}`} ready={Boolean(selectedDomain?.tasks.length)} />
+                  <ReadinessCard label="任务图" value={`${taskGraphs.length}`} ready={Boolean(taskGraphs.length)} />
+                  <ReadinessCard label="契约" value={`${domainContractSpecs.length}`} ready={Boolean(domainContractSpecs.length)} />
+                  <ReadinessCard label="Projection" value={`${domainProjectionCards.length}`} ready={Boolean(domainProjectionCards.length)} />
+                </div>
+              </main>
+            </TaskDomainManagementPage>
+          ) : null}
+
+          {taskSystemLayer === "tasks" ? (
+            <TaskDefinitionPage>
+              <aside className="task-management-directory">
+                <div className="task-management-directory__head">
+                  <span>{selectedDomain?.title || "未选择任务域"}</span>
+                  <strong>具体任务</strong>
                   <ToolbarButton disabled={saving === "task-create" || !selectedDomain} onClick={() => void createTaskDraft()}><Plus size={15} />新任务</ToolbarButton>
                 </div>
                 <div className="boundary-list">
-                  {selectedDomain?.tasks.map((task) => (
-                    <button className={task.task_id === selectedTaskId ? "boundary-list-row boundary-list-row--active task-domain-task-row" : "boundary-list-row task-domain-task-row"} key={task.task_id} onClick={() => setSelectedTaskId(task.task_id)} type="button">
+                  {selectedDomainTasks.map((task) => (
+                    <button
+                      className={task.task_id === selectedTaskId ? "boundary-list-row boundary-list-row--active task-domain-task-row" : "boundary-list-row task-domain-task-row"}
+                      key={task.task_id}
+                      onClick={() => setSelectedTaskId(task.task_id)}
+                      type="button"
+                    >
                       <strong>{task.task_title}</strong>
                       <span>{task.enabled ? "启用" : "停用"}</span>
                     </button>
                   ))}
-                  {!selectedDomain?.tasks.length ? (
-                    <div className="boundary-empty">
-                      当前任务域暂无任务。请使用上方“新任务”创建特定任务。
-                    </div>
-                  ) : null}
+                  {!selectedDomainTasks.length ? <div className="boundary-empty">当前任务域暂无任务。</div> : null}
                 </div>
-              </div>
-              <div className="boundary-editor task-domain-editor">
-                <section className="task-system-context-bar">
-                  <div className="task-system-context-bar__copy">
-                    <span>{selectedDomain?.title || "当前任务域"}</span>
-                    <strong>{selectedTask ? (taskDraft.task_title || selectedTask.task_title) : "未选择任务"}</strong>
-                    <p>配置只作用于当前任务。</p>
+              </aside>
+              <main className="task-management-workbench">
+                <header className="task-management-titlebar">
+                  <div>
+                    <span>Task Definition</span>
+                    <h3>{selectedTask ? (taskDraft.task_title || selectedTask.task_title) : "未选择任务"}</h3>
+                    <p>这里只定义可复用的具体任务。任务图是同一任务域下的独立编排对象，图节点可以引用这里的任务定义。</p>
                   </div>
-                </section>
+                  <div className="boundary-actions">
+                    <ToolbarButton disabled={!selectedTask} onClick={() => selectedTask ? sendTaskToChat(selectedTask, selectedTaskDomain) : undefined}>带入主会话</ToolbarButton>
+                    <ToolbarButton disabled={saving === "task-stack" || !selectedTask} onClick={() => void saveTaskStack()} variant="primary"><Save size={15} />保存任务</ToolbarButton>
+                  </div>
+                </header>
                 {selectedTask ? (
                   <section className="boundary-layer-stack">
-                    <section className="task-system-section-switch">
-                      <div className="task-system-section-switch__head">
-                        <span>任务配置</span>
-                        <strong>{taskConfigPanelItems.find((item) => item.value === taskConfigPanel)?.meta || taskDraft.task_title}</strong>
-                      </div>
-                      <LayerNav ariaLabel="任务配置页面" items={taskConfigPanelItems} value={taskConfigPanel} onChange={setTaskConfigPanel} variant="secondary" />
-                    </section>
-                    {taskConfigPanel === "definition" ? (
-                      <>
-                        <section className="boundary-card">
+                    <LayerNav
+                      ariaLabel="任务详情页面"
+                      items={taskDetailPanelItems}
+                      value={taskConfigPanel}
+                      onChange={setTaskConfigPanel}
+                      variant="secondary"
+                    />
+                    <>
+                      <section className="boundary-card">
                           <header>
                             <strong>{taskDraft.task_title || "特定任务定义"}</strong>
-                            <div className="boundary-actions">
-                              <ToolbarButton onClick={() => sendTaskToChat(selectedTask, selectedTaskDomain)}>带入主会话</ToolbarButton>
-                              <ToolbarButton onClick={() => {
-                                if (selectedTask) selectTaskForEditor(selectedTask.task_id);
-                                setTaskLayer("editor");
-                              }}>进入任务图</ToolbarButton>
-                              <ToolbarButton disabled={saving === "task-delete"} onClick={() => void deleteTaskRecord(selectedTask)}>
-                                <Trash2 size={15} />删除任务
-                              </ToolbarButton>
-                              <ToolbarButton disabled={saving === "task-stack"} onClick={() => void saveTaskStack()} variant="primary"><Save size={15} />保存任务</ToolbarButton>
-                            </div>
+                            <ToolbarButton disabled={saving === "task-delete"} onClick={() => void deleteTaskRecord(selectedTask)}>
+                              <Trash2 size={15} />删除任务
+                            </ToolbarButton>
                           </header>
                           <div className="boundary-form task-definition-form">
                             <Field label="任务标题"><input value={taskDraft.task_title} onChange={(event) => setTaskDraft((value) => ({ ...value, task_title: event.target.value }))} /></Field>
@@ -2465,7 +2763,7 @@ export function TaskSystemView() {
                             <Field label="任务描述" wide><textarea value={taskDraft.description} onChange={(event) => setTaskDraft((value) => ({ ...value, description: event.target.value }))} /></Field>
                             <label className="boundary-check"><input checked={taskDraft.enabled} onChange={(event) => setTaskDraft((value) => ({ ...value, enabled: event.target.checked }))} type="checkbox" />启用任务</label>
                             <section className="contract-editor-section task-artifact-policy-editor">
-                              <header><strong>产物规则</strong><span>任务运行结束后按这里的规则生成真实文件</span></header>
+                              <header><strong>产物规则</strong><span>任务级默认产物策略；正式产物记录在运行管理中查看</span></header>
                               <div className="boundary-form">
                                 <Field label="产物根目录"><input value={artifactPolicyDraft.artifact_root} onChange={(event) => setArtifactPolicyDraft((value) => ({ ...value, artifact_root: event.target.value }))} placeholder="output/novels/honghuang-shidai" /></Field>
                                 <Field label="任务子目录"><input value={artifactPolicyDraft.subdir_template} onChange={(event) => setArtifactPolicyDraft((value) => ({ ...value, subdir_template: event.target.value }))} placeholder="{task_slug}/{run_slug}" /></Field>
@@ -2490,154 +2788,492 @@ export function TaskSystemView() {
                               </Field>
                             </SystemFields>
                           </div>
-                        </section>
-                        <section className="boundary-card">
-                          <header><strong>承接要求</strong></header>
-                          <div className="boundary-kv task-eligibility-grid">
-                            {eligibilityRows.map((row) => <p key={row.label}><span>{row.label}</span><strong>{row.value}</strong></p>)}
-                          </div>
-                        </section>
-                      </>
-                    ) : null}
+                      </section>
+                      <section className="boundary-card">
+                        <header><strong>承接要求</strong></header>
+                        <div className="boundary-kv task-eligibility-grid">
+                          {eligibilityRows.map((row) => <p key={row.label}><span>{row.label}</span><strong>{row.value}</strong></p>)}
+                        </div>
+                      </section>
+                      <section className="boundary-card">
+                        <header><strong>被任务图节点引用</strong><span>{selectedTaskGraphReferences.length} 张图</span></header>
+                        <div className="boundary-list boundary-list--scroll">
+                          {selectedTaskGraphReferences.map(({ graph, nodeRefs }) => (
+                            <article className="boundary-list-row boundary-list-row--stacked" key={graph.graph_id}>
+                              <div>
+                                <strong>{graph.title || graph.graph_id}</strong>
+                                <span>{graph.publish_state || "draft"} / {nodeRefs.length} 个节点引用</span>
+                              </div>
+                              <span>{nodeRefs.map((item) => `${item.title} · ${item.nodeId}`).join(" / ")}</span>
+                              <div className="boundary-actions">
+                                <ToolbarButton onClick={() => openTaskGraphEditor(graph.graph_id)}>打开这张图</ToolbarButton>
+                              </div>
+                            </article>
+                          ))}
+                          {!selectedTaskGraphReferences.length ? (
+                            <div className="boundary-empty">当前具体任务还没有被任何任务图节点引用。</div>
+                          ) : null}
+                        </div>
+                      </section>
+                    </>
                   </section>
-                ) : (
-                  null
-                )}
-              </div>
-            </section>
+                ) : <div className="boundary-empty">先在左侧选择或创建一个具体任务。</div>}
+              </main>
+            </TaskDefinitionPage>
           ) : null}
 
-          {taskLayer === "management" && selectedTask && taskConfigPanel === "contracts" ? (
-            <section className="boundary-layer-stack task-system-contract-center">
-              <section className="task-system-context-bar">
-                <div className="task-system-context-bar__copy">
-                  <span>当前任务配置</span>
-                  <strong>{contractPanelItems.find((item) => item.value === contractPanel)?.label || "契约库"}</strong>
-                  <p>{contractPanelItems.find((item) => item.value === contractPanel)?.detail || "维护当前任务的契约边界。"}</p>
+          {taskSystemLayer === "contracts" ? (
+            <TaskContractManagementPage>
+              <header className="task-management-titlebar">
+                <div>
+                  <span>Contract Catalog</span>
+                  <h3>契约库</h3>
+                  <p>这里维护任务契约与图契约。Agent 只引用边界，不在这里单独存任务侧特例。</p>
                 </div>
-              </section>
-              <LayerNav ariaLabel="当前任务契约页面" items={contractPanelItems} value={contractPanel} onChange={setContractPanel} variant="secondary" />
-
-              {contractPanel === "library" && contractManagement ? (
-                <ContractLibraryPanel
-                  contractManagement={{ ...contractManagement, contract_specs: domainContractSpecs }}
-                  onDelete={removeContractSpec}
-                  onSave={saveContractSpec}
-                  saving={saving === "contract-spec"}
-                />
-              ) : null}
-
-              {contractPanel === "templates" ? (
-                <section className="contract-template-grid">
-                  <article className="boundary-card contract-template-card">
-                    <header>
-                      <div className="boundary-identity-stack">
-                        <span>域级模板中心</span>
-                        <strong>模板注册待重建</strong>
-                        <small>按任务域隔离</small>
-                      </div>
-                    </header>
-                    <p>旧任务包模板已经下线。后续模板能力需要从任务域进入，模板只注册契约草案，不直接创建 Agent 或跨域资产。</p>
-                  </article>
-                  <article className="boundary-card contract-template-card">
-                    <header>
-                      <div className="boundary-identity-stack">
-                        <span>通用模板</span>
-                        <strong>节点执行契约</strong>
-                        <small>适用于普通 Agent 节点</small>
-                      </div>
-                    </header>
-                    <p>用于普通 Agent 节点的输入输出边界。后续可以扩展为字段级模板；当前建议从契约库新建后按分区填写。</p>
-                    <div className="boundary-readiness-list boundary-readiness-list--grid">
-                      <ReadinessCard label="字段" value="输入 / 输出" ready />
-                      <ReadinessCard label="运行" value="可见性 / Runtime" ready />
-                      <ReadinessCard label="治理" value="失败 / 门控" ready />
-                    </div>
-                  </article>
-                </section>
-              ) : null}
-
-              {contractPanel === "bindings" ? (
-                <section className="boundary-layer-grid boundary-layer-grid--wide">
-                  {selectedTask ? (
-                  <TaskContractPanel
-                    contractSpecs={domainContractSpecs}
-                    onWorkflowOutputContractChange={(contractId) => setWorkflowDraft((current) => ({ ...current, output_contract_id: contractId }))}
-                    setTaskDraft={setTaskDraft}
-                    taskDraft={taskDraft}
-                    workflowOutputContractId={workflowDraft.output_contract_id}
+                <div className="boundary-actions">
+                  <ToolbarButton disabled={saving === "contract-spec"} onClick={() => setContractPanel("library")}>
+                    <ClipboardList size={15} />管理契约
+                  </ToolbarButton>
+                  <ToolbarButton disabled={!selectedTaskGraph} onClick={() => openTaskGraphEditor(selectedTaskGraph?.graph_id)}>
+                    <Network size={15} />进入图契约层
+                  </ToolbarButton>
+                </div>
+              </header>
+              <section className="boundary-layer-stack task-system-contract-center">
+                <LayerNav ariaLabel="任务域契约页面" items={contractPanelItems} value={contractPanel} onChange={setContractPanel} variant="secondary" />
+                {contractPanel === "library" && contractManagement ? (
+                  <ContractLibraryPanel
+                    contractManagement={{ ...contractManagement, contract_specs: domainContractSpecs }}
+                    onDelete={removeContractSpec}
+                    onSave={saveContractSpec}
+                    saving={saving === "contract-spec"}
                   />
                 ) : null}
-                  <section className="boundary-card">
-                    <header><strong>当前任务图契约引用</strong><span className="boundary-badge">{activeGraphNodes.length} 节点 / {activeGraphEdges.length} 边</span></header>
-                    <div className="boundary-list boundary-list--scroll">
-                      {activeGraphNodes.map((node, index) => (
-                        <article className="boundary-list-row" key={String(node.node_id ?? `node_${index}`)}>
-                          <strong>{String(node.title ?? node.node_id ?? "节点")}</strong>
-                          <span>{contractLabel(String(node.node_contract_id ?? node.output_contract_id ?? ""), domainContractSpecs, contractCatalog)}</span>
-                        </article>
-                      ))}
-                      {activeGraphEdges.map((edge, index) => (
-                        <article className="boundary-list-row" key={String(edge.edge_id ?? `edge_${index}`)}>
-                          <strong>{String(edge.edge_type ?? edge.edge_id ?? "交接边")}</strong>
-                          <span>{contractLabel(String(edge.payload_contract_id ?? ""), domainContractSpecs, contractCatalog)}</span>
-                        </article>
-                      ))}
-                    </div>
+                {contractPanel === "templates" ? (
+                  <section className="contract-template-grid">
+                    <article className="boundary-card contract-template-card">
+                      <header><div className="boundary-identity-stack"><span>域级模板中心</span><strong>契约草案模板</strong><small>按任务域隔离</small></div></header>
+                      <p>模板能力只注册契约草案，不直接创建 Agent 或跨域资产。正式节点装配仍由 TaskGraph 和编排资源完成。</p>
+                    </article>
+                    <article className="boundary-card contract-template-card">
+                      <header><div className="boundary-identity-stack"><span>通用模板</span><strong>节点执行契约</strong><small>适用于普通 Agent 节点</small></div></header>
+                      <p>用于普通 Agent 节点的输入输出边界。字段级模板在契约库中新建后按任务域维护。</p>
+                    </article>
                   </section>
-                </section>
-              ) : null}
+                ) : null}
+                {contractPanel === "bindings" ? (
+                  <section className="boundary-layer-grid boundary-layer-grid--wide">
+                    <TaskContractPanel
+                      contractSpecs={domainContractSpecs}
+                      onWorkflowOutputContractChange={(contractId) => setWorkflowDraft((current) => ({ ...current, output_contract_id: contractId }))}
+                      setTaskDraft={setTaskDraft}
+                      taskDraft={taskDraft}
+                      workflowOutputContractId={workflowDraft.output_contract_id}
+                    />
+                    <section className="boundary-card">
+                      <header><strong>任务图契约引用</strong><span className="boundary-badge">{activeGraphNodes.length} 节点 / {activeGraphEdges.length} 边</span></header>
+                      <div className="boundary-list boundary-list--scroll">
+                        {activeGraphNodes.map((node, index) => (
+                          <article className="boundary-list-row" key={String(node.node_id ?? `node_${index}`)}>
+                            <strong>{String(node.title ?? node.node_id ?? "节点")}</strong>
+                            <span>{contractLabel(String(node.node_contract_id ?? node.output_contract_id ?? ""), domainContractSpecs, contractCatalog)}</span>
+                          </article>
+                        ))}
+                        {activeGraphEdges.map((edge, index) => (
+                          <article className="boundary-list-row" key={String(edge.edge_id ?? `edge_${index}`)}>
+                            <strong>{String(edge.edge_type ?? edge.edge_id ?? "交接边")}</strong>
+                            <span>{contractLabel(String(edge.payload_contract_id ?? ""), domainContractSpecs, contractCatalog)}</span>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  </section>
+                ) : null}
+                {contractPanel === "manifest" ? (
+                  <ContractOverviewPanel
+                    contractSpecs={domainContractSpecs}
+                    selectedTaskGraph={activeTaskGraph}
+                    selectedNodeId={selectedGraphNodeId}
+                  />
+                ) : null}
+              </section>
+            </TaskContractManagementPage>
+          ) : null}
 
-              {contractPanel === "manifest" ? (
-                <ContractOverviewPanel
-                  contractSpecs={domainContractSpecs}
-                  selectedTaskGraph={activeTaskGraph}
-                  selectedNodeId={selectedGraphNodeId}
-                  selectedTask={selectedTask}
-                />
-              ) : null}
-            </section>
-          ) : null}
-          {taskLayer === "management" && selectedTask && taskConfigPanel === "preflight" ? (
-            <TaskAssemblyPreflightPanel
-              a2aCatalog={a2aCatalog}
-              editorIssueCount={editorIssueCount}
-              editorPublished={editorPublished}
-              editorValid={editorValid}
-              onBackToGraph={() => setTaskLayer("editor")}
-              saveTaskGraphStack={saveTaskGraphStack}
-              saving={saving}
-              selectedTaskGraph={activeTaskGraph}
-              taskGraphMetadata={taskGraphDraftV2.metadata}
-              selectedGraphSpec={editorGraphSpec}
-              selectedNodeId={selectedGraphNodeId}
-              selectedTask={selectedTask}
-              setSelectedNodeId={setSelectedGraphNodeId}
-              topologyDirty={topologyDirty}
-            />
+          {taskSystemLayer === "graphs" ? (
+            <TaskGraphManagementPage>
+              <aside className="task-management-directory">
+                <div className="task-management-directory__head">
+                  <span>{selectedDomain?.title || "任务域"}</span>
+                  <strong>任务图库</strong>
+                  <ToolbarButton disabled={saving === "task-graph-create" || !selectedDomain} onClick={() => void createTaskGraphDraft()}><Network size={15} />新图草稿</ToolbarButton>
+                </div>
+                <div className="boundary-list">
+                  {taskGraphs.map((graph) => (
+                    <button
+                      className={graph.graph_id === selectedTaskGraphId ? "boundary-list-row boundary-list-row--active task-domain-task-row" : "boundary-list-row task-domain-task-row"}
+                      key={graph.graph_id}
+                      onClick={() => setSelectedTaskGraphId(graph.graph_id)}
+                      type="button"
+                    >
+                      <strong>{graph.title}</strong>
+                      <span>{graph.publish_state || "draft"} / {(graph.nodes ?? []).length} 节点</span>
+                    </button>
+                  ))}
+                  {!taskGraphs.length ? <div className="boundary-empty">当前任务域暂无任务图草稿。</div> : null}
+                </div>
+              </aside>
+              <main className="task-management-workbench">
+                <header className="task-management-titlebar">
+                  <div>
+                    <span>Graph Workspace</span>
+                    <h3>{selectedTaskGraph?.title || "未选择任务图"}</h3>
+                    <p>这里管理任务域下的一等 TaskGraph。进入 Studio 后才编辑图内部节点、边、资源流和时序。</p>
+                  </div>
+                  <div className="boundary-actions">
+                    <ToolbarButton disabled={!selectedTaskGraph} onClick={() => openTaskGraphEditor(selectedTaskGraph?.graph_id)}>进入 Studio</ToolbarButton>
+                    <ToolbarButton disabled={saving === "task-graph-duplicate" || !selectedTaskGraph} onClick={() => void duplicateTaskGraphDraft()}>复制图</ToolbarButton>
+                    <ToolbarButton disabled={saving === "task-graph" || !selectedTaskGraph} onClick={() => void saveTaskGraphStack(false)} variant="primary"><Save size={15} />保存图</ToolbarButton>
+                  </div>
+                </header>
+                {selectedTaskGraph ? (
+                  <section className="boundary-layer-stack">
+                    <div className="task-management-status-row">
+                      <ReadinessCard label="节点" value={`${activeGraphNodes.length}`} ready={Boolean(activeGraphNodes.length)} />
+                      <ReadinessCard label="边" value={`${activeGraphEdges.length}`} ready={Boolean(activeGraphEdges.length)} />
+                      <ReadinessCard label="预检" value={editorValid ? "通过" : `${editorIssueCount} 个问题`} ready={editorValid} />
+                      <ReadinessCard label="发布状态" value={String(taskGraphDraftV2.publish_state || selectedTaskGraph.publish_state || "draft")} ready={editorPublished} />
+                    </div>
+                    <section className="task-system-task-cover">
+                      <article className="boundary-card">
+                        <header>
+                          <strong>图资源总览</strong>
+                          <span>{taskGraphStandardViewLoading ? "加载中" : `${activeTaskGraphResourceModel.resources.length} objects`}</span>
+                        </header>
+                        <div className="boundary-kv">
+                          <p><span>记忆仓库</span><strong>{activeTaskGraphResourceModel.memoryResources.length}</strong></p>
+                          <p><span>产物仓库</span><strong>{activeTaskGraphResourceModel.artifactResources.length}</strong></p>
+                          <p><span>记忆边</span><strong>{activeTaskGraphResourceModel.memoryEdges.length}</strong></p>
+                          <p><span>产物边</span><strong>{activeTaskGraphResourceModel.artifactEdges.length}</strong></p>
+                          <p><span>运行隔离</span><strong>{activeTaskGraphResourceModel.runtimeIsolation?.task_run_scope_policy ?? "isolated_per_task_run"}</strong></p>
+                          <p><span>标准问题</span><strong>{activeTaskGraphResourceModel.issueCount}</strong></p>
+                        </div>
+                        <div className="boundary-list boundary-list--scroll">
+                          {activeTaskGraphResourceModel.resources.slice(0, 6).map((resource) => (
+                            <article className="boundary-list-row boundary-list-row--stacked" key={resource.node_id}>
+                              <div>
+                                <strong>{resource.title}</strong>
+                                <span>{resource.resource_type}</span>
+                              </div>
+                              <span>{resource.repository_id || resource.node_id}</span>
+                              <span>{resource.collections.join(" / ") || "default"}</span>
+                            </article>
+                          ))}
+                          {!activeTaskGraphResourceModel.resources.length ? (
+                            <div className="boundary-empty">当前任务图还没有编译出标准资源对象。</div>
+                          ) : null}
+                        </div>
+                      </article>
+                      <article className="boundary-card">
+                        <header>
+                          <strong>图时序总览</strong>
+                          <span>{taskGraphStandardViewLoading ? "加载中" : `${activeTaskGraphTimelineModel.phases.length} phases`}</span>
+                        </header>
+                        <div className="boundary-kv">
+                          <p><span>入口节点</span><strong>{activeTaskGraphTimelineModel.entryNodeId || "未编译"}</strong></p>
+                          <p><span>出口节点</span><strong>{activeTaskGraphTimelineModel.outputNodeId || "未编译"}</strong></p>
+                          <p><span>阶段</span><strong>{activeTaskGraphTimelineModel.phases.length}</strong></p>
+                          <p><span>时序边</span><strong>{activeTaskGraphTimelineModel.temporalEdges.length}</strong></p>
+                          <p><span>循环体</span><strong>{activeTaskGraphTimelineModel.loopFrames.length}</strong></p>
+                          <p><span>异步节点</span><strong>{activeTaskGraphTimelineModel.asyncNodeCount}</strong></p>
+                        </div>
+                        <div className="boundary-list boundary-list--scroll">
+                          {activeTaskGraphTimelineModel.phases.slice(0, 5).map((phase, index) => {
+                            const phaseId = String(phase.phase_id ?? phase.id ?? `phase_${index + 1}`);
+                            return (
+                              <article className="boundary-list-row" key={phaseId}>
+                                <strong>{String(phase.title ?? phaseId)}</strong>
+                                <span>{phaseId} / {activeTaskGraphTimelineModel.phaseNodeCounts[phaseId] ?? 0} 节点</span>
+                              </article>
+                            );
+                          })}
+                          {!activeTaskGraphTimelineModel.phases.length ? (
+                            <div className="boundary-empty">当前任务图还没有编译出标准时序对象。</div>
+                          ) : null}
+                        </div>
+                      </article>
+                    </section>
+                    {taskGraphStandardViewError ? (
+                      <div className="boundary-notice boundary-notice--error">
+                        <AlertTriangle size={16} />
+                        标准对象视图加载失败：{taskGraphStandardViewError}
+                      </div>
+                    ) : null}
+                    <TaskAssemblyPreflightPanel
+                      a2aCatalog={a2aCatalog}
+                      editorIssueCount={editorIssueCount}
+                      editorPublished={editorPublished}
+                      editorValid={editorValid}
+                      onBackToGraph={() => openTaskGraphEditor(selectedTaskGraph.graph_id)}
+                      saveTaskGraphStack={saveTaskGraphStack}
+                      saving={saving}
+                      selectedTaskGraph={activeTaskGraph}
+                      taskGraphMetadata={taskGraphDraftV2.metadata}
+                      selectedGraphSpec={editorGraphSpec}
+                      selectedNodeId={selectedGraphNodeId}
+                      selectedTask={null}
+                      setSelectedNodeId={setSelectedGraphNodeId}
+                      topologyDirty={topologyDirty}
+                    />
+                  </section>
+                ) : <div className="boundary-empty">请先创建或选择一张任务图。</div>}
+              </main>
+            </TaskGraphManagementPage>
           ) : null}
 
-          {taskLayer === "management" && selectedTask && taskConfigPanel === "runloop" ? (
-            <TaskRunLoopWorkbenchPanel
-              taskGraphMemorySharingPolicy={taskGraphDraftV2.context_policy.memory_sharing_policy}
-              taskGraphSharedContextPolicy={taskGraphDraftV2.context_policy.shared_context_policy}
-              executionDraft={executionDraft}
-              memoryDraft={memoryDraft}
-              nodeAssembly={null}
-              saveTaskGraphStack={saveTaskGraphStack}
-              saveTaskStack={saveTaskStack}
-              saving={saving}
-              selectedTaskGraph={activeTaskGraph}
-              selectedTask={selectedTask}
-              setTaskGraphMemorySharingPolicy={(value) => updateTaskGraphContextPolicy({ memory_sharing_policy: value })}
-              setTaskGraphSharedContextPolicy={(value) => updateTaskGraphContextPolicy({ shared_context_policy: value })}
-              setExecutionDraft={setExecutionDraft}
-              setMemoryDraft={setMemoryDraft}
-              workflowAssembly={null}
-            />
+          {taskSystemLayer === "orchestration" ? (
+            <TaskOrchestrationResourcePage>
+              <header className="task-management-titlebar">
+                <div>
+                  <span>Orchestration Resources</span>
+                  <h3>编排资源</h3>
+                  <p>这里直接对接编排系统。任务系统负责任务与 TaskGraph，编排系统负责 Agent 主数据、投影引用和运行档案。</p>
+                </div>
+                <div className="boundary-actions">
+                  <ToolbarButton onClick={() => openOrchestrationControl({ layer: "registry", reason: "从任务系统进入编排控制台：管理 Agent 名册和主数据。" })}>
+                    <Network size={15} />打开编排控制台
+                  </ToolbarButton>
+                  <ToolbarButton onClick={() => openOrchestrationControl({ layer: "runtime", reason: "从任务系统进入运行档案：配置 Agent 的运行边界与装配信息。" })}>
+                    <Send size={15} />配置运行档案
+                  </ToolbarButton>
+                </div>
+              </header>
+              <div className="boundary-notice">
+                <CheckCircle2 size={16} />
+                任务侧只做节点装配与运行编排。Agent 侧不再维护按任务拆开的配置入口，只保留统一运行档案。
+              </div>
+              <section className="task-system-task-cover">
+                <article className="boundary-card">
+                  <header><strong>Agent 库</strong><span>{orchestrationAgentCatalog?.agents?.length ?? 0} agents</span></header>
+                  <div className="boundary-list boundary-list--scroll">
+                    {orchestrationAgents.slice(0, 8).map((agent) => (
+                      <article className="boundary-list-row" key={String(agent.agent_id ?? agent.id ?? agent.agent_name)}>
+                        <strong>{String(agent.display_name ?? agent.agent_name ?? agent.agent_id ?? "Agent")}</strong>
+                        <span>{String(agent.agent_id ?? "")}</span>
+                      </article>
+                    ))}
+                    {!orchestrationAgents.length ? <div className="boundary-empty">编排系统暂未加载到 Agent。</div> : null}
+                  </div>
+                </article>
+                <article className="boundary-card">
+                  <header><strong>运行档案</strong><span>{orchestrationProfiles.length} 份</span></header>
+                  <div className="boundary-list boundary-list--scroll">
+                    {orchestrationProfiles.slice(0, 8).map((profile) => (
+                      <article className="boundary-list-row" key={String(profile.agent_profile_id)}>
+                        <strong>{String(profile.agent_profile_id)}</strong>
+                        <span>{String(profile.agent_id)} · {profile.allowed_context_sections.length} 上下文段 / {profile.allowed_memory_scopes.length} 记忆范围</span>
+                      </article>
+                    ))}
+                    {!orchestrationProfiles.length ? <div className="boundary-empty">还没有可用于节点装配的运行档案。</div> : null}
+                  </div>
+                </article>
+                <article className="boundary-card">
+                  <header><strong>投影引用</strong><span>{projectionCards.length} 项</span></header>
+                  <div className="boundary-kv">
+                    <p><span>职责语言</span><strong>由 Projection / Prompt 主数据提供</strong></p>
+                    <p><span>节点绑定</span><strong>在 TaskGraph 节点装配页选择引用</strong></p>
+                    <p><span>资源读写</span><strong>{graphResourceEdges.length} 条资源边</strong></p>
+                    <p><span>运行边界</span><strong>统一进入运行档案</strong></p>
+                  </div>
+                </article>
+              </section>
+              <section className="boundary-card">
+                <header><strong>节点装配摘要</strong><span>{graphNodeAssemblyRows.length} nodes</span></header>
+                <div className="boundary-list boundary-list--scroll">
+                  {graphNodeAssemblyRows.map((row) => (
+                    <article className="boundary-list-row boundary-list-row--stacked" key={row.nodeId}>
+                      <div>
+                        <strong>{String(row.node.title ?? row.nodeId ?? "节点")}</strong>
+                        <span>{row.ready ? "装配可用" : "缺少 Agent / 运行档案 / 上下文段"}</span>
+                      </div>
+                      <span>执行 Agent {row.agentLabel} · 运行档案 {row.profileId || "未绑定"} · 投影 {row.projectionLabel}</span>
+                      <span>上下文 {row.contextSummary}</span>
+                      <span>记忆范围 {row.memorySummary}</span>
+                      <div className="boundary-actions">
+                        <ToolbarButton disabled={!row.agentId} onClick={() => openOrchestrationControl({
+                          agentId: row.agentId,
+                          agentProfileId: row.profileId || undefined,
+                          layer: "runtime",
+                          nodeId: row.nodeId,
+                          reason: `配置节点“${String(row.node.title ?? row.nodeId)}”绑定 Agent 的运行档案。`,
+                        })}>
+                          配运行档案
+                        </ToolbarButton>
+                      </div>
+                    </article>
+                  ))}
+                  {!graphNodeAssemblyRows.length ? <div className="boundary-empty">当前任务图还没有节点引用。先到任务图页创建或选择图，再进入节点装配。</div> : null}
+                </div>
+                <div className="boundary-actions">
+                  <ToolbarButton disabled={!selectedTaskGraph} onClick={() => openTaskGraphEditor(selectedTaskGraph?.graph_id)}>进入节点装配</ToolbarButton>
+                  <ToolbarButton onClick={() => openOrchestrationControl({ layer: "runtime", reason: "从当前任务图检查所有 Agent 运行档案。" })}>管理运行档案</ToolbarButton>
+                </div>
+              </section>
+            </TaskOrchestrationResourcePage>
           ) : null}
-        </main>
-      </section>
+
+          {taskSystemLayer === "runtime" ? (
+            <TaskRuntimeManagementPage>
+              <header className="task-management-titlebar">
+                <div>
+                  <span>Run Data</span>
+                  <h3>运行管理</h3>
+                  <p>运行数据以显式 task_run_id 隔离。这里直接查看正式记忆库、产物库和当前运行状态，任务定义页不再承担运行库管理。</p>
+                </div>
+                <div className="boundary-actions">
+                  <ToolbarButton disabled={runtimeLoading} onClick={() => void refreshRuntimeManagement()}>
+                    {runtimeLoading ? <Loader2 size={15} /> : <RefreshCw size={15} />}刷新运行库
+                  </ToolbarButton>
+                  <ToolbarButton disabled={!taskGraphMonitorBinding} onClick={() => setTaskGraphRunInteractionOpen(true)}>
+                    <Monitor size={15} />打开常驻监控窗
+                  </ToolbarButton>
+                  <ToolbarButton disabled={!selectedTaskGraph} onClick={() => openTaskGraphEditor(selectedTaskGraph?.graph_id)}>进入发布与运行</ToolbarButton>
+                </div>
+              </header>
+              {runtimeError ? (
+                <div className="boundary-notice boundary-notice--error">
+                  <AlertTriangle size={16} />
+                  {runtimeError}
+                </div>
+              ) : null}
+              <section className="boundary-card">
+                <header>
+                  <strong>运行实例焦点</strong>
+                  <span>{runtimeTaskRunId.trim() ? "按 task_run_id 隔离" : "全局概览"}</span>
+                </header>
+                <div className="boundary-form">
+                  <Field label="task_run_id" wide>
+                    <input
+                      onChange={(event) => {
+                        runtimeDefaultedRef.current = true;
+                        setRuntimeTaskRunId(event.target.value);
+                      }}
+                      placeholder="输入 task_run_id；留空时仅作全局概览，不能判断单次运行隔离"
+                      value={runtimeTaskRunId}
+                    />
+                  </Field>
+                  <Field label="当前会话运行实例">
+                    <select
+                      onChange={(event) => {
+                        runtimeDefaultedRef.current = true;
+                        setRuntimeTaskRunId(event.target.value);
+                      }}
+                      value={runtimeTaskRunId}
+                    >
+                      <option value="">全局概览，不筛选 task_run_id</option>
+                      {runtimeRunsForSelectedGraph.map((item, index) => {
+                        const id = getRuntimeTaskRunId(item) || `run_${index}`;
+                        const run = dictOf(item.task_run);
+                        const status = recordFieldText(run, ["status", "runtime_status"], "unknown");
+                        const label = `${id} · ${status} · ${item.latest_event_type || "no_event"}`;
+                        return <option key={id} value={id}>{label}</option>;
+                      })}
+                    </select>
+                  </Field>
+                  <Field label="常驻监控绑定">
+                    <input readOnly value={runtimeBoundTaskRunId || "未绑定常驻监控运行"} />
+                  </Field>
+                </div>
+                <div className={runtimeTaskRunId.trim() ? "boundary-notice" : "boundary-notice boundary-notice--error"}>
+                  {runtimeTaskRunId.trim() ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+                  {runtimeTaskRunId.trim()
+                    ? `当前正式记忆库和产物库查询只读取 task_run_id=${runtimeTaskRunId.trim()} 的运行数据。`
+                    : "当前为全局概览，只能看总量和最近记录，不能据此判断某一次任务是否隔离。"}
+                </div>
+              </section>
+              <section className="task-system-task-cover">
+                <article className="boundary-card">
+                  <header><strong>当前任务图</strong><span>{selectedTaskGraph?.graph_id || "未选择"}</span></header>
+                  <div className="boundary-kv">
+                    <p><span>任务域</span><strong>{selectedDomain?.title || "-"}</strong></p>
+                    <p><span>图</span><strong>{selectedTaskGraph?.title || "-"}</strong></p>
+                    <p><span>发布状态</span><strong>{String(selectedTaskGraph?.publish_state || taskGraphDraftV2.publish_state || "draft")}</strong></p>
+                  </div>
+                </article>
+                <article className="boundary-card">
+                  <header><strong>运行状态</strong><span>{runtimeMonitorForSelectedRun?.status || recordFieldText(selectedRuntimeRunRecord, ["status", "runtime_status"], "未选择")}</span></header>
+                  <div className="boundary-kv">
+                    <p><span>task_run_id</span><strong>{runtimeTaskRunId.trim() || "未筛选"}</strong></p>
+                    <p><span>最新事件</span><strong>{selectedRuntimeSummary?.latest_event_type || "-"}</strong></p>
+                    <p><span>事件数量</span><strong>{selectedRuntimeSummary?.event_count ?? "-"}</strong></p>
+                    <p><span>更新时间</span><strong>{formatRuntimeTime(runtimeMonitorForSelectedRun?.updated_at ?? selectedRuntimeRunRecord.updated_at)}</strong></p>
+                  </div>
+                </article>
+              </section>
+              <section className="task-system-task-cover">
+                <article className="boundary-card">
+                  <header><strong><Database size={15} />正式记忆库</strong><span>{runtimeFormalOverview?.record_count ?? 0} records</span></header>
+                  <div className="boundary-metric-grid">
+                    <div className="boundary-readiness"><span>仓库</span><strong>{runtimeFormalOverview?.repository_count ?? 0}</strong></div>
+                    <div className="boundary-readiness"><span>集合</span><strong>{runtimeFormalOverview?.collection_count ?? 0}</strong></div>
+                    <div className="boundary-readiness"><span>记录</span><strong>{runtimeFormalOverview?.record_count ?? 0}</strong></div>
+                    <div className="boundary-readiness"><span>版本</span><strong>{runtimeFormalOverview?.version_count ?? 0}</strong></div>
+                    <div className="boundary-readiness"><span>读取日志</span><strong>{runtimeFormalOverview?.read_log_count ?? 0}</strong></div>
+                  </div>
+                  <div className="boundary-list boundary-list--scroll">
+                    {(runtimeFormalOverview?.records ?? []).slice(0, 8).map((record) => (
+                      <article className="boundary-list-row boundary-list-row--stacked" key={record.record_id}>
+                        <div>
+                          <strong>{record.record_key || record.record_id}</strong>
+                          <span className={statusBadgeClass(record.status)}>{taskSystemOptionLabel(record.status || "unknown")}</span>
+                        </div>
+                        <span>{record.repository_id} / {record.collection_id}</span>
+                        <span>{record.record_kind || "record"} · head {record.head_version_id || "-"} · 更新 {record.updated_at || "-"}</span>
+                      </article>
+                    ))}
+                    {!(runtimeFormalOverview?.records ?? []).length ? (
+                      <div className="boundary-empty">当前筛选下没有正式记忆记录。</div>
+                    ) : null}
+                  </div>
+                </article>
+                <article className="boundary-card">
+                  <header><strong><FileStack size={15} />产物库</strong><span>{runtimeArtifactOverview?.artifact_count ?? 0} artifacts</span></header>
+                  <div className="boundary-metric-grid">
+                    <div className="boundary-readiness"><span>仓库</span><strong>{runtimeArtifactOverview?.repository_count ?? 0}</strong></div>
+                    <div className="boundary-readiness"><span>产物</span><strong>{runtimeArtifactOverview?.artifact_count ?? 0}</strong></div>
+                    {Object.entries(runtimeArtifactStatusCounts).slice(0, 4).map(([status, count]) => (
+                      <div className="boundary-readiness" key={status}><span>{taskSystemOptionLabel(status)}</span><strong>{count}</strong></div>
+                    ))}
+                  </div>
+                  <div className="boundary-list boundary-list--scroll">
+                    {(runtimeArtifactOverview?.artifacts ?? []).slice(0, 8).map((artifact) => (
+                      <article className="boundary-list-row boundary-list-row--stacked" key={artifact.artifact_id}>
+                        <div>
+                          <strong>{artifact.artifact_ref || artifact.artifact_id}</strong>
+                          <span className={statusBadgeClass(artifact.status)}>{taskSystemOptionLabel(artifact.status || "unknown")}</span>
+                        </div>
+                        <span>{artifact.repository_id} / {artifact.collection_id}</span>
+                        <span>{artifact.path || "未记录路径"}</span>
+                      </article>
+                    ))}
+                    {!(runtimeArtifactOverview?.artifacts ?? []).length ? (
+                      <div className="boundary-empty">当前筛选下没有产物记录。</div>
+                    ) : null}
+                  </div>
+                </article>
+              </section>
+              <section className="boundary-card">
+                <header><strong><ClipboardList size={15} />运行库边界</strong><span>这里只查看运行结果</span></header>
+                <div className="boundary-kv">
+                  <p><span>正式记忆库配置</span><strong>TaskGraph Studio / 资源流 / 记忆仓库节点与 memory_* 边</strong></p>
+                  <p><span>产物库配置</span><strong>TaskGraph Studio / 资源流 / 产物仓库节点与 artifact_* 边</strong></p>
+                  <p><span>Agent 接收范围</span><strong>编排资源 / 运行档案</strong></p>
+                  <p><span>运行查看</span><strong>运行管理 / 常驻监控窗 / 发布运行页</strong></p>
+                </div>
+              </section>
+            </TaskRuntimeManagementPage>
+          ) : null}
+        </section>
       ) : null}
 
       {taskLayer === "editor" ? (
@@ -2654,19 +3290,11 @@ export function TaskSystemView() {
               />
               <TaskGraphChromeSelect
                 disabled={!editorDomain}
-                emptyLabel={!editorDomain ? "先选择任务域" : editorDomainTasks.length ? "选择任务" : "当前任务域暂无任务"}
-                label="任务"
-                onChange={selectTaskForEditor}
-                options={editorDomainTasks.map((task) => ({ value: task.task_id, label: task.task_title }))}
-                placeholder="选择任务"
-                value={editorTaskId}
-              />
-              <TaskGraphChromeSelect
-                disabled={!editorTask}
-                emptyLabel={!editorTask ? "先打开任务" : editorTaskGraphs.length ? "选择图草稿" : "暂无草稿"}
+                emptyLabel={!editorDomain ? "先选择任务域" : editorTaskGraphs.length ? "选择图草稿" : "当前任务域暂无图"}
                 label="图草稿"
                 onChange={(nextValue) => {
                   setEditorTaskGraphId(nextValue);
+                  setSelectedTaskGraphId(nextValue);
                   setSelectedGraphNodeId("");
                   setSelectedGraphEdgeId("");
                   setLinkingFromNodeId("");
@@ -2725,21 +3353,23 @@ export function TaskSystemView() {
             setSelectedGraphNodeId={setSelectedGraphNodeId}
             taskGraphDirty={topologyDirty}
             taskGraphDraftV2={taskGraphDraftV2}
-            updateTaskGraphContextPolicy={updateTaskGraphContextPolicy}
+            taskGraphStandardView={taskGraphStandardView}
+            taskGraphStandardViewError={taskGraphStandardViewError}
+            taskGraphStandardViewLoading={taskGraphStandardViewLoading}
+            refreshTaskGraphStandardView={refreshTaskGraphStandardView}
             updateTaskGraphDraft={updateTaskGraphDraft}
             updateTaskGraphEdge={updateTaskGraphEdge}
             updateTaskGraphMetadata={updateTaskGraphMetadata}
             updateTaskGraphNode={updateTaskGraphNode}
             updateTaskGraphPublishState={updateTaskGraphPublishState}
             updateTaskGraphRuntimePolicy={updateTaskGraphRuntimePolicy}
-            updateTaskGraphWorkingMemoryPolicy={updateTaskGraphWorkingMemoryPolicy}
             orchestrationAgentCatalog={orchestrationAgentCatalog}
             onCreateProjectionFromPrompt={createProjectionFromNodePrompt}
             projectionCards={domainProjectionCards}
           />
         </section>
       ) : null}
-    </div>
+    </TaskSystemShell>
   );
 }
 

@@ -31,7 +31,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = _build_parser()
     args, extra_args = parser.parse_known_args()
-    backend_dir = Path(__file__).resolve().parents[1]
+    backend_dir = Path(__file__).resolve().parents[3]
 
     if args.profile == "regression":
         target = backend_dir / "tests" / "run_regression_gate.py"

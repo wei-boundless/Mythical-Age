@@ -68,7 +68,7 @@ def default_projection_templates() -> tuple[ProjectionTemplate, ...]:
             role_type="dispatcher",
             task_mode="interactive_dispatch",
             default_skill_workflow_id="workflow.main.dispatch",
-            default_memory_policy="conversation_read_write",
+            default_memory_policy="conversation_readonly",
             default_output_contract="AssistantFinalAnswer",
             projection_resolution_policy="hybrid",
             posture_tags=("dispatcher", "interactive", "coordination"),
