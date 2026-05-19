@@ -21,17 +21,7 @@ if ([string]::IsNullOrWhiteSpace($SessionId)) {
 
 $BriefPath = Join-Path $RepoRoot $ProjectBriefFile
 if (-not (Test-Path $BriefPath)) {
-    $fallbackBrief = Get-ChildItem `
-        -Path (Join-Path $RepoRoot "output/novel_artifacts/simple_novel/runs") `
-        -Recurse `
-        -File `
-        -Filter "project_brief.md" `
-        -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if ($null -ne $fallbackBrief) {
-        $BriefPath = $fallbackBrief.FullName
-    } else {
-        throw "Project brief file not found: $BriefPath"
-    }
+    throw "Project brief file not found: $BriefPath"
 }
 
 $ProjectBrief = (Get-Content -Raw -Path $BriefPath -Encoding UTF8).Trim()

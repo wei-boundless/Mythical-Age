@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import json
 import threading
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -214,7 +215,12 @@ class BackgroundTaskManager:
         self.store = BackgroundTaskStore(base_dir)
         self._handlers: dict[str, Callable[[dict[str, Any]], Any | Awaitable[Any]]] = {}
         self._lock = threading.RLock()
-        self._active_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._active_tasks: dict[str, asyncio.Future[Any]] = {}
+        self._active_task_keys: dict[str, tuple[str, str]] = {}
+        self._loop_ready = threading.Event()
+        self._background_loop: asyncio.AbstractEventLoop | None = None
+        self._background_thread = threading.Thread(target=self._run_background_loop, name="background-task-loop", daemon=True)
+        self._background_thread.start()
 
     def register_handler(self, task_kind: str, handler: Callable[[dict[str, Any]], Any | Awaitable[Any]]) -> None:
         self._handlers[str(task_kind or "").strip()] = handler
@@ -227,8 +233,14 @@ class BackgroundTaskManager:
         source: str = "",
         session_id: str = "",
         lane_id: str = "",
+        coalesce_key: str = "",
     ) -> BackgroundTaskRecord:
         kind = str(task_kind or "").strip() or "default"
+        key = self._coalesce_key(kind, coalesce_key)
+        if key:
+            existing = self._load_active_coalesced_task(key)
+            if existing is not None:
+                return existing
         task_id = f"task:{kind}:{uuid4().hex}"
         record = BackgroundTaskRecord(
             task_id=task_id,
@@ -239,7 +251,7 @@ class BackgroundTaskManager:
             lane_id=str(lane_id or ""),
         )
         stored = self.store.write(record)
-        self._schedule(stored.task_id, stored.task_kind)
+        self._schedule(stored.task_id, stored.task_kind, coalesce_key=key)
         return stored
 
     def load(self, task_id: str, task_kind: str) -> BackgroundTaskRecord | None:
@@ -260,18 +272,69 @@ class BackgroundTaskManager:
             "failed_count": len([item for item in records if item.status == "failed"]),
         }
 
-    def _schedule(self, task_id: str, task_kind: str) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
+    def _schedule(self, task_id: str, task_kind: str, *, coalesce_key: str = "") -> None:
+        if not self._loop_ready.wait(timeout=1.0):
+            threading.Thread(
+                target=self._run_task_blocking,
+                args=(task_id, task_kind, coalesce_key),
+                name=f"background-task-fallback-{task_kind}",
+                daemon=True,
+            ).start()
+            return
+        loop = self._background_loop
+        if loop is None:
+            threading.Thread(
+                target=self._run_task_blocking,
+                args=(task_id, task_kind, coalesce_key),
+                name=f"background-task-fallback-{task_kind}",
+                daemon=True,
+            ).start()
             return
         with self._lock:
             existing = self._active_tasks.get(task_id)
             if existing is not None and not existing.done():
                 return
-            task = loop.create_task(self._run_task(task_id=task_id, task_kind=task_kind))
-            self._active_tasks[task_id] = task
-            task.add_done_callback(lambda _task: self._active_tasks.pop(task_id, None))
+            if coalesce_key:
+                coalesced_task_id = self._active_task_keys.get(coalesce_key)
+                if coalesced_task_id:
+                    active_task_id, _active_kind = coalesced_task_id
+                    active = self._active_tasks.get(active_task_id)
+                    if active is not None and not active.done():
+                        return
+            future = asyncio.run_coroutine_threadsafe(self._run_task(task_id=task_id, task_kind=task_kind), loop)
+            self._active_tasks[task_id] = future
+            if coalesce_key:
+                self._active_task_keys[coalesce_key] = (task_id, task_kind)
+            future.add_done_callback(lambda _future: self._active_tasks.pop(task_id, None))
+            if coalesce_key:
+                future.add_done_callback(lambda _future: self._active_task_keys.pop(coalesce_key, None))
+
+    def _run_background_loop(self) -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self._background_loop = loop
+        self._loop_ready.set()
+        try:
+            loop.run_forever()
+        finally:
+            try:
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            finally:
+                loop.close()
+
+    def _run_task_blocking(self, task_id: str, task_kind: str, coalesce_key: str = "") -> None:
+        try:
+            asyncio.run(self._run_task(task_id=task_id, task_kind=task_kind))
+        except RuntimeError:
+            # If a caller already owns a loop, fall back to a dedicated thread.
+            def _thread_target() -> None:
+                asyncio.run(self._run_task(task_id=task_id, task_kind=task_kind))
+
+            threading.Thread(target=_thread_target, name=f"background-task-retry-{task_kind}", daemon=True).start()
 
     async def _run_task(self, *, task_id: str, task_kind: str) -> None:
         record = self.store.load(task_id, task_kind)
@@ -340,3 +403,20 @@ class BackgroundTaskManager:
         if isinstance(result, dict):
             return dict(result)
         return {"value": result}
+
+    def _coalesce_key(self, task_kind: str, coalesce_key: str) -> str:
+        normalized = str(coalesce_key or "").strip()
+        if not normalized:
+            return ""
+        return f"{str(task_kind or '').strip() or 'default'}::{normalized}"
+
+    def _load_active_coalesced_task(self, coalesce_key: str) -> BackgroundTaskRecord | None:
+        with self._lock:
+            active = self._active_task_keys.get(coalesce_key)
+        if not active:
+            return None
+        task_id, kind = active
+        record = self.store.load(task_id, kind)
+        if record is None or record.status in {"succeeded", "failed", "skipped"}:
+            return None
+        return record

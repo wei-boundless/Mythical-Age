@@ -1161,6 +1161,10 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
     runtime_state = runtime.checkpoints.get_state(thread_id="coordrun:test")
     assert dict(runtime_state["diagnostics"])["contract_manifest_ref"].startswith("contract-manifest:coordination:")
     assert "project_scope" in runtime_state["completed_nodes"]
+    handoffs = state_index.list_coordination_handoffs("coordrun:test")
+    assert len(handoffs) == 1
+    assert handoffs[0].diagnostics["source_stage_id"] == "project_scope"
+    assert handoffs[0].diagnostics["target_stage_id"] == "novel_bible"
 
 
 class _DiamondRegistry:

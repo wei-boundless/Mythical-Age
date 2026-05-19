@@ -20,29 +20,59 @@
       "group_id": "group.writing.simple_novel",
       "title": "写作组",
       "group_kind": "coordination_team",
+      "description": "执行简易版长篇小说完整生产流程。",
       "coordinator_agent_id": "agent:0",
       "member_agent_ids": [
         "agent:writing_simple_worker",
         "agent:writing_memory_steward",
         "agent:writing_runtime_monitor"
       ],
-      "description": "执行简易版长篇小说完整生产流程。",
+      "default_topology_template_ids": [
+        "topology.writing.simple_novel"
+      ],
+      "default_communication_protocol_ids": [
+        "protocol.writing.simple_novel"
+      ],
+      "allowed_task_graph_ids": [
+        "graph.writing.simple_novel"
+      ],
       "lifecycle_state": "enabled",
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
-        "monitor_node_id": "runtime_monitor",
-        "allowed_task_graph_ids": [
-          "graph.writing.simple_novel"
-        ],
-        "default_topology_template_ids": [
-          "topology.writing.simple_novel"
-        ],
-        "default_communication_protocol_ids": [
-          "protocol.writing.simple_novel"
-        ]
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
+        "monitor_node_id": "runtime_monitor"
       },
-      "authority": "orchestration.agent_group"
+      "authority": "orchestration.agent_group",
+      "allowed_coordination_task_ids": [
+        "task.writing.simple_novel.project_brief",
+        "task.writing.simple_novel.world_design",
+        "task.writing.simple_novel.world_review",
+        "task.writing.simple_novel.memory_commit_world",
+        "task.writing.simple_novel.character_design",
+        "task.writing.simple_novel.plot_design",
+        "task.writing.simple_novel.design_sync",
+        "task.writing.simple_novel.outline_design",
+        "task.writing.simple_novel.outline_review",
+        "task.writing.simple_novel.baseline_memory_seed",
+        "task.writing.simple_novel.volume_plan",
+        "task.writing.simple_novel.chapter_outline",
+        "task.writing.simple_novel.chapter_draft",
+        "task.writing.simple_novel.chapter_review",
+        "task.writing.simple_novel.memory_commit_chapter",
+        "task.writing.simple_novel.chapter_progress_router",
+        "task.writing.simple_novel.volume_review",
+        "task.writing.simple_novel.volume_commit",
+        "task.writing.simple_novel.volume_postmortem",
+        "task.writing.simple_novel.world_outline_extension_proposal",
+        "task.writing.simple_novel.extension_review",
+        "task.writing.simple_novel.extension_commit",
+        "task.writing.simple_novel.next_volume_router",
+        "task.writing.simple_novel.final_assemble",
+        "task.writing.simple_novel.final_review",
+        "task.writing.simple_novel.memory_finalize",
+        "task.writing.simple_novel.runtime_monitor",
+        "task.writing.simple_novel.fail_closed"
+      ]
     }
   ]
 }

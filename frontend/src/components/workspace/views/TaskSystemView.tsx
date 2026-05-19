@@ -52,6 +52,7 @@ import {
   graphNodeTaskId,
 } from "@/components/workspace/views/task-system/taskGraphTopologyUtils";
 import {
+  TaskGraphChromeSelect,
   TaskSystemDomainTaskSelectField as DomainTaskSelectField,
   TaskSystemField as Field,
   TaskSystemMultiSelectField as MultiSelectField,
@@ -114,81 +115,6 @@ type TaskLayer = "management" | "editor";
 type TaskSystemLayer = "domains" | "tasks" | "graphs" | "contracts" | "orchestration" | "runtime";
 type TaskConfigPanel = "definition";
 type ContractPanel = "library" | "templates" | "bindings" | "manifest";
-type ChromeSelectOption = {
-  value: string;
-  label: string;
-  disabled?: boolean;
-};
-
-function TaskGraphChromeSelect({
-  disabled = false,
-  emptyLabel,
-  label,
-  onChange,
-  options,
-  placeholder,
-  value,
-}: {
-  disabled?: boolean;
-  emptyLabel?: string;
-  label: string;
-  onChange: (value: string) => void;
-  options: ChromeSelectOption[];
-  placeholder: string;
-  value: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const selected = options.find((option) => option.value === value);
-  const displayLabel = selected?.label || emptyLabel || placeholder;
-  const selectableOptions = options.filter((option) => !option.disabled);
-  const isDisabled = disabled || selectableOptions.length === 0;
-
-  return (
-    <label
-      className={isDisabled ? "task-graph-editor-chrome__field task-graph-editor-chrome__field--disabled" : "task-graph-editor-chrome__field"}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          setOpen(false);
-        }
-      }}
-    >
-      <span className="task-graph-editor-chrome__field-label">{label}</span>
-      <div className="task-graph-editor-select">
-        <button
-          aria-expanded={open}
-          disabled={isDisabled}
-          onClick={() => setOpen((current) => !current)}
-          type="button"
-        >
-          <span>{displayLabel}</span>
-          <i aria-hidden="true" />
-        </button>
-        {open && !isDisabled ? (
-          <div className="task-graph-editor-select__menu" role="listbox">
-            {options.map((option) => (
-              <button
-                aria-selected={option.value === value}
-                className={option.value === value ? "task-graph-editor-select__option task-graph-editor-select__option--active" : "task-graph-editor-select__option"}
-                disabled={option.disabled}
-                key={option.value || option.label}
-                onClick={() => {
-                  if (!option.disabled) {
-                    onChange(option.value);
-                    setOpen(false);
-                  }
-                }}
-                role="option"
-                type="button"
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </label>
-  );
-}
 
 type WorkflowDraft = TaskWorkflowRecord & {
   compatible_projection_ids_text: string;
@@ -1175,6 +1101,22 @@ export function TaskSystemView() {
     () => editorDomainFilterId ? allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === editorDomainFilterId) : [],
     [allTaskGraphs, editorDomainFilterId],
   );
+  const editorGraphSelectOptions = useMemo(() => {
+    const options = editorTaskGraphs.map((task) => ({ value: task.graph_id, label: task.title }));
+    const draftGraphId = String(taskGraphDraftV2.graph_id || "").trim();
+    const draftInEditorDomain = draftGraphId
+      && String(taskGraphDraftV2.domain_id || "").trim() === editorDomainFilterId;
+    if (draftInEditorDomain && !options.some((option) => option.value === draftGraphId)) {
+      return [
+        {
+          value: draftGraphId,
+          label: `${taskGraphDraftV2.title || draftGraphId}（未保存草稿）`,
+        },
+        ...options,
+      ];
+    }
+    return options;
+  }, [editorDomainFilterId, editorTaskGraphs, taskGraphDraftV2.domain_id, taskGraphDraftV2.graph_id, taskGraphDraftV2.title]);
   const editorSelectedTaskGraph = editorTaskGraphs.find((item) => item.graph_id === editorTaskGraphId) ?? null;
   const activeTaskGraphSummary = taskLayer === "editor" ? editorSelectedTaskGraph : selectedTaskGraph;
   const activeTaskGraph = activeTaskGraphDetail?.graph_id === activeTaskGraphSummary?.graph_id
@@ -1432,9 +1374,12 @@ export function TaskSystemView() {
 
   useEffect(() => {
     if (!editorTaskGraphs.some((item) => item.graph_id === editorTaskGraphId)) {
+      if (editorTaskGraphId && editorTaskGraphId === taskGraphDraftV2.graph_id) {
+        return;
+      }
       setEditorTaskGraphId(editorTaskGraphs[0]?.graph_id || "");
     }
-  }, [editorTaskGraphId, editorTaskGraphs]);
+  }, [editorTaskGraphId, editorTaskGraphs, taskGraphDraftV2.graph_id]);
 
   useEffect(() => {
     if (!selectedTask) return;
@@ -1870,11 +1815,9 @@ export function TaskSystemView() {
         task_family: draftFamily,
         domain_id: draftDomainId,
       };
-      if (taskLayer === "editor") {
-        setEditorTaskGraphId(nextDraft.graph_id);
-      } else {
-        setSelectedTaskGraphId(nextDraft.graph_id);
-      }
+      setEditorDomainId(draftDomainId);
+      setEditorTaskGraphId(nextDraft.graph_id);
+      setSelectedTaskGraphId(nextDraft.graph_id);
       setTaskLayer("editor");
       setTaskGraphDraftV2(nextDraft);
       setSelectedGraphNodeId("");
@@ -1929,11 +1872,9 @@ export function TaskSystemView() {
           task_id: undefined,
         },
       };
-      if (taskLayer === "editor") {
-        setEditorTaskGraphId(nextGraphId);
-      } else {
-        setSelectedTaskGraphId(nextGraphId);
-      }
+      setEditorDomainId(draftDomainId);
+      setEditorTaskGraphId(nextGraphId);
+      setSelectedTaskGraphId(nextGraphId);
       setTaskLayer("editor");
       setTaskGraphDraftV2(nextDraft);
       setSelectedGraphNodeId(String((nextDraft.nodes ?? [])[0]?.node_id ?? ""));
@@ -2621,6 +2562,43 @@ export function TaskSystemView() {
     setLinkingFromNodeId("");
   }
 
+  const editorWorkspaceSlot = (
+    <>
+      <div className="task-graph-editor-chrome__controls">
+        <TaskGraphChromeSelect
+          emptyLabel={visibleDomains.length ? "选择任务域" : "暂无任务域"}
+          label="任务域"
+          onChange={selectEditorDomain}
+          options={visibleDomains.map((domain) => ({ value: domain.domain_id, label: domain.title }))}
+          placeholder="选择任务域"
+          value={editorDomainId}
+        />
+        <TaskGraphChromeSelect
+          disabled={!editorDomain}
+          emptyLabel={!editorDomain ? "先选择任务域" : editorGraphSelectOptions.length ? "选择图草稿" : "当前任务域暂无图"}
+          label="图草稿"
+          onChange={(nextValue) => {
+            setEditorTaskGraphId(nextValue);
+            setSelectedTaskGraphId(nextValue);
+            setSelectedGraphNodeId("");
+            setSelectedGraphEdgeId("");
+            setLinkingFromNodeId("");
+          }}
+          options={editorGraphSelectOptions}
+          placeholder="选择图草稿"
+          value={editorTaskGraphId}
+        />
+      </div>
+      <div className="task-graph-editor-chrome__status task-graph-editor-chrome__status--context">
+        <span className={topologyDirty ? "boundary-status boundary-status--warn" : "boundary-status"}>{topologyDirty ? "拓扑未同步" : "拓扑已同步"}</span>
+        <span className="boundary-status">{editorDomain?.title || "未选择任务域"}</span>
+      </div>
+      <div className="task-graph-editor-chrome__actions task-graph-editor-chrome__actions--minimal">
+        <ToolbarButton disabled={saving === "task-graph-create"} onClick={() => void createTaskGraphDraft()}><Network size={15} />新图草稿</ToolbarButton>
+      </div>
+    </>
+  );
+
   return (
     <TaskSystemShell
       activeLayer={taskSystemLayer}
@@ -3278,41 +3256,6 @@ export function TaskSystemView() {
 
       {taskLayer === "editor" ? (
         <section className="task-system-editor-shell">
-          <section className="task-graph-editor-chrome" aria-label="任务图编辑器操作台">
-            <div className="task-graph-editor-chrome__controls">
-              <TaskGraphChromeSelect
-                emptyLabel={visibleDomains.length ? "选择任务域" : "暂无任务域"}
-                label="任务域"
-                onChange={selectEditorDomain}
-                options={visibleDomains.map((domain) => ({ value: domain.domain_id, label: domain.title }))}
-                placeholder="选择任务域"
-                value={editorDomainId}
-              />
-              <TaskGraphChromeSelect
-                disabled={!editorDomain}
-                emptyLabel={!editorDomain ? "先选择任务域" : editorTaskGraphs.length ? "选择图草稿" : "当前任务域暂无图"}
-                label="图草稿"
-                onChange={(nextValue) => {
-                  setEditorTaskGraphId(nextValue);
-                  setSelectedTaskGraphId(nextValue);
-                  setSelectedGraphNodeId("");
-                  setSelectedGraphEdgeId("");
-                  setLinkingFromNodeId("");
-                }}
-                options={editorTaskGraphs.map((task) => ({ value: task.graph_id, label: task.title }))}
-                placeholder="选择图草稿"
-                value={editorTaskGraphId}
-              />
-            </div>
-            <div className="task-graph-editor-chrome__status task-graph-editor-chrome__status--context">
-              <span className={topologyDirty ? "boundary-status boundary-status--warn" : "boundary-status"}>{topologyDirty ? "拓扑未同步" : "拓扑已同步"}</span>
-              <span className="boundary-status">图编辑动作请在 Studio 顶栏执行</span>
-            </div>
-            <div className="task-graph-editor-chrome__actions task-graph-editor-chrome__actions--minimal">
-              <ToolbarButton disabled={saving === "task-graph-create"} onClick={() => void createTaskGraphDraft()}><Network size={15} />新图草稿</ToolbarButton>
-            </div>
-          </section>
-
           <TaskGraphWorkbench
             addTaskGraphNode={addTaskGraphNode}
             addTaskGraphRoleNode={addTaskGraphRoleNode}
@@ -3353,6 +3296,7 @@ export function TaskSystemView() {
             setSelectedGraphNodeId={setSelectedGraphNodeId}
             taskGraphDirty={topologyDirty}
             taskGraphDraftV2={taskGraphDraftV2}
+            workspaceSlot={editorWorkspaceSlot}
             taskGraphStandardView={taskGraphStandardView}
             taskGraphStandardViewError={taskGraphStandardViewError}
             taskGraphStandardViewLoading={taskGraphStandardViewLoading}

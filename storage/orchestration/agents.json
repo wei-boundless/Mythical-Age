@@ -486,94 +486,6 @@
       "group_eligible": false
     },
     {
-      "agent_id": "agent:writing_memory_steward",
-      "agent_name": "写作记忆管家",
-      "display_name": "写作记忆管家",
-      "agent_category": "custom_agent",
-      "profile_type": "custom_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "写作 TaskGraph 的记忆提交、归档和索引维护 Agent。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
-      "created_at": 1779023441.0055075,
-      "updated_at": 1779110782.930994,
-      "metadata": {
-        "managed_by": "task_graph_order_from_task_system",
-        "role": "writing_memory_steward",
-        "task_family": "writing_memory",
-        "definition_source": "task_graph_assembly_order",
-        "source_task_graph_refs": [
-          "graph.writing.simple_novel",
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "custom_agent_pool",
-        "delegation_enabled": true,
-        "group_eligible": true,
-        "agent_template_id": "task_graph.writing.memory_steward"
-      }
-    },
-    {
-      "agent_id": "agent:writing_runtime_monitor",
-      "agent_name": "写作运行监测 Agent",
-      "display_name": "写作运行监测 Agent",
-      "agent_category": "custom_agent",
-      "profile_type": "custom_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "观察 TaskGraph 运行快照，向统一运行交互窗口输出提醒、续跑或人工确认请求。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing.simple_novel.runtime_monitor",
-      "created_at": 1779023441.0055075,
-      "updated_at": 1779110782.9594817,
-      "metadata": {
-        "managed_by": "task_graph_order_from_task_system",
-        "role": "writing_runtime_monitor",
-        "task_family": "writing_simple_novel",
-        "definition_source": "task_graph_assembly_order",
-        "source_task_graph_refs": [
-          "graph.writing.simple_novel"
-        ],
-        "system_key": "custom_agent_pool",
-        "delegation_enabled": true,
-        "group_eligible": true,
-        "agent_template_id": "task_graph.writing.runtime_monitor"
-      }
-    },
-    {
-      "agent_id": "agent:writing_simple_worker",
-      "agent_name": "写作组通用执行 Agent",
-      "display_name": "写作组通用执行 Agent",
-      "agent_category": "custom_agent",
-      "profile_type": "custom_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "简写作 TaskGraph 的通用执行 Agent。具体创作、审核、整编身份由任务图节点投影和职责契约决定。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "projection.writing.simple_novel.volume_reviewer",
-      "created_at": 1779023441.0055075,
-      "updated_at": 1779110782.9023774,
-      "metadata": {
-        "managed_by": "task_graph_order_from_task_system",
-        "role": "writing_simple_runtime_worker",
-        "task_family": "writing_simple_novel",
-        "definition_source": "task_graph_assembly_order",
-        "source_task_graph_refs": [
-          "graph.writing.simple_novel"
-        ],
-        "system_key": "custom_agent_pool",
-        "delegation_enabled": true,
-        "group_eligible": true,
-        "agent_template_id": "task_graph.writing.simple_novel.runtime_worker"
-      }
-    },
-    {
       "agent_id": "agent:writing_team_worker",
       "agent_name": "长篇写作组通用执行 Agent",
       "display_name": "长篇写作组通用执行 Agent",
@@ -600,6 +512,90 @@
         "delegation_enabled": true,
         "group_eligible": true,
         "agent_template_id": "task_graph.writing_team.long_novel.runtime_worker"
+      }
+    },
+    {
+      "agent_id": "agent:writing_simple_worker",
+      "agent_name": "写作组任务执行员",
+      "display_name": "写作组任务执行员",
+      "agent_category": "custom_agent",
+      "profile_type": "custom_agent",
+      "interface_target": "task_graph_node_runtime",
+      "description": "按节点投影分别承担项目整理、世界观、人设、剧情、大纲、章节、审核、路由和交付整编职责。",
+      "enabled": true,
+      "builtin": false,
+      "editable": true,
+      "default_soul_id": "hebo",
+      "default_projection_id": "projection.writing.simple_novel.project_brief",
+      "created_at": 1779178541.2260666,
+      "updated_at": 1779178541.2260666,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "task_family": "writing_simple_novel",
+        "definition_source": "task_graph_assembly",
+        "source_task_graph_refs": [
+          "graph.writing.simple_novel"
+        ],
+        "system_key": "worker_pool",
+        "delegation_enabled": true,
+        "group_eligible": true,
+        "agent_template_id": "task_graph.writing.simple_novel.runtime_worker"
+      }
+    },
+    {
+      "agent_id": "agent:writing_memory_steward",
+      "agent_name": "写作组记忆管家",
+      "display_name": "写作组记忆管家",
+      "agent_category": "custom_agent",
+      "profile_type": "custom_agent",
+      "interface_target": "task_graph_node_runtime",
+      "description": "初始化基准库，并写入章节、卷级、可改动库和交付索引。",
+      "enabled": true,
+      "builtin": false,
+      "editable": true,
+      "default_soul_id": "hebo",
+      "default_projection_id": "projection.writing.simple_novel.memory_steward",
+      "created_at": 1779178541.2260666,
+      "updated_at": 1779178541.2260666,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "task_family": "writing_simple_novel",
+        "definition_source": "task_graph_assembly",
+        "source_task_graph_refs": [
+          "graph.writing.simple_novel"
+        ],
+        "system_key": "worker_pool",
+        "delegation_enabled": true,
+        "group_eligible": true,
+        "agent_template_id": "task_graph.writing.memory_steward"
+      }
+    },
+    {
+      "agent_id": "agent:writing_runtime_monitor",
+      "agent_name": "写作组运行监测员",
+      "display_name": "写作组运行监测员",
+      "agent_category": "custom_agent",
+      "profile_type": "custom_agent",
+      "interface_target": "task_graph_node_runtime",
+      "description": "观察 TaskGraph 运行快照，向统一运行交互窗口输出提醒、续跑或人工确认请求。",
+      "enabled": true,
+      "builtin": false,
+      "editable": true,
+      "default_soul_id": "hebo",
+      "default_projection_id": "projection.writing.simple_novel.runtime_monitor",
+      "created_at": 1779178541.2260666,
+      "updated_at": 1779178541.2260666,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "task_family": "writing_simple_novel",
+        "definition_source": "task_graph_assembly",
+        "source_task_graph_refs": [
+          "graph.writing.simple_novel"
+        ],
+        "system_key": "worker_pool",
+        "delegation_enabled": true,
+        "group_eligible": true,
+        "agent_template_id": "task_graph.writing.runtime_monitor"
       }
     }
   ]

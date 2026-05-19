@@ -60,6 +60,38 @@ describe("TaskGraph preflight", () => {
     expect(report.issues.some((issue) => issue.source === "backend.runtime_spec")).toBe(true);
   });
 
+  it("merges backend composable graph issues into the publish preflight report", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [{ node_id: "draft", agent_id: "agent:writer" }],
+      edges: [],
+      standardView: {
+        issues: [
+          {
+            code: "nested_graph_handoff_contract_missing",
+            message: "嵌套图运行缺少交接契约",
+            severity: "warning",
+            unit_id: "unit.graph.block.design",
+            source: "task_system.composable_graph_issue",
+          },
+          {
+            code: "port_edge_target_port_missing",
+            message: "端口边的目标端口不存在",
+            severity: "error",
+            edge_id: "edge.design.creation",
+            source: "task_system.composable_graph_issue",
+          },
+        ],
+      },
+    });
+
+    expect(report.valid).toBe(false);
+    expect(report.issues.some((issue) => issue.source === "backend.composable_graph" && issue.scope === "unit")).toBe(true);
+    expect(report.issues.some((issue) => issue.source === "backend.composable_graph" && issue.scope === "port_edge" && issue.severity === "error")).toBe(true);
+  });
+
   it("warns when nodes have no Chinese name registry or explicit display name", () => {
     const report = buildTaskGraphPreflightReport({
       dirty: false,

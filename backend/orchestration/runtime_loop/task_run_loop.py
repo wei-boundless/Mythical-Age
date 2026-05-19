@@ -3146,6 +3146,8 @@ class TaskRunLoop:
             dict(stage_execution_request.get("artifact_policy") or {}).get("enabled")
             or stage_execution_request.get("artifact_targets")
         )
+        if str(stage_execution_request.get("stage_id") or "") == "project_brief":
+            requires_file_artifact_refs_preview = False
         if stage_execution_request and start_coordination_run is not None:
             coordination_state_for_acceptance = self.langgraph_coordination_runtime.checkpoints.get_state(
                 thread_id=start_coordination_run.coordination_run_id,
@@ -3156,20 +3158,23 @@ class TaskRunLoop:
                 )
                 or {}
             )
-            stage_acceptance_preview = _stage_business_acceptance(
-                stage_id=str(stage_execution_request.get("stage_id") or ""),
-                contract=stage_contract_for_acceptance,
-                explicit_inputs=explicit_inputs,
-                final_content=final_content,
-                output_refs=["artifact:pending"] if requires_file_artifact_refs_preview and str(terminal_state.status or "") == "completed" else [],
-                terminal_status=terminal_state.status,
-                requires_file_artifact_refs=requires_file_artifact_refs_preview,
-            )
+            if not requires_file_artifact_refs_preview:
+                stage_acceptance_preview = _stage_business_acceptance(
+                    stage_id=str(stage_execution_request.get("stage_id") or ""),
+                    contract=stage_contract_for_acceptance,
+                    explicit_inputs=explicit_inputs,
+                    final_content=final_content,
+                    output_refs=[],
+                    terminal_status=terminal_state.status,
+                    requires_file_artifact_refs=requires_file_artifact_refs_preview,
+                )
         acceptance_status = (
             "accepted"
             if bool(stage_acceptance_preview.get("accepted") is True)
             else "rejected"
-            if stage_execution_request and requires_file_artifact_refs_preview
+            if stage_execution_request
+            and stage_acceptance_preview
+            and requires_file_artifact_refs_preview
             else ""
         )
         try:
@@ -3442,8 +3447,13 @@ class TaskRunLoop:
                     if str(ref or "").startswith("artifact:")
                 ] if requires_file_artifact_refs else all_output_refs
                 materialization_payload = dict(dict(task_result or {}).get("diagnostics", {}).get("artifact_materialization") or {})
-                if str(dict(materialization_payload.get("diagnostics") or {}).get("acceptance_status") or "") == "rejected":
-                    output_refs = []
+                materialized_refs = [
+                    str(item)
+                    for item in list(dict(materialization_payload or {}).get("artifact_refs") or [])
+                    if str(item)
+                ]
+                if materialized_refs:
+                    output_refs = _dedupe_refs([*output_refs, *materialized_refs])
                 task_result_ref = str(dict(task_result or {}).get("result_id") or agent_run_result.agent_run_result_id)
                 coordination_state_before_resume = self.langgraph_coordination_runtime.checkpoints.get_state(
                     thread_id=target_coordination_run.coordination_run_id,
@@ -7924,6 +7934,15 @@ def _stage_business_acceptance(
     gate_policy = str(contract.get("gate_policy") or "").strip()
     is_review_gate = node_type == "review_gate" or gate_policy == "review_gate" or bool(review_policy)
     if not is_review_gate:
+        if str(stage_id or "").strip() == "project_brief":
+            return {
+                "accepted": base_accepted,
+                "base_accepted": base_accepted,
+                "artifact_ok": artifact_ok,
+                "stage_id": stage_id,
+                "policy": "technical_completion",
+                "authority": "orchestration.stage_business_acceptance",
+            }
         return {
             "accepted": base_accepted,
             "base_accepted": base_accepted,

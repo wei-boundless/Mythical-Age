@@ -1747,7 +1747,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "creator",
             "role_identity": "你是一名项目启动包整理者。",
             "responsibility_scope": "你只负责按输入包和授权记忆完成当前创作或规划产物。",
@@ -1767,7 +1767,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -1832,7 +1832,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "creator",
             "role_identity": "你是一名世界观设定写手。",
             "responsibility_scope": "你只负责按输入包和授权记忆完成当前创作或规划产物。",
@@ -1852,7 +1852,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -1934,7 +1934,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "reviewer",
             "role_identity": "你是一名世界观审核员。",
             "responsibility_scope": "你只负责审核当前送审对象，指出问题并给出明确裁决。",
@@ -1954,7 +1954,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -2019,7 +2019,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "memory_steward",
             "role_identity": "你是一名世界观提交管家。",
             "responsibility_scope": "你只负责按审核结果和提交边写入索引、回执和记忆提交记录。",
@@ -2039,7 +2039,506 @@
             "operation": "commit",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
+            "chapters_per_round": 0,
+            "streaming_enabled": true
+          }
+        },
+        {
+          "node_id": "character_design",
+          "node_type": "agent_role",
+          "title": "人设与关系设计",
+          "task_id": "task.writing.simple_novel.character_design",
+          "agent_id": "agent:writing_simple_worker",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.character_designer",
+          "phase_id": "phase.design",
+          "sequence_index": 40,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.design",
+          "artifact_target": "design/character_design.md",
+          "output_path": "design/character_design.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "",
+            "artifact_target": "design/character_design.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "design/character_design.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          },
+          "artifact_context_policy": {
+            "items": [
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs",
+                "label": "已提交世界观主干",
+                "max_chars": 50000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "project_brief_ref",
+                "label": "项目启动包",
+                "max_chars": 16000
+              }
+            ],
+            "default_max_chars": 20000,
+            "max_items": 2
+          },
+          "revision_context_policy": {},
+          "quality_retry_policy": {},
+          "progress_commit_policy": {},
+          "loop_policy": {},
+          "loop_kind": "",
+          "loop_scope_id": "",
+          "title_template": "",
+          "loop_route_policy": {},
+          "resource_lifecycle_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+            "role": "creator",
+            "role_identity": "你是一名人设与关系设计师。",
+            "responsibility_scope": "你只负责按输入包和授权记忆完成当前创作或规划产物。",
+            "responsibility_exclusions": "你不负责审核自己产出的候选，也不负责把候选写成已提交事实。",
+            "definition_of_done": "完成标准：输出必须可被审核节点直接审阅，并明确引用输入包和未解决风险。",
+            "workflow_instruction_template": "先确认本轮时序位置，再读取输入包和授权记忆，随后完成职责，最后按输出契约交付。",
+            "context_usage_rules": [
+              "只使用输入包、MemorySnapshot、ArtifactContextPacket、RevisionPacket 中明确授权的信息。",
+              "遇到缺失的必需输入时必须报告阻塞，不得自行猜测。",
+              "区分候选、审核结果、提交事实和只读基准。"
+            ],
+            "output_behavior_rules": [
+              "按 output_contract_id 输出结构化结果。",
+              "长文本只交付 artifact ref，不把全文塞进普通交接。",
+              "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
+            ],
+            "operation": "",
+            "memory_closed_loop": true,
+            "requires_memory_pack": true,
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
+            "chapters_per_round": 0,
+            "streaming_enabled": true
+          }
+        },
+        {
+          "node_id": "plot_design",
+          "node_type": "agent_role",
+          "title": "剧情与伏笔设计",
+          "task_id": "task.writing.simple_novel.plot_design",
+          "agent_id": "agent:writing_simple_worker",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.plot_designer",
+          "phase_id": "phase.design",
+          "sequence_index": 50,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.design",
+          "artifact_target": "design/plot_design.md",
+          "output_path": "design/plot_design.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "",
+            "artifact_target": "design/plot_design.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "design/plot_design.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          },
+          "artifact_context_policy": {
+            "items": [
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs",
+                "label": "已提交世界观主干",
+                "max_chars": 50000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.character_design:artifact_refs",
+                "label": "人设与关系设计稿",
+                "max_chars": 50000
+              }
+            ],
+            "default_max_chars": 20000,
+            "max_items": 2
+          },
+          "revision_context_policy": {},
+          "quality_retry_policy": {},
+          "progress_commit_policy": {},
+          "loop_policy": {},
+          "loop_kind": "",
+          "loop_scope_id": "",
+          "title_template": "",
+          "loop_route_policy": {},
+          "resource_lifecycle_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+            "role": "creator",
+            "role_identity": "你是一名剧情与伏笔设计师。",
+            "responsibility_scope": "你只负责按输入包和授权记忆完成当前创作或规划产物。",
+            "responsibility_exclusions": "你不负责审核自己产出的候选，也不负责把候选写成已提交事实。",
+            "definition_of_done": "完成标准：输出必须可被审核节点直接审阅，并明确引用输入包和未解决风险。",
+            "workflow_instruction_template": "先确认本轮时序位置，再读取输入包和授权记忆，随后完成职责，最后按输出契约交付。",
+            "context_usage_rules": [
+              "只使用输入包、MemorySnapshot、ArtifactContextPacket、RevisionPacket 中明确授权的信息。",
+              "遇到缺失的必需输入时必须报告阻塞，不得自行猜测。",
+              "区分候选、审核结果、提交事实和只读基准。"
+            ],
+            "output_behavior_rules": [
+              "按 output_contract_id 输出结构化结果。",
+              "长文本只交付 artifact ref，不把全文塞进普通交接。",
+              "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
+            ],
+            "operation": "",
+            "memory_closed_loop": true,
+            "requires_memory_pack": true,
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
+            "chapters_per_round": 0,
+            "streaming_enabled": true
+          }
+        },
+        {
+          "node_id": "design_sync",
+          "node_type": "agent_role",
+          "title": "设计对齐讨论",
+          "task_id": "task.writing.simple_novel.design_sync",
+          "agent_id": "agent:writing_simple_worker",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.design_synchronizer",
+          "phase_id": "phase.design",
+          "sequence_index": 60,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.design",
+          "artifact_target": "design/design_sync.md",
+          "output_path": "design/design_sync.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "",
+            "artifact_target": "design/design_sync.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "design/design_sync.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          },
+          "artifact_context_policy": {
+            "items": [
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs",
+                "label": "已提交世界观主干",
+                "max_chars": 40000
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.character_design:artifact_refs",
+                "label": "人设与关系设计稿",
+                "max_chars": 50000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.plot_design:artifact_refs",
+                "label": "剧情与伏笔设计稿",
+                "max_chars": 50000,
+                "required": true
+              }
+            ],
+            "default_max_chars": 20000,
+            "max_items": 3
+          },
+          "revision_context_policy": {},
+          "quality_retry_policy": {},
+          "progress_commit_policy": {},
+          "loop_policy": {},
+          "loop_kind": "",
+          "loop_scope_id": "",
+          "title_template": "",
+          "loop_route_policy": {},
+          "resource_lifecycle_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+            "role": "creator",
+            "role_identity": "你是一名创作架构对齐审核员。",
+            "responsibility_scope": "你只负责按输入包和授权记忆完成当前创作或规划产物。",
+            "responsibility_exclusions": "你不负责审核自己产出的候选，也不负责把候选写成已提交事实。",
+            "definition_of_done": "完成标准：输出必须可被审核节点直接审阅，并明确引用输入包和未解决风险。",
+            "workflow_instruction_template": "先确认本轮时序位置，再读取输入包和授权记忆，随后完成职责，最后按输出契约交付。",
+            "context_usage_rules": [
+              "只使用输入包、MemorySnapshot、ArtifactContextPacket、RevisionPacket 中明确授权的信息。",
+              "遇到缺失的必需输入时必须报告阻塞，不得自行猜测。",
+              "区分候选、审核结果、提交事实和只读基准。"
+            ],
+            "output_behavior_rules": [
+              "按 output_contract_id 输出结构化结果。",
+              "长文本只交付 artifact ref，不把全文塞进普通交接。",
+              "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
+            ],
+            "operation": "",
+            "memory_closed_loop": true,
+            "requires_memory_pack": true,
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
+            "chapters_per_round": 0,
+            "streaming_enabled": true
+          }
+        },
+        {
+          "node_id": "outline_design",
+          "node_type": "agent_role",
+          "title": "全书大纲设计",
+          "task_id": "task.writing.simple_novel.outline_design",
+          "agent_id": "agent:writing_simple_worker",
+          "role": "creator",
+          "work_posture": "creator",
+          "projection_id": "projection.writing.simple_novel.outline_designer",
+          "phase_id": "phase.design",
+          "sequence_index": 70,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.design",
+          "artifact_target": "design/outline_design.md",
+          "output_path": "design/outline_design.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "",
+            "artifact_target": "design/outline_design.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "design/outline_design.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          },
+          "artifact_context_policy": {
+            "items": [
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs",
+                "label": "已提交世界观主干",
+                "max_chars": 40000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.character_design:artifact_refs",
+                "label": "人设与关系设计稿",
+                "max_chars": 50000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.plot_design:artifact_refs",
+                "label": "剧情与伏笔设计稿",
+                "max_chars": 50000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.design_sync:artifact_refs",
+                "label": "设计对齐包",
+                "max_chars": 36000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "previous_review_ref",
+                "label": "上一轮大纲审核意见",
+                "max_chars": 24000
+              },
+              {
+                "source": "input_key",
+                "input_key": "previous_candidate_ref",
+                "label": "上一轮大纲原稿",
+                "max_chars": 65000
+              }
+            ],
+            "default_max_chars": 20000,
+            "max_items": 6
+          },
+          "revision_context_policy": {},
+          "quality_retry_policy": {},
+          "progress_commit_policy": {},
+          "loop_policy": {},
+          "loop_kind": "",
+          "loop_scope_id": "",
+          "title_template": "",
+          "loop_route_policy": {},
+          "resource_lifecycle_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+            "role": "creator",
+            "role_identity": "你是一名全书大纲设计师。",
+            "responsibility_scope": "你只负责按输入包和授权记忆完成当前创作或规划产物。",
+            "responsibility_exclusions": "你不负责审核自己产出的候选，也不负责把候选写成已提交事实。",
+            "definition_of_done": "完成标准：输出必须可被审核节点直接审阅，并明确引用输入包和未解决风险。",
+            "workflow_instruction_template": "先确认本轮时序位置，再读取输入包和授权记忆，随后完成职责，最后按输出契约交付。",
+            "context_usage_rules": [
+              "只使用输入包、MemorySnapshot、ArtifactContextPacket、RevisionPacket 中明确授权的信息。",
+              "遇到缺失的必需输入时必须报告阻塞，不得自行猜测。",
+              "区分候选、审核结果、提交事实和只读基准。"
+            ],
+            "output_behavior_rules": [
+              "按 output_contract_id 输出结构化结果。",
+              "长文本只交付 artifact ref，不把全文塞进普通交接。",
+              "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
+            ],
+            "operation": "",
+            "memory_closed_loop": true,
+            "requires_memory_pack": true,
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
+            "chapters_per_round": 0,
+            "streaming_enabled": true
+          }
+        },
+        {
+          "node_id": "outline_review",
+          "node_type": "review_gate",
+          "title": "全书大纲审核",
+          "task_id": "task.writing.simple_novel.outline_review",
+          "agent_id": "agent:writing_simple_worker",
+          "role": "reviewer",
+          "work_posture": "reviewer",
+          "projection_id": "projection.writing.simple_novel.outline_reviewer",
+          "phase_id": "phase.design",
+          "sequence_index": 80,
+          "execution_mode": "sync",
+          "dispatch_group": "phase.design",
+          "artifact_target": "design/outline_review.md",
+          "output_path": "design/outline_review.md",
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "source": "task_graph_node",
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "",
+            "artifact_target": "design/outline_review.md",
+            "storage_policy": "task_artifact_ref",
+            "artifacts": [
+              {
+                "path": "design/outline_review.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": false
+              }
+            ]
+          },
+          "artifact_context_policy": {
+            "items": [
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs",
+                "label": "已提交世界观主干",
+                "max_chars": 40000
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.character_design:artifact_refs",
+                "label": "人设与关系设计稿",
+                "max_chars": 50000
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.plot_design:artifact_refs",
+                "label": "剧情与伏笔设计稿",
+                "max_chars": 50000
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.design_sync:artifact_refs",
+                "label": "设计对齐包",
+                "max_chars": 36000
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.outline_design:artifact_refs",
+                "label": "待审全书大纲",
+                "max_chars": 65000,
+                "required": true
+              }
+            ],
+            "default_max_chars": 20000,
+            "max_items": 5
+          },
+          "revision_context_policy": {
+            "carry": [
+              {
+                "source": "current_review",
+                "input_key": "previous_review_ref"
+              },
+              {
+                "source": "inherited_input",
+                "from_key": "contract.writing.simple_novel.outline_design:artifact_refs",
+                "input_key": "previous_candidate_ref"
+              }
+            ],
+            "requirements_input_key": "revision_requirements",
+            "default_requirements": "上一轮大纲审核未通过；请读取审核意见和被审核大纲，在原稿基础上逐条修订，不要脱离人设、剧情和设计对齐包另起一套大纲。",
+            "clear_input_keys": [
+              "contract.writing.simple_novel.outline_design:artifact_refs"
+            ]
+          },
+          "quality_retry_policy": {},
+          "progress_commit_policy": {},
+          "loop_policy": {},
+          "loop_kind": "",
+          "loop_scope_id": "",
+          "title_template": "",
+          "loop_route_policy": {},
+          "resource_lifecycle_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+            "role": "reviewer",
+            "role_identity": "你是一名全书大纲审核员。",
+            "responsibility_scope": "你只负责审核当前送审对象，指出问题并给出明确裁决。",
+            "responsibility_exclusions": "你不负责替创作者扩写正文，也不负责越过审核结果写入记忆库。",
+            "definition_of_done": "完成标准：必须给出裁决、问题清单、返修要求和是否允许进入下一阶段。",
+            "workflow_instruction_template": "先确认本轮时序位置，再读取输入包和授权记忆，随后完成职责，最后按输出契约交付。",
+            "context_usage_rules": [
+              "只使用输入包、MemorySnapshot、ArtifactContextPacket、RevisionPacket 中明确授权的信息。",
+              "遇到缺失的必需输入时必须报告阻塞，不得自行猜测。",
+              "区分候选、审核结果、提交事实和只读基准。"
+            ],
+            "output_behavior_rules": [
+              "按 output_contract_id 输出结构化结果。",
+              "长文本只交付 artifact ref，不把全文塞进普通交接。",
+              "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
+            ],
+            "operation": "",
+            "memory_closed_loop": true,
+            "requires_memory_pack": true,
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -2054,7 +2553,7 @@
           "work_posture": "memory_steward",
           "projection_id": "projection.writing.simple_novel.baseline_memory_steward",
           "phase_id": "phase.core",
-          "sequence_index": 40,
+          "sequence_index": 90,
           "execution_mode": "sync",
           "dispatch_group": "phase.core",
           "artifact_target": "memory/baseline/baseline_memory_commit.md",
@@ -2076,7 +2575,51 @@
               }
             ]
           },
-          "artifact_context_policy": {},
+          "artifact_context_policy": {
+            "items": [
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs",
+                "label": "已提交世界观主干",
+                "max_chars": 40000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.outline_design:artifact_refs",
+                "label": "已审核全书大纲",
+                "max_chars": 65000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.outline_review:artifact_refs",
+                "label": "大纲审核结论",
+                "max_chars": 24000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.character_design:artifact_refs",
+                "label": "人设与关系设计稿",
+                "max_chars": 50000
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.plot_design:artifact_refs",
+                "label": "剧情与伏笔设计稿",
+                "max_chars": 50000
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.design_sync:artifact_refs",
+                "label": "设计对齐包",
+                "max_chars": 36000
+              }
+            ],
+            "default_max_chars": 20000,
+            "max_items": 6
+          },
           "revision_context_policy": {},
           "quality_retry_policy": {},
           "progress_commit_policy": {},
@@ -2087,7 +2630,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "memory_steward",
             "role_identity": "你是一名基准记忆库管理员。",
             "responsibility_scope": "你只负责按审核结果和提交边写入索引、回执和记忆提交记录。",
@@ -2107,7 +2650,7 @@
             "operation": "commit",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -2122,7 +2665,7 @@
           "work_posture": "creator",
           "projection_id": "projection.writing.simple_novel.volume_planner",
           "phase_id": "phase.volume_plan",
-          "sequence_index": 50,
+          "sequence_index": 100,
           "execution_mode": "sync",
           "dispatch_group": "phase.volume_plan",
           "artifact_target": "volume_plan/volume_plan.md",
@@ -2144,7 +2687,46 @@
               }
             ]
           },
-          "artifact_context_policy": {},
+          "artifact_context_policy": {
+            "items": [
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.baseline_memory_commit:artifact_refs",
+                "label": "只读基准库",
+                "max_chars": 90000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.outline_design:artifact_refs",
+                "label": "已审核全书大纲",
+                "max_chars": 90000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.outline_review:artifact_refs",
+                "label": "大纲审核结论",
+                "max_chars": 30000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs",
+                "label": "已提交世界观主干",
+                "max_chars": 50000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.design_sync:artifact_refs",
+                "label": "设计对齐包",
+                "max_chars": 40000
+              }
+            ],
+            "default_max_chars": 20000,
+            "max_items": 5
+          },
           "revision_context_policy": {},
           "quality_retry_policy": {},
           "progress_commit_policy": {},
@@ -2155,7 +2737,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "creator",
             "role_identity": "你是一名分卷规划者。",
             "responsibility_scope": "你只负责按输入包和授权记忆完成当前创作或规划产物。",
@@ -2175,7 +2757,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -2228,7 +2810,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "creator",
             "role_identity": "你是一名章节细纲规划者。",
             "responsibility_scope": "你只负责按输入包和授权记忆完成当前创作或规划产物。",
@@ -2248,7 +2830,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 10,
             "streaming_enabled": true
           }
@@ -2280,13 +2862,44 @@
               {
                 "path": "volume_{volume_index:03d}/chapters/chapter_{batch_start_index:03d}_{batch_end_index:03d}/draft_round_{round_index:03d}.md",
                 "required": true,
-                "content_source": "final_content",
+                "content_source": "section",
+                "section_keys": [
+                  "章节正文候选"
+                ],
+                "fallback_to_full_content": false
+              },
+              {
+                "path": "volume_{volume_index:03d}/chapters/chapter_{batch_start_index:03d}_{batch_end_index:03d}/draft_manifest_round_{round_index:03d}.md",
+                "required": false,
+                "content_source": "section",
+                "section_keys": [
+                  "承接说明",
+                  "本章目标完成说明",
+                  "人物与冲突推进",
+                  "商业钩子与爽点兑现",
+                  "后续伏笔或待承接事项",
+                  "自检风险",
+                  "公开摘要"
+                ],
                 "fallback_to_full_content": false
               }
             ]
           },
           "artifact_context_policy": {
             "items": [
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.chapter_outline:artifact_refs",
+                "label": "当前批次细纲",
+                "max_chars": 50000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.volume_plan_commit:artifact_refs",
+                "label": "当前卷计划",
+                "max_chars": 40000
+              },
               {
                 "source": "input_key",
                 "input_key": "previous_review_ref",
@@ -2301,7 +2914,7 @@
               }
             ],
             "default_max_chars": 20000,
-            "max_items": 2
+            "max_items": 4
           },
           "revision_context_policy": {},
           "quality_retry_policy": {
@@ -2347,7 +2960,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "creator",
             "role_identity": "你是一名章节作者。",
             "responsibility_scope": "你只负责按输入包和授权记忆完成当前创作或规划产物。",
@@ -2367,7 +2980,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 10,
             "streaming_enabled": true
           }
@@ -2408,13 +3021,19 @@
             "items": [
               {
                 "source": "input_key",
+                "input_key": "contract.writing.simple_novel.chapter_outline:artifact_refs",
+                "label": "当前批次细纲",
+                "max_chars": 50000
+              },
+              {
+                "source": "input_key",
                 "input_key": "contract.writing.simple_novel.chapter_draft:artifact_refs",
                 "label": "待审章节批次正文",
                 "max_chars": 90000
               }
             ],
             "default_max_chars": 20000,
-            "max_items": 1
+            "max_items": 2
           },
           "revision_context_policy": {
             "carry": [
@@ -2448,7 +3067,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "reviewer",
             "role_identity": "你是一名章节审核员。",
             "responsibility_scope": "你只负责审核当前送审对象，指出问题并给出明确裁决。",
@@ -2468,7 +3087,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 10,
             "streaming_enabled": true
           }
@@ -2509,6 +3128,12 @@
             "items": [
               {
                 "source": "input_key",
+                "input_key": "contract.writing.simple_novel.chapter_outline:artifact_refs",
+                "label": "待冻结章节细纲",
+                "max_chars": 50000
+              },
+              {
+                "source": "input_key",
                 "input_key": "contract.writing.simple_novel.chapter_draft:artifact_refs",
                 "label": "待提交章节正文",
                 "max_chars": 90000
@@ -2521,7 +3146,7 @@
               }
             ],
             "default_max_chars": 20000,
-            "max_items": 2
+            "max_items": 3
           },
           "revision_context_policy": {},
           "quality_retry_policy": {},
@@ -2547,7 +3172,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "memory_steward",
             "role_identity": "你是一名章节提交管家。",
             "responsibility_scope": "你只负责按审核结果和提交边写入索引、回执和记忆提交记录。",
@@ -2567,7 +3192,7 @@
             "operation": "commit",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 10,
             "streaming_enabled": true
           }
@@ -2739,7 +3364,7 @@
           },
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "router",
             "role_identity": "你是一名章节推进审核员。",
             "responsibility_scope": "你只负责根据提交状态、目标进度和阻塞问题决定下一步路由。",
@@ -2759,7 +3384,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 10,
             "streaming_enabled": true
           }
@@ -2835,7 +3460,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "reviewer",
             "role_identity": "你是一名卷级总审核员。",
             "responsibility_scope": "你只负责审核当前送审对象，指出问题并给出明确裁决。",
@@ -2855,7 +3480,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -2903,7 +3528,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "memory_steward",
             "role_identity": "你是一名卷级提交管家。",
             "responsibility_scope": "你只负责按审核结果和提交边写入索引、回执和记忆提交记录。",
@@ -2923,7 +3548,7 @@
             "operation": "commit",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -2971,7 +3596,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "reviewer",
             "role_identity": "你是一名卷后复盘员。",
             "responsibility_scope": "你只负责审核当前送审对象，指出问题并给出明确裁决。",
@@ -2991,7 +3616,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -3056,7 +3681,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "creator",
             "role_identity": "你是一名可改动库更新提案员。",
             "responsibility_scope": "你只负责按输入包和授权记忆完成当前创作或规划产物。",
@@ -3076,7 +3701,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -3152,7 +3777,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "reviewer",
             "role_identity": "你是一名可改动库边界审核员。",
             "responsibility_scope": "你只负责审核当前送审对象，指出问题并给出明确裁决。",
@@ -3172,7 +3797,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -3220,7 +3845,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "memory_steward",
             "role_identity": "你是一名可改动库提交管家。",
             "responsibility_scope": "你只负责按审核结果和提交边写入索引、回执和记忆提交记录。",
@@ -3240,7 +3865,7 @@
             "operation": "commit",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -3407,7 +4032,7 @@
           },
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "router",
             "role_identity": "你是一名分卷推进审核员。",
             "responsibility_scope": "你只负责根据提交状态、目标进度和阻塞问题决定下一步路由。",
@@ -3427,7 +4052,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -3492,7 +4117,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "final_assembler",
             "role_identity": "你是一名交付包整编者。",
             "responsibility_scope": "你只负责依据提交清单和交付要求整编交付包。",
@@ -3512,7 +4137,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -3588,7 +4213,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "reviewer",
             "role_identity": "你是一名最终交付审核员。",
             "responsibility_scope": "你只负责审核当前送审对象，指出问题并给出明确裁决。",
@@ -3608,7 +4233,7 @@
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -3656,7 +4281,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "memory_steward",
             "role_identity": "你是一名任务收尾归档管家。",
             "responsibility_scope": "你只负责按审核结果和提交边写入索引、回执和记忆提交记录。",
@@ -3676,7 +4301,7 @@
             "operation": "finalize",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -3724,7 +4349,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "monitor",
             "role_identity": "你是一名 TaskGraph 运行监测员。",
             "responsibility_scope": "你只负责读取运行监测快照，判断是否健康、是否需要续跑、提醒或人工审核。",
@@ -3838,7 +4463,7 @@
                 }
               ]
             },
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md"
           }
         },
         {
@@ -3884,7 +4509,7 @@
           "loop_route_policy": {},
           "resource_lifecycle_policy": {},
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "memory_steward",
             "role_identity": "你是一名失败关闭记录员。",
             "responsibility_scope": "你只负责按审核结果和提交边写入索引、回执和记忆提交记录。",
@@ -3904,7 +4529,7 @@
             "operation": "finalize",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md",
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
             "streaming_enabled": true
           }
@@ -3944,7 +4569,7 @@
             "write_authority": "edge.memory_write_candidate_or_commit"
           },
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "resource",
             "operation": "store",
             "repository_id": "memory.writing.baseline",
@@ -3954,7 +4579,8 @@
               "world",
               "outline",
               "characters",
-              "relationships"
+              "relationships",
+              "plot_spine"
             ],
             "memory_repository": {
               "repository_id": "memory.writing.baseline",
@@ -3994,10 +4620,19 @@
                   "record_kinds": [
                     "frozen_relationship_fact"
                   ]
+                },
+                {
+                  "collection_id": "plot_spine",
+                  "title": "剧情与伏笔主干",
+                  "record_kinds": [
+                    "baseline_plot_spine",
+                    "foreshadow_spine",
+                    "conflict_spine"
+                  ]
                 }
               ]
             },
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md"
           }
         },
         {
@@ -4035,7 +4670,7 @@
             "write_authority": "edge.memory_write_candidate_or_commit"
           },
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "resource",
             "operation": "store",
             "repository_id": "memory.writing.mutable",
@@ -4089,7 +4724,7 @@
                 }
               ]
             },
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md"
           }
         },
         {
@@ -4127,7 +4762,7 @@
             "write_authority": "edge.memory_write_candidate_or_commit"
           },
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "resource",
             "operation": "store",
             "repository_id": "memory.writing.artifact_index",
@@ -4137,6 +4772,7 @@
               "candidates",
               "reviews",
               "world_commits",
+              "design_assets",
               "volume_plans",
               "chapter_outlines",
               "chapter_commits",
@@ -4176,6 +4812,17 @@
                   "record_kinds": [
                     "world_commit",
                     "approved_world_spine"
+                  ]
+                },
+                {
+                  "collection_id": "design_assets",
+                  "title": "创作架构设计索引",
+                  "record_kinds": [
+                    "character_design",
+                    "plot_design",
+                    "design_sync",
+                    "outline_design",
+                    "outline_review"
                   ]
                 },
                 {
@@ -4224,7 +4871,7 @@
                 }
               ]
             },
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md"
           }
         },
         {
@@ -4262,7 +4909,7 @@
             "write_authority": "edge.memory_write_candidate_or_commit"
           },
           "metadata": {
-            "managed_by": "codex_writing_simple_novel_config_20260517",
+            "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
             "role": "resource",
             "operation": "store",
             "repository_id": "memory.writing.issue_ledger",
@@ -4318,7 +4965,7 @@
                 }
               ]
             },
-            "design_doc": "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
+            "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md"
           }
         }
       ],
@@ -4399,23 +5046,207 @@
           }
         },
         {
-          "edge_id": "edge.world_commit.baseline_memory",
+          "edge_id": "edge.world_commit.character_design",
           "source_node_id": "memory_commit_world",
-          "target_node_id": "baseline_memory_seed",
+          "target_node_id": "character_design",
           "mode": "structured_handoff",
           "edge_type": "structured_handoff",
           "payload_contract_id": "contract.writing.simple_novel.memory_commit_world",
           "metadata": {
-            "handoff_summary": "把已审核世界观交给基准库管理员固化主干。",
+            "handoff_summary": "把已提交世界观主干交给人设与关系设计师，先做角色和关系网络。",
             "required_refs": [
               "world_commit_ref",
               "project_brief_ref"
             ],
-            "memory_expectation": "基准库管理员根据启动包和已审核世界观生成 baseline_memory。",
+            "memory_expectation": "人设设计师只读取已提交世界观和启动包，不读取基准库或可改动库；设计稿仍是候选，不是 canon。",
             "packet_kind": "HandoffPacket",
             "input_alias": "上游交接包",
             "model_visible_label": "上游交接包",
-            "usage_instruction": "把已审核世界观交给基准库管理员固化主干。 基准库管理员根据启动包和已审核世界观生成 baseline_memory。",
+            "usage_instruction": "把已提交世界观主干交给人设与关系设计师，先做角色和关系网络。 人设设计师只读取已提交世界观和启动包，不读取基准库或可改动库；设计稿仍是候选，不是 canon。",
+            "must_use": true,
+            "may_ignore": false,
+            "forbidden_use": "不得把交接包中未通过审核的候选内容当作已提交事实。",
+            "on_missing": "block",
+            "expand_strategy": "refs_and_summary"
+          }
+        },
+        {
+          "edge_id": "edge.world_commit.plot_design",
+          "source_node_id": "memory_commit_world",
+          "target_node_id": "plot_design",
+          "mode": "structured_handoff",
+          "edge_type": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.memory_commit_world",
+          "metadata": {
+            "handoff_summary": "把已提交世界观主干交给剧情与伏笔设计师，作为剧情设计的世界边界。",
+            "required_refs": [
+              "world_commit_ref",
+              "project_brief_ref"
+            ],
+            "memory_expectation": "剧情设计师只读取已提交世界观、启动包和必要的人设引用；设计稿仍是候选，不是 canon。",
+            "packet_kind": "HandoffPacket",
+            "input_alias": "上游交接包",
+            "model_visible_label": "上游交接包",
+            "usage_instruction": "把已提交世界观主干交给剧情与伏笔设计师，作为剧情设计的世界边界。 剧情设计师只读取已提交世界观、启动包和必要的人设引用；设计稿仍是候选，不是 canon。",
+            "must_use": true,
+            "may_ignore": false,
+            "forbidden_use": "不得把交接包中未通过审核的候选内容当作已提交事实。",
+            "on_missing": "block",
+            "expand_strategy": "refs_and_summary"
+          }
+        },
+        {
+          "edge_id": "edge.character_design.plot_design",
+          "source_node_id": "character_design",
+          "target_node_id": "plot_design",
+          "mode": "structured_handoff",
+          "edge_type": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.character_design",
+          "metadata": {
+            "handoff_summary": "把角色、动机和关系网络交给剧情设计师，作为事件链和伏笔设计的动力来源。",
+            "required_refs": [
+              "character_design_ref",
+              "world_commit_ref"
+            ],
+            "memory_expectation": "剧情设计师不得改写人设中的稳定人物事实，只能让事件链服务人物动机和关系张力。",
+            "packet_kind": "HandoffPacket",
+            "input_alias": "上游交接包",
+            "model_visible_label": "上游交接包",
+            "usage_instruction": "把角色、动机和关系网络交给剧情设计师，作为事件链和伏笔设计的动力来源。 剧情设计师不得改写人设中的稳定人物事实，只能让事件链服务人物动机和关系张力。",
+            "must_use": true,
+            "may_ignore": false,
+            "forbidden_use": "不得把交接包中未通过审核的候选内容当作已提交事实。",
+            "on_missing": "block",
+            "expand_strategy": "refs_and_summary"
+          }
+        },
+        {
+          "edge_id": "edge.character_design.sync",
+          "source_node_id": "character_design",
+          "target_node_id": "design_sync",
+          "mode": "structured_handoff",
+          "edge_type": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.character_design",
+          "metadata": {
+            "handoff_summary": "把人设与关系设计稿交给创作架构对齐审核员。",
+            "required_refs": [
+              "character_design_ref",
+              "world_commit_ref"
+            ],
+            "memory_expectation": "设计对齐节点只处理冲突和取舍，不把人设候选直接写成基准库事实。",
+            "packet_kind": "HandoffPacket",
+            "input_alias": "上游交接包",
+            "model_visible_label": "上游交接包",
+            "usage_instruction": "把人设与关系设计稿交给创作架构对齐审核员。 设计对齐节点只处理冲突和取舍，不把人设候选直接写成基准库事实。",
+            "must_use": true,
+            "may_ignore": false,
+            "forbidden_use": "不得把交接包中未通过审核的候选内容当作已提交事实。",
+            "on_missing": "block",
+            "expand_strategy": "refs_and_summary"
+          }
+        },
+        {
+          "edge_id": "edge.plot_design.sync",
+          "source_node_id": "plot_design",
+          "target_node_id": "design_sync",
+          "mode": "structured_handoff",
+          "edge_type": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.plot_design",
+          "metadata": {
+            "handoff_summary": "把剧情与伏笔设计稿交给创作架构对齐审核员。",
+            "required_refs": [
+              "plot_design_ref",
+              "world_commit_ref"
+            ],
+            "memory_expectation": "设计对齐节点检查剧情、伏笔和人物关系是否互相支撑，不直接承担大纲汇总。",
+            "packet_kind": "HandoffPacket",
+            "input_alias": "上游交接包",
+            "model_visible_label": "上游交接包",
+            "usage_instruction": "把剧情与伏笔设计稿交给创作架构对齐审核员。 设计对齐节点检查剧情、伏笔和人物关系是否互相支撑，不直接承担大纲汇总。",
+            "must_use": true,
+            "may_ignore": false,
+            "forbidden_use": "不得把交接包中未通过审核的候选内容当作已提交事实。",
+            "on_missing": "block",
+            "expand_strategy": "refs_and_summary"
+          }
+        },
+        {
+          "edge_id": "edge.design_sync.outline_design",
+          "source_node_id": "design_sync",
+          "target_node_id": "outline_design",
+          "mode": "structured_handoff",
+          "edge_type": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.design_sync",
+          "metadata": {
+            "handoff_summary": "把设计对齐包交给全书大纲设计师，要求大纲只在已对齐的创作架构上汇总。",
+            "required_refs": [
+              "design_sync_ref",
+              "character_design_ref",
+              "plot_design_ref",
+              "world_commit_ref"
+            ],
+            "memory_expectation": "大纲设计师读取已提交世界观、人设、剧情和对齐包；不能从零发明人设或伏笔。",
+            "packet_kind": "HandoffPacket",
+            "input_alias": "上游交接包",
+            "model_visible_label": "上游交接包",
+            "usage_instruction": "把设计对齐包交给全书大纲设计师，要求大纲只在已对齐的创作架构上汇总。 大纲设计师读取已提交世界观、人设、剧情和对齐包；不能从零发明人设或伏笔。",
+            "must_use": true,
+            "may_ignore": false,
+            "forbidden_use": "不得把交接包中未通过审核的候选内容当作已提交事实。",
+            "on_missing": "block",
+            "expand_strategy": "refs_and_summary"
+          }
+        },
+        {
+          "edge_id": "edge.outline_design.review",
+          "source_node_id": "outline_design",
+          "target_node_id": "outline_review",
+          "mode": "structured_handoff",
+          "edge_type": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.outline_design",
+          "metadata": {
+            "handoff_summary": "把全书大纲交给大纲审核员，裁决是否允许进入基准库初始化。",
+            "required_refs": [
+              "outline_design_ref",
+              "design_sync_ref",
+              "character_design_ref",
+              "plot_design_ref",
+              "world_commit_ref"
+            ],
+            "memory_expectation": "大纲审核员检查世界观、人设、剧情、伏笔和大纲是否一致；未通过时必须退回大纲设计。",
+            "packet_kind": "HandoffPacket",
+            "input_alias": "上游交接包",
+            "model_visible_label": "上游交接包",
+            "usage_instruction": "把全书大纲交给大纲审核员，裁决是否允许进入基准库初始化。 大纲审核员检查世界观、人设、剧情、伏笔和大纲是否一致；未通过时必须退回大纲设计。",
+            "must_use": true,
+            "may_ignore": false,
+            "forbidden_use": "不得把交接包中未通过审核的候选内容当作已提交事实。",
+            "on_missing": "block",
+            "expand_strategy": "refs_and_summary"
+          }
+        },
+        {
+          "edge_id": "edge.outline_review.baseline_memory",
+          "source_node_id": "outline_review",
+          "target_node_id": "baseline_memory_seed",
+          "mode": "structured_handoff",
+          "edge_type": "structured_handoff",
+          "payload_contract_id": "contract.writing.simple_novel.outline_review",
+          "metadata": {
+            "handoff_summary": "把通过审核的全书大纲、世界观、人设、剧情和设计对齐包交给基准库管理员统一固化。",
+            "required_refs": [
+              "outline_review_ref",
+              "outline_design_ref",
+              "world_commit_ref",
+              "character_design_ref",
+              "plot_design_ref",
+              "design_sync_ref"
+            ],
+            "memory_expectation": "基准库管理员只固化审核通过的主干；未审核候选、过程分歧和可调整权重不能进入冻结区。",
+            "packet_kind": "HandoffPacket",
+            "input_alias": "上游交接包",
+            "model_visible_label": "上游交接包",
+            "usage_instruction": "把通过审核的全书大纲、世界观、人设、剧情和设计对齐包交给基准库管理员统一固化。 基准库管理员只固化审核通过的主干；未审核候选、过程分歧和可调整权重不能进入冻结区。",
             "must_use": true,
             "may_ignore": false,
             "forbidden_use": "不得把交接包中未通过审核的候选内容当作已提交事实。",
@@ -4431,16 +5262,19 @@
           "edge_type": "structured_handoff",
           "payload_contract_id": "contract.writing.simple_novel.baseline_memory_commit",
           "metadata": {
-            "handoff_summary": "把基准库交给分卷规划者，作为全书规划边界。",
+            "handoff_summary": "把只读基准库、已审核全书大纲和大纲审核结论交给分卷规划者，作为分卷计划的唯一主干来源。",
             "required_refs": [
               "baseline_memory_ref",
+              "outline_design_ref",
+              "outline_review_ref",
+              "world_commit_ref",
               "project_brief_ref"
             ],
-            "memory_expectation": "读取基准库，不写基准库。",
+            "memory_expectation": "分卷规划者必须读取基准库和已审核大纲，不写基准库；卷名、人物弧线、伏笔窗口和不可提前泄露边界必须继承冻结主干，禁止套用题材模板或改写已冻结事实。",
             "packet_kind": "HandoffPacket",
             "input_alias": "上游交接包",
             "model_visible_label": "上游交接包",
-            "usage_instruction": "把基准库交给分卷规划者，作为全书规划边界。 读取基准库，不写基准库。",
+            "usage_instruction": "把只读基准库、已审核全书大纲和大纲审核结论交给分卷规划者，作为分卷计划的唯一主干来源。 分卷规划者必须读取基准库和已审核大纲，不写基准库；卷名、人物弧线、伏笔窗口和不可提前泄露边界必须继承冻结主干，禁止套用题材模板或改写已冻结事实。",
             "must_use": true,
             "may_ignore": false,
             "forbidden_use": "不得把交接包中未通过审核的候选内容当作已提交事实。",
@@ -4940,6 +5774,65 @@
           }
         },
         {
+          "edge_id": "edge.outline_review.revise",
+          "source_node_id": "outline_review",
+          "target_node_id": "outline_design",
+          "mode": "revision_request",
+          "edge_type": "revision_request",
+          "payload_contract_id": "contract.writing.simple_novel.outline_review",
+          "metadata": {
+            "handoff_summary": "把大纲审核意见连同被审核大纲退回给大纲设计师修订，必须基于原大纲改，不得另起一套创作架构。",
+            "required_refs": [
+              "outline_review_ref",
+              "outline_design_ref",
+              "design_sync_ref",
+              "character_design_ref",
+              "plot_design_ref",
+              "world_commit_ref"
+            ],
+            "memory_expectation": "大纲设计师读取审核意见、原大纲和设计对齐包，逐条修正，不得改写已提交世界观或稳定人设关系。",
+            "verdict": "revise",
+            "model_visible_label": "大纲返修包",
+            "usage_instruction": "你必须读取本轮被审核的大纲原稿和大纲审核意见，在人设、剧情和设计对齐包约束下逐条修订；不得脱离原稿另起一套大纲。",
+            "original_artifact_key": "outline_design_ref",
+            "review_result_key": "outline_review_ref",
+            "carry": [
+              {
+                "source": "current_output",
+                "target_input_key": "previous_review_ref"
+              },
+              {
+                "source": "inherited_input",
+                "target_input_key": "previous_candidate_ref",
+                "source_key": "outline_design_ref"
+              },
+              {
+                "source": "inherited_input",
+                "target_input_key": "design_sync_ref"
+              },
+              {
+                "source": "inherited_input",
+                "target_input_key": "character_design_ref"
+              },
+              {
+                "source": "inherited_input",
+                "target_input_key": "plot_design_ref"
+              },
+              {
+                "source": "inherited_input",
+                "target_input_key": "world_commit_ref"
+              }
+            ],
+            "packet_kind": "RevisionPacket",
+            "input_alias": "大纲返修包",
+            "must_use": true,
+            "may_ignore": false,
+            "forbidden_use": "不得把交接包中未通过审核的候选内容当作已提交事实。",
+            "on_missing": "block",
+            "expand_strategy": "refs_and_summary"
+          }
+        },
+        {
           "edge_id": "edge.chapter_review.revise",
           "source_node_id": "chapter_review",
           "target_node_id": "chapter_draft",
@@ -5144,6 +6037,26 @@
           }
         },
         {
+          "edge_id": "edge.outline_review.fail",
+          "source_node_id": "outline_review",
+          "target_node_id": "fail_closed",
+          "mode": "fail_closed",
+          "edge_type": "fail_closed",
+          "payload_contract_id": "contract.writing.simple_novel.failure_input",
+          "metadata": {
+            "verdict": "fail_closed",
+            "packet_kind": "HandoffPacket",
+            "input_alias": "上游交接包",
+            "model_visible_label": "上游交接包",
+            "usage_instruction": "你必须只使用这条交接边提供的结构化引用，不得从其它版本或未授权上下文猜测。",
+            "must_use": true,
+            "may_ignore": false,
+            "forbidden_use": "不得把交接包中未通过审核的候选内容当作已提交事实。",
+            "on_missing": "block",
+            "expand_strategy": "refs_and_summary"
+          }
+        },
+        {
           "edge_id": "edge.chapter_review.fail",
           "source_node_id": "chapter_review",
           "target_node_id": "fail_closed",
@@ -5264,6 +6177,680 @@
           }
         },
         {
+          "edge_id": "edge.memory_read.character_design.memory.writing.artifact_index.world_commits",
+          "source_node_id": "memory.writing.artifact_index",
+          "target_node_id": "character_design",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "world_commits",
+            "selector": {
+              "collection": "world_commits",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "world_commit",
+                "approved_world_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "world_commit",
+              "approved_world_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "世界观提交索引",
+            "usage_instruction": "你必须把已提交世界观当作人设设计边界；不得读取旧候选或把人设候选写成 canon。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.plot_design.memory.writing.artifact_index.world_commits",
+          "source_node_id": "memory.writing.artifact_index",
+          "target_node_id": "plot_design",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "world_commits",
+            "selector": {
+              "collection": "world_commits",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "world_commit",
+                "approved_world_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "world_commit",
+              "approved_world_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "世界观提交索引",
+            "usage_instruction": "你必须基于已提交世界观和人设设计稿安排剧情与伏笔；不得改写稳定人物事实。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.plot_design.memory.writing.artifact_index.design_assets",
+          "source_node_id": "memory.writing.artifact_index",
+          "target_node_id": "plot_design",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "design_assets",
+            "selector": {
+              "collection": "design_assets",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "character_design",
+                "plot_design",
+                "design_sync",
+                "outline_design",
+                "outline_review"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "character_design",
+              "plot_design",
+              "design_sync",
+              "outline_design",
+              "outline_review"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "创作架构设计索引",
+            "usage_instruction": "你必须基于已提交世界观和人设设计稿安排剧情与伏笔；不得改写稳定人物事实。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.plot_design.memory.writing.issue_ledger.world_issues",
+          "source_node_id": "memory.writing.issue_ledger",
+          "target_node_id": "plot_design",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.issue_ledger",
+            "repository_node_id": "memory.writing.issue_ledger",
+            "collection": "world_issues",
+            "selector": {
+              "collection": "world_issues",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "completeness_issue",
+                "consistency_issue",
+                "revision_requirement",
+                "outline_alignment_issue"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "completeness_issue",
+              "consistency_issue",
+              "revision_requirement",
+              "outline_alignment_issue"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "世界观与设计问题账本",
+            "usage_instruction": "你必须基于已提交世界观和人设设计稿安排剧情与伏笔；不得改写稳定人物事实。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.design_sync.memory.writing.artifact_index.world_commits",
+          "source_node_id": "memory.writing.artifact_index",
+          "target_node_id": "design_sync",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "world_commits",
+            "selector": {
+              "collection": "world_commits",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "world_commit",
+                "approved_world_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "world_commit",
+              "approved_world_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "世界观提交索引",
+            "usage_instruction": "你必须只做设计冲突对齐和取舍，不直接写基准库。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.design_sync.memory.writing.artifact_index.design_assets",
+          "source_node_id": "memory.writing.artifact_index",
+          "target_node_id": "design_sync",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "design_assets",
+            "selector": {
+              "collection": "design_assets",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "character_design",
+                "plot_design",
+                "design_sync",
+                "outline_design",
+                "outline_review"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "character_design",
+              "plot_design",
+              "design_sync",
+              "outline_design",
+              "outline_review"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "创作架构设计索引",
+            "usage_instruction": "你必须只做设计冲突对齐和取舍，不直接写基准库。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.design_sync.memory.writing.issue_ledger.world_issues",
+          "source_node_id": "memory.writing.issue_ledger",
+          "target_node_id": "design_sync",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.issue_ledger",
+            "repository_node_id": "memory.writing.issue_ledger",
+            "collection": "world_issues",
+            "selector": {
+              "collection": "world_issues",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "completeness_issue",
+                "consistency_issue",
+                "revision_requirement",
+                "outline_alignment_issue"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "completeness_issue",
+              "consistency_issue",
+              "revision_requirement",
+              "outline_alignment_issue"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "世界观与设计问题账本",
+            "usage_instruction": "你必须只做设计冲突对齐和取舍，不直接写基准库。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.outline_design.memory.writing.artifact_index.world_commits",
+          "source_node_id": "memory.writing.artifact_index",
+          "target_node_id": "outline_design",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "world_commits",
+            "selector": {
+              "collection": "world_commits",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "world_commit",
+                "approved_world_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "world_commit",
+              "approved_world_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "世界观提交索引",
+            "usage_instruction": "你必须读取世界观、人设、剧情和设计对齐包后形成全书大纲，不得从零发明创作架构。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.outline_design.memory.writing.artifact_index.design_assets",
+          "source_node_id": "memory.writing.artifact_index",
+          "target_node_id": "outline_design",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "design_assets",
+            "selector": {
+              "collection": "design_assets",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "character_design",
+                "plot_design",
+                "design_sync",
+                "outline_design",
+                "outline_review"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "character_design",
+              "plot_design",
+              "design_sync",
+              "outline_design",
+              "outline_review"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "创作架构设计索引",
+            "usage_instruction": "你必须读取世界观、人设、剧情和设计对齐包后形成全书大纲，不得从零发明创作架构。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.outline_design.memory.writing.issue_ledger.world_issues",
+          "source_node_id": "memory.writing.issue_ledger",
+          "target_node_id": "outline_design",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.issue_ledger",
+            "repository_node_id": "memory.writing.issue_ledger",
+            "collection": "world_issues",
+            "selector": {
+              "collection": "world_issues",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "completeness_issue",
+                "consistency_issue",
+                "revision_requirement",
+                "outline_alignment_issue"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "completeness_issue",
+              "consistency_issue",
+              "revision_requirement",
+              "outline_alignment_issue"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "世界观与设计问题账本",
+            "usage_instruction": "你必须读取世界观、人设、剧情和设计对齐包后形成全书大纲，不得从零发明创作架构。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.outline_review.memory.writing.artifact_index.world_commits",
+          "source_node_id": "memory.writing.artifact_index",
+          "target_node_id": "outline_review",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "world_commits",
+            "selector": {
+              "collection": "world_commits",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "world_commit",
+                "approved_world_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "world_commit",
+              "approved_world_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "世界观提交索引",
+            "usage_instruction": "你必须审核大纲是否吸收了世界观、人设、剧情和设计对齐包，未通过时退回大纲设计。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.outline_review.memory.writing.artifact_index.design_assets",
+          "source_node_id": "memory.writing.artifact_index",
+          "target_node_id": "outline_review",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "design_assets",
+            "selector": {
+              "collection": "design_assets",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "character_design",
+                "plot_design",
+                "design_sync",
+                "outline_design",
+                "outline_review"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "character_design",
+              "plot_design",
+              "design_sync",
+              "outline_design",
+              "outline_review"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "创作架构设计索引",
+            "usage_instruction": "你必须审核大纲是否吸收了世界观、人设、剧情和设计对齐包，未通过时退回大纲设计。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.outline_review.memory.writing.issue_ledger.world_issues",
+          "source_node_id": "memory.writing.issue_ledger",
+          "target_node_id": "outline_review",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.issue_ledger",
+            "repository_node_id": "memory.writing.issue_ledger",
+            "collection": "world_issues",
+            "selector": {
+              "collection": "world_issues",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "completeness_issue",
+                "consistency_issue",
+                "revision_requirement",
+                "outline_alignment_issue"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "completeness_issue",
+              "consistency_issue",
+              "revision_requirement",
+              "outline_alignment_issue"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "世界观与设计问题账本",
+            "usage_instruction": "你必须审核大纲是否吸收了世界观、人设、剧情和设计对齐包，未通过时退回大纲设计。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.baseline_memory_seed.memory.writing.artifact_index.world_commits",
+          "source_node_id": "memory.writing.artifact_index",
+          "target_node_id": "baseline_memory_seed",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "world_commits",
+            "selector": {
+              "collection": "world_commits",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "world_commit",
+                "approved_world_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "world_commit",
+              "approved_world_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "世界观提交索引",
+            "usage_instruction": "你只能把已审核通过的大纲主干和来源设计固化到基准库，未审核候选不得冻结。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.baseline_memory_seed.memory.writing.artifact_index.design_assets",
+          "source_node_id": "memory.writing.artifact_index",
+          "target_node_id": "baseline_memory_seed",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "design_assets",
+            "selector": {
+              "collection": "design_assets",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "character_design",
+                "plot_design",
+                "design_sync",
+                "outline_design",
+                "outline_review"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "character_design",
+              "plot_design",
+              "design_sync",
+              "outline_design",
+              "outline_review"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "创作架构设计索引",
+            "usage_instruction": "你只能把已审核通过的大纲主干和来源设计固化到基准库，未审核候选不得冻结。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.baseline_memory_seed.memory.writing.issue_ledger.world_issues",
+          "source_node_id": "memory.writing.issue_ledger",
+          "target_node_id": "baseline_memory_seed",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.issue_ledger",
+            "repository_node_id": "memory.writing.issue_ledger",
+            "collection": "world_issues",
+            "selector": {
+              "collection": "world_issues",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "completeness_issue",
+                "consistency_issue",
+                "revision_requirement",
+                "outline_alignment_issue"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "completeness_issue",
+              "consistency_issue",
+              "revision_requirement",
+              "outline_alignment_issue"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "世界观与设计问题账本",
+            "usage_instruction": "你只能把已审核通过的大纲主干和来源设计固化到基准库，未审核候选不得冻结。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
           "edge_id": "edge.memory_read.volume_plan.memory.writing.baseline.world",
           "source_node_id": "memory.writing.baseline",
           "target_node_id": "volume_plan",
@@ -5379,6 +6966,47 @@
           }
         },
         {
+          "edge_id": "edge.memory_read.volume_plan.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "volume_plan",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
+            "usage_instruction": "你必须把基准世界观、人物事实和关系事实当作分卷规划的硬约束；不得改写既有人物与关系。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
           "edge_id": "edge.memory_read.chapter_outline.memory.writing.baseline.world",
           "source_node_id": "memory.writing.baseline",
           "target_node_id": "chapter_outline",
@@ -5484,6 +7112,47 @@
             "effective_from": "current_stage",
             "on_missing": "block",
             "model_visible_label": "关系事实",
+            "usage_instruction": "你必须只整理当前卷、当前批次的章纲计划；已开写并提交的章纲只能作为历史依据读取，未开写部分才允许重排。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.chapter_outline.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "chapter_outline",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
             "usage_instruction": "你必须只整理当前卷、当前批次的章纲计划；已开写并提交的章纲只能作为历史依据读取，未开写部分才允许重排。",
             "receipt_policy": {},
             "read_contract": {
@@ -5888,6 +7557,47 @@
           }
         },
         {
+          "edge_id": "edge.memory_read.chapter_draft.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "chapter_draft",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
+            "usage_instruction": "你必须按这些记忆快照限定本批章节，不得把缺失信息自行补写成既成事实。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
           "edge_id": "edge.memory_read.chapter_draft.memory.writing.mutable.strategy",
           "source_node_id": "memory.writing.mutable",
           "target_node_id": "chapter_draft",
@@ -6282,6 +7992,47 @@
           }
         },
         {
+          "edge_id": "edge.memory_read.chapter_review.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "chapter_review",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
+            "usage_instruction": "你只依据当前稿件、基准事实、可改动层和问题账本进行审核；发现冲突要指出并裁决。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
           "edge_id": "edge.memory_read.chapter_review.memory.writing.mutable.strategy",
           "source_node_id": "memory.writing.mutable",
           "target_node_id": "chapter_review",
@@ -6596,6 +8347,47 @@
           }
         },
         {
+          "edge_id": "edge.memory_read.memory_commit_chapter.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "memory_commit_chapter",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
+            "usage_instruction": "你只根据已通过审核的章节和当前记忆边界登记索引，不得改写基准事实。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
           "edge_id": "edge.memory_read.memory_commit_chapter.memory.writing.mutable.strategy",
           "source_node_id": "memory.writing.mutable",
           "target_node_id": "memory_commit_chapter",
@@ -6900,6 +8692,47 @@
             "effective_from": "current_stage",
             "on_missing": "block",
             "model_visible_label": "关系事实",
+            "usage_instruction": "你必须把整卷提交索引、章节摘要和记忆边界作为卷审依据，不得要求读取未授权全文。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.volume_review.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "volume_review",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
             "usage_instruction": "你必须把整卷提交索引、章节摘要和记忆边界作为卷审依据，不得要求读取未授权全文。",
             "receipt_policy": {},
             "read_contract": {
@@ -7304,6 +9137,47 @@
           }
         },
         {
+          "edge_id": "edge.memory_read.volume_commit.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "volume_commit",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
+            "usage_instruction": "你只把通过卷审的一卷登记为产物索引和摘要，不得写入未审核事实。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
           "edge_id": "edge.memory_read.volume_commit.memory.writing.mutable.strategy",
           "source_node_id": "memory.writing.mutable",
           "target_node_id": "volume_commit",
@@ -7608,6 +9482,47 @@
             "effective_from": "current_stage",
             "on_missing": "block",
             "model_visible_label": "关系事实",
+            "usage_instruction": "你必须区分已经发生的卷级事实和未来计划，只复盘已提交内容。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.volume_postmortem.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "volume_postmortem",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
             "usage_instruction": "你必须区分已经发生的卷级事实和未来计划，只复盘已提交内容。",
             "receipt_policy": {},
             "read_contract": {
@@ -7930,6 +9845,47 @@
           }
         },
         {
+          "edge_id": "edge.memory_read.world_outline_extension_proposal.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "world_outline_extension_proposal",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
+            "usage_instruction": "你只能提出可改动层更新，不得改写基准人物事实、关系事实和已冻结世界规则。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
           "edge_id": "edge.memory_read.world_outline_extension_proposal.memory.writing.mutable.strategy",
           "source_node_id": "memory.writing.mutable",
           "target_node_id": "world_outline_extension_proposal",
@@ -8232,6 +10188,47 @@
             "effective_from": "current_stage",
             "on_missing": "block",
             "model_visible_label": "关系事实",
+            "usage_instruction": "你必须审核更新提案是否越过基准边界；允许的更新只能进入可改动层。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.extension_review.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "extension_review",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
             "usage_instruction": "你必须审核更新提案是否越过基准边界；允许的更新只能进入可改动层。",
             "receipt_policy": {},
             "read_contract": {
@@ -8554,6 +10551,47 @@
           }
         },
         {
+          "edge_id": "edge.memory_read.extension_commit.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "extension_commit",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
+            "usage_instruction": "你只提交审核通过的可改动层更新，并保留来源审核引用。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
           "edge_id": "edge.memory_read.extension_commit.memory.writing.mutable.strategy",
           "source_node_id": "memory.writing.mutable",
           "target_node_id": "extension_commit",
@@ -8776,6 +10814,47 @@
             "effective_from": "current_stage",
             "on_missing": "block",
             "model_visible_label": "关系事实",
+            "usage_instruction": "你只根据累计进度、卷级提交和可改动层决定进入下一卷或最终交付。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.next_volume_router.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "next_volume_router",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
             "usage_instruction": "你只根据累计进度、卷级提交和可改动层决定进入下一卷或最终交付。",
             "receipt_policy": {},
             "read_contract": {
@@ -9088,6 +11167,47 @@
             "effective_from": "current_stage",
             "on_missing": "block",
             "model_visible_label": "关系事实",
+            "usage_instruction": "你只使用提交索引、摘要、交付清单和授权引用整编交付包，不要把未授权全文放进上下文。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.final_assemble.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "final_assemble",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
             "usage_instruction": "你只使用提交索引、摘要、交付清单和授权引用整编交付包，不要把未授权全文放进上下文。",
             "receipt_policy": {},
             "read_contract": {
@@ -9521,6 +11641,47 @@
             "effective_from": "current_stage",
             "on_missing": "block",
             "model_visible_label": "关系事实",
+            "usage_instruction": "你必须审核最终交付包是否完整、一致、可交付；缺陷要形成明确返修要求。",
+            "receipt_policy": {},
+            "read_contract": {
+              "snapshot_contract_id": "contract.writing.simple_novel.memory_pack"
+            },
+            "write_contract": {},
+            "memory_edge_type": "read"
+          }
+        },
+        {
+          "edge_id": "edge.memory_read.final_review.memory.writing.baseline.plot_spine",
+          "source_node_id": "memory.writing.baseline",
+          "target_node_id": "final_review",
+          "mode": "memory_read",
+          "edge_type": "memory_read",
+          "payload_contract_id": "contract.writing.simple_novel.memory_pack",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [
+                "committed"
+              ],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 50
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "latest_committed_before_clock",
+            "effective_from": "current_stage",
+            "on_missing": "block",
+            "model_visible_label": "剧情与伏笔主干",
             "usage_instruction": "你必须审核最终交付包是否完整、一致、可交付；缺陷要形成明确返修要求。",
             "receipt_policy": {},
             "read_contract": {
@@ -10026,6 +12187,262 @@
             "on_missing": "warn",
             "model_visible_label": "",
             "usage_instruction": "记录世界观审核中发现的问题，只有通过后续提交边才对下游稳定可见。",
+            "receipt_policy": {},
+            "read_contract": {},
+            "write_contract": {
+              "request_contract_id": "contract.writing.simple_novel.memory_write_request",
+              "receipt_contract_id": "contract.writing.simple_novel.memory_write_receipt"
+            },
+            "memory_edge_type": "write_candidate"
+          }
+        },
+        {
+          "edge_id": "edge.memory_write_candidate.character_design.memory.writing.artifact_index.design_assets",
+          "source_node_id": "character_design",
+          "target_node_id": "memory.writing.artifact_index",
+          "mode": "memory_write_candidate",
+          "edge_type": "memory_write_candidate",
+          "payload_contract_id": "contract.writing.simple_novel.memory_write_request",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "design_assets",
+            "selector": {
+              "collection": "design_assets",
+              "status_filter": [],
+              "record_kinds": [
+                "character_design"
+              ],
+              "limit": 0
+            },
+            "record_keys": [
+              "character_design"
+            ],
+            "version_selector": "current_clock_receipt",
+            "effective_from": "next_clock",
+            "on_missing": "warn",
+            "model_visible_label": "",
+            "usage_instruction": "这是人设和关系设计稿，只能作为大纲设计和审核输入；不得直接当作基准库事实。",
+            "receipt_policy": {},
+            "read_contract": {},
+            "write_contract": {
+              "request_contract_id": "contract.writing.simple_novel.memory_write_request",
+              "receipt_contract_id": "contract.writing.simple_novel.memory_write_receipt"
+            },
+            "memory_edge_type": "write_candidate"
+          }
+        },
+        {
+          "edge_id": "edge.memory_write_candidate.plot_design.memory.writing.artifact_index.design_assets",
+          "source_node_id": "plot_design",
+          "target_node_id": "memory.writing.artifact_index",
+          "mode": "memory_write_candidate",
+          "edge_type": "memory_write_candidate",
+          "payload_contract_id": "contract.writing.simple_novel.memory_write_request",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "design_assets",
+            "selector": {
+              "collection": "design_assets",
+              "status_filter": [],
+              "record_kinds": [
+                "plot_design"
+              ],
+              "limit": 0
+            },
+            "record_keys": [
+              "plot_design"
+            ],
+            "version_selector": "current_clock_receipt",
+            "effective_from": "next_clock",
+            "on_missing": "warn",
+            "model_visible_label": "",
+            "usage_instruction": "这是剧情和伏笔设计稿，只能作为设计对齐和大纲输入；不得直接当作基准库事实。",
+            "receipt_policy": {},
+            "read_contract": {},
+            "write_contract": {
+              "request_contract_id": "contract.writing.simple_novel.memory_write_request",
+              "receipt_contract_id": "contract.writing.simple_novel.memory_write_receipt"
+            },
+            "memory_edge_type": "write_candidate"
+          }
+        },
+        {
+          "edge_id": "edge.memory_write_candidate.design_sync.memory.writing.artifact_index.design_assets",
+          "source_node_id": "design_sync",
+          "target_node_id": "memory.writing.artifact_index",
+          "mode": "memory_write_candidate",
+          "edge_type": "memory_write_candidate",
+          "payload_contract_id": "contract.writing.simple_novel.memory_write_request",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "design_assets",
+            "selector": {
+              "collection": "design_assets",
+              "status_filter": [],
+              "record_kinds": [
+                "design_sync"
+              ],
+              "limit": 0
+            },
+            "record_keys": [
+              "design_sync"
+            ],
+            "version_selector": "current_clock_receipt",
+            "effective_from": "next_clock",
+            "on_missing": "warn",
+            "model_visible_label": "",
+            "usage_instruction": "这是人设、剧情和伏笔冲突的对齐结果，只有通过大纲审核后才能参与基准库初始化。",
+            "receipt_policy": {},
+            "read_contract": {},
+            "write_contract": {
+              "request_contract_id": "contract.writing.simple_novel.memory_write_request",
+              "receipt_contract_id": "contract.writing.simple_novel.memory_write_receipt"
+            },
+            "memory_edge_type": "write_candidate"
+          }
+        },
+        {
+          "edge_id": "edge.memory_write_candidate.outline_design.memory.writing.artifact_index.design_assets",
+          "source_node_id": "outline_design",
+          "target_node_id": "memory.writing.artifact_index",
+          "mode": "memory_write_candidate",
+          "edge_type": "memory_write_candidate",
+          "payload_contract_id": "contract.writing.simple_novel.memory_write_request",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "design_assets",
+            "selector": {
+              "collection": "design_assets",
+              "status_filter": [],
+              "record_kinds": [
+                "outline_design"
+              ],
+              "limit": 0
+            },
+            "record_keys": [
+              "outline_design"
+            ],
+            "version_selector": "current_clock_receipt",
+            "effective_from": "next_clock",
+            "on_missing": "warn",
+            "model_visible_label": "",
+            "usage_instruction": "这是待审全书大纲，不得让章节节点直接读取为已冻结基准。",
+            "receipt_policy": {},
+            "read_contract": {},
+            "write_contract": {
+              "request_contract_id": "contract.writing.simple_novel.memory_write_request",
+              "receipt_contract_id": "contract.writing.simple_novel.memory_write_receipt"
+            },
+            "memory_edge_type": "write_candidate"
+          }
+        },
+        {
+          "edge_id": "edge.memory_write_candidate.outline_review.memory.writing.artifact_index.reviews",
+          "source_node_id": "outline_review",
+          "target_node_id": "memory.writing.artifact_index",
+          "mode": "memory_write_candidate",
+          "edge_type": "memory_write_candidate",
+          "payload_contract_id": "contract.writing.simple_novel.memory_write_request",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "reviews",
+            "selector": {
+              "collection": "reviews",
+              "status_filter": [],
+              "record_kinds": [
+                "outline_review"
+              ],
+              "limit": 0
+            },
+            "record_keys": [
+              "outline_review"
+            ],
+            "version_selector": "current_clock_receipt",
+            "effective_from": "next_clock",
+            "on_missing": "warn",
+            "model_visible_label": "",
+            "usage_instruction": "记录全书大纲审核裁决和允许进入基准库的主干。",
+            "receipt_policy": {},
+            "read_contract": {},
+            "write_contract": {
+              "request_contract_id": "contract.writing.simple_novel.memory_write_request",
+              "receipt_contract_id": "contract.writing.simple_novel.memory_write_receipt"
+            },
+            "memory_edge_type": "write_candidate"
+          }
+        },
+        {
+          "edge_id": "edge.memory_write_candidate.outline_review.memory.writing.artifact_index.design_assets",
+          "source_node_id": "outline_review",
+          "target_node_id": "memory.writing.artifact_index",
+          "mode": "memory_write_candidate",
+          "edge_type": "memory_write_candidate",
+          "payload_contract_id": "contract.writing.simple_novel.memory_write_request",
+          "metadata": {
+            "repository": "memory.writing.artifact_index",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "design_assets",
+            "selector": {
+              "collection": "design_assets",
+              "status_filter": [],
+              "record_kinds": [
+                "outline_review",
+                "outline_design"
+              ],
+              "limit": 0
+            },
+            "record_keys": [
+              "outline_review",
+              "outline_design"
+            ],
+            "version_selector": "current_clock_receipt",
+            "effective_from": "next_clock",
+            "on_missing": "warn",
+            "model_visible_label": "",
+            "usage_instruction": "记录已审核大纲及其来源引用，供基准库初始化读取。",
+            "receipt_policy": {},
+            "read_contract": {},
+            "write_contract": {
+              "request_contract_id": "contract.writing.simple_novel.memory_write_request",
+              "receipt_contract_id": "contract.writing.simple_novel.memory_write_receipt"
+            },
+            "memory_edge_type": "write_candidate"
+          }
+        },
+        {
+          "edge_id": "edge.memory_write_candidate.outline_review.memory.writing.issue_ledger.world_issues",
+          "source_node_id": "outline_review",
+          "target_node_id": "memory.writing.issue_ledger",
+          "mode": "memory_write_candidate",
+          "edge_type": "memory_write_candidate",
+          "payload_contract_id": "contract.writing.simple_novel.memory_write_request",
+          "metadata": {
+            "repository": "memory.writing.issue_ledger",
+            "repository_node_id": "memory.writing.issue_ledger",
+            "collection": "world_issues",
+            "selector": {
+              "collection": "world_issues",
+              "status_filter": [],
+              "record_kinds": [
+                "outline_alignment_issue",
+                "revision_requirement"
+              ],
+              "limit": 0
+            },
+            "record_keys": [
+              "outline_alignment_issue",
+              "revision_requirement"
+            ],
+            "version_selector": "current_clock_receipt",
+            "effective_from": "next_clock",
+            "on_missing": "warn",
+            "model_visible_label": "",
+            "usage_instruction": "记录大纲审核中发现的人设、剧情、伏笔和世界观对齐问题。",
             "receipt_policy": {},
             "read_contract": {},
             "write_contract": {
@@ -10806,6 +13223,49 @@
           }
         },
         {
+          "edge_id": "edge.memory_commit.baseline_memory_seed.memory.writing.baseline.plot_spine",
+          "source_node_id": "baseline_memory_seed",
+          "target_node_id": "memory.writing.baseline",
+          "mode": "memory_commit",
+          "edge_type": "memory_commit",
+          "payload_contract_id": "contract.writing.simple_novel.memory_write_receipt",
+          "metadata": {
+            "repository": "memory.writing.baseline",
+            "repository_node_id": "memory.writing.baseline",
+            "collection": "plot_spine",
+            "selector": {
+              "collection": "plot_spine",
+              "status_filter": [],
+              "record_kinds": [
+                "baseline_plot_spine",
+                "foreshadow_spine",
+                "conflict_spine"
+              ],
+              "limit": 0
+            },
+            "record_keys": [
+              "baseline_plot_spine",
+              "foreshadow_spine",
+              "conflict_spine"
+            ],
+            "version_selector": "current_clock_receipt",
+            "effective_from": "next_clock",
+            "on_missing": "warn",
+            "model_visible_label": "",
+            "usage_instruction": "固化已审核大纲中的剧情主干、冲突主干和伏笔回收表，后续章节只能按边读取。",
+            "receipt_policy": {
+              "required_status": "committed",
+              "visible_after": "next_clock"
+            },
+            "read_contract": {},
+            "write_contract": {
+              "request_contract_id": "contract.writing.simple_novel.memory_write_request",
+              "receipt_contract_id": "contract.writing.simple_novel.memory_write_receipt"
+            },
+            "memory_edge_type": "commit"
+          }
+        },
+        {
           "edge_id": "edge.memory_commit.baseline_memory_seed.memory.writing.baseline.characters",
           "source_node_id": "baseline_memory_seed",
           "target_node_id": "memory.writing.baseline",
@@ -11538,13 +13998,18 @@
           }
         }
       ],
-      "handoff_rules": [],
+      "handoff_rules": [
+        "memory_pack_required",
+        "candidate_ref_before_review",
+        "pass_before_commit",
+        "manifest_not_full_text"
+      ],
       "join_policy": "explicit_join",
       "failure_policy": "fail_closed",
       "terminal_policy": "coordinator_terminal",
       "enabled": true,
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "task_family": "writing_simple_novel",
         "domain_id": "domain.writing.simple_novel",
         "graph_id": "graph.writing.simple_novel"

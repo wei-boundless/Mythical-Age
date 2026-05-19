@@ -655,17 +655,17 @@ class FormalMemoryStore:
         repository_id = _required(repository_id, "repository_id")
         collection_id = _required(collection_id or selector.get("collection"), "collection_id")
         logical_repository_id = logical_repository_id or selector.get("logical_repository_id") or repository_id
-        scope_id = scope_id or selector.get("scope_id") or task_run_id or repository_id
+        scope_id = scope_id or selector.get("scope_id") or (task_run_id if task_run_id else "")
         record_keys = _strings(selector.get("record_keys") or selector.get("record_key"))
         record_kinds = _strings(selector.get("record_kinds") or selector.get("record_kind"))
         statuses = _strings(selector.get("status_filter") or selector.get("statuses")) or ["committed"]
         mode = _version_selector_mode(version_selector)
         limit = max(1, min(int(selector.get("limit") or limit or 50), 500))
         filters = [
-            "repository_id = ?",
+            "(repository_id = ? OR logical_repository_id = ?)",
             "collection_id = ?",
         ]
-        params: list[Any] = [repository_id, collection_id]
+        params: list[Any] = [repository_id, repository_id, collection_id]
         if task_run_id:
             filters.append("task_run_id = ?")
             params.append(task_run_id)

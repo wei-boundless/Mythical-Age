@@ -106,6 +106,7 @@ def _seed_graph(tmp_path: Path) -> None:
                     "block_type": "design_graph",
                     "title": "设计阶段图",
                     "phase_id": "phase.start",
+                    "linked_graph_id": "graph.design.initialization",
                     "entry_node_id": "input",
                     "exit_node_id": "draft",
                     "handoff_contract_id": "contract.design.handoff",
@@ -144,6 +145,76 @@ def test_build_task_graph_standard_view_projects_nodes_edges_resources_and_timel
     assert payload["timeline"]["entry_node_id"] == "input"
     assert payload["runtime_isolation"]["memory_repositories"][0]["repository_id"] == "baseline"
     assert any(item["repository_id"] == "thread.ledger.1" for item in payload["runtime_isolation"]["memory_repositories"])
+    assert any(item["unit_id"] == "unit.node.draft" for item in payload["units"])
+    assert any(item["unit_id"] == "unit.graph.block.design" and item["ref"]["graph_id"] == "graph.design.initialization" for item in payload["units"])
+    assert any(item["interface_id"] == "interface.node.draft" for item in payload["interfaces"])
+    assert any(item["edge_id"] == "edge.input.draft" and item["source_unit_id"] == "unit.node.input" for item in payload["port_edges"])
+    assert payload["nested_runtime"][0]["linked_graph_id"] == "graph.design.initialization"
+    assert payload["diagnostics"]["composable_graph"]["diagnostics"]["mode"] == "read_only_shadow_model"
+
+
+def test_task_graph_standard_view_merges_composable_metadata_overlay(tmp_path: Path) -> None:
+    _seed_graph(tmp_path)
+    registry = TaskFlowRegistry(tmp_path)
+    graph = registry.get_task_graph("graph.test.standard_view")
+    assert graph is not None
+
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        domain_id=graph.domain_id,
+        task_family=graph.task_family,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(item.to_dict() for item in graph.nodes),
+        edges=tuple(item.to_dict() for item in graph.edges),
+        graph_contract_id=graph.graph_contract_id,
+        default_protocol_id=graph.default_protocol_id,
+        working_memory_policy_profile_id=graph.working_memory_policy_profile_id,
+        working_memory_policy=graph.working_memory_policy,
+        runtime_policy=graph.runtime_policy,
+        context_policy=graph.context_policy,
+        publish_state=graph.publish_state,
+        enabled=graph.enabled,
+        metadata={
+            **dict(graph.metadata or {}),
+            "composable_graph": {
+                "version": "v1",
+                "interfaces": [
+                    {
+                        "interface_id": "interface.node.draft",
+                        "unit_id": "unit.node.draft",
+                        "display_name_zh": "起草节点显式接口",
+                        "input_ports": [{"port_id": "input.reviewed", "title": "审核后输入", "direction": "input", "payload_contract_id": "contract.reviewed.input"}],
+                        "output_ports": [{"port_id": "output.explicit", "title": "显式输出", "direction": "output", "payload_contract_id": "contract.explicit.output"}],
+                    }
+                ],
+                "port_edges": [
+                    {
+                        "edge_id": "port_edge.explicit.design_to_draft",
+                        "source_unit_id": "unit.graph.block.design",
+                        "source_port_id": "output.default",
+                        "target_unit_id": "unit.node.draft",
+                        "target_port_id": "input.reviewed",
+                        "payload_contract_id": "contract.design.handoff",
+                        "temporal_semantics": {"trigger_timing": "after_source_commit"},
+                    }
+                ],
+            },
+        },
+    )
+    updated_graph = registry.get_task_graph("graph.test.standard_view")
+    assert updated_graph is not None
+
+    payload = build_task_graph_standard_view(graph=updated_graph).to_dict()
+
+    draft_interface = next(item for item in payload["interfaces"] if item["interface_id"] == "interface.node.draft")
+    assert draft_interface["display_name_zh"] == "起草节点显式接口"
+    assert draft_interface["input_ports"][0]["port_id"] == "input.reviewed"
+    assert any(item["edge_id"] == "port_edge.explicit.design_to_draft" for item in payload["port_edges"])
+    assert payload["diagnostics"]["composable_graph"]["diagnostics"]["mode"] == "metadata_overlay_shadow_model"
+    assert payload["diagnostics"]["composable_graph"]["diagnostics"]["overlay_port_edge_count"] == 1
 
 
 def test_task_graph_standard_view_api_round_trips_title_and_node_runtime(tmp_path: Path) -> None:

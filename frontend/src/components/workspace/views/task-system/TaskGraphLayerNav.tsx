@@ -17,6 +17,7 @@ export type TaskGraphStudioLayerId =
   | "blueprint"
   | "agents"
   | "topology"
+  | "modules"
   | "responsibility"
   | "timeline"
   | "memory"
@@ -61,6 +62,15 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     metric: "画布",
     state: "ready",
     icon: GitBranch,
+  },
+  {
+    id: "modules",
+    title: "任务图编辑器",
+    description: "图节点、交接边、可组合流程",
+    category: "structure",
+    metric: "图化",
+    state: "draft",
+    icon: Boxes,
   },
   {
     id: "responsibility",

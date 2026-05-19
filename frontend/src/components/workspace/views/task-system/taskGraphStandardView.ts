@@ -1,4 +1,11 @@
-import type { TaskGraphStandardEdgeSpec, TaskGraphStandardResourceSpec, TaskGraphStandardView } from "@/lib/api";
+import type {
+  ComposableUnitSpec,
+  TaskGraphStandardEdgeSpec,
+  TaskGraphStandardResourceSpec,
+  TaskGraphStandardView,
+  UnitInterfaceSpec,
+  UnitPortEdgeSpec,
+} from "@/lib/api";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -141,6 +148,56 @@ export function buildTaskGraphTimelineStandardModel(standardView: TaskGraphStand
     issueCount: standardView.issues.length,
     entryNodeId: standardView.timeline?.entry_node_id ?? "",
     outputNodeId: standardView.timeline?.output_node_id ?? "",
+  };
+}
+
+export function buildTaskGraphComposableStandardModel(standardView: TaskGraphStandardView | null) {
+  if (!standardView) {
+    return {
+      units: [] as ComposableUnitSpec[],
+      nodeUnits: [] as ComposableUnitSpec[],
+      graphUnits: [] as ComposableUnitSpec[],
+      resourceUnits: [] as ComposableUnitSpec[],
+      humanGateUnits: [] as ComposableUnitSpec[],
+      toolUnits: [] as ComposableUnitSpec[],
+      runtimeMonitorUnits: [] as ComposableUnitSpec[],
+      interfaces: [] as UnitInterfaceSpec[],
+      portEdges: [] as UnitPortEdgeSpec[],
+      nestedRuntime: [] as NonNullable<TaskGraphStandardView["nested_runtime"]>,
+      interfaceByUnitId: new Map<string, UnitInterfaceSpec>(),
+      portEdgesByUnitId: new Map<string, UnitPortEdgeSpec[]>(),
+      issueCount: 0,
+    };
+  }
+
+  const units = standardView.units ?? [];
+  const interfaces = standardView.interfaces ?? [];
+  const portEdges = standardView.port_edges ?? [];
+  const nestedRuntime = standardView.nested_runtime ?? [];
+  const interfaceByUnitId = new Map(interfaces.map((item) => [item.unit_id, item]));
+  const portEdgesByUnitId = new Map<string, UnitPortEdgeSpec[]>();
+  for (const edge of portEdges) {
+    for (const unitId of [edge.source_unit_id, edge.target_unit_id]) {
+      const existing = portEdgesByUnitId.get(unitId) ?? [];
+      existing.push(edge);
+      portEdgesByUnitId.set(unitId, existing);
+    }
+  }
+
+  return {
+    units,
+    nodeUnits: units.filter((unit) => unit.unit_type === "node"),
+    graphUnits: units.filter((unit) => unit.unit_type === "graph"),
+    resourceUnits: units.filter((unit) => unit.unit_type === "resource"),
+    humanGateUnits: units.filter((unit) => unit.unit_type === "human_gate"),
+    toolUnits: units.filter((unit) => unit.unit_type === "tool"),
+    runtimeMonitorUnits: units.filter((unit) => unit.unit_type === "runtime_monitor"),
+    interfaces,
+    portEdges,
+    nestedRuntime,
+    interfaceByUnitId,
+    portEdgesByUnitId,
+    issueCount: (standardView.issues ?? []).filter((issue) => issue.unit_id || issue.code.startsWith("port_edge_") || issue.code.startsWith("nested_graph_")).length,
   };
 }
 

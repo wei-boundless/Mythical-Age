@@ -1,0 +1,38 @@
+{
+  "task_id": "task:memory_maintenance_after_commit:6d86d8673fa1415aae7b77c98ed1757e",
+  "task_kind": "memory_maintenance_after_commit",
+  "status": "queued",
+  "payload": {
+    "session_id": "3dc405eab88b41daaed7661db14839e8",
+    "messages": [
+      {
+        "role": "user",
+        "content": "查询黄金价格，直接报结果，不要进入确认式回复。"
+      },
+      {
+        "role": "assistant",
+        "content": "证据已足够，直接报结果。\n\n---\n\n当前黄金价格（2026年5月19日）：\n\n- 现货黄金：约 4,483.67 美元/盎司（周一亚洲时段数据，较前一日下跌1.3%）\n- 黄金期货：约 4,484.82 美元/盎司（下跌1.7%）\n\n这是近一个半月以来的低点。主要压力来自全球国债收益率攀升和伊朗局势紧张。",
+        "answer_channel": "answer_candidate",
+        "answer_source": "runtime_directive:model_response",
+        "answer_canonical_state": "stable_answer",
+        "answer_persist_policy": "persist_canonical",
+        "answer_finalization_policy": "none"
+      }
+    ],
+    "turn_id": "turn:3dc405eab88b41daaed7661db14839e8:1",
+    "main_context": {},
+    "task_summary_refs": [],
+    "bundle_summary_refs": [],
+    "durable_lane_enabled": true
+  },
+  "result": {},
+  "error": "",
+  "source": "memory_system.facade",
+  "session_id": "3dc405eab88b41daaed7661db14839e8",
+  "lane_id": "session_memory_maintenance",
+  "attempts": 0,
+  "queued_at": "2026-05-19T00:07:43+00:00",
+  "started_at": "",
+  "completed_at": "",
+  "receipt_path": "D:\\AI应用\\langchain-agent\\backend\\runtime_state\\background_tasks\\memory_maintenance_after_commit\\task_memory_maintenance_after_commit_6d86d8673fa1415aae7b77c98ed1757e.json"
+}

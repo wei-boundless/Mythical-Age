@@ -45,7 +45,7 @@ export function TaskSystemShell<T extends string>({
 }) {
   return (
     <div className={`workspace-view boundary-console task-system-boundary task-system-boundary--${mode}`}>
-      <header className="boundary-hero">
+      <header className={mode === "editor" ? "boundary-hero task-system-boundary__studio-hero" : "boundary-hero"}>
         <div>
           <span>{mode === "editor" ? "TaskGraph Studio" : "TaskSystem Console"}</span>
           <h2>{title}</h2>

@@ -46,6 +46,7 @@ describe("TaskGraph timeline layering", () => {
 
     expect(issues.some((issue) => issue.code === "timeline_block_entry_missing")).toBe(true);
     expect(issues.some((issue) => issue.code === "timeline_block_handoff_contract_missing")).toBe(true);
+    expect(issues.some((issue) => issue.code === "timeline_block_child_graph_missing")).toBe(true);
     expect(issues.some((issue) => issue.code === "timeline_edge_visibility_timing_missing")).toBe(true);
   });
 });

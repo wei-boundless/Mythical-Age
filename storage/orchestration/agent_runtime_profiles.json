@@ -581,22 +581,45 @@
         "memory_runtime_view"
       ],
       "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing.simple_novel.project_brief",
+        "contract.writing.simple_novel.world_candidate",
+        "contract.writing.simple_novel.world_review",
+        "contract.writing.simple_novel.character_design",
+        "contract.writing.simple_novel.plot_design",
+        "contract.writing.simple_novel.design_sync",
+        "contract.writing.simple_novel.outline_design",
+        "contract.writing.simple_novel.outline_review",
+        "contract.writing.simple_novel.volume_plan_commit",
+        "contract.writing.simple_novel.chapter_outline",
+        "contract.writing.simple_novel.chapter_draft",
+        "contract.writing.simple_novel.chapter_review",
+        "contract.writing.simple_novel.chapter_progress_decision",
+        "contract.writing.simple_novel.volume_review",
+        "contract.writing.simple_novel.volume_postmortem",
+        "contract.writing.simple_novel.world_outline_extension_proposal",
+        "contract.writing.simple_novel.extension_review",
+        "contract.writing.simple_novel.next_volume_decision",
+        "contract.writing.simple_novel.final_manuscript",
+        "contract.writing.simple_novel.final_review"
+      ],
       "can_delegate_to_agents": false,
       "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
       "max_delegate_calls_per_turn": 0,
       "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "task_graph_managed",
       "metadata": {
-        "managed_by": "task_graph_order_from_task_system",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "task_family": "writing_simple_novel",
         "source_task_graph_refs": [
           "graph.writing.simple_novel"
-        ],
-        "runtime_template_id": "task_graph.writing.simple_novel.readonly_worker"
-      },
-      "runtime_template_id": "task_graph.writing.simple_novel.readonly_worker"
+        ]
+      }
     },
     {
       "agent_profile_id": "writing_memory_steward_runtime",
@@ -619,7 +642,6 @@
       ],
       "allowed_memory_scopes": [
         "writing_simple_novel",
-        "writing_team_long_novel",
         "state_readonly"
       ],
       "allowed_context_sections": [
@@ -630,23 +652,32 @@
         "memory_runtime_view"
       ],
       "use_shared_contract": true,
+      "output_contracts": [
+        "contract.writing.simple_novel.memory_commit_world",
+        "contract.writing.simple_novel.baseline_memory_commit",
+        "contract.writing.simple_novel.chapter_commit",
+        "contract.writing.simple_novel.volume_commit",
+        "contract.writing.simple_novel.extension_commit",
+        "contract.writing.simple_novel.delivery_package",
+        "contract.writing.simple_novel.failure_report"
+      ],
       "can_delegate_to_agents": false,
       "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
       "max_delegate_calls_per_turn": 0,
       "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "task_graph_managed",
       "metadata": {
-        "managed_by": "task_graph_order_from_task_system",
-        "task_family": "writing_memory",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "task_family": "writing_simple_novel",
         "source_task_graph_refs": [
-          "graph.writing.simple_novel",
-          "graph.writing_team.long_novel"
-        ],
-        "runtime_template_id": "task_graph.writing.memory_steward"
-      },
-      "runtime_template_id": "task_graph.writing.memory_steward"
+          "graph.writing.simple_novel"
+        ]
+      }
     },
     {
       "agent_profile_id": "writing_runtime_monitor_runtime",
@@ -679,22 +710,26 @@
         "task_graph_monitor"
       ],
       "use_shared_contract": true,
+      "output_contracts": [
+        "contract.taskgraph.monitor.decision"
+      ],
       "can_delegate_to_agents": false,
       "allowed_delegate_agent_ids": [],
+      "allowed_delegate_agent_categories": [
+        "worker_sub_agent"
+      ],
       "max_delegate_calls_per_turn": 0,
       "delegate_context_policy": "summary_and_refs_only",
       "approval_policy": "read_only_first",
       "trace_policy": "runtime_event_log",
       "lifecycle_policy": "task_graph_managed",
       "metadata": {
-        "managed_by": "task_graph_order_from_task_system",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "task_family": "writing_simple_novel",
         "source_task_graph_refs": [
           "graph.writing.simple_novel"
-        ],
-        "runtime_template_id": "task_graph.writing.simple_novel.runtime_monitor"
-      },
-      "runtime_template_id": "task_graph.writing.simple_novel.runtime_monitor"
+        ]
+      }
     }
   ]
 }

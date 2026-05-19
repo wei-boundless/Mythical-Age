@@ -123,6 +123,12 @@
         "contract.writing.simple_novel.world_candidate",
         "contract.writing.simple_novel.world_review",
         "contract.writing.simple_novel.memory_commit_world",
+        "contract.writing.simple_novel.character_design",
+        "contract.writing.simple_novel.plot_design",
+        "contract.writing.simple_novel.design_sync_input",
+        "contract.writing.simple_novel.design_sync",
+        "contract.writing.simple_novel.outline_design",
+        "contract.writing.simple_novel.outline_review",
         "contract.writing.simple_novel.baseline_memory_commit",
         "contract.writing.simple_novel.volume_plan_commit",
         "contract.writing.simple_novel.volume_review_input",
@@ -182,7 +188,7 @@
       "error_signal_policy": "raise_to_coordinator",
       "enabled": true,
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "task_family": "writing_simple_novel",
         "domain_id": "domain.writing.simple_novel",
         "memory_access_model": "edge_based_repository_access"

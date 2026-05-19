@@ -345,8 +345,8 @@
         "title": "Skill 创建顾问",
         "capability": "用于创建、改写和审查能力系统 Skill，帮助把用户意图整理成清晰的能力边界、触发条件、执行准则和模型可见提示。",
         "use_when": "",
-        "delegation_protocol": "",
-        "return_protocol": "",
+        "delegation_protocol": "When the main agent delegates, ask for capability_design or skill_update; pass the target use case, expected trigger phrases, execution boundary, required tools, and whether the skill must coordinate with sub-agents. If the request is only a wording polish, keep scope narrow and avoid inventing new behavior.",
+        "return_protocol": "Return a concrete skill draft or review notes with three parts: boundary, prompt structure, and validation gaps. Clearly separate what should be changed in metadata, what should be changed in the body, and what should remain untouched. If the skill is too broad, say how to split it.",
         "output_rule": "Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol."
       },
       "validation_errors": []

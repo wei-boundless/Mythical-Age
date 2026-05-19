@@ -7,6 +7,7 @@ import { TaskGraphAgentRosterPage } from "@/components/workspace/views/task-syst
 import { TaskGraphBlueprintPage } from "@/components/workspace/views/task-system/TaskGraphBlueprintPage";
 import { TaskGraphContractQualityPage } from "@/components/workspace/views/task-system/TaskGraphContractQualityPage";
 import { TaskGraphMemoryArtifactPage } from "@/components/workspace/views/task-system/TaskGraphMemoryArtifactPage";
+import { TaskGraphModuleCompositionPage } from "@/components/workspace/views/task-system/TaskGraphModuleCompositionPage";
 import { TaskGraphPublishRunPage } from "@/components/workspace/views/task-system/TaskGraphPublishRunPage";
 import { TaskGraphResponsibilityPage } from "@/components/workspace/views/task-system/TaskGraphResponsibilityPage";
 import { TaskGraphRiskGovernancePage } from "@/components/workspace/views/task-system/TaskGraphRiskGovernancePage";
@@ -46,6 +47,7 @@ export function TaskGraphWorkbench({
   updateTaskGraphRuntimePolicy,
   activeGraphNodes,
   activeGraphEdges,
+  workspaceSlot,
   ...rest
 }: TaskGraphWorkbenchProps) {
   const [editorFocus, setEditorFocus] = useState<TaskGraphEditorFocus>({ layer: "blueprint" });
@@ -92,6 +94,14 @@ export function TaskGraphWorkbench({
   };
   const setActiveLayer = (layer: TaskGraphStudioLayerId) => {
     applyEditorFocus({ layer, facet: undefined, issue_id: undefined });
+  };
+  const openGraphInStudio = (graphId: string) => {
+    const target = rest.taskGraphs.find((graph) => graph.graph_id === graphId);
+    if (!target) return;
+    rest.setSelectedTaskGraphId(target.graph_id);
+    rest.setSelectedGraphNodeId("");
+    rest.setSelectedGraphEdgeId("");
+    setEditorFocus({ layer: "blueprint", facet: "graph_unit_entry" });
   };
   const focusPreflightIssue = (issue: TaskGraphPreflightIssue) => {
     applyEditorFocus(focusForPreflightIssue(issue));
@@ -406,6 +416,35 @@ export function TaskGraphWorkbench({
         />
       );
     }
+    if (activeLayer === "modules") {
+      return (
+        <TaskGraphModuleCompositionPage
+          activeGraphEdges={activeGraphEdges}
+          activeGraphNodes={activeGraphNodes}
+          a2aCatalog={rest.a2aCatalog}
+          contractSpecs={rest.contractSpecs}
+          dirty={rest.taskGraphDirty}
+          domainTaskOptions={rest.domainTaskOptions}
+          editorFocus={editorFocus}
+          editorIssueCount={rest.editorIssueCount}
+          editorValid={rest.editorValid}
+          onEditorFocus={applyEditorFocus}
+          onOpenGraph={openGraphInStudio}
+          orchestrationAgentCatalog={rest.orchestrationAgentCatalog}
+          projectionCards={rest.projectionCards}
+          selectedDomainTasks={rest.selectedDomainTasks}
+          standardView={rest.taskGraphStandardView}
+          standardViewLoading={rest.taskGraphStandardViewLoading}
+          taskGraphDraft={taskGraphDraftV2}
+          taskGraphs={rest.taskGraphs}
+          updateTaskGraphDraft={updateTaskGraph}
+          updateTaskGraphEdge={updateTaskGraphEdge}
+          updateTaskGraphMetadata={updateTaskGraphMetadata}
+          updateTaskGraphNode={updateTaskGraphNode}
+          updateTaskGraphRuntimePolicy={updateRuntimePolicy}
+        />
+      );
+    }
     if (activeLayer === "timeline") {
       return (
         <TaskGraphTimelinePage
@@ -481,6 +520,7 @@ export function TaskGraphWorkbench({
           graphId={taskGraphDraftV2.graph_id}
           metadata={taskGraphDraftV2.metadata}
           nodes={activeGraphNodes}
+          standardView={rest.taskGraphStandardView}
           onPublish={handlePublish}
           onRunBound={() => updateEditorPublishState("run_bound")}
           onSave={handleSaveDraft}
@@ -512,6 +552,7 @@ export function TaskGraphWorkbench({
       saving={rest.saving}
       title={taskGraphDraftV2.title}
       valid={valid}
+      workspaceSlot={workspaceSlot}
     >
       {standardViewBanner}
       {pageContent}

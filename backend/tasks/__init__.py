@@ -33,6 +33,13 @@ __all__ = [
     "TaskGraphEdgeDefinition",
     "TaskGraphValidationIssue",
     "TaskGraphStandardView",
+    "ComposableGraphView",
+    "ComposableUnit",
+    "UnitInterface",
+    "UnitPort",
+    "UnitPortEdge",
+    "NestedRuntimePlan",
+    "build_composable_graph_view",
     "build_task_graph_standard_view",
     "apply_task_graph_standard_view_update",
     "TaskGraphRuntimeSpec",
@@ -188,6 +195,34 @@ def __getattr__(name: str) -> Any:
             "TaskGraphNodeDefinition": TaskGraphNodeDefinition,
             "TaskGraphEdgeDefinition": TaskGraphEdgeDefinition,
             "TaskGraphValidationIssue": TaskGraphValidationIssue,
+        }[name]
+    if name in {
+        "ComposableGraphView",
+        "ComposableUnit",
+        "UnitInterface",
+        "UnitPort",
+        "UnitPortEdge",
+        "NestedRuntimePlan",
+        "build_composable_graph_view",
+    }:
+        from tasks.composable_graph_builder import build_composable_graph_view
+        from tasks.composable_graph_models import (
+            ComposableGraphView,
+            ComposableUnit,
+            NestedRuntimePlan,
+            UnitInterface,
+            UnitPort,
+            UnitPortEdge,
+        )
+
+        return {
+            "ComposableGraphView": ComposableGraphView,
+            "ComposableUnit": ComposableUnit,
+            "UnitInterface": UnitInterface,
+            "UnitPort": UnitPort,
+            "UnitPortEdge": UnitPortEdge,
+            "NestedRuntimePlan": NestedRuntimePlan,
+            "build_composable_graph_view": build_composable_graph_view,
         }[name]
     if name in {"TaskGraphStandardView", "build_task_graph_standard_view", "apply_task_graph_standard_view_update"}:
         from tasks.task_graph_standard_models import (

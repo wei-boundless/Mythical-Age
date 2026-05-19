@@ -16612,8 +16612,11 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-system-editor-shell {
   display: grid;
-  gap: 0.5rem;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 .task-system-boundary--editor {
@@ -16622,11 +16625,44 @@ html[data-soul="xuannv"] .soul-portrait__label {
   background: color-mix(in srgb, var(--color-panel-strong) 96%, #050b11);
 }
 
+.task-system-boundary--editor .task-system-boundary__studio-hero {
+  align-items: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-soul) 8%, transparent), transparent 52%),
+    color-mix(in srgb, var(--color-panel-strong) 96%, #050b11);
+  padding: 0.42rem 0.56rem;
+}
+
+.task-system-boundary--editor .task-system-boundary__studio-hero h2 {
+  font-size: 0.95rem;
+  line-height: 1.2;
+}
+
+.task-system-boundary--editor .task-system-boundary__studio-hero p {
+  font-size: 0.68rem;
+}
+
 .task-system-boundary--editor .boundary-card--editor {
   border: 0;
   border-radius: 0;
   background: transparent;
   padding: 0;
+}
+
+.task-graph-studio-workspace-strip {
+  display: grid;
+  grid-template-columns: minmax(420px, 1.4fr) minmax(260px, 0.9fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: 0;
+  background: color-mix(in srgb, var(--color-panel-strong) 94%, #050b11);
+  padding: 0.28rem 0.42rem;
+  overflow: visible;
+  position: relative;
+  z-index: 4;
 }
 
 .task-graph-editor-chrome {
@@ -16807,9 +16843,15 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-graph-studio-shell {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
   min-height: 0;
   border-top: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
   background: color-mix(in srgb, var(--color-panel-strong) 95%, #061018);
+  overflow: hidden;
+}
+
+.task-graph-studio-shell--with-workspace {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
 .task-graph-studio-topbar {
@@ -16893,8 +16935,9 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .task-graph-studio-shell__body {
   display: grid;
-  grid-template-columns: minmax(190px, 0.18fr) minmax(0, 1fr);
+  grid-template-columns: minmax(210px, 0.2fr) minmax(0, 1fr);
   min-height: 0;
+  overflow: hidden;
 }
 
 .task-graph-layer-nav {
@@ -16902,8 +16945,10 @@ html[data-soul="xuannv"] .soul-portrait__label {
   align-content: start;
   gap: 0.38rem;
   min-width: 0;
+  min-height: 0;
   border-right: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
   padding: 0.5rem;
+  overflow: auto;
 }
 
 .task-graph-layer-group {
@@ -17005,6 +17050,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .task-graph-studio-shell__page {
   min-width: 0;
   min-height: 0;
+  overflow: auto;
 }
 
 .task-graph-layer-context {
@@ -17592,6 +17638,114 @@ html[data-soul="xuannv"] .soul-portrait__label {
   align-content: start;
 }
 
+.task-graph-module-hero {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.3fr) repeat(3, minmax(130px, 0.55fr));
+  gap: 0.52rem;
+}
+
+.task-graph-module-hero article {
+  display: grid;
+  align-content: start;
+  gap: 0.12rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 13%, var(--color-border));
+  border-radius: 7px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-soul) 8%, transparent), transparent 54%),
+    rgba(255, 255, 255, 0.024);
+  padding: 0.62rem 0.68rem;
+}
+
+.task-graph-module-hero article:not(.task-graph-module-hero__main) {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.task-graph-module-hero article svg {
+  grid-row: span 2;
+  color: var(--color-soul);
+}
+
+.task-graph-module-hero span {
+  color: var(--color-text-soft);
+  font-size: 0.62rem;
+  font-weight: 850;
+}
+
+.task-graph-module-hero strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 0.94rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-module-hero small {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-module-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.62rem;
+}
+
+.task-graph-module-list {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.task-graph-module-list article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.46rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 11%, var(--color-border));
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.022);
+  padding: 0.52rem 0.58rem;
+}
+
+.task-graph-module-list svg {
+  color: var(--color-soul);
+  margin-top: 0.08rem;
+}
+
+.task-graph-module-list div {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.task-graph-module-list strong,
+.task-graph-module-list span,
+.task-graph-module-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-module-list strong {
+  color: var(--color-text);
+  font-size: 0.76rem;
+}
+
+.task-graph-module-list span {
+  color: var(--color-text-muted);
+  font-size: 0.64rem;
+}
+
+.task-graph-module-list small {
+  color: var(--color-text-soft);
+  font-size: 0.66rem;
+}
+
 .task-graph-facet-switch {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -17768,6 +17922,22 @@ html[data-soul="xuannv"] .soul-portrait__label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.task-graph-inline-danger {
+  min-height: 2.12rem;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 34%, var(--color-border));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  color: color-mix(in srgb, var(--color-danger) 70%, var(--color-text));
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
+.task-graph-inline-danger:hover {
+  border-color: color-mix(in srgb, var(--color-danger) 52%, var(--color-border));
+  background: color-mix(in srgb, var(--color-danger) 13%, transparent);
 }
 
 .task-graph-memory-matrix {
@@ -20565,6 +20735,8 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .task-graph-studio-shell__body,
   .task-graph-studio-placeholder-grid,
   .task-graph-form-grid,
+  .task-graph-module-hero,
+  .task-graph-module-grid,
   .task-graph-agent-node-grid,
   .task-graph-mini-kv,
   .task-graph-node-policy-row,
@@ -20582,6 +20754,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .task-studio-json-grid,
   .task-layer-directory-grid,
   .task-layer-status__grid,
+  .task-graph-studio-workspace-strip,
   .task-graph-editor-chrome,
   .task-graph-editor-chrome__controls,
   .coordination-editor-layout {
@@ -25648,10 +25821,631 @@ html[data-soul="xuannv"] .soul-portrait__label {
   gap: 8px;
 }
 
+.task-graph-composer-page {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.task-graph-composer-workbench {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(520px, 1fr) minmax(300px, 360px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.task-graph-composer-rail,
+.task-graph-composer-inspector {
+  display: grid;
+  align-content: start;
+  gap: 0.56rem;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.58rem;
+  overflow: auto;
+}
+
+.task-graph-composer-rail {
+  border-right: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+}
+
+.task-graph-composer-inspector {
+  border-left: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.task-graph-composer-panel,
+.task-graph-composer-inspector-card {
+  display: grid;
+  gap: 0.52rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 0.58rem;
+}
+
+.task-graph-composer-panel > header,
+.task-graph-composer-inspector-card > header {
+  display: flex;
+  align-items: center;
+  gap: 0.38rem;
+  min-width: 0;
+  color: var(--color-text);
+}
+
+.task-graph-composer-panel > header svg,
+.task-graph-composer-inspector-card > header svg {
+  flex: 0 0 auto;
+  color: var(--color-soul);
+}
+
+.task-graph-composer-panel > header strong,
+.task-graph-composer-inspector-card > header strong {
+  min-width: 0;
+  flex: 1 1 auto;
+  font-size: 0.76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-composer-inspector-card > header span {
+  color: var(--color-text-muted);
+  font-size: 0.6rem;
+  white-space: nowrap;
+}
+
+.task-graph-composer-tree-card,
+.task-graph-composer-object-list button,
+.task-graph-composer-type-list button,
+.task-graph-composer-facet-grid button,
+.task-graph-composer-subtle-action {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.task-graph-composer-tree-card {
+  display: grid;
+  gap: 0.08rem;
+  padding: 0.52rem 0.58rem;
+}
+
+.task-graph-composer-tree-card:hover,
+.task-graph-composer-tree-card--active,
+.task-graph-composer-object-list button:hover,
+.task-graph-composer-object-list button.active,
+.task-graph-composer-type-list button:hover,
+.task-graph-composer-facet-grid button:hover,
+.task-graph-composer-facet-grid button.active,
+.task-graph-composer-subtle-action:hover {
+  border-color: color-mix(in srgb, var(--color-soul) 44%, var(--color-border));
+  background: color-mix(in srgb, var(--color-soul) 9%, rgba(255, 255, 255, 0.02));
+  color: var(--color-text);
+}
+
+.task-graph-composer-tree-card span,
+.task-graph-composer-tree-card em {
+  color: var(--color-text-muted);
+  font-size: 0.6rem;
+  font-style: normal;
+}
+
+.task-graph-composer-tree-card strong,
+.task-graph-composer-tree-card small,
+.task-graph-composer-object-list strong,
+.task-graph-composer-object-list small,
+.task-graph-composer-selection-title strong,
+.task-graph-composer-selection-title small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-composer-tree-card strong {
+  color: inherit;
+  font-size: 0.8rem;
+}
+
+.task-graph-composer-tree-card small {
+  color: var(--color-text-muted);
+  font-size: 0.62rem;
+}
+
+.task-graph-composer-mini-metrics,
+.task-graph-composer-kv {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.34rem;
+}
+
+.task-graph-composer-mini-metrics p,
+.task-graph-composer-kv p {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 10%, var(--color-border));
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.018);
+  padding: 0.38rem 0.44rem;
+}
+
+.task-graph-composer-mini-metrics span,
+.task-graph-composer-kv span {
+  color: var(--color-text-muted);
+  font-size: 0.56rem;
+  font-weight: 850;
+}
+
+.task-graph-composer-mini-metrics strong,
+.task-graph-composer-kv strong {
+  color: var(--color-text);
+  font-size: 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-composer-inline-note {
+  display: flex;
+  align-items: center;
+  gap: 0.34rem;
+  border-left: 2px solid color-mix(in srgb, #fbbf24 54%, var(--color-border));
+  background: rgba(251, 191, 36, 0.055);
+  color: #fde68a;
+  font-size: 0.66rem;
+  padding: 0.42rem 0.5rem;
+}
+
+.task-graph-composer-facet-grid,
+.task-graph-composer-type-list {
+  display: grid;
+  gap: 0.34rem;
+}
+
+.task-graph-composer-facet-grid button {
+  display: grid;
+  gap: 0.08rem;
+  padding: 0.42rem 0.48rem;
+}
+
+.task-graph-composer-facet-grid strong {
+  color: inherit;
+  font-size: 0.68rem;
+}
+
+.task-graph-composer-facet-grid span {
+  color: var(--color-text-muted);
+  font-size: 0.56rem;
+}
+
+.task-graph-composer-object-list {
+  display: grid;
+  gap: 0.34rem;
+}
+
+.task-graph-composer-object-list button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.38rem;
+  padding: 0.44rem 0.48rem;
+}
+
+.task-graph-composer-object-list svg {
+  color: var(--color-soul);
+}
+
+.task-graph-composer-object-list span {
+  display: grid;
+  gap: 0.06rem;
+  min-width: 0;
+}
+
+.task-graph-composer-object-list strong {
+  color: inherit;
+  font-size: 0.68rem;
+}
+
+.task-graph-composer-object-list small {
+  color: var(--color-text-muted);
+  font-size: 0.58rem;
+}
+
+.task-graph-composer-object-list em {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-size: 0.54rem;
+  font-style: normal;
+  font-weight: 850;
+  padding: 0.1rem 0.28rem;
+}
+
+.task-graph-composer-type-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.42rem 0.48rem;
+}
+
+.task-graph-composer-type-list span {
+  color: inherit;
+  font-size: 0.66rem;
+}
+
+.task-graph-composer-type-list strong {
+  color: var(--color-text);
+  font-size: 0.72rem;
+}
+
+.task-graph-composer-empty,
+.task-graph-composer-dock__empty {
+  border: 1px dashed color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  font-size: 0.66rem;
+  line-height: 1.45;
+  padding: 0.48rem 0.54rem;
+}
+
+.task-graph-composer-canvas-shell {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.task-graph-composer-canvas-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 10%, var(--color-border));
+  padding: 0.62rem 0.72rem;
+}
+
+.task-graph-composer-canvas-head > div:first-child {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.task-graph-composer-canvas-head span {
+  color: var(--color-soul);
+  font-size: 0.62rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.task-graph-composer-canvas-head strong {
+  color: var(--color-text);
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-composer-canvas-head small {
+  color: var(--color-text-soft);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.task-graph-composer-canvas-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.34rem;
+}
+
+.task-graph-composer-canvas-metrics span {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-text-soft);
+  font-size: 0.6rem;
+  padding: 0.16rem 0.38rem;
+  text-transform: none;
+}
+
+.task-graph-composer-mode-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 10%, var(--color-border));
+  padding: 0.48rem 0.58rem;
+}
+
+.task-graph-composer-mode-strip article,
+.task-graph-composer-mode-strip button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.08rem 0.34rem;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 10%, var(--color-border));
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.016);
+  color: inherit;
+  cursor: pointer;
+  padding: 0.38rem 0.44rem;
+  text-align: left;
+}
+
+.task-graph-composer-mode-strip article.active,
+.task-graph-composer-mode-strip button.active,
+.task-graph-composer-mode-strip button:hover {
+  border-color: color-mix(in srgb, var(--color-soul) 42%, var(--color-border));
+  background: color-mix(in srgb, var(--color-soul) 8%, rgba(255, 255, 255, 0.018));
+}
+
+.task-graph-composer-mode-strip svg {
+  grid-row: span 2;
+  color: var(--color-soul);
+}
+
+.task-graph-composer-mode-strip span {
+  color: var(--color-text-soft);
+  font-size: 0.58rem;
+  font-weight: 850;
+}
+
+.task-graph-composer-mode-strip strong {
+  color: var(--color-text);
+  font-size: 0.64rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-composer-viewport {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.task-graph-composer-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  border-top: 1px solid color-mix(in srgb, var(--color-soul) 10%, var(--color-border));
+  color: var(--color-text-muted);
+  font-size: 0.62rem;
+  padding: 0.42rem 0.58rem;
+}
+
+.task-graph-composer-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.26rem;
+}
+
+.legend-dot,
+.legend-line {
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.legend-dot {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 999px;
+}
+
+.legend-dot--unit {
+  background: color-mix(in srgb, var(--color-soul) 50%, rgba(255, 255, 255, 0.18));
+}
+
+.legend-dot--graph {
+  border-radius: 3px;
+  background: #a7f3d0;
+}
+
+.legend-line {
+  width: 1.3rem;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.legend-line--overlay {
+  background: #67e8f9;
+}
+
+.coordination-topology-edge--port_edge {
+  stroke: #cbd5e1;
+  opacity: 0.72;
+}
+
+.coordination-topology-edge-arrow.coordination-topology-edge--port_edge {
+  fill: #cbd5e1;
+}
+
+.coordination-topology-edge--port_edge_overlay {
+  stroke: #67e8f9;
+  stroke-dasharray: 8 4;
+  opacity: 0.86;
+}
+
+.coordination-topology-edge-arrow.coordination-topology-edge--port_edge_overlay {
+  fill: #67e8f9;
+}
+
+.coordination-topology-node-halo--graph_unit {
+  stroke: rgba(52, 211, 153, 0.46);
+}
+
+.coordination-topology-node-surface--graph_unit.is-idle,
+.coordination-topology-node-surface--graph_unit.is-waiting {
+  fill: rgba(6, 95, 70, 0.18);
+  stroke: rgba(110, 231, 183, 0.56);
+}
+
+.coordination-topology-node-surface--graph_unit.is-selected {
+  fill: rgba(5, 150, 105, 0.26);
+  stroke: #a7f3d0;
+}
+
+.task-graph-composer-selection-title {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 10%, var(--color-border));
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.12);
+  padding: 0.48rem 0.52rem;
+}
+
+.task-graph-composer-selection-title span {
+  color: var(--color-soul);
+  font-size: 0.58rem;
+  font-weight: 900;
+}
+
+.task-graph-composer-selection-title strong {
+  color: var(--color-text);
+  font-size: 0.82rem;
+}
+
+.task-graph-composer-selection-title small {
+  color: var(--color-text-muted);
+  font-size: 0.62rem;
+}
+
+.task-graph-composer-inspector-form {
+  grid-template-columns: 1fr;
+}
+
+.task-graph-composer-inspector-form .boundary-field {
+  grid-column: auto;
+}
+
+.task-graph-composer-inspector-form .boundary-field--wide {
+  grid-column: 1 / -1;
+}
+
+.task-graph-composer-inspector-form .task-graph-inline-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.34rem;
+  min-height: 2rem;
+}
+
+.task-graph-composer-subtle-action {
+  padding: 0.42rem 0.5rem;
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 820;
+}
+
+.task-graph-composer-dock {
+  display: grid;
+  gap: 0.45rem;
+  border-top: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  background: rgba(255, 255, 255, 0.014);
+  padding: 0.5rem 0.58rem;
+}
+
+.task-graph-composer-dock__head > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.38rem;
+}
+
+.task-graph-composer-dock__head svg {
+  color: var(--color-soul);
+}
+
+.task-graph-composer-dock__head strong {
+  color: var(--color-text);
+  font-size: 0.76rem;
+}
+
+.task-graph-composer-dock__head span {
+  color: var(--color-text-muted);
+  font-size: 0.64rem;
+}
+
+.task-graph-composer-dock__list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.38rem;
+}
+
+.task-graph-composer-diagnostic {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.34rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  padding: 0.42rem 0.48rem;
+  text-align: left;
+}
+
+.task-graph-composer-diagnostic:hover {
+  border-color: color-mix(in srgb, var(--color-soul) 42%, var(--color-border));
+  color: var(--color-text);
+}
+
+.task-graph-composer-diagnostic--error svg {
+  color: #fb7185;
+}
+
+.task-graph-composer-diagnostic--warning svg {
+  color: #fbbf24;
+}
+
+.task-graph-composer-diagnostic--info svg {
+  color: #67e8f9;
+}
+
+.task-graph-composer-diagnostic span {
+  display: grid;
+  gap: 0.06rem;
+  min-width: 0;
+}
+
+.task-graph-composer-diagnostic strong,
+.task-graph-composer-diagnostic small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-composer-diagnostic strong {
+  color: inherit;
+  font-size: 0.66rem;
+}
+
+.task-graph-composer-diagnostic small {
+  color: var(--color-text-muted);
+  font-size: 0.56rem;
+}
+
 @media (max-width: 1100px) {
   .task-system-domain-context,
   .task-system-workspace-switcher-grid,
-  .task-system-workspace-switcher-group--primary {
+  .task-system-workspace-switcher-group--primary,
+  .task-graph-composer-workbench,
+  .task-graph-composer-dock__list {
     grid-template-columns: 1fr;
   }
 
@@ -25661,5 +26455,20 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
   .task-system-object-page {
     grid-template-columns: 1fr;
+  }
+
+  .task-graph-composer-page {
+    height: auto;
+    overflow: auto;
+  }
+
+  .task-graph-composer-rail,
+  .task-graph-composer-inspector {
+    border: 0;
+    overflow: visible;
+  }
+
+  .task-graph-composer-mode-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

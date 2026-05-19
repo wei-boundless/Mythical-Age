@@ -435,6 +435,273 @@ class LangGraphCoordinationRuntime:
             diagnostics=dict(final_state.get("diagnostics") or {}),
         )
 
+    def rewind_from_stage(
+        self,
+        *,
+        coordination_run_id: str,
+        stage_id: str,
+        reason: str = "stage_output_invalid",
+        inherited_inputs: dict[str, Any] | None = None,
+        refresh_graph_spec: bool = True,
+    ) -> LangGraphCoordinationRuntimeResult:
+        coordination_run = self.state_index.get_coordination_run(coordination_run_id)
+        if coordination_run is None:
+            return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_coordination_run"})
+        state = self.checkpoints.get_state(thread_id=coordination_run_id)
+        if not state:
+            return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_checkpoint"})
+
+        target_stage_id = str(stage_id or "").strip()
+        if not target_stage_id:
+            return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_stage_id"})
+
+        if refresh_graph_spec:
+            coordination_task = self._resolve_task_graph_view(coordination_run)
+            if coordination_task is not None:
+                refreshed = self._bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
+                for key in (
+                    "stage_order",
+                    "stage_contracts",
+                    "contract_manifest",
+                    "node_contracts",
+                    "edge_contracts",
+                ):
+                    if refreshed.get(key):
+                        state[key] = refreshed[key]
+                refreshed_diagnostics = dict(refreshed.get("diagnostics") or {})
+                diagnostics = dict(state.get("diagnostics") or {})
+                for key in (
+                    "coordination_graph_spec",
+                    "task_graph_scheduler_state",
+                    "contract_manifest_ref",
+                    "contract_manifest_valid",
+                    "contract_manifest_issue_count",
+                    "stage_contract_issues",
+                    "continuation_policy",
+                    "runtime_loop_policy",
+                ):
+                    if key in refreshed_diagnostics:
+                        diagnostics[key] = refreshed_diagnostics[key]
+                diagnostics["rewind_refreshed_graph_spec"] = True
+                state["diagnostics"] = diagnostics
+
+        invalidated_stage_ids = _downstream_stage_ids(state=state, stage_id=target_stage_id, include_self=True)
+        if target_stage_id not in invalidated_stage_ids:
+            invalidated_stage_ids.insert(0, target_stage_id)
+        invalidated_set = set(invalidated_stage_ids)
+        order = [str(item) for item in list(state.get("stage_order") or []) if str(item)]
+        if target_stage_id not in order:
+            return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "stage_not_in_order", "stage_id": target_stage_id})
+
+        stage_results = {
+            str(key): dict(value)
+            for key, value in dict(state.get("stage_results") or {}).items()
+            if str(key) and isinstance(value, dict) and str(key) not in invalidated_set
+        }
+        removed_stage_results = {
+            str(key): dict(value)
+            for key, value in dict(state.get("stage_results") or {}).items()
+            if str(key) in invalidated_set and isinstance(value, dict)
+        }
+        invalidated_result_record_ids = {
+            str(dict(result).get("timeline_result_record", {}).get("result_record_id") or "")
+            for result in removed_stage_results.values()
+            if isinstance(result, dict)
+        }
+        invalidated_result_record_ids.update(
+            str(record_id)
+            for stage, record_id in dict(state.get("latest_stage_result_records") or {}).items()
+            if str(stage) in invalidated_set and str(record_id)
+        )
+        invalidated_result_record_ids = {item for item in invalidated_result_record_ids if item}
+
+        node_statuses = {
+            str(key): str(value)
+            for key, value in dict(state.get("node_statuses") or {}).items()
+            if str(key)
+        }
+        for item in order:
+            if item in invalidated_set:
+                node_statuses[item] = "running" if item == target_stage_id else "pending"
+            elif node_statuses.get(item) not in {"completed", "failed", "waiting_for_human", "human_gate", "waiting"}:
+                node_statuses[item] = "pending"
+
+        timeline_result_records = [
+            dict(item)
+            for item in list(state.get("timeline_result_records") or [])
+            if isinstance(item, dict)
+            and str(item.get("stage_id") or "") not in invalidated_set
+            and str(item.get("result_record_id") or "") not in invalidated_result_record_ids
+        ]
+        result_record_index = {
+            str(key): dict(value)
+            for key, value in dict(state.get("result_record_index") or {}).items()
+            if str(key) not in invalidated_result_record_ids
+        }
+        stage_results_by_instance = {
+            str(key): dict(value)
+            for key, value in dict(state.get("stage_results_by_instance") or {}).items()
+            if str(key) not in invalidated_result_record_ids
+            and str(dict(value).get("stage_id") or "") not in invalidated_set
+        }
+        latest_stage_result_records = {
+            str(stage): str(record_id)
+            for stage, record_id in dict(state.get("latest_stage_result_records") or {}).items()
+            if str(stage) not in invalidated_set and str(record_id)
+        }
+        accepted_result_records_by_scope = {}
+        for scope_key, records in dict(state.get("accepted_result_records_by_scope") or {}).items():
+            if not isinstance(records, dict):
+                continue
+            kept = {
+                str(stage): str(record_id)
+                for stage, record_id in dict(records).items()
+                if str(stage) not in invalidated_set and str(record_id) not in invalidated_result_record_ids
+            }
+            if kept:
+                accepted_result_records_by_scope[str(scope_key)] = kept
+
+        contract_status = dict(state.get("contract_status") or {})
+        for stage in invalidated_set:
+            if stage in contract_status:
+                contract_status[stage] = {
+                    **dict(contract_status.get(stage) or {}),
+                    "status": "pending_rewind" if stage == target_stage_id else "invalidated_downstream",
+                    "accepted": False,
+                    "task_result_ref": "",
+                    "artifact_refs": [],
+                    "diagnostics": {"rewound_from_stage": target_stage_id, "reason": reason},
+                }
+
+        artifact_refs = [
+            dict(item)
+            for item in list(state.get("artifact_refs") or [])
+            if isinstance(item, dict) and str(item.get("stage_id") or "") not in invalidated_set
+        ]
+        handoff_packets = [
+            dict(item)
+            for item in list(state.get("handoff_packets") or [])
+            if isinstance(item, dict)
+            and str(item.get("source_node_id") or item.get("target_node_id") or "") not in invalidated_set
+            and str(item.get("source_stage_id") or item.get("target_stage_id") or "") not in invalidated_set
+        ]
+        working_memory_operations = [
+            dict(item)
+            for item in list(state.get("working_memory_operations") or [])
+            if isinstance(item, dict) and str(item.get("stage_id") or item.get("node_id") or "") not in invalidated_set
+        ]
+
+        pending_inputs = {**dict(state.get("pending_inputs") or {}), **dict(inherited_inputs or {})}
+        pending_inputs["force_replay"] = True
+        pending_inputs["force_replay_after"] = time.time()
+        pending_inputs["rewind_from_stage"] = target_stage_id
+        pending_inputs["rewind_reason"] = reason
+
+        diagnostics = {
+            **dict(state.get("diagnostics") or {}),
+            "last_rewind": {
+                "stage_id": target_stage_id,
+                "reason": reason,
+                "invalidated_stage_ids": invalidated_stage_ids,
+                "invalidated_result_record_ids": sorted(invalidated_result_record_ids),
+                "created_at": time.time(),
+            },
+        }
+        committed_identities = [
+            item
+            for item in list(diagnostics.get("committed_stage_identities") or [])
+            if not any(str(item).startswith(f"{stage}:") for stage in invalidated_set)
+        ]
+        diagnostics["committed_stage_identities"] = committed_identities
+
+        state.update(
+            {
+                "active_stage_id": target_stage_id,
+                "active_node_id": str(dict(dict(state.get("stage_contracts") or {}).get(target_stage_id) or {}).get("node_id") or target_stage_id),
+                "active_task_ref": str(dict(dict(state.get("stage_contracts") or {}).get(target_stage_id) or {}).get("task_ref") or ""),
+                "node_statuses": node_statuses,
+                "stage_results": stage_results,
+                "stage_results_by_instance": stage_results_by_instance,
+                "timeline_result_records": timeline_result_records,
+                "result_record_index": result_record_index,
+                "latest_stage_result_records": latest_stage_result_records,
+                "accepted_result_records_by_scope": accepted_result_records_by_scope,
+                "contract_status": contract_status,
+                "artifact_refs": artifact_refs,
+                "handoff_packets": handoff_packets,
+                "working_memory_operations": working_memory_operations,
+                "pending_inputs": pending_inputs,
+                "missing_required_inputs": [],
+                "current_event": {},
+                "current_task_result": {},
+                "node_execution_request": {},
+                "stage_execution_request": {},
+                "a2a_payload": {},
+                "human_gate": {},
+                "terminal_status": "",
+                "diagnostics": diagnostics,
+            }
+        )
+        scheduler = _scheduler_node_sets(order=order, node_statuses=node_statuses, state=state, terminal_status="")
+        state.update(scheduler)
+        prepared = self._stage_execute(state)
+        state.update(prepared)
+        state = self._attach_timeline_snapshot(state)
+        checkpoint = self.checkpoints.put_state(
+            thread_id=coordination_run_id,
+            state=state,
+            metadata={
+                "event": "rewind_from_stage",
+                "stage_id": target_stage_id,
+                "reason": reason,
+                "invalidated_stage_ids": invalidated_stage_ids,
+            },
+        )
+        self._append_timeline_event(
+            state,
+            event_type="stage_rewound",
+            status="completed",
+            scope_type="stage",
+            node_id=target_stage_id,
+            payload={
+                "stage_id": target_stage_id,
+                "reason": reason,
+                "invalidated_stage_ids": invalidated_stage_ids,
+                "checkpoint_ref": checkpoint.checkpoint_id,
+            },
+        )
+        state = self._attach_timeline_snapshot(state)
+        checkpoint = self.checkpoints.put_state(
+            thread_id=coordination_run_id,
+            state=state,
+            metadata={
+                "event": "rewind_from_stage_timeline_attached",
+                "stage_id": target_stage_id,
+                "reason": reason,
+            },
+        )
+        events = self.trace_adapter.write_state(
+            coordination_run=coordination_run,
+            state=state,
+            checkpoint_ref=checkpoint.checkpoint_id,
+            event_task_run_id=coordination_run.task_run_id,
+        )
+        request_payload = dict(state.get("stage_execution_request") or {})
+        request = NodeExecutionRequest.from_dict(request_payload) if request_payload else None
+        return LangGraphCoordinationRuntimeResult(
+            state=state,
+            events=tuple(events),
+            stage_execution_request=request,
+            checkpoint_ref=checkpoint.checkpoint_id,
+            diagnostics={
+                "supported": True,
+                "rewound": True,
+                "stage_id": target_stage_id,
+                "invalidated_stage_ids": invalidated_stage_ids,
+                "invalidated_result_record_ids": sorted(invalidated_result_record_ids),
+            },
+        )
+
     def _build_app(self):
         graph = StateGraph(CoordinationRuntimeState)
         graph.add_node("stage_accept", self._stage_accept)
@@ -1110,7 +1377,7 @@ class LangGraphCoordinationRuntime:
                 agent_id=str(contract.get("agent_id") or ""),
             )
         if not source_agent_run_ref:
-            return
+            source_agent_run_ref = f"stage:{stage_id}"
         outgoing_edges = [
             dict(item)
             for item in _graph_edges(state)
@@ -1145,7 +1412,7 @@ class LangGraphCoordinationRuntime:
                 coordination_run_id=coordination_run_id,
                 stage_id=target_stage_id,
                 agent_id=str(target_contract.get("agent_id") or ""),
-            )
+            ) or f"stage:{target_stage_id}"
             edge_contract = dict(manifest_edge_contracts.get(edge_id) or {})
             handoff_id = f"handoffenv:{_short_hash({'coordination_run_id': coordination_run_id, 'edge_id': edge_id, 'payload_ref': payload_ref, 'source_agent_run_ref': source_agent_run_ref, 'target_agent_run_ref': target_agent_run_ref})}"
             if handoff_id in existing_handoff_ids:
@@ -2731,7 +2998,7 @@ def _graph_memory_edge_descriptors(
     stage_id: str,
     node_id: str,
     operation: str,
-) -> list[dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
     graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
     nodes_by_id = {
         str(item.get("node_id") or item.get("id") or "").strip(): dict(item)
@@ -2819,6 +3086,24 @@ def _graph_memory_edge_descriptors(
             }
         )
     return descriptors
+
+
+def _graph_edges(state: dict[str, Any]) -> list[dict[str, Any]]:
+    graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+    edges: list[dict[str, Any]] = []
+    for raw in list(graph_spec.get("edges") or []):
+        if not isinstance(raw, dict):
+            continue
+        edge = dict(raw)
+        source = str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "").strip()
+        target = str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
+        if not source or not target:
+            continue
+        edge["source_node_id"] = source
+        edge["target_node_id"] = target
+        edge.setdefault("edge_id", f"{source}->{target}")
+        edges.append(edge)
+    return edges
 
 
 def _matching_commit_edge(*, formal: dict[str, Any], commit_edges: list[dict[str, Any]]) -> dict[str, Any]:
@@ -4542,6 +4827,44 @@ def _topological_stage_order(nodes: list[dict[str, Any]], edges: list[dict[str, 
     return resolved if len(resolved) == len(node_ids) else node_ids
 
 
+def _downstream_stage_ids(*, state: dict[str, Any], stage_id: str, include_self: bool = True) -> list[str]:
+    target = str(stage_id or "").strip()
+    if not target:
+        return []
+    graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+    edges = [dict(item) for item in list(graph_spec.get("edges") or []) if isinstance(item, dict)]
+    order = [str(item) for item in list(state.get("stage_order") or []) if str(item)]
+    known = set(order)
+    order_index = {item: index for index, item in enumerate(order)}
+    outgoing: dict[str, list[str]] = {item: [] for item in known}
+    for edge in edges:
+        source = str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "").strip()
+        next_stage = str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
+        if (
+            source in known
+            and next_stage in known
+            and order_index.get(next_stage, -1) >= order_index.get(source, -1)
+            and next_stage not in outgoing.setdefault(source, [])
+        ):
+            outgoing[source].append(next_stage)
+    visited: set[str] = set()
+    queue = [target]
+    while queue:
+        current = queue.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+        for next_stage in outgoing.get(current, []):
+            if next_stage not in visited:
+                queue.append(next_stage)
+    ordered = [item for item in order if item in visited]
+    if include_self and target not in ordered:
+        ordered.insert(0, target)
+    if not include_self:
+        ordered = [item for item in ordered if item != target]
+    return ordered
+
+
 def _scheduler_node_sets(
     *,
     order: list[str],
@@ -4763,6 +5086,12 @@ def _set_contract_node_status(
     node_status = {
         str(key): dict(value)
         for key, value in dict(next_status.get("node_status") or {}).items()
+        if str(key) and isinstance(value, dict)
+    }
+    acceptance_results = {
+        str(stage): dict(value)
+        for stage, value in dict(next_status.get("acceptance_results") or {}).items()
+        if str(stage) and isinstance(value, dict)
     }
     node_payload = dict(node_status.get(stage_id) or {})
     node_payload.update(
@@ -4777,7 +5106,9 @@ def _set_contract_node_status(
         }
     )
     node_status[stage_id] = node_payload
-    acceptance_results = dict(next_status.get("acceptance_results") or {})
+    existing_acceptance = dict(acceptance_results.get(stage_id) or {})
+    if existing_acceptance.get("artifact_refs") and not artifact_refs:
+        artifact_refs = list(existing_acceptance.get("artifact_refs") or [])
     acceptance_results[stage_id] = {
         "accepted": accepted,
         "status": node_status_value,

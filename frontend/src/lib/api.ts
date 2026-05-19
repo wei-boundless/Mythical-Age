@@ -723,12 +723,78 @@ export type TaskGraphRuntimeIsolationSpec = {
   runtime_state_stores: Array<Record<string, unknown>>;
 };
 
+export type UnitPortSpec = {
+  port_id: string;
+  title: string;
+  direction: "input" | "output" | string;
+  payload_contract_id?: string;
+  required?: boolean;
+  status_required?: string;
+  visibility_policy?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type UnitInterfaceSpec = {
+  interface_id: string;
+  unit_id: string;
+  display_name_zh: string;
+  input_ports: UnitPortSpec[];
+  output_ports: UnitPortSpec[];
+  memory_visibility_policy?: string;
+  artifact_visibility_policy?: string;
+  runtime_state_policy?: string;
+  version?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ComposableUnitSpec = {
+  unit_id: string;
+  unit_type: "node" | "graph" | "resource" | "human_gate" | "tool" | "runtime_monitor" | string;
+  title: string;
+  ref?: Record<string, unknown>;
+  interface_id?: string;
+  runtime_policy?: Record<string, unknown>;
+  phase_id?: string;
+  sequence_index?: number;
+  source_kind?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type UnitPortEdgeSpec = {
+  edge_id: string;
+  source_unit_id: string;
+  source_port_id: string;
+  target_unit_id: string;
+  target_port_id: string;
+  payload_contract_id?: string;
+  edge_type?: string;
+  temporal_semantics?: Record<string, unknown>;
+  handoff?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+};
+
+export type NestedRuntimePlanSpec = {
+  plan_id: string;
+  parent_graph_id: string;
+  unit_id: string;
+  linked_graph_id: string;
+  version_ref?: string;
+  handoff_contract_id?: string;
+  input_port_id?: string;
+  output_port_id?: string;
+  isolation_policy?: string;
+  visibility_policy?: string;
+  detach_policy?: string;
+  metadata?: Record<string, unknown>;
+};
+
 export type TaskGraphStandardIssue = {
   code: string;
   message: string;
   severity: string;
   node_id?: string;
   edge_id?: string;
+  unit_id?: string;
   source?: string;
 };
 
@@ -738,6 +804,10 @@ export type TaskGraphStandardView = {
   nodes: TaskGraphStandardNodeSpec[];
   edges: TaskGraphStandardEdgeSpec[];
   resources: TaskGraphStandardResourceSpec[];
+  units?: ComposableUnitSpec[];
+  interfaces?: UnitInterfaceSpec[];
+  port_edges?: UnitPortEdgeSpec[];
+  nested_runtime?: NestedRuntimePlanSpec[];
   timeline: TaskGraphStandardTimelineSpec;
   runtime_isolation: TaskGraphRuntimeIsolationSpec;
   memory_matrix: Record<string, unknown>;

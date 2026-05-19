@@ -1,4 +1,8 @@
 import type {
+  ReactNode,
+} from "react";
+
+import type {
   ContractSpec,
   OrchestrationAgentRuntimeCatalog,
   SpecificTaskRecord,
@@ -64,6 +68,7 @@ export type TaskGraphAgentCardCatalog = TaskGraphWorkbenchAgentCatalog & {
 
 export type TaskGraphWorkbenchProps = {
   selectedDomain: TaskGraphDomainRecordLike | null;
+  workspaceSlot?: ReactNode;
   taskGraphs: TaskGraphRecord[];
   selectedTaskGraphId: string;
   setSelectedTaskGraphId: (value: string) => void;

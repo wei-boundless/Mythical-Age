@@ -995,811 +995,6 @@
       "execution_chain_type": "coordination_node"
     },
     {
-      "task_id": "task.writing.simple_novel.project_brief",
-      "task_title": "项目启动包",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.project_brief",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.project_brief",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.project_brief",
-      "projection_id": "projection.writing.simple_novel.project_brief",
-      "input_contract_id": "contract.writing.simple_novel.user_goal",
-      "output_contract_id": "contract.writing.simple_novel.project_brief",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "creator",
-        "projection_id": "projection.writing.simple_novel.project_brief",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.world_design",
-      "task_title": "世界观设定候选",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.world_design",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.world_design",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.world_design",
-      "projection_id": "projection.writing.simple_novel.world_designer",
-      "input_contract_id": "contract.writing.simple_novel.project_brief",
-      "output_contract_id": "contract.writing.simple_novel.world_candidate",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "creator",
-        "projection_id": "projection.writing.simple_novel.world_designer",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.world_review",
-      "task_title": "世界观审核",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.world_review",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.world_review",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.world_review",
-      "projection_id": "projection.writing.simple_novel.world_reviewer",
-      "input_contract_id": "contract.writing.simple_novel.world_candidate",
-      "output_contract_id": "contract.writing.simple_novel.world_review",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "reviewer",
-        "projection_id": "projection.writing.simple_novel.world_reviewer",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.memory_commit_world",
-      "task_title": "世界观写入",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.memory_commit_world",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.memory_commit_world",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.memory_commit_world",
-      "projection_id": "projection.writing.simple_novel.memory_steward",
-      "input_contract_id": "contract.writing.simple_novel.world_review",
-      "output_contract_id": "contract.writing.simple_novel.memory_commit_world",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "memory_steward",
-        "projection_id": "projection.writing.simple_novel.memory_steward",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.baseline_memory_seed",
-      "task_title": "基准记忆库初始化",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.baseline_memory_seed",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.baseline_memory_seed",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.baseline_memory_seed",
-      "projection_id": "projection.writing.simple_novel.baseline_memory_steward",
-      "input_contract_id": "contract.writing.simple_novel.memory_commit_world",
-      "output_contract_id": "contract.writing.simple_novel.baseline_memory_commit",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "memory_steward",
-        "projection_id": "projection.writing.simple_novel.baseline_memory_steward",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.volume_plan",
-      "task_title": "分卷规划",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.volume_plan",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.volume_plan",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.volume_plan",
-      "projection_id": "projection.writing.simple_novel.volume_planner",
-      "input_contract_id": "contract.writing.simple_novel.baseline_memory_commit",
-      "output_contract_id": "contract.writing.simple_novel.volume_plan_commit",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "creator",
-        "projection_id": "projection.writing.simple_novel.volume_planner",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.chapter_outline",
-      "task_title": "当前批次细纲",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.chapter_outline",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.chapter_outline",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.chapter_outline",
-      "projection_id": "projection.writing.simple_novel.chapter_outliner",
-      "input_contract_id": "contract.writing.simple_novel.chapter_outline_input",
-      "output_contract_id": "contract.writing.simple_novel.chapter_outline",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "creator",
-        "projection_id": "projection.writing.simple_novel.chapter_outliner",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.chapter_draft",
-      "task_title": "当前批次正文候选",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.chapter_draft",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.chapter_draft",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.chapter_draft",
-      "projection_id": "projection.writing.simple_novel.chapter_writer",
-      "input_contract_id": "contract.writing.simple_novel.chapter_draft_input",
-      "output_contract_id": "contract.writing.simple_novel.chapter_draft",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "creator",
-        "projection_id": "projection.writing.simple_novel.chapter_writer",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.chapter_review",
-      "task_title": "当前批次轻量审核",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.chapter_review",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.chapter_review",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.chapter_review",
-      "projection_id": "projection.writing.simple_novel.chapter_reviewer",
-      "input_contract_id": "contract.writing.simple_novel.chapter_review_input",
-      "output_contract_id": "contract.writing.simple_novel.chapter_review",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "reviewer",
-        "projection_id": "projection.writing.simple_novel.chapter_reviewer",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.memory_commit_chapter",
-      "task_title": "章节批次写入",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.memory_commit_chapter",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.memory_commit_chapter",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.memory_commit_chapter",
-      "projection_id": "projection.writing.simple_novel.memory_steward",
-      "input_contract_id": "contract.writing.simple_novel.chapter_review",
-      "output_contract_id": "contract.writing.simple_novel.chapter_commit",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "memory_steward",
-        "projection_id": "projection.writing.simple_novel.memory_steward",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.chapter_progress_router",
-      "task_title": "章节批次推进判断",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.chapter_progress_router",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.chapter_progress_router",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.chapter_progress_router",
-      "projection_id": "projection.writing.simple_novel.chapter_progress_router",
-      "input_contract_id": "contract.writing.simple_novel.chapter_commit",
-      "output_contract_id": "contract.writing.simple_novel.chapter_progress_decision",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "router",
-        "projection_id": "projection.writing.simple_novel.chapter_progress_router",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.volume_review",
-      "task_title": "卷级总审核",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.volume_review",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.volume_review",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.volume_review",
-      "projection_id": "projection.writing.simple_novel.volume_reviewer",
-      "input_contract_id": "contract.writing.simple_novel.volume_review_input",
-      "output_contract_id": "contract.writing.simple_novel.volume_review",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "reviewer",
-        "projection_id": "projection.writing.simple_novel.volume_reviewer",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.volume_commit",
-      "task_title": "卷级写入",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.volume_commit",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.volume_commit",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.volume_commit",
-      "projection_id": "projection.writing.simple_novel.memory_steward",
-      "input_contract_id": "contract.writing.simple_novel.volume_review",
-      "output_contract_id": "contract.writing.simple_novel.volume_commit",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "memory_steward",
-        "projection_id": "projection.writing.simple_novel.memory_steward",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.volume_postmortem",
-      "task_title": "卷后复盘",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.volume_postmortem",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.volume_postmortem",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.volume_postmortem",
-      "projection_id": "projection.writing.simple_novel.volume_postmortem",
-      "input_contract_id": "contract.writing.simple_novel.volume_commit",
-      "output_contract_id": "contract.writing.simple_novel.volume_postmortem",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "reviewer",
-        "projection_id": "projection.writing.simple_novel.volume_postmortem",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.world_outline_extension_proposal",
-      "task_title": "可改动库更新提案",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.world_outline_extension_proposal",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.world_outline_extension_proposal",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.world_outline_extension_proposal",
-      "projection_id": "projection.writing.simple_novel.world_outline_extension_proposer",
-      "input_contract_id": "contract.writing.simple_novel.volume_postmortem",
-      "output_contract_id": "contract.writing.simple_novel.world_outline_extension_proposal",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "creator",
-        "projection_id": "projection.writing.simple_novel.world_outline_extension_proposer",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.extension_review",
-      "task_title": "可改动库更新审核",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.extension_review",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.extension_review",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.extension_review",
-      "projection_id": "projection.writing.simple_novel.extension_reviewer",
-      "input_contract_id": "contract.writing.simple_novel.world_outline_extension_proposal",
-      "output_contract_id": "contract.writing.simple_novel.extension_review",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "reviewer",
-        "projection_id": "projection.writing.simple_novel.extension_reviewer",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.extension_commit",
-      "task_title": "可改动记忆库更新",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.extension_commit",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.extension_commit",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.extension_commit",
-      "projection_id": "projection.writing.simple_novel.memory_steward",
-      "input_contract_id": "contract.writing.simple_novel.extension_review",
-      "output_contract_id": "contract.writing.simple_novel.extension_commit",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "memory_steward",
-        "projection_id": "projection.writing.simple_novel.memory_steward",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.next_volume_router",
-      "task_title": "下一卷推进判断",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.next_volume_router",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.next_volume_router",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.next_volume_router",
-      "projection_id": "projection.writing.simple_novel.next_volume_router",
-      "input_contract_id": "contract.writing.simple_novel.extension_commit",
-      "output_contract_id": "contract.writing.simple_novel.next_volume_decision",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "router",
-        "projection_id": "projection.writing.simple_novel.next_volume_router",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.final_assemble",
-      "task_title": "交付包整编",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.final_assemble",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.final_assemble",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.final_assemble",
-      "projection_id": "projection.writing.simple_novel.final_assembler",
-      "input_contract_id": "contract.writing.simple_novel.next_volume_decision",
-      "output_contract_id": "contract.writing.simple_novel.final_manuscript",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "final_assembler",
-        "projection_id": "projection.writing.simple_novel.final_assembler",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.final_review",
-      "task_title": "最终交付审核",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.final_review",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.final_review",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.final_review",
-      "projection_id": "projection.writing.simple_novel.final_reviewer",
-      "input_contract_id": "contract.writing.simple_novel.final_review_input",
-      "output_contract_id": "contract.writing.simple_novel.final_review",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "reviewer",
-        "projection_id": "projection.writing.simple_novel.final_reviewer",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.memory_finalize",
-      "task_title": "任务收尾归档",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.memory_finalize",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.memory_finalize",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.memory_finalize",
-      "projection_id": "projection.writing.simple_novel.memory_steward",
-      "input_contract_id": "contract.writing.simple_novel.final_review",
-      "output_contract_id": "contract.writing.simple_novel.delivery_package",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "memory_steward",
-        "projection_id": "projection.writing.simple_novel.memory_steward",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.runtime_monitor",
-      "task_title": "运行监测",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.runtime_monitor",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.runtime_monitor",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.runtime_monitor",
-      "projection_id": "projection.writing.simple_novel.runtime_monitor",
-      "input_contract_id": "contract.taskgraph.monitor.snapshot",
-      "output_contract_id": "contract.taskgraph.monitor.decision",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "monitor",
-        "projection_id": "projection.writing.simple_novel.runtime_monitor",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
-      "task_id": "task.writing.simple_novel.fail_closed",
-      "task_title": "失败关闭",
-      "task_kind": "specific_task",
-      "task_family": "writing_simple_novel",
-      "flow_id": "flow.writing.simple_novel.fail_closed",
-      "runtime_lane": "",
-      "workflow_id": "workflow.writing.simple_novel.fail_closed",
-      "workflow_file_ref": "workflow:workflow.writing.simple_novel.fail_closed",
-      "projection_id": "projection.writing.simple_novel.memory_steward",
-      "input_contract_id": "contract.writing.simple_novel.failure_input",
-      "output_contract_id": "contract.writing.simple_novel.failure_report",
-      "safety_policy": {
-        "verification_mode": "artifact_or_trace",
-        "write_mode": "scoped",
-        "safety_class": "S2_bounded"
-      },
-      "task_structure": {
-        "execution_chain_type": "coordination_node",
-        "role": "memory_steward",
-        "projection_id": "projection.writing.simple_novel.memory_steward",
-        "task_graph_id": "graph.writing.simple_novel",
-        "communication_protocol_id": "protocol.writing.simple_novel",
-        "topology_template_id": "topology.writing.simple_novel",
-        "agent_group_id": "group.writing.simple_novel",
-        "memory_scope_hint": "writing_simple_novel"
-      },
-      "enabled": true,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
-        "domain_id": "domain.writing.simple_novel",
-        "package_template": "writing_simple_novel"
-      },
-      "execution_chain_type": "coordination_node"
-    },
-    {
       "task_id": "task.000001",
       "task_title": "TaskGraph 收尾验证任务",
       "task_kind": "specific_task",
@@ -1826,6 +1021,986 @@
         "domain_id": "domain.general"
       },
       "execution_chain_type": "coordination_chain"
+    },
+    {
+      "task_id": "task.writing.simple_novel.project_brief",
+      "task_title": "项目启动包",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "project_brief",
+      "flow_id": "flow.writing.simple_novel.project_brief",
+      "workflow_id": "workflow.writing.simple_novel.project_brief",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.project_brief",
+      "projection_id": "projection.writing.simple_novel.project_brief",
+      "input_contract_id": "contract.writing.simple_novel.user_goal",
+      "output_contract_id": "contract.writing.simple_novel.project_brief",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "creator",
+        "projection_id": "projection.writing.simple_novel.project_brief",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.world_design",
+      "task_title": "世界观设定候选",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "world_design",
+      "flow_id": "flow.writing.simple_novel.world_design",
+      "workflow_id": "workflow.writing.simple_novel.world_design",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.world_design",
+      "projection_id": "projection.writing.simple_novel.world_designer",
+      "input_contract_id": "contract.writing.simple_novel.project_brief",
+      "output_contract_id": "contract.writing.simple_novel.world_candidate",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "creator",
+        "projection_id": "projection.writing.simple_novel.world_designer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.world_review",
+      "task_title": "世界观审核",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "world_review",
+      "flow_id": "flow.writing.simple_novel.world_review",
+      "workflow_id": "workflow.writing.simple_novel.world_review",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.world_review",
+      "projection_id": "projection.writing.simple_novel.world_reviewer",
+      "input_contract_id": "contract.writing.simple_novel.world_candidate",
+      "output_contract_id": "contract.writing.simple_novel.world_review",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "reviewer",
+        "projection_id": "projection.writing.simple_novel.world_reviewer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_commit_world",
+      "task_title": "世界观写入",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_commit_world",
+      "flow_id": "flow.writing.simple_novel.memory_commit_world",
+      "workflow_id": "workflow.writing.simple_novel.memory_commit_world",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.memory_commit_world",
+      "projection_id": "projection.writing.simple_novel.memory_steward",
+      "input_contract_id": "contract.writing.simple_novel.world_review",
+      "output_contract_id": "contract.writing.simple_novel.memory_commit_world",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "memory_steward",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.character_design",
+      "task_title": "人设与关系设计",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "character_design",
+      "flow_id": "flow.writing.simple_novel.character_design",
+      "workflow_id": "workflow.writing.simple_novel.character_design",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.character_design",
+      "projection_id": "projection.writing.simple_novel.character_designer",
+      "input_contract_id": "contract.writing.simple_novel.memory_commit_world",
+      "output_contract_id": "contract.writing.simple_novel.character_design",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "creator",
+        "projection_id": "projection.writing.simple_novel.character_designer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.plot_design",
+      "task_title": "剧情与伏笔设计",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "plot_design",
+      "flow_id": "flow.writing.simple_novel.plot_design",
+      "workflow_id": "workflow.writing.simple_novel.plot_design",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.plot_design",
+      "projection_id": "projection.writing.simple_novel.plot_designer",
+      "input_contract_id": "contract.writing.simple_novel.character_design",
+      "output_contract_id": "contract.writing.simple_novel.plot_design",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "creator",
+        "projection_id": "projection.writing.simple_novel.plot_designer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.design_sync",
+      "task_title": "设计对齐讨论",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "design_sync",
+      "flow_id": "flow.writing.simple_novel.design_sync",
+      "workflow_id": "workflow.writing.simple_novel.design_sync",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.design_sync",
+      "projection_id": "projection.writing.simple_novel.design_synchronizer",
+      "input_contract_id": "contract.writing.simple_novel.design_sync_input",
+      "output_contract_id": "contract.writing.simple_novel.design_sync",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "creator",
+        "projection_id": "projection.writing.simple_novel.design_synchronizer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.outline_design",
+      "task_title": "全书大纲设计",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "outline_design",
+      "flow_id": "flow.writing.simple_novel.outline_design",
+      "workflow_id": "workflow.writing.simple_novel.outline_design",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.outline_design",
+      "projection_id": "projection.writing.simple_novel.outline_designer",
+      "input_contract_id": "contract.writing.simple_novel.design_sync",
+      "output_contract_id": "contract.writing.simple_novel.outline_design",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "creator",
+        "projection_id": "projection.writing.simple_novel.outline_designer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.outline_review",
+      "task_title": "全书大纲审核",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "outline_review",
+      "flow_id": "flow.writing.simple_novel.outline_review",
+      "workflow_id": "workflow.writing.simple_novel.outline_review",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.outline_review",
+      "projection_id": "projection.writing.simple_novel.outline_reviewer",
+      "input_contract_id": "contract.writing.simple_novel.outline_design",
+      "output_contract_id": "contract.writing.simple_novel.outline_review",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "reviewer",
+        "projection_id": "projection.writing.simple_novel.outline_reviewer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.baseline_memory_seed",
+      "task_title": "基准记忆库初始化",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "baseline_memory_seed",
+      "flow_id": "flow.writing.simple_novel.baseline_memory_seed",
+      "workflow_id": "workflow.writing.simple_novel.baseline_memory_seed",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.baseline_memory_seed",
+      "projection_id": "projection.writing.simple_novel.baseline_memory_steward",
+      "input_contract_id": "contract.writing.simple_novel.outline_review",
+      "output_contract_id": "contract.writing.simple_novel.baseline_memory_commit",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "memory_steward",
+        "projection_id": "projection.writing.simple_novel.baseline_memory_steward",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.volume_plan",
+      "task_title": "分卷规划",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "volume_plan",
+      "flow_id": "flow.writing.simple_novel.volume_plan",
+      "workflow_id": "workflow.writing.simple_novel.volume_plan",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.volume_plan",
+      "projection_id": "projection.writing.simple_novel.volume_planner",
+      "input_contract_id": "contract.writing.simple_novel.baseline_memory_commit",
+      "output_contract_id": "contract.writing.simple_novel.volume_plan_commit",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "creator",
+        "projection_id": "projection.writing.simple_novel.volume_planner",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.chapter_outline",
+      "task_title": "当前批次细纲",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "chapter_outline",
+      "flow_id": "flow.writing.simple_novel.chapter_outline",
+      "workflow_id": "workflow.writing.simple_novel.chapter_outline",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.chapter_outline",
+      "projection_id": "projection.writing.simple_novel.chapter_outliner",
+      "input_contract_id": "contract.writing.simple_novel.chapter_outline_input",
+      "output_contract_id": "contract.writing.simple_novel.chapter_outline",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "creator",
+        "projection_id": "projection.writing.simple_novel.chapter_outliner",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.chapter_draft",
+      "task_title": "当前批次正文候选",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "chapter_draft",
+      "flow_id": "flow.writing.simple_novel.chapter_draft",
+      "workflow_id": "workflow.writing.simple_novel.chapter_draft",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.chapter_draft",
+      "projection_id": "projection.writing.simple_novel.chapter_writer",
+      "input_contract_id": "contract.writing.simple_novel.chapter_draft_input",
+      "output_contract_id": "contract.writing.simple_novel.chapter_draft",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "creator",
+        "projection_id": "projection.writing.simple_novel.chapter_writer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.chapter_review",
+      "task_title": "当前批次轻量审核",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "chapter_review",
+      "flow_id": "flow.writing.simple_novel.chapter_review",
+      "workflow_id": "workflow.writing.simple_novel.chapter_review",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.chapter_review",
+      "projection_id": "projection.writing.simple_novel.chapter_reviewer",
+      "input_contract_id": "contract.writing.simple_novel.chapter_review_input",
+      "output_contract_id": "contract.writing.simple_novel.chapter_review",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "reviewer",
+        "projection_id": "projection.writing.simple_novel.chapter_reviewer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_commit_chapter",
+      "task_title": "章节批次写入",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_commit_chapter",
+      "flow_id": "flow.writing.simple_novel.memory_commit_chapter",
+      "workflow_id": "workflow.writing.simple_novel.memory_commit_chapter",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.memory_commit_chapter",
+      "projection_id": "projection.writing.simple_novel.memory_steward",
+      "input_contract_id": "contract.writing.simple_novel.chapter_review",
+      "output_contract_id": "contract.writing.simple_novel.chapter_commit",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "memory_steward",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.chapter_progress_router",
+      "task_title": "章节批次推进判断",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "chapter_progress_router",
+      "flow_id": "flow.writing.simple_novel.chapter_progress_router",
+      "workflow_id": "workflow.writing.simple_novel.chapter_progress_router",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.chapter_progress_router",
+      "projection_id": "projection.writing.simple_novel.chapter_progress_router",
+      "input_contract_id": "contract.writing.simple_novel.chapter_commit",
+      "output_contract_id": "contract.writing.simple_novel.chapter_progress_decision",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "router",
+        "projection_id": "projection.writing.simple_novel.chapter_progress_router",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.volume_review",
+      "task_title": "卷级总审核",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "volume_review",
+      "flow_id": "flow.writing.simple_novel.volume_review",
+      "workflow_id": "workflow.writing.simple_novel.volume_review",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.volume_review",
+      "projection_id": "projection.writing.simple_novel.volume_reviewer",
+      "input_contract_id": "contract.writing.simple_novel.volume_review_input",
+      "output_contract_id": "contract.writing.simple_novel.volume_review",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "reviewer",
+        "projection_id": "projection.writing.simple_novel.volume_reviewer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.volume_commit",
+      "task_title": "卷级写入",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "volume_commit",
+      "flow_id": "flow.writing.simple_novel.volume_commit",
+      "workflow_id": "workflow.writing.simple_novel.volume_commit",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.volume_commit",
+      "projection_id": "projection.writing.simple_novel.memory_steward",
+      "input_contract_id": "contract.writing.simple_novel.volume_review",
+      "output_contract_id": "contract.writing.simple_novel.volume_commit",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "memory_steward",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.volume_postmortem",
+      "task_title": "卷后复盘",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "volume_postmortem",
+      "flow_id": "flow.writing.simple_novel.volume_postmortem",
+      "workflow_id": "workflow.writing.simple_novel.volume_postmortem",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.volume_postmortem",
+      "projection_id": "projection.writing.simple_novel.volume_postmortem",
+      "input_contract_id": "contract.writing.simple_novel.volume_commit",
+      "output_contract_id": "contract.writing.simple_novel.volume_postmortem",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "reviewer",
+        "projection_id": "projection.writing.simple_novel.volume_postmortem",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.world_outline_extension_proposal",
+      "task_title": "可改动库更新提案",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "world_outline_extension_proposal",
+      "flow_id": "flow.writing.simple_novel.world_outline_extension_proposal",
+      "workflow_id": "workflow.writing.simple_novel.world_outline_extension_proposal",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.world_outline_extension_proposal",
+      "projection_id": "projection.writing.simple_novel.world_outline_extension_proposer",
+      "input_contract_id": "contract.writing.simple_novel.volume_postmortem",
+      "output_contract_id": "contract.writing.simple_novel.world_outline_extension_proposal",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "creator",
+        "projection_id": "projection.writing.simple_novel.world_outline_extension_proposer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.extension_review",
+      "task_title": "可改动库更新审核",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "extension_review",
+      "flow_id": "flow.writing.simple_novel.extension_review",
+      "workflow_id": "workflow.writing.simple_novel.extension_review",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.extension_review",
+      "projection_id": "projection.writing.simple_novel.extension_reviewer",
+      "input_contract_id": "contract.writing.simple_novel.world_outline_extension_proposal",
+      "output_contract_id": "contract.writing.simple_novel.extension_review",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "reviewer",
+        "projection_id": "projection.writing.simple_novel.extension_reviewer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.extension_commit",
+      "task_title": "可改动记忆库更新",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "extension_commit",
+      "flow_id": "flow.writing.simple_novel.extension_commit",
+      "workflow_id": "workflow.writing.simple_novel.extension_commit",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.extension_commit",
+      "projection_id": "projection.writing.simple_novel.memory_steward",
+      "input_contract_id": "contract.writing.simple_novel.extension_review",
+      "output_contract_id": "contract.writing.simple_novel.extension_commit",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "memory_steward",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.next_volume_router",
+      "task_title": "下一卷推进判断",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "next_volume_router",
+      "flow_id": "flow.writing.simple_novel.next_volume_router",
+      "workflow_id": "workflow.writing.simple_novel.next_volume_router",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.next_volume_router",
+      "projection_id": "projection.writing.simple_novel.next_volume_router",
+      "input_contract_id": "contract.writing.simple_novel.extension_commit",
+      "output_contract_id": "contract.writing.simple_novel.next_volume_decision",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "router",
+        "projection_id": "projection.writing.simple_novel.next_volume_router",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.final_assemble",
+      "task_title": "交付包整编",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "final_assemble",
+      "flow_id": "flow.writing.simple_novel.final_assemble",
+      "workflow_id": "workflow.writing.simple_novel.final_assemble",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.final_assemble",
+      "projection_id": "projection.writing.simple_novel.final_assembler",
+      "input_contract_id": "contract.writing.simple_novel.next_volume_decision",
+      "output_contract_id": "contract.writing.simple_novel.final_manuscript",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "final_assembler",
+        "projection_id": "projection.writing.simple_novel.final_assembler",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.final_review",
+      "task_title": "最终交付审核",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "final_review",
+      "flow_id": "flow.writing.simple_novel.final_review",
+      "workflow_id": "workflow.writing.simple_novel.final_review",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.final_review",
+      "projection_id": "projection.writing.simple_novel.final_reviewer",
+      "input_contract_id": "contract.writing.simple_novel.final_review_input",
+      "output_contract_id": "contract.writing.simple_novel.final_review",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "reviewer",
+        "projection_id": "projection.writing.simple_novel.final_reviewer",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.memory_finalize",
+      "task_title": "任务收尾归档",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "memory_finalize",
+      "flow_id": "flow.writing.simple_novel.memory_finalize",
+      "workflow_id": "workflow.writing.simple_novel.memory_finalize",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.memory_finalize",
+      "projection_id": "projection.writing.simple_novel.memory_steward",
+      "input_contract_id": "contract.writing.simple_novel.final_review",
+      "output_contract_id": "contract.writing.simple_novel.delivery_package",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "memory_steward",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.runtime_monitor",
+      "task_title": "运行监测",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "runtime_monitor",
+      "flow_id": "flow.writing.simple_novel.runtime_monitor",
+      "workflow_id": "workflow.writing.simple_novel.runtime_monitor",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.runtime_monitor",
+      "projection_id": "projection.writing.simple_novel.runtime_monitor",
+      "input_contract_id": "contract.taskgraph.monitor.snapshot",
+      "output_contract_id": "contract.taskgraph.monitor.decision",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "monitor",
+        "projection_id": "projection.writing.simple_novel.runtime_monitor",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
+    },
+    {
+      "task_id": "task.writing.simple_novel.fail_closed",
+      "task_title": "失败关闭",
+      "task_kind": "specific_task",
+      "task_family": "writing_simple_novel",
+      "task_mode": "fail_closed",
+      "flow_id": "flow.writing.simple_novel.fail_closed",
+      "workflow_id": "workflow.writing.simple_novel.fail_closed",
+      "workflow_file_ref": "workflow:workflow.writing.simple_novel.fail_closed",
+      "projection_id": "projection.writing.simple_novel.memory_steward",
+      "input_contract_id": "contract.writing.simple_novel.failure_input",
+      "output_contract_id": "contract.writing.simple_novel.failure_report",
+      "safety_policy": {
+        "verification_mode": "artifact_or_trace",
+        "write_mode": "scoped",
+        "safety_class": "S2_bounded"
+      },
+      "task_structure": {
+        "execution_chain_type": "coordination_node",
+        "role": "memory_steward",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "task_graph_id": "graph.writing.simple_novel",
+        "communication_protocol_id": "protocol.writing.simple_novel",
+        "topology_template_id": "topology.writing.simple_novel",
+        "agent_group_id": "group.writing.simple_novel",
+        "memory_scope_hint": "writing_simple_novel"
+      },
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "package_template": "writing_simple_novel"
+      },
+      "execution_chain_type": "coordination_node"
     }
   ]
 }

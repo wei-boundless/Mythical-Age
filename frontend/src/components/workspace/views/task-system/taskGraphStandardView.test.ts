@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { TaskGraphStandardView } from "@/lib/api";
 
 import {
+  buildTaskGraphComposableStandardModel,
   buildTaskGraphResourceStandardModel,
   buildTaskGraphTimelineStandardModel,
   describeTaskGraphStandardEdge,
@@ -118,6 +119,82 @@ const STANDARD_VIEW_FIXTURE: TaskGraphStandardView = {
       metadata: {},
     },
   ],
+  units: [
+    {
+      unit_id: "unit.node.writer",
+      unit_type: "node",
+      title: "写手",
+      ref: { node_id: "writer" },
+      interface_id: "interface.node.writer",
+      runtime_policy: { execution_mode: "async" },
+      phase_id: "phase.draft",
+      sequence_index: 1,
+      source_kind: "task_graph_node",
+      metadata: {},
+    },
+    {
+      unit_id: "unit.graph.block.creation",
+      unit_type: "graph",
+      title: "正式创作图",
+      ref: { graph_id: "graph.creation", version_ref: "v1" },
+      interface_id: "interface.graph.block.creation",
+      runtime_policy: { execution_mode: "nested_graph_run" },
+      phase_id: "phase.draft",
+      sequence_index: 2,
+      source_kind: "timeline_block",
+      metadata: {},
+    },
+  ],
+  interfaces: [
+    {
+      interface_id: "interface.node.writer",
+      unit_id: "unit.node.writer",
+      display_name_zh: "写手接口",
+      input_ports: [{ port_id: "input.default", title: "默认输入", direction: "input", payload_contract_id: "contract.input" }],
+      output_ports: [{ port_id: "output.default", title: "默认输出", direction: "output", payload_contract_id: "contract.chapter" }],
+      version: "v1",
+      metadata: {},
+    },
+    {
+      interface_id: "interface.graph.block.creation",
+      unit_id: "unit.graph.block.creation",
+      display_name_zh: "正式创作图接口",
+      input_ports: [{ port_id: "input.default", title: "图输入包", direction: "input", payload_contract_id: "contract.design.commit" }],
+      output_ports: [{ port_id: "output.default", title: "图提交包", direction: "output", payload_contract_id: "contract.creation.commit", status_required: "committed" }],
+      version: "v1",
+      metadata: {},
+    },
+  ],
+  port_edges: [
+    {
+      edge_id: "edge.writer.creation",
+      source_unit_id: "unit.node.writer",
+      source_port_id: "output.default",
+      target_unit_id: "unit.graph.block.creation",
+      target_port_id: "input.default",
+      payload_contract_id: "contract.chapter",
+      edge_type: "handoff",
+      temporal_semantics: { trigger_timing: "after_source_success" },
+      handoff: {},
+      metadata: {},
+    },
+  ],
+  nested_runtime: [
+    {
+      plan_id: "nested.block.creation",
+      parent_graph_id: "graph.novel",
+      unit_id: "unit.graph.block.creation",
+      linked_graph_id: "graph.creation",
+      version_ref: "v1",
+      handoff_contract_id: "contract.creation.commit",
+      input_port_id: "input.default",
+      output_port_id: "output.default",
+      isolation_policy: "isolated_per_nested_run",
+      visibility_policy: "committed_only",
+      detach_policy: "preserve_version_anchor",
+      metadata: {},
+    },
+  ],
   timeline: {
     entry_node_id: "writer",
     output_node_id: "review",
@@ -166,5 +243,17 @@ describe("TaskGraph standard view helpers", () => {
   it("formats standard edge labels for resource inspector usage", () => {
     expect(describeTaskGraphStandardEdge(STANDARD_VIEW_FIXTURE.edges[0]!)).toContain("memory_read");
     expect(describeTaskGraphStandardEdge(STANDARD_VIEW_FIXTURE.edges[0]!)).toContain("memory.world.world_bible");
+  });
+
+  it("summarizes composable units, interfaces, port edges, and nested runtime", () => {
+    const model = buildTaskGraphComposableStandardModel(STANDARD_VIEW_FIXTURE);
+
+    expect(model.units).toHaveLength(2);
+    expect(model.nodeUnits[0]?.unit_id).toBe("unit.node.writer");
+    expect(model.graphUnits[0]?.unit_id).toBe("unit.graph.block.creation");
+    expect(model.interfaces).toHaveLength(2);
+    expect(model.interfaceByUnitId.get("unit.graph.block.creation")?.output_ports[0]?.status_required).toBe("committed");
+    expect(model.portEdgesByUnitId.get("unit.node.writer")).toHaveLength(1);
+    expect(model.nestedRuntime[0]?.linked_graph_id).toBe("graph.creation");
   });
 });

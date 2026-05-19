@@ -14,6 +14,7 @@ import {
   stopOrchestrationTaskRun,
   type RuntimeLoopTaskRunTrace,
   type TaskGraphRuntimeSpec,
+  type TaskGraphStandardView,
 } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
 import { TaskSystemToolbarButton } from "./TaskSystemWorkbenchUi";
@@ -68,6 +69,7 @@ export function TaskGraphPublishRunPage({
   graphId,
   metadata,
   nodes,
+  standardView,
   onPublish,
   onSave,
   onSendToChat,
@@ -84,6 +86,7 @@ export function TaskGraphPublishRunPage({
   graphId: string;
   metadata?: Record<string, unknown>;
   nodes: Array<Record<string, unknown>>;
+  standardView?: TaskGraphStandardView | null;
   onPublish: () => void;
   onSave: () => void;
   onSendToChat: () => void;
@@ -128,6 +131,7 @@ export function TaskGraphPublishRunPage({
     nodes,
     edges,
     runtimeSpec,
+    standardView,
   });
   const preflightGroups = Array.from(
     preflightReport.issues.reduce((groups, issue) => {

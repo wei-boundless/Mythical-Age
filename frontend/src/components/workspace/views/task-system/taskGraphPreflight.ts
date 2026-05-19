@@ -1,10 +1,12 @@
+import type { TaskGraphStandardView } from "@/lib/api";
+
 import { buildTimelinePreflightIssues } from "./taskGraphTimeline";
 import { buildTaskGraphCognitionModel } from "./taskGraphCognitionView";
 import { buildTaskGraphMemoryModel } from "./taskGraphMemoryMatrix";
 
 export type TaskGraphPreflightSeverity = "error" | "warning" | "info";
 
-export type TaskGraphPreflightScope = "graph" | "node" | "edge" | "phase" | "runtime";
+export type TaskGraphPreflightScope = "graph" | "node" | "edge" | "phase" | "runtime" | "unit" | "interface" | "port_edge";
 
 export type TaskGraphPreflightIssue = {
   issue_id: string;
@@ -37,6 +39,7 @@ export type BuildTaskGraphPreflightReportInput = {
     issues?: Array<Record<string, unknown>>;
     diagnostics?: Record<string, unknown>;
   } | null;
+  standardView?: Pick<TaskGraphStandardView, "issues" | "units" | "interfaces" | "port_edges" | "nested_runtime"> | null;
 };
 
 function stringValue(value: unknown) {
@@ -135,6 +138,7 @@ export function buildTaskGraphPreflightReport({
   editorIssueCount,
   metadata,
   runtimeSpec,
+  standardView,
 }: BuildTaskGraphPreflightReportInput): TaskGraphPreflightReport {
   const issues: TaskGraphPreflightIssue[] = [];
   const nodeIds = nodes.map((node, index) => stringValue(node.node_id ?? node.id ?? `node_${index + 1}`));
@@ -591,6 +595,32 @@ export function buildTaskGraphPreflightReport({
       source: isSchedulerSupportIssue ? "backend.scheduler_support" : "backend.runtime_spec",
     });
   });
+
+  (standardView?.issues ?? [])
+    .filter((issue) => {
+      const source = stringValue(issue.source);
+      const code = stringValue(issue.code);
+      return source === "task_system.composable_graph_issue" || code.startsWith("port_edge_") || code.startsWith("nested_graph_") || code.startsWith("graph_unit_") || code.startsWith("unit_interface_");
+    })
+    .forEach((issue, index) => {
+      const code = stringValue(issue.code);
+      const severity = stringValue(issue.severity) === "error"
+        ? "error"
+        : stringValue(issue.severity) === "info"
+          ? "info"
+          : "warning";
+      const edgeId = stringValue(issue.edge_id);
+      const unitId = stringValue(issue.unit_id);
+      pushIssue(issues, {
+        issue_id: `composable:${code || index}:${edgeId || unitId || "graph"}`,
+        severity,
+        scope: edgeId ? "port_edge" : unitId ? "unit" : "graph",
+        target_id: edgeId || unitId,
+        title: code || "可组合图问题",
+        detail: stringValue(issue.message) || "后端可组合图标准视图返回了未命名问题。",
+        source: "backend.composable_graph",
+      });
+    });
 
   const errorCount = issues.filter((issue) => issue.severity === "error").length;
   const warningCount = issues.filter((issue) => issue.severity === "warning").length;

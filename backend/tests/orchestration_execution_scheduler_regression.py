@@ -32,3 +32,20 @@ def test_background_task_manager_persists_queued_task(tmp_path: Path) -> None:
     assert stored.status == "queued"
     assert stored.payload["session_id"] == "session-test"
     assert stored.receipt_path.endswith(".json")
+
+
+def test_background_task_manager_coalesces_repeated_tasks(tmp_path: Path) -> None:
+    manager = BackgroundTaskManager(tmp_path)
+    first = manager.enqueue(
+        "durable_memory_index_rebuild",
+        payload={"collection": "durable_memory"},
+        coalesce_key="durable_memory",
+    )
+    second = manager.enqueue(
+        "durable_memory_index_rebuild",
+        payload={"collection": "durable_memory", "reason": "duplicate"},
+        coalesce_key="durable_memory",
+    )
+
+    assert second.task_id == first.task_id
+    assert manager.load(first.task_id, first.task_kind) is not None

@@ -242,6 +242,12 @@ def _build_skill_use_when(skill: SkillRecord) -> str:
 
 
 def _build_skill_delegation_protocol(skill: SkillRecord) -> str:
+    if skill.name == "skill-creator":
+        return (
+            "When the main agent delegates, ask for capability_design or skill_update; pass the target use case, "
+            "expected trigger phrases, execution boundary, required tools, and whether the skill must coordinate with "
+            "sub-agents. If the request is only a wording polish, keep scope narrow and avoid inventing new behavior."
+        )
     if skill.name == "rag-skill":
         return (
             "When the main agent delegates, ask for evidence_lookup; pass the user question, the exact answer scope, "
@@ -262,6 +268,12 @@ def _build_skill_delegation_protocol(skill: SkillRecord) -> str:
 
 
 def _build_skill_return_protocol(skill: SkillRecord) -> str:
+    if skill.name == "skill-creator":
+        return (
+            "Return a concrete skill draft or review notes with three parts: boundary, prompt structure, and validation "
+            "gaps. Clearly separate what should be changed in metadata, what should be changed in the body, and what should "
+            "remain untouched. If the skill is too broad, say how to split it."
+        )
     if skill.name == "rag-skill":
         return (
             "Return a concise Chinese result with three parts: conclusion, evidence, and limitations. Include the source "

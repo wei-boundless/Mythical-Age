@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 NOW = time.time()
-MANAGED = "codex_writing_simple_novel_config_20260517"
+MANAGED = "codex_writing_simple_novel_config_20260519_design_layer"
 GROUP_ID = "group.writing.simple_novel"
 DOMAIN_ID = "domain.writing.simple_novel"
 TASK_FAMILY = "writing_simple_novel"
@@ -16,7 +16,7 @@ MEMORY_SCOPE = "writing_simple_novel"
 MONITOR_NODE_ID = "runtime_monitor"
 MONITOR_AGENT_ID = "agent:writing_runtime_monitor"
 MONITOR_PROJECTION_ID = "projection.writing.simple_novel.runtime_monitor"
-DESIGN_DOC = "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
+DESIGN_DOC = "docs/系统规划/174-写作任务新版配置实施计划-20260519.md"
 PROMPT_SOURCE_DOC = "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
 CHAPTERS_PER_ROUND = 10
 CHAPTER_TARGET_WORDS = 2000
@@ -95,7 +95,7 @@ def contract(contract_id, fields, title=None, kind="node_execution"):
             for f in fields
         ],
         "acceptance_rules": [
-            "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+            "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
             "不得用普通消息文本代替结构化契约和 artifact refs。",
             "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。",
         ],
@@ -157,8 +157,13 @@ def memory_read_policy(role, node_id=""):
         "world_design": ["project_brief", "user_goal", "source_refs"],
         "world_review": ["project_brief", "world_candidate_ref"],
         "memory_commit_world": ["world_review", "world_candidate_ref", "project_brief"],
-        "baseline_memory_seed": ["project_brief", "world_commit_ref", "source_refs"],
-        "volume_plan": ["project_brief", "baseline_memory", "frozen_character_facts", "frozen_relationship_facts", "delivery_requirements"],
+        "character_design": ["project_brief", "world_commit_ref", "approved_world_spine"],
+        "plot_design": ["project_brief", "world_commit_ref", "approved_world_spine", "character_design_ref"],
+        "design_sync": ["world_commit_ref", "character_design_ref", "plot_design_ref", "conflict_ledger"],
+        "outline_design": ["world_commit_ref", "character_design_ref", "plot_design_ref", "design_sync_ref", "project_brief"],
+        "outline_review": ["world_commit_ref", "character_design_ref", "plot_design_ref", "design_sync_ref", "outline_design_ref", "project_brief"],
+        "baseline_memory_seed": ["project_brief", "world_commit_ref", "outline_review_ref", "outline_design_ref", "character_design_ref", "plot_design_ref", "design_sync_ref", "source_refs"],
+        "volume_plan": ["project_brief", "baseline_memory", "baseline_outline_spine", "baseline_plot_spine", "foreshadow_spine", "frozen_character_facts", "frozen_relationship_facts", "outline_review_ref", "delivery_requirements"],
         "chapter_outline": ["baseline_memory", "frozen_character_facts", "frozen_relationship_facts", "mutable_memory", "volume_plan", "previous_chapter_summary", "previous_chapter_review", "chapter_revision_requirements", "current_batch_inputs"],
         "chapter_draft": ["baseline_memory", "frozen_character_facts", "frozen_relationship_facts", "mutable_memory", "volume_plan", "chapter_outline_ref", "previous_chapter_summary", "previous_chapter_review", "chapter_revision_requirements", "current_batch_inputs"],
         "chapter_review": ["baseline_memory", "frozen_character_facts", "frozen_relationship_facts", "mutable_memory", "volume_plan", "chapter_outline_ref", "chapter_draft_ref", "previous_chapter_summary", "chapter_issue_ledger"],
@@ -190,8 +195,13 @@ def memory_read_policy(role, node_id=""):
         "world_design": ["project_brief"],
         "world_review": ["project_brief", "world_candidate_ref"],
         "memory_commit_world": ["world_review", "world_candidate_ref"],
-        "baseline_memory_seed": ["project_brief", "world_commit_ref"],
-        "volume_plan": ["baseline_memory", "frozen_character_facts", "frozen_relationship_facts"],
+        "character_design": ["project_brief", "world_commit_ref"],
+        "plot_design": ["project_brief", "world_commit_ref"],
+        "design_sync": ["character_design_ref", "plot_design_ref", "world_commit_ref"],
+        "outline_design": ["world_commit_ref", "character_design_ref", "plot_design_ref", "design_sync_ref"],
+        "outline_review": ["outline_design_ref", "world_commit_ref", "character_design_ref", "plot_design_ref"],
+        "baseline_memory_seed": ["project_brief", "world_commit_ref", "outline_review_ref", "outline_design_ref"],
+        "volume_plan": ["baseline_memory", "baseline_outline_spine", "baseline_plot_spine", "foreshadow_spine", "frozen_character_facts", "frozen_relationship_facts", "outline_review_ref"],
         "chapter_outline": ["baseline_memory", "frozen_character_facts", "frozen_relationship_facts", "volume_plan"],
         "chapter_draft": ["baseline_memory", "frozen_character_facts", "frozen_relationship_facts", "volume_plan", "chapter_outline_ref"],
         "chapter_review": ["baseline_memory", "frozen_character_facts", "frozen_relationship_facts", "chapter_outline_ref", "chapter_draft_ref"],
@@ -213,8 +223,13 @@ def memory_read_policy(role, node_id=""):
         "world_design": ["baseline_memory", "mutable_memory", "chapter_full_text"],
         "world_review": ["baseline_memory", "mutable_memory", "future_volume_full_text"],
         "memory_commit_world": ["baseline_memory_write", "mutable_memory_write"],
-        "baseline_memory_seed": ["mutable_memory", "chapter_commit", "volume_commit"],
-        "volume_plan": ["chapter_full_text"],
+        "character_design": ["baseline_memory", "mutable_memory", "chapter_full_text", "future_volume_full_text"],
+        "plot_design": ["baseline_memory", "mutable_memory", "chapter_full_text", "future_volume_full_text"],
+        "design_sync": ["baseline_memory", "mutable_memory", "chapter_full_text"],
+        "outline_design": ["baseline_memory", "mutable_memory", "chapter_full_text"],
+        "outline_review": ["baseline_memory", "mutable_memory", "chapter_full_text"],
+        "baseline_memory_seed": ["mutable_memory", "chapter_commit", "volume_commit", "unreviewed_design_candidate_as_canon"],
+        "volume_plan": ["chapter_full_text", "generic_genre_template", "unreviewed_outline_candidate", "rewrite_frozen_volume_blueprint"],
         "chapter_draft": ["future_volume_full_text", "full_project_raw_dialogue"],
         "chapter_review": ["future_volume_full_text", "full_project_raw_dialogue"],
         "world_outline_extension_proposal": ["future_unwritten_plan_as_fact", "frozen_character_fact_rewrite", "frozen_relationship_rewrite"],
@@ -227,7 +242,7 @@ def memory_read_policy(role, node_id=""):
         "topics": topics,
         "required_topics": required_topics,
         "forbidden_topics": forbidden_topics,
-        "readable_kinds": ["baseline_memory", "mutable_memory", "candidate_ref", "review_record", "issue_ledger", "chapter_summary", "chapter_file_ref", "world_commit", "volume_commit", "delivery_manifest", "frozen_character_fact", "frozen_relationship_fact"],
+        "readable_kinds": ["baseline_memory", "mutable_memory", "candidate_ref", "review_record", "issue_ledger", "chapter_summary", "chapter_file_ref", "world_commit", "design_candidate", "design_alignment", "outline_commit", "volume_commit", "delivery_manifest", "frozen_character_fact", "frozen_relationship_fact"],
         "readable_scopes": [MEMORY_SCOPE, "project_state", "node_scope"],
         "summary_only": True,
         "enabled": True,
@@ -284,6 +299,7 @@ def memory_write_policy(role, node_id=""):
             "mutable_memory_mutable": node_id == "extension_commit",
             "forbid_frozen_character_rewrite": node_id != "baseline_memory_seed",
             "forbid_frozen_relationship_rewrite": node_id != "baseline_memory_seed",
+            "requires_outline_review_before_baseline": node_id == "baseline_memory_seed",
         },
         "write_contract_id": "contract.writing.simple_novel.memory_write_request",
         "receipt_contract_id": "contract.writing.simple_novel.memory_write_receipt",
@@ -303,6 +319,49 @@ def artifact_context_policy(node_id):
         "memory_commit_world": [
             {"source": "input_key", "input_key": "contract.writing.simple_novel.world_candidate:artifact_refs", "label": "已审核世界观正文", "max_chars": 65000},
             {"source": "input_key", "input_key": "contract.writing.simple_novel.world_review:artifact_refs", "label": "世界观审核结论", "max_chars": 20000},
+        ],
+        "character_design": [
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs", "label": "已提交世界观主干", "max_chars": 50000, "required": True},
+            {"source": "input_key", "input_key": "project_brief_ref", "label": "项目启动包", "max_chars": 16000},
+        ],
+        "plot_design": [
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs", "label": "已提交世界观主干", "max_chars": 50000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.character_design:artifact_refs", "label": "人设与关系设计稿", "max_chars": 50000},
+        ],
+        "design_sync": [
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs", "label": "已提交世界观主干", "max_chars": 40000},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.character_design:artifact_refs", "label": "人设与关系设计稿", "max_chars": 50000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.plot_design:artifact_refs", "label": "剧情与伏笔设计稿", "max_chars": 50000, "required": True},
+        ],
+        "outline_design": [
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs", "label": "已提交世界观主干", "max_chars": 40000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.character_design:artifact_refs", "label": "人设与关系设计稿", "max_chars": 50000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.plot_design:artifact_refs", "label": "剧情与伏笔设计稿", "max_chars": 50000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.design_sync:artifact_refs", "label": "设计对齐包", "max_chars": 36000, "required": True},
+            {"source": "input_key", "input_key": "previous_review_ref", "label": "上一轮大纲审核意见", "max_chars": 24000},
+            {"source": "input_key", "input_key": "previous_candidate_ref", "label": "上一轮大纲原稿", "max_chars": 65000},
+        ],
+        "outline_review": [
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs", "label": "已提交世界观主干", "max_chars": 40000},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.character_design:artifact_refs", "label": "人设与关系设计稿", "max_chars": 50000},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.plot_design:artifact_refs", "label": "剧情与伏笔设计稿", "max_chars": 50000},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.design_sync:artifact_refs", "label": "设计对齐包", "max_chars": 36000},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.outline_design:artifact_refs", "label": "待审全书大纲", "max_chars": 65000, "required": True},
+        ],
+        "baseline_memory_seed": [
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs", "label": "已提交世界观主干", "max_chars": 40000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.outline_design:artifact_refs", "label": "已审核全书大纲", "max_chars": 65000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.outline_review:artifact_refs", "label": "大纲审核结论", "max_chars": 24000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.character_design:artifact_refs", "label": "人设与关系设计稿", "max_chars": 50000},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.plot_design:artifact_refs", "label": "剧情与伏笔设计稿", "max_chars": 50000},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.design_sync:artifact_refs", "label": "设计对齐包", "max_chars": 36000},
+        ],
+        "volume_plan": [
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.baseline_memory_commit:artifact_refs", "label": "只读基准库", "max_chars": 90000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.outline_design:artifact_refs", "label": "已审核全书大纲", "max_chars": 90000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.outline_review:artifact_refs", "label": "大纲审核结论", "max_chars": 30000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs", "label": "已提交世界观主干", "max_chars": 50000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.design_sync:artifact_refs", "label": "设计对齐包", "max_chars": 40000},
         ],
         "chapter_draft": [
             {"source": "input_key", "input_key": "contract.writing.simple_novel.chapter_outline:artifact_refs", "label": "当前批次细纲", "max_chars": 50000, "required": True},
@@ -343,6 +402,7 @@ def artifact_context_policy(node_id):
 def revision_context_policy(node_id):
     source_ref_keys = {
         "world_review": "contract.writing.simple_novel.world_candidate:artifact_refs",
+        "outline_review": "contract.writing.simple_novel.outline_design:artifact_refs",
         "chapter_review": "contract.writing.simple_novel.chapter_draft:artifact_refs",
         "volume_review": "contract.writing.simple_novel.chapter_commit:artifact_refs",
         "extension_review": "contract.writing.simple_novel.world_outline_extension_proposal:artifact_refs",
@@ -353,6 +413,7 @@ def revision_context_policy(node_id):
         return {}
     requirements = {
         "world_review": "上一轮世界观审核未通过；请读取审核意见和被审核原稿，在原稿基础上逐条修订，不要另起设定。",
+        "outline_review": "上一轮大纲审核未通过；请读取审核意见和被审核大纲，在原稿基础上逐条修订，不要脱离人设、剧情和设计对齐包另起一套大纲。",
         "chapter_review": "上一轮章节批次审核未通过；请读取审核意见和被审核正文，重写本批允许章号内的完整正文。",
         "volume_review": "卷级总审未通过；请读取卷审意见和本卷提交依据，优先修正连续性和设定偏移问题。",
         "extension_review": "可改动库更新提案未通过；请读取审核意见和原提案，只修订可改动库方案，不得改写基准库。",
@@ -428,26 +489,31 @@ def parse_prompts():
 
 
 NODE_DEFS = [
-    ("project_brief", "项目启动包", "agent:writing_simple_creator", "projection.writing.simple_novel.project_brief", "contract.writing.simple_novel.user_goal", "contract.writing.simple_novel.project_brief", "phase.start", 1, "project_brief.md", "creator"),
-    ("world_design", "世界观设定候选", "agent:writing_simple_creator", "projection.writing.simple_novel.world_designer", "contract.writing.simple_novel.project_brief", "contract.writing.simple_novel.world_candidate", "phase.world", 10, "world/world_candidate.md", "creator"),
-    ("world_review", "世界观审核", "agent:writing_simple_reviewer", "projection.writing.simple_novel.world_reviewer", "contract.writing.simple_novel.world_candidate", "contract.writing.simple_novel.world_review", "phase.world", 20, "world/world_review.md", "reviewer"),
+    ("project_brief", "项目启动包", "agent:writing_simple_worker", "projection.writing.simple_novel.project_brief", "contract.writing.simple_novel.user_goal", "contract.writing.simple_novel.project_brief", "phase.start", 1, "project_brief.md", "creator"),
+    ("world_design", "世界观设定候选", "agent:writing_simple_worker", "projection.writing.simple_novel.world_designer", "contract.writing.simple_novel.project_brief", "contract.writing.simple_novel.world_candidate", "phase.world", 10, "world/world_candidate.md", "creator"),
+    ("world_review", "世界观审核", "agent:writing_simple_worker", "projection.writing.simple_novel.world_reviewer", "contract.writing.simple_novel.world_candidate", "contract.writing.simple_novel.world_review", "phase.world", 20, "world/world_review.md", "reviewer"),
     ("memory_commit_world", "世界观写入", "agent:writing_memory_steward", "projection.writing.simple_novel.memory_steward", "contract.writing.simple_novel.world_review", "contract.writing.simple_novel.memory_commit_world", "phase.world", 30, "memory/world/world_commit.md", "memory_steward"),
-    ("baseline_memory_seed", "基准记忆库初始化", "agent:writing_memory_steward", "projection.writing.simple_novel.baseline_memory_steward", "contract.writing.simple_novel.memory_commit_world", "contract.writing.simple_novel.baseline_memory_commit", "phase.core", 40, "memory/baseline/baseline_memory_commit.md", "memory_steward"),
-    ("volume_plan", "分卷规划", "agent:writing_simple_creator", "projection.writing.simple_novel.volume_planner", "contract.writing.simple_novel.baseline_memory_commit", "contract.writing.simple_novel.volume_plan_commit", "phase.volume_plan", 50, "volume_plan/volume_plan.md", "creator"),
-    ("chapter_outline", "当前批次细纲", "agent:writing_simple_creator", "projection.writing.simple_novel.chapter_outliner", "contract.writing.simple_novel.chapter_outline_input", "contract.writing.simple_novel.chapter_outline", "phase.chapter_loop", 120, "volume_{volume_index:03d}/chapters/chapter_{batch_start_index:03d}_{batch_end_index:03d}/outline_round_{round_index:03d}.md", "creator"),
-    ("chapter_draft", "当前批次正文候选", "agent:writing_simple_creator", "projection.writing.simple_novel.chapter_writer", "contract.writing.simple_novel.chapter_draft_input", "contract.writing.simple_novel.chapter_draft", "phase.chapter_loop", 130, "volume_{volume_index:03d}/chapters/chapter_{batch_start_index:03d}_{batch_end_index:03d}/draft_round_{round_index:03d}.md", "creator"),
-    ("chapter_review", "当前批次轻量审核", "agent:writing_simple_reviewer", "projection.writing.simple_novel.chapter_reviewer", "contract.writing.simple_novel.chapter_review_input", "contract.writing.simple_novel.chapter_review", "phase.chapter_loop", 140, "volume_{volume_index:03d}/chapters/chapter_{batch_start_index:03d}_{batch_end_index:03d}/review_round_{round_index:03d}.md", "reviewer"),
+    ("character_design", "人设与关系设计", "agent:writing_simple_worker", "projection.writing.simple_novel.character_designer", "contract.writing.simple_novel.memory_commit_world", "contract.writing.simple_novel.character_design", "phase.design", 40, "design/character_design.md", "creator"),
+    ("plot_design", "剧情与伏笔设计", "agent:writing_simple_worker", "projection.writing.simple_novel.plot_designer", "contract.writing.simple_novel.character_design", "contract.writing.simple_novel.plot_design", "phase.design", 50, "design/plot_design.md", "creator"),
+    ("design_sync", "设计对齐讨论", "agent:writing_simple_worker", "projection.writing.simple_novel.design_synchronizer", "contract.writing.simple_novel.design_sync_input", "contract.writing.simple_novel.design_sync", "phase.design", 60, "design/design_sync.md", "creator"),
+    ("outline_design", "全书大纲设计", "agent:writing_simple_worker", "projection.writing.simple_novel.outline_designer", "contract.writing.simple_novel.design_sync", "contract.writing.simple_novel.outline_design", "phase.design", 70, "design/outline_design.md", "creator"),
+    ("outline_review", "全书大纲审核", "agent:writing_simple_worker", "projection.writing.simple_novel.outline_reviewer", "contract.writing.simple_novel.outline_design", "contract.writing.simple_novel.outline_review", "phase.design", 80, "design/outline_review.md", "reviewer"),
+    ("baseline_memory_seed", "基准记忆库初始化", "agent:writing_memory_steward", "projection.writing.simple_novel.baseline_memory_steward", "contract.writing.simple_novel.outline_review", "contract.writing.simple_novel.baseline_memory_commit", "phase.core", 90, "memory/baseline/baseline_memory_commit.md", "memory_steward"),
+    ("volume_plan", "分卷规划", "agent:writing_simple_worker", "projection.writing.simple_novel.volume_planner", "contract.writing.simple_novel.baseline_memory_commit", "contract.writing.simple_novel.volume_plan_commit", "phase.volume_plan", 100, "volume_plan/volume_plan.md", "creator"),
+    ("chapter_outline", "当前批次细纲", "agent:writing_simple_worker", "projection.writing.simple_novel.chapter_outliner", "contract.writing.simple_novel.chapter_outline_input", "contract.writing.simple_novel.chapter_outline", "phase.chapter_loop", 120, "volume_{volume_index:03d}/chapters/chapter_{batch_start_index:03d}_{batch_end_index:03d}/outline_round_{round_index:03d}.md", "creator"),
+    ("chapter_draft", "当前批次正文候选", "agent:writing_simple_worker", "projection.writing.simple_novel.chapter_writer", "contract.writing.simple_novel.chapter_draft_input", "contract.writing.simple_novel.chapter_draft", "phase.chapter_loop", 130, "volume_{volume_index:03d}/chapters/chapter_{batch_start_index:03d}_{batch_end_index:03d}/draft_round_{round_index:03d}.md", "creator"),
+    ("chapter_review", "当前批次轻量审核", "agent:writing_simple_worker", "projection.writing.simple_novel.chapter_reviewer", "contract.writing.simple_novel.chapter_review_input", "contract.writing.simple_novel.chapter_review", "phase.chapter_loop", 140, "volume_{volume_index:03d}/chapters/chapter_{batch_start_index:03d}_{batch_end_index:03d}/review_round_{round_index:03d}.md", "reviewer"),
     ("memory_commit_chapter", "章节批次写入", "agent:writing_memory_steward", "projection.writing.simple_novel.memory_steward", "contract.writing.simple_novel.chapter_review", "contract.writing.simple_novel.chapter_commit", "phase.chapter_loop", 150, "volume_{volume_index:03d}/chapters/chapter_{batch_start_index:03d}_{batch_end_index:03d}/commit_round_{round_index:03d}.md", "memory_steward"),
-    ("chapter_progress_router", "章节批次推进判断", "agent:writing_simple_reviewer", "projection.writing.simple_novel.chapter_progress_router", "contract.writing.simple_novel.chapter_commit", "contract.writing.simple_novel.chapter_progress_decision", "phase.chapter_loop", 160, "volume_{volume_index:03d}/routing/progress_round_{round_index:03d}.md", "router"),
-    ("volume_review", "卷级总审核", "agent:writing_simple_reviewer", "projection.writing.simple_novel.volume_reviewer", "contract.writing.simple_novel.volume_review_input", "contract.writing.simple_novel.volume_review", "phase.volume_review", 200, "volume_{volume_index:03d}/reviews/volume_review.md", "reviewer"),
+    ("chapter_progress_router", "章节批次推进判断", "agent:writing_simple_worker", "projection.writing.simple_novel.chapter_progress_router", "contract.writing.simple_novel.chapter_commit", "contract.writing.simple_novel.chapter_progress_decision", "phase.chapter_loop", 160, "volume_{volume_index:03d}/routing/progress_round_{round_index:03d}.md", "router"),
+    ("volume_review", "卷级总审核", "agent:writing_simple_worker", "projection.writing.simple_novel.volume_reviewer", "contract.writing.simple_novel.volume_review_input", "contract.writing.simple_novel.volume_review", "phase.volume_review", 200, "volume_{volume_index:03d}/reviews/volume_review.md", "reviewer"),
     ("volume_commit", "卷级写入", "agent:writing_memory_steward", "projection.writing.simple_novel.memory_steward", "contract.writing.simple_novel.volume_review", "contract.writing.simple_novel.volume_commit", "phase.volume_review", 210, "volume_{volume_index:03d}/memory/volume_commit.md", "memory_steward"),
-    ("volume_postmortem", "卷后复盘", "agent:writing_simple_reviewer", "projection.writing.simple_novel.volume_postmortem", "contract.writing.simple_novel.volume_commit", "contract.writing.simple_novel.volume_postmortem", "phase.volume_extension", 220, "volume_{volume_index:03d}/reviews/volume_postmortem.md", "reviewer"),
-    ("world_outline_extension_proposal", "可改动库更新提案", "agent:writing_simple_creator", "projection.writing.simple_novel.world_outline_extension_proposer", "contract.writing.simple_novel.volume_postmortem", "contract.writing.simple_novel.world_outline_extension_proposal", "phase.volume_extension", 230, "volume_{volume_index:03d}/memory/mutable_memory_proposal.md", "creator"),
-    ("extension_review", "可改动库更新审核", "agent:writing_simple_reviewer", "projection.writing.simple_novel.extension_reviewer", "contract.writing.simple_novel.world_outline_extension_proposal", "contract.writing.simple_novel.extension_review", "phase.volume_extension", 240, "volume_{volume_index:03d}/memory/mutable_memory_review.md", "reviewer"),
+    ("volume_postmortem", "卷后复盘", "agent:writing_simple_worker", "projection.writing.simple_novel.volume_postmortem", "contract.writing.simple_novel.volume_commit", "contract.writing.simple_novel.volume_postmortem", "phase.volume_extension", 220, "volume_{volume_index:03d}/reviews/volume_postmortem.md", "reviewer"),
+    ("world_outline_extension_proposal", "可改动库更新提案", "agent:writing_simple_worker", "projection.writing.simple_novel.world_outline_extension_proposer", "contract.writing.simple_novel.volume_postmortem", "contract.writing.simple_novel.world_outline_extension_proposal", "phase.volume_extension", 230, "volume_{volume_index:03d}/memory/mutable_memory_proposal.md", "creator"),
+    ("extension_review", "可改动库更新审核", "agent:writing_simple_worker", "projection.writing.simple_novel.extension_reviewer", "contract.writing.simple_novel.world_outline_extension_proposal", "contract.writing.simple_novel.extension_review", "phase.volume_extension", 240, "volume_{volume_index:03d}/memory/mutable_memory_review.md", "reviewer"),
     ("extension_commit", "可改动记忆库更新", "agent:writing_memory_steward", "projection.writing.simple_novel.memory_steward", "contract.writing.simple_novel.extension_review", "contract.writing.simple_novel.extension_commit", "phase.volume_extension", 250, "volume_{volume_index:03d}/memory/mutable_memory_update.md", "memory_steward"),
-    ("next_volume_router", "下一卷推进判断", "agent:writing_simple_reviewer", "projection.writing.simple_novel.next_volume_router", "contract.writing.simple_novel.extension_commit", "contract.writing.simple_novel.next_volume_decision", "phase.volume_extension", 260, "volume_{volume_index:03d}/routing/next_volume_decision.md", "router"),
-    ("final_assemble", "交付包整编", "agent:writing_final_assembler", "projection.writing.simple_novel.final_assembler", "contract.writing.simple_novel.next_volume_decision", "contract.writing.simple_novel.final_manuscript", "phase.final", 300, "delivery/delivery_manifest.md", "final_assembler"),
-    ("final_review", "最终交付审核", "agent:writing_simple_reviewer", "projection.writing.simple_novel.final_reviewer", "contract.writing.simple_novel.final_review_input", "contract.writing.simple_novel.final_review", "phase.final", 310, "delivery/final_review.md", "reviewer"),
+    ("next_volume_router", "下一卷推进判断", "agent:writing_simple_worker", "projection.writing.simple_novel.next_volume_router", "contract.writing.simple_novel.extension_commit", "contract.writing.simple_novel.next_volume_decision", "phase.volume_extension", 260, "volume_{volume_index:03d}/routing/next_volume_decision.md", "router"),
+    ("final_assemble", "交付包整编", "agent:writing_simple_worker", "projection.writing.simple_novel.final_assembler", "contract.writing.simple_novel.next_volume_decision", "contract.writing.simple_novel.final_manuscript", "phase.final", 300, "delivery/delivery_manifest.md", "final_assembler"),
+    ("final_review", "最终交付审核", "agent:writing_simple_worker", "projection.writing.simple_novel.final_reviewer", "contract.writing.simple_novel.final_review_input", "contract.writing.simple_novel.final_review", "phase.final", 310, "delivery/final_review.md", "reviewer"),
     ("memory_finalize", "任务收尾归档", "agent:writing_memory_steward", "projection.writing.simple_novel.memory_steward", "contract.writing.simple_novel.final_review", "contract.writing.simple_novel.delivery_package", "phase.final", 320, "delivery/delivery_package.md", "memory_steward"),
     (MONITOR_NODE_ID, "运行监测", MONITOR_AGENT_ID, MONITOR_PROJECTION_ID, "contract.taskgraph.monitor.snapshot", "contract.taskgraph.monitor.decision", "phase.monitor", 5, "monitor/runtime_monitor_decision.md", "monitor"),
     ("fail_closed", "失败关闭", "agent:writing_memory_steward", "projection.writing.simple_novel.memory_steward", "contract.writing.simple_novel.failure_input", "contract.writing.simple_novel.failure_report", "phase.terminal", 910, "failure/failure_report.md", "memory_steward"),
@@ -469,6 +535,7 @@ MEMORY_REPOSITORY_DEFS = [
             {"collection_id": "outline", "title": "大纲主干", "record_kinds": ["baseline_outline_spine", "volume_plan"]},
             {"collection_id": "characters", "title": "人物事实", "record_kinds": ["baseline_character_spine", "frozen_character_fact"]},
             {"collection_id": "relationships", "title": "关系事实", "record_kinds": ["frozen_relationship_fact"]},
+            {"collection_id": "plot_spine", "title": "剧情与伏笔主干", "record_kinds": ["baseline_plot_spine", "foreshadow_spine", "conflict_spine"]},
         ],
     },
     {
@@ -500,6 +567,7 @@ MEMORY_REPOSITORY_DEFS = [
             {"collection_id": "candidates", "title": "候选稿索引", "record_kinds": ["candidate", "world_candidate", "chapter_outline", "chapter_draft"]},
             {"collection_id": "reviews", "title": "审核记录", "record_kinds": ["review", "world_review", "chapter_review", "volume_review"]},
             {"collection_id": "world_commits", "title": "世界观提交", "record_kinds": ["world_commit", "approved_world_spine"]},
+            {"collection_id": "design_assets", "title": "创作架构设计索引", "record_kinds": ["character_design", "plot_design", "design_sync", "outline_design", "outline_review"]},
             {"collection_id": "volume_plans", "title": "分卷计划索引", "record_kinds": ["volume_plan", "volume_plan_slice", "current_volume_plan"]},
             {"collection_id": "chapter_outlines", "title": "章节细纲索引", "record_kinds": ["chapter_outline", "frozen_chapter_outline", "future_chapter_outline"]},
             {"collection_id": "chapter_commits", "title": "章节提交", "record_kinds": ["chapter_commit", "chapter_summary", "chapter_file_ref"]},
@@ -532,7 +600,13 @@ CONTRACT_FIELDS = {
     "world_candidate": ["project_id", "candidate_id", "world_positioning", "protagonist_origin", "five_side_framework", "world_rules", "major_conflict_axes", "growth_space", "forbidden_boundaries", "artifact_refs", "summary"],
     "world_review": ["project_id", "review_id", "reviewed_candidate_id", "verdict", "completeness_issues", "consistency_issues", "support_assessment", "revision_requirements", "approved_world_spine", "next_step", "summary"],
     "memory_commit_world": ["project_id", "world_commit_id", "source_review_id", "source_candidate_id", "world_memory_ref", "approved_world_spine", "artifact_refs", "summary"],
-    "baseline_memory_commit": ["project_id", "baseline_memory_id", "baseline_version", "baseline_world_spine", "baseline_outline_spine", "baseline_character_spine", "frozen_character_facts", "frozen_relationship_facts", "baseline_memory_refs", "mutable_memory_scope", "readable_by_next_stages", "artifact_refs", "summary"],
+    "character_design": ["project_id", "character_design_id", "source_world_commit_id", "role_catalog", "main_character_profiles", "supporting_character_profiles", "relationship_graph", "stable_character_facts", "stable_relationship_facts", "adjustable_relationship_axes", "character_arc_seeds", "forbidden_rewrites", "artifact_refs", "summary"],
+    "plot_design": ["project_id", "plot_design_id", "source_world_commit_id", "source_character_design_id", "main_plot_spine", "subplot_threads", "key_event_chain", "foreshadowing_items", "payoff_windows", "conflict_escalation_path", "rhythm_plan", "non_disclosure_rules", "artifact_refs", "summary"],
+    "design_sync_input": ["project_id", "world_commit_ref", "character_design_ref", "plot_design_ref", "known_conflict_refs", "memory_pack_id"],
+    "design_sync": ["project_id", "design_sync_id", "source_character_design_id", "source_plot_design_id", "resolved_conflicts", "unresolved_risks", "character_plot_alignment", "foreshadowing_alignment", "outline_requirements", "frozen_design_decisions", "artifact_refs", "summary"],
+    "outline_design": ["project_id", "outline_id", "source_world_commit_id", "source_character_design_id", "source_plot_design_id", "source_design_sync_id", "whole_book_spine", "volume_blueprint", "chapter_range_strategy", "character_arc_map", "relationship_arc_map", "foreshadowing_map", "payoff_schedule", "baseline_candidate", "mutable_scope_candidate", "artifact_refs", "summary"],
+    "outline_review": ["project_id", "review_id", "reviewed_outline_id", "verdict", "world_alignment_issues", "character_alignment_issues", "plot_alignment_issues", "foreshadowing_issues", "revision_requirements", "approved_outline_spine", "baseline_seed_instructions", "next_step", "summary"],
+    "baseline_memory_commit": ["project_id", "baseline_memory_id", "baseline_version", "source_world_commit_id", "source_outline_review_id", "baseline_world_spine", "baseline_outline_spine", "baseline_plot_spine", "foreshadow_spine", "baseline_character_spine", "frozen_character_facts", "frozen_relationship_facts", "baseline_memory_refs", "mutable_memory_scope", "readable_by_next_stages", "artifact_refs", "summary"],
     "volume_plan_commit": ["project_id", "canon_id", "volume_count", "volume_target_words", "chapters_per_volume", "volume_order", "volume_targets", "current_volume_index", "current_volume_focus", "artifact_refs", "summary"],
     "volume_review_input": ["project_id", "volume_index", "volume_label", "baseline_memory_ref", "volume_plan_ref", "chapter_commit_refs", "chapter_summary_refs", "volume_issue_ledger_ref", "memory_pack_id"],
     "volume_review": ["project_id", "review_id", "volume_index", "continuity_score", "drift_score", "commercial_score", "verdict", "quality_score", "continuity_issues", "canon_drift_issues", "pacing_issues", "revision_requirements", "volume_commit_instructions", "next_step", "summary"],
@@ -599,10 +673,151 @@ CUSTOM_PROJECTION_PROMPTS = {
 【长期冲突与成长空间】
 【不可越界边界】
 【供下游审核的世界观摘要】""",
+    "projection.writing.simple_novel.character_designer": """你是一名人设与关系设计师。
+
+你的职责是在已提交世界观主干之内，设计可支撑长篇连载的人物系统和关系网络。
+你不是剧情设计师，不负责安排全书事件链；你也不是大纲设计师，不负责把整本书拆卷拆章。
+
+你必须读取已提交世界观主干和项目启动包，先确认世界边界，再设计人物。
+
+你必须写清楚：
+1. 主角、核心配角、关键对手和功能性角色分别承担什么叙事职责。
+2. 每个核心人物的身份、欲望、恐惧、缺陷、资源、禁忌和成长空间。
+3. 人物之间的稳定关系、可变化关系、冲突关系和隐藏关系。
+4. 哪些人物事实应进入基准库冻结，哪些只是后续可调整的人物权重。
+5. 这些人设如何给剧情设计师提供事件动力，而不是只提供姓名和标签。
+
+你不允许：
+1. 改写已提交世界观主干。
+2. 直接安排完整主线事件链。
+3. 把未审核的人设写成已经进入基准库的 canon。
+4. 用空泛标签代替人物动机、关系代价和行动压力。
+
+输出必须包含：
+【角色清单】
+【核心人物档案】
+【人物关系图】
+【稳定人物事实】
+【可调整关系与权重】
+【人物成长轴】
+【交给剧情设计的驱动力】
+【禁止改写边界】
+【人设摘要】""",
+    "projection.writing.simple_novel.plot_designer": """你是一名剧情与伏笔设计师。
+
+你的职责是在已提交世界观主干和人设关系设计的约束下，设计长篇小说的主线剧情、支线、关键事件和伏笔回收结构。
+你不是人设设计师，不负责重新定义人物身份；你也不是大纲设计师，不负责最终汇总成卷章大纲。
+
+你必须解决：
+1. 故事主线如何从主角起点自然启动。
+2. 哪些关键事件推动世界、人物和冲突升级。
+3. 伏笔在哪里埋、什么时候回收、回收前如何保持张力。
+4. 支线如何服务主线，不能变成孤立设定展示。
+5. 哪些信息当前不能提前泄露，必须留给后续章节逐步释放。
+
+你不允许：
+1. 改写人物设计中的稳定人物事实和稳定关系。
+2. 改写已提交世界观主干。
+3. 把剧情设计稿当作最终大纲。
+4. 把伏笔写成无法追踪的模糊暗示。
+
+输出必须包含：
+【主线剧情骨架】
+【关键事件链】
+【支线结构】
+【伏笔清单】
+【回收窗口】
+【冲突升级路径】
+【节奏建议】
+【不可提前泄露内容】
+【交给大纲的剧情摘要】""",
+    "projection.writing.simple_novel.design_synchronizer": """你是一名创作架构对齐审核员。
+
+你的职责是让人设设计和剧情设计在进入大纲前对齐。
+你不是重写者，不负责长篇扩写；你只处理冲突、缺口、边界和取舍。
+
+你必须检查：
+1. 人物动机是否能推动剧情事件。
+2. 剧情事件是否违背人物身份、关系和已提交世界观。
+3. 伏笔是否有埋设位置、回收窗口和可追踪证据。
+4. 人设侧和剧情侧是否对同一关系、同一秘密、同一冲突有不同说法。
+5. 哪些设计决策可以交给大纲冻结，哪些必须标为未解决风险。
+
+你不允许：
+1. 把人设稿和剧情稿合并成长篇重写稿。
+2. 越过已提交世界观主干做新设定。
+3. 把未解决冲突隐藏起来交给大纲自己猜。
+4. 把候选设计直接写成基准库事实。
+
+输出必须包含：
+【冲突检查】
+【已解决取舍】
+【未解决风险】
+【人物与剧情对齐结果】
+【伏笔对齐结果】
+【交给大纲的硬要求】
+【不得进入基准库的内容】
+【设计对齐摘要】""",
+    "projection.writing.simple_novel.outline_designer": """你是一名全书大纲设计师。
+
+你的职责是读取已提交世界观、人设设计、剧情设计和设计对齐包，形成可进入正式写作阶段的全书大纲主干。
+你不是从零发明人设或剧情的人；你的工作是统筹、排序、压缩、统一和冻结。
+
+你必须完成：
+1. 把世界观主干、人设关系、剧情事件和伏笔结构整合成一条全书主线。
+2. 设计卷级蓝图、主要冲突递进、人物弧线和关系弧线。
+3. 明确伏笔埋设、推进、误导和回收窗口。
+4. 区分基准库应冻结的主干内容和可改动库后续可调整内容。
+5. 给分卷规划者留下可执行的卷级输入，而不是一份文学化设想。
+
+你不允许：
+1. 从零补人物关系。
+2. 从零补关键伏笔。
+3. 改写已提交世界观主干。
+4. 隐藏人设和剧情之间尚未解决的矛盾。
+
+输出必须包含：
+【全书主线】
+【卷级蓝图】
+【人物弧线】
+【关系弧线】
+【伏笔与回收表】
+【关键事件顺序】
+【基准库候选】
+【可改动库范围候选】
+【下游分卷规划输入】
+【大纲摘要】""",
+    "projection.writing.simple_novel.outline_reviewer": """你是一名全书大纲审核员。
+
+你的职责是审核全书大纲是否可以进入基准库初始化。
+你不负责替大纲设计师扩写大纲，也不负责把未解决的人设或剧情矛盾藏起来。
+
+你必须检查：
+1. 大纲是否遵守已提交世界观主干。
+2. 大纲是否真实吸收了人设设计、剧情设计和设计对齐包。
+3. 人物动机、关系变化、事件链和伏笔回收是否互相支撑。
+4. 全书大纲是否足够细，能支持分卷规划和章节循环。
+5. 哪些内容可以固化为基准库，哪些只能留在可改动库范围。
+
+你的裁决只能表达真实状态：
+pass
+pass_with_notes
+revise
+fail_closed
+
+输出必须包含：
+【裁决】
+【世界观一致性检查】
+【人设一致性检查】
+【剧情与伏笔检查】
+【可写作支撑度检查】
+【需要修订的问题】
+【允许进入基准库的大纲主干；仅 pass 时填写】
+【基准库初始化指令；仅 pass 时填写】""",
     "projection.writing.simple_novel.baseline_memory_steward": """你是一名长篇小说基准库管理员。
 
 你的职责是把项目最稳定、最不该被后续卷推翻的内容，整理成一份基准库。
-你不负责创作世界观正文，不负责写卷计划，不负责写补充提案；你只负责把“项目启动包 + 已审核世界观”固定成后面所有人读取的骨架。
+你不负责创作世界观正文，不负责写卷计划，不负责写补充提案；你只负责把“项目启动包 + 已提交世界观 + 已审核全书大纲 + 已对齐的人设与剧情设计”固定成后面所有人读取的骨架。
 
 你需要回答五件事：
 1. 这本书到底写什么，商业方向是什么。
@@ -611,7 +826,7 @@ CUSTOM_PROJECTION_PROMPTS = {
 4. 哪些人物设定、人物关系和已成立事实必须冻结，后续只能延展不能改写。
 5. 后续卷还能往哪里演进，哪些内容应该交给可改动库。
 
-你必须从项目启动包和已审核世界观里提炼出：
+你必须从项目启动包、已提交世界观、已审核全书大纲、人设设计、剧情设计和设计对齐包里提炼出：
 1. 项目名称、题材方向、商业网文化方向。
 2. 主角基本身份和核心标签。
 3. 五方背景角色的方位、象征、功能和对主线的意义。
@@ -626,6 +841,7 @@ CUSTOM_PROJECTION_PROMPTS = {
 尤其要注意：现有人物的人设、身份、立场、核心动机、关键关系，只要已经在基准阶段确认，就属于基准库冻结内容，不允许写进可改动库。
 你只能沉淀最终定稿骨架，不能把世界观候选稿的旧版本、审核过程措辞、驳回意见、过程性分歧直接抄进基准库正文。
 如果上游给了 approved_world_spine、world_commit 或明确的已通过世界主干，你必须以它为唯一世界观定稿来源；项目 brief 只用于补齐项目目标和读取边界，不得反向覆盖已通过世界主干。
+如果上游给了 outline_review 或 approved_outline_spine，你必须以它作为大纲主干进入基准库的唯一审核凭证；未经大纲审核通过的人设、剧情和伏笔只能作为候选来源，不得直接冻结。
 你的输出必须像“定稿后的 canon 库”，不是“世界观演化记录”。
 
 输出必须直接给下游节点使用，格式要清晰、可读、可检索，必须包含：
@@ -701,8 +917,9 @@ fail_closed
 【允许进入基准库的世界主干；仅 pass 时填写】""",
     "projection.writing.simple_novel.volume_planner": """你是一名长篇小说分卷规划者。
 
-你的职责是把基准库拆成真正能连续生产的卷级作战图。
-你要像一个懂商业连载节奏的总策划，不是把故事写死，而是把每卷的任务、钩子、爆点和边界排清楚。
+你的职责是把只读基准库和已审核大纲拆成真正能连续生产的卷级作战图。
+你不是重新设计故事，也不是套用题材模板；你必须继承已经冻结的大纲主干、卷名、人物弧线、伏笔表、不可提前泄露边界和审核结论。
+如果输入包里缺少“只读基准库”“已审核全书大纲”或“大纲审核结论”，你必须报告阻塞，不能凭题材常识补写。
 
 你需要给下游节点提供：
 1. 每卷目标字数、章节范围、阶段任务。
@@ -713,16 +930,22 @@ fail_closed
 6. 下一卷开始时必须继承的输入清单。
 
 你必须特别注意：
-1. 规划要稳定，但不要写成无法调整的死表。
-2. 每卷都要像一个独立连载单元，读完有收束，下一卷有新钩子。
-3. 计划必须能被卷级审核和卷后复盘使用，不能只是人看着顺眼。
-4. 你只能安排“尚未冻结”的人物权重与关系推进节奏；已经进入基准库冻结事实的人物身份与人物关系不能被改写，只能顺着既有事实继续展开。
+1. 第1卷、第2卷、第3卷、第4卷、第5卷的名称、主线目标、人物状态和伏笔回收窗口必须从已审核全书大纲与基准库继承；不能改成泛化卷名。
+2. 章节范围必须服务已冻结大纲，例如第1卷必须承接“大泽·沉碑”的四幕结构、泽/黎/漪/烬/山魄/棘等人物状态，以及七条伏笔的埋设窗口。
+3. 规划要稳定，但不要写成无法调整的死表；可调整的是节奏权重，不可调整的是已冻结事实。
+4. 每卷都要像一个独立连载单元，读完有收束，下一卷有新钩子。
+5. 计划必须能被卷级审核和卷后复盘使用，不能只是人看着顺眼。
+6. 你只能安排“尚未冻结”的人物权重与关系推进节奏；已经进入基准库冻结事实的人物身份与人物关系不能被改写，只能顺着既有事实继续展开。
+7. 不允许输出“混沌初开、万族争锋、天道崩塌、重塑乾坤、洪荒纪元”这类没有来自当前基准库证据的泛化分卷模板。
 
 输出必须包含：
+【输入继承证据表】
 【全书分卷总览】
 【每卷目标】
 【每卷章节范围】
 【每卷冲突与爽点设计】
+【伏笔与回收窗口承接表】
+【不可提前泄露边界】
 【卷后扩展观察点】
 【下一步章节循环输入】""",
     "projection.writing.simple_novel.volume_reviewer": """你是一名长篇小说卷级总审核员。
@@ -1138,6 +1361,11 @@ def projection_cards():
         "project_brief": "项目启动包整理者",
         "world_designer": "世界观设定写手",
         "world_reviewer": "世界观审核员",
+        "character_designer": "人设与关系设计师",
+        "plot_designer": "剧情与伏笔设计师",
+        "design_synchronizer": "创作架构对齐审核员",
+        "outline_designer": "全书大纲设计师",
+        "outline_reviewer": "全书大纲审核员",
         "baseline_memory_steward": "基准记忆库管理员",
         "volume_planner": "分卷规划者",
         "chapter_outliner": "章节细纲规划者",
@@ -1252,6 +1480,11 @@ def node_responsibility_metadata(node_id, title, role):
         "world_design": "你是一名世界观设定写手。",
         "world_review": "你是一名世界观审核员。",
         "memory_commit_world": "你是一名世界观提交管家。",
+        "character_design": "你是一名人设与关系设计师。",
+        "plot_design": "你是一名剧情与伏笔设计师。",
+        "design_sync": "你是一名创作架构对齐审核员。",
+        "outline_design": "你是一名全书大纲设计师。",
+        "outline_review": "你是一名全书大纲审核员。",
         "baseline_memory_seed": "你是一名基准记忆库管理员。",
         "volume_plan": "你是一名分卷规划者。",
         "chapter_outline": "你是一名章节细纲规划者。",
@@ -1382,6 +1615,7 @@ def graph_node(node):
     node_stream_policy = stream_policy(node_id, role)
     review_revision_targets = {
         "world_review": "world_design",
+        "outline_review": "outline_design",
         "chapter_review": "chapter_draft",
         "volume_review": "chapter_draft",
         "extension_review": "world_outline_extension_proposal",
@@ -1663,14 +1897,59 @@ HANDOFF_DETAILS = {
         "memory_expectation": "世界观写手同时读取审核意见、被审核原稿和启动包，按审核问题逐条修订原稿。",
     },
     ("memory_commit_world", "baseline_memory_seed"): {
-        "handoff_summary": "把已审核世界观交给基准库管理员固化主干。",
+        "handoff_summary": "旧链路保留说明：已提交世界观不再直接初始化基准库，而是先进入人设、剧情、大纲设计层。",
         "required_refs": ["world_commit_ref", "project_brief_ref"],
-        "memory_expectation": "基准库管理员根据启动包和已审核世界观生成 baseline_memory。",
+        "memory_expectation": "本次新版配置不会使用这条主链路，基准库必须等待 outline_review 通过后初始化。",
+    },
+    ("memory_commit_world", "character_design"): {
+        "handoff_summary": "把已提交世界观主干交给人设与关系设计师，先做角色和关系网络。",
+        "required_refs": ["world_commit_ref", "project_brief_ref"],
+        "memory_expectation": "人设设计师只读取已提交世界观和启动包，不读取基准库或可改动库；设计稿仍是候选，不是 canon。",
+    },
+    ("memory_commit_world", "plot_design"): {
+        "handoff_summary": "把已提交世界观主干交给剧情与伏笔设计师，作为剧情设计的世界边界。",
+        "required_refs": ["world_commit_ref", "project_brief_ref"],
+        "memory_expectation": "剧情设计师只读取已提交世界观、启动包和必要的人设引用；设计稿仍是候选，不是 canon。",
+    },
+    ("character_design", "plot_design"): {
+        "handoff_summary": "把角色、动机和关系网络交给剧情设计师，作为事件链和伏笔设计的动力来源。",
+        "required_refs": ["character_design_ref", "world_commit_ref"],
+        "memory_expectation": "剧情设计师不得改写人设中的稳定人物事实，只能让事件链服务人物动机和关系张力。",
+    },
+    ("character_design", "design_sync"): {
+        "handoff_summary": "把人设与关系设计稿交给创作架构对齐审核员。",
+        "required_refs": ["character_design_ref", "world_commit_ref"],
+        "memory_expectation": "设计对齐节点只处理冲突和取舍，不把人设候选直接写成基准库事实。",
+    },
+    ("plot_design", "design_sync"): {
+        "handoff_summary": "把剧情与伏笔设计稿交给创作架构对齐审核员。",
+        "required_refs": ["plot_design_ref", "world_commit_ref"],
+        "memory_expectation": "设计对齐节点检查剧情、伏笔和人物关系是否互相支撑，不直接承担大纲汇总。",
+    },
+    ("design_sync", "outline_design"): {
+        "handoff_summary": "把设计对齐包交给全书大纲设计师，要求大纲只在已对齐的创作架构上汇总。",
+        "required_refs": ["design_sync_ref", "character_design_ref", "plot_design_ref", "world_commit_ref"],
+        "memory_expectation": "大纲设计师读取已提交世界观、人设、剧情和对齐包；不能从零发明人设或伏笔。",
+    },
+    ("outline_design", "outline_review"): {
+        "handoff_summary": "把全书大纲交给大纲审核员，裁决是否允许进入基准库初始化。",
+        "required_refs": ["outline_design_ref", "design_sync_ref", "character_design_ref", "plot_design_ref", "world_commit_ref"],
+        "memory_expectation": "大纲审核员检查世界观、人设、剧情、伏笔和大纲是否一致；未通过时必须退回大纲设计。",
+    },
+    ("outline_review", "outline_design"): {
+        "handoff_summary": "把大纲审核意见连同被审核大纲退回给大纲设计师修订，必须基于原大纲改，不得另起一套创作架构。",
+        "required_refs": ["outline_review_ref", "outline_design_ref", "design_sync_ref", "character_design_ref", "plot_design_ref", "world_commit_ref"],
+        "memory_expectation": "大纲设计师读取审核意见、原大纲和设计对齐包，逐条修正，不得改写已提交世界观或稳定人设关系。",
+    },
+    ("outline_review", "baseline_memory_seed"): {
+        "handoff_summary": "把通过审核的全书大纲、世界观、人设、剧情和设计对齐包交给基准库管理员统一固化。",
+        "required_refs": ["outline_review_ref", "outline_design_ref", "world_commit_ref", "character_design_ref", "plot_design_ref", "design_sync_ref"],
+        "memory_expectation": "基准库管理员只固化审核通过的主干；未审核候选、过程分歧和可调整权重不能进入冻结区。",
     },
     ("baseline_memory_seed", "volume_plan"): {
-        "handoff_summary": "把基准库交给分卷规划者，作为全书规划边界。",
-        "required_refs": ["baseline_memory_ref", "project_brief_ref"],
-        "memory_expectation": "读取基准库，不写基准库。",
+        "handoff_summary": "把只读基准库、已审核全书大纲和大纲审核结论交给分卷规划者，作为分卷计划的唯一主干来源。",
+        "required_refs": ["baseline_memory_ref", "outline_design_ref", "outline_review_ref", "world_commit_ref", "project_brief_ref"],
+        "memory_expectation": "分卷规划者必须读取基准库和已审核大纲，不写基准库；卷名、人物弧线、伏笔窗口和不可提前泄露边界必须继承冻结主干，禁止套用题材模板或改写已冻结事实。",
     },
     ("volume_plan", "chapter_outline"): {
         "handoff_summary": "把当前卷目标、章节范围、冲突和钩子交给细纲规划者，先生成本批可直接开写的章纲。",
@@ -1932,7 +2211,14 @@ def build_edges():
         ("edge.project.world", "project_brief", "world_design", "contract.writing.simple_novel.project_brief"),
         ("edge.world.review", "world_design", "world_review", "contract.writing.simple_novel.world_candidate"),
         ("edge.world_review.commit", "world_review", "memory_commit_world", "contract.writing.simple_novel.world_review"),
-        ("edge.world_commit.baseline_memory", "memory_commit_world", "baseline_memory_seed", "contract.writing.simple_novel.memory_commit_world"),
+        ("edge.world_commit.character_design", "memory_commit_world", "character_design", "contract.writing.simple_novel.memory_commit_world"),
+        ("edge.world_commit.plot_design", "memory_commit_world", "plot_design", "contract.writing.simple_novel.memory_commit_world"),
+        ("edge.character_design.plot_design", "character_design", "plot_design", "contract.writing.simple_novel.character_design"),
+        ("edge.character_design.sync", "character_design", "design_sync", "contract.writing.simple_novel.character_design"),
+        ("edge.plot_design.sync", "plot_design", "design_sync", "contract.writing.simple_novel.plot_design"),
+        ("edge.design_sync.outline_design", "design_sync", "outline_design", "contract.writing.simple_novel.design_sync"),
+        ("edge.outline_design.review", "outline_design", "outline_review", "contract.writing.simple_novel.outline_design"),
+        ("edge.outline_review.baseline_memory", "outline_review", "baseline_memory_seed", "contract.writing.simple_novel.outline_review"),
         ("edge.baseline_memory.volume_plan", "baseline_memory_seed", "volume_plan", "contract.writing.simple_novel.baseline_memory_commit"),
         ("edge.volume_plan.outline", "volume_plan", "chapter_outline", "contract.writing.simple_novel.volume_plan_commit"),
         ("edge.chapter_outline.draft", "chapter_outline", "chapter_draft", "contract.writing.simple_novel.chapter_outline"),
@@ -1963,6 +2249,20 @@ def build_edges():
                 {"source": "current_output", "target_input_key": "previous_review_ref"},
                 {"source": "inherited_input", "target_input_key": "previous_candidate_ref", "source_key": "world_candidate_ref"},
                 {"source": "inherited_input", "target_input_key": "project_brief_ref"},
+            ],
+        }),
+        ("outline_review", "outline_design", "outline_review", {
+            "model_visible_label": "大纲返修包",
+            "usage_instruction": "你必须读取本轮被审核的大纲原稿和大纲审核意见，在人设、剧情和设计对齐包约束下逐条修订；不得脱离原稿另起一套大纲。",
+            "original_artifact_key": "outline_design_ref",
+            "review_result_key": "outline_review_ref",
+            "carry": [
+                {"source": "current_output", "target_input_key": "previous_review_ref"},
+                {"source": "inherited_input", "target_input_key": "previous_candidate_ref", "source_key": "outline_design_ref"},
+                {"source": "inherited_input", "target_input_key": "design_sync_ref"},
+                {"source": "inherited_input", "target_input_key": "character_design_ref"},
+                {"source": "inherited_input", "target_input_key": "plot_design_ref"},
+                {"source": "inherited_input", "target_input_key": "world_commit_ref"},
             ],
         }),
         ("chapter_review", "chapter_draft", "chapter_review", {
@@ -2012,12 +2312,13 @@ def build_edges():
         }),
     ]:
         edges.append(edge(f"edge.{source}.revise", source, target, "contract.writing.simple_novel." + contract_name, "revision_request", {"verdict": "revise", **revision_packet}))
-    for review_node in ["world_review", "chapter_review", "volume_review", "extension_review", "final_review", "chapter_progress_router", "next_volume_router"]:
+    for review_node in ["world_review", "outline_review", "chapter_review", "volume_review", "extension_review", "final_review", "chapter_progress_router", "next_volume_router"]:
         edges.append(edge(f"edge.{review_node}.fail", review_node, "fail_closed", "contract.writing.simple_novel.failure_input", "fail_closed", {"verdict": "fail_closed"}))
     baseline_reads = [
         ("memory.writing.baseline", "world", "基准世界观", ["baseline_world_spine", "world_rule"]),
         ("memory.writing.baseline", "characters", "人物事实", ["baseline_character_spine", "frozen_character_fact"]),
         ("memory.writing.baseline", "relationships", "关系事实", ["frozen_relationship_fact"]),
+        ("memory.writing.baseline", "plot_spine", "剧情与伏笔主干", ["baseline_plot_spine", "foreshadow_spine", "conflict_spine"]),
     ]
     mutable_reads = [
         ("memory.writing.mutable", "strategy", "策略调整", ["strategy_adjustment", "next_volume_focus"]),
@@ -2036,7 +2337,18 @@ def build_edges():
         ("memory.writing.artifact_index", "volume_commits", "卷级提交索引", ["volume_commit", "volume_summary"]),
         ("memory.writing.issue_ledger", "volume_issues", "卷级问题账本", ["canon_drift_issue", "continuity_issue", "pacing_issue"]),
     ]
+    design_artifact_reads = [
+        ("memory.writing.artifact_index", "world_commits", "世界观提交索引", ["world_commit", "approved_world_spine"]),
+        ("memory.writing.artifact_index", "design_assets", "创作架构设计索引", ["character_design", "plot_design", "design_sync", "outline_design", "outline_review"]),
+        ("memory.writing.issue_ledger", "world_issues", "世界观与设计问题账本", ["completeness_issue", "consistency_issue", "revision_requirement", "outline_alignment_issue"]),
+    ]
     for node_id, read_items, usage in [
+        ("character_design", [("memory.writing.artifact_index", "world_commits", "世界观提交索引", ["world_commit", "approved_world_spine"])], "你必须把已提交世界观当作人设设计边界；不得读取旧候选或把人设候选写成 canon。"),
+        ("plot_design", design_artifact_reads, "你必须基于已提交世界观和人设设计稿安排剧情与伏笔；不得改写稳定人物事实。"),
+        ("design_sync", design_artifact_reads, "你必须只做设计冲突对齐和取舍，不直接写基准库。"),
+        ("outline_design", design_artifact_reads, "你必须读取世界观、人设、剧情和设计对齐包后形成全书大纲，不得从零发明创作架构。"),
+        ("outline_review", design_artifact_reads, "你必须审核大纲是否吸收了世界观、人设、剧情和设计对齐包，未通过时退回大纲设计。"),
+        ("baseline_memory_seed", design_artifact_reads, "你只能把已审核通过的大纲主干和来源设计固化到基准库，未审核候选不得冻结。"),
         ("volume_plan", baseline_reads, "你必须把基准世界观、人物事实和关系事实当作分卷规划的硬约束；不得改写既有人物与关系。"),
         ("chapter_outline", baseline_reads + mutable_reads + chapter_plan_reads + chapter_artifact_reads, "你必须只整理当前卷、当前批次的章纲计划；已开写并提交的章纲只能作为历史依据读取，未开写部分才允许重排。"),
         ("chapter_draft", baseline_reads + mutable_reads + chapter_plan_reads + chapter_artifact_reads, "你必须按这些记忆快照限定本批章节，不得把缺失信息自行补写成既成事实。"),
@@ -2060,6 +2372,13 @@ def build_edges():
         ("world_design", "memory.writing.artifact_index", "candidates", "世界观候选", ["world_candidate"], "这只是待审候选稿，不得让后续节点把它当作已提交事实。"),
         ("world_review", "memory.writing.artifact_index", "reviews", "世界观审核记录", ["world_review"], "记录审核裁决、问题清单和是否允许进入提交阶段。"),
         ("world_review", "memory.writing.issue_ledger", "world_issues", "世界观问题", ["completeness_issue", "consistency_issue", "revision_requirement"], "记录世界观审核中发现的问题，只有通过后续提交边才对下游稳定可见。"),
+        ("character_design", "memory.writing.artifact_index", "design_assets", "人设与关系设计候选", ["character_design"], "这是人设和关系设计稿，只能作为大纲设计和审核输入；不得直接当作基准库事实。"),
+        ("plot_design", "memory.writing.artifact_index", "design_assets", "剧情与伏笔设计候选", ["plot_design"], "这是剧情和伏笔设计稿，只能作为设计对齐和大纲输入；不得直接当作基准库事实。"),
+        ("design_sync", "memory.writing.artifact_index", "design_assets", "设计对齐包", ["design_sync"], "这是人设、剧情和伏笔冲突的对齐结果，只有通过大纲审核后才能参与基准库初始化。"),
+        ("outline_design", "memory.writing.artifact_index", "design_assets", "全书大纲候选", ["outline_design"], "这是待审全书大纲，不得让章节节点直接读取为已冻结基准。"),
+        ("outline_review", "memory.writing.artifact_index", "reviews", "全书大纲审核记录", ["outline_review"], "记录全书大纲审核裁决和允许进入基准库的主干。"),
+        ("outline_review", "memory.writing.artifact_index", "design_assets", "已审核全书大纲", ["outline_review", "outline_design"], "记录已审核大纲及其来源引用，供基准库初始化读取。"),
+        ("outline_review", "memory.writing.issue_ledger", "world_issues", "设计与大纲问题", ["outline_alignment_issue", "revision_requirement"], "记录大纲审核中发现的人设、剧情、伏笔和世界观对齐问题。"),
         ("chapter_outline", "memory.writing.artifact_index", "chapter_outlines", "章节细纲候选", ["chapter_outline", "future_chapter_outline"], "这是当前批次章纲；未开写批次可后续整理，已提交章节对应章纲不得再改写。"),
         ("chapter_draft", "memory.writing.artifact_index", "candidates", "章节候选", ["chapter_draft"], "这是当前批次候选正文，只能交给审核和返修使用。"),
         ("chapter_review", "memory.writing.artifact_index", "reviews", "章节审核记录", ["chapter_review"], "记录章节审核裁决和返修要求。"),
@@ -2083,6 +2402,7 @@ def build_edges():
         ("memory_commit_world", "memory.writing.issue_ledger", "world_issues", "世界观问题提交", ["completeness_issue", "consistency_issue", "revision_requirement"], "提交世界观问题状态，确保下游知道哪些问题已处理或仍阻塞。"),
         ("baseline_memory_seed", "memory.writing.baseline", "world", "基准世界观提交", ["baseline_world_spine", "world_rule"], "将审核通过的世界观固化为基准约束。"),
         ("baseline_memory_seed", "memory.writing.baseline", "outline", "基准大纲提交", ["baseline_outline_spine", "volume_plan"], "固化初始大纲主干，供分卷和章节阶段读取。"),
+        ("baseline_memory_seed", "memory.writing.baseline", "plot_spine", "基准剧情与伏笔提交", ["baseline_plot_spine", "foreshadow_spine", "conflict_spine"], "固化已审核大纲中的剧情主干、冲突主干和伏笔回收表，后续章节只能按边读取。"),
         ("baseline_memory_seed", "memory.writing.baseline", "characters", "基准人物提交", ["baseline_character_spine", "frozen_character_fact"], "固化人物事实，后续节点不得改写。"),
         ("baseline_memory_seed", "memory.writing.baseline", "relationships", "基准关系提交", ["frozen_relationship_fact"], "固化人物关系事实，后续节点不得改写。"),
         ("memory_commit_chapter", "memory.writing.artifact_index", "chapter_outlines", "已冻结章节细纲", ["frozen_chapter_outline"], "把已经开写并提交的批次细纲冻结为历史依据；后续只能整理未开写部分。"),
@@ -2265,17 +2585,15 @@ def flow_binding(node):
 
 def configure():
     agents = {
-        "agent:writing_simple_creator": ("写作组创作者", "projection.writing.simple_novel.project_brief", "生成项目启动包、分卷计划、章节正文和卷后补充提案。"),
-        "agent:writing_simple_reviewer": ("写作组审核员", "projection.writing.simple_novel.volume_reviewer", "执行章节轻审、卷级总审、补充边界审和推进裁决。"),
+        "agent:writing_simple_worker": ("写作组任务执行员", "projection.writing.simple_novel.project_brief", "按节点投影分别承担项目整理、世界观、人设、剧情、大纲、章节、审核、路由和交付整编职责。"),
         "agent:writing_memory_steward": ("写作组记忆管家", "projection.writing.simple_novel.memory_steward", "初始化基准库，并写入章节、卷级、可改动库和交付索引。"),
-        "agent:writing_final_assembler": ("写作组交付包整编者", "projection.writing.simple_novel.final_assembler", "基于 manifest、章节文件引用和摘要整理交付包。"),
         MONITOR_AGENT_ID: ("写作组运行监测员", MONITOR_PROJECTION_ID, "观察 TaskGraph 运行快照，向统一运行交互窗口输出提醒、续跑或人工确认请求。"),
     }
 
     data = load("storage/orchestration/agents.json")
     data["agents"] = strip_items(data["agents"], "agent_id", ("agent:writing_simple_", "agent:writing_memory_", "agent:writing_final_", "agent:writing_runtime_"))
     for agent_id, (name, projection, desc) in agents.items():
-        data["agents"].append({"agent_id": agent_id, "agent_name": name, "display_name": name, "agent_category": "worker_sub_agent", "profile_type": "worker_sub_agent", "interface_target": "task_graph_node_runtime", "description": desc, "enabled": True, "builtin": False, "editable": True, "default_soul_id": "hebo", "default_projection_id": projection, "created_at": NOW, "updated_at": NOW, "metadata": {"managed_by": MANAGED, "task_family": TASK_FAMILY, "definition_source": "task_graph_assembly", "source_task_graph_refs": [GRAPH_ID], "system_key": "worker_pool"}})
+        data["agents"].append({"agent_id": agent_id, "agent_name": name, "display_name": name, "agent_category": "custom_agent", "profile_type": "custom_agent", "interface_target": "task_graph_node_runtime", "description": desc, "enabled": True, "builtin": False, "editable": True, "default_soul_id": "hebo", "default_projection_id": projection, "created_at": NOW, "updated_at": NOW, "metadata": {"managed_by": MANAGED, "task_family": TASK_FAMILY, "definition_source": "task_graph_assembly", "source_task_graph_refs": [GRAPH_ID], "system_key": "worker_pool", "delegation_enabled": True, "group_eligible": True, "agent_template_id": "task_graph.writing.simple_novel.runtime_worker" if agent_id == "agent:writing_simple_worker" else "task_graph.writing.memory_steward" if agent_id == "agent:writing_memory_steward" else "task_graph.writing.runtime_monitor"}})
     save("storage/orchestration/agents.json", data)
 
     data = load("storage/orchestration/agent_runtime_profiles.json")

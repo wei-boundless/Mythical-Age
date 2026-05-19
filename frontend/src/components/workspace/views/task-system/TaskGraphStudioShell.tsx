@@ -23,6 +23,11 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
     summary: "编辑业务节点和交接边，决定任务如何从一个节点进入下一个节点。",
     checkpoints: ["节点", "通信边", "画布结构"],
   },
+  modules: {
+    title: "任务图编辑器",
+    summary: "在同一个工作台里编辑节点时序点、图节点、交接边和可组合任务图边界。",
+    checkpoints: ["节点", "图节点", "交接边"],
+  },
   responsibility: {
     title: "节点认知包",
     summary: "把节点身份、输入包、输出契约和 Prompt 使用方式配成同一个执行视图。",
@@ -72,6 +77,7 @@ export function TaskGraphStudioShell({
   saving,
   title,
   valid,
+  workspaceSlot,
 }: {
   activeLayer: TaskGraphStudioLayerId;
   children: ReactNode;
@@ -89,11 +95,12 @@ export function TaskGraphStudioShell({
   saving: string;
   title: string;
   valid: boolean;
+  workspaceSlot?: ReactNode;
 }) {
   const activeLayerMeta = TASK_GRAPH_STUDIO_LAYERS.find((layer) => layer.id === activeLayer);
   const layerContext = LAYER_CONTEXT[activeLayer];
   return (
-    <section className="task-graph-studio-shell" aria-label="多 Agent 持续任务编排平台">
+    <section className={workspaceSlot ? "task-graph-studio-shell task-graph-studio-shell--with-workspace" : "task-graph-studio-shell"} aria-label="多 Agent 持续任务编排平台">
       <TaskGraphTopBar
         coordinatorAgentId={coordinatorAgentId}
         edgeCount={edgeCount}
@@ -108,6 +115,11 @@ export function TaskGraphStudioShell({
         title={title}
         valid={valid}
       />
+      {workspaceSlot ? (
+        <section className="task-graph-studio-workspace-strip" aria-label="任务图工作集">
+          {workspaceSlot}
+        </section>
+      ) : null}
       <div className="task-graph-studio-shell__body">
         <TaskGraphLayerNav activeLayer={activeLayer} onChange={onLayerChange} />
         <main className="task-graph-studio-shell__page">

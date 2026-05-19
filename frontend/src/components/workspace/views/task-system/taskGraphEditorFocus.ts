@@ -27,6 +27,23 @@ export function focusForPreflightIssue(issue: TaskGraphPreflightIssue): TaskGrap
     issue_id: issue.issue_id,
   };
 
+  if (issue.source.includes("composable_graph")) {
+    const facet = issue.scope === "port_edge"
+      ? "connections"
+      : issue.title.includes("nested_graph")
+        ? "nested_runtime"
+        : issue.title.includes("unit_interface")
+          ? "interfaces"
+          : "units";
+    return {
+      ...base,
+      layer: "modules",
+      facet,
+      edge_id: issue.scope === "port_edge" ? issue.target_id : undefined,
+      node_id: issue.scope === "unit" ? issue.target_id : undefined,
+    };
+  }
+
   if (
     issue.source.includes("risk")
     || issue.source.includes("ledger")
@@ -109,6 +126,15 @@ export function focusForPreflightIssue(issue: TaskGraphPreflightIssue): TaskGrap
   }
 
   if (issue.source.includes("timeline")) {
+    if (issue.title.includes("timeline_block") || issue.detail.includes("图块")) {
+      return {
+        ...base,
+        layer: "modules",
+        facet: "blocks",
+        node_id: issue.scope === "node" ? issue.target_id : undefined,
+        edge_id: issue.scope === "edge" ? issue.target_id : undefined,
+      };
+    }
     return {
       ...base,
       layer: "timeline",

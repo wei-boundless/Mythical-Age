@@ -110,4 +110,34 @@ describe("TaskGraph editor focus", () => {
       facet: "human_interaction",
     });
   });
+
+  it("routes composable port edge diagnostics to the module connection facet", () => {
+    const focus = focusForPreflightIssue(issue({
+      source: "backend.composable_graph",
+      scope: "port_edge",
+      target_id: "edge.design.creation",
+      title: "port_edge_target_port_missing",
+    }));
+
+    expect(focus).toMatchObject({
+      layer: "modules",
+      facet: "connections",
+      edge_id: "edge.design.creation",
+    });
+  });
+
+  it("routes composable nested graph diagnostics to the nested runtime facet", () => {
+    const focus = focusForPreflightIssue(issue({
+      source: "backend.composable_graph",
+      scope: "unit",
+      target_id: "unit.graph.block.design",
+      title: "nested_graph_handoff_contract_missing",
+    }));
+
+    expect(focus).toMatchObject({
+      layer: "modules",
+      facet: "nested_runtime",
+      node_id: "unit.graph.block.design",
+    });
+  });
 });

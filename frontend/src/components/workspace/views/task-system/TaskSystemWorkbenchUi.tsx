@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 function uniqueStrings(values: Array<string | null | undefined>) {
   return Array.from(new Set(values.map((item) => String(item ?? "").trim()).filter(Boolean)));
@@ -229,6 +229,82 @@ export function taskSystemDisplayLabel(value: unknown, fallback = "未配置") {
   if (!raw) return fallback;
   const label = taskSystemOptionLabel(raw);
   return label === raw ? raw : `${label} · ${raw}`;
+}
+
+type TaskGraphChromeSelectOption = {
+  value: string;
+  label: string;
+  disabled?: boolean;
+};
+
+export function TaskGraphChromeSelect({
+  disabled = false,
+  emptyLabel,
+  label,
+  onChange,
+  options,
+  placeholder,
+  value,
+}: {
+  disabled?: boolean;
+  emptyLabel?: string;
+  label: string;
+  onChange: (value: string) => void;
+  options: TaskGraphChromeSelectOption[];
+  placeholder: string;
+  value: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((option) => option.value === value);
+  const displayLabel = selected?.label || emptyLabel || placeholder;
+  const selectableOptions = options.filter((option) => !option.disabled);
+  const isDisabled = disabled || selectableOptions.length === 0;
+
+  return (
+    <label
+      className={isDisabled ? "task-graph-editor-chrome__field task-graph-editor-chrome__field--disabled" : "task-graph-editor-chrome__field"}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setOpen(false);
+        }
+      }}
+    >
+      <span className="task-graph-editor-chrome__field-label">{label}</span>
+      <div className="task-graph-editor-select">
+        <button
+          aria-expanded={open}
+          disabled={isDisabled}
+          onClick={() => setOpen((current) => !current)}
+          type="button"
+        >
+          <span>{displayLabel}</span>
+          <i aria-hidden="true" />
+        </button>
+        {open && !isDisabled ? (
+          <div className="task-graph-editor-select__menu" role="listbox">
+            {options.map((option) => (
+              <button
+                aria-selected={option.value === value}
+                className={option.value === value ? "task-graph-editor-select__option task-graph-editor-select__option--active" : "task-graph-editor-select__option"}
+                disabled={option.disabled}
+                key={option.value || option.label}
+                onClick={() => {
+                  if (!option.disabled) {
+                    onChange(option.value);
+                    setOpen(false);
+                  }
+                }}
+                role="option"
+                type="button"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </label>
+  );
 }
 
 export function TaskSystemField({

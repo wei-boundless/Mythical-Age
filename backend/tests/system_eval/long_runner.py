@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import platform
@@ -378,13 +379,42 @@ def _ensure_session(client: TestClient, session_ids: dict[str, str], alias: str,
 
 
 def _sync_memory(runtime, session_id: str, *, durable: bool = False) -> dict[str, Any]:
-    receipt = runtime.query_runtime.run_memory_maintenance(session_id, durable=durable)
+    async def _enqueue_and_wait() -> dict[str, Any]:
+        receipt = await runtime.memory_facade.arun_memory_maintenance_after_commit(
+            session_id=session_id,
+            messages=runtime.session_manager.load_session(session_id),
+            durable_lane_enabled=durable,
+        )
+        task_kind = str(getattr(receipt, "diagnostics", {}).get("background_task_kind") or "memory_maintenance_after_commit")
+        task_id = str(getattr(receipt, "diagnostics", {}).get("background_task_id") or "").strip()
+        task_record = None
+        if task_id:
+            deadline = time.perf_counter() + 30.0
+            while time.perf_counter() < deadline:
+                task_record = runtime.memory_facade.background_task_manager.load(task_id, task_kind)
+                if task_record is not None and str(getattr(task_record, "status", "") or "") in {"succeeded", "failed", "skipped"}:
+                    break
+                await asyncio.sleep(0.05)
+        return {
+            "receipt": receipt,
+            "task_kind": task_kind,
+            "task_id": task_id,
+            "task_record": task_record,
+        }
+
+    result = asyncio.run(_enqueue_and_wait())
+    receipt = result["receipt"]
+    task_kind = result["task_kind"]
+    task_id = result["task_id"]
+    task_record = result["task_record"]
     session_summary = runtime.memory_facade.session_memory.manager(session_id).load()
-    durable_saved = int(receipt.get("durable_write_count") or 0)
     return {
         "session_summary_chars": len(str(session_summary or "").strip()),
-        "durable_saved": durable_saved,
-        "memory_maintenance_status": str(receipt.get("status") or ""),
+        "durable_saved": int(getattr(task_record, "result", {}).get("durable_write_count") or 0) if task_record else 0,
+        "memory_maintenance_status": str(getattr(task_record, "status", "") or getattr(receipt, "status", "") or ""),
+        "memory_maintenance_mode": "background",
+        "memory_maintenance_task_id": task_id,
+        "memory_maintenance_task_kind": task_kind,
     }
 
 

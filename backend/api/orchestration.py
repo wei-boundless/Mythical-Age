@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import shutil
 import threading
 import time
 from typing import Any
@@ -382,6 +383,18 @@ class CoordinationRunResumeRequest(BaseModel):
 
 class CoordinationRunContinueRequest(BaseModel):
     source: str = Field(default="orchestration.coordination_run_continue_api", max_length=180)
+    current_turn_context: dict[str, Any] = Field(default_factory=dict)
+
+
+class CoordinationRunRewindRequest(BaseModel):
+    stage_id: str = Field(..., min_length=1, max_length=180)
+    reason: str = Field(default="stage_output_invalid", max_length=180)
+    source: str = Field(default="orchestration.coordination_run_rewind_api", max_length=180)
+    artifact_root: str = Field(default="", max_length=500)
+    include_downstream: bool = True
+    move_artifacts: bool = True
+    refresh_graph_spec: bool = True
+    continue_after_rewind: bool = True
     current_turn_context: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -1449,6 +1462,105 @@ async def continue_coordination_current_stage(
     }
 
 
+@router.post("/orchestration/coordination-runs/{coordination_run_id}/rewind-from-stage")
+async def rewind_coordination_run_from_stage(
+    coordination_run_id: str,
+    payload: CoordinationRunRewindRequest,
+) -> dict[str, Any]:
+    runtime = require_runtime()
+    task_run_loop = runtime.query_runtime.task_run_loop
+    coordination_run = task_run_loop.state_index.get_coordination_run(coordination_run_id)
+    if coordination_run is None:
+        raise HTTPException(status_code=404, detail="CoordinationRun not found")
+    previous_state = task_run_loop.langgraph_coordination_runtime.checkpoints.get_state(
+        thread_id=coordination_run_id,
+    )
+    if not previous_state:
+        raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
+
+    stage_id = payload.stage_id.strip()
+    invalidated_stage_ids = _coordination_downstream_stage_ids(
+        state=previous_state,
+        stage_id=stage_id,
+        include_downstream=payload.include_downstream,
+    )
+    artifact_root = str(
+        payload.artifact_root
+        or payload.current_turn_context.get("artifact_root")
+        or dict(previous_state.get("pending_inputs") or {}).get("artifact_root")
+        or ""
+    ).strip()
+    invalidated_artifacts = _coordination_stage_artifact_paths(
+        state=previous_state,
+        stage_ids=invalidated_stage_ids,
+    )
+    moved_artifacts = []
+    if payload.move_artifacts and artifact_root:
+        moved_artifacts = _move_invalidated_artifacts(
+            artifact_refs=invalidated_artifacts,
+            artifact_root=artifact_root,
+            stage_id=stage_id,
+            reason=payload.reason,
+        )
+
+    result = task_run_loop.langgraph_coordination_runtime.rewind_from_stage(
+        coordination_run_id=coordination_run_id,
+        stage_id=stage_id,
+        reason=payload.reason,
+        inherited_inputs={
+            **dict(payload.current_turn_context or {}),
+            "artifact_root": artifact_root,
+            "rewind_invalidated_artifacts": moved_artifacts,
+        },
+        refresh_graph_spec=payload.refresh_graph_spec,
+    )
+    if result.diagnostics.get("reason") == "missing_coordination_run":
+        raise HTTPException(status_code=404, detail="CoordinationRun not found")
+    if result.diagnostics.get("reason") == "missing_checkpoint":
+        raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
+    if result.diagnostics.get("reason") == "stage_not_in_order":
+        raise HTTPException(status_code=409, detail="Stage is not part of this CoordinationRun")
+
+    request = result.stage_execution_request
+    background_started = False
+    task_run = task_run_loop.state_index.get_task_run(coordination_run.task_run_id)
+    session_id = str(getattr(task_run, "session_id", "") or "").strip()
+    if payload.continue_after_rewind and request is not None:
+        if not session_id:
+            raise HTTPException(status_code=409, detail="CoordinationRun root TaskRun has no session_id")
+        _schedule_stage_execution_background(
+            runtime=runtime,
+            session_id=session_id,
+            source=payload.source,
+            stage_execution_request=request,
+            current_turn_context={
+                "authority": "context.coordination_run_rewind",
+                "coordination_run_id": coordination_run_id,
+                "task_graph_id": coordination_run.graph_ref,
+                "selected_graph_id": coordination_run.graph_ref,
+                "artifact_root": artifact_root,
+                **dict(payload.current_turn_context or {}),
+            },
+        )
+        background_started = True
+
+    return {
+        "authority": "orchestration.coordination_run_rewind_from_stage",
+        "coordination_run_id": coordination_run_id,
+        "task_run_id": coordination_run.task_run_id,
+        "session_id": session_id,
+        "stage_id": stage_id,
+        "reason": payload.reason,
+        "invalidated_stage_ids": invalidated_stage_ids,
+        "invalidated_artifact_refs": invalidated_artifacts,
+        "moved_artifacts": moved_artifacts,
+        "checkpoint_ref": result.checkpoint_ref,
+        "stage_execution_request": request.to_dict() if request is not None else None,
+        "background_started": background_started,
+        "diagnostics": dict(result.diagnostics),
+    }
+
+
 def _stage_request_matches_active_stage(
     *,
     state: dict[str, Any],
@@ -1471,6 +1583,106 @@ def _stage_request_matches_active_stage(
     if current_event.get("accepted") is False:
         return True
     return False
+
+
+def _coordination_downstream_stage_ids(
+    *,
+    state: dict[str, Any],
+    stage_id: str,
+    include_downstream: bool,
+) -> list[str]:
+    target = str(stage_id or "").strip()
+    order = [str(item) for item in list(state.get("stage_order") or []) if str(item)]
+    if not target:
+        return []
+    if not include_downstream:
+        return [target]
+    known = set(order)
+    graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+    outgoing: dict[str, list[str]] = {item: [] for item in known}
+    for raw_edge in list(graph_spec.get("edges") or []):
+        edge = dict(raw_edge or {})
+        source = str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "").strip()
+        next_stage = str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
+        if source in known and next_stage in known and next_stage not in outgoing.setdefault(source, []):
+            outgoing[source].append(next_stage)
+    visited: set[str] = set()
+    queue = [target]
+    while queue:
+        current = queue.pop(0)
+        if current in visited:
+            continue
+        visited.add(current)
+        for next_stage in outgoing.get(current, []):
+            if next_stage not in visited:
+                queue.append(next_stage)
+    ordered = [item for item in order if item in visited]
+    return ordered if ordered else [target]
+
+
+def _coordination_stage_artifact_paths(
+    *,
+    state: dict[str, Any],
+    stage_ids: list[str],
+) -> list[str]:
+    stage_set = {str(item) for item in list(stage_ids or []) if str(item)}
+    refs: list[str] = []
+    for stage, result in dict(state.get("stage_results") or {}).items():
+        if str(stage) not in stage_set or not isinstance(result, dict):
+            continue
+        refs.extend(str(item) for item in list(result.get("artifact_refs") or []) if str(item).startswith("artifact:"))
+    for item in list(state.get("artifact_refs") or []):
+        if not isinstance(item, dict) or str(item.get("stage_id") or "") not in stage_set:
+            continue
+        ref = str(item.get("ref") or "")
+        if ref.startswith("artifact:"):
+            refs.append(ref)
+    return list(dict.fromkeys(refs))
+
+
+def _move_invalidated_artifacts(
+    *,
+    artifact_refs: list[str],
+    artifact_root: str,
+    stage_id: str,
+    reason: str,
+) -> list[dict[str, Any]]:
+    root = Path(artifact_root).resolve()
+    invalidated_root = root / "invalidated" / (
+        f"{time.strftime('%Y%m%d-%H%M%S')}-{_safe_path_component(stage_id)}-{_safe_path_component(reason)}"
+    )
+    moved: list[dict[str, Any]] = []
+    for ref in artifact_refs:
+        source_text = str(ref or "")
+        if not source_text.startswith("artifact:"):
+            continue
+        source = Path(source_text.removeprefix("artifact:")).resolve()
+        try:
+            source.relative_to(root)
+        except ValueError:
+            moved.append({"artifact_ref": ref, "status": "skipped_outside_artifact_root"})
+            continue
+        if not source.exists() or not source.is_file():
+            moved.append({"artifact_ref": ref, "status": "missing"})
+            continue
+        relative = source.relative_to(root)
+        target = invalidated_root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source), str(target))
+        moved.append(
+            {
+                "artifact_ref": ref,
+                "status": "moved",
+                "from": str(source),
+                "to": str(target),
+            }
+        )
+    return moved
+
+
+def _safe_path_component(value: str) -> str:
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "").strip()).strip("-")
+    return safe[:80] or "stage"
 
 
 def _latest_unconsumed_stage_task_result(

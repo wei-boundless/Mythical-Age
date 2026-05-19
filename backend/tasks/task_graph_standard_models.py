@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .composable_graph_builder import build_composable_graph_view
+from .composable_graph_models import ComposableUnit, NestedRuntimePlan, UnitInterface, UnitPortEdge
 from .coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from .flow_models import SpecificTaskRecord, TaskCommunicationProtocol
 from .task_graph_models import TaskGraphDefinition, task_graph_from_dict
@@ -115,6 +117,7 @@ class TaskGraphStandardIssue:
     severity: str = "error"
     node_id: str = ""
     edge_id: str = ""
+    unit_id: str = ""
     source: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -128,6 +131,10 @@ class TaskGraphStandardView:
     nodes: tuple[TaskGraphStandardNodeSpec, ...]
     edges: tuple[TaskGraphStandardEdgeSpec, ...]
     resources: tuple[TaskGraphStandardResourceSpec, ...]
+    units: tuple[ComposableUnit, ...]
+    interfaces: tuple[UnitInterface, ...]
+    port_edges: tuple[UnitPortEdge, ...]
+    nested_runtime: tuple[NestedRuntimePlan, ...]
     timeline: TaskGraphStandardTimelineSpec
     runtime_isolation: TaskGraphRuntimeIsolationSpec
     memory_matrix: dict[str, Any]
@@ -141,6 +148,10 @@ class TaskGraphStandardView:
             "nodes": [item.to_dict() for item in self.nodes],
             "edges": [item.to_dict() for item in self.edges],
             "resources": [item.to_dict() for item in self.resources],
+            "units": [item.to_dict() for item in self.units],
+            "interfaces": [item.to_dict() for item in self.interfaces],
+            "port_edges": [item.to_dict() for item in self.port_edges],
+            "nested_runtime": [item.to_dict() for item in self.nested_runtime],
             "timeline": self.timeline.to_dict(),
             "runtime_isolation": self.runtime_isolation.to_dict(),
             "memory_matrix": dict(self.memory_matrix),
@@ -161,6 +172,7 @@ def build_task_graph_standard_view(
         communication_protocol=communication_protocol,
     )
     layered = dict(runtime_spec.diagnostics.get("layered_graph") or {})
+    composable = build_composable_graph_view(graph=graph, layered_graph=layered)
     resource_nodes = [dict(item) for item in list(layered.get("resource_nodes") or []) if isinstance(item, dict)]
     memory_edges = {
         str(item.get("edge_id") or ""): dict(item)
@@ -238,6 +250,7 @@ def build_task_graph_standard_view(
         for item in [
             *[dict(issue) for issue in list(runtime_spec.issues or []) if isinstance(issue, dict)],
             *[dict(issue) for issue in list(layered.get("issues") or []) if isinstance(issue, dict)],
+            *[dict(issue) for issue in list(composable.issues or []) if isinstance(issue, dict)],
         ]
     )
     return TaskGraphStandardView(
@@ -257,12 +270,17 @@ def build_task_graph_standard_view(
         nodes=nodes,
         edges=edges,
         resources=resources,
+        units=composable.units,
+        interfaces=composable.interfaces,
+        port_edges=composable.port_edges,
+        nested_runtime=composable.nested_runtime,
         timeline=timeline,
         runtime_isolation=runtime_isolation,
         memory_matrix=dict(layered.get("memory_matrix") or {}),
         diagnostics={
             "runtime_spec": runtime_spec.to_dict(),
             "layered_graph": layered,
+            "composable_graph": composable.to_dict(),
         },
         issues=issues,
     )
@@ -431,6 +449,7 @@ def _issue_from_payload(payload: dict[str, Any]) -> TaskGraphStandardIssue:
         severity=str(payload.get("severity") or "error"),
         node_id=str(payload.get("node_id") or ""),
         edge_id=str(payload.get("edge_id") or ""),
+        unit_id=str(payload.get("unit_id") or ""),
         source=str(payload.get("authority") or payload.get("source") or ""),
     )
 

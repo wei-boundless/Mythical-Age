@@ -4525,12 +4525,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -4681,12 +4681,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -4826,12 +4826,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -4971,12 +4971,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -5083,12 +5083,992 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "task_family": "writing_simple_novel"
+      },
+      "artifact_ref_policy": {
+        "required_for_long_outputs": true,
+        "raw_full_text_handoff": "forbidden_for_full_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.simple_novel.character_design",
+      "title_zh": "character_design",
+      "title_en": "character_design",
+      "contract_kind": "node_execution",
+      "description": "写作组简易长篇小说契约：contract.writing.simple_novel.character_design。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "project_id",
+          "title_zh": "project_id",
+          "field_type": "string",
+          "required": true,
+          "description": "project_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "character_design_id",
+          "title_zh": "character_design_id",
+          "field_type": "string",
+          "required": false,
+          "description": "character_design_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_world_commit_id",
+          "title_zh": "source_world_commit_id",
+          "field_type": "string",
+          "required": false,
+          "description": "source_world_commit_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "role_catalog",
+          "title_zh": "role_catalog",
+          "field_type": "string",
+          "required": false,
+          "description": "role_catalog。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "main_character_profiles",
+          "title_zh": "main_character_profiles",
+          "field_type": "string",
+          "required": false,
+          "description": "main_character_profiles。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "supporting_character_profiles",
+          "title_zh": "supporting_character_profiles",
+          "field_type": "string",
+          "required": false,
+          "description": "supporting_character_profiles。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "relationship_graph",
+          "title_zh": "relationship_graph",
+          "field_type": "string",
+          "required": false,
+          "description": "relationship_graph。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "stable_character_facts",
+          "title_zh": "stable_character_facts",
+          "field_type": "string",
+          "required": false,
+          "description": "stable_character_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "stable_relationship_facts",
+          "title_zh": "stable_relationship_facts",
+          "field_type": "string",
+          "required": false,
+          "description": "stable_relationship_facts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "adjustable_relationship_axes",
+          "title_zh": "adjustable_relationship_axes",
+          "field_type": "string",
+          "required": false,
+          "description": "adjustable_relationship_axes。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "character_arc_seeds",
+          "title_zh": "character_arc_seeds",
+          "field_type": "string",
+          "required": false,
+          "description": "character_arc_seeds。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "forbidden_rewrites",
+          "title_zh": "forbidden_rewrites",
+          "field_type": "string",
+          "required": false,
+          "description": "forbidden_rewrites。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": false,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
+        "不得用普通消息文本代替结构化契约和 artifact refs。",
+        "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "task_family": "writing_simple_novel"
+      },
+      "artifact_ref_policy": {
+        "required_for_long_outputs": true,
+        "raw_full_text_handoff": "forbidden_for_full_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.simple_novel.plot_design",
+      "title_zh": "plot_design",
+      "title_en": "plot_design",
+      "contract_kind": "node_execution",
+      "description": "写作组简易长篇小说契约：contract.writing.simple_novel.plot_design。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "project_id",
+          "title_zh": "project_id",
+          "field_type": "string",
+          "required": true,
+          "description": "project_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "plot_design_id",
+          "title_zh": "plot_design_id",
+          "field_type": "string",
+          "required": false,
+          "description": "plot_design_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_world_commit_id",
+          "title_zh": "source_world_commit_id",
+          "field_type": "string",
+          "required": false,
+          "description": "source_world_commit_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_character_design_id",
+          "title_zh": "source_character_design_id",
+          "field_type": "string",
+          "required": false,
+          "description": "source_character_design_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "main_plot_spine",
+          "title_zh": "main_plot_spine",
+          "field_type": "string",
+          "required": false,
+          "description": "main_plot_spine。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "subplot_threads",
+          "title_zh": "subplot_threads",
+          "field_type": "string",
+          "required": false,
+          "description": "subplot_threads。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "key_event_chain",
+          "title_zh": "key_event_chain",
+          "field_type": "string",
+          "required": false,
+          "description": "key_event_chain。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "foreshadowing_items",
+          "title_zh": "foreshadowing_items",
+          "field_type": "string",
+          "required": false,
+          "description": "foreshadowing_items。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "payoff_windows",
+          "title_zh": "payoff_windows",
+          "field_type": "string",
+          "required": false,
+          "description": "payoff_windows。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "conflict_escalation_path",
+          "title_zh": "conflict_escalation_path",
+          "field_type": "string",
+          "required": false,
+          "description": "conflict_escalation_path。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "rhythm_plan",
+          "title_zh": "rhythm_plan",
+          "field_type": "string",
+          "required": false,
+          "description": "rhythm_plan。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "non_disclosure_rules",
+          "title_zh": "non_disclosure_rules",
+          "field_type": "string",
+          "required": false,
+          "description": "non_disclosure_rules。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": false,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
+        "不得用普通消息文本代替结构化契约和 artifact refs。",
+        "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "task_family": "writing_simple_novel"
+      },
+      "artifact_ref_policy": {
+        "required_for_long_outputs": true,
+        "raw_full_text_handoff": "forbidden_for_full_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.simple_novel.design_sync_input",
+      "title_zh": "design_sync_input",
+      "title_en": "design_sync_input",
+      "contract_kind": "node_execution",
+      "description": "写作组简易长篇小说契约：contract.writing.simple_novel.design_sync_input。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "project_id",
+          "title_zh": "project_id",
+          "field_type": "string",
+          "required": true,
+          "description": "project_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "world_commit_ref",
+          "title_zh": "world_commit_ref",
+          "field_type": "string",
+          "required": false,
+          "description": "world_commit_ref。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "character_design_ref",
+          "title_zh": "character_design_ref",
+          "field_type": "string",
+          "required": false,
+          "description": "character_design_ref。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "plot_design_ref",
+          "title_zh": "plot_design_ref",
+          "field_type": "string",
+          "required": false,
+          "description": "plot_design_ref。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "known_conflict_refs",
+          "title_zh": "known_conflict_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "known_conflict_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "memory_pack_id",
+          "title_zh": "memory_pack_id",
+          "field_type": "string",
+          "required": true,
+          "description": "memory_pack_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
+        "不得用普通消息文本代替结构化契约和 artifact refs。",
+        "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "task_family": "writing_simple_novel"
+      },
+      "artifact_ref_policy": {
+        "required_for_long_outputs": true,
+        "raw_full_text_handoff": "forbidden_for_full_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.simple_novel.design_sync",
+      "title_zh": "design_sync",
+      "title_en": "design_sync",
+      "contract_kind": "node_execution",
+      "description": "写作组简易长篇小说契约：contract.writing.simple_novel.design_sync。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "project_id",
+          "title_zh": "project_id",
+          "field_type": "string",
+          "required": true,
+          "description": "project_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "design_sync_id",
+          "title_zh": "design_sync_id",
+          "field_type": "string",
+          "required": false,
+          "description": "design_sync_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_character_design_id",
+          "title_zh": "source_character_design_id",
+          "field_type": "string",
+          "required": false,
+          "description": "source_character_design_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_plot_design_id",
+          "title_zh": "source_plot_design_id",
+          "field_type": "string",
+          "required": false,
+          "description": "source_plot_design_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "resolved_conflicts",
+          "title_zh": "resolved_conflicts",
+          "field_type": "string",
+          "required": false,
+          "description": "resolved_conflicts。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "unresolved_risks",
+          "title_zh": "unresolved_risks",
+          "field_type": "string",
+          "required": false,
+          "description": "unresolved_risks。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "character_plot_alignment",
+          "title_zh": "character_plot_alignment",
+          "field_type": "string",
+          "required": false,
+          "description": "character_plot_alignment。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "foreshadowing_alignment",
+          "title_zh": "foreshadowing_alignment",
+          "field_type": "string",
+          "required": false,
+          "description": "foreshadowing_alignment。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "outline_requirements",
+          "title_zh": "outline_requirements",
+          "field_type": "array",
+          "required": false,
+          "description": "outline_requirements。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "frozen_design_decisions",
+          "title_zh": "frozen_design_decisions",
+          "field_type": "string",
+          "required": false,
+          "description": "frozen_design_decisions。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": false,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
+        "不得用普通消息文本代替结构化契约和 artifact refs。",
+        "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "task_family": "writing_simple_novel"
+      },
+      "artifact_ref_policy": {
+        "required_for_long_outputs": true,
+        "raw_full_text_handoff": "forbidden_for_full_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.simple_novel.outline_design",
+      "title_zh": "outline_design",
+      "title_en": "outline_design",
+      "contract_kind": "node_execution",
+      "description": "写作组简易长篇小说契约：contract.writing.simple_novel.outline_design。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "project_id",
+          "title_zh": "project_id",
+          "field_type": "string",
+          "required": true,
+          "description": "project_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "outline_id",
+          "title_zh": "outline_id",
+          "field_type": "string",
+          "required": false,
+          "description": "outline_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_world_commit_id",
+          "title_zh": "source_world_commit_id",
+          "field_type": "string",
+          "required": false,
+          "description": "source_world_commit_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_character_design_id",
+          "title_zh": "source_character_design_id",
+          "field_type": "string",
+          "required": false,
+          "description": "source_character_design_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_plot_design_id",
+          "title_zh": "source_plot_design_id",
+          "field_type": "string",
+          "required": false,
+          "description": "source_plot_design_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_design_sync_id",
+          "title_zh": "source_design_sync_id",
+          "field_type": "string",
+          "required": false,
+          "description": "source_design_sync_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "whole_book_spine",
+          "title_zh": "whole_book_spine",
+          "field_type": "string",
+          "required": false,
+          "description": "whole_book_spine。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "volume_blueprint",
+          "title_zh": "volume_blueprint",
+          "field_type": "string",
+          "required": false,
+          "description": "volume_blueprint。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "chapter_range_strategy",
+          "title_zh": "chapter_range_strategy",
+          "field_type": "string",
+          "required": false,
+          "description": "chapter_range_strategy。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "character_arc_map",
+          "title_zh": "character_arc_map",
+          "field_type": "string",
+          "required": false,
+          "description": "character_arc_map。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "relationship_arc_map",
+          "title_zh": "relationship_arc_map",
+          "field_type": "string",
+          "required": false,
+          "description": "relationship_arc_map。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "foreshadowing_map",
+          "title_zh": "foreshadowing_map",
+          "field_type": "string",
+          "required": false,
+          "description": "foreshadowing_map。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "payoff_schedule",
+          "title_zh": "payoff_schedule",
+          "field_type": "string",
+          "required": false,
+          "description": "payoff_schedule。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "baseline_candidate",
+          "title_zh": "baseline_candidate",
+          "field_type": "string",
+          "required": false,
+          "description": "baseline_candidate。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "mutable_scope_candidate",
+          "title_zh": "mutable_scope_candidate",
+          "field_type": "string",
+          "required": false,
+          "description": "mutable_scope_candidate。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": false,
+          "description": "artifact_refs。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": false,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
+        "不得用普通消息文本代替结构化契约和 artifact refs。",
+        "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
+        "domain_id": "domain.writing.simple_novel",
+        "task_family": "writing_simple_novel"
+      },
+      "artifact_ref_policy": {
+        "required_for_long_outputs": true,
+        "raw_full_text_handoff": "forbidden_for_full_novel"
+      }
+    },
+    {
+      "contract_id": "contract.writing.simple_novel.outline_review",
+      "title_zh": "outline_review",
+      "title_en": "outline_review",
+      "contract_kind": "node_execution",
+      "description": "写作组简易长篇小说契约：contract.writing.simple_novel.outline_review。",
+      "input_fields": [],
+      "output_fields": [
+        {
+          "field_id": "project_id",
+          "title_zh": "project_id",
+          "field_type": "string",
+          "required": true,
+          "description": "project_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "review_id",
+          "title_zh": "review_id",
+          "field_type": "string",
+          "required": true,
+          "description": "review_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "reviewed_outline_id",
+          "title_zh": "reviewed_outline_id",
+          "field_type": "string",
+          "required": false,
+          "description": "reviewed_outline_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "verdict",
+          "title_zh": "verdict",
+          "field_type": "string",
+          "required": true,
+          "description": "verdict。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "world_alignment_issues",
+          "title_zh": "world_alignment_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "world_alignment_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "character_alignment_issues",
+          "title_zh": "character_alignment_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "character_alignment_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "plot_alignment_issues",
+          "title_zh": "plot_alignment_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "plot_alignment_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "foreshadowing_issues",
+          "title_zh": "foreshadowing_issues",
+          "field_type": "array",
+          "required": false,
+          "description": "foreshadowing_issues。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "revision_requirements",
+          "title_zh": "revision_requirements",
+          "field_type": "array",
+          "required": false,
+          "description": "revision_requirements。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "approved_outline_spine",
+          "title_zh": "approved_outline_spine",
+          "field_type": "string",
+          "required": false,
+          "description": "approved_outline_spine。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "baseline_seed_instructions",
+          "title_zh": "baseline_seed_instructions",
+          "field_type": "array",
+          "required": false,
+          "description": "baseline_seed_instructions。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "next_step",
+          "title_zh": "next_step",
+          "field_type": "string",
+          "required": false,
+          "description": "next_step。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "summary",
+          "title_zh": "summary",
+          "field_type": "string",
+          "required": false,
+          "description": "summary。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "acceptance_rules": [
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
+        "不得用普通消息文本代替结构化契约和 artifact refs。",
+        "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
+      ],
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -5139,6 +6119,28 @@
           "visibility": "model_visible"
         },
         {
+          "field_id": "source_world_commit_id",
+          "title_zh": "source_world_commit_id",
+          "field_type": "string",
+          "required": false,
+          "description": "source_world_commit_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "source_outline_review_id",
+          "title_zh": "source_outline_review_id",
+          "field_type": "string",
+          "required": false,
+          "description": "source_outline_review_id。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
           "field_id": "baseline_world_spine",
           "title_zh": "baseline_world_spine",
           "field_type": "string",
@@ -5155,6 +6157,28 @@
           "field_type": "string",
           "required": false,
           "description": "baseline_outline_spine。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "baseline_plot_spine",
+          "title_zh": "baseline_plot_spine",
+          "field_type": "string",
+          "required": false,
+          "description": "baseline_plot_spine。",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "node_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "foreshadow_spine",
+          "title_zh": "foreshadow_spine",
+          "field_type": "string",
+          "required": false,
+          "description": "foreshadow_spine。",
           "default_value": null,
           "schema": {},
           "source_hint": "node_output",
@@ -5250,12 +6274,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -5395,12 +6419,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -5518,12 +6542,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -5707,12 +6731,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -5852,12 +6876,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -6019,12 +7043,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -6186,12 +7210,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -6375,12 +7399,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -6520,12 +7544,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -6676,12 +7700,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -6898,12 +7922,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -7120,12 +8144,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -7353,12 +8377,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -7641,12 +8665,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -7874,12 +8898,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -8151,12 +9175,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -8406,12 +9430,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -8584,12 +9608,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -8718,12 +9742,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -8852,12 +9876,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -9008,12 +10032,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -9120,12 +10144,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -9276,12 +10300,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -9388,12 +10412,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -9478,12 +10502,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -9579,12 +10603,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -9713,12 +10737,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -9847,12 +10871,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -9981,12 +11005,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -10093,12 +11117,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -10238,12 +11262,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },
@@ -10317,12 +11341,12 @@
         }
       ],
       "acceptance_rules": [
-        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求。",
+        "必须符合 122 设计书的投影 Prompt、交接包与边式记忆闭环要求，以及 174 新版写作任务配置计划。",
         "不得用普通消息文本代替结构化契约和 artifact refs。",
         "业务节点只能交接结构化引用；记忆库读写必须由 TaskGraph 的 memory_read、memory_write_candidate、memory_commit 边声明。"
       ],
       "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260517",
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "domain_id": "domain.writing.simple_novel",
         "task_family": "writing_simple_novel"
       },

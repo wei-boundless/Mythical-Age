@@ -107,6 +107,7 @@ class AppRuntime:
                 payload={"collection": "durable_memory", "source_path": normalized},
                 source="bootstrap.app_runtime",
                 lane_id="durable_memory_extraction",
+                coalesce_key="durable_memory",
             )
             return
         if normalized.startswith("session-memory/"):
@@ -125,6 +126,7 @@ class AppRuntime:
                 payload={"collection": "durable_memory", "saved_count": saved_count},
                 source="bootstrap.app_runtime",
                 lane_id="durable_memory_extraction",
+                coalesce_key="durable_memory",
             )
         if runtime.consolidation_scheduler is not None:
             runtime.consolidation_scheduler.notify_saved(saved_count)
@@ -139,6 +141,7 @@ class AppRuntime:
                 payload={"collection": "durable_memory", "reason": "consolidation"},
                 source="bootstrap.app_runtime",
                 lane_id="durable_memory_extraction",
+                coalesce_key="durable_memory",
             )
 
     async def _run_durable_memory_index_rebuild(self, payload: dict[str, object]) -> dict[str, object]:

@@ -412,8 +412,14 @@ export function buildTimelinePreflightIssues(
     if (!block.handoff_contract_id) {
       issues.push({ code: "timeline_block_handoff_contract_missing", message: `图块 ${block.title || block.block_id} 缺少 handoff_contract_id。`, severity: "warning", phase_id: block.phase_id });
     }
+    if (!block.linked_graph_id) {
+      issues.push({ code: "timeline_block_child_graph_missing", message: `图块 ${block.title || block.block_id} 还没有绑定 linked_graph_id，父图运行时只能把它视为本图阶段块。`, severity: "warning", phase_id: block.phase_id });
+    }
     if (!block.version_ref) {
       issues.push({ code: "timeline_block_version_anchor_missing", message: `图块 ${block.title || block.block_id} 缺少 version_ref，断开后难以追踪旧引用。`, severity: "info", phase_id: block.phase_id });
+    }
+    if (timelineBlocks.length > 1 && !String(block.visibility_policy ?? "").trim()) {
+      issues.push({ code: "timeline_block_visibility_missing", message: `图块 ${block.title || block.block_id} 缺少 visibility_policy，多图块联合运行会丢失跨图可见性边界。`, severity: "warning", phase_id: block.phase_id });
     }
   }
 
