@@ -41,6 +41,43 @@ export function mergeContractBindingSection(
   };
 }
 
+export function contractBindingPathValue(
+  target: Record<string, unknown>,
+  section: string,
+  path: string[],
+): unknown {
+  let current: unknown = asRecord(target.contract_bindings)[section];
+  for (const segment of path) {
+    current = asRecord(current)[segment];
+  }
+  return current;
+}
+
+function mergePathValue(target: Record<string, unknown>, path: string[], value: unknown): Record<string, unknown> {
+  if (!path.length) return asRecord(value);
+  const [head, ...tail] = path;
+  return {
+    ...target,
+    [head]: tail.length ? mergePathValue(asRecord(target[head]), tail, value) : value,
+  };
+}
+
+export function mergeContractBindingPath(
+  target: Record<string, unknown>,
+  section: string,
+  path: string[],
+  value: unknown,
+): { contract_bindings: Record<string, unknown> } {
+  const current = asRecord(target.contract_bindings);
+  const currentSection = asRecord(current[section]);
+  return {
+    contract_bindings: {
+      ...current,
+      [section]: mergePathValue(currentSection, path, value),
+    },
+  };
+}
+
 export function runtimeModelRequirementOf(target: Record<string, unknown>): Record<string, unknown> {
   return asRecord(asRecord(asRecord(target.contract_bindings).runtime).model_requirement);
 }

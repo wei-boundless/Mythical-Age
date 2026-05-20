@@ -38,7 +38,7 @@ export type TaskGraphStudioLayer = {
 export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
   {
     id: "blueprint",
-    title: "任务蓝图",
+    title: "图级配置",
     description: "身份、入口、出口、运行模式",
     category: "foundation",
     metric: "图级",
@@ -56,8 +56,8 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
   },
   {
     id: "topology",
-    title: "拓扑编排",
-    description: "节点、边、画布和快速结构",
+    title: "快速拓扑",
+    description: "节点、边和快捷结构",
     category: "structure",
     metric: "画布",
     state: "ready",
@@ -65,11 +65,11 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
   },
   {
     id: "modules",
-    title: "任务图编辑器",
-    description: "图节点、交接边、可组合流程",
+    title: "图工作台",
+    description: "图层、画布、对象编辑台",
     category: "structure",
     metric: "图化",
-    state: "draft",
+    state: "ready",
     icon: Boxes,
   },
   {

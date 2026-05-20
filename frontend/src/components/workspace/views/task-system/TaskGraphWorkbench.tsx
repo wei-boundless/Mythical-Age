@@ -3,6 +3,13 @@
 import { AlertTriangle, Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import {
+  buildTaskSystemTaskGraphExecutionPackage,
+  type ContractManifest,
+  type TaskGraphExecutionPackage,
+  type TaskGraphRuntimeSpec,
+} from "@/lib/api";
+
 import { TaskGraphAgentRosterPage } from "@/components/workspace/views/task-system/TaskGraphAgentRosterPage";
 import { TaskGraphBlueprintPage } from "@/components/workspace/views/task-system/TaskGraphBlueprintPage";
 import { TaskGraphContractQualityPage } from "@/components/workspace/views/task-system/TaskGraphContractQualityPage";
@@ -24,6 +31,7 @@ import {
   type TaskGraphEditorFocus,
 } from "./taskGraphEditorFocus";
 import { createMemoryEdgeDraft, taskGraphEdgeId } from "./taskGraphMemoryMatrix";
+import { mergeContractBindingSection } from "./taskGraphContractBindings";
 import type { TaskGraphPreflightIssue } from "./taskGraphPreflight";
 import type { TaskGraphWorkbenchProps } from "./taskGraphTypes";
 
@@ -50,7 +58,10 @@ export function TaskGraphWorkbench({
   workspaceSlot,
   ...rest
 }: TaskGraphWorkbenchProps) {
-  const [editorFocus, setEditorFocus] = useState<TaskGraphEditorFocus>({ layer: "blueprint" });
+  const [editorFocus, setEditorFocus] = useState<TaskGraphEditorFocus>(() => ({ layer: activeGraphNodes.length ? "modules" : "blueprint" }));
+  const [executionPackage, setExecutionPackage] = useState<TaskGraphExecutionPackage | null>(null);
+  const [executionPackageError, setExecutionPackageError] = useState("");
+  const [executionPackageLoading, setExecutionPackageLoading] = useState(false);
   const [showTemplateChooser, setShowTemplateChooser] = useState(false);
   const activeLayer = editorFocus.layer;
   const coordinatorAgentId = String(taskGraphDraftV2.runtime_policy.coordinator_agent_id || "agent:0");
@@ -77,6 +88,19 @@ export function TaskGraphWorkbench({
   const updateRuntimePolicy = (patch: Partial<typeof taskGraphDraftV2.runtime_policy>) => {
     updateTaskGraphRuntimePolicy(patch);
   };
+  const compileExecutionPackage = async () => {
+    if (!taskGraphDraftV2.graph_id) return;
+    setExecutionPackageLoading(true);
+    setExecutionPackageError("");
+    try {
+      setExecutionPackage(await buildTaskSystemTaskGraphExecutionPackage(taskGraphDraftV2.graph_id));
+    } catch (error) {
+      setExecutionPackage(null);
+      setExecutionPackageError(error instanceof Error ? error.message : "执行包编译失败");
+    } finally {
+      setExecutionPackageLoading(false);
+    }
+  };
   const applyEditorFocus = (nextFocus: Partial<TaskGraphEditorFocus> & { layer?: TaskGraphStudioLayerId }) => {
     setEditorFocus((current) => mergeTaskGraphEditorFocus(current, nextFocus));
     if (Object.prototype.hasOwnProperty.call(nextFocus, "node_id") || Object.prototype.hasOwnProperty.call(nextFocus, "repository_id")) {
@@ -101,7 +125,7 @@ export function TaskGraphWorkbench({
     rest.setSelectedTaskGraphId(target.graph_id);
     rest.setSelectedGraphNodeId("");
     rest.setSelectedGraphEdgeId("");
-    setEditorFocus({ layer: "blueprint", facet: "graph_unit_entry" });
+    setEditorFocus({ layer: "modules", facet: "units" });
   };
   const focusPreflightIssue = (issue: TaskGraphPreflightIssue) => {
     applyEditorFocus(focusForPreflightIssue(issue));
@@ -171,7 +195,8 @@ export function TaskGraphWorkbench({
       return;
     }
     if (issue.source === "frontend.preflight.contract" && issue.scope === "edge" && issue.target_id) {
-      updateTaskGraphEdge(issue.target_id, { payload_contract_id: `${issue.target_id}.payload`, contract_id: `${issue.target_id}.payload` });
+      const edge = edgeById(issue.target_id);
+      updateTaskGraphEdge(issue.target_id, mergeContractBindingSection(edge ?? {}, "schema", { payload_contract_id: `${issue.target_id}.payload` }));
       focusPreflightIssue(issue);
       return;
     }
@@ -303,7 +328,7 @@ export function TaskGraphWorkbench({
         <small>
           {rest.taskGraphStandardView
             ? `graph=${String(rest.taskGraphStandardView.graph.graph_id ?? taskGraphDraftV2.graph_id)} · ${rest.taskGraphStandardView.nodes.length} nodes · ${rest.taskGraphStandardView.edges.length} edges · ${rest.taskGraphStandardView.resources.length} resources`
-            : "TaskGraph Studio 当前页面会优先读取后端编译出的标准对象视图，避免前端和 runtime 语义分叉。"}
+            : "图工作台当前页面会优先读取后端编译出的标准对象视图，避免前端和 runtime 语义分叉。"}
         </small>
       </div>
       <div className="task-graph-standard-status__actions">
@@ -385,6 +410,34 @@ export function TaskGraphWorkbench({
         />
       );
     }
+    if (activeLayer === "modules") {
+      return (
+        <TaskGraphModuleCompositionPage
+          activeGraphEdges={activeGraphEdges}
+          activeGraphNodes={activeGraphNodes}
+          a2aCatalog={rest.a2aCatalog}
+          contractSpecs={rest.contractSpecs}
+          dirty={rest.taskGraphDirty}
+          domainTaskOptions={rest.domainTaskOptions}
+          editorFocus={editorFocus}
+          editorIssueCount={rest.editorIssueCount}
+          editorValid={rest.editorValid}
+          onEditorFocus={applyEditorFocus}
+          onOpenGraph={openGraphInStudio}
+          orchestrationAgentCatalog={rest.orchestrationAgentCatalog}
+          projectionCards={rest.projectionCards}
+          standardView={rest.taskGraphStandardView}
+          standardViewLoading={rest.taskGraphStandardViewLoading}
+          taskGraphDraft={taskGraphDraftV2}
+          taskGraphs={rest.taskGraphs}
+          updateTaskGraphDraft={updateTaskGraph}
+          updateTaskGraphEdge={updateTaskGraphEdge}
+          updateTaskGraphMetadata={updateTaskGraphMetadata}
+          updateTaskGraphNode={updateTaskGraphNode}
+          updateTaskGraphRuntimePolicy={updateRuntimePolicy}
+        />
+      );
+    }
     if (activeLayer === "agents") {
       return (
         <TaskGraphAgentRosterPage
@@ -413,34 +466,6 @@ export function TaskGraphWorkbench({
           onEditorFocus={applyEditorFocus}
           updateTaskGraphEdge={updateTaskGraphEdge}
           updateTaskGraphNode={updateTaskGraphNode}
-        />
-      );
-    }
-    if (activeLayer === "modules") {
-      return (
-        <TaskGraphModuleCompositionPage
-          activeGraphEdges={activeGraphEdges}
-          activeGraphNodes={activeGraphNodes}
-          a2aCatalog={rest.a2aCatalog}
-          contractSpecs={rest.contractSpecs}
-          dirty={rest.taskGraphDirty}
-          domainTaskOptions={rest.domainTaskOptions}
-          editorFocus={editorFocus}
-          editorIssueCount={rest.editorIssueCount}
-          editorValid={rest.editorValid}
-          onEditorFocus={applyEditorFocus}
-          onOpenGraph={openGraphInStudio}
-          orchestrationAgentCatalog={rest.orchestrationAgentCatalog}
-          projectionCards={rest.projectionCards}
-          standardView={rest.taskGraphStandardView}
-          standardViewLoading={rest.taskGraphStandardViewLoading}
-          taskGraphDraft={taskGraphDraftV2}
-          taskGraphs={rest.taskGraphs}
-          updateTaskGraphDraft={updateTaskGraph}
-          updateTaskGraphEdge={updateTaskGraphEdge}
-          updateTaskGraphMetadata={updateTaskGraphMetadata}
-          updateTaskGraphNode={updateTaskGraphNode}
-          updateTaskGraphRuntimePolicy={updateRuntimePolicy}
         />
       );
     }
@@ -499,13 +524,7 @@ export function TaskGraphWorkbench({
           editorValid={rest.editorValid}
           editorFocus={editorFocus}
           onEditorFocus={applyEditorFocus}
-          selectedGraphEdge={rest.selectedGraphEdge}
-          selectedGraphEdgeId={rest.selectedGraphEdgeId}
-          standardView={rest.taskGraphStandardView}
           taskGraphDraft={taskGraphDraftV2}
-          updateTaskGraph={updateTaskGraph}
-          updateTaskGraphEdge={updateTaskGraphEdge}
-          updateTaskGraphNode={updateTaskGraphNode}
         />
       );
     }
@@ -528,6 +547,12 @@ export function TaskGraphWorkbench({
           onRepairIssue={repairPreflightIssue}
           publishState={publishState}
           saving={rest.saving}
+          sharedContractManifest={executionPackage?.contract_manifest as ContractManifest | null}
+          sharedExecutionPackage={executionPackage}
+          sharedRuntimeSpec={executionPackage?.runtime_spec as TaskGraphRuntimeSpec | null}
+          sharedRuntimeSpecError={executionPackageError}
+          onSharedExecutionPackageChange={setExecutionPackage}
+          onSharedRuntimeSpecErrorChange={setExecutionPackageError}
         />
       );
     }
@@ -540,9 +565,14 @@ export function TaskGraphWorkbench({
       coordinatorAgentId={coordinatorAgentId}
       dirty={rest.taskGraphDirty}
       edgeCount={activeGraphEdges.length}
+      editorFocus={editorFocus}
+      executionPackage={executionPackage}
+      executionPackageError={executionPackageError}
+      executionPackageLoading={executionPackageLoading}
       graphId={taskGraphDraftV2.graph_id}
       issueCount={issueCount}
       nodeCount={activeGraphNodes.length}
+      onCompileExecutionPackage={() => { void compileExecutionPackage(); }}
       onLayerChange={setActiveLayer}
       onPublish={handlePublish}
       onSave={handleSaveDraft}

@@ -47,13 +47,13 @@ export function TaskSystemShell<T extends string>({
     <div className={`workspace-view boundary-console task-system-boundary task-system-boundary--${mode}`}>
       <header className={mode === "editor" ? "boundary-hero task-system-boundary__studio-hero" : "boundary-hero"}>
         <div>
-          <span>{mode === "editor" ? "TaskGraph Studio" : "TaskSystem Console"}</span>
+          <span>{mode === "editor" ? "任务系统 · 图工作台" : "任务系统 · 库管理"}</span>
           <h2>{title}</h2>
           <p>{path}</p>
         </div>
         <div className="boundary-actions">
           {mode === "editor" && onBackToGraphs ? (
-            <ToolbarButton onClick={onBackToGraphs}>返回任务图</ToolbarButton>
+            <ToolbarButton onClick={onBackToGraphs}>返回任务图库</ToolbarButton>
           ) : null}
           <ToolbarButton onClick={onRefresh}><RefreshCw size={15} />刷新</ToolbarButton>
         </div>

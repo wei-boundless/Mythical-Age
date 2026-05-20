@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from health_system.maintenance.experiments.artifacts import read_json_file
+from health_system.evidence_extractor import build_runtime_trace_evidence_packet, build_turn_artifact_evidence_packet
 from orchestration import summarize_runtime_loop_events, summarize_runtime_loop_trace
 
 
@@ -46,6 +47,24 @@ def runtime_loop_summary_from_turn_artifact(path: str | Path) -> dict[str, Any]:
     return runtime_loop_summary_from_turn_payload(payload)
 
 
+def runtime_loop_evidence_packet_from_turn_payload(payload: dict[str, Any], *, question: str) -> dict[str, Any]:
+    events = runtime_events_from_turn_payload(payload)
+    trace = {
+        "task_run": {"task_run_id": _task_run_id_from_events(events)},
+        "events": events,
+        "latest_checkpoint": dict(payload.get("latest_checkpoint") or {}),
+        "coordination_runs": list(payload.get("coordination_runs") or []),
+    }
+    return build_runtime_trace_evidence_packet(trace, question=question)
+
+
+def runtime_loop_evidence_packet_from_turn_artifact(path: str | Path, *, question: str) -> dict[str, Any]:
+    payload = read_json_file(Path(path), {})
+    if not isinstance(payload, dict):
+        return build_runtime_trace_evidence_packet(None, question=question)
+    return build_turn_artifact_evidence_packet(path, question=question)
+
+
 def runtime_loop_events_by_type(payload: dict[str, Any], event_type: str) -> list[dict[str, Any]]:
     return [
         item
@@ -67,3 +86,11 @@ def runtime_loop_tool_names(payload: dict[str, Any]) -> list[str]:
         if tool_name:
             names.append(tool_name)
     return names
+
+
+def _task_run_id_from_events(events: list[dict[str, Any]]) -> str:
+    for item in events:
+        task_run_id = str(item.get("task_run_id") or "")
+        if task_run_id:
+            return task_run_id
+    return ""

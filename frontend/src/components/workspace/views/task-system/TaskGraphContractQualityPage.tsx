@@ -3,11 +3,16 @@
 import { useMemo } from "react";
 import type { ContractSpec } from "@/lib/api";
 
-import { TaskGraphEdgeStandardPage } from "./TaskGraphEdgeStandardPage";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
 import { buildTaskGraphCognitionModel } from "./taskGraphCognitionView";
-import { TaskGraphContractBindingField } from "./TaskGraphContractBindingField";
+import {
+  edgePayloadContractIdOf,
+  graphContractIdOf,
+  nodeExecutionContractIdOf,
+  nodeInputContractIdOf,
+  nodeOutputContractIdOf,
+} from "./taskGraphContractBindings";
 
 function contractTitle(contract: ContractSpec) {
   return String(contract.contract_id);
@@ -33,13 +38,7 @@ export function TaskGraphContractQualityPage({
   editorValid,
   editorFocus,
   onEditorFocus,
-  selectedGraphEdge,
-  selectedGraphEdgeId,
-  standardView,
   taskGraphDraft,
-  updateTaskGraph,
-  updateTaskGraphEdge,
-  updateTaskGraphNode,
 }: {
   activeGraphEdges: Array<Record<string, unknown>>;
   activeGraphNodes: Array<Record<string, unknown>>;
@@ -48,71 +47,70 @@ export function TaskGraphContractQualityPage({
   editorValid: boolean;
   editorFocus?: TaskGraphEditorFocus;
   onEditorFocus?: (focus: Partial<TaskGraphEditorFocus> & { layer?: TaskGraphEditorFocus["layer"] }) => void;
-  selectedGraphEdge: Record<string, unknown> | null;
-  selectedGraphEdgeId: string;
-  standardView: import("@/lib/api").TaskGraphStandardView | null;
   taskGraphDraft: TaskGraphDraftV2;
-  updateTaskGraph: (patch: Partial<TaskGraphDraftV2>) => void;
-  updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
-  updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
 }) {
-  const contractIds = contractSpecs.map((item) => item.contract_id);
+  const contractIds = new Set(contractSpecs.map((item) => item.contract_id));
   const cognitionModel = useMemo(
     () => buildTaskGraphCognitionModel({ nodes: activeGraphNodes, edges: activeGraphEdges }),
     [activeGraphNodes, activeGraphEdges],
   );
-
-  if (editorFocus?.facet === "edge_standard") {
-    return (
-      <section className="task-graph-studio-page">
-        <header className="task-graph-studio-page__head">
-          <span>TaskGraph Studio</span>
-          <strong>边标准对象</strong>
-          <small>边页负责载荷契约、交接语义和 memory / artifact / revision / temporal 的边级配置。</small>
-        </header>
-        <TaskGraphEdgeStandardPage
-          activeGraphEdges={activeGraphEdges}
-          editorFocus={editorFocus}
-          selectedGraphEdge={selectedGraphEdge}
-          selectedGraphEdgeId={selectedGraphEdgeId}
-          standardView={standardView}
-          updateTaskGraphEdge={updateTaskGraphEdge}
-        />
-      </section>
-    );
-  }
-
   const formatContract = (contractId: string) => {
     const contract = contractSpecs.find((item) => item.contract_id === contractId);
     return contract ? `${contractTitle(contract)} · ${contractId}` : contractId || "未绑定";
   };
+  const graphContractId = graphContractIdOf(taskGraphDraft);
+  const nodeContractRows = activeGraphNodes.map((node, index) => {
+    const nodeId = String(node.node_id ?? node.id ?? `node_${index + 1}`);
+    return {
+      node,
+      nodeId,
+      executionContractId: nodeExecutionContractIdOf(node),
+      inputContractId: nodeInputContractIdOf(node),
+      outputContractId: nodeOutputContractIdOf(node),
+    };
+  });
+  const edgeContractRows = activeGraphEdges.map((edge, index) => {
+    const edgeId = String(edge.edge_id ?? edge.id ?? `edge_${index + 1}`);
+    return {
+      edge,
+      edgeId,
+      payloadContractId: edgePayloadContractIdOf(edge),
+    };
+  });
+  const missingContractCount = [
+    graphContractId,
+    ...nodeContractRows.flatMap((row) => [row.executionContractId, row.inputContractId, row.outputContractId]),
+    ...edgeContractRows.map((row) => row.payloadContractId),
+  ].filter((contractId) => !contractId).length;
+  const unknownContractCount = [
+    graphContractId,
+    ...nodeContractRows.flatMap((row) => [row.executionContractId, row.inputContractId, row.outputContractId]),
+    ...edgeContractRows.map((row) => row.payloadContractId),
+  ].filter((contractId) => contractId && !contractIds.has(contractId)).length;
 
   return (
     <section className="task-graph-studio-page">
       <header className="task-graph-studio-page__head">
-        <span>TaskGraph Studio</span>
-        <strong>契约与质量门</strong>
-        <small>统一管理图契约、节点输入输出、边载荷契约和预检质量状态。</small>
+        <span>图工作台</span>
+        <strong>契约质量总览</strong>
+        <small>这里检查 contract_bindings 是否覆盖图、节点和边；具体编辑进入图工作台对象编辑台。</small>
       </header>
 
       <section className="task-graph-form-grid">
         <article className="boundary-card">
-          <header><strong>图级契约</strong></header>
-          <div className="boundary-form">
-            <TaskGraphContractBindingField
-              fallback={taskGraphDraft.graph_contract_id}
-              field="graph_contract_id"
-              formatOption={formatContract}
-              label="图契约 ID"
-              onChange={(patch) => updateTaskGraph(patch)}
-              options={contractIds}
-              section="schema"
-              target={taskGraphDraft}
-            />
+          <header><strong>图级契约</strong><span>contract_bindings.schema</span></header>
+          <div className="task-graph-contract-flow-cell">
+            <span>图契约</span>
+            <strong>{formatContract(graphContractId)}</strong>
           </div>
           <div className="task-graph-note">
-            <strong>保存落点</strong>
-            <span>图契约保存时会进入 TaskGraph 一等字段，节点和边契约分别写入节点与边。</span>
+            <strong>编辑入口</strong>
+            <span>打开图工作台，选中图对象，在右侧对象编辑台配置 Schema / Runtime / Governance。</span>
+          </div>
+          <div className="boundary-actions">
+            <button className="boundary-chip" onClick={() => onEditorFocus?.({ layer: "modules", facet: "units" })} type="button">
+              <span>编辑图对象契约</span>
+            </button>
           </div>
         </article>
 
@@ -122,6 +120,8 @@ export function TaskGraphContractQualityPage({
             <p><span>预检</span><strong>{editorValid ? "通过" : "待处理"}</strong></p>
             <p><span>问题</span><strong>{editorIssueCount}</strong></p>
             <p><span>契约库</span><strong>{contractSpecs.length}</strong></p>
+            <p><span>缺失绑定</span><strong>{missingContractCount}</strong></p>
+            <p><span>库外引用</span><strong>{unknownContractCount}</strong></p>
           </div>
           {editorFocus?.issue_id ? (
             <div className="task-graph-note">
@@ -133,50 +133,31 @@ export function TaskGraphContractQualityPage({
       </section>
 
       <section className="boundary-card">
-        <header><strong>节点契约</strong></header>
+        <header><strong>节点契约</strong><span>选中节点后在对象编辑台修改</span></header>
         <div className="task-graph-node-policy-list">
-          {activeGraphNodes.map((node, index) => {
-            const nodeId = String(node.node_id ?? "");
-            return (
-              <article className="task-graph-node-policy-row" key={nodeId || `node_${index}`}>
-                <div className="task-graph-node-policy-row__identity">
-                  <strong>{nodeTitle(node)}</strong>
-                  <span>{nodeId}</span>
-                </div>
-                <TaskGraphContractBindingField
-                  fallback={String(node.node_contract_id ?? node.contract_id ?? "")}
-                  field="node_contract_id"
-                  formatOption={formatContract}
-                  label="节点契约"
-                  legacyPatch={(value) => ({ node_contract_id: value, contract_id: value })}
-                  onChange={(patch) => updateTaskGraphNode(nodeId, patch)}
-                  options={contractIds}
-                  section="execution"
-                  target={node}
-                />
-                <TaskGraphContractBindingField
-                  fallback={String(node.input_contract_id ?? "")}
-                  field="input_contract_id"
-                  formatOption={formatContract}
-                  label="输入契约"
-                  onChange={(patch) => updateTaskGraphNode(nodeId, patch)}
-                  options={contractIds}
-                  section="schema"
-                  target={node}
-                />
-                <TaskGraphContractBindingField
-                  fallback={String(node.output_contract_id ?? "")}
-                  field="output_contract_id"
-                  formatOption={formatContract}
-                  label="输出契约"
-                  onChange={(patch) => updateTaskGraphNode(nodeId, patch)}
-                  options={contractIds}
-                  section="schema"
-                  target={node}
-                />
-              </article>
-            );
-          })}
+          {nodeContractRows.map(({ executionContractId, inputContractId, node, nodeId, outputContractId }) => (
+            <article className="task-graph-node-policy-row" key={nodeId}>
+              <div className="task-graph-node-policy-row__identity">
+                <strong>{nodeTitle(node)}</strong>
+                <span>{nodeId}</span>
+              </div>
+              <div className="task-graph-contract-flow-cell">
+                <span>执行契约</span>
+                <strong>{formatContract(executionContractId)}</strong>
+              </div>
+              <div className="task-graph-contract-flow-cell">
+                <span>输入契约</span>
+                <strong>{formatContract(inputContractId)}</strong>
+              </div>
+              <div className="task-graph-contract-flow-cell">
+                <span>输出契约</span>
+                <strong>{formatContract(outputContractId)}</strong>
+              </div>
+              <button className="boundary-chip" onClick={() => onEditorFocus?.({ layer: "modules", facet: "units", node_id: nodeId })} type="button">
+                <span>编辑节点契约</span>
+              </button>
+            </article>
+          ))}
         </div>
       </section>
 
@@ -211,40 +192,23 @@ export function TaskGraphContractQualityPage({
       </section>
 
       <section className="boundary-card">
-        <header><strong>边载荷契约</strong></header>
+        <header><strong>边载荷契约</strong><span>选中边后在对象编辑台修改</span></header>
         <div className="task-graph-node-policy-list">
-          {activeGraphEdges.map((edge, index) => {
-            const edgeId = String(edge.edge_id ?? edge.id ?? `edge_${index + 1}`);
-            return (
-              <article className="task-graph-node-policy-row" key={edgeId}>
-                <div className="task-graph-node-policy-row__identity">
-                  <strong>{edgeSource(edge)} {"->"} {edgeTarget(edge)}</strong>
-                  <span>{edgeId}</span>
-                </div>
-                <TaskGraphContractBindingField
-                  fallback={String(edge.payload_contract_id ?? edge.contract_id ?? "")}
-                  field="payload_contract_id"
-                  formatOption={formatContract}
-                  label="载荷契约"
-                  legacyPatch={(value) => ({ payload_contract_id: value, contract_id: value })}
-                  onChange={(patch) => updateTaskGraphEdge(edgeId, patch)}
-                  options={contractIds}
-                  section="schema"
-                  target={edge}
-                />
-              </article>
-            );
-          })}
-        </div>
-        <div className="boundary-actions">
-          <button
-            className="boundary-chip"
-            disabled={!selectedGraphEdgeId}
-            onClick={() => selectedGraphEdgeId && onEditorFocus?.({ layer: "contracts", facet: "edge_standard", edge_id: selectedGraphEdgeId })}
-            type="button"
-          >
-            <span>打开边对象页</span>
-          </button>
+          {edgeContractRows.map(({ edge, edgeId, payloadContractId }) => (
+            <article className="task-graph-node-policy-row" key={edgeId}>
+              <div className="task-graph-node-policy-row__identity">
+                <strong>{edgeSource(edge)} {"->"} {edgeTarget(edge)}</strong>
+                <span>{edgeId}</span>
+              </div>
+              <div className="task-graph-contract-flow-cell">
+                <span>载荷契约</span>
+                <strong>{formatContract(payloadContractId)}</strong>
+              </div>
+              <button className="boundary-chip" onClick={() => onEditorFocus?.({ layer: "modules", facet: "connections", edge_id: edgeId })} type="button">
+                <span>编辑边契约</span>
+              </button>
+            </article>
+          ))}
         </div>
       </section>
     </section>

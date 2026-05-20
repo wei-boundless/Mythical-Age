@@ -125,7 +125,7 @@ export function TaskGraphTimelinePage({
   return (
     <section className="task-graph-studio-page">
       <header className="task-graph-studio-page__head">
-        <span>TaskGraph Studio</span>
+        <span>图工作台</span>
         <strong>拓扑时序控制</strong>
         <small>从主链、阶段、循环框、并发组和控制边编译节点激活窗口与执行许可。</small>
       </header>

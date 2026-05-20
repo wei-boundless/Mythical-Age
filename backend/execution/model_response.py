@@ -350,6 +350,9 @@ class ModelResponseRuntimeExecutor:
 
 
 def _should_auto_delegate_model_answer(*, directive: RuntimeDirective, model_messages: list[Any]) -> bool:
+    diagnostics = dict(getattr(directive, "diagnostics", {}) or {})
+    if diagnostics.get("auto_delegate_model_answer") is False:
+        return False
     if "op.delegate_to_agent" not in {str(item or "").strip() for item in tuple(directive.operation_refs or ())}:
         return False
     for message in list(model_messages or []):

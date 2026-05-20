@@ -9,6 +9,7 @@ from .action_request import (
     build_tool_result_observation,
     build_tool_action_request,
 )
+from .autonomous_task_run_driver import AutonomousTaskRunDriver, AutonomousTaskRunOutcome
 from .checkpoint import RuntimeCheckpoint, RuntimeCheckpointStore
 from .context_manager import (
     RuntimeContextInvariantReport,
@@ -85,6 +86,8 @@ from ..worker_agent_blueprints import WorkerAgentBlueprint, WorkerAgentSpawnRequ
 __all__ = [
     "RuntimeCheckpoint",
     "RuntimeCheckpointStore",
+    "AutonomousTaskRunDriver",
+    "AutonomousTaskRunOutcome",
     "RuntimeExecutionStore",
     "AgentRun",
     "AgentRunResult",

@@ -9,11 +9,116 @@ from .workflow_models import TaskWorkflowBinding
 
 
 def default_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
-    return ()
+    return _default_health_task_workflows()
 
 
 def _default_health_task_workflows() -> tuple[TaskWorkflowBinding, ...]:
-    return ()
+    return (
+        TaskWorkflowBinding(
+            workflow_id="workflow.health.issue_triage",
+            title="健康问题分诊工作流",
+            compatible_projection_ids=("xuannv__primary",),
+            visible_skill_ids=("skill.health.issue_triage",),
+            steps=(
+                {
+                    "step_id": "inspect_issue",
+                    "title": "检查问题与证据",
+                    "description": "读取问题、运行链路和证据引用，建立可诊断上下文。",
+                },
+                {
+                    "step_id": "draft_triage",
+                    "title": "输出分诊结论",
+                    "description": "给出问题归属、风险、下一步建议和所需补充证据。",
+                },
+            ),
+            input_boundary="HealthIssue",
+            output_boundary="HealthTriageResult",
+            stop_conditions=("evidence_insufficient", "triage_complete"),
+            required_evidence_refs=("runtime_trace_refs", "conversation_ref"),
+            output_contract_id="HealthTriageResult",
+            prompt="你是一名健康问题分诊员。你只负责判断问题归属、风险和下一步，不负责修改系统。你需要基于证据引用给出结论，并标明证据不足时需要补充什么。",
+            enabled=True,
+            metadata={"task_resource": "task.health.issue_triage", "managed_by": "task_system"},
+        ),
+        TaskWorkflowBinding(
+            workflow_id="workflow.health.trace_analysis",
+            title="健康链路分析工作流",
+            compatible_projection_ids=("xuannv__primary",),
+            visible_skill_ids=("skill.health.trace_analysis",),
+            steps=(
+                {
+                    "step_id": "inspect_trace",
+                    "title": "检查运行链路",
+                    "description": "定位关键 runtime event、checkpoint 和可能的失败转折点。",
+                },
+                {
+                    "step_id": "summarize_trace",
+                    "title": "输出链路分析",
+                    "description": "总结因果链、反证和恢复候选点。",
+                },
+            ),
+            input_boundary="HealthTrace",
+            output_boundary="HealthTraceAnalysis",
+            stop_conditions=("analysis_complete",),
+            required_evidence_refs=("runtime_trace_refs",),
+            output_contract_id="HealthTraceAnalysis",
+            prompt="你是一名运行链路分析员。你只负责解释 runtime trace 和 checkpoint，不负责扩展问题范围或改写系统状态。你需要指出关键转折点、反证和恢复候选。",
+            enabled=True,
+            metadata={"task_resource": "task.health.trace_analysis", "managed_by": "task_system"},
+        ),
+        TaskWorkflowBinding(
+            workflow_id="workflow.health.case_draft",
+            title="健康复现用例草案工作流",
+            compatible_projection_ids=("xuannv__primary",),
+            visible_skill_ids=("skill.health.case_draft",),
+            steps=(
+                {
+                    "step_id": "inspect_failure",
+                    "title": "检查失败样本",
+                    "description": "提取最小复现输入与必现条件。",
+                },
+                {
+                    "step_id": "draft_case",
+                    "title": "输出用例草案",
+                    "description": "整理成可回归的场景契约和断言。",
+                },
+            ),
+            input_boundary="HealthIssue",
+            output_boundary="HealthCaseDraftProposal",
+            stop_conditions=("case_draft_ready",),
+            required_evidence_refs=("runtime_trace_refs", "assertion_refs"),
+            output_contract_id="HealthCaseDraftProposal",
+            prompt="你是一名复现用例草案编写员。你只负责把真实失败整理成最小可复现场景和断言，不负责修复实现。",
+            enabled=True,
+            metadata={"task_resource": "task.health.case_draft", "managed_by": "task_system"},
+        ),
+        TaskWorkflowBinding(
+            workflow_id="workflow.health.fix_verification",
+            title="健康修复验证工作流",
+            compatible_projection_ids=("xuannv__primary",),
+            visible_skill_ids=("skill.health.fix_verification",),
+            steps=(
+                {
+                    "step_id": "inspect_fix",
+                    "title": "检查修复结果",
+                    "description": "验证修复前后证据是否一致，判断是否真实消除问题。",
+                },
+                {
+                    "step_id": "final_verdict",
+                    "title": "输出验证裁决",
+                    "description": "给出通过、失败或仍需补证的裁决。",
+                },
+            ),
+            input_boundary="HealthIssue",
+            output_boundary="HealthFixVerificationProposal",
+            stop_conditions=("verification_complete",),
+            required_evidence_refs=("runtime_trace_refs", "report_refs"),
+            output_contract_id="HealthFixVerificationProposal",
+            prompt="你是一名修复验证员。你只负责验证修复是否真实生效、是否存在绕过测试的行为，不负责替实现方辩护。",
+            enabled=True,
+            metadata={"task_resource": "task.health.fix_verification", "managed_by": "task_system"},
+        ),
+    )
 
 
 def _storage_root(base_dir: Path) -> Path:

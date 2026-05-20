@@ -21,9 +21,9 @@ class HealthVerificationService:
         from .store import HealthStore
 
         store = HealthStore(self.base_dir)
-        stored = sorted(store.load_verification_runs(), key=lambda item: item.started_at, reverse=True)
-        if stored:
-            return stored[:limit]
+        return sorted(store.load_verification_runs(), key=lambda item: item.started_at, reverse=True)[:limit]
+
+    def sync_verification_runs_from_test_system(self, *, limit: int = 20) -> list[VerificationRun]:
         runs = [
             self.record_verification_run(item)
             for item in self.test_system_service.list_runs(limit=limit)

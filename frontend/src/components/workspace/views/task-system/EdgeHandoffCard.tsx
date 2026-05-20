@@ -1,6 +1,7 @@
 "use client";
 
 import { TaskSystemField, TaskSystemSelectField, taskSystemOptionLabel } from "./TaskSystemWorkbenchUi";
+import { mergeContractBindingSection, edgePayloadContractIdOf } from "./taskGraphContractBindings";
 import { TASK_GRAPH_HANDOFF_KIND_OPTIONS, TASK_GRAPH_HANDOFF_SCOPE_OPTIONS } from "./taskGraphHandoffOptions";
 import { formatRuntimeSupportOption, runtimeOptionIsUnsupported } from "./taskGraphRuntimeSupport";
 
@@ -70,8 +71,8 @@ export function EdgeHandoffCard({
       <div className="boundary-form">
         <TaskSystemField label="交接契约 ID">
           <input
-            onChange={(event) => updateTaskGraphEdge(selectedGraphEdgeId, { payload_contract_id: event.target.value, contract_id: event.target.value })}
-            value={String(selectedGraphEdge.payload_contract_id ?? selectedGraphEdge.contract_id ?? "")}
+            onChange={(event) => updateTaskGraphEdge(selectedGraphEdgeId, mergeContractBindingSection(selectedGraphEdge, "schema", { payload_contract_id: event.target.value }))}
+            value={edgePayloadContractIdOf(selectedGraphEdge)}
           />
         </TaskSystemField>
         <TaskSystemSelectField

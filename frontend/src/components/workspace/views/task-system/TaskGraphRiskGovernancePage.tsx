@@ -199,7 +199,7 @@ export function TaskGraphRiskGovernancePage({
   return (
     <section className="task-graph-studio-page">
       <header className="task-graph-studio-page__head">
-        <span>TaskGraph Studio</span>
+        <span>图工作台</span>
         <strong>风险治理</strong>
         <small>用线程账本、问题台账和边界检查管理长任务续接、节点交接和上下文污染风险。</small>
       </header>

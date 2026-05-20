@@ -139,7 +139,7 @@ export function TaskGraphResponsibilityPage({
     return (
       <section className="task-graph-studio-page">
         <header className="task-graph-studio-page__head">
-          <span>TaskGraph Studio</span>
+          <span>图工作台</span>
           <strong>节点标准对象</strong>
           <small>节点页负责身份、执行者、运行与产物目标；认知包仍然作为节点最终收到什么的语义预览。</small>
         </header>
@@ -159,7 +159,7 @@ export function TaskGraphResponsibilityPage({
   return (
     <section className="task-graph-studio-page">
       <header className="task-graph-studio-page__head">
-        <span>TaskGraph Studio</span>
+        <span>图工作台</span>
         <strong>节点执行认知包</strong>
         <small>把节点身份、时序位置、输入包、输出契约和交接关系合成 Agent 能理解的执行配置。</small>
       </header>

@@ -18402,6 +18402,109 @@ html[data-soul="xuannv"] .soul-portrait__label {
   color: #fda4af;
 }
 
+.task-graph-execution-dock {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.85fr) minmax(360px, 1.2fr) minmax(260px, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  border-top: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--color-soul) 6%, transparent), transparent 58%),
+    rgba(255, 255, 255, 0.014);
+  padding: 0.42rem 0.58rem;
+}
+
+.task-graph-execution-dock__identity {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.task-graph-execution-dock__identity svg,
+.task-graph-execution-dock__metrics svg,
+.task-graph-execution-dock__compile svg {
+  color: var(--color-soul);
+}
+
+.task-graph-execution-dock__identity > div,
+.task-graph-execution-dock__trace {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.task-graph-execution-dock__identity span,
+.task-graph-execution-dock__trace span {
+  color: var(--color-text-soft);
+  font-size: 0.58rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.task-graph-execution-dock__identity strong,
+.task-graph-execution-dock__trace strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 0.74rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-execution-dock__identity small,
+.task-graph-execution-dock__trace small {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 0.64rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-execution-dock__metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+  min-width: 0;
+}
+
+.task-graph-execution-dock__metrics span,
+.task-graph-execution-dock__compile {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.26rem;
+  min-height: 1.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--color-text-soft);
+  font-size: 0.64rem;
+  font-weight: 820;
+  padding: 0.18rem 0.44rem;
+  white-space: nowrap;
+}
+
+.task-graph-execution-dock__state--ok {
+  border-color: color-mix(in srgb, #34d399 32%, var(--color-border)) !important;
+  color: #86efac !important;
+}
+
+.task-graph-execution-dock__state--danger {
+  border-color: color-mix(in srgb, #fb7185 36%, var(--color-border)) !important;
+  color: #fda4af !important;
+}
+
+.task-graph-execution-dock__compile {
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.task-graph-execution-dock__compile:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .task-system-boundary--editor .boundary-chip,
 .task-system-boundary--editor .boundary-button,
 .task-system-boundary--editor button {
@@ -19037,13 +19140,30 @@ html[data-soul="xuannv"] .soul-portrait__label {
 .boundary-field select {
   width: 100%;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.16);
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.026), transparent 70%),
+    color-mix(in srgb, var(--color-surface) 86%, #07121a);
   color: var(--color-text);
   font-size: 0.78rem;
   outline: none;
   padding: 0.56rem 0.62rem;
+}
+
+.boundary-field input:focus,
+.boundary-field textarea:focus,
+.boundary-field select:focus {
+  border-color: color-mix(in srgb, var(--color-soul) 52%, var(--color-border));
+}
+
+.boundary-field select {
+  color-scheme: dark;
+}
+
+.boundary-field select option {
+  background-color: #0b2230;
+  color: #edf7ff;
 }
 
 .boundary-field textarea {
@@ -26520,6 +26640,58 @@ html[data-soul="xuannv"] .soul-portrait__label {
   font-weight: 820;
 }
 
+.task-graph-contract-binding-inspector {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.task-graph-contract-binding-section {
+  display: grid;
+  gap: 0.48rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 10%, var(--color-border));
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.014);
+  padding: 0.52rem;
+}
+
+.task-graph-contract-binding-section > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.45rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.task-graph-contract-binding-section > header div {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.task-graph-contract-binding-section > header strong {
+  color: var(--color-text);
+  font-size: 0.72rem;
+}
+
+.task-graph-contract-binding-section > header span {
+  color: var(--color-text-muted);
+  font-size: 0.58rem;
+  line-height: 1.35;
+}
+
+.task-graph-contract-binding-section > header em {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-text-muted);
+  font-size: 0.52rem;
+  font-style: normal;
+  font-weight: 850;
+  padding: 0.12rem 0.32rem;
+  white-space: nowrap;
+}
+
 .task-graph-composer-dock {
   display: grid;
   gap: 0.45rem;
@@ -26636,6 +26808,10 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .task-graph-composer-inspector {
     border: 0;
     overflow: visible;
+  }
+
+  .task-graph-contract-binding-section > header {
+    grid-template-columns: 1fr;
   }
 
   .task-graph-composer-mode-strip {

@@ -1,40 +1,6 @@
 {
   "workflows": [
     {
-      "workflow_id": "workflow.general.main_conversation",
-      "title": "主会话通用工作流",
-      "compatible_projection_ids": [],
-      "visible_skill_ids": [],
-      "steps": [
-        {
-          "step_id": "understand_request",
-          "title": "理解当前请求"
-        },
-        {
-          "step_id": "decide_route",
-          "title": "判断是否直接回答或分流"
-        },
-        {
-          "step_id": "finalize_response",
-          "title": "输出主会话结果"
-        }
-      ],
-      "input_boundary": "User dialogue, active conversation context, explicit task refs when present.",
-      "output_boundary": "AssistantFinalAnswer or explicit handoff into a registered specific task.",
-      "stop_conditions": [
-        "answer_ready",
-        "specific_task_selected"
-      ],
-      "required_evidence_refs": [],
-      "output_contract_id": "AssistantFinalAnswer",
-      "prompt": "主会话默认承接通用任务。只有在用户目标明显命中特定任务资源时，才切换到对应特定任务链路。",
-      "enabled": true,
-      "metadata": {
-        "managed_by": "task_system",
-        "task_resource": "general_conversation"
-      }
-    },
-    {
       "workflow_id": "workflow.health.issue_triage",
       "title": "健康问题分诊工作流",
       "compatible_projection_ids": [],
@@ -164,6 +130,40 @@
       "metadata": {
         "managed_by": "task_system",
         "task_resource": "task.health.fix_verification"
+      }
+    },
+    {
+      "workflow_id": "workflow.general.main_conversation",
+      "title": "主会话通用工作流",
+      "compatible_projection_ids": [],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "understand_request",
+          "title": "理解当前请求"
+        },
+        {
+          "step_id": "decide_route",
+          "title": "判断是否直接回答或分流"
+        },
+        {
+          "step_id": "finalize_response",
+          "title": "输出主会话结果"
+        }
+      ],
+      "input_boundary": "User dialogue, active conversation context, explicit task refs when present.",
+      "output_boundary": "AssistantFinalAnswer or explicit handoff into a registered specific task.",
+      "stop_conditions": [
+        "answer_ready",
+        "specific_task_selected"
+      ],
+      "required_evidence_refs": [],
+      "output_contract_id": "AssistantFinalAnswer",
+      "prompt": "主会话默认承接通用任务。只有在用户目标明显命中特定任务资源时，才切换到对应特定任务链路。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "task_system",
+        "task_resource": "general_conversation"
       }
     },
     {

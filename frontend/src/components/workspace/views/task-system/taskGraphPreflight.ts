@@ -58,6 +58,14 @@ function recordValue(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function contractBindingValue(target: Record<string, unknown>, section: string, key: string) {
+  return stringValue(recordValue(recordValue(target.contract_bindings)[section])[key]);
+}
+
+function edgePayloadContractId(edge: Record<string, unknown>) {
+  return contractBindingValue(edge, "schema", "payload_contract_id") || stringValue(edge.payload_contract_id ?? edge.contract_id);
+}
+
 function stringArrayValue(value: unknown): string[] {
   if (typeof value === "string") {
     return value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
@@ -341,7 +349,7 @@ export function buildTaskGraphPreflightReport({
         source: "frontend.preflight.edge_endpoint",
       });
     }
-    if (!stringValue(edge.payload_contract_id ?? edge.contract_id)) {
+    if (!edgePayloadContractId(edge)) {
       pushIssue(issues, {
         severity: "info",
         scope: "edge",

@@ -36,7 +36,7 @@ export function TaskGraphTopBar({
   return (
     <header className="task-graph-studio-topbar">
       <div className="task-graph-studio-topbar__identity">
-        <span>Multi-Agent TaskGraph Studio</span>
+        <span>任务系统 · 图工作台</span>
         <strong>{title || graphId || "未命名任务图"}</strong>
         <small>{graphId || "graph.draft"} · 协调者 {coordinatorAgentId || "agent:0"}</small>
       </div>

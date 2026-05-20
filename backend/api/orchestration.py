@@ -1238,7 +1238,7 @@ async def orchestration_runtime_options() -> dict[str, Any]:
             "trace_policy_options": [_option(item) for item in trace_policies],
             "worker_blueprints": [item.to_dict() for item in default_worker_agent_blueprints()],
             "capability_items": [],
-            "model_provider_catalog": build_provider_catalog(runtime.settings),
+            "model_provider_catalog": build_provider_catalog(getattr(runtime, "settings", None)),
         },
     }
 

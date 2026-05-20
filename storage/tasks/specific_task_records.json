@@ -14,7 +14,9 @@
       "default_workflow_id": "workflow.health.issue_triage",
       "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
-        "safety_policy": {},
+        "safety_policy": {
+          "read_only": true
+        },
         "task_structure": {
           "runtime_lane_hint": "health_issue_read",
           "memory_scope_hint": "issue_local_readonly",
@@ -24,8 +26,8 @@
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "task_system",
         "task_resource": "task.health.issue_triage",
+        "managed_by": "task_system",
         "source_flow_id": "flow.health.issue_triage"
       }
     },
@@ -43,7 +45,9 @@
       "default_workflow_id": "workflow.health.trace_analysis",
       "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
-        "safety_policy": {},
+        "safety_policy": {
+          "read_only": true
+        },
         "task_structure": {
           "runtime_lane_hint": "health_trace_read",
           "memory_scope_hint": "health_trace_readonly",
@@ -53,8 +57,8 @@
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "task_system",
         "task_resource": "task.health.trace_analysis",
+        "managed_by": "task_system",
         "source_flow_id": "flow.health.trace_analysis"
       }
     },
@@ -72,7 +76,9 @@
       "default_workflow_id": "workflow.health.case_draft",
       "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
-        "safety_policy": {},
+        "safety_policy": {
+          "read_only": true
+        },
         "task_structure": {
           "runtime_lane_hint": "case_draft_candidate",
           "memory_scope_hint": "issue_local_readonly",
@@ -82,8 +88,8 @@
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "task_system",
         "task_resource": "task.health.case_draft",
+        "managed_by": "task_system",
         "source_flow_id": "flow.health.case_draft"
       }
     },
@@ -101,7 +107,9 @@
       "default_workflow_id": "workflow.health.fix_verification",
       "default_projection_policy": "workflow_compatible_or_task_default",
       "task_policy": {
-        "safety_policy": {},
+        "safety_policy": {
+          "read_only": true
+        },
         "task_structure": {
           "runtime_lane_hint": "fix_verification_candidate",
           "memory_scope_hint": "issue_local_readonly",
@@ -111,8 +119,8 @@
         "runtime_limits": {}
       },
       "metadata": {
-        "managed_by": "task_system",
         "task_resource": "task.health.fix_verification",
+        "managed_by": "task_system",
         "source_flow_id": "flow.health.fix_verification"
       }
     },

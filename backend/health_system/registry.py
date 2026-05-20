@@ -356,6 +356,10 @@ class HealthRegistry:
         )
         return build_health_agent_run_preview(plan, issue=issue)
 
+    def _route_conversation_task_mode(self, *, user_message: str, session: HealthAgentConversationSession) -> str:
+        """Backward-compatible shim for older tests and callers."""
+        return self._route_conversation_health_action(user_message=user_message, session=session)
+
     def start_agent_run(
         self,
         *,

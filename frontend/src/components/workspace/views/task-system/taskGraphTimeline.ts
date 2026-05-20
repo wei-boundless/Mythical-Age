@@ -94,6 +94,18 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function contractBindingValue(target: Record<string, unknown>, section: string, key: string): string {
+  return String(asRecord(asRecord(target.contract_bindings)[section])[key] ?? "").trim();
+}
+
+function nodeContractIdOf(node: Record<string, unknown>): string {
+  return contractBindingValue(node, "execution", "node_contract_id") || String(node.node_contract_id ?? node.contract_id ?? "").trim();
+}
+
+function nodeOutputContractIdOf(node: Record<string, unknown>): string {
+  return contractBindingValue(node, "schema", "output_contract_id") || String(node.output_contract_id ?? "").trim();
+}
+
 export function timelineBlockHandoffContractIdOf(block: Record<string, unknown>): string {
   return String(asRecord(asRecord(block.contract_bindings).handoff).handoff_contract_id ?? block.handoff_contract_id ?? "").trim();
 }
@@ -449,10 +461,10 @@ export function buildTimelinePreflightIssues(
     const loopPolicy = nodeLoopPolicy(node);
     const isReviewGate = Boolean(reviewPolicy.is_review_gate) || String(node.node_type ?? "") === "review_gate";
     if (isReviewGate) {
-      if (!String(node.node_contract_id ?? node.contract_id ?? "").trim()) {
+      if (!nodeContractIdOf(node)) {
         issues.push({ code: "timeline_review_gate_contract_missing", message: "审核门节点缺少节点契约。", severity: "error", node_id: nodeId });
       }
-      if (!String(node.output_contract_id ?? "").trim()) {
+      if (!nodeOutputContractIdOf(node)) {
         issues.push({ code: "timeline_review_gate_output_contract_missing", message: "审核门节点缺少输出契约。", severity: "error", node_id: nodeId });
       }
       if (!String(reviewPolicy.on_pass ?? "").trim()) {

@@ -68,7 +68,60 @@ def normalize_task_agent_adoption_mode(value: str) -> str:
 
 
 def default_health_task_flows() -> tuple[TaskFlowDefinition, ...]:
-    return ()
+    return (
+        TaskFlowDefinition(
+            flow_id="flow.health.issue_triage",
+            task_family="health",
+            title="健康问题分诊流",
+            input_contract_id="HealthIssue",
+            output_contract_id="HealthTriageResult",
+            default_agent_id="agent:3",
+            default_workflow_id="workflow.health.issue_triage",
+            default_runtime_lane="health_issue_read",
+            default_memory_scope="health_issue",
+            enabled=True,
+            metadata={"task_resource": "task.health.issue_triage", "managed_by": "task_system"},
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.health.trace_analysis",
+            task_family="health",
+            title="健康链路分析流",
+            input_contract_id="HealthTrace",
+            output_contract_id="HealthTraceAnalysis",
+            default_agent_id="agent:3",
+            default_workflow_id="workflow.health.trace_analysis",
+            default_runtime_lane="health_issue_read",
+            default_memory_scope="health_issue",
+            enabled=True,
+            metadata={"task_resource": "task.health.trace_analysis", "managed_by": "task_system"},
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.health.case_draft",
+            task_family="health",
+            title="健康复现用例草案流",
+            input_contract_id="HealthIssue",
+            output_contract_id="HealthCaseDraftProposal",
+            default_agent_id="agent:3",
+            default_workflow_id="workflow.health.case_draft",
+            default_runtime_lane="health_issue_read",
+            default_memory_scope="health_issue",
+            enabled=True,
+            metadata={"task_resource": "task.health.case_draft", "managed_by": "task_system"},
+        ),
+        TaskFlowDefinition(
+            flow_id="flow.health.fix_verification",
+            task_family="health",
+            title="健康修复验证流",
+            input_contract_id="HealthIssue",
+            output_contract_id="HealthFixVerificationProposal",
+            default_agent_id="agent:3",
+            default_workflow_id="workflow.health.fix_verification",
+            default_runtime_lane="health_issue_read",
+            default_memory_scope="health_issue",
+            enabled=True,
+            metadata={"task_resource": "task.health.fix_verification", "managed_by": "task_system"},
+        ),
+    )
 
 
 def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
@@ -76,7 +129,48 @@ def default_task_flows() -> tuple[TaskFlowDefinition, ...]:
 
 
 def _system_task_specs() -> dict[str, dict[str, Any]]:
-    return {}
+    return {
+        "task.health.issue_triage": {
+            "title": "健康问题分诊任务",
+            "description": "对健康问题做初步分诊、归类和建议。",
+            "task_family": "health",
+            "runtime_lane": "health_issue_read",
+            "workflow_id": "workflow.health.issue_triage",
+            "input_contract_id": "HealthIssue",
+            "output_contract_id": "HealthTriageResult",
+            "safety_policy": {"read_only": True},
+        },
+        "task.health.trace_analysis": {
+            "title": "健康链路分析任务",
+            "description": "分析运行链路、关键事件和失败转折点。",
+            "task_family": "health",
+            "runtime_lane": "health_issue_read",
+            "workflow_id": "workflow.health.trace_analysis",
+            "input_contract_id": "HealthTrace",
+            "output_contract_id": "HealthTraceAnalysis",
+            "safety_policy": {"read_only": True},
+        },
+        "task.health.case_draft": {
+            "title": "健康复现用例草案任务",
+            "description": "把真实失败整理成最小可复现场景和断言。",
+            "task_family": "health",
+            "runtime_lane": "health_issue_read",
+            "workflow_id": "workflow.health.case_draft",
+            "input_contract_id": "HealthIssue",
+            "output_contract_id": "HealthCaseDraftProposal",
+            "safety_policy": {"read_only": True},
+        },
+        "task.health.fix_verification": {
+            "title": "健康修复验证任务",
+            "description": "验证修复是否真实消除问题并形成裁决。",
+            "task_family": "health",
+            "runtime_lane": "health_issue_read",
+            "workflow_id": "workflow.health.fix_verification",
+            "input_contract_id": "HealthIssue",
+            "output_contract_id": "HealthFixVerificationProposal",
+            "safety_policy": {"read_only": True},
+        },
+    }
 
 
 def _memory_scope_for_family(task_family: str) -> str:

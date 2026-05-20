@@ -202,11 +202,11 @@ def _domain_hints(evidence: dict[str, Any]) -> list[str]:
 
 def _execution_strategy_candidates(evidence: dict[str, Any]) -> list[str]:
     if evidence.get("graph_coordination"):
-        return ["graph_coordination_run", "single_agent_long_run"]
+        return ["graph_coordination_run", "autonomous_task_run"]
     if evidence.get("background"):
-        return ["single_agent_background_run", "single_agent_long_run"]
+        return ["single_agent_background_run", "autonomous_task_run"]
     if evidence.get("long_task"):
-        return ["single_agent_long_run", "single_react_loop"]
+        return ["autonomous_task_run", "single_react_loop"]
     if evidence.get("retrieve_knowledge"):
         return ["retrieval_augmented_answer", "single_react_loop"]
     if evidence.get("delegation_work") and (evidence.get("dataset_language") or evidence.get("pdf_language")):

@@ -50,7 +50,7 @@ export function TaskGraphSetupWizard({
   return (
     <section className="task-graph-studio-page task-graph-setup-wizard">
       <header className="task-graph-studio-page__head">
-        <span>TaskGraph Studio</span>
+        <span>图工作台</span>
         <strong>从任务意图生成协同草稿</strong>
         <small>{domainTitle} · {taskCount} 个可引用任务定义</small>
         {onCancel ? (

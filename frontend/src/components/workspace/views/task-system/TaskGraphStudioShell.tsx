@@ -2,14 +2,18 @@
 
 import type { ReactNode } from "react";
 
+import type { TaskGraphExecutionPackage } from "@/lib/api";
+
+import { TaskGraphExecutionDock } from "./TaskGraphExecutionDock";
 import { TaskGraphIssueBar } from "./TaskGraphIssueBar";
 import { TASK_GRAPH_STUDIO_LAYERS, TaskGraphLayerNav, type TaskGraphStudioLayerId } from "./TaskGraphLayerNav";
 import { TaskGraphTopBar } from "./TaskGraphTopBar";
 import type { TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
+import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
 
 const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: string; checkpoints: string[] }> = {
   blueprint: {
-    title: "图级主控",
+    title: "图级配置",
     summary: "定义任务图身份、边界、入口出口和全局运行策略。",
     checkpoints: ["入口/出口", "运行模式", "上下文策略"],
   },
@@ -19,14 +23,14 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
     checkpoints: ["执行器", "Agent 引用", "Projection"],
   },
   topology: {
-    title: "执行拓扑",
-    summary: "编辑业务节点和交接边，决定任务如何从一个节点进入下一个节点。",
-    checkpoints: ["节点", "通信边", "画布结构"],
+    title: "快速拓扑",
+    summary: "快速维护业务节点和基础交接边，复杂对象配置进入图工作台。",
+    checkpoints: ["节点", "基础边", "快捷结构"],
   },
   modules: {
-    title: "任务图编辑器",
-    summary: "在同一个工作台里编辑节点时序点、图节点、交接边和可组合任务图边界。",
-    checkpoints: ["节点", "图节点", "交接边"],
+    title: "图工作台",
+    summary: "左侧管理图层关系，中间编辑任务图画布，右侧配置选中对象的契约、时序和运行协议。",
+    checkpoints: ["图层关系", "任务图画布", "对象编辑台"],
   },
   responsibility: {
     title: "节点认知包",
@@ -66,9 +70,14 @@ export function TaskGraphStudioShell({
   coordinatorAgentId,
   dirty,
   edgeCount,
+  editorFocus,
+  executionPackage,
+  executionPackageError,
+  executionPackageLoading,
   graphId,
   issueCount,
   nodeCount,
+  onCompileExecutionPackage,
   onLayerChange,
   onPublish,
   onSave,
@@ -84,9 +93,14 @@ export function TaskGraphStudioShell({
   coordinatorAgentId: string;
   dirty: boolean;
   edgeCount: number;
+  editorFocus: TaskGraphEditorFocus;
+  executionPackage: TaskGraphExecutionPackage | null;
+  executionPackageError?: string;
+  executionPackageLoading: boolean;
   graphId: string;
   issueCount: number;
   nodeCount: number;
+  onCompileExecutionPackage: () => void;
   onLayerChange: (layer: TaskGraphStudioLayerId) => void;
   onPublish: () => void;
   onSave: () => void;
@@ -138,6 +152,16 @@ export function TaskGraphStudioShell({
           {children}
         </main>
       </div>
+      <TaskGraphExecutionDock
+        activeLayer={activeLayer}
+        dirty={dirty}
+        editorFocus={editorFocus}
+        error={executionPackageError}
+        executionPackage={executionPackage}
+        graphId={graphId}
+        loading={executionPackageLoading}
+        onCompile={onCompileExecutionPackage}
+      />
       <TaskGraphIssueBar dirty={dirty} issueCount={issueCount} publishState={publishState} valid={valid} />
     </section>
   );

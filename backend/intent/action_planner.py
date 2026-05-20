@@ -25,8 +25,8 @@ def build_runtime_assembly_hint(
 
 
 def _runtime_mode(strategy: str) -> str:
-    if strategy == "single_agent_long_run":
-        return "single_agent_long"
+    if strategy == "autonomous_task_run":
+        return "autonomous_task"
     if strategy == "single_agent_background_run":
         return "background_single_agent"
     if strategy == "specialist_subagent_long_run":

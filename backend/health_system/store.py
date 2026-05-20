@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ class HealthStore:
         self.health_test_runs_path = self.store_dir / "health_test_runs.jsonl"
         self.verification_runs_path = self.store_dir / "verification_runs.jsonl"
         self.verification_manifests_path = self.store_dir / "verification_artifact_manifests.jsonl"
+        self._bad_jsonl_line_count = 0
 
     def load_agent_runs(self) -> list[HealthAgentRun]:
         return [_agent_run_from_payload(item) for item in self._read_jsonl_dicts(self.agent_runs_path)]
@@ -75,6 +77,35 @@ class HealthStore:
 
     def load_agent_results(self) -> list[dict[str, Any]]:
         return self._read_jsonl_dicts(self.agent_results_path)
+
+    def store_health(self) -> dict[str, Any]:
+        paths = [
+            self.issues_path,
+            self.agent_runs_path,
+            self.agent_results_path,
+            self.task_requests_path,
+            self.commands_path,
+            self.receipts_path,
+            self.reports_path,
+            self.conversation_sessions_path,
+            self.conversation_messages_path,
+            self.health_test_runs_path,
+            self.verification_runs_path,
+            self.verification_manifests_path,
+        ]
+        return {
+            "authority": "health_system.store_health",
+            "store_dir": str(self.store_dir),
+            "bad_jsonl_line_count": self._bad_jsonl_line_count,
+            "file_count": sum(1 for path in paths if path.exists()),
+            "files": {
+                path.name: {
+                    "exists": path.exists(),
+                    "size_bytes": path.stat().st_size if path.exists() else 0,
+                }
+                for path in paths
+            },
+        }
 
     def upsert_issue(self, issue: HealthIssue) -> None:
         issues = [item for item in self.load_issues() if item.issue_id != issue.issue_id]
@@ -142,7 +173,7 @@ class HealthStore:
             item.to_dict() if hasattr(item, "to_dict") else dict(item)
             for item in rows
         ]
-        path.write_text("\n".join(json.dumps(item, ensure_ascii=False) for item in payloads) + "\n", encoding="utf-8")
+        self._atomic_write_text(path, "\n".join(json.dumps(item, ensure_ascii=False) for item in payloads) + ("\n" if payloads else ""))
 
     def _read_jsonl_dicts(self, path: Path) -> list[dict[str, Any]]:
         if not path.exists():
@@ -154,6 +185,7 @@ class HealthStore:
             try:
                 payload = json.loads(line)
             except json.JSONDecodeError:
+                self._bad_jsonl_line_count += 1
                 continue
             if isinstance(payload, dict):
                 rows.append(payload)
@@ -168,7 +200,15 @@ class HealthStore:
         self.store_dir.mkdir(parents=True, exist_ok=True)
         rows = [item for item in self._read_jsonl_dicts(path) if str(item.get(key) or "") != value]
         rows.append(payload)
-        path.write_text("\n".join(json.dumps(item, ensure_ascii=False) for item in rows) + "\n", encoding="utf-8")
+        self._atomic_write_text(path, "\n".join(json.dumps(item, ensure_ascii=False) for item in rows) + ("\n" if rows else ""))
+
+    def _atomic_write_text(self, path: Path, content: str) -> None:
+        tmp_dir = path.parent
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", dir=tmp_dir, prefix=f".{path.stem}.", suffix=".tmp") as handle:
+            handle.write(content)
+            tmp_name = handle.name
+        Path(tmp_name).replace(path)
 
 
 def _agent_run_from_payload(payload: dict[str, Any]) -> HealthAgentRun:

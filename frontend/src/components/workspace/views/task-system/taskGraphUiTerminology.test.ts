@@ -20,6 +20,7 @@ const TASK_GRAPH_UI_FILES = [
   "src/components/workspace/views/task-system/TaskGraphRiskGovernancePage.tsx",
   "src/components/workspace/views/task-system/TaskGraphResponsibilityPage.tsx",
   "src/components/workspace/views/task-system/TaskGraphContractQualityPage.tsx",
+  "src/components/workspace/views/task-system/TaskGraphExecutionPackagePanel.tsx",
   "src/components/workspace/views/task-system/taskGraphCognitionView.ts",
   "src/components/workspace/views/task-system/taskGraphMemoryMatrix.ts",
 ];

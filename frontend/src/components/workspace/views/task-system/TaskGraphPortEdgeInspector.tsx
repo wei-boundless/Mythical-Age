@@ -2,7 +2,8 @@ import { Cable, Layers3, Plus, Trash2 } from "lucide-react";
 
 import type { UnitInterfaceSpec, UnitPortEdgeSpec } from "@/lib/api";
 
-import { TaskGraphContractBindingField, contractBindingFieldValue } from "./TaskGraphContractBindingField";
+import { TaskGraphContractBindingInspector } from "./TaskGraphContractBindingInspector";
+import { edgePayloadContractIdOf } from "./taskGraphContractBindings";
 import {
   TaskGraphInspectorSection,
   TaskGraphInspectorSummary,
@@ -236,11 +237,9 @@ function LegacyPortEdgeInspector({
   const handoff = asRecord(originalEdge.working_memory_handoff_policy);
   const sourcePorts = portOptionsForUnit(edge.source_unit_id, interfaces, "output");
   const targetPorts = portOptionsForUnit(edge.target_unit_id, interfaces, "input");
-  const payloadContractId = contractBindingFieldValue({
-    fallback: stringValue(originalEdge.payload_contract_id ?? originalEdge.contract_id ?? edge.payload_contract_id),
-    field: "payload_contract_id",
-    section: "schema",
-    target: originalEdge,
+  const payloadContractId = edgePayloadContractIdOf({
+    ...originalEdge,
+    payload_contract_id: stringValue(originalEdge.payload_contract_id ?? edge.payload_contract_id),
   });
 
   const patchEdgeMetadata = (patch: Record<string, unknown>) => {
@@ -287,26 +286,30 @@ function LegacyPortEdgeInspector({
         </div>
       </TaskGraphInspectorSection>
 
-      <TaskGraphInspectorSection icon={<Cable aria-hidden="true" size={15} />} title="端口与交接契约">
+      <TaskGraphInspectorSection icon={<Cable aria-hidden="true" size={15} />} title="端口映射">
         <div className="boundary-form task-graph-composer-inspector-form">
           <TaskGraphObjectSelectField formatOption={formatUnit} label="源节点" onChange={(value) => updateLegacyEdgeEndpoint(originalEdge, edgeId, { source_unit_id: value })} options={nodeUnitOptions} value={edge.source_unit_id} />
           <TaskSystemSelectField label="源端口" onChange={(value) => updateLegacyEdgeEndpoint(originalEdge, edgeId, { source_port_id: value })} options={sourcePorts} value={edge.source_port_id} />
           <TaskGraphObjectSelectField formatOption={formatUnit} label="目标节点" onChange={(value) => updateLegacyEdgeEndpoint(originalEdge, edgeId, { target_unit_id: value })} options={nodeUnitOptions} value={edge.target_unit_id} />
           <TaskSystemSelectField label="目标端口" onChange={(value) => updateLegacyEdgeEndpoint(originalEdge, edgeId, { target_port_id: value })} options={targetPorts} value={edge.target_port_id} />
-          <TaskGraphContractBindingField
-            fallback={stringValue(originalEdge.payload_contract_id ?? originalEdge.contract_id ?? edge.payload_contract_id)}
-            field="payload_contract_id"
-            formatOption={formatContract}
-            label="载荷契约"
-            legacyPatch={(value) => ({ payload_contract_id: value, contract_id: value })}
-            onChange={(patch) => updateTaskGraphEdge(edgeId, patch)}
-            options={contractOptions}
-            section="schema"
-            target={originalEdge}
-            wide
-          />
         </div>
       </TaskGraphInspectorSection>
+
+      <TaskGraphContractBindingInspector
+        contractOptions={contractOptions}
+        fieldKeysBySection={{
+          schema: ["payload_contract_id"],
+          handoff: ["ack_policy", "ack_required", "wait_policy", "failure_propagation_policy", "result_delivery_policy"],
+          memory: ["working_memory_handoff_policy.carry_kinds", "working_memory_handoff_policy.carry_scopes"],
+          artifact: ["artifact_ref_policy_ref"],
+          temporal: ["trigger_timing", "visibility_timing", "acknowledgement_timing", "propagation_timing"],
+          governance: ["context_boundary_policy_ref"],
+        }}
+        formatContract={formatContract}
+        onChange={(patch) => updateTaskGraphEdge(edgeId, patch)}
+        sections={["schema", "handoff", "memory", "artifact", "temporal", "governance"]}
+        target={originalEdge}
+      />
 
       <TaskGraphInspectorSection icon={<Cable aria-hidden="true" size={15} />} title="交接策略">
         <div className="boundary-form task-graph-composer-inspector-form">

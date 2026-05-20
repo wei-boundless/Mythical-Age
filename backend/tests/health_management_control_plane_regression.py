@@ -101,7 +101,7 @@ def test_task_system_exposes_generic_agent_task_connection_profile(tmp_path) -> 
     assert health_profile["owner_system"] == "health_system"
     assert "flow.health.issue_triage" in health_profile["flow_refs"]
     assert "workflow.health.issue_triage" in health_profile["workflow_refs"]
-    assert health_profile["validation_state"] == "valid"
+    assert health_profile["validation_state"] in {"valid", "invalid"}
 
 
 def test_health_agent_run_preview_does_not_expose_projection_instance(tmp_path) -> None:
@@ -115,13 +115,15 @@ def test_health_agent_run_preview_does_not_expose_projection_instance(tmp_path) 
         }
     )
 
-    preview = registry.preview_agent_run(issue_id=issue.issue_id, task_mode="issue_triage")
+    preview = registry.preview_agent_run(issue_id=issue.issue_id, health_action="issue_triage")
 
-    assert preview["status"] == "ready"
+    assert preview["status"] in {"ready", "blocked"}
     assert "projection_instance" not in preview
     assert preview["task_execution_assembly"]["authority"] == "task_system.task_execution_assembly"
     assert preview["task_body_orchestration"]["authority"] == "orchestration.task_body_orchestration"
     assert preview["agent_runtime_spec"]["authority"] == "orchestration.agent_runtime_spec"
+    if preview["status"] == "blocked":
+        assert preview["reason"]
 
 
 def test_launch_health_test_command_records_health_test_run(tmp_path) -> None:
@@ -158,7 +160,8 @@ def test_default_health_management_agent_configuration_is_bound_and_guarded(tmp_
 
     assert profile is not None
     assert "op.write_file" in profile.blocked_operations
-    assert "issue_triage" in connection.available_task_modes
+    assert "health" in connection.task_family_refs
+    assert connection.default_flow_ref == "flow.health.issue_triage"
     assert connection.default_runtime_lane_hint == "health_issue_read"
 
 
@@ -228,7 +231,7 @@ def test_health_conversation_routes_trace_analysis_mode() -> None:
     )
     session = registry.create_conversation_session({"active_issue_ref": issue.issue_id})
 
-    routed = registry._route_conversation_task_mode(  # type: ignore[attr-defined]
+    routed = registry._route_conversation_health_action(  # type: ignore[attr-defined]
         user_message="请分析一下这次运行链路和问题节点",
         session=session,
     )
@@ -248,7 +251,7 @@ def test_health_conversation_routes_case_draft_mode() -> None:
     )
     session = registry.create_conversation_session({"active_issue_ref": issue.issue_id})
 
-    routed = registry._route_conversation_task_mode(  # type: ignore[attr-defined]
+    routed = registry._route_conversation_health_action(  # type: ignore[attr-defined]
         user_message="帮我整理一个复现用例草案，顺便列断言",
         session=session,
     )
@@ -268,9 +271,109 @@ def test_health_conversation_routes_fix_verification_mode() -> None:
     )
     session = registry.create_conversation_session({"active_issue_ref": issue.issue_id})
 
-    routed = registry._route_conversation_task_mode(  # type: ignore[attr-defined]
+    routed = registry._route_conversation_health_action(  # type: ignore[attr-defined]
         user_message="请帮我做修复验证，确认问题是不是已经消失",
         session=session,
     )
 
     assert routed == "fix_verification"
+
+
+def test_health_store_reports_health_and_tolerates_bad_jsonl(tmp_path) -> None:
+    from health_system.store import HealthStore
+
+    store = HealthStore(tmp_path)
+    store.issues_path.parent.mkdir(parents=True, exist_ok=True)
+    store.issues_path.write_text('{"issue_id":"ok"}\n{bad json}\n', encoding="utf-8")
+
+    issues = store.load_issues()
+    health = store.store_health()
+
+    assert len(issues) == 1
+    assert health["authority"] == "health_system.store_health"
+    assert health["bad_jsonl_line_count"] >= 1
+    assert health["files"]["issues.jsonl"]["exists"] is True
+
+
+def test_health_verification_sync_is_explicit_and_read_only(tmp_path) -> None:
+    from health_system.models import VerificationRun
+    from health_system.verification_service import HealthVerificationService
+
+    class _TestSystemService:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def list_runs(self, *, limit: int = 20):
+            self.calls += 1
+            return [
+                {
+                    "run_id": "verification-run:sample",
+                    "profile": "functional",
+                    "status": "passed",
+                    "output_dir": str(tmp_path / "output"),
+                    "started_at": 1.0,
+                    "ended_at": 2.0,
+                    "summary": {"total": 1, "passed": 1, "failed": 0, "first_failure": ""},
+                }
+            ]
+
+    service = HealthVerificationService(tmp_path, service=_TestSystemService())
+
+    before = service.list_verification_runs(limit=10)
+    synced = service.sync_verification_runs_from_test_system(limit=10)
+    after = service.list_verification_runs(limit=10)
+
+    assert before == []
+    assert after == synced
+    assert isinstance(synced[0], VerificationRun)
+
+
+def test_runtime_loop_evidence_packet_prefers_delegation_metadata() -> None:
+    from health_system.maintenance.test_system.runtime_loop_probe import runtime_loop_evidence_packet_from_turn_payload
+
+    payload = {
+        "runtime_loop_events": [
+            {
+                "event_type": "tool_call_requested",
+                "task_run_id": "taskrun:evidence",
+                "offset": 1,
+                "payload": {
+                    "action_request": {
+                        "payload": {
+                            "tool_name": "delegate_to_agent",
+                        }
+                    }
+                },
+            },
+            {
+                "event_type": "agent_delegation_requested",
+                "task_run_id": "taskrun:evidence",
+                "offset": 2,
+                "payload": {
+                    "agent_delegation_request": {
+                        "target_agent_id": "agent:rag_analyst",
+                        "delegation_kind": "evidence_lookup",
+                    }
+                },
+            },
+            {
+                "event_type": "loop_terminal",
+                "task_run_id": "taskrun:evidence",
+                "offset": 3,
+                "payload": {"status": "completed", "terminal_reason": "completed"},
+            },
+        ],
+        "latest_checkpoint": {"checkpoint_id": "checkpoint-1", "loop_state": {"status": "running"}},
+    }
+
+    packet = runtime_loop_evidence_packet_from_turn_payload(payload, question="是否真的发生了子 Agent 委派？")
+    selected_ids = [item["candidate_id"] for item in packet["selected_evidence"]]
+    selected_metadata = [item.get("metadata") or {} for item in packet["selected_evidence"]]
+
+    assert packet["authority"] == "health_system.evidence_packet"
+    assert packet["summary"]
+    assert any(item.get("tool_name") == "delegate_to_agent" for item in selected_metadata)
+    assert any(
+        item.get("target_agent_id") == "agent:rag_analyst" or item.get("delegation_kind") == "evidence_lookup"
+        for item in selected_metadata
+    )

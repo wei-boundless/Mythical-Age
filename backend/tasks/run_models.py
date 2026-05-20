@@ -293,6 +293,108 @@ def skip_task_run_step(
     return updated_ledger
 
 
+def append_task_run_step(
+    ledger: TaskRunLedger,
+    step_run: TaskStepRun,
+    *,
+    make_current: bool = False,
+    before_step_id: str = "",
+    diagnostics: dict[str, Any] | None = None,
+) -> TaskRunLedger:
+    """Append a runtime-discovered step without introducing a separate long-run ledger."""
+
+    step_id = str(step_run.step_id or "").strip()
+    if not step_id:
+        return ledger
+    existing_ids = {str(item.step_id or "").strip() for item in ledger.step_runs}
+    if step_id in existing_ids:
+        return update_task_run_step_diagnostics(
+            ledger,
+            step_id=step_id,
+            diagnostics=_merged_dict(step_run.diagnostics, diagnostics),
+        )
+    step_runs = tuple(ledger.step_runs)
+    insert_at = len(step_runs)
+    target_before = str(before_step_id or "").strip()
+    if target_before:
+        for index, item in enumerate(step_runs):
+            if item.step_id == target_before:
+                insert_at = index
+                break
+    return replace(
+        ledger,
+        step_runs=tuple((*step_runs[:insert_at], step_run, *step_runs[insert_at:])),
+        current_step_id=step_id if make_current else ledger.current_step_id,
+        diagnostics=_merged_dict(ledger.diagnostics, diagnostics),
+    )
+
+
+def append_plan_item_step(
+    ledger: TaskRunLedger,
+    *,
+    plan_item: dict[str, Any],
+    make_current: bool = False,
+    before_step_id: str = "",
+    diagnostics: dict[str, Any] | None = None,
+) -> TaskRunLedger:
+    plan = dict(plan_item or {})
+    plan_item_id = str(plan.get("plan_item_id") or plan.get("step_id") or "").strip()
+    if not plan_item_id:
+        return ledger
+    required_operations = tuple(
+        str(item).strip()
+        for item in list(plan.get("required_operations") or [])
+        if str(item).strip()
+    )
+    optional_operations = tuple(
+        str(item).strip()
+        for item in list(plan.get("optional_operations") or [])
+        if str(item).strip()
+    )
+    step_run = TaskStepRun(
+        step_id=plan_item_id,
+        title=str(plan.get("title") or plan_item_id),
+        step_kind=str(plan.get("step_kind") or "plan_item"),
+        executor_type=str(plan.get("executor_type") or plan.get("action_kind") or "main_agent"),
+        required_operations=required_operations,
+        optional_operations=optional_operations,
+        input_refs=tuple(str(item).strip() for item in list(plan.get("input_refs") or []) if str(item).strip()),
+        output_contract_id=str(plan.get("output_contract_id") or ""),
+        stop_policy=str(plan.get("stop_policy") or "on_success"),
+        retry_policy=dict(plan.get("retry_policy") or {}),
+        diagnostics={"plan_item": plan},
+    )
+    return append_task_run_step(
+        ledger,
+        step_run,
+        make_current=make_current,
+        before_step_id=before_step_id,
+        diagnostics=diagnostics,
+    )
+
+
+def update_task_run_step_diagnostics(
+    ledger: TaskRunLedger,
+    *,
+    step_id: str,
+    diagnostics: dict[str, Any] | None = None,
+) -> TaskRunLedger:
+    target_index = _resolve_step_index(ledger, step_id=step_id)
+    if target_index < 0:
+        return ledger
+    current = ledger.step_runs[target_index]
+    updated_step = replace(
+        current,
+        diagnostics=_merged_dict(current.diagnostics, diagnostics),
+    )
+    return _replace_step_run(
+        ledger,
+        target_index,
+        updated_step,
+        current_step_id=ledger.current_step_id,
+    )
+
+
 def advance_task_run_ledger(
     ledger: TaskRunLedger,
     *,

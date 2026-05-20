@@ -71,6 +71,96 @@ def _step(
 
 def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
     recipe_id = str(execution_shape.recipe_id or "").strip()
+    if recipe_id == "runtime.recipe.autonomous_task_run":
+        autonomy_mode = str(execution_shape.diagnostics.get("autonomy_mode") or "simple").strip() or "simple"
+        if autonomy_mode not in {"simple", "standard"}:
+            autonomy_mode = "simple"
+        return {
+            "title": "Main Agent autonomous task",
+            "description": "Run a graphless autonomous task through the main Agent with plan, observation, verification, and committed closeout.",
+            "task_family": "runtime",
+            "task_mode": "autonomous_task_run",
+            "source_kind": execution_shape.source_kind or "runtime_task",
+            "output_schema": {
+                "final_answer": {"type": "string", "required": True},
+                "autonomous_task_summary": {"type": "object", "required": False},
+            },
+            "required_operations": ("op.model_response",),
+            "optional_operations": (
+                "op.read_file",
+                "op.search_text",
+                "op.search_files",
+                "op.git_status",
+                "op.git_diff",
+                "op.memory_read",
+                "op.delegate_to_agent",
+            ),
+            "step_blueprints": (
+                _step("understand_goal", "Understand goal", "understand", required_operations=("op.model_response",)),
+                _step("draft_plan", "Draft lightweight plan", "plan", required_operations=("op.model_response",)),
+                _step("summarize_result", "Summarize result", "finalize", required_operations=("op.model_response",)),
+            ),
+            "metadata": {
+                "execution_strategy": "autonomous_task_run",
+                "runtime_lane_hint": "autonomous_task",
+                "runtime_driver": "autonomous_task_run",
+                "autonomy_mode": autonomy_mode,
+                "runtime_limits": {
+                    "max_turns": 4,
+                    "max_model_calls": 6,
+                    "max_runtime_seconds": 300,
+                    "max_events": 120,
+                },
+                "checkpoint_policy": {
+                    "before_commit": True,
+                    "terminal": True,
+                    "after_each_plan_item": False,
+                },
+                "delegation_policy": {
+                    "enabled": autonomy_mode == "standard",
+                    "max_delegate_calls_per_step": 1,
+                    "max_delegate_calls_per_task_run": 1,
+                    "allowed_tool_name": "delegate_to_agent",
+                    "allowed_operation_ref": "op.delegate_to_agent",
+                    "allowed_agent_ids": [
+                        "agent:rag_analyst",
+                        "agent:pdf_reader",
+                        "agent:table_analyst",
+                        "agent:web_researcher",
+                    ],
+                },
+                "tool_execution_policy": {
+                    "enabled": autonomy_mode == "standard",
+                    "max_tool_calls_per_round": 1,
+                    "allowed_operation_refs": [
+                        "op.read_file",
+                        "op.search_text",
+                        "op.search_files",
+                        "op.git_status",
+                        "op.git_diff",
+                        "op.delegate_to_agent",
+                    ],
+                    "allowed_tool_names": [
+                        "read_file",
+                        "search_text",
+                        "search_files",
+                        "git_status",
+                        "git_diff",
+                        "delegate_to_agent",
+                    ],
+                    "denied_tool_names": [],
+                },
+                "verification_policy": {
+                    "required": False,
+                    "require_summary_check": True,
+                    "require_artifact_refs_for_write": True,
+                },
+                "final_answer_requirements": (
+                    "Explain the goal, the lightweight plan, the work completed, and any limitations.",
+                    "Do not invent evidence or claim tool execution that did not happen.",
+                ),
+            },
+        }
     if recipe_id == "runtime.recipe.knowledge_retrieval":
         return _delegate_profile(
             title="Knowledge retrieval answer",

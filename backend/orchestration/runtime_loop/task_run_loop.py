@@ -66,6 +66,7 @@ from .action_request import (
     build_tool_action_request,
     build_tool_result_observation,
 )
+from .autonomous_task_run_driver import AutonomousTaskRunDriver, AutonomousTaskRunOutcome
 from .checkpoint import RuntimeCheckpoint, RuntimeCheckpointStore
 from .coordination_flow import (
     build_coordination_flow_state,
@@ -1776,7 +1777,66 @@ class TaskRunLoop:
         tool_repetition_guard = ToolRepetitionGuard()
         repeated_tool_halt = False
         builtin_tool_lane_finalized = False
-        if not final_content:
+        autonomous_task_driver_ran = False
+        if _is_autonomous_task_run_recipe(selected_recipe_payload):
+            autonomous_task_driver_ran = True
+            driver = AutonomousTaskRunDriver(
+                event_log=self.event_log,
+                events_from_executor_event=self._events_from_executor_event,
+                record_task_run_step_event=self._record_task_run_step_event,
+                record_task_run_ledger_updated=self._record_task_run_ledger_updated,
+                state_with_task_run_ledger=self._state_with_task_run_ledger,
+                write_checkpoint_event=self._write_checkpoint_event,
+            )
+            outcome = AutonomousTaskRunOutcome(
+                ledger=runtime_task_ledger,
+                state=state,
+                result_refs=list(result_refs),
+                final_content=final_content,
+                final_answer_metadata=dict(final_answer_metadata),
+                terminal_reason=terminal_reason,
+                turn_count=1,
+                model_call_count=0,
+                main_context=dict(final_main_context),
+                task_summary_refs=[dict(item) for item in final_task_summary_refs],
+                bundle_summary_refs=[dict(item) for item in final_bundle_summary_refs],
+            )
+            autonomy_mode = _autonomous_task_run_mode(selected_recipe_payload)
+            run_autonomous_stream = (
+                driver.run_standard_stream
+                if autonomy_mode == "standard"
+                else driver.run_simple_stream
+            )
+            async for event in run_autonomous_stream(
+                outcome=outcome,
+                user_message=user_message,
+                task_id=task_id,
+                task_operation=task_operation,
+                task_contract_ref=task_contract_ref,
+                selected_recipe_payload=selected_recipe_payload,
+                context_snapshot=context_snapshot,
+                directive=directive,
+                resource_policy=resource_policy,
+                model_response_executor=model_response_executor,
+                runtime_context_manager=runtime_context_manager,
+                model_stream_policy=model_stream_policy,
+                resolved_model_spec=resolved_model_spec,
+                tool_runtime_executor=tool_runtime_executor,
+                runtime_tool_instances=runtime_tool_instances,
+                allowed_search_sources=allowed_search_sources,
+            ):
+                yield event
+            runtime_task_ledger = outcome.ledger
+            state = outcome.state
+            result_refs = list(_dedupe_refs([*result_refs, *outcome.result_refs]))
+            final_content = outcome.final_content
+            final_answer_metadata = dict(outcome.final_answer_metadata)
+            terminal_reason = outcome.terminal_reason
+            final_main_context = dict(outcome.main_context)
+            final_task_summary_refs = [dict(item) for item in outcome.task_summary_refs]
+            final_bundle_summary_refs = [dict(item) for item in outcome.bundle_summary_refs]
+
+        if not final_content and not autonomous_task_driver_ran:
             executor_event = self.event_log.append(
                 state.task_run_id,
                 "executor_started",
@@ -2055,6 +2115,9 @@ class TaskRunLoop:
 
         turn_count = 1
         model_call_count = 1
+        if autonomous_task_driver_ran:
+            turn_count = max(1, int(outcome.turn_count or 1))
+            model_call_count = max(0, int(outcome.model_call_count or 0))
         followup_messages: list[Any] = []
         retrieval_followup_force_synthesis = False
         if len(pending_tool_calls) > 1 and terminal_reason == "completed":
@@ -6111,6 +6174,30 @@ def _recipe_requires_model_finalize(selected_recipe: ExecutionRecipe) -> bool:
         str(step.executor_type or "") == "model" and str(step.step_kind or "") == "finalize"
         for step in selected_recipe.step_blueprints
     )
+
+
+def _is_autonomous_task_run_recipe(selected_recipe_payload: dict[str, Any]) -> bool:
+    payload = dict(selected_recipe_payload or {})
+    metadata = dict(payload.get("metadata") or {})
+    return (
+        str(payload.get("recipe_id") or "").strip() == "runtime.recipe.autonomous_task_run"
+        or str(metadata.get("runtime_driver") or "").strip() == "autonomous_task_run"
+        or str(payload.get("task_mode") or "").strip() == "autonomous_task_run"
+    )
+
+
+def _autonomous_task_run_mode(selected_recipe_payload: dict[str, Any]) -> str:
+    payload = dict(selected_recipe_payload or {})
+    metadata = dict(payload.get("metadata") or {})
+    mode = str(
+        metadata.get("autonomy_mode")
+        or metadata.get("default_autonomy_mode")
+        or payload.get("autonomy_mode")
+        or "simple"
+    ).strip().lower()
+    if mode in {"standard", "managed"}:
+        return "standard"
+    return "simple"
 
 
 def _is_retrieval_task_mode(task_mode: str) -> bool:

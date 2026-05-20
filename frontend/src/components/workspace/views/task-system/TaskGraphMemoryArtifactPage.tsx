@@ -411,7 +411,7 @@ export function TaskGraphMemoryArtifactPage({
   return (
     <section className="task-graph-studio-page">
       <header className="task-graph-studio-page__head">
-        <span>TaskGraph Studio</span>
+        <span>图工作台</span>
         <strong>资源流</strong>
         <small>用仓库节点、读写边、selector 和提交可见性决定节点实际能读到什么、能写入什么。</small>
       </header>

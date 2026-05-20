@@ -4,6 +4,118 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+@dataclass(frozen=True, slots=True)
+class HarnessRunContract:
+    run_id: str
+    profile: str
+    command: list[str]
+    output_dir: str
+    backend_root: str
+    scenario_refs: list[str] = field(default_factory=list)
+    timeout_seconds: int = 0
+    resource_limits: dict[str, Any] = field(default_factory=dict)
+    schema_version: str = "2026-05-20"
+    authority: str = "health_system.harness_run_contract"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class HarnessProgressEvent:
+    event_id: str
+    event_type: str
+    run_id: str
+    status: str
+    created_at: float
+    message: str = ""
+    scenario_ref: str = ""
+    turn_ref: str = ""
+    artifact_ref: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "health_system.harness_progress_event"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class HarnessRunState:
+    run_id: str
+    profile: str
+    status: str
+    pid: int = 0
+    process_token: str = ""
+    command: list[str] = field(default_factory=list)
+    output_dir: str = ""
+    started_at: float = 0.0
+    updated_at: float = 0.0
+    ended_at: float = 0.0
+    returncode: int | None = None
+    heartbeat_at: float = 0.0
+    last_progress_at: float = 0.0
+    last_progress_event_id: str = ""
+    last_artifact_mtime: float = 0.0
+    stale_reason: str = ""
+    summary: dict[str, Any] = field(default_factory=dict)
+    schema_version: str = "2026-05-20"
+    authority: str = "health_system.harness_run_state"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class HarnessArtifactRecord:
+    name: str
+    artifact_type: str
+    path: str
+    relative_ref: str = ""
+    producer: str = "health_system.maintenance.harness"
+    required: bool = False
+    present: bool = False
+    checksum: str = ""
+    size_bytes: int = 0
+    updated_at: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class HarnessArtifactManifest:
+    manifest_id: str
+    run_id: str
+    artifacts: tuple[HarnessArtifactRecord, ...] = ()
+    created_at: float = 0.0
+    schema_version: str = "2026-05-20"
+    authority: str = "health_system.harness_artifact_manifest"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["artifacts"] = [item.to_dict() for item in self.artifacts]
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class HarnessPartialResult:
+    run_id: str
+    profile: str
+    status: str
+    summary: dict[str, Any] = field(default_factory=dict)
+    completed_scenarios: int = 0
+    failed_scenarios: int = 0
+    latest_artifact_ref: str = ""
+    latest_progress_event_id: str = ""
+    updated_at: float = 0.0
+    schema_version: str = "2026-05-20"
+    authority: str = "health_system.harness_partial_result"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 @dataclass
 class TimingSnapshot:
     started_at: str

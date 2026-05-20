@@ -1,7 +1,7 @@
 import { Cable, GitBranch, Layers3, Plus } from "lucide-react";
 
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
-import { TaskGraphContractBindingField } from "./TaskGraphContractBindingField";
+import { TaskGraphContractBindingInspector } from "./TaskGraphContractBindingInspector";
 import {
   TaskGraphInspectorSection,
   TaskGraphInspectorSummary,
@@ -51,6 +51,7 @@ export function TaskGraphRootInspector({
 }) {
   const nodeOptions = activeGraphNodes.map((node) => stringValue(node.node_id)).filter(Boolean);
   const formatNode = (value: string) => nodeTitle(activeGraphNodes.find((node) => stringValue(node.node_id) === value) ?? null, value);
+  void formatContract;
   return (
     <>
       <TaskGraphInspectorSection icon={<GitBranch aria-hidden="true" size={15} />} title="任务图" aside={graphDraft.graph_id}>
@@ -72,17 +73,6 @@ export function TaskGraphRootInspector({
           <TaskSystemField label="中文名 / 标题" wide>
             <input onChange={(event) => updateTaskGraphDraft({ title: event.target.value })} value={graphDraft.title} />
           </TaskSystemField>
-          <TaskGraphContractBindingField
-            fallback={graphDraft.graph_contract_id}
-            field="graph_contract_id"
-            formatOption={formatContract}
-            label="图级契约"
-            onChange={(patch) => updateTaskGraphDraft(patch)}
-            options={contractOptions}
-            section="schema"
-            target={graphDraft}
-            wide
-          />
           <TaskGraphObjectSelectField
             formatOption={formatNode}
             label="入口节点"
@@ -113,6 +103,22 @@ export function TaskGraphRootInspector({
           />
         </div>
       </TaskGraphInspectorSection>
+
+      <TaskGraphContractBindingInspector
+        contractOptions={contractOptions}
+        fieldKeysBySection={{
+          schema: ["graph_contract_id"],
+          runtime: ["model_requirement.profile_ref", "model_requirement.provider_family", "model_requirement.min_output_tokens", "model_requirement.preferred_output_tokens", "model_requirement.capability_tags"],
+          memory: ["memory_read_policy_ref", "dynamic_memory_read_policy_ref", "memory_writeback_policy_ref"],
+          handoff: ["wait_policy", "failure_propagation_policy", "result_delivery_policy"],
+          acceptance: ["human_gate_policy.mode", "human_gate_policy.blocking", "acceptance_policy_ref"],
+          governance: ["thread_ledger_policy_ref", "issue_ledger_policy_ref", "context_boundary_policy_ref"],
+        }}
+        formatContract={formatContract}
+        onChange={(patch) => updateTaskGraphDraft(patch)}
+        sections={["schema", "runtime", "memory", "handoff", "acceptance", "governance"]}
+        target={graphDraft}
+      />
 
       <TaskGraphInspectorSection icon={<Plus aria-hidden="true" size={15} />} title="结构动作">
         <div className="task-graph-topology-actions task-graph-topology-actions--stacked">

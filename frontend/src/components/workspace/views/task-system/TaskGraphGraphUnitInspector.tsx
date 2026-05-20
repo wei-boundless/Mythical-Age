@@ -2,7 +2,7 @@ import { ExternalLink, Layers3, Network, Trash2 } from "lucide-react";
 
 import type { ComposableUnitSpec, NestedRuntimePlanSpec, TaskGraphRecord } from "@/lib/api";
 
-import { TaskGraphContractBindingField, contractBindingFieldValue } from "./TaskGraphContractBindingField";
+import { TaskGraphContractBindingInspector } from "./TaskGraphContractBindingInspector";
 import {
   TaskGraphInspectorSection,
   TaskGraphInspectorSummary,
@@ -33,16 +33,13 @@ type TimelineBlockEditorProps = {
 };
 
 function TimelineBlockFields({
-  contractOptions,
-  formatContract,
   formatGraph,
   graphOptions,
   selected,
   updateTimelineBlock,
-}: TimelineBlockEditorProps & {
+}: Omit<TimelineBlockEditorProps, "contractOptions" | "formatContract"> & {
   selected: TaskGraphTimelineBlock;
 }) {
-  const handoffContractId = timelineBlockHandoffContractIdOf(selected as unknown as Record<string, unknown>);
   return (
     <div className="boundary-form task-graph-composer-inspector-form">
       <TaskSystemField label="中文名" wide>
@@ -59,18 +56,6 @@ function TimelineBlockFields({
         onChange={(value) => updateTimelineBlock(selected.block_id, { linked_graph_id: value })}
         options={graphOptions}
         value={selected.linked_graph_id ?? ""}
-        wide
-      />
-      <TaskGraphContractBindingField
-        fallback={selected.handoff_contract_id ?? ""}
-        field="handoff_contract_id"
-        formatOption={formatContract}
-        label="交接契约"
-        legacyPatch={(value) => ({ handoff_contract_id: value })}
-        onChange={(patch) => updateTimelineBlock(selected.block_id, patch)}
-        options={contractOptions}
-        section="handoff"
-        target={selected as unknown as Record<string, unknown>}
         wide
       />
       <TaskSystemSelectField label="可见性" onChange={(value) => updateTimelineBlock(selected.block_id, { visibility_policy: value })} options={["committed_only", "summary_and_refs", "manual_release", "isolated_until_commit"]} value={selected.visibility_policy ?? "committed_only"} />
@@ -128,14 +113,28 @@ export function TaskGraphGraphUnitInspector({
       {selectedBlock ? (
         <TaskGraphInspectorSection icon={<Layers3 aria-hidden="true" size={15} />} title="图节点边界">
           <TimelineBlockFields
-            contractOptions={contractOptions}
-            formatContract={formatContract}
             formatGraph={formatGraph}
             graphOptions={graphOptions}
             selected={selectedBlock}
             updateTimelineBlock={updateTimelineBlock}
           />
         </TaskGraphInspectorSection>
+      ) : null}
+
+      {selectedBlock ? (
+        <TaskGraphContractBindingInspector
+          contractOptions={contractOptions}
+          fieldKeysBySection={{
+            handoff: ["handoff_contract_id", "wait_policy", "failure_propagation_policy", "result_delivery_policy"],
+            runtime: ["model_requirement.profile_ref", "model_requirement.provider_family"],
+            governance: ["context_boundary_policy_ref"],
+            temporal: ["trigger_timing", "visibility_timing", "propagation_timing"],
+          }}
+          formatContract={formatContract}
+          onChange={(patch) => updateTimelineBlock(selectedBlock.block_id, patch)}
+          sections={["handoff", "runtime", "governance", "temporal"]}
+          target={selectedBlock as unknown as Record<string, unknown>}
+        />
       ) : null}
 
       <TaskGraphInspectorSection icon={<ExternalLink aria-hidden="true" size={15} />} title="子图工作台">
@@ -170,12 +169,23 @@ export function TaskGraphTimelineBlockInspector({
         title={selected.title || selected.block_id}
       />
       <TimelineBlockFields
-        contractOptions={contractOptions}
-        formatContract={formatContract}
         formatGraph={formatGraph}
         graphOptions={graphOptions}
         selected={selected}
         updateTimelineBlock={updateTimelineBlock}
+      />
+      <TaskGraphContractBindingInspector
+        contractOptions={contractOptions}
+        fieldKeysBySection={{
+          handoff: ["handoff_contract_id", "wait_policy", "failure_propagation_policy", "result_delivery_policy"],
+          runtime: ["model_requirement.profile_ref", "model_requirement.provider_family"],
+          governance: ["context_boundary_policy_ref"],
+          temporal: ["trigger_timing", "visibility_timing", "propagation_timing"],
+        }}
+        formatContract={formatContract}
+        onChange={(patch) => updateTimelineBlock(selected.block_id, patch)}
+        sections={["handoff", "runtime", "governance", "temporal"]}
+        target={selected as unknown as Record<string, unknown>}
       />
       <button className="task-graph-inline-danger" onClick={() => removeTimelineBlock(selected.block_id)} type="button">
         <Trash2 aria-hidden="true" size={14} />

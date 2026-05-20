@@ -28,7 +28,7 @@ def test_health_runtime_admission_consumes_formal_orchestration_objects(tmp_path
             conversation_session_ref="health-system",
             target_scope="health_issue",
             target_ref=issue.issue_id,
-            task_mode="issue_triage",
+            health_action="issue_triage",
             payload={"requested_operations": ["op.model_response"]},
         ),
     )
