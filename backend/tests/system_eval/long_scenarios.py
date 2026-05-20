@@ -569,6 +569,42 @@ PROFESSIONAL_OPS_TROUBLESHOOTING_TURNS: tuple[LongScenarioTurn, ...] = (
 )
 
 
+PROFESSIONAL_DEEP_CODE_EXECUTION_TURNS: tuple[LongScenarioTurn, ...] = (
+    operator(
+        "main",
+        "check_files",
+        paths=["tests/fixtures/professional_task_suite/buggy_order_pipeline.py"],
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "请用专业模式完成一个更长的代码执行任务："
+            "修复 backend/tests/fixtures/professional_task_suite/buggy_order_pipeline.py 中的订单流水线逻辑。"
+            "要求先阅读代码和内置测试，找出所有导致 pytest 失败的逻辑问题，在 sandbox overlay 中修改文件，"
+            "运行 pytest backend/tests/fixtures/professional_task_suite/buggy_order_pipeline.py 验证通过。"
+            "最后总结修复点、验证结果和仍未覆盖的边界。"
+        ),
+        checks=(
+            "event=runtime_sandbox_prepared",
+            "event.tool=read_file",
+            "event.tool=edit_file",
+            "event.tool=terminal",
+            "sandbox.enabled",
+            "sandbox.root.contains=output/sandbox_runs",
+            "sandbox.real_workspace_access=read_only",
+            "trace.coordination_runs=0",
+            "task_run.nonempty",
+            "response.contains_all=修复|验证|边界",
+            "response.contains_any=passed|通过|1 passed",
+            "response.nonempty",
+        ),
+        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        force_memory_sync=False,
+    ),
+)
+
+
 PERMISSION_BOUNDARY_TURNS: tuple[LongScenarioTurn, ...] = (
     operator("main", "set_permission_mode", mode="default"),
     user(
@@ -1078,6 +1114,13 @@ SCENARIOS: tuple[LongScenario, ...] = (
         turns=PROFESSIONAL_OPS_TROUBLESHOOTING_TURNS,
     ),
     LongScenario(
+        id="professional-deep-code-execution",
+        title="专业模式深度代码执行修复",
+        goal="验证主 Agent 能在更长代码任务中连续读代码、修多处逻辑、运行失败恢复和最终验证。",
+        coverage=("professional_task", "code_fix", "tool_route", "permissions", "stress", "sse"),
+        turns=PROFESSIONAL_DEEP_CODE_EXECUTION_TURNS,
+    ),
+    LongScenario(
         id="permission-boundary-and-safe-fallback",
         title="权限边界与安全回退",
         goal="模拟用户先要求高风险操作，再退回到安全说明和只读分析。",
@@ -1145,6 +1188,9 @@ SCENARIO_SETS: dict[str, tuple[str, ...]] = {
         "professional-doc-data-analysis",
         "professional-feature-slice-acceptance",
         "professional-ops-troubleshooting",
+    ),
+    "professional_deep": (
+        "professional-deep-code-execution",
     ),
     "mega": ("sixty-turn-real-user-marathon",),
     "extended": tuple(scenario.id for scenario in SCENARIOS),

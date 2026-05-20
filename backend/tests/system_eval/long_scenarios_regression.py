@@ -55,6 +55,7 @@ def test_long_scenarios_are_rebuilt_around_batches_and_a_sixty_turn_marathon() -
     assert "professional-doc-data-analysis" in by_id
     assert "professional-feature-slice-acceptance" in by_id
     assert "professional-ops-troubleshooting" in by_id
+    assert "professional-deep-code-execution" in by_id
     assert "permission-boundary-and-safe-fallback" in by_id
     assert "multi-session-workbench-isolation" in by_id
     assert "sixty-turn-real-user-marathon" in by_id
@@ -72,6 +73,7 @@ def test_long_scenarios_are_rebuilt_around_batches_and_a_sixty_turn_marathon() -
         "professional-feature-slice-acceptance",
         "professional-ops-troubleshooting",
     )
+    assert SCENARIO_SETS["professional_deep"] == ("professional-deep-code-execution",)
     assert "task_acceptance" in SCENARIO_SETS
     assert SCENARIO_SETS["task_acceptance"] == (
         "task-system-light-web-game-acceptance",

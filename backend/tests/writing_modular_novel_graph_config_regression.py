@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import shutil
 import sys
 from pathlib import Path
 
+from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from orchestration.runtime_loop.contract_compiler import compile_coordination_contract_manifest
+from orchestration.runtime_loop.runtime_assembly_builder import build_node_runtime_assembly
 from api import tasks as tasks_api
+from tasks.contract_registry import TaskContractRegistry
 from tasks.flow_registry import TaskFlowRegistry
 from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 
@@ -232,3 +237,224 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
     assert chapter_package["summary"]["split_batch_lifecycle_plan_count"] == 50
     assert chapter_package["summary"]["split_batch_lifecycle_step_count"] == 200
     assert chapter_package["summary"]["split_merge_readiness_plan_count"] == 1
+
+
+def test_modular_writing_memory_context_is_visible_to_runtime_profiles(tmp_path: Path) -> None:
+    base_dir = _seed_storage(tmp_path)
+    config = _load_config_module()
+    config.configure(base_dir)
+
+    registry = TaskFlowRegistry(base_dir)
+    contract_registry = TaskContractRegistry(base_dir)
+    runtime_registry = AgentRuntimeRegistry(base_dir)
+    graph = next(
+        item
+        for item in registry.list_task_graphs()
+        if item.graph_id == "graph.writing.modular_novel.chapter_cycle"
+    )
+    runtime_spec = compile_task_graph_definition_runtime_spec(
+        graph=graph,
+        specific_tasks=tuple(registry.list_specific_task_records()),
+        communication_protocol=registry.get_task_communication_protocol(graph.default_protocol_id),
+    )
+    manifest = compile_coordination_contract_manifest(
+        contract_registry=contract_registry,
+        coordination_task=registry.derive_coordination_task_view_from_graph(graph),
+        graph_spec=runtime_spec,
+        specific_tasks=tuple(registry.list_specific_task_records()),
+        communication_protocol=registry.get_task_communication_protocol(graph.default_protocol_id),
+        agent_profiles=tuple(
+            profile
+            for profile in (
+                runtime_registry.get_profile("agent:writing_modular_worker"),
+                runtime_registry.get_profile("agent:writing_modular_memory_steward"),
+            )
+            if profile is not None
+        ),
+    )
+    assert manifest.valid is True
+
+    for node_id in ("volume_plan", "chapter_outline", "chapter_draft", "chapter_review", "memory_commit_chapter"):
+        node_contract = next(item for item in manifest.node_contracts if item.node_id == node_id)
+        assembly = build_node_runtime_assembly(
+            manifest=manifest,
+            node_id=node_id,
+            agent_profile=runtime_registry.get_profile(node_contract.agent_id),
+        ).to_dict()
+        visible_section_ids = {item["section_id"] for item in assembly["context_sections"]}
+
+        assert assembly["diagnostics"]["layered_context"]["memory_read_edge_count"] > 0
+        assert "memory_snapshot" in visible_section_ids
+        assert "memory_snapshot" not in assembly["diagnostics"]["context_sections_hidden_by_profile"]
+        assert assembly["metadata"]["layered_context"]["memory_reads"]
+
+    chapter_draft_revision_target = build_node_runtime_assembly(
+        manifest=manifest,
+        node_id="chapter_draft",
+        agent_profile=runtime_registry.get_profile("agent:writing_modular_worker"),
+    ).to_dict()
+    assert "revision_context" in {item["section_id"] for item in chapter_draft_revision_target["context_sections"]}
+
+
+def test_modular_writing_review_and_commit_memory_boundaries(tmp_path: Path) -> None:
+    base_dir = _seed_storage(tmp_path)
+    config = _load_config_module()
+    config.configure(base_dir)
+
+    registry = TaskFlowRegistry(base_dir)
+    graphs = {graph.graph_id: graph for graph in registry.list_task_graphs()}
+    chapter_graph = graphs["graph.writing.modular_novel.chapter_cycle"]
+    design_graph = graphs["graph.writing.modular_novel.design_init"]
+
+    def node(graph_id: str, node_id: str):
+        graph = graphs[graph_id]
+        return next(item for item in graph.nodes if item.node_id == node_id)
+
+    for graph in (design_graph, chapter_graph):
+        edge_index = {(edge.source_node_id, edge.target_node_id, edge.edge_type): edge for edge in graph.edges}
+        for review_node_id in (
+            "world_review",
+            "outline_review",
+            "chapter_review",
+            "volume_review",
+            "extension_review",
+        ):
+            if review_node_id not in {item.node_id for item in graph.nodes}:
+                continue
+            review_node = next(item for item in graph.nodes if item.node_id == review_node_id)
+            assert review_node.memory_writeback_policy["mode"] == "review_and_issue_ledger"
+            assert (review_node_id, "memory.writing.issue_ledger", "memory_commit") in edge_index
+            assert (review_node_id, "memory.writing.baseline", "memory_commit") not in edge_index
+            assert (review_node_id, "memory.writing.mutable", "memory_commit") not in edge_index
+
+    assert node("graph.writing.modular_novel.design_init", "memory_commit_world").memory_writeback_policy["mode"] == "baseline_commit"
+    assert node("graph.writing.modular_novel.design_init", "baseline_memory_seed").memory_writeback_policy["mode"] == "baseline_commit"
+    assert node("graph.writing.modular_novel.chapter_cycle", "memory_commit_chapter").memory_writeback_policy["mode"] == "chapter_commit"
+    assert node("graph.writing.modular_novel.chapter_cycle", "volume_commit").memory_writeback_policy["mode"] == "volume_commit"
+    assert node("graph.writing.modular_novel.chapter_cycle", "extension_commit").memory_writeback_policy["mode"] == "dynamic_memory_commit"
+
+    chapter_edge_pairs = {(edge.source_node_id, edge.target_node_id, edge.edge_type) for edge in chapter_graph.edges}
+    design_edge_pairs = {(edge.source_node_id, edge.target_node_id, edge.edge_type) for edge in design_graph.edges}
+    assert ("world_review", "memory_commit_world", "structured_handoff") in design_edge_pairs
+    assert ("outline_review", "baseline_memory_seed", "structured_handoff") in design_edge_pairs
+    assert ("chapter_review", "memory_commit_chapter", "structured_handoff") in chapter_edge_pairs
+    assert ("volume_review", "volume_commit", "structured_handoff") in chapter_edge_pairs
+    assert ("extension_review", "extension_commit", "structured_handoff") in chapter_edge_pairs
+    assert ("memory_commit_chapter", "memory.writing.mutable", "memory_commit") in chapter_edge_pairs
+    assert ("memory_commit_chapter", "memory.writing.artifact_index", "memory_commit") in chapter_edge_pairs
+    assert ("extension_commit", "memory.writing.mutable", "memory_commit") in chapter_edge_pairs
+
+
+def test_modular_writing_state_protocols_prevent_candidate_review_commit_pollution(tmp_path: Path) -> None:
+    base_dir = _seed_storage(tmp_path)
+    config = _load_config_module()
+    config.configure(base_dir)
+
+    registry = TaskFlowRegistry(base_dir)
+    graphs = {graph.graph_id: graph for graph in registry.list_task_graphs()}
+    design_graph = graphs["graph.writing.modular_novel.design_init"]
+    chapter_graph = graphs["graph.writing.modular_novel.chapter_cycle"]
+    finalize_graph = graphs["graph.writing.modular_novel.finalize"]
+
+    def node(graph_id: str, node_id: str):
+        graph = graphs[graph_id]
+        return next(item for item in graph.nodes if item.node_id == node_id)
+
+    for graph in (design_graph, chapter_graph, finalize_graph):
+        for item in graph.nodes:
+            if item.node_id.startswith("memory."):
+                continue
+            governance = item.contract_bindings["governance"]
+            state_boundary = governance["state_boundary"]
+            assert state_boundary["raw_dialogue_visibility"] == "forbidden"
+            assert state_boundary["on_boundary_violation"] == "fail_closed"
+            assert governance["memory_pollution_guard"]["commit_nodes_are_the_only_memory_authority"] is True
+
+            read_policy = item.memory_read_policy
+            if read_policy["enabled"]:
+                assert read_policy["required_visibility"] is True
+                assert read_policy["on_hidden"] == "fail_closed"
+                assert read_policy["snapshot_contract"]["visible_to_agent_required"] is True
+
+    chapter_outline = node("graph.writing.modular_novel.chapter_cycle", "chapter_outline")
+    chapter_review = node("graph.writing.modular_novel.chapter_cycle", "chapter_review")
+    chapter_commit = node("graph.writing.modular_novel.chapter_cycle", "memory_commit_chapter")
+    baseline_seed = node("graph.writing.modular_novel.design_init", "baseline_memory_seed")
+
+    assert chapter_outline.contract_bindings["governance"]["state_boundary"]["state_kind"] == "candidate_with_derived_outline_thread_context"
+    assert "candidate_artifact" in chapter_outline.contract_bindings["governance"]["state_boundary"]["allowed_write_states"]
+
+    review_policy = chapter_review.review_gate_policy
+    assert review_policy["approved_slice_schema"]["packet_kind"] == "WritingReviewApprovedSlices"
+    assert review_policy["revision_packet_schema"]["packet_kind"] == "WritingRevisionRequest"
+    assert review_policy["memory_write_permission"]["forbid_baseline_write"] is True
+    assert review_policy["memory_write_permission"]["forbid_mutable_write"] is True
+    assert chapter_review.contract_bindings["governance"]["review_guard"]["review_cannot_write_canon"] is True
+
+    write_policy = chapter_commit.memory_writeback_policy
+    assert write_policy["source_review_required"] is True
+    assert write_policy["source_review_node_id"] == "chapter_review"
+    assert write_policy["source_candidate_node_id"] == "chapter_draft"
+    assert write_policy["approved_slices_required"] is True
+    assert write_policy["allowed_write_targets"] == ["memory.writing.mutable", "memory.writing.artifact_index"]
+    assert write_policy["commit_packet_schema"]["packet_kind"] == "WritingMemoryCommitPacket"
+    assert "source_review_ref" in write_policy["commit_packet_schema"]["required_fields"]
+    assert chapter_commit.contract_bindings["governance"]["commit_guard"]["reject_on_missing_review_receipt"] is True
+
+    baseline_policy = baseline_seed.memory_writeback_policy
+    assert baseline_policy["source_review_required"] is True
+    assert baseline_policy["source_review_node_id"] == "outline_review"
+    assert baseline_policy["allowed_write_targets"] == ["memory.writing.baseline", "memory.writing.artifact_index"]
+    assert baseline_seed.contract_bindings["governance"]["write_permission_matrix"]["forbidden_write_targets"] == [
+        "memory.writing.mutable",
+        "memory.writing.issue_ledger",
+    ]
+
+
+def test_modular_writing_outline_threads_are_outline_owned_and_derived(tmp_path: Path) -> None:
+    base_dir = _seed_storage(tmp_path)
+    config = _load_config_module()
+    config.configure(base_dir)
+
+    registry = TaskFlowRegistry(base_dir)
+    graphs = {graph.graph_id: graph for graph in registry.list_task_graphs()}
+    all_nodes = [node for graph in graphs.values() for node in graph.nodes]
+    serialized_graphs = json.dumps([graph.to_dict() for graph in graphs.values()], ensure_ascii=False)
+
+    assert "memory.writing.thread_ledger" not in {node.node_id for node in all_nodes}
+    assert "thread_ledger" not in serialized_graphs
+    assert "memory.writing.outline_thread" not in serialized_graphs
+
+    design_graph = graphs["graph.writing.modular_novel.design_init"]
+    chapter_graph = graphs["graph.writing.modular_novel.chapter_cycle"]
+    finalize_graph = graphs["graph.writing.modular_novel.finalize"]
+
+    outline_design = next(node for node in design_graph.nodes if node.node_id == "outline_design")
+    baseline_seed = next(node for node in design_graph.nodes if node.node_id == "baseline_memory_seed")
+    chapter_outline = next(node for node in chapter_graph.nodes if node.node_id == "chapter_outline")
+    chapter_commit = next(node for node in chapter_graph.nodes if node.node_id == "memory_commit_chapter")
+    final_review = next(node for node in finalize_graph.nodes if node.node_id == "final_review")
+
+    design_policy = outline_design.contract_bindings["governance"]["outline_thread_policy"]
+    assert design_policy["authority"] == "outline_design_committed_canon"
+    assert design_policy["mode"] == "outline_owns_plot_threads"
+    assert design_policy["forbid_independent_thread_source"] is True
+    assert "outline_thread_refs" in design_policy["required_outline_fields"]
+
+    seed_policy = baseline_seed.contract_bindings["runtime"]["outline_thread_policy"]
+    assert seed_policy["seed_derived_index_after_commit"] is True
+    assert seed_policy["derived_index_contract"] == "WritingOutlineThreadIndex"
+    assert seed_policy["derived_index_fields"] == ["outline_thread_refs", "active_outline_thread_refs", "due_outline_thread_refs"]
+
+    for item in (chapter_outline, chapter_commit, final_review):
+        policy = item.contract_bindings["runtime"]["outline_thread_policy"]
+        assert policy["authority"] == "WritingOutlineThreadIndex"
+        assert policy["mode"] == "derived_from_committed_outline"
+        assert policy["source_outline_refs_required"] is True
+        assert policy["forbid_independent_thread_creation"] is True
+        assert policy["fields"] == ["outline_thread_refs", "active_outline_thread_refs", "due_outline_thread_refs"]
+
+    commit_fields = chapter_commit.memory_writeback_policy["commit_packet_schema"]["required_fields"]
+    assert "outline_thread_refs" in commit_fields
+    assert "active_outline_thread_refs" in commit_fields
+    assert "due_outline_thread_refs" in commit_fields

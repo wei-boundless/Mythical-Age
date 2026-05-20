@@ -3103,6 +3103,8 @@ def _should_apply_generic_evidence_closeout(
         for term in goal_contract.response_must_include
         if term and term.lower() not in content.lower()
     ]
+    if task_goal_type == "material_synthesis" and _is_process_only_closeout(content):
+        return True
     if not content:
         return True
     if outcome.terminal_reason in {"tool_call_markup_leaked", "executor_failed", "tool_loop_budget_exceeded", "partial_contract_failed"}:
@@ -3174,6 +3176,26 @@ def _bounded_tool_fix_recommendation(previews: list[str]) -> str:
     if "foreground" in text or "cache" in text or "缓存" in text:
         return "将阻塞前台请求的缓存重建迁移到后台执行，并为启动期请求设置可观测的超时和降级策略。"
     return "先调整被材料指向的异常配置或运行状态，再用最小只读验证确认风险已被收敛。"
+
+
+def _is_process_only_closeout(content: str) -> bool:
+    text = str(content or "").strip()
+    if not text:
+        return True
+    lowered = text.lower()
+    process_markers = (
+        "路径需要调整",
+        "让我确认",
+        "我需要",
+        "下一步",
+        "继续",
+        "查看",
+        "读取",
+    )
+    deliverable_markers = ("治理", "库存", "行动", "原因", "修复建议", "验证步骤", "失败归类", "结构性根因")
+    return any(marker.lower() in lowered for marker in process_markers) and not any(
+        marker.lower() in lowered for marker in deliverable_markers
+    )
 
 
 def _summarize_failure_symptoms(facts: list[dict[str, Any]]) -> str:

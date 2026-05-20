@@ -1,0 +1,24 @@
+{
+  "ledger_id": "writing_smoke_20260521",
+  "project_id": "writing_smoke_20260521",
+  "session_id": "session:writing-smoke-20260521",
+  "graph_id": "graph.writing.modular_novel.design_init",
+  "task_family": "writing_modular_novel",
+  "project_title": "写作流程试跑",
+  "metric_label": "words",
+  "target_metric_total": 4000,
+  "committed_metric_total": 0,
+  "committed_unit_count": 0,
+  "last_committed_unit_index": 0,
+  "committed_unit_refs": [],
+  "metric_receipts": [],
+  "run_chain": [
+    "taskrun:session:writing-smoke-20260521:task.writing.modular_novel.smoke.design_init:4168997e"
+  ],
+  "latest_delivery_state": "",
+  "last_failure": {},
+  "last_repair_action": {},
+  "updated_at": 1779305965.3289726,
+  "created_at": 1779305965.3289726,
+  "authority": "orchestration.project_progress_ledger"
+}

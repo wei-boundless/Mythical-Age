@@ -135,6 +135,47 @@ REPOSITORY_NODES = (
     },
 )
 
+COMMIT_WRITE_MODES = {"baseline_commit", "chapter_commit", "volume_commit", "dynamic_memory_commit", "finalize_commit"}
+MUTABLE_COMMIT_WRITE_MODES = {"chapter_commit", "volume_commit", "dynamic_memory_commit", "finalize_commit"}
+
+SOURCE_REVIEW_BY_COMMIT_NODE = {
+    "memory_commit_world": "world_review",
+    "baseline_memory_seed": "outline_review",
+    "memory_commit_chapter": "chapter_review",
+    "volume_commit": "volume_review",
+    "extension_commit": "extension_review",
+    "memory_finalize": "final_review",
+}
+
+SOURCE_CANDIDATE_BY_COMMIT_NODE = {
+    "memory_commit_world": "world_design",
+    "baseline_memory_seed": "outline_design",
+    "memory_commit_chapter": "chapter_draft",
+    "volume_commit": "memory_commit_chapter",
+    "extension_commit": "world_outline_extension_proposal",
+    "memory_finalize": "final_assemble",
+}
+
+OUTLINE_THREAD_DESIGN_NODE_IDS = {"outline_design", "outline_review", "baseline_memory_seed"}
+OUTLINE_THREAD_INDEX_NODE_IDS = {
+    "volume_plan",
+    "chapter_outline",
+    "chapter_draft",
+    "chapter_review",
+    "memory_commit_chapter",
+    "chapter_progress_router",
+    "volume_review",
+    "volume_commit",
+    "volume_postmortem",
+    "world_outline_extension_proposal",
+    "extension_review",
+    "extension_commit",
+    "next_volume_router",
+    "final_assemble",
+    "final_review",
+    "memory_finalize",
+}
+
 
 def _chapter_loop_derived_fields() -> list[dict[str, Any]]:
     return [
@@ -1478,6 +1519,11 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
     if node.length_budget:
         runtime_bindings["length_budget"] = dict(node.length_budget)
     unit_batch_bindings = _node_unit_batch_contract(node)
+    governance_policy = _node_governance_policy(node)
+    outline_thread_policy = _outline_thread_policy(node)
+    runtime_bindings["stage_packet_policy"] = _stage_packet_policy(node)
+    if outline_thread_policy:
+        runtime_bindings["outline_thread_policy"] = dict(outline_thread_policy)
     payload = {
         "node_id": node.node_id,
         "node_type": node.node_type,
@@ -1516,7 +1562,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
             "acceptance": {"review_gate_policy": _review_gate_policy(node)} if node.node_type == "review_gate" else {},
             "runtime": runtime_bindings,
             "unit_batch": unit_batch_bindings,
-            "governance": {"no_writing_specific_backend_shortcut": True, "prompt_is_role_natural_language": True},
+            "governance": governance_policy,
         },
         "memory_read_policy": _memory_read_policy(node),
         "memory_writeback_policy": _memory_write_policy(node),
@@ -1536,6 +1582,8 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
             "role_prompt": node.prompt,
             "model_profile_ref": MODEL_PROFILE_REF,
             "artifact_context_policy": _artifact_context_policy(node),
+            "governance_policy": governance_policy,
+            "outline_thread_policy": outline_thread_policy,
             "loop_route_policy": dict(node.loop_route_policy),
             "loop_scope_id": node.loop_scope_id,
             "title_template": node.title_template,
@@ -1679,6 +1727,8 @@ def _memory_edge(edge_id: str, source: str, target: str, operation: str, collect
             "repository_node_id": repository,
             "collection": collection,
             "topics": list(topics),
+            "carry_kinds": list(topics),
+            "carry_scopes": ["writing_modular_novel", collection],
             "model_visible_label": label,
         },
         "contract_bindings": {
@@ -1688,6 +1738,8 @@ def _memory_edge(edge_id: str, source: str, target: str, operation: str, collect
                 "repository_node_id": repository,
                 "collection": collection,
                 "topics": list(topics),
+                "carry_kinds": list(topics),
+                "carry_scopes": ["writing_modular_novel", collection],
                 "model_visible_label": label,
             },
         },
@@ -1812,6 +1864,242 @@ def _node_unit_batch_contract(node: NodeSpec) -> dict[str, Any]:
     }
 
 
+def _node_governance_policy(node: NodeSpec) -> dict[str, Any]:
+    return {
+        "no_writing_specific_backend_shortcut": True,
+        "prompt_is_role_natural_language": True,
+        "state_boundary": _state_boundary_policy(node),
+        "write_permission_matrix": _write_permission_matrix(node),
+        "commit_guard": _commit_guard_policy(node),
+        "review_guard": _review_guard_policy(node),
+        "memory_pollution_guard": {
+            "authority": "task_graph.contract_bound_memory_governance",
+            "raw_conversation_history": "forbidden",
+            "candidate_artifacts_are_not_committed_memory": True,
+            "review_feedback_is_not_canon": True,
+            "commit_nodes_are_the_only_memory_authority": True,
+            "unreviewed_supplement_cannot_become_fact": True,
+        },
+        "outline_thread_policy": _outline_thread_policy(node),
+    }
+
+
+def _state_boundary_policy(node: NodeSpec) -> dict[str, Any]:
+    state_kind = _node_state_kind(node)
+    return {
+        "state_kind": state_kind,
+        "candidate_state": "model_output_candidate",
+        "review_state": "approved_slice_or_revision_request",
+        "committed_state": "memory_commit_receipt",
+        "allowed_read_states": _allowed_read_states(node),
+        "allowed_write_states": _allowed_write_states(node),
+        "candidate_visibility": "upstream_handoff_only_until_review",
+        "committed_visibility": "after_memory_commit_receipt",
+        "raw_dialogue_visibility": "forbidden",
+        "on_boundary_violation": "fail_closed",
+    }
+
+
+def _node_state_kind(node: NodeSpec) -> str:
+    if node.node_type == "review_gate":
+        return "review_gate"
+    if node.write_mode in COMMIT_WRITE_MODES:
+        return "memory_commit"
+    if node.role == "router":
+        return "router"
+    if node.node_id in OUTLINE_THREAD_INDEX_NODE_IDS:
+        return "candidate_with_derived_outline_thread_context"
+    return "candidate"
+
+
+def _allowed_read_states(node: NodeSpec) -> list[str]:
+    states = ["committed_memory", "structured_handoff", "artifact_refs"]
+    if node.node_type == "review_gate":
+        states.extend(["candidate_artifact", "candidate_handoff"])
+    if node.write_mode in COMMIT_WRITE_MODES:
+        states.extend(["approved_slices", "source_review", "source_candidate_refs"])
+    if _outline_thread_policy(node):
+        states.append("outline_thread_index")
+    return list(dict.fromkeys(states))
+
+
+def _allowed_write_states(node: NodeSpec) -> list[str]:
+    if node.node_type == "review_gate":
+        return ["review_verdict", "approved_slices", "revision_request", "issue_ledger_entry", "artifact_refs"]
+    if node.write_mode in COMMIT_WRITE_MODES:
+        return ["memory_commit_receipt", "artifact_refs", "write_receipts", "outline_thread_execution_state"]
+    if node.role == "router":
+        return ["route_decision", "progress_observation", "artifact_refs"]
+    return ["candidate_artifact", "structured_handoff", "artifact_refs"]
+
+
+def _write_permission_matrix(node: NodeSpec) -> dict[str, Any]:
+    return {
+        "mode": node.write_mode,
+        "allowed_write_targets": _allowed_write_targets(node),
+        "forbidden_write_targets": _forbidden_write_targets(node),
+        "artifact_index_write": bool(node.artifact_paths),
+        "issue_ledger_write": node.write_mode == "review_and_issue_ledger",
+        "baseline_memory_write": node.write_mode == "baseline_commit",
+        "mutable_memory_write": node.write_mode in MUTABLE_COMMIT_WRITE_MODES,
+        "candidate_archive_write": node.write_mode == "candidate_archive_only",
+        "on_forbidden_write": "fail_closed",
+    }
+
+
+def _allowed_write_targets(node: NodeSpec) -> list[str]:
+    targets: list[str] = []
+    if node.write_mode == "baseline_commit":
+        targets.append("memory.writing.baseline")
+    elif node.write_mode in MUTABLE_COMMIT_WRITE_MODES:
+        targets.append("memory.writing.mutable")
+    elif node.write_mode == "review_and_issue_ledger":
+        targets.append("memory.writing.issue_ledger")
+    if node.artifact_paths:
+        targets.append("memory.writing.artifact_index")
+    return list(dict.fromkeys(targets))
+
+
+def _forbidden_write_targets(node: NodeSpec) -> list[str]:
+    all_targets = ["memory.writing.baseline", "memory.writing.mutable", "memory.writing.issue_ledger"]
+    return [target for target in all_targets if target not in _allowed_write_targets(node)]
+
+
+def _commit_guard_policy(node: NodeSpec) -> dict[str, Any]:
+    if node.write_mode not in COMMIT_WRITE_MODES:
+        return {"enabled": False}
+    source_review_node_id = SOURCE_REVIEW_BY_COMMIT_NODE.get(node.node_id, "")
+    source_candidate_node_id = SOURCE_CANDIDATE_BY_COMMIT_NODE.get(node.node_id, "")
+    return {
+        "enabled": True,
+        "source_review_required": bool(source_review_node_id),
+        "source_review_node_id": source_review_node_id,
+        "source_candidate_node_id": source_candidate_node_id,
+        "allowed_review_verdicts": ["pass", "pass_with_notes"],
+        "approved_slices_required": True,
+        "reject_on_missing_review_receipt": True,
+        "reject_on_revise_or_reject_verdict": True,
+        "commit_packet_schema": _commit_packet_schema(node),
+    }
+
+
+def _review_guard_policy(node: NodeSpec) -> dict[str, Any]:
+    if node.node_type != "review_gate":
+        return {"enabled": False}
+    return {
+        "enabled": True,
+        "review_target_node_id": node.review_revision_stage_id,
+        "review_cannot_mutate_candidate": True,
+        "review_cannot_write_canon": True,
+        "approved_slices_required_for_commit": True,
+        "revision_packet_required_when_not_passed": True,
+        "issue_ledger_write_only": node.write_mode == "review_and_issue_ledger",
+    }
+
+
+def _stage_packet_policy(node: NodeSpec) -> dict[str, Any]:
+    memory_required = bool(node.memory_topics or node.readable_repositories)
+    return {
+        "authority": "task_graph.stage_packet_contract",
+        "handoff_packet": {
+            "raw_dialogue_handoff": "forbidden",
+            "artifact_refs_required_for_long_outputs": True,
+            "contract_payload_required": True,
+        },
+        "memory_snapshot": {
+            "required_visibility": memory_required,
+            "on_hidden": "fail_closed" if memory_required else "ignore",
+            "version_selector": "latest_committed_before_stage_start",
+            "resolved_records_required_for_read_edges": bool(node.readable_repositories),
+        },
+        "revision_context": {
+            "visible_when_revision_target": _is_revision_target(node.node_id),
+            "on_hidden": "fail_closed" if _is_revision_target(node.node_id) else "ignore",
+        },
+        "artifact_context": {
+            "explicit_model_visible_inputs_only": True,
+            "authorized_text_expansion_only": True,
+        },
+        "outline_thread_index": _outline_thread_policy(node),
+    }
+
+
+def _commit_packet_schema(node: NodeSpec) -> dict[str, Any]:
+    fields = [
+        "commit_id",
+        "source_candidate_ref",
+        "source_review_ref",
+        "approved_slices",
+        "rejected_slices",
+        "conflict_checks",
+        "write_receipts",
+        "downstream_visibility",
+        "artifact_refs",
+    ]
+    if _outline_thread_policy(node):
+        fields.extend(["outline_thread_refs", "active_outline_thread_refs", "due_outline_thread_refs"])
+    return {
+        "packet_kind": "WritingMemoryCommitPacket",
+        "required_fields": list(dict.fromkeys(fields)),
+        "source_candidate_node_id": SOURCE_CANDIDATE_BY_COMMIT_NODE.get(node.node_id, ""),
+        "source_review_node_id": SOURCE_REVIEW_BY_COMMIT_NODE.get(node.node_id, ""),
+        "write_receipt_required": True,
+        "downstream_visibility": "visible_after_commit_receipt",
+    }
+
+
+def _outline_thread_policy(node: NodeSpec) -> dict[str, Any]:
+    if node.node_id in OUTLINE_THREAD_DESIGN_NODE_IDS:
+        return _outline_thread_design_policy(node)
+    if node.node_id in OUTLINE_THREAD_INDEX_NODE_IDS:
+        return _outline_thread_index_policy(node)
+    return {}
+
+
+def _outline_thread_design_policy(node: NodeSpec) -> dict[str, Any]:
+    policy = {
+        "authority": "outline_design_committed_canon",
+        "mode": "outline_owns_plot_threads",
+        "forbid_independent_thread_source": True,
+        "required_outline_fields": [
+            "outline_thread_refs",
+            "thread_type",
+            "setup_window",
+            "active_window",
+            "payoff_window",
+            "responsible_volume_or_batch",
+            "expected_reader_effect",
+            "evidence_refs",
+        ],
+        "thread_kinds": ["foreshadowing", "mystery", "relationship_arc", "information_reveal", "payoff_chain"],
+        "versioning": "outline_versioned_canon",
+        "on_missing_outline_threads": "review_or_commit_must_block",
+    }
+    if node.node_id == "baseline_memory_seed":
+        policy = {
+            **policy,
+            "seed_derived_index_after_commit": True,
+            "derived_index_contract": "WritingOutlineThreadIndex",
+            "derived_index_fields": ["outline_thread_refs", "active_outline_thread_refs", "due_outline_thread_refs"],
+        }
+    return policy
+
+
+def _outline_thread_index_policy(node: NodeSpec) -> dict[str, Any]:
+    return {
+        "authority": "WritingOutlineThreadIndex",
+        "mode": "derived_from_committed_outline",
+        "source_outline_refs_required": True,
+        "source_outline_version_selector": "current_committed_outline_version",
+        "forbid_independent_thread_creation": True,
+        "forbid_plot_design_mutation": True,
+        "fields": ["outline_thread_refs", "active_outline_thread_refs", "due_outline_thread_refs"],
+        "status_values": ["planned", "active", "advanced", "paid_off", "deferred", "cancelled", "invalidated"],
+        "stale_policy": "regenerate_or_mark_stale_when_outline_version_changes",
+        "due_policy": "review_must_flag_due_threads_without_rewriting_outline",
+    }
+
+
 def _memory_read_policy(node: NodeSpec) -> dict[str, Any]:
     return {
         "mode": "memory_pack_required",
@@ -1826,6 +2114,15 @@ def _memory_read_policy(node: NodeSpec) -> dict[str, Any]:
         "prefer_canonical_text": True,
         "allow_artifact_text_expansion": True,
         "enabled": bool(node.memory_topics or node.readable_repositories),
+        "required_visibility": bool(node.memory_topics or node.readable_repositories),
+        "on_hidden": "fail_closed" if node.memory_topics or node.readable_repositories else "ignore",
+        "snapshot_contract": {
+            "packet_kind": "WritingMemorySnapshot",
+            "visible_to_agent_required": bool(node.memory_topics or node.readable_repositories),
+            "version_selector": "latest_committed_before_stage_start",
+            "read_edge_ids_required": bool(node.readable_repositories),
+            "raw_conversation_history": "forbidden",
+        },
         "token_budget": 40000 if node.node_id in {"chapter_draft", "chapter_review", "volume_review", "final_assemble"} else 20000,
     }
 
@@ -1839,22 +2136,34 @@ def _dynamic_memory_read_policy(node: NodeSpec) -> dict[str, Any]:
         "summary_only": False,
         "prefer_canonical_text": True,
         "allow_artifact_text_expansion": True,
+        "max_dynamic_reads_per_node_run": 8 if node.node_id in {"chapter_draft", "chapter_review", "volume_review", "final_assemble"} else 4,
+        "max_temporal_neighbors": 2,
     }
 
 
 def _memory_write_policy(node: NodeSpec) -> dict[str, Any]:
+    is_commit = node.write_mode in COMMIT_WRITE_MODES
     return {
         "mode": node.write_mode,
         "access_model": "edge_based_repository_write",
         "memory_scope": "writing_modular_novel",
         "capture_artifact_refs": True,
+        "allowed_write_targets": _allowed_write_targets(node),
+        "source_review_required": bool(SOURCE_REVIEW_BY_COMMIT_NODE.get(node.node_id)) if is_commit else False,
+        "source_review_node_id": SOURCE_REVIEW_BY_COMMIT_NODE.get(node.node_id, ""),
+        "source_candidate_node_id": SOURCE_CANDIDATE_BY_COMMIT_NODE.get(node.node_id, ""),
+        "approved_slices_required": is_commit,
+        "commit_packet_schema": _commit_packet_schema(node) if is_commit else {},
         "writable_scopes": ["writing_modular_novel", "project_state", "node_scope"],
         "write_scope_guard": {
             "baseline_memory_mutable": node.write_mode == "baseline_commit",
-            "mutable_memory_mutable": node.write_mode in {"chapter_commit", "volume_commit", "dynamic_memory_commit", "finalize_commit"},
+            "mutable_memory_mutable": node.write_mode in MUTABLE_COMMIT_WRITE_MODES,
             "forbid_frozen_character_rewrite": True,
             "forbid_frozen_relationship_rewrite": True,
             "requires_outline_review_before_baseline": node.node_id == "baseline_memory_seed",
+            "review_verdict_required_before_commit": is_commit,
+            "forbid_unreviewed_candidate_commit": is_commit,
+            "on_guard_failure": "fail_closed",
         },
     }
 
@@ -1866,6 +2175,35 @@ def _review_gate_policy(node: NodeSpec) -> dict[str, Any]:
         "allowed_verdicts": ["pass", "pass_with_notes", "revise", "blocker_found", "reject", "fail_closed"],
         "revision_stage_id": node.review_revision_stage_id,
         "result_delivery_policy": "contract_payload_and_refs",
+        "approved_slice_schema": {
+            "packet_kind": "WritingReviewApprovedSlices",
+            "required_fields": [
+                "source_candidate_ref",
+                "approved_slices",
+                "conditional_notes",
+                "rejected_slices",
+                "must_not_commit_sections",
+                "artifact_refs",
+            ],
+            "verdicts_allowing_commit": ["pass", "pass_with_notes"],
+        },
+        "revision_packet_schema": {
+            "packet_kind": "WritingRevisionRequest",
+            "required_fields": [
+                "target_revision_stage_id",
+                "source_candidate_ref",
+                "blocking_issues",
+                "revision_requirements",
+                "affected_scope",
+                "artifact_refs",
+            ],
+            "required_when_verdicts": ["revise", "blocker_found", "reject", "fail_closed"],
+        },
+        "memory_write_permission": {
+            "allowed_write_targets": ["memory.writing.issue_ledger", "memory.writing.artifact_index"],
+            "forbid_baseline_write": True,
+            "forbid_mutable_write": True,
+        },
     }
 
 

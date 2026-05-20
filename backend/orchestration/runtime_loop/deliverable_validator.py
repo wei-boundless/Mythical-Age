@@ -57,6 +57,13 @@ def validate_deliverable(
             evidence_packet=dict(evidence_packet or {}),
             protocol_leak_detected=protocol_leak,
         )
+    if task_goal_type == "material_synthesis":
+        return _validate_material_synthesis(
+            final_answer=text,
+            semantic_contract=contract,
+            evidence_packet=dict(evidence_packet or {}),
+            protocol_leak_detected=protocol_leak,
+        )
     required = [str(item) for item in list(contract.get("deliverables") or []) if str(item).strip()]
     missing = [item for item in required if not _generic_deliverable_present(text, item)]
     if protocol_leak:
@@ -154,6 +161,37 @@ def _validate_artifact_delivery(
     )
 
 
+def _validate_material_synthesis(
+    *,
+    final_answer: str,
+    semantic_contract: dict[str, Any],
+    evidence_packet: dict[str, Any],
+    protocol_leak_detected: bool,
+) -> DeliverableValidationResult:
+    required = [str(item) for item in list(semantic_contract.get("deliverables") or []) if str(item).strip()]
+    facts = [dict(item) for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
+    checks = {
+        "material_findings": _contains_any(final_answer, ("治理", "库存", "材料", "发现", "风险")),
+        "cross_material_conclusions": _contains_any(final_answer, ("行动", "优先", "建议", "综合", "负责人")),
+        "limitations": _contains_any(final_answer, ("证据边界", "限制", "边界", "未", "仅基于")),
+    }
+    missing = [item for item in required if not checks.get(item, _generic_deliverable_present(final_answer, item))]
+    if protocol_leak_detected:
+        missing.append("protocol_boundary")
+    return DeliverableValidationResult(
+        passed=not missing,
+        task_goal_type="material_synthesis",
+        missing_deliverables=tuple(_dedupe(missing)),
+        protocol_leak_detected=protocol_leak_detected,
+        evidence_alignment={
+            "accepted": bool(facts),
+            "mode": "material_evidence",
+            "fact_count": len(facts),
+        },
+        diagnostics={"section_checks": checks},
+    )
+
+
 def _generic_deliverable_present(text: str, deliverable: str) -> bool:
     normalized = str(deliverable or "").lower()
     markers = {
@@ -161,6 +199,8 @@ def _generic_deliverable_present(text: str, deliverable: str) -> bool:
         "changed_files": ("文件", "changed file", "路径"),
         "verification_result_or_limitation": ("验证", "测试", "限制", "未运行"),
         "artifact_refs": ("产物", "文件", "artifact"),
+        "material_findings": ("治理", "库存", "材料", "发现", "风险"),
+        "cross_material_conclusions": ("行动", "优先", "建议", "综合", "负责人"),
         "limitations": ("limitations", "limitation", "限制", "边界", "不足"),
     }
     return _contains_any(text, markers.get(normalized, (normalized.replace("_", " "), normalized.replace("_", ""))))
