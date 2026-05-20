@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Database, GitBranch, Info, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, BrainCircuit, CheckCircle2, Database, GitBranch, Info, KeyRound, ShieldCheck, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -27,6 +27,24 @@ type RuntimeDraftLike = {
   allowed_delegate_agent_ids?: string[];
   max_delegate_calls_per_turn?: number;
   delegate_context_policy?: string;
+  model_profile?: {
+    profile_id?: string;
+    display_name?: string;
+    provider?: string;
+    model?: string;
+    credential_ref?: string;
+    max_output_tokens?: number | null;
+    timeout_seconds?: number | null;
+    long_output_timeout_seconds?: number | null;
+    max_retries?: number | null;
+    temperature?: number | null;
+    thinking_mode?: string;
+    reasoning_effort?: string;
+    stream_policy?: Record<string, unknown>;
+    fallback_profile_ref?: string;
+    capability_tags?: string[];
+    metadata?: Record<string, unknown>;
+  };
 };
 
 type AgentDraftLike = {
@@ -85,6 +103,161 @@ function statusLabel(status: CapabilityStatus) {
 
 function valueLabel(value: string, displayId: (value: unknown, fallback?: string) => string) {
   return displayId(value).replace(` · ${value}`, "");
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function numberOrNull(value: string) {
+  if (value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function OrchestrationModelRuntimeWorkbench({
+  runtimeDraft,
+  patchRuntimeDraft,
+  providerCatalog,
+}: {
+  runtimeDraft: RuntimeDraftLike;
+  patchRuntimeDraft: (patch: Partial<RuntimeDraftLike>) => void;
+  providerCatalog?: Record<string, unknown>;
+}) {
+  const modelProfile = runtimeDraft.model_profile ?? {};
+  const catalog = asRecord(providerCatalog);
+  const providers = asRecord(catalog.providers);
+  const providerEntries = Object.entries(providers).map(([provider, payload]) => ({ provider, payload: asRecord(payload) }));
+  const selectedProvider = String(modelProfile.provider || catalog.default_provider || "deepseek");
+  const selectedProviderPayload = asRecord(providers[selectedProvider]);
+  const providerModels = (Array.isArray(selectedProviderPayload.model_presets)
+    ? selectedProviderPayload.model_presets
+    : [selectedProviderPayload.default_model]).map((item) => String(item || "").trim()).filter(Boolean);
+  const providerEndpoint = String(
+    selectedProviderPayload.active
+      ? (catalog.default_base_url || selectedProviderPayload.default_base_url || "")
+      : (selectedProviderPayload.default_base_url || ""),
+  );
+  const capabilityText = dedupe(modelProfile.capability_tags ?? []).join(", ");
+  const credentialRef = String(modelProfile.credential_ref || selectedProviderPayload.credential_ref || `provider:${selectedProvider}:primary`);
+
+  function patchModelProfile(patch: Record<string, unknown>) {
+    patchRuntimeDraft({
+      model_profile: {
+        ...modelProfile,
+        ...patch,
+      },
+    });
+  }
+
+  return (
+    <section className="boundary-layer-grid boundary-layer-grid--wide">
+      <div className="boundary-card">
+        <header>
+          <strong>模型运行档案</strong>
+          <OrchestrationBadge tone={modelProfile.provider || modelProfile.model ? "ok" : "neutral"}>
+            {modelProfile.provider || modelProfile.model ? "Agent 覆盖" : "继承系统默认"}
+          </OrchestrationBadge>
+        </header>
+        <div className="orchestration-identity-note">
+          <span>模型配置属于 AgentRuntimeProfile。</span>
+          <strong>任务图节点只声明模型需求；API Key 只通过 credential_ref 解析。</strong>
+        </div>
+        <div className="boundary-form">
+          <OrchestrationField label="档案标识">
+            <input value={modelProfile.profile_id || ""} onChange={(event) => patchModelProfile({ profile_id: event.target.value })} placeholder="例如 writer_long_output" />
+          </OrchestrationField>
+          <OrchestrationField label="显示名">
+            <input value={modelProfile.display_name || ""} onChange={(event) => patchModelProfile({ display_name: event.target.value })} placeholder="长输出写作模型" />
+          </OrchestrationField>
+          <OrchestrationField label="Provider">
+            <select
+              value={selectedProvider}
+              onChange={(event) => {
+                const nextProvider = event.target.value;
+                const nextProviderPayload = asRecord(providers[nextProvider]);
+                patchModelProfile({
+                  provider: nextProvider,
+                  model: String(nextProviderPayload.default_model || ""),
+                  credential_ref: String(nextProviderPayload.credential_ref || `provider:${nextProvider}:primary`),
+                });
+              }}
+            >
+              {providerEntries.length ? providerEntries.map(({ provider, payload }) => (
+                <option key={provider} value={provider}>{String(payload.display_name || provider)}</option>
+              )) : <option value="deepseek">DeepSeek</option>}
+            </select>
+          </OrchestrationField>
+          <OrchestrationField label="模型">
+            <input
+              list="orchestration-model-runtime-presets"
+              value={modelProfile.model || ""}
+              onChange={(event) => patchModelProfile({ model: event.target.value })}
+              placeholder={String(selectedProviderPayload.default_model || "继承系统默认")}
+            />
+            <datalist id="orchestration-model-runtime-presets">
+              {providerModels.map((model) => <option key={model} value={model} />)}
+            </datalist>
+          </OrchestrationField>
+          <OrchestrationField label="凭据引用">
+            <input value={credentialRef} onChange={(event) => patchModelProfile({ credential_ref: event.target.value })} />
+          </OrchestrationField>
+          <OrchestrationField label="最大输出 tokens">
+            <input min={1} type="number" value={modelProfile.max_output_tokens ?? ""} onChange={(event) => patchModelProfile({ max_output_tokens: numberOrNull(event.target.value) })} placeholder="继承系统默认" />
+          </OrchestrationField>
+          <OrchestrationField label="普通超时秒">
+            <input min={1} type="number" value={modelProfile.timeout_seconds ?? ""} onChange={(event) => patchModelProfile({ timeout_seconds: numberOrNull(event.target.value) })} placeholder="继承系统默认" />
+          </OrchestrationField>
+          <OrchestrationField label="长输出超时秒">
+            <input min={1} type="number" value={modelProfile.long_output_timeout_seconds ?? ""} onChange={(event) => patchModelProfile({ long_output_timeout_seconds: numberOrNull(event.target.value) })} placeholder="继承系统默认" />
+          </OrchestrationField>
+          <OrchestrationField label="最大重试">
+            <input min={0} type="number" value={modelProfile.max_retries ?? ""} onChange={(event) => patchModelProfile({ max_retries: numberOrNull(event.target.value) })} placeholder="继承系统默认" />
+          </OrchestrationField>
+          <OrchestrationField label="温度">
+            <input min={0} max={2} step={0.1} type="number" value={modelProfile.temperature ?? ""} onChange={(event) => patchModelProfile({ temperature: numberOrNull(event.target.value) })} placeholder="0" />
+          </OrchestrationField>
+          <OrchestrationField label="Thinking 模式">
+            <select value={modelProfile.thinking_mode || ""} onChange={(event) => patchModelProfile({ thinking_mode: event.target.value })}>
+              <option value="">继承系统默认</option>
+              <option value="disabled">disabled</option>
+              <option value="enabled">enabled</option>
+            </select>
+          </OrchestrationField>
+          <OrchestrationField label="推理强度">
+            <select value={modelProfile.reasoning_effort || ""} onChange={(event) => patchModelProfile({ reasoning_effort: event.target.value })}>
+              <option value="">继承系统默认</option>
+              <option value="high">high</option>
+              <option value="max">max</option>
+            </select>
+          </OrchestrationField>
+          <OrchestrationField label="能力标签" wide>
+            <input
+              value={capabilityText}
+              onChange={(event) => patchModelProfile({ capability_tags: dedupe(event.target.value.split(/[,，\n]/)) })}
+              placeholder="long_output, reasoning, creative_generation"
+            />
+          </OrchestrationField>
+        </div>
+      </div>
+      <aside className="boundary-card">
+        <header><strong>解析预览</strong></header>
+        <div className="boundary-readiness-list boundary-readiness-list--grid">
+          <OrchestrationReadinessCard label="Provider" ready={Boolean(modelProfile.provider)} value={modelProfile.provider || String(catalog.default_provider || "系统默认")} />
+          <OrchestrationReadinessCard label="模型" ready={Boolean(modelProfile.model)} value={modelProfile.model || String(catalog.default_model || "系统默认")} />
+          <OrchestrationReadinessCard label="凭据" ready={Boolean(selectedProviderPayload.credential_configured) || selectedProvider === "ollama"} value={credentialRef} />
+          <OrchestrationReadinessCard label="输出上限" ready={Boolean(modelProfile.max_output_tokens)} value={modelProfile.max_output_tokens ? `${modelProfile.max_output_tokens}` : "继承系统默认"} />
+        </div>
+        <div className="boundary-kv">
+          <p><span>适配器</span><strong>{String(selectedProviderPayload.adapter || "openai_compatible")}</strong></p>
+          <p><span>Base URL 来源</span><strong>{providerEndpoint || "系统配置 / Provider 预设"}</strong></p>
+          <p><span>推荐默认</span><strong>{String(catalog.recommended_provider || "deepseek")}</strong></p>
+          <p><span>密钥策略</span><strong><KeyRound size={13} /> credential_ref only</strong></p>
+          <p><span>作用范围</span><strong><BrainCircuit size={13} /> 当前 Agent 执行调用</strong></p>
+        </div>
+      </aside>
+    </section>
+  );
 }
 
 export function OrchestrationRuntimePermissionWorkbench({
@@ -651,6 +824,7 @@ export function OrchestrationAssemblyOverviewWorkbench({
   memorySummary,
   contextSummary,
   collaborationSummary,
+  modelSummary,
   openLayer,
 }: {
   agentDraft: AgentDraftLike;
@@ -660,12 +834,14 @@ export function OrchestrationAssemblyOverviewWorkbench({
   memorySummary: string;
   contextSummary: string;
   collaborationSummary: string;
-  openLayer: (layer: "identity" | "runtime_permissions" | "context_memory" | "collaboration" | "diagnostics") => void;
+  modelSummary: string;
+  openLayer: (layer: "identity" | "runtime_permissions" | "model_runtime" | "context_memory" | "collaboration" | "diagnostics") => void;
 }) {
   const cards = [
     { label: "Agent 身份", value: agentDraft.agent_name || agentDraft.agent_id || "未配置", ready: Boolean(agentDraft.agent_id && agentDraft.agent_name), layer: "identity" as const },
     { label: "运行场景", value: runtimeSummary, ready: Boolean((runtimeDraft.allowed_runtime_lanes ?? []).length), layer: "runtime_permissions" as const },
     { label: "运行操作", value: operationSummary, ready: Boolean((runtimeDraft.allowed_operations ?? []).length), layer: "runtime_permissions" as const },
+    { label: "模型运行", value: modelSummary, ready: true, layer: "model_runtime" as const },
     { label: "记忆边界", value: memorySummary, ready: Boolean((runtimeDraft.allowed_memory_scopes ?? []).length), layer: "context_memory" as const },
     { label: "上下文段", value: contextSummary, ready: Boolean((runtimeDraft.allowed_context_sections ?? []).length), layer: "context_memory" as const },
     { label: "协作资格", value: collaborationSummary, ready: true, layer: "collaboration" as const },
@@ -693,6 +869,7 @@ export function OrchestrationAssemblyOverviewWorkbench({
         <div className="boundary-kv">
           <p><span>身份</span><strong>AgentRegistry / AgentDescriptor</strong></p>
           <p><span>运行权限</span><strong>AgentRuntimeProfile</strong></p>
+          <p><span>模型运行</span><strong>AgentRuntimeProfile.model_profile</strong></p>
           <p><span>场景目录</span><strong>RuntimeLaneRegistry</strong></p>
           <p><span>最终执行</span><strong>ResourcePolicy / OperationGate</strong></p>
         </div>
@@ -706,11 +883,13 @@ export function OrchestrationDiagnosticsWorkbench({
   overlapOps,
   runtimeLaneDiagnostics,
   capabilityItemsCount,
+  runtimeDraft,
 }: {
   eligibilityChecks: Array<{ label: string; value: string; ready: boolean }>;
   overlapOps: string[];
   runtimeLaneDiagnostics?: Record<string, unknown>;
   capabilityItemsCount: number;
+  runtimeDraft?: RuntimeDraftLike;
 }) {
   const profileUnregistered = Array.isArray(runtimeLaneDiagnostics?.profile_unregistered_lanes)
     ? runtimeLaneDiagnostics?.profile_unregistered_lanes as string[]
@@ -718,6 +897,9 @@ export function OrchestrationDiagnosticsWorkbench({
   const taskGraphUnregistered = Array.isArray(runtimeLaneDiagnostics?.task_graph_unregistered_lanes)
     ? runtimeLaneDiagnostics?.task_graph_unregistered_lanes as string[]
     : [];
+  const modelProfile = runtimeDraft?.model_profile ?? {};
+  const modelHasRawSecret = Object.keys(modelProfile).some((key) => key.toLowerCase().includes("api_key") || key.toLowerCase().includes("secret"));
+  const modelMode = modelProfile.provider || modelProfile.model ? "Agent 覆盖" : "继承默认";
 
   return (
     <section className="boundary-layer-grid boundary-layer-grid--wide">
@@ -731,8 +913,10 @@ export function OrchestrationDiagnosticsWorkbench({
         <div className="boundary-readiness-list boundary-readiness-list--grid">
           {eligibilityChecks.map((item) => <OrchestrationReadinessCard key={item.label} {...item} />)}
           <OrchestrationReadinessCard label="能力目录" ready={capabilityItemsCount > 0} value={capabilityItemsCount > 0 ? `${capabilityItemsCount} 项` : "未加载"} />
+          <OrchestrationReadinessCard label="模型档案" ready={!modelHasRawSecret} value={modelHasRawSecret ? "包含敏感字段" : modelMode} />
         </div>
         {overlapOps.length ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />允许和阻断操作冲突：{overlapOps.join(" / ")}</div> : null}
+        {modelHasRawSecret ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />模型档案不能保存 API Key 或 secret；请使用 credential_ref。</div> : null}
       </div>
       <aside className="boundary-card">
         <header><strong>运行场景注册诊断</strong></header>

@@ -576,7 +576,7 @@ def _build_bounded_pdf_task(
     elif signals.bound_pdf_path:
         parameters["path"] = signals.bound_pdf_path
         reasons.append("bound_pdf_followup")
-        if mode == "document" and signals.bound_pdf_mode:
+        if mode == "document" and signals.bound_pdf_mode and not _looks_like_pdf_document_scope_request(message.lower()):
             parameters["mode"] = signals.bound_pdf_mode
     direct_route_reason = (
         "explicit_pdf_anchor"
@@ -1370,6 +1370,30 @@ def _looks_like_pdf_followup_request(lowered: str) -> bool:
         "展开一下",
     )
     return _contains_any(lowered, pdf_markers) or bool(PAGE_REFERENCE_PATTERN.search(lowered)) or bool(SECTION_REFERENCE_PATTERN.search(lowered))
+
+
+def _looks_like_pdf_document_scope_request(lowered: str) -> bool:
+    if not lowered.strip():
+        return False
+    if PAGE_REFERENCE_PATTERN.search(lowered) or SECTION_REFERENCE_PATTERN.search(lowered):
+        return False
+    if _contains_any(lowered, ("这一页", "那一页", "这几页", "第几页", "第三页", "第四页", "第二部分")):
+        return False
+    return _contains_any(
+        lowered,
+        (
+            "这份 pdf",
+            "这个 pdf",
+            "这份报告",
+            "这个报告",
+            "整份",
+            "全文",
+            "整体",
+            "核心结论",
+            "结论",
+            "行动建议",
+        ),
+    )
 
 
 def _looks_like_bundle_followup_request(lowered: str) -> bool:

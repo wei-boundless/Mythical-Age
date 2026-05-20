@@ -14,6 +14,7 @@ from orchestration.agent_identity import normalize_agent_id
 from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration.delegation_protocol import default_expected_output_contract
+from orchestration.model_profile_resolver import ModelProfileResolver
 from soul.projection_store import get_projection_card
 
 from .child_agent_runtime_executor import ChildAgentRuntimeExecutor
@@ -391,19 +392,41 @@ class AgentDelegationExecutor:
             {"role": "system", "content": str(context.get("system_prompt") or "")},
             {"role": "user", "content": str(context.get("user_message") or "")},
         ]
+        resolved_model_spec = None
+        model_resolution: dict[str, Any] = {}
+        settings_service = getattr(invoker_owner, "settings_service", None)
+        if settings_service is not None:
+            runtime_profile_payload = dict(context.get("runtime_profile") or {})
+            runtime_profile = self.runtime_registry.get_profile(str(runtime_profile_payload.get("agent_id") or request.target_agent_id))
+            runtime_lane = (
+                str(runtime_profile_payload.get("runtime_lane") or "").strip()
+                or (
+                    str(runtime_profile.allowed_runtime_lanes[0])
+                    if runtime_profile is not None and runtime_profile.allowed_runtime_lanes
+                    else ""
+                )
+            )
+            resolved_model_spec = ModelProfileResolver(settings_service).resolve_model_spec(
+                agent_runtime_profile=runtime_profile,
+                model_requirement=dict(dict(request.input_payload or {}).get("model_requirement") or {}),
+                runtime_lane=runtime_lane,
+            )
+            model_resolution = resolved_model_spec.to_public_dict()
         try:
-            response = await invoker(messages)
+            response = await invoker(messages, model_spec=resolved_model_spec) if resolved_model_spec is not None else await invoker(messages)
         except Exception as exc:
             return {
                 "status": "failed",
                 "summary": "子 Agent 执行失败。",
                 "limitations": [str(exc) or exc.__class__.__name__],
+                "diagnostics": {"model_resolution": model_resolution} if model_resolution else {},
             }
         return {
             "status": "completed",
             "summary": stringify_content(getattr(response, "content", response)).strip() or "子 Agent 未返回有效摘要。",
             "answer_candidate": stringify_content(getattr(response, "content", response)).strip(),
             "confidence": "unknown",
+            "diagnostics": {"model_resolution": model_resolution} if model_resolution else {},
         }
 
     def normalize_child_output(

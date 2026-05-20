@@ -499,3 +499,59 @@ def test_model_runtime_reads_long_output_settings_dynamically() -> None:
     assert runtime.long_output_timeout_seconds == 360
     assert runtime.model_call_timeout_seconds == 360
     assert runtime.thinking_mode == "enabled"
+
+
+def test_model_runtime_per_call_override_controls_deepseek_parameters() -> None:
+    runtime = _runtime(
+        retries=1,
+        timeout=45,
+        max_output_tokens=32768,
+        long_output_timeout_seconds=180,
+        thinking_mode="enabled",
+        reasoning_effort="max",
+    )
+    model = runtime._build_chat_model_for_spec(
+        ModelSpec(
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            api_key="deepseek-key",
+            base_url="https://api.deepseek.com/v1",
+            max_output_tokens=65536,
+            timeout_seconds=30,
+            long_output_timeout_seconds=420,
+            max_retries=0,
+            thinking_mode="disabled",
+            reasoning_effort="high",
+            temperature=0.7,
+        )
+    )
+
+    assert model.max_tokens == 65536
+    assert model.request_timeout == 420
+    assert model.max_retries == 0
+    assert model.temperature == 0.7
+    assert model.reasoning_effort is None
+    assert model.extra_body == {"thinking": {"type": "disabled"}}
+
+
+def test_model_runtime_per_call_override_bypasses_fallback_candidates() -> None:
+    runtime = _runtime(
+        fallback_provider="bailian",
+        fallback_model="qwen3.5-plus",
+        fallback_api_key="bailian-key",
+        fallback_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+    )
+
+    specs = runtime._candidate_specs(
+        model_spec=ModelSpec(
+            provider="deepseek",
+            model="deepseek-v4-pro",
+            api_key="deepseek-key",
+            base_url="https://api.deepseek.com/v1",
+            max_output_tokens=65536,
+        )
+    )
+
+    assert [(spec.provider, spec.model, spec.max_output_tokens) for spec in specs] == [
+        ("deepseek", "deepseek-v4-pro", 65536)
+    ]

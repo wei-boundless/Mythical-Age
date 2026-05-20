@@ -13,7 +13,7 @@
       "path_extensions": ["xlsx", "csv", "xls", "json", "parquet"],
       "task_kinds": ["structured_data"],
       "capability_kinds": ["structured_data", "dataset_analysis"],
-      "compatible_markers": ["数据", "表", "表格", "全表", "员工", "这些人", "这些员工", "前五", "前五名", "部门", "按部门", "仓库", "缺货", "薪资", "xlsx", "csv"],
+      "compatible_markers": ["数据", "表", "表格", "全表", "员工", "这些人", "这些员工", "前五", "前五名", "部门", "按部门", "仓库", "库存", "缺口", "缺货", "薪资", "xlsx", "csv"],
       "subset_markers": ["只基于", "刚才这", "这前五", "这些人", "这些员工", "不要扩展", "不要回到全表", "不要全表", "不要重算"],
       "conflict_markers": ["pdf", "报告", "第几页", "第三页", "第四页", "这一页", "第二部分"],
       "handle_prefixes": ["result:structured", "subset:selection", "subset:structured"],

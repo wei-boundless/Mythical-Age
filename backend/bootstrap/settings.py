@@ -168,24 +168,23 @@ class AppSettingsService:
         }
 
     def model_provider_payload(self) -> dict[str, Any]:
+        from orchestration.model_profile_resolver import build_provider_catalog
+
         settings = self.static
+        provider_catalog = build_provider_catalog(self)
         return {
             "provider": settings.llm_provider,
             "model": settings.llm_model,
             "base_url": settings.llm_base_url,
+            "credential_ref": f"provider:{settings.llm_provider}:primary",
             "api_key_configured": bool(settings.llm_api_key),
             "fallback_provider": settings.llm_fallback_provider or "",
             "fallback_model": settings.llm_fallback_model or "",
             "fallback_base_url": settings.llm_fallback_base_url or "",
+            "fallback_credential_ref": f"provider:{settings.llm_fallback_provider}:fallback" if settings.llm_fallback_provider else "",
             "fallback_api_key_configured": bool(settings.llm_fallback_api_key),
-            "supported_providers": {
-                key: {
-                    "provider": key,
-                    "default_model": value["model"],
-                    "default_base_url": value["base_url"],
-                }
-                for key, value in LLM_PROVIDER_DEFAULTS.items()
-            },
+            "supported_providers": provider_catalog["providers"],
+            "provider_catalog": provider_catalog,
             "authority": "runtime.model_provider",
         }
 
@@ -299,8 +298,8 @@ class AppSettingsService:
 
         model_group = {
             "group_id": "model",
-            "title": "模型 Provider",
-            "description": "控制主模型和备用模型；备用模型只在主模型失败或运行时触发降级时使用。",
+            "title": "系统默认模型与凭据底座",
+            "description": "控制系统默认模型、接入端点、密钥和备用模型；Agent 可以在编排系统中覆盖模型运行档案。",
             "status": f"{settings.llm_provider} / {settings.llm_model}"
             + (f" -> {settings.llm_fallback_provider} / {settings.llm_fallback_model}" if settings.llm_fallback_provider else ""),
             "fields": [
@@ -311,7 +310,7 @@ class AppSettingsService:
                     "value": settings.llm_provider,
                     "options": list(LLM_PROVIDER_DEFAULTS.keys()),
                     "source": "runtime_override" if "provider" in model_overrides else "env_or_default",
-                    "description": "主模型服务商。",
+                    "description": "系统默认模型服务商；Agent 未覆盖时继承这里。",
                     "restart_required": False,
                 },
                 {
@@ -320,7 +319,7 @@ class AppSettingsService:
                     "type": "text",
                     "value": settings.llm_model,
                     "source": "runtime_override" if "model" in model_overrides else "env_or_default",
-                    "description": "主模型名称。",
+                    "description": "系统默认模型名称；DeepSeek 为当前推荐底座。",
                     "restart_required": False,
                 },
                 {
@@ -329,7 +328,7 @@ class AppSettingsService:
                     "type": "text",
                     "value": settings.llm_base_url,
                     "source": "runtime_override" if "base_url" in model_overrides else "env_or_default",
-                    "description": "OpenAI-compatible endpoint。",
+                    "description": "供应商 API 接入地址；Agent 不单独配置这个地址。",
                     "restart_required": False,
                 },
                 {
@@ -338,7 +337,7 @@ class AppSettingsService:
                     "type": "secret",
                     "configured": bool(settings.llm_api_key),
                     "source": "runtime_override" if "api_key" in model_overrides else "env_or_default",
-                    "description": "留空保存会保留已有密钥。",
+                    "description": "留空保存会保留已有密钥；Agent 只会引用这份主模型密钥。",
                     "restart_required": False,
                 },
                 {
@@ -381,6 +380,8 @@ class AppSettingsService:
             ],
             "metadata": {
                 "supported_providers": model_payload["supported_providers"],
+                "provider_catalog": model_payload["provider_catalog"],
+                "credential_refs": model_payload["provider_catalog"]["credential_refs"],
             },
         }
 

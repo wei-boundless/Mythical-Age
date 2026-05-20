@@ -19,6 +19,7 @@ from bootstrap.settings import AppSettingsService
 
 if TYPE_CHECKING:
     from agents.models import AgentDefinition
+    from orchestration.model_profile_models import ResolvedModelSpec
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,15 @@ class ModelSpec:
     model: str
     api_key: str | None
     base_url: str
+    max_output_tokens: int | None = None
+    timeout_seconds: float | None = None
+    long_output_timeout_seconds: float | None = None
+    max_retries: int | None = None
+    temperature: float | None = None
+    thinking_mode: str | None = None
+    reasoning_effort: str | None = None
+    stream_policy: dict[str, Any] | None = None
+    diagnostics: dict[str, Any] | None = None
 
 
 class ModelRuntimeError(RuntimeError):
@@ -125,6 +135,7 @@ class RuntimeConversationAgent:
             agent_definition=self.agent_definition,
             payload=payload,
             stream_mode=stream_mode,
+            model_spec=None,
         ):
             yield item
 
@@ -189,27 +200,27 @@ class ModelRuntime:
             agent_definition=agent_definition,
         )
 
-    async def invoke_messages(self, messages: list[dict[str, str]]) -> Any:
+    async def invoke_messages(self, messages: list[dict[str, str]], *, model_spec: ModelSpec | "ResolvedModelSpec" | None = None) -> Any:
         last_error: ModelRuntimeError | None = None
-        candidates = self._candidate_specs()
+        candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
-            for attempt in range(1, self.max_retries + 2):
+            for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 model = self._build_chat_model_for_spec(spec)
                 try:
                     return await asyncio.wait_for(
                         model.ainvoke(messages),
-                        timeout=self.model_call_timeout_seconds,
+                        timeout=self._model_call_timeout_seconds_for_spec(spec),
                     )
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
                     last_error = self._map_error(exc, spec)
-                    if attempt <= self.max_retries and last_error.retryable:
+                    if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
                         logger.warning(
                             "Retrying model invoke after %s (%s/%s): %s",
                             last_error.code,
                             attempt,
-                            self.max_retries,
+                            self._max_retries_for_spec(spec),
                             last_error.detail,
                         )
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
@@ -231,28 +242,28 @@ class ModelRuntime:
             raise last_error
         raise RuntimeError("No model candidates available")
 
-    async def invoke_messages_with_tools(self, messages: list[Any], tools: list[Any]) -> Any:
+    async def invoke_messages_with_tools(self, messages: list[Any], tools: list[Any], *, model_spec: ModelSpec | "ResolvedModelSpec" | None = None) -> Any:
         last_error: ModelRuntimeError | None = None
-        candidates = self._candidate_specs()
+        candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
-            for attempt in range(1, self.max_retries + 2):
+            for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 model = self._build_chat_model_for_spec(spec)
                 try:
                     bound_model = model.bind_tools(tools) if tools else model
                     return await asyncio.wait_for(
                         bound_model.ainvoke(messages),
-                        timeout=self.model_call_timeout_seconds,
+                        timeout=self._model_call_timeout_seconds_for_spec(spec),
                     )
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
                     last_error = self._map_error(exc, spec)
-                    if attempt <= self.max_retries and last_error.retryable:
+                    if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
                         logger.warning(
                             "Retrying tool-enabled model invoke after %s (%s/%s): %s",
                             last_error.code,
                             attempt,
-                            self.max_retries,
+                            self._max_retries_for_spec(spec),
                             last_error.detail,
                         )
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
@@ -274,16 +285,16 @@ class ModelRuntime:
             raise last_error
         raise RuntimeError("No model candidates available")
 
-    async def astream_messages(self, messages: list[Any]):
+    async def astream_messages(self, messages: list[Any], *, model_spec: ModelSpec | "ResolvedModelSpec" | None = None):
         last_error: ModelRuntimeError | None = None
-        candidates = self._candidate_specs()
+        candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
-            for attempt in range(1, self.max_retries + 2):
+            for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
                 model = self._build_chat_model_for_spec(spec)
                 try:
                     stream = model.astream(messages)
-                    async for chunk in self._iterate_with_timeout(stream):
+                    async for chunk in self._iterate_with_timeout(stream, spec=spec):
                         emitted = True
                         yield chunk
                     return
@@ -293,12 +304,12 @@ class ModelRuntime:
                     last_error = self._map_error(exc, spec)
                     if emitted:
                         raise last_error from exc
-                    if attempt <= self.max_retries and last_error.retryable:
+                    if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
                         logger.warning(
                             "Retrying model stream after %s (%s/%s): %s",
                             last_error.code,
                             attempt,
-                            self.max_retries,
+                            self._max_retries_for_spec(spec),
                             last_error.detail,
                         )
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
@@ -320,17 +331,17 @@ class ModelRuntime:
             raise last_error
         raise RuntimeError("No model candidates available")
 
-    async def astream_messages_with_tools(self, messages: list[Any], tools: list[Any]):
+    async def astream_messages_with_tools(self, messages: list[Any], tools: list[Any], *, model_spec: ModelSpec | "ResolvedModelSpec" | None = None):
         last_error: ModelRuntimeError | None = None
-        candidates = self._candidate_specs()
+        candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
-            for attempt in range(1, self.max_retries + 2):
+            for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
                 model = self._build_chat_model_for_spec(spec)
                 try:
                     bound_model = model.bind_tools(tools) if tools else model
                     stream = bound_model.astream(messages)
-                    async for chunk in self._iterate_with_timeout(stream):
+                    async for chunk in self._iterate_with_timeout(stream, spec=spec):
                         emitted = True
                         yield chunk
                     return
@@ -340,12 +351,12 @@ class ModelRuntime:
                     last_error = self._map_error(exc, spec)
                     if emitted:
                         raise last_error from exc
-                    if attempt <= self.max_retries and last_error.retryable:
+                    if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
                         logger.warning(
                             "Retrying tool-enabled model stream after %s (%s/%s): %s",
                             last_error.code,
                             attempt,
-                            self.max_retries,
+                            self._max_retries_for_spec(spec),
                             last_error.detail,
                         )
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
@@ -375,11 +386,12 @@ class ModelRuntime:
         agent_definition: AgentDefinition,
         payload: dict[str, Any],
         stream_mode: list[str],
+        model_spec: ModelSpec | "ResolvedModelSpec" | None = None,
     ):
         last_error: ModelRuntimeError | None = None
-        candidates = self._candidate_specs()
+        candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
-            for attempt in range(1, self.max_retries + 2):
+            for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 emitted = False
                 model = self._build_chat_model_for_spec(spec)
                 agent = self._create_raw_agent(
@@ -390,7 +402,7 @@ class ModelRuntime:
                 )
                 try:
                     stream = agent.astream(payload, stream_mode=stream_mode)
-                    async for item in self._iterate_with_timeout(stream):
+                    async for item in self._iterate_with_timeout(stream, spec=spec):
                         emitted = True
                         yield item
                     return
@@ -400,12 +412,12 @@ class ModelRuntime:
                     last_error = self._map_error(exc, spec)
                     if emitted:
                         raise last_error from exc
-                    if attempt <= self.max_retries and last_error.retryable:
+                    if attempt <= self._max_retries_for_spec(spec) and last_error.retryable:
                         logger.warning(
                             "Retrying model stream after %s (%s/%s): %s",
                             last_error.code,
                             attempt,
-                            self.max_retries,
+                            self._max_retries_for_spec(spec),
                             last_error.detail,
                         )
                         await asyncio.sleep(min(0.5, 0.1 * attempt))
@@ -473,7 +485,9 @@ class ModelRuntime:
         except Exception:
             return transcript[:500]
 
-    def _candidate_specs(self) -> list[ModelSpec]:
+    def _candidate_specs(self, *, model_spec: ModelSpec | "ResolvedModelSpec" | None = None) -> list[ModelSpec]:
+        if model_spec is not None:
+            return [self._model_spec_from_override(model_spec)]
         settings = self.settings_service.static
         primary = ModelSpec(
             provider=settings.llm_provider,
@@ -507,13 +521,15 @@ class ModelRuntime:
         return deduped
 
     def _build_chat_model_for_spec(self, spec: ModelSpec):
-        timeout_seconds = self.model_call_timeout_seconds
+        timeout_seconds = self._model_call_timeout_seconds_for_spec(spec)
+        max_output_tokens = self._max_output_tokens_for_spec(spec)
+        temperature = self._temperature_for_spec(spec)
         if spec.provider == "deepseek":
             if ChatDeepSeek is None:
                 raise RuntimeError("langchain-deepseek is not installed")
             if not spec.api_key:
                 raise RuntimeError("Missing API key for provider deepseek")
-            thinking_enabled = self.thinking_mode == "enabled"
+            thinking_enabled = self._thinking_mode_for_spec(spec) == "enabled"
             extra_body: dict[str, Any] = {
                 "thinking": {
                     "type": "enabled" if thinking_enabled else "disabled"
@@ -523,14 +539,14 @@ class ModelRuntime:
                 "model": spec.model,
                 "api_key": spec.api_key,
                 "base_url": spec.base_url,
-                "temperature": 0,
+                "temperature": temperature,
                 "timeout": timeout_seconds,
                 "max_retries": 0,
-                "max_tokens": self.max_output_tokens,
+                "max_tokens": max_output_tokens,
                 "extra_body": extra_body,
             }
             if thinking_enabled:
-                model_kwargs["reasoning_effort"] = self.reasoning_effort
+                model_kwargs["reasoning_effort"] = self._reasoning_effort_for_spec(spec)
             return _DeepSeekReasoningCompatChatModel(**model_kwargs)
 
         if not spec.api_key:
@@ -540,10 +556,10 @@ class ModelRuntime:
             model=spec.model,
             api_key=spec.api_key,
             base_url=spec.base_url,
-            temperature=0,
+            temperature=temperature,
             timeout=timeout_seconds,
             max_retries=0,
-            max_completion_tokens=self.max_output_tokens,
+            max_completion_tokens=max_output_tokens,
         )
 
     def _create_raw_agent(
@@ -581,16 +597,75 @@ class ModelRuntime:
             except Exception:
                 logger.debug("Failed to close model runtime client", exc_info=True)
 
-    async def _iterate_with_timeout(self, stream):
+    async def _iterate_with_timeout(self, stream, *, spec: ModelSpec | None = None):
         while True:
             try:
                 item = await asyncio.wait_for(
                     stream.__anext__(),
-                    timeout=self.model_call_timeout_seconds,
+                    timeout=self._model_call_timeout_seconds_for_spec(spec) if spec is not None else self.model_call_timeout_seconds,
                 )
             except StopAsyncIteration:
                 return
             yield item
+
+    def _model_spec_from_override(self, override: ModelSpec | "ResolvedModelSpec") -> ModelSpec:
+        if isinstance(override, ModelSpec):
+            return override
+        return ModelSpec(
+            provider=str(getattr(override, "provider", "") or "").strip(),
+            model=str(getattr(override, "model", "") or "").strip(),
+            api_key=getattr(override, "api_key", None),
+            base_url=str(getattr(override, "base_url", "") or "").strip(),
+            max_output_tokens=getattr(override, "max_output_tokens", None),
+            timeout_seconds=getattr(override, "timeout_seconds", None),
+            long_output_timeout_seconds=getattr(override, "long_output_timeout_seconds", None),
+            max_retries=getattr(override, "max_retries", None),
+            temperature=getattr(override, "temperature", None),
+            thinking_mode=getattr(override, "thinking_mode", None),
+            reasoning_effort=getattr(override, "reasoning_effort", None),
+            stream_policy=dict(getattr(override, "stream_policy", {}) or {}),
+            diagnostics=dict(getattr(override, "diagnostics", {}) or {}),
+        )
+
+    def _max_output_tokens_for_spec(self, spec: ModelSpec) -> int:
+        if spec.max_output_tokens is not None:
+            return max(1, int(spec.max_output_tokens or 1))
+        return self.max_output_tokens
+
+    def _timeout_seconds_for_spec(self, spec: ModelSpec) -> float:
+        if spec.timeout_seconds is not None:
+            return max(0.01, float(spec.timeout_seconds or 0.01))
+        return self.request_timeout_seconds
+
+    def _long_output_timeout_seconds_for_spec(self, spec: ModelSpec) -> float:
+        timeout = self._timeout_seconds_for_spec(spec)
+        if spec.long_output_timeout_seconds is not None:
+            return max(timeout, float(spec.long_output_timeout_seconds or timeout))
+        return max(timeout, self.long_output_timeout_seconds)
+
+    def _model_call_timeout_seconds_for_spec(self, spec: ModelSpec) -> float:
+        if self._max_output_tokens_for_spec(spec) >= 16384:
+            return self._long_output_timeout_seconds_for_spec(spec)
+        return self._timeout_seconds_for_spec(spec)
+
+    def _max_retries_for_spec(self, spec: ModelSpec) -> int:
+        if spec.max_retries is not None:
+            return max(0, int(spec.max_retries or 0))
+        return self.max_retries
+
+    def _temperature_for_spec(self, spec: ModelSpec) -> float:
+        if spec.temperature is None:
+            return 0.0
+        try:
+            return float(spec.temperature)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _thinking_mode_for_spec(self, spec: ModelSpec) -> str:
+        return str(spec.thinking_mode or self.thinking_mode or "disabled").strip().lower()
+
+    def _reasoning_effort_for_spec(self, spec: ModelSpec) -> str:
+        return str(spec.reasoning_effort or self.reasoning_effort or "high").strip().lower()
 
     def _map_error(self, exc: Exception, spec: ModelSpec) -> ModelRuntimeError:
         if isinstance(exc, ModelRuntimeError):

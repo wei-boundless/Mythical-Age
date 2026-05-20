@@ -11,22 +11,108 @@ from typing import Any
 from dotenv import load_dotenv
 from project_layout import ProjectLayout
 
-LLM_PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
-    "zhipu": {
-        "model": "glm-5",
-        "base_url": "https://open.bigmodel.cn/api/paas/v4/",
-    },
-    "bailian": {
-        "model": "qwen3.5-plus",
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    },
+LLM_PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     "deepseek": {
-        "model": "deepseek-chat",
-        "base_url": "https://api.deepseek.com",
+        "display_name": "DeepSeek",
+        "model": "deepseek-v4-pro",
+        "base_url": "https://api.deepseek.com/v1",
+        "adapter": "deepseek_langchain",
+        "credential_envs": ("DEEPSEEK_API_KEY", "LLM_API_KEY"),
+        "model_presets": ("deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat"),
+        "capability_tags": ("long_output", "reasoning", "openai_compatible", "tool_calling"),
+        "recommended": True,
     },
     "openai": {
+        "display_name": "OpenAI",
         "model": "gpt-4.1-mini",
         "base_url": "https://api.openai.com/v1",
+        "adapter": "openai_compatible",
+        "credential_envs": ("OPENAI_API_KEY", "LLM_API_KEY"),
+        "model_presets": ("gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"),
+        "capability_tags": ("reasoning", "openai_compatible", "tool_calling"),
+    },
+    "openrouter": {
+        "display_name": "OpenRouter",
+        "model": "openai/gpt-4.1-mini",
+        "base_url": "https://openrouter.ai/api/v1",
+        "adapter": "openai_compatible",
+        "credential_envs": ("OPENROUTER_API_KEY",),
+        "model_presets": ("openai/gpt-4.1-mini", "anthropic/claude-sonnet-4", "google/gemini-2.5-pro"),
+        "capability_tags": ("model_gateway", "openai_compatible"),
+    },
+    "anthropic": {
+        "display_name": "Anthropic",
+        "model": "claude-sonnet-4",
+        "base_url": "https://api.anthropic.com/v1",
+        "adapter": "openai_compatible",
+        "credential_envs": ("ANTHROPIC_API_KEY",),
+        "model_presets": ("claude-sonnet-4", "claude-opus-4", "claude-haiku-3.5"),
+        "capability_tags": ("reasoning", "long_context"),
+        "metadata": {"native_adapter_pending": True},
+    },
+    "google": {
+        "display_name": "Google Gemini",
+        "model": "gemini-2.5-pro",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "adapter": "openai_compatible",
+        "credential_envs": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        "model_presets": ("gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-pro"),
+        "capability_tags": ("reasoning", "long_context", "openai_compatible"),
+    },
+    "bailian": {
+        "display_name": "阿里百炼 / Qwen",
+        "model": "qwen3.5-plus",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "adapter": "openai_compatible",
+        "credential_envs": ("BAILIAN_API_KEY", "DASHSCOPE_API_KEY", "LLM_API_KEY"),
+        "model_presets": ("qwen3.5-plus", "qwen-plus", "qwen-max", "qwen-turbo"),
+        "capability_tags": ("openai_compatible", "tool_calling"),
+    },
+    "zhipu": {
+        "display_name": "智谱 GLM",
+        "model": "glm-5",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4/",
+        "adapter": "openai_compatible",
+        "credential_envs": ("ZHIPU_API_KEY", "ZHIPUAI_API_KEY", "LLM_API_KEY"),
+        "model_presets": ("glm-5", "glm-4-plus", "glm-4-flash"),
+        "capability_tags": ("openai_compatible", "tool_calling"),
+    },
+    "moonshot": {
+        "display_name": "Moonshot / Kimi",
+        "model": "kimi-k2",
+        "base_url": "https://api.moonshot.cn/v1",
+        "adapter": "openai_compatible",
+        "credential_envs": ("MOONSHOT_API_KEY", "KIMI_API_KEY"),
+        "model_presets": ("kimi-k2", "moonshot-v1-128k", "moonshot-v1-32k"),
+        "capability_tags": ("long_context", "openai_compatible"),
+    },
+    "groq": {
+        "display_name": "Groq",
+        "model": "llama-3.3-70b-versatile",
+        "base_url": "https://api.groq.com/openai/v1",
+        "adapter": "openai_compatible",
+        "credential_envs": ("GROQ_API_KEY",),
+        "model_presets": ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"),
+        "capability_tags": ("fast", "openai_compatible"),
+    },
+    "xai": {
+        "display_name": "xAI",
+        "model": "grok-3",
+        "base_url": "https://api.x.ai/v1",
+        "adapter": "openai_compatible",
+        "credential_envs": ("XAI_API_KEY",),
+        "model_presets": ("grok-3", "grok-3-mini"),
+        "capability_tags": ("reasoning", "openai_compatible"),
+    },
+    "ollama": {
+        "display_name": "Ollama Local",
+        "model": "llama3.1",
+        "base_url": "http://localhost:11434/v1",
+        "adapter": "openai_compatible",
+        "credential_envs": (),
+        "model_presets": ("llama3.1", "qwen2.5", "deepseek-r1"),
+        "capability_tags": ("local", "openai_compatible"),
+        "metadata": {"local_provider": True},
     },
 }
 
@@ -50,6 +136,15 @@ PROVIDER_ALIASES = {
     "qwen": "bailian",
     "openai-compatible": "openai",
     "compatible": "openai",
+    "openrouter.ai": "openrouter",
+    "claude": "anthropic",
+    "anthropic-openai-compatible": "anthropic",
+    "gemini": "google",
+    "google-gemini": "google",
+    "kimi": "moonshot",
+    "moonshot-ai": "moonshot",
+    "grok": "xai",
+    "x.ai": "xai",
 }
 
 
@@ -164,6 +259,20 @@ def _provider_hint_from_model_base_url(model: str | None, base_url: str | None) 
         return ""
     if "deepseek" in haystack or "api.deepseek.com" in haystack:
         return "deepseek"
+    if "openrouter" in haystack:
+        return "openrouter"
+    if "anthropic" in haystack or "claude" in haystack:
+        return "anthropic"
+    if "generativelanguage.googleapis.com" in haystack or "gemini" in haystack:
+        return "google"
+    if "moonshot" in haystack or "kimi" in haystack:
+        return "moonshot"
+    if "api.groq.com" in haystack or "groq" in haystack:
+        return "groq"
+    if "api.x.ai" in haystack or "grok" in haystack:
+        return "xai"
+    if "localhost:11434" in haystack or "ollama" in haystack:
+        return "ollama"
     if "dashscope" in haystack or "aliyuncs.com" in haystack or "qwen" in haystack:
         return "bailian"
     if "bigmodel" in haystack or "zhipu" in haystack or "glm-" in haystack:
@@ -192,6 +301,20 @@ def _resolve_llm_api_key(provider: str) -> str | None:
         return _first_env("LLM_API_KEY", "BAILIAN_API_KEY", "DASHSCOPE_API_KEY")
     if provider == "deepseek":
         return _first_env("LLM_API_KEY", "DEEPSEEK_API_KEY")
+    if provider == "openrouter":
+        return _first_env("OPENROUTER_API_KEY", "LLM_API_KEY")
+    if provider == "anthropic":
+        return _first_env("ANTHROPIC_API_KEY", "LLM_API_KEY")
+    if provider == "google":
+        return _first_env("GEMINI_API_KEY", "GOOGLE_API_KEY", "LLM_API_KEY")
+    if provider == "moonshot":
+        return _first_env("MOONSHOT_API_KEY", "KIMI_API_KEY", "LLM_API_KEY")
+    if provider == "groq":
+        return _first_env("GROQ_API_KEY", "LLM_API_KEY")
+    if provider == "xai":
+        return _first_env("XAI_API_KEY", "LLM_API_KEY")
+    if provider == "ollama":
+        return _first_env("OLLAMA_API_KEY")
     return _first_env("LLM_API_KEY", "OPENAI_API_KEY")
 
 
@@ -209,6 +332,18 @@ def _resolve_llm_model(provider: str) -> str:
     if provider == "deepseek":
         model = _provider_first_env(provider, "DEEPSEEK_MODEL", "LLM_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
         return _normalize_llm_model_id(provider, model)
+    provider_env_map = {
+        "openrouter": "OPENROUTER_MODEL",
+        "anthropic": "ANTHROPIC_MODEL",
+        "google": "GEMINI_MODEL",
+        "moonshot": "MOONSHOT_MODEL",
+        "groq": "GROQ_MODEL",
+        "xai": "XAI_MODEL",
+        "ollama": "OLLAMA_MODEL",
+    }
+    if provider in provider_env_map:
+        model = _provider_first_env(provider, provider_env_map[provider], "LLM_MODEL") or str(LLM_PROVIDER_DEFAULTS[provider]["model"])
+        return _normalize_llm_model_id(provider, model)
     model = _first_env("LLM_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
     return _normalize_llm_model_id(provider, model)
 
@@ -224,6 +359,17 @@ def _resolve_llm_base_url(provider: str) -> str:
         return _provider_first_env(provider, "BAILIAN_BASE_URL", "LLM_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     if provider == "deepseek":
         return _provider_first_env(provider, "DEEPSEEK_BASE_URL", "LLM_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+    provider_env_map = {
+        "openrouter": "OPENROUTER_BASE_URL",
+        "anthropic": "ANTHROPIC_BASE_URL",
+        "google": "GEMINI_BASE_URL",
+        "moonshot": "MOONSHOT_BASE_URL",
+        "groq": "GROQ_BASE_URL",
+        "xai": "XAI_BASE_URL",
+        "ollama": "OLLAMA_BASE_URL",
+    }
+    if provider in provider_env_map:
+        return _provider_first_env(provider, provider_env_map[provider], "LLM_BASE_URL") or str(LLM_PROVIDER_DEFAULTS[provider]["base_url"])
     return _first_env("LLM_BASE_URL", "OPENAI_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
 
 
@@ -289,6 +435,20 @@ def _resolve_llm_fallback_api_key(provider: str | None) -> str | None:
         return _first_env("LLM_FALLBACK_API_KEY", "BAILIAN_API_KEY", "DASHSCOPE_API_KEY")
     if provider == "deepseek":
         return _first_env("LLM_FALLBACK_API_KEY", "DEEPSEEK_API_KEY")
+    if provider == "openrouter":
+        return _first_env("LLM_FALLBACK_API_KEY", "OPENROUTER_API_KEY")
+    if provider == "anthropic":
+        return _first_env("LLM_FALLBACK_API_KEY", "ANTHROPIC_API_KEY")
+    if provider == "google":
+        return _first_env("LLM_FALLBACK_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
+    if provider == "moonshot":
+        return _first_env("LLM_FALLBACK_API_KEY", "MOONSHOT_API_KEY", "KIMI_API_KEY")
+    if provider == "groq":
+        return _first_env("LLM_FALLBACK_API_KEY", "GROQ_API_KEY")
+    if provider == "xai":
+        return _first_env("LLM_FALLBACK_API_KEY", "XAI_API_KEY")
+    if provider == "ollama":
+        return _first_env("OLLAMA_API_KEY")
     return _first_env("LLM_FALLBACK_API_KEY", "OPENAI_API_KEY")
 
 
@@ -308,6 +468,18 @@ def _resolve_llm_fallback_model(provider: str | None) -> str | None:
     if provider == "deepseek":
         model = _provider_first_env(provider, "DEEPSEEK_MODEL", "LLM_FALLBACK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
         return _normalize_llm_model_id(provider, model)
+    provider_env_map = {
+        "openrouter": "OPENROUTER_MODEL",
+        "anthropic": "ANTHROPIC_MODEL",
+        "google": "GEMINI_MODEL",
+        "moonshot": "MOONSHOT_MODEL",
+        "groq": "GROQ_MODEL",
+        "xai": "XAI_MODEL",
+        "ollama": "OLLAMA_MODEL",
+    }
+    if provider in provider_env_map:
+        model = _provider_first_env(provider, provider_env_map[provider], "LLM_FALLBACK_MODEL") or str(LLM_PROVIDER_DEFAULTS[provider]["model"])
+        return _normalize_llm_model_id(provider, model)
     model = _first_env("LLM_FALLBACK_MODEL") or LLM_PROVIDER_DEFAULTS[provider]["model"]
     return _normalize_llm_model_id(provider, model)
 
@@ -325,6 +497,17 @@ def _resolve_llm_fallback_base_url(provider: str | None) -> str | None:
         return _provider_first_env(provider, "BAILIAN_BASE_URL", "LLM_FALLBACK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
     if provider == "deepseek":
         return _provider_first_env(provider, "DEEPSEEK_BASE_URL", "LLM_FALLBACK_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
+    provider_env_map = {
+        "openrouter": "OPENROUTER_BASE_URL",
+        "anthropic": "ANTHROPIC_BASE_URL",
+        "google": "GEMINI_BASE_URL",
+        "moonshot": "MOONSHOT_BASE_URL",
+        "groq": "GROQ_BASE_URL",
+        "xai": "XAI_BASE_URL",
+        "ollama": "OLLAMA_BASE_URL",
+    }
+    if provider in provider_env_map:
+        return _provider_first_env(provider, provider_env_map[provider], "LLM_FALLBACK_BASE_URL") or str(LLM_PROVIDER_DEFAULTS[provider]["base_url"])
     return _first_env("LLM_FALLBACK_BASE_URL", "OPENAI_BASE_URL") or LLM_PROVIDER_DEFAULTS[provider]["base_url"]
 
 
@@ -671,7 +854,7 @@ def get_settings() -> Settings:
 
     llm_provider = _normalize_provider(
         str(runtime_llm.get("provider") or "").strip() or os.getenv("LLM_PROVIDER"),
-        default="zhipu",
+        default="deepseek",
         defaults=LLM_PROVIDER_DEFAULTS,
     )
     embedding_provider = _normalize_provider(

@@ -86,7 +86,7 @@ export type OrchestrationInspectorTarget = {
   turnIndex?: number;
   artifactPath?: string;
   reason?: string;
-  orchestrationLayer?: "registry" | "groups" | "runtime" | "permissions" | "context" | "eligibility";
+  orchestrationLayer?: "registry" | "groups" | "runtime" | "permissions" | "model_runtime" | "context" | "eligibility";
   agentId?: string;
   agentProfileId?: string;
   graphId?: string;

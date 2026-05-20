@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 from orchestration.agent_identity import normalize_agent_id
+from orchestration.model_profile_models import contains_raw_secret, sanitize_model_profile_payload
 
 
 TaskGraphKind = Literal["single_agent", "multi_agent", "coordination"]
@@ -207,6 +208,10 @@ class TaskGraphDefinition:
 
 
 def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinition:
+    _reject_raw_contract_binding_secrets(
+        payload.get("contract_bindings"),
+        scope="TaskGraph node contract_bindings",
+    )
     explicit_bindings = _contract_bindings_payload(payload.get("contract_bindings"))
     explicit_schema_bindings = dict(explicit_bindings.get("schema") or {})
     explicit_execution_bindings = dict(explicit_bindings.get("execution") or {})
@@ -308,6 +313,10 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
 
 
 def task_graph_edge_from_dict(payload: dict[str, Any]) -> TaskGraphEdgeDefinition:
+    _reject_raw_contract_binding_secrets(
+        payload.get("contract_bindings"),
+        scope="TaskGraph edge contract_bindings",
+    )
     explicit_bindings = _contract_bindings_payload(payload.get("contract_bindings"))
     explicit_schema_bindings = dict(explicit_bindings.get("schema") or {})
     legacy_payload_contract_id = str(payload.get("payload_contract_id") or payload.get("contract_id") or "").strip()
@@ -364,6 +373,10 @@ def task_graph_edge_from_dict(payload: dict[str, Any]) -> TaskGraphEdgeDefinitio
 
 
 def task_graph_from_dict(payload: dict[str, Any]) -> TaskGraphDefinition:
+    _reject_raw_contract_binding_secrets(
+        payload.get("contract_bindings"),
+        scope="TaskGraph graph contract_bindings",
+    )
     nodes = tuple(
         task_graph_node_from_dict(item)
         for item in list(payload.get("nodes") or payload.get("graph_nodes") or [])
@@ -564,6 +577,8 @@ def normalize_node_contract_bindings(
     resource_lifecycle_policy: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if contains_raw_secret(explicit):
+        raise ValueError("TaskGraph node contract_bindings must not contain raw model secrets; use runtime.model_requirement and AgentRuntimeProfile.model_profile.credential_ref")
     derived: dict[str, Any] = {}
     if input_contract_id:
         derived.setdefault("schema", {})["input_contract_id"] = str(input_contract_id).strip()
@@ -607,6 +622,10 @@ def normalize_node_contract_bindings(
         runtime["notification_policy"] = dict(notification_policy)
     if resource_lifecycle_policy:
         runtime["resource_lifecycle_policy"] = dict(resource_lifecycle_policy)
+    explicit_payload = _contract_bindings_payload(explicit)
+    explicit_runtime = explicit_payload.get("runtime")
+    if isinstance(explicit_runtime, dict) and isinstance(explicit_runtime.get("model_requirement"), dict):
+        runtime["model_requirement"] = _normalize_model_requirement_payload(explicit_runtime.get("model_requirement"))
     if runtime:
         derived["runtime"] = runtime
     metadata = dict(metadata or {})
@@ -669,6 +688,8 @@ def normalize_edge_contract_bindings(
 
 
 def _merge_contract_bindings(derived: dict[str, Any], explicit: Any) -> dict[str, Any]:
+    if contains_raw_secret(explicit):
+        raise ValueError("contract_bindings must use credential_ref and must not contain raw model secrets")
     explicit_payload = _contract_bindings_payload(explicit)
     merged: dict[str, Any] = {
         key: dict(value)
@@ -683,10 +704,42 @@ def _merge_contract_bindings(derived: dict[str, Any], explicit: Any) -> dict[str
     return _prune_empty_contract_bindings(merged)
 
 
+def _reject_raw_contract_binding_secrets(value: Any, *, scope: str) -> None:
+    if contains_raw_secret(value):
+        raise ValueError(f"{scope} must use credential_ref and must not contain raw model secrets")
+
+
 def _contract_bindings_payload(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
-    return {str(key).strip(): value for key, value in value.items() if str(key).strip()}
+    payload = {str(key).strip(): value for key, value in value.items() if str(key).strip()}
+    runtime = payload.get("runtime")
+    if isinstance(runtime, dict) and isinstance(runtime.get("model_requirement"), dict):
+        payload["runtime"] = {
+            **dict(runtime),
+            "model_requirement": _normalize_model_requirement_payload(runtime.get("model_requirement")),
+        }
+    return payload
+
+
+def _normalize_model_requirement_payload(value: Any) -> dict[str, Any]:
+    payload = sanitize_model_profile_payload(value)
+    allowed = {
+        "profile_ref",
+        "provider_family",
+        "model_family",
+        "capability_tags",
+        "min_context_tokens",
+        "min_output_tokens",
+        "preferred_output_tokens",
+        "thinking_mode",
+        "reasoning_required",
+        "streaming_required",
+        "temperature_profile",
+        "fallback_allowed",
+        "metadata",
+    }
+    return {key: item for key, item in payload.items() if key in allowed}
 
 
 def _legacy_contract_metadata(metadata: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:

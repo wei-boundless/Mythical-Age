@@ -39,6 +39,7 @@ import {
   OrchestrationCollaborationWorkbench,
   OrchestrationContextMemoryWorkbench,
   OrchestrationDiagnosticsWorkbench,
+  OrchestrationModelRuntimeWorkbench,
   OrchestrationRuntimePermissionWorkbench,
 } from "@/components/workspace/views/orchestration/OrchestrationAgentConfigWorkbenches";
 import { OrchestrationGroupWorkbench } from "@/components/workspace/views/orchestration/OrchestrationGroupWorkbench";
@@ -48,7 +49,7 @@ import { taskSystemDisplayLabel } from "@/components/workspace/views/task-system
 import { useAppStore } from "@/lib/store";
 
 type AgentCategory = "main_agent" | "builtin_agent" | "custom_agent";
-type OrchestrationLayer = "identity" | "groups" | "runtime_permissions" | "context_memory" | "collaboration" | "overview" | "diagnostics";
+type OrchestrationLayer = "identity" | "groups" | "runtime_permissions" | "model_runtime" | "context_memory" | "collaboration" | "overview" | "diagnostics";
 type CustomDirectoryMode = "grouped" | "ungrouped";
 
 type AgentDraft = OrchestrationAgentUpsertPayload & {
@@ -97,6 +98,7 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   approval_policy: "default",
   trace_policy: "runtime_event_log",
   lifecycle_policy: "orchestration_managed",
+  model_profile: {},
   metadata: { managed_by: "orchestration_console" },
 };
 
@@ -192,6 +194,16 @@ function uniqueList(value: unknown) {
   return Array.isArray(value)
     ? Array.from(new Set(value.map((item) => String(item || "").trim()).filter(Boolean)))
     : [];
+}
+
+function normalizeModelProfile(profile?: OrchestrationAgentRuntimeProfile["model_profile"]) {
+  const { base_url: _legacyBaseUrl, ...rest } = ((profile ?? {}) as OrchestrationAgentRuntimeProfile["model_profile"] & { base_url?: string });
+  return {
+    ...rest,
+    capability_tags: uniqueList(rest.capability_tags ?? []),
+    stream_policy: rest.stream_policy ?? {},
+    metadata: rest.metadata ?? {},
+  };
 }
 
 function makeCustomGroupId(existingGroups: OrchestrationAgentGroup[]) {
@@ -296,6 +308,7 @@ function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentR
     approval_policy: String(merged.approval_policy || "default"),
     trace_policy: String(merged.trace_policy || "runtime_event_log"),
     lifecycle_policy: String(merged.lifecycle_policy || "orchestration_managed"),
+    model_profile: normalizeModelProfile(merged.model_profile),
     metadata: merged.metadata ?? { managed_by: "orchestration_console" },
   };
 }
@@ -316,6 +329,7 @@ function runtimePayloadFromDraft(draft: RuntimeDraft) {
     approval_policy: draft.approval_policy,
     trace_policy: draft.trace_policy,
     lifecycle_policy: draft.lifecycle_policy,
+    model_profile: normalizeModelProfile(draft.model_profile),
     metadata: { ...(draft.metadata ?? {}), managed_by: "orchestration_console" },
   };
 }
@@ -458,6 +472,8 @@ export function OrchestrationView() {
         ? "runtime_permissions"
         : requestedLayer === "context"
           ? "context_memory"
+          : requestedLayer === "model_runtime"
+            ? "model_runtime"
           : requestedLayer === "registry"
             ? "identity"
             : requestedLayer === "runtime"
@@ -465,7 +481,7 @@ export function OrchestrationView() {
               : requestedLayer === "eligibility"
                 ? "diagnostics"
                 : requestedLayer;
-    const validLayers: OrchestrationLayer[] = ["identity", "groups", "runtime_permissions", "context_memory", "collaboration", "overview", "diagnostics"];
+    const validLayers: OrchestrationLayer[] = ["identity", "groups", "runtime_permissions", "model_runtime", "context_memory", "collaboration", "overview", "diagnostics"];
     if (focusLayer && validLayers.includes(focusLayer)) {
       setActiveLayer(focusLayer);
     }
@@ -602,6 +618,10 @@ export function OrchestrationView() {
   const overlapOps = allowedOps.filter((item) => blockedOps.includes(item));
   const runtimeSaveBlocked = agentMode === "new" || !agentDraft.agent_id.trim();
   const builtinManagedAgent = Boolean(selectedAgent?.builtin);
+  const modelProfile = runtimeDraft.model_profile ?? {};
+  const modelSummary = modelProfile.provider || modelProfile.model
+    ? `${modelProfile.provider || "继承默认"} / ${modelProfile.model || "继承模型"}`
+    : "继承系统默认";
   const categoryCounts = groupedAgents.reduce<Record<string, number>>((acc, group) => {
     acc[group.category] = group.items.length;
     return acc;
@@ -615,6 +635,7 @@ export function OrchestrationView() {
   const agentLayerTabs: Array<[OrchestrationLayer, string, string]> = [
     ["identity", "身份", agentMode === "new" ? "草稿" : ""],
     ["runtime_permissions", "运行权限", runtimeDraft.agent_profile_id && !runtimeSaveBlocked ? "已配置" : "待保存"],
+    ["model_runtime", "模型运行", modelProfile.provider || modelProfile.model ? "已覆盖" : "继承"],
     ["context_memory", "上下文记忆", `${uniqueList(runtimeDraft.allowed_context_sections).length + uniqueList(runtimeDraft.allowed_memory_scopes).length}`],
     ["collaboration", "协作", runtimeDraft.can_delegate_to_agents ? "可委派" : ""],
     ["overview", "总览", ""],
@@ -1037,6 +1058,14 @@ export function OrchestrationView() {
                 </>
               ) : null}
 
+              {activeLayer === "model_runtime" ? (
+                <OrchestrationModelRuntimeWorkbench
+                  patchRuntimeDraft={(patch) => setRuntimeDraft((current) => ({ ...current, ...patch }))}
+                  providerCatalog={(catalog?.options as { model_provider_catalog?: Record<string, unknown> } | undefined)?.model_provider_catalog}
+                  runtimeDraft={runtimeDraft}
+                />
+              ) : null}
+
               {activeLayer === "context_memory" ? (
                 <OrchestrationContextMemoryWorkbench
                   contextSectionOptionItems={contextSectionOptionItems}
@@ -1071,6 +1100,7 @@ export function OrchestrationView() {
                   openLayer={setActiveLayer}
                   operationSummary={operationSummary}
                   runtimeDraft={runtimeDraft}
+                  modelSummary={modelSummary}
                   runtimeSummary={runtimeLanesSummary}
                 />
               ) : null}
@@ -1080,6 +1110,7 @@ export function OrchestrationView() {
                   capabilityItemsCount={capabilityItems.length}
                   eligibilityChecks={eligibilityChecks}
                   overlapOps={overlapOps}
+                  runtimeDraft={runtimeDraft}
                   runtimeLaneDiagnostics={runtimeLaneDiagnostics}
                 />
               ) : null}

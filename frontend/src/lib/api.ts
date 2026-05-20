@@ -1094,6 +1094,26 @@ export type OrchestrationAgentRuntimeProfile = {
   approval_policy: string;
   trace_policy: string;
   lifecycle_policy: string;
+  model_profile?: OrchestrationAgentModelProfile;
+  metadata?: Record<string, unknown>;
+};
+
+export type OrchestrationAgentModelProfile = {
+  profile_id?: string;
+  display_name?: string;
+  provider?: string;
+  model?: string;
+  credential_ref?: string;
+  max_output_tokens?: number | null;
+  timeout_seconds?: number | null;
+  long_output_timeout_seconds?: number | null;
+  max_retries?: number | null;
+  temperature?: number | null;
+  thinking_mode?: string;
+  reasoning_effort?: string;
+  stream_policy?: Record<string, unknown>;
+  fallback_profile_ref?: string;
+  capability_tags?: string[];
   metadata?: Record<string, unknown>;
 };
 
@@ -1166,6 +1186,7 @@ export type OrchestrationAgentRuntimeCatalog = {
     trace_policy_options?: OrchestrationOption[];
     worker_blueprints?: Array<Record<string, unknown>>;
     capability_items?: OrchestrationCapabilityItem[];
+    model_provider_catalog?: ModelProviderCatalog;
   };
 };
 
@@ -1277,20 +1298,51 @@ export type ContextBudgetConfig = {
 
 export type ModelProviderOption = {
   provider: string;
+  display_name?: string;
   default_model: string;
   default_base_url: string;
+  adapter?: string;
+  credential_ref?: string;
+  fallback_credential_ref?: string;
+  credential_configured?: boolean;
+  credential_envs?: string[];
+  model_presets?: string[];
+  capability_tags?: string[];
+  recommended?: boolean;
+  active?: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type ModelCredentialRef = {
+  credential_ref: string;
+  provider: string;
+  slot: string;
+  configured?: boolean;
+};
+
+export type ModelProviderCatalog = {
+  authority: string;
+  default_provider: string;
+  default_model: string;
+  default_base_url?: string;
+  recommended_provider?: string;
+  providers: Record<string, ModelProviderOption>;
+  credential_refs: ModelCredentialRef[];
 };
 
 export type ModelProviderConfig = {
   provider: string;
   model: string;
   base_url: string;
+  credential_ref?: string;
   api_key_configured: boolean;
   fallback_provider: string;
   fallback_model: string;
   fallback_base_url: string;
+  fallback_credential_ref?: string;
   fallback_api_key_configured: boolean;
   supported_providers: Record<string, ModelProviderOption>;
+  provider_catalog?: ModelProviderCatalog;
   authority: string;
 };
 

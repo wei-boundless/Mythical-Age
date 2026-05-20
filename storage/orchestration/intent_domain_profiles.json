@@ -5,11 +5,11 @@
     {
       "domain_id": "dataset",
       "target_domain_hint": "dataset",
-      "markers": ["数据", "表格", "全表", "员工", "这些人", "这些员工", "前五", "前五名", "部门", "按部门", "仓库", "缺货", "薪资", "xlsx", "csv"],
+      "markers": ["数据", "表格", "全表", "员工", "这些人", "这些员工", "前五", "前五名", "部门", "按部门", "仓库", "库存", "缺口", "缺货", "薪资", "xlsx", "csv"],
       "explicit_markers": ["xlsx", "csv", "xls", "json", "parquet"],
-      "continuation_markers": ["这些人", "这些员工", "这个表", "这张表", "全表", "刚才", "按部门", "按仓库", "再看"],
+      "continuation_markers": ["这些人", "这些员工", "这个表", "这张表", "全表", "刚才", "按部门", "按仓库", "仓库", "缺口", "库存", "哪些", "是否存在", "完全没有", "再看"],
       "scope_refinement_markers": ["只", "仅", "不要扩展", "不要回到", "不要全表", "不要重算", "前五名", "前五", "这些人"],
-      "delegation_markers": ["分析", "汇总", "统计", "查询", "找出", "处理", "总结"],
+      "delegation_markers": ["分析", "汇总", "统计", "查询", "找出", "处理", "总结", "哪些", "是否存在", "完全没有", "缺口", "库存"],
       "execution_strategy_candidates": ["specialist_handoff", "single_react_loop"]
     },
     {

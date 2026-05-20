@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+from bootstrap.settings import AppSettingsService
+from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from orchestration.model_profile_resolver import ModelProfileResolver
 from .coordination_graph_models import (
     TaskGraphNestedRuntimePlan,
     TaskGraphRuntimeEdge,
@@ -32,6 +36,9 @@ def compile_task_graph_definition_runtime_spec(
     default_join_policy = str(runtime_policy.get("default_join_policy") or "all_success").strip() or "all_success"
     layered_graph = normalize_task_graph_layers(graph)
     nested_runtime_plans = _nested_runtime_plans_from_layered_graph(graph=graph, layered_graph=layered_graph)
+    backend_dir = Path(__file__).resolve().parents[1]
+    model_resolver = ModelProfileResolver(AppSettingsService(backend_dir))
+    runtime_registry = AgentRuntimeRegistry(backend_dir)
     nodes = [
         _runtime_node_from_task_graph_node(
             raw_node=node,
@@ -43,6 +50,9 @@ def compile_task_graph_definition_runtime_spec(
             default_wait_policy=default_wait_policy,
             default_join_policy=default_join_policy,
             context_policy=context_policy,
+            model_resolver=model_resolver,
+            runtime_registry=runtime_registry,
+            graph_model_requirement=_graph_model_requirement(graph),
         )
         for node in graph.nodes
     ]
@@ -188,6 +198,9 @@ def _runtime_node_from_task_graph_node(
     default_wait_policy: str,
     default_join_policy: str,
     context_policy: dict[str, Any],
+    model_resolver: ModelProfileResolver | None = None,
+    runtime_registry: AgentRuntimeRegistry | None = None,
+    graph_model_requirement: dict[str, Any] | None = None,
 ) -> TaskGraphRuntimeNode:
     task = task_by_id.get(str(raw_node.task_id or "").strip())
     node_agent_group_id = str(getattr(raw_node, "agent_group_id", "") or graph_agent_group_id).strip()
@@ -209,6 +222,19 @@ def _runtime_node_from_task_graph_node(
     artifact_target = str(getattr(raw_node, "artifact_target", "") or getattr(raw_node, "output_path", "") or "").strip()
     if artifact_target and "artifact_target" not in artifact_policy:
         artifact_policy["artifact_target"] = artifact_target
+    contract_bindings = dict(getattr(raw_node, "contract_bindings", {}) or {})
+    runtime_bindings = dict(contract_bindings.get("runtime") or {})
+    model_requirement = {
+        **dict(graph_model_requirement or {}),
+        **dict(runtime_bindings.get("model_requirement") or {}),
+    }
+    model_resolution = _model_resolution_for_node(
+        agent_id=agent_id,
+        runtime_lane=str(raw_node.runtime_lane or "").strip(),
+        model_requirement=model_requirement,
+        model_resolver=model_resolver,
+        runtime_registry=runtime_registry,
+    )
     return TaskGraphRuntimeNode(
         node_id=str(raw_node.node_id or "").strip(),
         title=str(raw_node.title or raw_node.node_id or "").strip(),
@@ -243,7 +269,9 @@ def _runtime_node_from_task_graph_node(
             "node_contract_id": str(raw_node.node_contract_id or "").strip(),
             "input_contract_id": str(raw_node.input_contract_id or "").strip(),
             "output_contract_id": str(raw_node.output_contract_id or "").strip(),
-            "contract_bindings": dict(getattr(raw_node, "contract_bindings", {}) or {}),
+            "contract_bindings": contract_bindings,
+            "model_requirement": model_requirement,
+            "model_resolution": model_resolution,
             "executor_policy": dict(getattr(raw_node, "executor_policy", {}) or node_metadata.get("executor_policy") or {}),
             "failure_policy": dict(raw_node.failure_policy or {}),
             "human_gate_policy": dict(raw_node.human_gate_policy or {}),
@@ -289,6 +317,32 @@ def _runtime_edge_from_task_graph_edge(*, raw_edge: Any) -> TaskGraphRuntimeEdge
             },
         },
     )
+
+
+def _graph_model_requirement(graph: TaskGraphDefinition) -> dict[str, Any]:
+    bindings = dict(getattr(graph, "contract_bindings", {}) or {})
+    runtime = dict(bindings.get("runtime") or {})
+    requirement = runtime.get("model_requirement")
+    return dict(requirement) if isinstance(requirement, dict) else {}
+
+
+def _model_resolution_for_node(
+    *,
+    agent_id: str,
+    runtime_lane: str,
+    model_requirement: dict[str, Any],
+    model_resolver: ModelProfileResolver | None,
+    runtime_registry: AgentRuntimeRegistry | None,
+) -> dict[str, Any]:
+    if model_resolver is None:
+        return {}
+    profile = runtime_registry.get_profile(agent_id) if runtime_registry is not None and agent_id else None
+    resolved = model_resolver.resolve_model_spec(
+        agent_runtime_profile=profile,
+        model_requirement=model_requirement,
+        runtime_lane=runtime_lane,
+    )
+    return resolved.to_public_dict()
 
 
 def _nested_runtime_plans_from_layered_graph(

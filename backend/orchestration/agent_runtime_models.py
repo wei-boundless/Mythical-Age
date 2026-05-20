@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from .model_profile_models import AgentModelProfile
+
 
 @dataclass(frozen=True, slots=True)
 class AgentRuntimeProfile:
@@ -21,6 +23,7 @@ class AgentRuntimeProfile:
     approval_policy: str = "default"
     trace_policy: str = "runtime_event_log"
     lifecycle_policy: str = "orchestration_managed"
+    model_profile: AgentModelProfile = field(default_factory=AgentModelProfile)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -38,5 +41,6 @@ class AgentRuntimeProfile:
             "allowed_delegate_agent_ids",
         ):
             payload[key] = list(payload[key])
+        payload["model_profile"] = self.model_profile.to_dict()
         payload["runtime_template_id"] = self.runtime_template_id
         return payload

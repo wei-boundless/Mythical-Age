@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Check,
+  ChevronDown,
   Database,
   FileCog,
   Gauge,
@@ -24,6 +26,8 @@ import {
   type ContextBudgetConfig,
   type ContextBudgetPreset,
   type CapabilitySystemCatalog,
+  type ModelProviderCatalog,
+  type ModelProviderOption,
   type RuntimeConfigConsole,
   type RuntimeConfigField,
   type RuntimeConfigGroup
@@ -66,12 +70,37 @@ function contextMetadata(group: RuntimeConfigGroup | null): ContextBudgetConfig 
   return group.metadata as unknown as ContextBudgetConfig;
 }
 
+function modelProviderCatalog(group: RuntimeConfigGroup | null): ModelProviderCatalog | null {
+  const catalog = group?.metadata?.provider_catalog;
+  if (!catalog || typeof catalog !== "object" || Array.isArray(catalog)) return null;
+  const payload = catalog as Partial<ModelProviderCatalog>;
+  if (!payload.providers || typeof payload.providers !== "object") return null;
+  return payload as ModelProviderCatalog;
+}
+
 function fieldTone(field: RuntimeConfigField) {
   if (field.key.startsWith("fallback_")) return "备用模型";
   if (field.key.startsWith("rerank_api_") || field.key === "rerank_api_key") return "API";
   if (field.key.startsWith("rerank_local_") || ["rerank_device", "rerank_batch_size", "rerank_max_length"].includes(field.key)) return "本地";
   if (field.key.startsWith("rerank_")) return "Rerank";
   return field.source === "runtime_override" ? "运行时覆盖" : "env / 默认值";
+}
+
+function groupDescription(group: RuntimeConfigGroup | null) {
+  if (group?.group_id === "model") {
+    return "控制系统默认模型、接入端点、密钥和备用模型；Agent 可以在编排系统中覆盖模型运行档案。";
+  }
+  return group?.description ?? "选择左侧配置条目进行管理。";
+}
+
+function fieldDescription(group: RuntimeConfigGroup | null, field: RuntimeConfigField) {
+  if (group?.group_id !== "model") return field.description;
+  if (field.key === "base_url") return "供应商 API 接入地址；Agent 不单独配置这个地址。";
+  if (field.key === "api_key") return "留空保存会保留已有密钥；Agent 只会引用这份主模型密钥。";
+  return field.description
+    .replace("provider", "服务商")
+    .replace("Provider endpoint；多数供应商先通过 OpenAI-compatible 适配。", "供应商 API 接入地址；Agent 不单独配置这个地址。")
+    .replace(/对应凭据引用\s+provider:[^。]+。?/g, "Agent 只会引用这份主模型密钥。");
 }
 
 export function SystemConfigView() {
@@ -81,6 +110,7 @@ export function SystemConfigView() {
   const [draft, setDraft] = useState<Record<string, string | number | boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -90,6 +120,7 @@ export function SystemConfigView() {
     [activeGroupId, groups]
   );
   const budgetConfig = contextMetadata(activeGroup);
+  const providerCatalog = activeGroupId === "model" ? modelProviderCatalog(activeGroup) : null;
   const sectionMeta = CONFIG_SECTIONS.find((section) => section.id === activeGroupId) ?? CONFIG_SECTIONS[0];
   const overriddenCount = groups.reduce(
     (count, group) => count + group.fields.filter((field) => field.source === "runtime_override").length,
@@ -125,6 +156,7 @@ export function SystemConfigView() {
 
   useEffect(() => {
     setDraft(buildDraft(activeGroup));
+    setProviderMenuOpen(false);
   }, [activeGroup]);
 
   async function saveGroup() {
@@ -240,6 +272,95 @@ export function SystemConfigView() {
   );
   const internalTools = (capabilityCatalog?.tools ?? []).filter((tool) => tool.runtime_visibility === "agent_internal");
   const highRiskTools = (capabilityCatalog?.tools ?? []).filter((tool) => ["高", "极高"].includes(tool.operation_metadata.risk_level));
+
+  function applyProviderPreset(provider: string, option: ModelProviderOption) {
+    setDraft((current) => ({
+      ...current,
+      provider,
+      model: option.default_model || current.model || "",
+      base_url: option.default_base_url || current.base_url || "",
+      api_key: "",
+    }));
+  }
+
+  function renderModelProviderPanel(catalog: ModelProviderCatalog | null) {
+    if (!catalog) return null;
+    const providers = Object.values(catalog.providers ?? {});
+    const selectedProvider = String(draft.provider || catalog.default_provider || "deepseek");
+    const selected = catalog.providers?.[selectedProvider];
+    const credentialReady = Boolean(selected?.credential_configured || selectedProvider === "ollama");
+    const selectedLabel = selected?.display_name || selectedProvider;
+    const selectedModel = String(draft.model || selected?.default_model || catalog.default_model || "未配置");
+    return (
+      <section className="system-config-field-section">
+        <div className="system-config-field-section__head">
+          <strong>供应商预设</strong>
+          <em>选择系统默认供应商；详细端点和密钥在下方字段中编辑。</em>
+        </div>
+        <div className="system-config-provider-panel system-config-provider-panel--compact">
+          <div
+            className="system-config-provider-select"
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setProviderMenuOpen(false);
+              }
+            }}
+          >
+            <span>供应商</span>
+            <button
+              aria-expanded={providerMenuOpen}
+              aria-haspopup="listbox"
+              className="system-config-provider-trigger"
+              onClick={() => setProviderMenuOpen((current) => !current)}
+              type="button"
+            >
+              <strong>{selectedLabel}</strong>
+              <em>{selectedModel}</em>
+              <ChevronDown size={15} />
+            </button>
+            {providerMenuOpen ? (
+              <div className="system-config-provider-menu" role="listbox">
+                {providers.map((provider) => {
+                  const active = selectedProvider === provider.provider;
+                  return (
+                    <button
+                      aria-selected={active}
+                      className={`system-config-provider-option ${active ? "system-config-provider-option--active" : ""}`}
+                      key={provider.provider}
+                      onClick={() => {
+                        applyProviderPreset(provider.provider, provider);
+                        setProviderMenuOpen(false);
+                      }}
+                      role="option"
+                      type="button"
+                    >
+                      <span>
+                        <strong>{provider.display_name || provider.provider}</strong>
+                        <em>{provider.default_model}</em>
+                      </span>
+                      {active ? <Check size={15} /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+          <div className="system-config-provider-summary">
+            <article>
+              <span>当前选择</span>
+              <strong>{selectedLabel}</strong>
+              <em>{selectedModel}</em>
+            </article>
+            <article>
+              <span>凭据状态</span>
+              <strong>{credentialReady ? "可用" : "待配置"}</strong>
+              <em>{selectedProvider === "ollama" ? "本地模型无需远程密钥" : credentialReady ? "当前供应商已具备调用条件" : "在下方密钥字段保存后生效"}</em>
+            </article>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   function renderCapabilitiesPanel() {
     if (!capabilityCatalog) {
@@ -404,7 +525,7 @@ export function SystemConfigView() {
             <div>
               <span>{sectionMeta.accent}</span>
               <strong>{activeGroup?.title ?? "配置项"}</strong>
-              <p>{activeGroup?.description ?? "选择左侧配置条目进行管理。"}</p>
+              <p>{groupDescription(activeGroup)}</p>
             </div>
           </div>
 
@@ -428,6 +549,7 @@ export function SystemConfigView() {
           ) : (
             <>
               <div className="system-config-field-sections">
+                {activeGroup?.group_id === "model" ? renderModelProviderPanel(providerCatalog) : null}
                 {groupedFields(activeGroup).map((section) => (
                   <section className="system-config-field-section" key={section.title}>
                     <div className="system-config-field-section__head">
@@ -446,7 +568,7 @@ export function SystemConfigView() {
                           {renderField(field)}
                           <small>
                             {field.type === "secret" ? <KeyRound size={13} /> : null}
-                            {field.description}
+                            {fieldDescription(activeGroup, field)}
                           </small>
                         </label>
                       ))}

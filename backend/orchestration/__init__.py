@@ -15,6 +15,8 @@ from .agent_group_registry import AgentGroupRegistry, default_agent_groups
 from .agent_models import AgentDescriptor, AgentLifecycleRecord
 from .agent_registry import AgentRegistry, default_agent_descriptors
 from .agent_runtime_models import AgentRuntimeProfile
+from .model_profile_models import AgentModelProfile, ModelRequirement, ResolvedModelSpec
+from .model_profile_resolver import ModelProfileResolver, build_provider_catalog
 from .agent_runtime_registry import AgentRuntimeRegistry, default_agent_runtime_profiles
 from .assembly_models import AgentRuntimeSpec, TaskBodyOrchestration
 from .body_models import (
@@ -128,6 +130,7 @@ __all__ = [
     "ExecutionDispatchDecision",
     "PolicyHint",
     "RuntimeDirective",
+    "AgentModelProfile",
     "AgentRuntimeProfile",
     "AgentGroup",
     "AgentGroupRegistry",
@@ -138,6 +141,8 @@ __all__ = [
     "AgentRegistry",
     "AgentRuntimeSpec",
     "AgentRuntimeRegistry",
+    "ModelRequirement",
+    "ModelProfileResolver",
     "ApprovalState",
     "ApprovalToken",
     "MemoryScopeProfile",
@@ -153,6 +158,7 @@ __all__ = [
     "ResourceRuntimeView",
     "RuntimeApprovalContext",
     "RuntimeCommitGateDecision",
+    "ResolvedModelSpec",
     "RuntimeLaneProfile",
     "RuntimeLaneDescriptor",
     "RuntimeLaneRegistry",
@@ -208,6 +214,7 @@ __all__ = [
     "build_user_message_commit_decision",
     "build_base_unit_catalog",
     "build_default_operation_registry",
+    "build_provider_catalog",
     "build_operation_requirement",
     "resolve_execution_dispatch",
     "default_agent_descriptors",

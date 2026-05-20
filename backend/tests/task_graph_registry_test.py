@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from api.tasks import _task_system_payload
 from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from tasks.flow_registry import TaskFlowRegistry
@@ -895,3 +897,90 @@ def test_task_graph_dispatch_policy_fails_closed_for_invalid_or_unsafe_modes() -
     assert "edge_failure_propagation_policy_invalid" in issue_codes
     assert "edge_result_delivery_policy_invalid" in issue_codes
     assert graph.valid is False
+
+
+def test_task_graph_node_rejects_raw_model_secret_in_contract_binding() -> None:
+    with pytest.raises(ValueError, match="credential_ref"):
+        task_graph_from_dict(
+            {
+                "graph_id": "graph.test.model_requirement_secret",
+                "nodes": [
+                    {
+                        "node_id": "writer",
+                        "node_type": "agent",
+                        "agent_id": "agent:0",
+                        "contract_bindings": {
+                            "runtime": {
+                                "model_requirement": {
+                                    "profile_ref": "writer_long",
+                                    "api_key": "must_fail_closed",
+                                }
+                            }
+                        },
+                    }
+                ],
+            }
+        )
+
+
+def test_task_graph_node_model_requirement_is_contract_binding_only() -> None:
+    graph = task_graph_from_dict(
+        {
+            "graph_id": "graph.test.model_requirement",
+            "nodes": [
+                {
+                    "node_id": "writer",
+                    "node_type": "agent",
+                    "agent_id": "agent:0",
+                    "contract_bindings": {
+                        "runtime": {
+                            "model_requirement": {
+                                "profile_ref": "writer_long",
+                                "preferred_output_tokens": 65536,
+                                "provider": "should_be_pruned",
+                            }
+                        }
+                    },
+                }
+            ],
+        }
+    )
+
+    requirement = graph.nodes[0].contract_bindings["runtime"]["model_requirement"]
+
+    assert requirement["profile_ref"] == "writer_long"
+    assert requirement["preferred_output_tokens"] == 65536
+    assert "provider" not in requirement
+
+
+def test_task_graph_runtime_spec_includes_model_resolution_summary() -> None:
+    graph = task_graph_from_dict(
+        {
+            "graph_id": "graph.test.model_resolution",
+            "nodes": [
+                {
+                    "node_id": "writer",
+                    "node_type": "agent",
+                    "agent_id": "agent:0",
+                    "contract_bindings": {
+                        "runtime": {
+                            "model_requirement": {
+                                "profile_ref": "main",
+                                "preferred_output_tokens": 65536,
+                                "thinking_mode": "disabled",
+                            }
+                        }
+                    },
+                }
+            ],
+        }
+    )
+
+    spec = compile_task_graph_definition_runtime_spec(graph=graph)
+    node = spec.nodes[0]
+    resolution = node.metadata["model_resolution"]
+
+    assert node.metadata["model_requirement"]["preferred_output_tokens"] == 65536
+    assert resolution["provider"]
+    assert resolution["credential_configured"] in {True, False}
+    assert "api_key" not in str(resolution).lower()

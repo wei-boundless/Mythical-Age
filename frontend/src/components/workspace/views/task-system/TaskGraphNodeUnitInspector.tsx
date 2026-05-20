@@ -3,6 +3,7 @@ import { GitBranch } from "lucide-react";
 import type { ComposableUnitSpec, UnitInterfaceSpec, UnitPortEdgeSpec } from "@/lib/api";
 
 import { TaskGraphContractBindingField } from "./TaskGraphContractBindingField";
+import { mergeRuntimeModelRequirement, runtimeModelRequirementOf } from "./taskGraphContractBindings";
 import {
   TaskGraphInspectorSection,
   TaskGraphInspectorSummary,
@@ -34,6 +35,18 @@ function nodeIdFromUnit(unit: ComposableUnitSpec | null) {
 
 function nodeTitle(node: Record<string, unknown> | null, fallback = "节点") {
   return stringValue(node?.title ?? node?.label ?? node?.task_title ?? node?.node_id, fallback);
+}
+
+function numberOrBlank(value: unknown) {
+  if (value === null || value === undefined || value === "") return "";
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? String(parsed) : "";
+}
+
+function optionalNumber(value: string) {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function taskLabel(taskId: string, options: Array<{ value: string; label: string }>) {
@@ -71,6 +84,11 @@ export function TaskGraphNodeUnitInspector({
   const nodeId = nodeIdFromUnit(selected);
   const iface = interfaces.find((item) => item.unit_id === selected.unit_id) ?? null;
   const taskId = stringValue(node.task_id ?? node.task_ref ?? node.subtask_ref);
+  const modelRequirement = runtimeModelRequirementOf(node);
+
+  function patchModelRequirement(patch: Record<string, unknown>) {
+    updateTaskGraphNode(nodeId, mergeRuntimeModelRequirement(node, patch));
+  }
 
   return (
     <>
@@ -196,6 +214,59 @@ export function TaskGraphNodeUnitInspector({
           <label className="boundary-check">
             <input checked={booleanValue(node.blocks_phase_exit, true)} onChange={(event) => updateTaskGraphNode(nodeId, { blocks_phase_exit: event.target.checked })} type="checkbox" />
             阻塞阶段出口
+          </label>
+        </div>
+      </TaskGraphInspectorSection>
+
+      <TaskGraphInspectorSection icon={<GitBranch aria-hidden="true" size={15} />} title="模型需求">
+        <div className="orchestration-identity-note">
+          <span>这里只声明节点对模型能力的需求。</span>
+          <strong>实际 Provider、Base URL 和密钥由执行 Agent 的模型运行档案解析。</strong>
+        </div>
+        <div className="boundary-form task-graph-composer-inspector-form">
+          <TaskSystemField label="模型档案引用">
+            <input onChange={(event) => patchModelRequirement({ profile_ref: event.target.value })} value={stringValue(modelRequirement.profile_ref)} placeholder="例如 writer_long_output" />
+          </TaskSystemField>
+          <TaskSystemField label="Provider 家族">
+            <input onChange={(event) => patchModelRequirement({ provider_family: event.target.value })} value={stringValue(modelRequirement.provider_family)} placeholder="deepseek / openai-compatible" />
+          </TaskSystemField>
+          <TaskSystemField label="模型家族">
+            <input onChange={(event) => patchModelRequirement({ model_family: event.target.value })} value={stringValue(modelRequirement.model_family)} placeholder="long-output / reasoning / fast" />
+          </TaskSystemField>
+          <TaskSystemField label="能力标签" wide>
+            <input
+              onChange={(event) => patchModelRequirement({ capability_tags: event.target.value.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean) })}
+              value={Array.isArray(modelRequirement.capability_tags) ? modelRequirement.capability_tags.join(", ") : ""}
+              placeholder="long_output, creative_generation"
+            />
+          </TaskSystemField>
+          <TaskSystemField label="最小输出 tokens">
+            <input min={1} onChange={(event) => patchModelRequirement({ min_output_tokens: optionalNumber(event.target.value) })} type="number" value={numberOrBlank(modelRequirement.min_output_tokens)} />
+          </TaskSystemField>
+          <TaskSystemField label="期望输出 tokens">
+            <input min={1} onChange={(event) => patchModelRequirement({ preferred_output_tokens: optionalNumber(event.target.value) })} type="number" value={numberOrBlank(modelRequirement.preferred_output_tokens)} />
+          </TaskSystemField>
+          <TaskSystemSelectField
+            label="Thinking 需求"
+            onChange={(value) => patchModelRequirement({ thinking_mode: value })}
+            options={["", "any", "disabled", "enabled"]}
+            value={stringValue(modelRequirement.thinking_mode)}
+          />
+          <TaskSystemSelectField
+            label="推理要求"
+            onChange={(value) => patchModelRequirement({ reasoning_required: value === "" ? null : value === "true" })}
+            options={["", "true", "false"]}
+            value={modelRequirement.reasoning_required === true ? "true" : modelRequirement.reasoning_required === false ? "false" : ""}
+          />
+          <TaskSystemSelectField
+            label="流式要求"
+            onChange={(value) => patchModelRequirement({ streaming_required: value === "" ? null : value === "true" })}
+            options={["", "true", "false"]}
+            value={modelRequirement.streaming_required === true ? "true" : modelRequirement.streaming_required === false ? "false" : ""}
+          />
+          <label className="boundary-check">
+            <input checked={modelRequirement.fallback_allowed !== false} onChange={(event) => patchModelRequirement({ fallback_allowed: event.target.checked })} type="checkbox" />
+            允许 fallback
           </label>
         </div>
       </TaskGraphInspectorSection>

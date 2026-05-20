@@ -27,6 +27,7 @@ def decide_intent(frame: IntentFrame) -> IntentDecision:
             "source": "intent.hypothesis_builder",
             "task_complexity": frame.task_complexity,
             "strategy_candidates": list(frame.execution_strategy_candidates),
+            "user_message": frame.user_message,
         },
     )
 

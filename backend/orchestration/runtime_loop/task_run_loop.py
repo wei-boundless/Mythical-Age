@@ -20,6 +20,7 @@ from capability_system.search_policy import (
 )
 from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from orchestration.model_profile_resolver import ModelProfileResolver
 from orchestration.resource_gate import OperationGate, OperationGatePipelineContext
 from project_layout import ProjectLayout
 from output_boundary.boundary import AssistantOutputBoundary
@@ -1344,6 +1345,29 @@ class TaskRunLoop:
             operation_registry=self.operation_gate.registry,
             agent_runtime_profile=agent_runtime_profile,
         )
+        resolved_model_spec = None
+        model_resolution: dict[str, Any] = {}
+        settings_service = getattr(getattr(model_response_executor, "model_runtime", None), "settings_service", None)
+        if settings_service is not None:
+            model_requirement = dict(
+                dict(task_execution_assembly_payload.get("contract_bindings") or {}).get("runtime") or {}
+            ).get("model_requirement")
+            resolved_model_spec = ModelProfileResolver(settings_service).resolve_model_spec(
+                agent_runtime_profile=agent_runtime_profile,
+                model_requirement=dict(model_requirement) if isinstance(model_requirement, dict) else {},
+                runtime_lane=str(agent_runtime_spec_payload.get("runtime_lane") or ""),
+            )
+            model_resolution = resolved_model_spec.to_public_dict()
+            model_resolution_event = self.event_log.append(
+                state.task_run_id,
+                "model_profile_resolved",
+                payload={"model_resolution": model_resolution},
+                refs={
+                    "task_contract_ref": task_contract_ref,
+                    "agent_profile_ref": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
+                },
+            )
+            yield {"type": "runtime_loop_event", "event": model_resolution_event.to_dict()}
         task_safety_envelope = dict(dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}).get(
             "safety_envelope",
             {},
@@ -1766,6 +1790,7 @@ class TaskRunLoop:
                 directive=directive,
                 tool_instances=runtime_tool_instances,
                 model_stream_policy=model_stream_policy,
+                model_spec=resolved_model_spec,
             ):
                 if event.get("type") == "tool_call_requested":
                     tool_call = dict(event.get("tool_call") or {})
@@ -2144,6 +2169,7 @@ class TaskRunLoop:
                 directive=directive,
                 tool_instances=runtime_tool_instances,
                 model_stream_policy=model_stream_policy,
+                model_spec=resolved_model_spec,
             ):
                 if event.get("type") == "tool_call_requested":
                     tool_call = dict(event.get("tool_call") or {})
@@ -2562,6 +2588,7 @@ class TaskRunLoop:
                     directive=directive,
                     tool_instances=repair_tool_instances,
                     model_stream_policy=model_stream_policy,
+                    model_spec=resolved_model_spec,
                 ):
                     if event.get("type") == "tool_call_requested":
                         tool_call = dict(event.get("tool_call") or {})

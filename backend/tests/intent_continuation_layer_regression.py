@@ -84,6 +84,47 @@ def test_deictic_pdf_followup_uses_continuation_not_switch_target() -> None:
     assert continuation.active_bindings["delegation_kind"] == "pdf_reading"
 
 
+def test_pdf_document_followup_widens_previous_page_scope() -> None:
+    memory_view = {
+        "state_snapshot": {
+            "context_slots": {
+                "active_pdf": "knowledge/AI Knowledge/report.pdf",
+                "active_pdf_mode": "page",
+                "active_pdf_pages": [4],
+                "active_subset_handle_id": "subset:pdf_pages:p4",
+                "active_result_handle_id": "result:pdf_answer:p4",
+                "active_constraints": {
+                    "active_pdf": "knowledge/AI Knowledge/report.pdf",
+                    "source_kind": "pdf",
+                    "active_pdf_mode": "page",
+                    "active_pdf_pages": [4],
+                },
+            }
+        }
+    }
+    message = "把这份 PDF 的结论压成三条行动建议，每条都要带行动动词。"
+
+    frame = collect_intent_frame(message, memory_runtime_view=memory_view)
+    decision = decide_intent(frame)
+    candidates = collect_continuation_candidates(
+        message=message,
+        memory_runtime_view=memory_view,
+        intent_frame=frame,
+        intent_decision=decision,
+    )
+    continuation = decide_continuation(candidates=candidates, intent_decision=decision)
+    understanding = analyze_task_understanding(message, active_bindings=continuation.active_bindings)
+
+    assert continuation.source_kind == "pdf"
+    assert continuation.followup_target_kind == "active_pdf"
+    assert continuation.active_bindings["active_pdf_mode"] == "document"
+    assert "active_subset_handle_id" not in continuation.active_bindings
+    assert continuation.active_bindings["active_constraints"]["active_pdf_mode"] == "document"
+    assert "active_pdf_pages" not in continuation.active_bindings["active_constraints"]
+    assert understanding.parameters["mode"] == "document"
+    assert "pages" not in understanding.parameters
+
+
 def test_deictic_pdf_followup_uses_committed_pdf_when_active_slot_is_absent() -> None:
     memory_view = {
         "state_snapshot": {
@@ -159,6 +200,40 @@ def test_dataset_followup_can_restore_from_projected_task_summary_refs() -> None
         "Diaz",
         "Eve",
     ]
+
+
+def test_dataset_analysis_question_continues_active_dataset_without_deictic_wording() -> None:
+    memory_view = {
+        "state_snapshot": {
+            "context_slots": {
+                "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+                "active_result_handle_id": "result:structured:inventory:shortage",
+                "active_constraints": {
+                    "active_dataset": "knowledge/E-commerce Data/inventory.xlsx",
+                    "source_kind": "dataset",
+                },
+            }
+        }
+    }
+    message = "哪些仓库完全没有缺口？如果没有就直接说没有。"
+
+    frame = collect_intent_frame(message, memory_runtime_view=memory_view)
+    decision = decide_intent(frame)
+    candidates = collect_continuation_candidates(
+        message=message,
+        memory_runtime_view=memory_view,
+        intent_frame=frame,
+        intent_decision=decision,
+    )
+    continuation = decide_continuation(candidates=candidates, intent_decision=decision)
+
+    assert frame.evidence["dataset_analysis_followup"] is True
+    assert decision.primary_action == "continue"
+    assert decision.execution_strategy == "specialist_handoff"
+    assert continuation.source_kind == "dataset"
+    assert continuation.followup_target_kind == "active_dataset"
+    assert continuation.active_bindings["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
+    assert continuation.active_bindings["target_agent_id"] == "agent:table_analyst"
 
 
 def test_local_knowledge_request_uses_rag_runtime_strategy_not_text_search() -> None:

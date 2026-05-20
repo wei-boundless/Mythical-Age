@@ -69,6 +69,12 @@ def _collect_evidence(
     context_slots = dict(state_snapshot.get("context_slots") or {})
     restore_candidates = [item for item in list(memory_view.get("restore_candidates") or []) if isinstance(item, dict)]
     context_candidates = [item for item in list(memory_view.get("context_candidates") or []) if isinstance(item, dict)]
+    task_summary_candidates = [
+        item
+        for key in ("task_summary_refs", "recent_task_summary_refs")
+        for item in list(state_snapshot.get(key) or [])
+        if isinstance(item, dict)
+    ]
     has_state_candidate = any(
         str(context_slots.get(key) or "").strip()
         for key in ("active_pdf", "committed_pdf", "active_dataset", "committed_dataset")
@@ -102,9 +108,20 @@ def _collect_evidence(
             "这几条",
         ),
     ) > 0
-    continuation_source_available = has_state_candidate or bool(restore_candidates) or _context_candidates_reference_work_object(context_candidates)
+    continuation_source_available = (
+        has_state_candidate
+        or bool(restore_candidates)
+        or bool(task_summary_candidates)
+        or _context_candidates_reference_work_object(context_candidates)
+    )
+    dataset_analysis_followup = (
+        continuation_source_available
+        and dataset_language
+        and _looks_like_dataset_analysis_followup(lowered)
+    )
     continuation_language = continuation_source_available and (
         scope_refinement
+        or dataset_analysis_followup
         or _contains_any(lowered, ("继续", "再", "刚才", "这些", "这个", "这份", "回到", "展开一下", "按"))
         or page_or_section
     )
@@ -113,7 +130,7 @@ def _collect_evidence(
         lowered,
         tuple(getattr(memory_profile, "markers", ()) or ()),
     )
-    delegation_work = _contains_any(
+    delegation_work = dataset_analysis_followup or _contains_any(
         lowered,
         tuple(
             {
@@ -153,6 +170,7 @@ def _collect_evidence(
         "pdf_language": pdf_language,
         "page_or_section": page_or_section,
         "scope_refinement": scope_refinement,
+        "dataset_analysis_followup": dataset_analysis_followup,
         "continuation_language": continuation_language,
         "retrieve_knowledge": retrieve_knowledge,
         "memory_recall": memory_recall,
@@ -211,6 +229,36 @@ def _context_candidates_reference_work_object(candidates: list[dict[str, Any]]) 
             if any(token in joined for token in (".pdf", ".xlsx", ".csv", "dataset", "pdf")):
                 return True
     return False
+
+
+def _looks_like_dataset_analysis_followup(lowered: str) -> bool:
+    if not lowered.strip():
+        return False
+    analytical_markers = (
+        "哪些",
+        "哪个",
+        "是否",
+        "有没有",
+        "没有",
+        "存在",
+        "完全没有",
+        "缺口",
+        "缺货",
+        "仓库",
+        "库存",
+        "统计",
+        "汇总",
+        "排名",
+        "排行",
+        "前五",
+        "前十",
+        "按仓库",
+        "按部门",
+        "筛选",
+        "找出",
+        "列出",
+    )
+    return _contains_any(lowered, analytical_markers)
 
 
 def _dedupe(values: list[str]) -> list[str]:

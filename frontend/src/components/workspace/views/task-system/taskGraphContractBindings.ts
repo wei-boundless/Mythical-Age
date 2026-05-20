@@ -40,3 +40,31 @@ export function mergeContractBindingSection(
     },
   };
 }
+
+export function runtimeModelRequirementOf(target: Record<string, unknown>): Record<string, unknown> {
+  return asRecord(asRecord(asRecord(target.contract_bindings).runtime).model_requirement);
+}
+
+export function mergeRuntimeModelRequirement(
+  target: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): { contract_bindings: Record<string, unknown> } {
+  const current = asRecord(target.contract_bindings);
+  const runtime = asRecord(current.runtime);
+  const currentRequirement = asRecord(runtime.model_requirement);
+  const nextRequirement = Object.fromEntries(
+    Object.entries({
+      ...currentRequirement,
+      ...patch,
+    }).filter(([, value]) => value !== "" && value !== null && value !== undefined && !(Array.isArray(value) && value.length === 0)),
+  );
+  return {
+    contract_bindings: {
+      ...current,
+      runtime: {
+        ...runtime,
+        model_requirement: nextRequirement,
+      },
+    },
+  };
+}

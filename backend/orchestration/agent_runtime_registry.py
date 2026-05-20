@@ -9,6 +9,7 @@ from project_layout import ProjectLayout
 from .agent_registry import AgentRegistry
 from .agent_identity import agent_id_aliases, normalize_agent_id, normalize_agent_id_sequence
 from .agent_runtime_models import AgentRuntimeProfile
+from .model_profile_models import contains_raw_secret, parse_agent_model_profile
 from .runtime_lane_registry import normalize_runtime_lane_sequence
 
 
@@ -273,6 +274,7 @@ def _profile_from_dict(payload: dict[str, Any]) -> AgentRuntimeProfile:
         approval_policy=str(payload.get("approval_policy") or "default"),
         trace_policy=str(payload.get("trace_policy") or "runtime_event_log"),
         lifecycle_policy=str(payload.get("lifecycle_policy") or "orchestration_managed"),
+        model_profile=parse_agent_model_profile(payload.get("model_profile")),
         metadata=metadata,
     )
 
@@ -369,6 +371,7 @@ class AgentRuntimeRegistry:
         approval_policy: str = "default",
         trace_policy: str = "runtime_event_log",
         lifecycle_policy: str = "orchestration_managed",
+        model_profile: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> AgentRuntimeProfile:
         target = normalize_agent_id(agent_id)
@@ -376,6 +379,8 @@ class AgentRuntimeRegistry:
             raise ValueError("agent_id must start with agent:")
         if self.agent_registry.get_agent(target) is None:
             raise ValueError("unknown agent")
+        if contains_raw_secret(model_profile):
+            raise ValueError("model_profile must use credential_ref instead of raw secrets")
         current = self.get_profile(target)
         metadata_payload = dict(metadata or {})
         normalized_runtime_lanes = normalize_runtime_lane_sequence(
@@ -401,6 +406,7 @@ class AgentRuntimeRegistry:
             approval_policy=str(approval_policy or "default").strip() or "default",
             trace_policy=str(trace_policy or "runtime_event_log").strip() or "runtime_event_log",
             lifecycle_policy=str(lifecycle_policy or "orchestration_managed").strip() or "orchestration_managed",
+            model_profile=parse_agent_model_profile(model_profile if model_profile is not None else (current.model_profile.to_dict() if current else {})),
             metadata=metadata_payload,
         )
         profiles = [item for item in self.list_profiles() if item.agent_id != target]
@@ -514,6 +520,9 @@ def _migrate_profile_payload(payload: dict[str, Any]) -> dict[str, Any]:
         )
     )
     next_payload["metadata"] = metadata
+    next_payload["model_profile"] = parse_agent_model_profile(
+        payload.get("model_profile") or metadata.pop("model_profile", {})
+    ).to_dict()
     next_payload.pop("allowed_task_modes", None)
     next_payload.pop("allowed_delegate_agent_categories", None)
     next_payload.pop("output_contracts", None)

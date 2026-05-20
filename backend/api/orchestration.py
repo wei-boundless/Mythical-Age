@@ -28,6 +28,7 @@ from orchestration import (
     build_base_unit_catalog,
 )
 from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY, runtime_lane_option_payloads
+from orchestration.model_profile_resolver import build_provider_catalog
 from orchestration.runtime_loop import TaskRun
 from orchestration.runtime_loop.models import AgentRun, CoordinationRun as RuntimeCoordinationRun
 from orchestration.runtime_loop.langgraph_coordination_runtime import LangGraphCoordinationRuntimeResult
@@ -763,6 +764,7 @@ class AgentRuntimeProfileRequest(BaseModel):
     approval_policy: str = Field(default="default", max_length=80)
     trace_policy: str = Field(default="runtime_event_log", max_length=120)
     lifecycle_policy: str = Field(default="orchestration_managed", max_length=120)
+    model_profile: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -1236,6 +1238,7 @@ async def orchestration_runtime_options() -> dict[str, Any]:
             "trace_policy_options": [_option(item) for item in trace_policies],
             "worker_blueprints": [item.to_dict() for item in default_worker_agent_blueprints()],
             "capability_items": [],
+            "model_provider_catalog": build_provider_catalog(runtime.settings),
         },
     }
 
@@ -1412,6 +1415,7 @@ async def upsert_orchestration_agent_runtime_profile(
             approval_policy=payload.approval_policy,
             trace_policy=payload.trace_policy,
             lifecycle_policy=payload.lifecycle_policy,
+            model_profile=payload.model_profile,
             metadata=payload.metadata,
         )
     except PermissionError as exc:
