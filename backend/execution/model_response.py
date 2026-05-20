@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from execution.model_runtime import ModelRuntimeError, stringify_content
@@ -98,6 +99,7 @@ class ModelResponseRuntimeExecutor:
                 response = await invoker(model_messages)
         except ModelRuntimeError as exc:
             if stream_enabled and exc.retryable and _stream_recovery_enabled(stream_policy):
+                fallback_timeout_seconds = _stream_recovery_timeout_seconds(stream_policy)
                 yield {
                     "type": "stream_recovery",
                     "status": "started",
@@ -107,15 +109,42 @@ class ModelResponseRuntimeExecutor:
                     "model": exc.model,
                     "detail": exc.detail,
                     "partial_delta_count": delta_index,
+                    "fallback_timeout_seconds": fallback_timeout_seconds,
                     "directive_ref": directive.directive_id,
                 }
                 try:
-                    response = await _invoke_non_stream_after_stream_error(
+                    fallback_call = _invoke_non_stream_after_stream_error(
                         invoker=invoker,
                         tool_invoker=tool_invoker,
                         model_messages=model_messages,
                         tools=tools,
                     )
+                    response = await asyncio.wait_for(fallback_call, timeout=fallback_timeout_seconds)
+                except asyncio.TimeoutError:
+                    yield {
+                        "type": "stream_recovery",
+                        "status": "failed",
+                        "reason": "non_stream_fallback_timeout",
+                        "code": "timeout",
+                        "provider": exc.provider,
+                        "model": exc.model,
+                        "detail": f"non-stream fallback exceeded {fallback_timeout_seconds:g}s",
+                        "partial_delta_count": delta_index,
+                        "fallback_timeout_seconds": fallback_timeout_seconds,
+                        "directive_ref": directive.directive_id,
+                    }
+                    yield {
+                        "type": "error",
+                        "error": "model_stream_recovery_timeout",
+                        "content": "模型流式恢复超时，本节点未产出有效结果，请从当前节点断点重跑。",
+                        "code": "timeout",
+                        "provider": exc.provider,
+                        "model": exc.model,
+                        "detail": f"non-stream fallback exceeded {fallback_timeout_seconds:g}s",
+                        "answer_channel": "orchestration_fail_closed",
+                        "answer_source": "runtime_directive_executor",
+                    }
+                    return
                 except ModelRuntimeError as fallback_exc:
                     yield {
                         "type": "stream_recovery",
@@ -126,6 +155,7 @@ class ModelResponseRuntimeExecutor:
                         "model": fallback_exc.model,
                         "detail": fallback_exc.detail,
                         "partial_delta_count": delta_index,
+                        "fallback_timeout_seconds": fallback_timeout_seconds,
                         "directive_ref": directive.directive_id,
                     }
                     yield {
@@ -150,6 +180,7 @@ class ModelResponseRuntimeExecutor:
                         "model": exc.model,
                         "detail": str(fallback_exc) or fallback_exc.__class__.__name__,
                         "partial_delta_count": delta_index,
+                        "fallback_timeout_seconds": fallback_timeout_seconds,
                         "directive_ref": directive.directive_id,
                     }
                     yield {
@@ -168,6 +199,7 @@ class ModelResponseRuntimeExecutor:
                     "provider": exc.provider,
                     "model": exc.model,
                     "partial_delta_count": delta_index,
+                    "fallback_timeout_seconds": fallback_timeout_seconds,
                     "directive_ref": directive.directive_id,
                 }
             else:
@@ -352,6 +384,24 @@ def _stream_recovery_enabled(policy: dict[str, Any]) -> bool:
         if key in policy:
             return bool(policy.get(key) is not False)
     return True
+
+
+def _stream_recovery_timeout_seconds(policy: dict[str, Any]) -> float:
+    for key in (
+        "non_stream_fallback_timeout_seconds",
+        "fallback_timeout_seconds",
+        "recovery_timeout_seconds",
+        "stream_recovery_timeout_seconds",
+    ):
+        if key not in policy:
+            continue
+        try:
+            value = float(policy.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return 180.0
 
 
 def _normalize_tool_calls(raw_tool_calls: Any) -> list[dict[str, Any]]:

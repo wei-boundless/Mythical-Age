@@ -18,7 +18,7 @@ MONITOR_AGENT_ID = "agent:writing_runtime_monitor"
 MONITOR_PROJECTION_ID = "projection.writing.simple_novel.runtime_monitor"
 DESIGN_DOC = "docs/系统规划/174-写作任务新版配置实施计划-20260519.md"
 PROMPT_SOURCE_DOC = "docs/系统规划/122-TaskGraph投影Prompt与交接包配置体验设计-20260517.md"
-CHAPTERS_PER_ROUND = 10
+CHAPTERS_PER_ROUND = 5
 CHAPTER_TARGET_WORDS = 2000
 TARGET_WORDS = 1000000
 VOLUME_TARGET_WORDS = 200000
@@ -113,6 +113,7 @@ def artifact_policy(path):
                 "required": True,
                 "content_source": "section",
                 "section_keys": ["章节正文候选"],
+                "stop_section_keys": ["承接说明", "本章目标完成说明", "人物与冲突推进", "商业钩子与爽点兑现", "后续伏笔或待承接事项", "自检风险", "公开摘要"],
                 "fallback_to_full_content": False,
             },
             {
@@ -138,6 +139,7 @@ def artifact_policy(path):
 def stream_policy(node_id, role):
     node_id = str(node_id or "").strip()
     enabled = role in {"creator", "reviewer", "memory_steward", "router", "final_assembler"}
+    recovery_timeout = 240 if node_id in {"volume_plan", "chapter_outline"} else 300 if node_id == "chapter_draft" else 180
     return {
         "enabled": enabled,
         "mode": "model_text_stream" if enabled else "disabled",
@@ -147,7 +149,20 @@ def stream_policy(node_id, role):
         "preview_char_limit": 6000 if enabled else 0,
         "persist_full_stream_text": False,
         "fallback_to_non_stream_on_error": True,
+        "non_stream_fallback_timeout_seconds": recovery_timeout if enabled else 0,
+        "stream_recovery_timeout_seconds": recovery_timeout if enabled else 0,
     }
+
+
+def runtime_limits(node_id, role):
+    node_id = str(node_id or "").strip()
+    if node_id == "chapter_draft":
+        return {"max_runtime_seconds": 900, "max_model_calls": 10, "max_events": 12000}
+    if node_id in {"volume_plan", "chapter_outline"}:
+        return {"max_runtime_seconds": 720, "max_model_calls": 8, "max_events": 10000}
+    if role in {"creator", "reviewer", "memory_steward"}:
+        return {"max_runtime_seconds": 480, "max_model_calls": 8, "max_events": 8000}
+    return {}
 
 
 def memory_read_policy(role, node_id=""):
@@ -357,11 +372,15 @@ def artifact_context_policy(node_id):
             {"source": "input_key", "input_key": "contract.writing.simple_novel.design_sync:artifact_refs", "label": "设计对齐包", "max_chars": 36000},
         ],
         "volume_plan": [
-            {"source": "input_key", "input_key": "contract.writing.simple_novel.baseline_memory_commit:artifact_refs", "label": "只读基准库", "max_chars": 90000, "required": True},
-            {"source": "input_key", "input_key": "contract.writing.simple_novel.outline_design:artifact_refs", "label": "已审核全书大纲", "max_chars": 90000, "required": True},
-            {"source": "input_key", "input_key": "contract.writing.simple_novel.outline_review:artifact_refs", "label": "大纲审核结论", "max_chars": 30000, "required": True},
-            {"source": "input_key", "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs", "label": "已提交世界观主干", "max_chars": 50000, "required": True},
-            {"source": "input_key", "input_key": "contract.writing.simple_novel.design_sync:artifact_refs", "label": "设计对齐包", "max_chars": 40000},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.baseline_memory_commit:artifact_refs", "label": "当前卷规划基准包", "max_chars": 18000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.outline_design:artifact_refs", "label": "全书大纲主干", "max_chars": 16000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.outline_review:artifact_refs", "label": "大纲审核边界", "max_chars": 6000, "required": True},
+        ],
+        "chapter_outline": [
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.baseline_memory_commit:artifact_refs", "label": "当前批次基准库", "max_chars": 18000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.outline_design:artifact_refs", "label": "全书大纲主干", "max_chars": 14000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.outline_review:artifact_refs", "label": "大纲审核边界", "max_chars": 5000, "required": True},
+            {"source": "input_key", "input_key": "contract.writing.simple_novel.volume_plan_commit:artifact_refs", "label": "当前卷计划与当前批次接口", "max_chars": 12000, "required": True},
         ],
         "chapter_draft": [
             {"source": "input_key", "input_key": "contract.writing.simple_novel.chapter_outline:artifact_refs", "label": "当前批次细纲", "max_chars": 50000, "required": True},
@@ -396,7 +415,8 @@ def artifact_context_policy(node_id):
             {"source": "input_key", "input_key": "contract.writing.simple_novel.final_manuscript:artifact_refs", "label": "待审最终交付稿", "max_chars": 90000},
         ],
     }.get(str(node_id or "").strip(), [])
-    return {"items": context_items, "default_max_chars": 20000, "max_items": len(context_items)} if context_items else {}
+    max_items = 3 if str(node_id or "").strip() == "volume_plan" else 4 if str(node_id or "").strip() == "chapter_outline" else len(context_items)
+    return {"items": context_items, "default_max_chars": 12000, "max_items": max_items} if context_items else {}
 
 
 def revision_context_policy(node_id):
@@ -431,7 +451,41 @@ def revision_context_policy(node_id):
 
 
 def quality_retry_policy(node_id):
-    if str(node_id or "").strip() != "chapter_draft":
+    node_id = str(node_id or "").strip()
+    if node_id == "chapter_outline":
+        return {
+            "enabled": True,
+            "retry_stage_id": "chapter_outline",
+            "acceptance_policies": ["sectioned_text_batch_quality"],
+            "unit_index_key": "chapter_index",
+            "unit_start_key": "batch_start_index",
+            "unit_end_key": "batch_end_index",
+            "unit_count_key": "chapters_per_round",
+            "minimum_metric_ratio": 0.0,
+            "minimum_metric_per_unit": 0,
+            "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
+            "heading_match_scope": "formal_heading",
+            "ignored_heading_parent_keywords": ["后续批次承接点", "后续批次接口", "下一批", "后续承接"],
+            "forbid_unexpected_unit_indexes": True,
+            "forbid_unexpected_unit_ranges": True,
+            "recoverable_issue_prefixes": [
+                "unexpected_unit_indexes:",
+                "unexpected_unit_range:",
+                "missing_required_sections:",
+                "empty_content",
+                "refusal_or_process_text_detected",
+            ],
+            "carry_current_output_as": "previous_candidate_ref",
+            "requirements_input_key": "chapter_revision_requirements",
+            "requirements_template": (
+                "上一轮章节细纲候选未通过机器质量门，原因：{quality_issues}。"
+                "运行时允许章号范围是第{batch_start_index}章至第{batch_end_index}章，允许章号清单是：{batch_chapter_list}。"
+                "上一轮产物出现缺章、越界章号或旧批次范围声明时，本轮必须以运行时边界为最高优先级重新整理细纲。"
+                "不得把上游卷计划中的旧批次接口照抄为当前批次；只输出当前批次允许章号的目标、场景、冲突、信息释放和章末钩子。"
+            ),
+            "clear_input_keys": ["contract.writing.simple_novel.chapter_outline:artifact_refs"],
+        }
+    if node_id != "chapter_draft":
         return {}
     return {
         "enabled": True,
@@ -446,8 +500,17 @@ def quality_retry_policy(node_id):
         "minimum_metric_ratio": 0.55,
         "minimum_metric_per_unit": 1200,
         "required_heading_patterns": [r"第\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\s*[章节回]"],
+        "heading_match_scope": "formal_heading",
+        "ignored_heading_parent_keywords": ["后续批次承接点", "后续批次接口", "下一批", "后续承接"],
+        "metric_section_keys": ["章节正文候选"],
+        "metric_stop_section_keys": ["承接说明", "本章目标完成说明", "人物与冲突推进", "商业钩子与爽点兑现", "后续伏笔或待承接事项", "自检风险", "公开摘要"],
+        "forbid_unexpected_unit_indexes": True,
+        "forbid_unexpected_unit_ranges": True,
         "recoverable_issue_prefixes": [
             "insufficient_metric:",
+            "insufficient_unit_metric:",
+            "unexpected_unit_indexes:",
+            "unexpected_unit_range:",
             "missing_required_sections:",
             "empty_content",
             "refusal_or_process_text_detected",
@@ -456,7 +519,9 @@ def quality_retry_policy(node_id):
         "requirements_input_key": "chapter_revision_requirements",
         "requirements_template": (
             "上一轮章节正文候选未通过机器质量门，原因：{quality_issues}。"
-            "本轮必须重写当前批次全部章节；只输出运行时允许的章号范围，正文必须完整，不得用摘要、提纲、解释或等待补充代替。"
+            "批次正文统计：总量 {content_metric_total}/{min_required_metric_total}；逐章统计：{unit_metric_summary}。"
+            "本轮必须以 previous_candidate_ref 为基底扩写当前批次全部章节，优先补足低于单章下限或缺失的章节。"
+            "只输出运行时允许的章号范围（{batch_chapter_list}），正文必须完整，不得输出越界章号，不得用摘要、提纲、解释、自检或重复句补字数。"
         ),
         "clear_input_keys": ["contract.writing.simple_novel.chapter_draft:artifact_refs"],
     }
@@ -862,12 +927,15 @@ fail_closed
 
 你的职责是把当前卷计划拆成当前批次可以直接开写的章纲。
 你不是写正文的人，也不是只列关键词的提纲机器；你要给正文作者一个能稳定落地的批次执行蓝图。
+你不是重新开一本洪荒小说，也不能套用通用题材模板。
+如果输入包里缺少“当前批次基准库”“全书大纲主干”“大纲审核边界”或“当前卷计划与当前批次接口”，你必须报告阻塞，不能凭题材常识补写。
 
 你每次规划前必须明确：
 1. 当前批次允许写哪些章。
 2. 这一批在本卷里承担什么推进任务。
 3. 这一批要推进哪些人物关系、冲突、爽点和钩子。
 4. 哪些已冻结设定、人物事实和关系事实绝对不能越界。
+5. 当前卷计划中给出的本批次接口和不可提前泄露边界是什么。
 
 你输出的细纲必须让正文作者可以直接写：
 1. 每章标题或明确章目标。
@@ -880,8 +948,11 @@ fail_closed
 2. 把整卷计划原样复制成批次细纲。
 3. 用“自行发挥”“按正文展开”代替场景推进。
 4. 擅自改写基准库和已冻结人物/关系事实。
+5. 输出“混沌初开、万族争锋、天道崩塌、重塑乾坤、洪荒纪元、姜衍、青石寨、阿苓、黑风狼族、混沌灵根、混沌开天经”这类没有来自当前基准库证据的泛化模板名。
+6. 把主角、关键关系、卷名、开篇灾异、沉碑、水镜、黎/漪/烬等已冻结事实替换成另一套设定。
 
 输出必须包含：
+【输入继承证据表】
 【批次目标】
 【逐章细纲】
 【批次节奏设计】
@@ -922,12 +993,10 @@ fail_closed
 如果输入包里缺少“只读基准库”“已审核全书大纲”或“大纲审核结论”，你必须报告阻塞，不能凭题材常识补写。
 
 你需要给下游节点提供：
-1. 每卷目标字数、章节范围、阶段任务。
-2. 每卷核心冲突和主角成长阶段。
-3. 每卷要重点放大的势力、人物关系和爽点兑现顺序。
-4. 每卷卷首钩子、卷中升级、卷尾爆点。
-5. 每卷结束后可被卷后复盘吸收的观察点。
-6. 下一卷开始时必须继承的输入清单。
+1. 当前卷作战图：只规划当前 `volume_index` 对应的卷，说明本卷目标、阶段推进、人物状态、势力压力、伏笔埋设或回收。
+2. 当前批次接口：必须给 `batch_start_index` 到 `batch_end_index` 的章节循环输入，明确这一批应该写什么、不能写什么、交给章节细纲节点的读取要点。
+3. 伏笔与边界表：只列当前卷和当前批次相关的伏笔、禁止提前泄露内容、必须继承的冻结事实。
+4. 后续卷索引：只用 5 行以内确认第2-5卷的承接方向，不展开任何后续卷细纲。
 
 你必须特别注意：
 1. 第1卷、第2卷、第3卷、第4卷、第5卷的名称、主线目标、人物状态和伏笔回收窗口必须从已审核全书大纲与基准库继承；不能改成泛化卷名。
@@ -937,16 +1006,20 @@ fail_closed
 5. 计划必须能被卷级审核和卷后复盘使用，不能只是人看着顺眼。
 6. 你只能安排“尚未冻结”的人物权重与关系推进节奏；已经进入基准库冻结事实的人物身份与人物关系不能被改写，只能顺着既有事实继续展开。
 7. 不允许输出“混沌初开、万族争锋、天道崩塌、重塑乾坤、洪荒纪元”这类没有来自当前基准库证据的泛化分卷模板。
+8. 不允许把第2-5卷展开成细密章节表；第2-5卷只能保留为可追踪索引。每次运行只详细规划当前卷和当前批次。
+9. 不允许输出超过当前节点职责的正文、章节细纲或全书 500 章清单。章节级细纲属于后续 `chapter_outline` 节点。
+10. 你必须输出运行时 `batch_start_index` 到 `batch_end_index` 对应的下游接口；如果上游旧计划残留固定范围，必须以运行时当前批次输入为准。
+11. 输出必须短而可执行，全文控制在 4500 个中文字符以内；不要用长篇解释、长表格、重复引用原文或复述基准库。
+12. 每个章节接口只写 2-4 条要点，不能替 `chapter_outline` 节点写完整章纲。
 
 输出必须包含：
 【输入继承证据表】
-【全书分卷总览】
-【每卷目标】
-【每卷章节范围】
-【每卷冲突与爽点设计】
+【当前卷作战图】
+【当前卷章节阶段表】
+【当前批次章节循环输入】
 【伏笔与回收窗口承接表】
 【不可提前泄露边界】
-【卷后扩展观察点】
+【后续卷索引】
 【下一步章节循环输入】""",
     "projection.writing.simple_novel.volume_reviewer": """你是一名长篇小说卷级总审核员。
 
@@ -1272,19 +1345,23 @@ def prompt_for(pid, prompts):
     prompt = CUSTOM_PROJECTION_PROMPTS.get(pid) or prompts.get(pid, "")
     if not prompt:
         return ""
+    batch_size = CHAPTERS_PER_ROUND
     batch_appendix = {
         "projection.writing.simple_novel.chapter_writer": (
             "批次执行硬要求：\n"
-            f"- 你每轮必须连续完成 {CHAPTERS_PER_ROUND} 章正文，章节范围以运行时给出的 batch_start_index 和 batch_end_index 为准。\n"
+            f"- 你每轮必须连续完成 {batch_size} 章正文；如果运行时最后一批不足 {batch_size} 章，则以 batch_chapter_list 为准。\n"
+            "- 你每轮必须连续完成运行时 batch_start_index 至 batch_end_index 范围内的全部章节；chapters_per_round 只用于说明本轮批次大小。\n"
             "- 你必须先确认本批允许输出的章号清单，只能写入清单中的章节；禁止提前写下一批任何章节编号、标题、正文或摘要。\n"
+            "- 如果当前批次细纲或上游卷计划残留旧批次范围，你必须以运行时 batch_chapter_list 为最高优先级，只截取并落实本批允许章号。\n"
             "- 你必须先读取当前批次细纲，并逐章落实细纲中的场景目标、冲突推进和章末钩子；只有在不违背细纲目标的前提下，才能做正文层面的自然展开。\n"
-            f"- 每章目标约 {CHAPTER_TARGET_WORDS} 字，本批目标约 {CHAPTERS_PER_ROUND * CHAPTER_TARGET_WORDS} 字；每章必须有独立标题、独立正文、独立结尾钩子。\n"
+            "- 每章目标以运行时 chapter_target_words 为准，本批目标以运行时 batch_target_words 为准；每章必须有独立标题、独立正文、独立结尾钩子。\n"
+            "- 每章正文不得低于 1200 个中文字符/词量单位；如果某章低于下限，系统会要求按章扩写，而不是接受整批通过。\n"
             "- 不允许只写一章后用提纲、摘要、占位、待续冒充其余章节。\n"
-            "- 批次内十章要形成连续剧情推进：每章有小冲突、小爽点和章末推进，但批次结尾只能停在本批最后一章，不得把下一批剧情写进当前批次。\n"
-            f"- 输出必须清楚标注每一章的章号，便于审核员和记忆管家拆分登记；第{CHAPTERS_PER_ROUND + 1}章及以后绝对不能出现。\n\n"
+            "- 批次内各章要形成连续剧情推进：每章有小冲突、小爽点和章末推进，但批次结尾只能停在本批最后一章，不得把下一批剧情写进当前批次。\n"
+            "- 输出必须清楚标注每一章的章号，便于审核员和记忆管家拆分登记；任何不在运行时 batch_chapter_list 中的章号、标题、正文或摘要都不得出现。\n\n"
             "批次输出结构硬要求：\n"
-            "- 【章节正文候选】下只能放本批十章的章号、标题和正文，不得在每章正文后插入承接说明、目标说明、自检或摘要。\n"
-            "- 十章正文全部写完之后，才能输出【承接说明】【本章目标完成说明】【人物与冲突推进】【商业钩子与爽点兑现】【后续伏笔或待承接事项】【自检风险】【公开摘要】。\n"
+            "- 【章节正文候选】下只能放本批各章的章号、标题和正文，不得在每章正文后插入承接说明、目标说明、自检或摘要。\n"
+            "- 本批全部章节正文写完之后，才能输出【承接说明】【本章目标完成说明】【人物与冲突推进】【商业钩子与爽点兑现】【后续伏笔或待承接事项】【自检风险】【公开摘要】。\n"
             "- 【本章目标完成说明】必须按章列出“目标 / 完成状态 / 正文证据”。完成状态只能是：完成、部分完成、未完成、待后续。\n"
             "- 任一“完成”项必须能在正文中找到明确证据；没有证据就写“部分完成/未完成/待后续”，不得打勾。\n\n"
             "返修轮硬要求：\n"
@@ -1301,20 +1378,28 @@ def prompt_for(pid, prompts):
             "- 如果你写“已增加、已补充、已解释、已出现、掉落、揭示、完成交锋、获得线索”等结论，正文里必须先有可定位的场景、对话或行动；否则删除这条结论。\n"
             "- 如果某个章节目标写着“引入某人”或“揭示某个秘密”，正文里必须真的出现对应人物、对话、行动或证据；不得只在目标说明里声明完成。\n"
             "- 如果需要分散信息密度，你必须把秘密、背景和关系线拆到多个章节逐步揭示，不得在单章里一次性倾倒所有关键设定。\n"
+            "- 如果上一轮机器质量门给出逐章统计，你必须按统计优先扩写低于下限的章节，并保留上一稿已成立的连续性，不得另起一版打乱承接。\n"
+            "- 返修或补量时不得用摘要、提纲、解释、自检或重复句补字数，只能扩写正文场景、行动、选择、冲突、代价和人物反应。\n"
             "- 返修稿必须是完整替换稿：重新输出本批全部章节，不得只输出修改说明或局部补丁。"
         ),
         "projection.writing.simple_novel.chapter_outliner": (
             "批次细纲硬要求：\n"
-            f"- 你每轮必须为当前批次连续规划 {CHAPTERS_PER_ROUND} 章，章节范围以运行时给出的 batch_start_index 和 batch_end_index 为准。\n"
+            f"- 你必须让本批 {batch_size} 章形成连续推进链；如果运行时最后一批不足 {batch_size} 章，则以 batch_chapter_list 为准。\n"
+            "- 你每轮必须为运行时 batch_start_index 至 batch_end_index 范围内的全部章节做连续规划；chapters_per_round 只用于说明本轮批次大小。\n"
+            "- 运行时 batch_chapter_list 是最高优先级边界；如果卷计划、旧细纲或上游摘要写了更大的旧批次范围，你只能截取当前允许章号，不能把旧范围写成当前批次。\n"
+            "- 你必须先读取当前批次基准库、全书大纲主干、大纲审核边界、当前卷计划与当前批次接口，并在【输入继承证据表】里列出继承到的卷名、主角、关键人物、当前批次事件和禁止提前泄露项。\n"
+            "- 第1卷开篇相关批次必须继承“大泽·沉碑”、泽、黎、漪、烬、沉碑、水镜、黎死亡窗口等当前资产；如果输入显示了不同资产，以输入资产为准，但禁止凭通用洪荒模板另起角色和部落。\n"
+            "- 禁止输出“混沌初开、万族争锋、天道崩塌、重塑乾坤、洪荒纪元、姜衍、青石寨、阿苓、黑风狼族、混沌灵根、混沌开天经”等未由当前基准库证明的模板词。\n"
             "- 逐章细纲必须写清：本章目标、主场景、关键冲突动作、信息释放点、人物推进点、章末钩子。\n"
-            "- 你必须让十章形成连续推进链，不允许十章都是并列事件说明。\n"
+            "- 你必须让本批 batch_chapter_list 中的全部章节形成连续推进链，不允许各章都是并列事件说明。\n"
+            "- 【输入继承证据表】【批次目标】【逐章细纲】【供正文写作读取的批次摘要】都只能把当前 batch_chapter_list 写成“本批/当前批次/允许范围”；如需提及后续章节，只能标为后续批次承接点。\n"
             "- 细纲必须为正文服务，不能只写世界观解释或人物设定说明。\n"
             "- 如果输入中存在 previous_chapter_review_ref 或 chapter_revision_requirements，你必须把返修要求吸收到本轮细纲安排中，明确哪些章承担修复任务。\n"
             "- 如果上一轮问题是节奏、结构、人物缺席、爽点落空，你必须在逐章细纲里给出具体修复落点，不能只在摘要里声明会处理。"
         ),
         "projection.writing.simple_novel.chapter_reviewer": (
             "章节轻量审核硬要求：\n"
-            f"- 你审核的是当前卷内一个 {CHAPTERS_PER_ROUND} 章批次；重点检查连续性、设定偏移、章号越界和是否具备继续写作的最低质量。\n"
+            "- 你审核的是当前卷内一个运行时章节批次；重点检查连续性、设定偏移、章号越界和是否具备继续写作的最低质量。\n"
             "- 你不是卷级总审，不要把整卷结构问题全部压到单批次返工里；可记录到 volume_issue_ledger 等待卷级总审处理。\n"
             "- 只有出现缺章、严重短缺、主角/体系/世界观明显漂移、批次外章节、无法承接上一批时，才给 revise。\n"
             "- 局部节奏弱、个别爽点不足、人物权重需要调整等问题，优先 pass_with_notes 或记录为卷级问题，不要反复打回。\n"
@@ -1322,14 +1407,14 @@ def prompt_for(pid, prompts):
         ),
         "projection.writing.simple_novel.chapter_progress_router": (
             "批次推进硬要求：\n"
-            f"- 当前批次通过 commit 后，优先推进到本卷下一批，也就是 next_chapter_index = batch_end_index + 1，默认每轮推进 {CHAPTERS_PER_ROUND} 章。\n"
+            "- 当前批次通过 commit 后，优先推进到本卷下一批，也就是 next_chapter_index = batch_end_index + 1；下一批大小继续由运行时 chapters_per_round 决定。\n"
             f"- 当前卷累计达到约 {VOLUME_TARGET_WORDS} 字或本卷章节范围完成后，必须进入 volume_review，而不是直接进入最终交付。\n"
             "- 只有确认当前批次所有章节均已通过轻审并写入 commit，才允许 decision=continue_volume 或 decision=volume_review。\n"
             "- 如果发现卷内连续性阻塞，输出 blocker_found 并交给卷级总审或结构修复。"
         ),
         "projection.writing.simple_novel.memory_steward": (
             "章节批次记忆写入硬要求：\n"
-            f"- 当处理章节批次 commit 时，必须把 {CHAPTERS_PER_ROUND} 章分别登记为可追踪章节引用，不得只登记一个笼统批次。\n"
+            "- 当处理章节批次 commit 时，必须把运行时 batch_chapter_list 中的每一章分别登记为可追踪章节引用，不得只登记一个笼统批次。\n"
             "- 每章都要有 chapter_index、chapter_file_ref、chapter_summary_ref、关键事实增量和与上一章的连续性摘要。\n"
             "- 批次 manifest 可以共享同一产物文件，但记忆索引必须能按单章查到，防止后续读取污染或遗漏。"
         ),
@@ -1442,8 +1527,8 @@ def loop_derived_fields():
         {"key": "chapter_label", "op": "format", "template": "第{chapter_index}章"},
         {"key": "chapter_file_prefix", "op": "format", "template": "chapter_{chapter_index:03d}"},
         {"key": "batch_start_index", "op": "copy", "from_key": "chapter_index"},
-        {"key": "batch_end_index", "op": "add", "from_key": "chapter_index", "value": CHAPTERS_PER_ROUND - 1},
-        {"key": "batch_index", "op": "ordinal_group", "from_key": "chapter_index", "size": CHAPTERS_PER_ROUND},
+        {"key": "batch_end_index", "op": "add", "from_key": "chapter_index", "value_key": "chapters_per_round", "value": CHAPTERS_PER_ROUND - 1, "offset": -1},
+        {"key": "batch_index", "op": "ordinal_group", "from_key": "chapter_index", "size_key": "chapters_per_round", "size": CHAPTERS_PER_ROUND},
         {"key": "batch_index_padded", "op": "format", "template": "{batch_index:03d}"},
         {"key": "batch_start_index_padded", "op": "format", "template": "{batch_start_index:03d}"},
         {"key": "batch_end_index_padded", "op": "format", "template": "{batch_end_index:03d}"},
@@ -1451,7 +1536,7 @@ def loop_derived_fields():
         {"key": "batch_label", "op": "format", "template": "第{batch_start_index}章至第{batch_end_index}章"},
         {"key": "batch_chapter_numbers", "op": "range", "start_key": "batch_start_index", "end_key": "batch_end_index"},
         {"key": "batch_chapter_list", "op": "join", "from_key": "batch_chapter_numbers", "prefix": "第", "suffix": "章", "separator": "、"},
-        {"key": "batch_target_words", "op": "multiply", "from_key": "chapter_target_words", "value": CHAPTERS_PER_ROUND},
+        {"key": "batch_target_words", "op": "multiply", "from_key": "chapter_target_words", "value_key": "chapters_per_round", "value": CHAPTERS_PER_ROUND},
         {"key": "runtime_loop_summary", "op": "format", "template": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。"},
     ]
 
@@ -1571,7 +1656,13 @@ def graph_node(node):
         operation = "commit"
     elif node_type == "memory_finalize":
         operation = "finalize"
-    loop_policy = {"loop_kind": "bounded_metric_iteration", "loop_variable": "batch_start_index", "iteration_size": CHAPTERS_PER_ROUND, "exit_decision": "target_words_reached"} if node_id in {"chapter_outline", "chapter_draft", "chapter_review", "memory_commit_chapter", "chapter_progress_router"} else {}
+    loop_policy = {
+        "loop_kind": "bounded_metric_iteration",
+        "loop_variable": "batch_start_index",
+        "iteration_size_key": "chapters_per_round",
+        "iteration_size": CHAPTERS_PER_ROUND,
+        "exit_decision": "target_words_reached",
+    } if node_id in {"chapter_outline", "chapter_draft", "chapter_review", "memory_commit_chapter", "chapter_progress_router"} else {}
     loop_scope_id = "loop.chapter_batch" if node_id in {"chapter_outline", "chapter_draft", "chapter_review", "memory_commit_chapter", "chapter_progress_router"} else ""
     loop_route_policy = {}
     if node_id == "chapter_progress_router":
@@ -1588,7 +1679,7 @@ def graph_node(node):
             "target_key": "target_words",
             "last_metric_key": "last_batch_words",
             "secondary_counters": [{"current_key": "volume_current_words", "target_key": "volume_target_words"}],
-            "counter_updates": [{"key": "chapter_index", "mode": "increment", "step": CHAPTERS_PER_ROUND}],
+            "counter_updates": [{"key": "chapter_index", "mode": "increment", "step_key": "chapters_per_round", "step": CHAPTERS_PER_ROUND}],
             "derived_fields": loop_derived_fields(),
         }
     if node_id == "next_volume_router":
@@ -1603,7 +1694,7 @@ def graph_node(node):
             "counter_updates": [
                 {"key": "volume_index", "mode": "increment", "step": 1},
                 {"key": "volume_current_words", "mode": "reset", "value": 0},
-                {"key": "chapter_index", "mode": "increment", "step": CHAPTERS_PER_ROUND},
+                {"key": "chapter_index", "mode": "increment", "step_key": "chapters_per_round", "step": CHAPTERS_PER_ROUND},
             ],
             "derived_fields": loop_derived_fields(),
         }
@@ -1653,6 +1744,7 @@ def graph_node(node):
         "memory_read_policy": memory_read_policy(role, node_id=node_id),
         "memory_writeback_policy": memory_write_policy(role, node_id=node_id),
         "dynamic_memory_read_policy": {},
+        "runtime_limits": runtime_limits(node_id, role),
         "phase_id": phase,
         "sequence_index": seq,
         "timeline_group_id": phase,
@@ -1683,12 +1775,14 @@ def graph_node(node):
             "managed_by": MANAGED,
             "role": role,
             **node_responsibility_metadata(node_id, title, role),
+            "runtime_limits": runtime_limits(node_id, role),
             "operation": operation,
             "memory_closed_loop": True,
             "requires_memory_pack": True,
             "design_doc": DESIGN_DOC,
             "chapters_per_round": CHAPTERS_PER_ROUND if loop_policy else 0,
             "streaming_enabled": bool(node_stream_policy.get("enabled")),
+            "stream_policy": node_stream_policy,
         },
     }
 
@@ -1950,11 +2044,13 @@ HANDOFF_DETAILS = {
         "handoff_summary": "把只读基准库、已审核全书大纲和大纲审核结论交给分卷规划者，作为分卷计划的唯一主干来源。",
         "required_refs": ["baseline_memory_ref", "outline_design_ref", "outline_review_ref", "world_commit_ref", "project_brief_ref"],
         "memory_expectation": "分卷规划者必须读取基准库和已审核大纲，不写基准库；卷名、人物弧线、伏笔窗口和不可提前泄露边界必须继承冻结主干，禁止套用题材模板或改写已冻结事实。",
+        "artifact_max_chars": 12000,
     },
     ("volume_plan", "chapter_outline"): {
-        "handoff_summary": "把当前卷目标、章节范围、冲突和钩子交给细纲规划者，先生成本批可直接开写的章纲。",
-        "required_refs": ["volume_plan_ref", "baseline_memory_ref", "mutable_memory_refs"],
-        "memory_expectation": "细纲规划者读取基准库、可改动库、卷计划和上一批摘要，只整理当前批次蓝图。",
+        "handoff_summary": "把只读基准库、全书大纲主干、大纲审核边界、当前卷计划和当前批次接口交给细纲规划者，先生成本批可直接开写的章纲。",
+        "required_refs": ["volume_plan_ref", "baseline_memory_ref", "outline_design_ref", "outline_review_ref", "mutable_memory_refs"],
+        "memory_expectation": "细纲规划者必须读取基准库、全书大纲、大纲审核边界、可改动库、卷计划和上一批摘要，只整理当前批次蓝图；禁止脱离当前资产套用通用洪荒开篇模板。",
+        "artifact_max_chars": 12000,
     },
     ("chapter_outline", "chapter_draft"): {
         "handoff_summary": "把当前批次细纲交给正文写手，要求严格按批次蓝图落正文。",
@@ -2096,6 +2192,7 @@ def edge(edge_id, source, target, contract_id, edge_type="structured_handoff", m
             "context_mode": "refs_and_summary",
             "target_input_key": model_visible_label,
             "usage_instruction": usage_instruction,
+            "max_chars": int(merged_metadata.get("artifact_max_chars") or 12000),
         },
         "working_memory_handoff_policy": working_memory_handoff_policy,
         "ack_policy": "explicit_ack",
@@ -2458,7 +2555,7 @@ def task_record(node):
                 "projection_id": projection,
                 "memory_closed_loop": True,
             },
-            "runtime_limits": {},
+            "runtime_limits": runtime_limits(node_id, role),
             "artifact_policy": artifact_policy(path),
             "stream_policy": stream_policy(node_id, role),
             "operation_policy": {

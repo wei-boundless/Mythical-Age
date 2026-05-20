@@ -1,6 +1,6 @@
 "use client";
 
-import type { ContractSpec, OrchestrationAgentRuntimeCatalog, SpecificTaskRecord, TaskGraphRecord, TaskGraphStandardView } from "@/lib/api";
+import type { ContractSpec, OrchestrationAgentRuntimeCatalog, TaskGraphRecord, TaskGraphStandardView } from "@/lib/api";
 
 import { TaskGraphComposableEditorPage } from "./TaskGraphComposableEditorPage";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
@@ -21,7 +21,6 @@ export function TaskGraphModuleCompositionPage({
   onOpenGraph,
   orchestrationAgentCatalog,
   projectionCards,
-  selectedDomainTasks,
   standardView,
   standardViewLoading,
   taskGraphDraft,
@@ -45,7 +44,6 @@ export function TaskGraphModuleCompositionPage({
   onOpenGraph?: (graphId: string) => void;
   orchestrationAgentCatalog?: OrchestrationAgentRuntimeCatalog | null;
   projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
-  selectedDomainTasks: SpecificTaskRecord[];
   standardView: TaskGraphStandardView | null;
   standardViewLoading?: boolean;
   taskGraphDraft: TaskGraphDraftV2;
@@ -71,7 +69,6 @@ export function TaskGraphModuleCompositionPage({
       onOpenGraph={onOpenGraph}
       orchestrationAgentCatalog={orchestrationAgentCatalog}
       projectionCards={projectionCards}
-      selectedDomainTasks={selectedDomainTasks}
       standardView={standardView}
       standardViewLoading={standardViewLoading}
       taskGraphDraft={taskGraphDraft}

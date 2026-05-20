@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from continuation.profile_registry import profile_by_domain
+
 from .current_turn import BundleItem, CurrentTurnContext, ResolvedBinding
 
 
@@ -22,10 +24,28 @@ class ContextResolver:
         user_message: str,
         memory_runtime_view: dict[str, Any] | None = None,
         query_understanding: dict[str, Any] | None = None,
+        intent_frame: dict[str, Any] | None = None,
+        intent_decision: dict[str, Any] | None = None,
+        runtime_assembly_hint: dict[str, Any] | None = None,
+        continuation_candidates: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+        continuation_decision: dict[str, Any] | None = None,
     ) -> CurrentTurnContext:
         memory_view = dict(memory_runtime_view or {})
         understanding = dict(query_understanding or {})
+        intent_frame_payload = dict(intent_frame or understanding.get("intent_frame") or {})
+        intent_decision_payload = dict(intent_decision or understanding.get("intent_decision") or {})
+        runtime_assembly_hint_payload = dict(runtime_assembly_hint or {})
+        continuation_candidate_payloads = [
+            dict(item)
+            for item in list(continuation_candidates or [])
+            if isinstance(item, dict)
+        ]
+        continuation_decision_payload = dict(continuation_decision or understanding.get("continuation_decision") or {})
         explicit_inputs = self._explicit_inputs(understanding)
+        self._apply_continuation_decision_to_explicit_inputs(
+            explicit_inputs,
+            continuation_decision=continuation_decision_payload,
+        )
         ordinal_followups = _ordinal_followups(user_message)
         bundle_bindings = self._bundle_followup_bindings(
             memory_runtime_view=memory_view,
@@ -35,6 +55,7 @@ class ContextResolver:
             explicit_inputs=explicit_inputs,
             memory_runtime_view=memory_view,
             structural_signals=dict(understanding.get("structural_signals") or {}),
+            continuation_decision=continuation_decision_payload,
         )
         if bundle_bindings:
             bindings = [*bundle_bindings, *bindings]
@@ -81,6 +102,12 @@ class ContextResolver:
             bundle_items=tuple(bundle_items),
             followup_target_refs=followup_target_refs,
             restore_candidates_used=restore_candidate_refs,
+            intent_frame=intent_frame_payload,
+            intent_decision=intent_decision_payload,
+            runtime_assembly_hint=runtime_assembly_hint_payload,
+            continuation_candidates=tuple(continuation_candidate_payloads),
+            continuation_decision=continuation_decision_payload,
+            structural_signals=dict(understanding.get("structural_signals") or {}),
             confidence=float(understanding.get("confidence") or 0.0),
         )
 
@@ -111,12 +138,31 @@ class ContextResolver:
             result["capability_requests"] = capability_requests
         return result
 
+    def _apply_continuation_decision_to_explicit_inputs(
+        self,
+        explicit_inputs: dict[str, Any],
+        *,
+        continuation_decision: dict[str, Any],
+    ) -> None:
+        decision_kind = str(continuation_decision.get("decision_kind") or "").strip()
+        if decision_kind == "selected":
+            followup_target_kind = str(continuation_decision.get("followup_target_kind") or "").strip()
+            followup_scope = str(continuation_decision.get("followup_scope") or "").strip()
+            if followup_target_kind:
+                explicit_inputs["followup_target_kind"] = followup_target_kind
+            if followup_scope:
+                explicit_inputs["followup_scope"] = followup_scope
+            return
+        if decision_kind == "clarify":
+            explicit_inputs.setdefault("continuation_status", "needs_clarification")
+
     def _resolved_bindings(
         self,
         *,
         explicit_inputs: dict[str, Any],
         memory_runtime_view: dict[str, Any],
         structural_signals: dict[str, Any],
+        continuation_decision: dict[str, Any],
     ) -> list[ResolvedBinding]:
         bindings: list[ResolvedBinding] = []
         explicit_pdf = str(explicit_inputs.get("explicit_pdf_path") or "").strip()
@@ -146,43 +192,18 @@ class ContextResolver:
                 )
             )
 
-        state_snapshot = dict(memory_runtime_view.get("state_snapshot") or {})
-        context_slots = dict(state_snapshot.get("context_slots") or {})
-        active_handles = dict(state_snapshot.get("active_handles") or {})
-        active_constraints = dict(context_slots.get("active_constraints") or state_snapshot.get("active_constraints") or {})
-        subset_constraints = _active_subset_constraints(active_constraints)
-        for key, file_kind in (("active_pdf", "pdf"), ("committed_pdf", "pdf"), ("active_dataset", "dataset"), ("committed_dataset", "dataset")):
-            path = str(context_slots.get(key) or "").strip()
-            if not path:
-                continue
-            bindings.append(
-                ResolvedBinding(
-                    binding_id=f"binding:state:{key}:{_slug(path)}",
-                    binding_kind="source_file",
-                    identity=_identity(path),
-                    file_kind=file_kind,
-                    source_handle_id=str(active_handles.get("active_object_handle_id") or context_slots.get("active_object_handle_id") or ""),
-                    result_handle_id=str(active_handles.get("active_result_handle_id") or context_slots.get("active_result_handle_id") or ""),
-                    subset_handle_id=str(active_handles.get("active_subset_handle_id") or context_slots.get("active_subset_handle_id") or ""),
-                    owner_task_id=str(context_slots.get("active_binding_owner_task_id") or context_slots.get(f"{key}_owner_task_id") or ""),
-                    source="session_state",
-                    confidence=0.72 if key.startswith("committed_") else 0.82,
-                    metadata={
-                        "slot_name": key,
-                        "path": path,
-                        **(
-                            {
-                                "active_constraints": subset_constraints,
-                            }
-                            if key == "active_dataset" and subset_constraints
-                            else {}
-                        ),
-                    },
-                )
-            )
+        continuation_binding = self._binding_from_continuation_decision(continuation_decision)
+        if continuation_binding is not None:
+            bindings.append(continuation_binding)
         for key, file_kind in (("bound_pdf_path", "pdf"), ("bound_dataset_path", "dataset")):
             path = str(structural_signals.get(key) or "").strip()
             if not path:
+                continue
+            if not _structural_bound_binding_allowed(
+                key=key,
+                structural_signals=structural_signals,
+                continuation_decision=continuation_decision,
+            ):
                 continue
             bindings.append(
                 ResolvedBinding(
@@ -190,12 +211,52 @@ class ContextResolver:
                     binding_kind="source_file",
                     identity=_identity(path),
                     file_kind=file_kind,
-                    source="session_state",
+                    source="restore_candidate",
                     confidence=0.86,
                     metadata={"path": path, "slot_name": key},
                 )
             )
         return _dedupe_bindings(bindings)
+
+    def _binding_from_continuation_decision(
+        self,
+        continuation_decision: dict[str, Any],
+    ) -> ResolvedBinding | None:
+        if str(continuation_decision.get("decision_kind") or "").strip() != "selected":
+            return None
+        active_bindings = dict(continuation_decision.get("active_bindings") or {})
+        source_kind = str(continuation_decision.get("source_kind") or active_bindings.get("source_kind") or "").strip()
+        profile = profile_by_domain().get(source_kind)
+        file_kind = str(getattr(profile, "file_kind", "") or source_kind).strip()
+        if not file_kind:
+            return None
+        binding_key = str(getattr(profile, "binding_key", "") or f"active_{source_kind}").strip()
+        path = str(active_bindings.get(binding_key) or "").strip()
+        if not path:
+            path = str(active_bindings.get("path") or "").strip()
+        if not path:
+            return None
+        active_constraints = dict(active_bindings.get("active_constraints") or {})
+        subset_constraints = _active_subset_constraints(active_constraints)
+        return ResolvedBinding(
+            binding_id=f"binding:continuation:{file_kind}:{_slug(path)}",
+            binding_kind="source_file",
+            identity=_identity(path),
+            file_kind=file_kind,
+            source_handle_id=str(active_bindings.get("active_object_handle_id") or ""),
+            result_handle_id=str(active_bindings.get("active_result_handle_id") or active_bindings.get("result_handle_id") or ""),
+            subset_handle_id=str(active_bindings.get("active_subset_handle_id") or ""),
+            owner_task_id=str(active_bindings.get("active_binding_owner_task_id") or ""),
+            source="continuation_decision",
+            confidence=float(continuation_decision.get("confidence") or 0.0),
+            metadata={
+                "path": path,
+                "selected_candidate_id": str(continuation_decision.get("selected_candidate_id") or active_bindings.get("selected_candidate_id") or ""),
+                "selected_target_kind": str(continuation_decision.get("selected_target_kind") or active_bindings.get("selected_target_kind") or ""),
+                "continuation_reason": str(continuation_decision.get("reason") or ""),
+                **({"active_constraints": subset_constraints} if subset_constraints else {}),
+            },
+        )
 
     def _bundle_followup_bindings(
         self,
@@ -235,7 +296,7 @@ class ContextResolver:
                     result_handle_id=task_id,
                     owner_task_id=task_id,
                     confidence=0.9,
-                    source="session_state",
+                    source="restore_candidate",
                     metadata={
                         "bundle_id": str(ref.get("bundle_id") or "").strip(),
                         "item_id": str(ref.get("item_id") or "").strip(),
@@ -401,6 +462,33 @@ def _dedupe_bindings(bindings: list[ResolvedBinding]) -> list[ResolvedBinding]:
         seen.add(key)
         result.append(item)
     return result
+
+
+def _structural_bound_binding_allowed(
+    *,
+    key: str,
+    structural_signals: dict[str, Any],
+    continuation_decision: dict[str, Any],
+) -> bool:
+    if str(continuation_decision.get("decision_kind") or "").strip() == "selected":
+        selected_kind = str(continuation_decision.get("source_kind") or "").strip()
+        return (key == "bound_dataset_path" and selected_kind == "dataset") or (
+            key == "bound_pdf_path" and selected_kind == "pdf"
+        )
+    has_explicit_dataset = bool(str(structural_signals.get("explicit_dataset_path") or "").strip())
+    has_explicit_pdf = bool(str(structural_signals.get("explicit_pdf_path") or "").strip())
+    mixed_direct = bool(structural_signals.get("mixed_direct_capabilities"))
+    if mixed_direct:
+        if key == "bound_pdf_path" and has_explicit_dataset:
+            return True
+        if key == "bound_dataset_path" and has_explicit_pdf:
+            return True
+    followup_target_kind = str(structural_signals.get("followup_target_kind") or "").strip()
+    if key == "bound_dataset_path":
+        return followup_target_kind in {"active_dataset", "active_subset"}
+    if key == "bound_pdf_path":
+        return followup_target_kind == "active_pdf"
+    return False
 
 
 def _bundle_id_for_context(

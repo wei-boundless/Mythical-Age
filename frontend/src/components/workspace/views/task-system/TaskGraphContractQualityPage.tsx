@@ -4,10 +4,10 @@ import { useMemo } from "react";
 import type { ContractSpec } from "@/lib/api";
 
 import { TaskGraphEdgeStandardPage } from "./TaskGraphEdgeStandardPage";
-import { TaskSystemField } from "./TaskSystemWorkbenchUi";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
 import { buildTaskGraphCognitionModel } from "./taskGraphCognitionView";
+import { TaskGraphContractBindingField } from "./TaskGraphContractBindingField";
 
 function contractTitle(contract: ContractSpec) {
   return String(contract.contract_id);
@@ -56,7 +56,6 @@ export function TaskGraphContractQualityPage({
   updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
 }) {
-  const graphContractId = String(taskGraphDraft.graph_contract_id ?? "");
   const contractIds = contractSpecs.map((item) => item.contract_id);
   const cognitionModel = useMemo(
     () => buildTaskGraphCognitionModel({ nodes: activeGraphNodes, edges: activeGraphEdges }),
@@ -83,11 +82,6 @@ export function TaskGraphContractQualityPage({
     );
   }
 
-  const contractOptions = (...currentIds: string[]) => {
-    const current = currentIds.map((item) => String(item ?? "").trim()).filter(Boolean);
-    return Array.from(new Set([...current, ...contractIds]));
-  };
-
   const formatContract = (contractId: string) => {
     const contract = contractSpecs.find((item) => item.contract_id === contractId);
     return contract ? `${contractTitle(contract)} · ${contractId}` : contractId || "未绑定";
@@ -105,17 +99,16 @@ export function TaskGraphContractQualityPage({
         <article className="boundary-card">
           <header><strong>图级契约</strong></header>
           <div className="boundary-form">
-            <TaskSystemField label="图契约 ID">
-              <select
-                onChange={(event) => updateTaskGraph({ graph_contract_id: event.target.value })}
-                value={graphContractId}
-              >
-                <option value="">未绑定</option>
-                {contractOptions(graphContractId).map((contractId) => (
-                  <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
-                ))}
-              </select>
-            </TaskSystemField>
+            <TaskGraphContractBindingField
+              fallback={taskGraphDraft.graph_contract_id}
+              field="graph_contract_id"
+              formatOption={formatContract}
+              label="图契约 ID"
+              onChange={(patch) => updateTaskGraph(patch)}
+              options={contractIds}
+              section="schema"
+              target={taskGraphDraft}
+            />
           </div>
           <div className="task-graph-note">
             <strong>保存落点</strong>
@@ -150,39 +143,37 @@ export function TaskGraphContractQualityPage({
                   <strong>{nodeTitle(node)}</strong>
                   <span>{nodeId}</span>
                 </div>
-                <TaskSystemField label="节点契约">
-                  <select
-                    onChange={(event) => updateTaskGraphNode(nodeId, { node_contract_id: event.target.value, contract_id: event.target.value })}
-                    value={String(node.node_contract_id ?? node.contract_id ?? "")}
-                  >
-                    <option value="">未绑定</option>
-                    {contractOptions(String(node.node_contract_id ?? node.contract_id ?? "")).map((contractId) => (
-                      <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
-                    ))}
-                  </select>
-                </TaskSystemField>
-                <TaskSystemField label="输入契约">
-                  <select
-                    onChange={(event) => updateTaskGraphNode(nodeId, { input_contract_id: event.target.value })}
-                    value={String(node.input_contract_id ?? "")}
-                  >
-                    <option value="">未绑定</option>
-                    {contractOptions(String(node.input_contract_id ?? "")).map((contractId) => (
-                      <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
-                    ))}
-                  </select>
-                </TaskSystemField>
-                <TaskSystemField label="输出契约">
-                  <select
-                    onChange={(event) => updateTaskGraphNode(nodeId, { output_contract_id: event.target.value })}
-                    value={String(node.output_contract_id ?? "")}
-                  >
-                    <option value="">未绑定</option>
-                    {contractOptions(String(node.output_contract_id ?? "")).map((contractId) => (
-                      <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
-                    ))}
-                  </select>
-                </TaskSystemField>
+                <TaskGraphContractBindingField
+                  fallback={String(node.node_contract_id ?? node.contract_id ?? "")}
+                  field="node_contract_id"
+                  formatOption={formatContract}
+                  label="节点契约"
+                  legacyPatch={(value) => ({ node_contract_id: value, contract_id: value })}
+                  onChange={(patch) => updateTaskGraphNode(nodeId, patch)}
+                  options={contractIds}
+                  section="execution"
+                  target={node}
+                />
+                <TaskGraphContractBindingField
+                  fallback={String(node.input_contract_id ?? "")}
+                  field="input_contract_id"
+                  formatOption={formatContract}
+                  label="输入契约"
+                  onChange={(patch) => updateTaskGraphNode(nodeId, patch)}
+                  options={contractIds}
+                  section="schema"
+                  target={node}
+                />
+                <TaskGraphContractBindingField
+                  fallback={String(node.output_contract_id ?? "")}
+                  field="output_contract_id"
+                  formatOption={formatContract}
+                  label="输出契约"
+                  onChange={(patch) => updateTaskGraphNode(nodeId, patch)}
+                  options={contractIds}
+                  section="schema"
+                  target={node}
+                />
               </article>
             );
           })}
@@ -230,17 +221,17 @@ export function TaskGraphContractQualityPage({
                   <strong>{edgeSource(edge)} {"->"} {edgeTarget(edge)}</strong>
                   <span>{edgeId}</span>
                 </div>
-                <TaskSystemField label="载荷契约">
-                  <select
-                    onChange={(event) => updateTaskGraphEdge(edgeId, { payload_contract_id: event.target.value, contract_id: event.target.value })}
-                    value={String(edge.payload_contract_id ?? edge.contract_id ?? "")}
-                  >
-                    <option value="">未绑定</option>
-                    {contractOptions(String(edge.payload_contract_id ?? edge.contract_id ?? "")).map((contractId) => (
-                      <option key={contractId} value={contractId}>{formatContract(contractId)}</option>
-                    ))}
-                  </select>
-                </TaskSystemField>
+                <TaskGraphContractBindingField
+                  fallback={String(edge.payload_contract_id ?? edge.contract_id ?? "")}
+                  field="payload_contract_id"
+                  formatOption={formatContract}
+                  label="载荷契约"
+                  legacyPatch={(value) => ({ payload_contract_id: value, contract_id: value })}
+                  onChange={(patch) => updateTaskGraphEdge(edgeId, patch)}
+                  options={contractIds}
+                  section="schema"
+                  target={edge}
+                />
               </article>
             );
           })}

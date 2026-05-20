@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 ExecutionMode = Literal["single", "bundle"]
 BindingKind = Literal["source_file", "result", "subset", "task_ref"]
-BindingSource = Literal["explicit_user_input", "session_state", "task_summary", "restore_candidate"]
+BindingSource = Literal["explicit_user_input", "session_state", "task_summary", "restore_candidate", "continuation_decision"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +66,12 @@ class CurrentTurnContext:
     followup_target_refs: tuple[str, ...] = ()
     restore_candidates_used: tuple[str, ...] = ()
     unresolved_ambiguities: tuple[str, ...] = ()
+    intent_frame: dict[str, Any] = field(default_factory=dict)
+    intent_decision: dict[str, Any] = field(default_factory=dict)
+    runtime_assembly_hint: dict[str, Any] = field(default_factory=dict)
+    continuation_candidates: tuple[dict[str, Any], ...] = ()
+    continuation_decision: dict[str, Any] = field(default_factory=dict)
+    structural_signals: dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0
     authority: str = "context.current_turn"
 
@@ -84,4 +90,5 @@ class CurrentTurnContext:
         payload["followup_target_refs"] = list(self.followup_target_refs)
         payload["restore_candidates_used"] = list(self.restore_candidates_used)
         payload["unresolved_ambiguities"] = list(self.unresolved_ambiguities)
+        payload["continuation_candidates"] = [dict(item) for item in self.continuation_candidates]
         return payload

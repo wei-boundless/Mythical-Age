@@ -31,6 +31,7 @@ function manifestRefCount(manifest: ContractManifest | null) {
     + manifest.workflow_contracts.length
     + manifest.node_contracts.length
     + manifest.edge_handoff_contracts.length
+    + (manifest.graph_unit_handoff_contracts ?? []).length
     + manifest.runtime_contracts.length
     + manifest.acceptance_contracts.length;
 }

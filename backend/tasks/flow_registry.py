@@ -385,8 +385,23 @@ def _subtask_refs_from_graph_nodes(nodes: tuple[dict[str, Any], ...]) -> tuple[s
             str(node.get("task_id") or node.get("subtask_ref") or "").strip()
             for node in nodes
             if str(node.get("task_id") or node.get("subtask_ref") or "").strip().startswith("task.")
+            or str(node.get("task_id") or node.get("subtask_ref") or "").strip().startswith("task_graph.node.")
         )
     )
+
+
+def _runtime_graph_view_nodes_and_edges(graph: TaskGraphDefinition) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
+    try:
+        from .coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+
+        runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
+    except Exception:
+        return (), ()
+    if not getattr(runtime_spec, "nested_runtime_plans", ()):
+        return (), ()
+    nodes = tuple(node.to_dict() for node in runtime_spec.nodes)
+    edges = tuple({**edge.to_dict(), "edge_type": edge.mode} for edge in runtime_spec.edges)
+    return nodes, edges
 
 
 def default_task_domains() -> tuple[TaskDomainRecord, ...]:
@@ -1925,8 +1940,9 @@ class TaskFlowRegistry:
             task_family=task_family,
             subtask_refs=subtask_refs,
         )
-        graph_nodes = stored_nodes or fallback_nodes
-        graph_edges = tuple(edge.to_dict() for edge in graph.edges) or fallback_edges
+        runtime_nodes, runtime_edges = _runtime_graph_view_nodes_and_edges(graph)
+        graph_nodes = runtime_nodes or stored_nodes or fallback_nodes
+        graph_edges = runtime_edges or tuple(edge.to_dict() for edge in graph.edges) or fallback_edges
         subtask_refs = tuple(dict.fromkeys([*subtask_refs, *_subtask_refs_from_graph_nodes(graph_nodes)]))
         communication_modes = tuple(
             str(value).strip()
@@ -2005,6 +2021,7 @@ class TaskFlowRegistry:
         nodes: tuple[dict[str, Any], ...] = (),
         edges: tuple[dict[str, Any], ...] = (),
         graph_contract_id: str = "",
+        contract_bindings: dict[str, Any] | None = None,
         default_protocol_id: str = "",
         working_memory_policy_profile_id: str = "",
         working_memory_policy: dict[str, Any] | None = None,
@@ -2029,6 +2046,7 @@ class TaskFlowRegistry:
                 "nodes": [dict(item) for item in nodes],
                 "edges": [dict(item) for item in edges],
                 "graph_contract_id": graph_contract_id,
+                "contract_bindings": dict(contract_bindings or {}),
                 "default_protocol_id": default_protocol_id,
                 "working_memory_policy_profile_id": working_memory_policy_profile_id,
                 "working_memory_policy": dict(working_memory_policy or {}),

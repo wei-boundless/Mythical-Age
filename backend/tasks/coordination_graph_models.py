@@ -62,6 +62,28 @@ class TaskGraphRuntimeEdge:
 
 
 @dataclass(frozen=True, slots=True)
+class TaskGraphNestedRuntimePlan:
+    plan_id: str
+    parent_graph_id: str
+    unit_id: str
+    runtime_node_id: str
+    linked_graph_id: str
+    version_ref: str = ""
+    handoff_contract_id: str = ""
+    input_port_id: str = "input.default"
+    output_port_id: str = "output.default"
+    isolation_policy: str = "isolated_per_nested_run"
+    visibility_policy: str = "committed_only"
+    detach_policy: str = "preserve_version_anchor"
+    phase_id: str = ""
+    sequence_index: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
 class TaskGraphRuntimeValidationIssue:
     code: str
     message: str
@@ -93,6 +115,7 @@ class TaskGraphRuntimeSpec:
     artifact_context_edges: tuple[dict[str, Any], ...] = ()
     revision_edges: tuple[dict[str, Any], ...] = ()
     loop_frames: tuple[dict[str, Any], ...] = ()
+    nested_runtime_plans: tuple[TaskGraphNestedRuntimePlan, ...] = ()
     memory_matrix: dict[str, Any] = field(default_factory=dict)
     issues: tuple[TaskGraphRuntimeValidationIssue, ...] = ()
     diagnostics: dict[str, Any] = field(default_factory=dict)
@@ -111,6 +134,8 @@ class TaskGraphRuntimeSpec:
         payload["artifact_context_edges"] = [dict(item) for item in self.artifact_context_edges]
         payload["revision_edges"] = [dict(item) for item in self.revision_edges]
         payload["loop_frames"] = [dict(item) for item in self.loop_frames]
+        payload["nested_runtime_plans"] = [item.to_dict() for item in self.nested_runtime_plans]
+        payload["graph_units"] = payload["nested_runtime_plans"]
         payload["memory_matrix"] = dict(self.memory_matrix)
         payload["issues"] = [item.to_dict() for item in self.issues]
         payload["graph_ref"] = self.graph_ref or self.graph_id

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildTimelinePreflightIssues, coordinationTimelineBlocks } from "./taskGraphTimeline";
+import { buildTimelinePreflightIssues, coordinationTimelineBlocks, timelineBlockHandoffContractIdOf } from "./taskGraphTimeline";
 
 describe("TaskGraph timeline layering", () => {
   it("reads phase graph blocks from graph metadata", () => {
@@ -21,6 +21,24 @@ describe("TaskGraph timeline layering", () => {
     expect(blocks).toHaveLength(1);
     expect(blocks[0]?.block_type).toBe("design_graph");
     expect(blocks[0]?.detach_policy).toBe("preserve_version_anchor");
+  });
+
+  it("uses timeline block contract_bindings before legacy handoff fields", () => {
+    const blocks = coordinationTimelineBlocks({
+      timeline_blocks: [{
+        block_id: "block.creation",
+        block_type: "creation_graph",
+        title: "创作阶段图",
+        phase_id: "phase.creation",
+        handoff_contract_id: "contract.legacy.handoff",
+        contract_bindings: {
+          handoff: { handoff_contract_id: "contract.binding.handoff" },
+        },
+      }],
+    });
+
+    expect(timelineBlockHandoffContractIdOf(blocks[0] as unknown as Record<string, unknown>)).toBe("contract.binding.handoff");
+    expect(buildTimelinePreflightIssues([], [], { timeline_blocks: blocks }).some((issue) => issue.code === "timeline_block_handoff_contract_missing")).toBe(false);
   });
 
   it("preflights timeline block stitching and edge temporal semantics", () => {

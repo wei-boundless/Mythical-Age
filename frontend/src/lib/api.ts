@@ -604,9 +604,11 @@ export type ContractManifest = {
   workflow_contracts: Array<Record<string, unknown>>;
   node_contracts: Array<Record<string, unknown>>;
   edge_handoff_contracts: Array<Record<string, unknown>>;
+  graph_unit_handoff_contracts: Array<Record<string, unknown>>;
   runtime_contracts: Array<Record<string, unknown>>;
   acceptance_contracts: Array<Record<string, unknown>>;
   issues: ContractCompileIssue[];
+  graph_contract_bindings?: Record<string, unknown>;
   metadata: Record<string, unknown>;
   valid: boolean;
 };
@@ -629,11 +631,14 @@ export type RuntimeAssembly = {
   workflow_id?: string;
   coordination_task_ref?: string;
   graph_id?: string;
+  graph_ref?: string;
   node_id?: string;
   agent_id: string;
   agent_profile_id: string;
+  projection_id?: string;
   runtime_lane: string;
   context_sections: RuntimeContextSection[];
+  input_contract_refs?: string[];
   output_contracts: Array<Record<string, unknown>>;
   acceptance_contracts: Array<Record<string, unknown>>;
   handoff_packets?: Array<Record<string, unknown>>;
@@ -655,9 +660,35 @@ export type TaskGraphRuntimeSpec = {
   communication_modes: string[];
   start_node_ids: string[];
   terminal_node_ids: string[];
+  resource_nodes?: Array<Record<string, unknown>>;
+  temporal_edges?: Array<Record<string, unknown>>;
+  memory_edges?: Array<Record<string, unknown>>;
+  artifact_context_edges?: Array<Record<string, unknown>>;
+  revision_edges?: Array<Record<string, unknown>>;
+  loop_frames?: Array<Record<string, unknown>>;
+  nested_runtime_plans?: Array<Record<string, unknown>>;
+  graph_units?: Array<Record<string, unknown>>;
   issues: Array<Record<string, unknown>>;
   valid: boolean;
   diagnostics?: Record<string, unknown>;
+};
+
+export type TaskGraphExecutionPackage = {
+  authority: string;
+  package_id: string;
+  graph_id: string;
+  title: string;
+  valid: boolean;
+  standard_view: TaskGraphStandardView;
+  contract_manifest: ContractManifest;
+  runtime_spec: TaskGraphRuntimeSpec;
+  node_runtime_assemblies: RuntimeAssembly[];
+  scheduler_state: Record<string, unknown>;
+  graph_units: Array<Record<string, unknown>>;
+  graph_unit_execution_plans?: Array<Record<string, unknown>>;
+  object_trace_index?: Array<Record<string, unknown>>;
+  issues: Array<Record<string, unknown>>;
+  summary: Record<string, number | string | boolean>;
 };
 
 export type TaskGraphStandardNodeSpec = {
@@ -686,6 +717,7 @@ export type TaskGraphStandardEdgeSpec = {
   target_node_id: string;
   edge_type: string;
   payload_contract_id?: string;
+  contract_bindings?: Record<string, unknown>;
   handoff?: Record<string, unknown>;
   memory?: Record<string, unknown>;
   artifact_context?: Record<string, unknown>;
@@ -825,13 +857,16 @@ export type TaskGraphNodeRecord = {
   agent_group_id?: string;
   role?: string;
   work_posture?: string;
+  contract_id?: string;
   node_contract_id?: string;
   input_contract_id?: string;
   output_contract_id?: string;
+  contract_bindings?: Record<string, unknown>;
   runtime_lane?: string;
   context_visibility_policy?: Record<string, unknown>;
   projection_id?: string;
   projection_overlay_id?: string;
+  executor_policy?: Record<string, unknown>;
   failure_policy?: Record<string, unknown>;
   human_gate_policy?: Record<string, unknown>;
   memory_read_policy?: Record<string, unknown>;
@@ -850,6 +885,10 @@ export type TaskGraphNodeRecord = {
   blocks_phase_exit?: boolean;
   loop_policy?: Record<string, unknown>;
   review_gate_policy?: Record<string, unknown>;
+  artifact_policy?: Record<string, unknown>;
+  stream_policy?: Record<string, unknown>;
+  artifact_target?: string;
+  output_path?: string;
   background_policy?: Record<string, unknown>;
   notification_policy?: Record<string, unknown>;
   resource_lifecycle_policy?: Record<string, unknown>;
@@ -862,7 +901,9 @@ export type TaskGraphEdgeRecord = {
   target_node_id: string;
   edge_type: string;
   a2a_message_type?: string;
+  contract_id?: string;
   payload_contract_id?: string;
+  contract_bindings?: Record<string, unknown>;
   context_filter_policy?: Record<string, unknown>;
   artifact_ref_policy?: Record<string, unknown>;
   working_memory_handoff_policy?: Record<string, unknown>;
@@ -889,6 +930,7 @@ export type TaskGraphRecord = {
   node_count?: number;
   edge_count?: number;
   graph_contract_id?: string;
+  contract_bindings?: Record<string, unknown>;
   default_protocol_id?: string;
   working_memory_policy_profile_id?: string;
   working_memory_policy?: Record<string, unknown>;
@@ -3612,6 +3654,12 @@ export async function compileTaskSystemTaskGraphContractManifest(graphId: string
 export async function compileTaskSystemTaskGraphRuntimeSpec(graphId: string) {
   return request<TaskGraphRuntimeSpec>(
     `/tasks/runtime-specs/task-graphs/${encodeURIComponent(graphId)}`
+  );
+}
+
+export async function buildTaskSystemTaskGraphExecutionPackage(graphId: string) {
+  return request<TaskGraphExecutionPackage>(
+    `/tasks/execution-packages/task-graphs/${encodeURIComponent(graphId)}`
   );
 }
 

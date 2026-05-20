@@ -98,4 +98,45 @@ describe("TaskGraph cognition view", () => {
 
     expect(model.packageByNodeId.get("worker")?.issues).toContain("MemorySnapshot 缺少 usage_instruction");
   });
+
+  it("uses contract_bindings as the visible contract source", () => {
+    const model = buildTaskGraphCognitionModel({
+      nodes: [
+        {
+          node_id: "draft",
+          title: "Draft",
+          input_contract_id: "contract.legacy.input",
+          output_contract_id: "contract.legacy.output",
+          contract_bindings: {
+            schema: {
+              input_contract_id: "contract.binding.input",
+              output_contract_id: "contract.binding.output",
+            },
+          },
+          artifact_target: "artifacts/draft.md",
+        },
+        { node_id: "review", title: "Review" },
+      ],
+      edges: [
+        {
+          edge_id: "edge.draft.review",
+          source_node_id: "draft",
+          target_node_id: "review",
+          edge_type: "structured_handoff",
+          payload_contract_id: "contract.legacy.payload",
+          contract_bindings: { schema: { payload_contract_id: "contract.binding.payload" } },
+          metadata: { usage_instruction: "审核绑定契约下的交接包。" },
+        },
+      ],
+    });
+
+    const draft = model.packageByNodeId.get("draft");
+    const review = model.packageByNodeId.get("review");
+
+    expect(draft?.inputContractId).toBe("contract.binding.input");
+    expect(draft?.outputContractId).toBe("contract.binding.output");
+    expect(draft?.outputs.find((output) => output.kind === "artifact")?.contractId).toBe("contract.binding.output");
+    expect(draft?.outputs.find((output) => output.kind === "timeline_result")?.contractId).toBe("contract.binding.output");
+    expect(review?.inputPackets.find((packet) => packet.kind === "handoff_packet")?.contractId).toBe("contract.binding.payload");
+  });
 });

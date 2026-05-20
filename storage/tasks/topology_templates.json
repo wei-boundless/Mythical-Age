@@ -1764,12 +1764,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -1819,7 +1836,7 @@
                 "max_chars": 65000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 2
           },
           "revision_context_policy": {},
@@ -1849,12 +1866,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -1904,7 +1938,7 @@
                 "max_chars": 16000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 2
           },
           "revision_context_policy": {
@@ -1951,12 +1985,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -2006,7 +2057,7 @@
                 "max_chars": 20000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 2
           },
           "revision_context_policy": {},
@@ -2036,12 +2087,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "commit",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -2092,7 +2160,7 @@
                 "max_chars": 16000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 2
           },
           "revision_context_policy": {},
@@ -2122,12 +2190,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -2178,7 +2263,7 @@
                 "max_chars": 50000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 2
           },
           "revision_context_policy": {},
@@ -2208,12 +2293,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -2271,7 +2373,7 @@
                 "required": true
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 3
           },
           "revision_context_policy": {},
@@ -2301,12 +2403,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -2384,7 +2503,7 @@
                 "max_chars": 65000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 6
           },
           "revision_context_policy": {},
@@ -2414,12 +2533,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -2488,7 +2624,7 @@
                 "required": true
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 5
           },
           "revision_context_policy": {
@@ -2535,12 +2671,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -2617,7 +2770,7 @@
                 "max_chars": 36000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 6
           },
           "revision_context_policy": {},
@@ -2647,12 +2800,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "commit",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -2692,40 +2862,27 @@
               {
                 "source": "input_key",
                 "input_key": "contract.writing.simple_novel.baseline_memory_commit:artifact_refs",
-                "label": "只读基准库",
-                "max_chars": 90000,
+                "label": "当前卷规划基准包",
+                "max_chars": 18000,
                 "required": true
               },
               {
                 "source": "input_key",
                 "input_key": "contract.writing.simple_novel.outline_design:artifact_refs",
-                "label": "已审核全书大纲",
-                "max_chars": 90000,
+                "label": "全书大纲主干",
+                "max_chars": 16000,
                 "required": true
               },
               {
                 "source": "input_key",
                 "input_key": "contract.writing.simple_novel.outline_review:artifact_refs",
-                "label": "大纲审核结论",
-                "max_chars": 30000,
+                "label": "大纲审核边界",
+                "max_chars": 6000,
                 "required": true
-              },
-              {
-                "source": "input_key",
-                "input_key": "contract.writing.simple_novel.memory_commit_world:artifact_refs",
-                "label": "已提交世界观主干",
-                "max_chars": 50000,
-                "required": true
-              },
-              {
-                "source": "input_key",
-                "input_key": "contract.writing.simple_novel.design_sync:artifact_refs",
-                "label": "设计对齐包",
-                "max_chars": 40000
               }
             ],
-            "default_max_chars": 20000,
-            "max_items": 5
+            "default_max_chars": 12000,
+            "max_items": 3
           },
           "revision_context_policy": {},
           "quality_retry_policy": {},
@@ -2754,12 +2911,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 720,
+              "max_model_calls": 8,
+              "max_events": 10000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 240,
+              "stream_recovery_timeout_seconds": 240
+            }
           }
         },
         {
@@ -2794,14 +2968,84 @@
               }
             ]
           },
-          "artifact_context_policy": {},
+          "artifact_context_policy": {
+            "items": [
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.baseline_memory_commit:artifact_refs",
+                "label": "当前批次基准库",
+                "max_chars": 18000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.outline_design:artifact_refs",
+                "label": "全书大纲主干",
+                "max_chars": 14000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.outline_review:artifact_refs",
+                "label": "大纲审核边界",
+                "max_chars": 5000,
+                "required": true
+              },
+              {
+                "source": "input_key",
+                "input_key": "contract.writing.simple_novel.volume_plan_commit:artifact_refs",
+                "label": "当前卷计划与当前批次接口",
+                "max_chars": 12000,
+                "required": true
+              }
+            ],
+            "default_max_chars": 12000,
+            "max_items": 4
+          },
           "revision_context_policy": {},
-          "quality_retry_policy": {},
+          "quality_retry_policy": {
+            "enabled": true,
+            "retry_stage_id": "chapter_outline",
+            "acceptance_policies": [
+              "sectioned_text_batch_quality"
+            ],
+            "unit_index_key": "chapter_index",
+            "unit_start_key": "batch_start_index",
+            "unit_end_key": "batch_end_index",
+            "unit_count_key": "chapters_per_round",
+            "minimum_metric_ratio": 0.0,
+            "minimum_metric_per_unit": 0,
+            "required_heading_patterns": [
+              "第\\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\\s*[章节回]"
+            ],
+            "heading_match_scope": "formal_heading",
+            "ignored_heading_parent_keywords": [
+              "后续批次承接点",
+              "后续批次接口",
+              "下一批",
+              "后续承接"
+            ],
+            "forbid_unexpected_unit_indexes": true,
+            "forbid_unexpected_unit_ranges": true,
+            "recoverable_issue_prefixes": [
+              "unexpected_unit_indexes:",
+              "unexpected_unit_range:",
+              "missing_required_sections:",
+              "empty_content",
+              "refusal_or_process_text_detected"
+            ],
+            "carry_current_output_as": "previous_candidate_ref",
+            "requirements_input_key": "chapter_revision_requirements",
+            "requirements_template": "上一轮章节细纲候选未通过机器质量门，原因：{quality_issues}。运行时允许章号范围是第{batch_start_index}章至第{batch_end_index}章，允许章号清单是：{batch_chapter_list}。上一轮产物出现缺章、越界章号或旧批次范围声明时，本轮必须以运行时边界为最高优先级重新整理细纲。不得把上游卷计划中的旧批次接口照抄为当前批次；只输出当前批次允许章号的目标、场景、冲突、信息释放和章末钩子。",
+            "clear_input_keys": [
+              "contract.writing.simple_novel.chapter_outline:artifact_refs"
+            ]
+          },
           "progress_commit_policy": {},
           "loop_policy": {
             "loop_kind": "bounded_metric_iteration",
             "loop_variable": "batch_start_index",
-            "iteration_size": 10,
+            "iteration_size": 5,
             "exit_decision": "target_words_reached"
           },
           "loop_kind": "bounded_metric_iteration",
@@ -2827,12 +3071,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 720,
+              "max_model_calls": 8,
+              "max_events": 10000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
-            "chapters_per_round": 10,
-            "streaming_enabled": true
+            "chapters_per_round": 5,
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 240,
+              "stream_recovery_timeout_seconds": 240
+            }
           }
         },
         {
@@ -2913,7 +3174,7 @@
                 "max_chars": 65000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 4
           },
           "revision_context_policy": {},
@@ -2934,15 +3195,27 @@
             "required_heading_patterns": [
               "第\\s*(?P<index>[0-9一二三四五六七八九十百零〇两]+)\\s*[章节回]"
             ],
+            "heading_match_scope": "formal_heading",
+            "ignored_heading_parent_keywords": [
+              "后续批次承接点",
+              "后续批次接口",
+              "下一批",
+              "后续承接"
+            ],
+            "forbid_unexpected_unit_indexes": true,
+            "forbid_unexpected_unit_ranges": true,
             "recoverable_issue_prefixes": [
               "insufficient_metric:",
+              "insufficient_unit_metric:",
+              "unexpected_unit_indexes:",
+              "unexpected_unit_range:",
               "missing_required_sections:",
               "empty_content",
               "refusal_or_process_text_detected"
             ],
             "carry_current_output_as": "previous_candidate_ref",
             "requirements_input_key": "chapter_revision_requirements",
-            "requirements_template": "上一轮章节正文候选未通过机器质量门，原因：{quality_issues}。本轮必须重写当前批次全部章节；只输出运行时允许的章号范围，正文必须完整，不得用摘要、提纲、解释或等待补充代替。",
+            "requirements_template": "上一轮章节正文候选未通过机器质量门，原因：{quality_issues}。批次正文统计：总量 {content_metric_total}/{min_required_metric_total}；逐章统计：{unit_metric_summary}。本轮必须以 previous_candidate_ref 为基底扩写当前批次全部章节，优先补足低于单章下限或缺失的章节。只输出运行时允许的章号范围（{batch_chapter_list}），正文必须完整，不得输出越界章号，不得用摘要、提纲、解释、自检或重复句补字数。",
             "clear_input_keys": [
               "contract.writing.simple_novel.chapter_draft:artifact_refs"
             ]
@@ -2951,7 +3224,7 @@
           "loop_policy": {
             "loop_kind": "bounded_metric_iteration",
             "loop_variable": "batch_start_index",
-            "iteration_size": 10,
+            "iteration_size": 5,
             "exit_decision": "target_words_reached"
           },
           "loop_kind": "bounded_metric_iteration",
@@ -2977,12 +3250,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 900,
+              "max_model_calls": 10,
+              "max_events": 12000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
-            "chapters_per_round": 10,
-            "streaming_enabled": true
+            "chapters_per_round": 5,
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 300,
+              "stream_recovery_timeout_seconds": 300
+            }
           }
         },
         {
@@ -3032,7 +3322,7 @@
                 "max_chars": 90000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 2
           },
           "revision_context_policy": {
@@ -3058,7 +3348,7 @@
           "loop_policy": {
             "loop_kind": "bounded_metric_iteration",
             "loop_variable": "batch_start_index",
-            "iteration_size": 10,
+            "iteration_size": 5,
             "exit_decision": "target_words_reached"
           },
           "loop_kind": "bounded_metric_iteration",
@@ -3084,12 +3374,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
-            "chapters_per_round": 10,
-            "streaming_enabled": true
+            "chapters_per_round": 5,
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -3145,7 +3452,7 @@
                 "max_chars": 24000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 3
           },
           "revision_context_policy": {},
@@ -3163,7 +3470,7 @@
           "loop_policy": {
             "loop_kind": "bounded_metric_iteration",
             "loop_variable": "batch_start_index",
-            "iteration_size": 10,
+            "iteration_size": 5,
             "exit_decision": "target_words_reached"
           },
           "loop_kind": "bounded_metric_iteration",
@@ -3189,12 +3496,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "commit",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
-            "chapters_per_round": 10,
-            "streaming_enabled": true
+            "chapters_per_round": 5,
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -3236,7 +3560,7 @@
           "loop_policy": {
             "loop_kind": "bounded_metric_iteration",
             "loop_variable": "batch_start_index",
-            "iteration_size": 10,
+            "iteration_size": 5,
             "exit_decision": "target_words_reached"
           },
           "loop_kind": "bounded_metric_iteration",
@@ -3250,7 +3574,7 @@
             "metric_key": "chapter_words",
             "diagnostic_metric_key": "chapter_words",
             "fallback_increment_key": "batch_target_words",
-            "default_increment": 20000,
+            "default_increment": 10000,
             "current_key": "current_words",
             "target_key": "target_words",
             "last_metric_key": "last_batch_words",
@@ -3264,7 +3588,7 @@
               {
                 "key": "chapter_index",
                 "mode": "increment",
-                "step": 10
+                "step": 5
               }
             ],
             "derived_fields": [
@@ -3302,13 +3626,13 @@
                 "key": "batch_end_index",
                 "op": "add",
                 "from_key": "chapter_index",
-                "value": 9
+                "value": 4
               },
               {
                 "key": "batch_index",
                 "op": "ordinal_group",
                 "from_key": "chapter_index",
-                "size": 10
+                "size": 5
               },
               {
                 "key": "batch_index_padded",
@@ -3353,7 +3677,7 @@
                 "key": "batch_target_words",
                 "op": "multiply",
                 "from_key": "chapter_target_words",
-                "value": 10
+                "value": 5
               },
               {
                 "key": "runtime_loop_summary",
@@ -3381,12 +3705,25 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {},
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
-            "chapters_per_round": 10,
-            "streaming_enabled": true
+            "chapters_per_round": 5,
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -3430,7 +3767,7 @@
                 "max_chars": 90000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 1
           },
           "revision_context_policy": {
@@ -3477,12 +3814,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -3545,12 +3899,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "commit",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -3613,12 +3984,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -3668,7 +4056,7 @@
                 "max_chars": 50000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 2
           },
           "revision_context_policy": {},
@@ -3698,12 +4086,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -3747,7 +4152,7 @@
                 "max_chars": 50000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 1
           },
           "revision_context_policy": {
@@ -3794,12 +4199,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -3862,12 +4284,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "commit",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -3932,7 +4371,7 @@
               {
                 "key": "chapter_index",
                 "mode": "increment",
-                "step": 10
+                "step": 5
               }
             ],
             "derived_fields": [
@@ -3970,13 +4409,13 @@
                 "key": "batch_end_index",
                 "op": "add",
                 "from_key": "chapter_index",
-                "value": 9
+                "value": 4
               },
               {
                 "key": "batch_index",
                 "op": "ordinal_group",
                 "from_key": "chapter_index",
-                "size": 10
+                "size": 5
               },
               {
                 "key": "batch_index_padded",
@@ -4021,7 +4460,7 @@
                 "key": "batch_target_words",
                 "op": "multiply",
                 "from_key": "chapter_target_words",
-                "value": 10
+                "value": 5
               },
               {
                 "key": "runtime_loop_summary",
@@ -4049,12 +4488,25 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {},
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -4104,7 +4556,7 @@
                 "max_chars": 65000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 2
           },
           "revision_context_policy": {},
@@ -4134,12 +4586,25 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {},
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -4183,7 +4648,7 @@
                 "max_chars": 90000
               }
             ],
-            "default_max_chars": 20000,
+            "default_max_chars": 12000,
             "max_items": 1
           },
           "revision_context_policy": {
@@ -4230,12 +4695,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -4298,12 +4780,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "finalize",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -4526,12 +5025,29 @@
               "长文本只交付 artifact ref，不把全文塞进普通交接。",
               "候选写入不自动污染记忆库，必须等待 memory_commit 边提交。"
             ],
+            "runtime_limits": {
+              "max_runtime_seconds": 480,
+              "max_model_calls": 8,
+              "max_events": 8000
+            },
             "operation": "finalize",
             "memory_closed_loop": true,
             "requires_memory_pack": true,
             "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
             "chapters_per_round": 0,
-            "streaming_enabled": true
+            "streaming_enabled": true,
+            "stream_policy": {
+              "enabled": true,
+              "mode": "model_text_stream",
+              "monitor_visibility": "task_graph_monitor",
+              "chunk_event_type": "content_delta",
+              "emit_text_preview": true,
+              "preview_char_limit": 6000,
+              "persist_full_stream_text": false,
+              "fallback_to_non_stream_on_error": true,
+              "non_stream_fallback_timeout_seconds": 180,
+              "stream_recovery_timeout_seconds": 180
+            }
           }
         },
         {
@@ -5271,6 +5787,7 @@
               "project_brief_ref"
             ],
             "memory_expectation": "分卷规划者必须读取基准库和已审核大纲，不写基准库；卷名、人物弧线、伏笔窗口和不可提前泄露边界必须继承冻结主干，禁止套用题材模板或改写已冻结事实。",
+            "artifact_max_chars": 12000,
             "packet_kind": "HandoffPacket",
             "input_alias": "上游交接包",
             "model_visible_label": "上游交接包",
@@ -5290,17 +5807,20 @@
           "edge_type": "structured_handoff",
           "payload_contract_id": "contract.writing.simple_novel.volume_plan_commit",
           "metadata": {
-            "handoff_summary": "把当前卷目标、章节范围、冲突和钩子交给细纲规划者，先生成本批可直接开写的章纲。",
+            "handoff_summary": "把只读基准库、全书大纲主干、大纲审核边界、当前卷计划和当前批次接口交给细纲规划者，先生成本批可直接开写的章纲。",
             "required_refs": [
               "volume_plan_ref",
               "baseline_memory_ref",
+              "outline_design_ref",
+              "outline_review_ref",
               "mutable_memory_refs"
             ],
-            "memory_expectation": "细纲规划者读取基准库、可改动库、卷计划和上一批摘要，只整理当前批次蓝图。",
+            "memory_expectation": "细纲规划者必须读取基准库、全书大纲、大纲审核边界、可改动库、卷计划和上一批摘要，只整理当前批次蓝图；禁止脱离当前资产套用通用洪荒开篇模板。",
+            "artifact_max_chars": 12000,
             "packet_kind": "HandoffPacket",
             "input_alias": "上游交接包",
             "model_visible_label": "上游交接包",
-            "usage_instruction": "把当前卷目标、章节范围、冲突和钩子交给细纲规划者，先生成本批可直接开写的章纲。 细纲规划者读取基准库、可改动库、卷计划和上一批摘要，只整理当前批次蓝图。",
+            "usage_instruction": "把只读基准库、全书大纲主干、大纲审核边界、当前卷计划和当前批次接口交给细纲规划者，先生成本批可直接开写的章纲。 细纲规划者必须读取基准库、全书大纲、大纲审核边界、可改动库、卷计划和上一批摘要，只整理当前批次蓝图；禁止脱离当前资产套用通用洪荒开篇模板。",
             "must_use": true,
             "may_ignore": false,
             "forbidden_use": "不得把交接包中未通过审核的候选内容当作已提交事实。",
@@ -13998,12 +14518,7 @@
           }
         }
       ],
-      "handoff_rules": [
-        "memory_pack_required",
-        "candidate_ref_before_review",
-        "pass_before_commit",
-        "manifest_not_full_text"
-      ],
+      "handoff_rules": [],
       "join_policy": "explicit_join",
       "failure_policy": "fail_closed",
       "terminal_policy": "coordinator_terminal",

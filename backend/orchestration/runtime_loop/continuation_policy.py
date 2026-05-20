@@ -288,6 +288,17 @@ def _stage_task_ref(*, coordination_task: Any, node: dict[str, Any]) -> str:
     ).strip()
     if explicit_task_ref:
         return explicit_task_ref
+    node_type = str(node.get("node_type") or "").strip()
+    metadata = dict(node.get("metadata") or {}) if isinstance(node.get("metadata"), dict) else {}
+    if node_type == "graph_unit" or bool(metadata.get("graph_unit")) or bool(metadata.get("linked_graph_id")):
+        node_id = str(node.get("node_id") or node.get("id") or "").strip()
+        graph_ref = str(
+            getattr(coordination_task, "graph_ref", "")
+            or getattr(coordination_task, "graph_id", "")
+            or str(dict(getattr(coordination_task, "metadata", {}) or {}).get("graph_id") or "")
+        ).strip()
+        if node_id and graph_ref:
+            return f"task_graph.node.{graph_ref}.{node_id}"
     agent_id = str(node.get("agent_id") or "").strip()
     node_id = str(node.get("node_id") or node.get("id") or "").strip()
     graph_ref = str(

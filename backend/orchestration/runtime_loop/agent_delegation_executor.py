@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import time
@@ -12,6 +13,7 @@ from execution.model_runtime import stringify_content
 from orchestration.agent_identity import normalize_agent_id
 from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from orchestration.delegation_protocol import default_expected_output_contract
 from soul.projection_store import get_projection_card
 
 from .child_agent_runtime_executor import ChildAgentRuntimeExecutor
@@ -94,10 +96,26 @@ class AgentDelegationExecutor:
             },
             refs={"agent_run_ref": child_agent_run.agent_run_id, "delegation_request_ref": request.request_id},
         )
-        child_payload = await self.execute_child_agent(
-            context=child_context,
-            model_response_executor=model_response_executor,
-        )
+        try:
+            child_payload = await asyncio.wait_for(
+                self.execute_child_agent(
+                    context=child_context,
+                    model_response_executor=model_response_executor,
+                ),
+                timeout=_delegation_timeout_seconds(request),
+            )
+        except asyncio.TimeoutError:
+            child_payload = {
+                "status": "failed",
+                "summary": "子 Agent 执行超时，已停止等待本次委派结果。",
+                "answer_candidate": "子 Agent 执行超时，已停止等待本次委派结果。",
+                "confidence": "low",
+                "limitations": ["delegation_timeout"],
+                "diagnostics": {
+                    "timeout_policy": dict(request.timeout_policy or {}),
+                    "timeout_seconds": _delegation_timeout_seconds(request),
+                },
+            }
         status = "completed" if str(child_payload.get("status") or "completed") == "completed" else "failed"
         result = self.normalize_child_output(
             request=request,
@@ -346,6 +364,7 @@ class AgentDelegationExecutor:
             "projection_card": projection_card,
             "system_prompt": _child_system_prompt(agent, profile, projection_card=projection_card),
             "user_message": _child_user_message(request),
+            "communication_protocol": dict(dict(request.input_payload or {}).get("agent_communication_protocol") or {}),
         }
 
     async def execute_child_agent(self, *, context: dict[str, Any], model_response_executor: Any | None = None) -> dict[str, Any]:
@@ -410,6 +429,8 @@ class AgentDelegationExecutor:
                 limitations.append(str(reason))
         diagnostics = dict(child_payload.get("diagnostics") or {})
         evidence_packet = dict(diagnostics.get("agent_evidence_packet") or {})
+        consumed_handles = _delegation_consumed_handles(request=request, child_payload=child_payload)
+        produced_handles = _delegation_produced_handles(child_payload=child_payload)
         if evidence_packet:
             diagnostics["agent_evidence_shadow_readiness"] = _agent_evidence_shadow_readiness(
                 packet=evidence_packet,
@@ -431,6 +452,8 @@ class AgentDelegationExecutor:
             confidence=str(child_payload.get("confidence") or "unknown"),
             limitations=tuple(limitations),
             followup_questions=tuple(str(item) for item in list(child_payload.get("followup_questions") or []) if str(item)),
+            consumed_handles=tuple(consumed_handles),
+            produced_handles=tuple(produced_handles),
             created_at=time.time(),
             diagnostics=diagnostics,
         )
@@ -448,6 +471,8 @@ class AgentDelegationExecutor:
             "confidence": result.confidence,
             "limitations": list(result.limitations),
             "followup_questions": list(result.followup_questions),
+            "consumed_handles": list(result.consumed_handles),
+            "produced_handles": list(result.produced_handles),
             "result_ref": result.result_id,
             "child_agent_run_ref": result.child_agent_run_ref,
             **({"context_writeback_hints": context_writeback_hints} if context_writeback_hints else {}),
@@ -510,6 +535,16 @@ def _context_writeback_hints_from_result(result: AgentDelegationResult) -> dict[
     return {key: value for key, value in payload.items() if value not in ("", [], {}, None)}
 
 
+def _delegation_timeout_seconds(request: AgentDelegationRequest) -> float:
+    policy = dict(request.timeout_policy or {})
+    raw = policy.get("timeout_seconds")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = 90.0
+    return min(max(value, 1.0), 300.0)
+
+
 def _first_text(values: Any) -> str:
     for item in list(values or []):
         text = str(item or "").strip()
@@ -548,10 +583,29 @@ def _child_system_prompt(agent: Any | None, profile: Any | None, *, projection_c
 
 def _child_user_message(request: AgentDelegationRequest) -> str:
     payload = dict(request.input_payload or {})
+    protocol = dict(payload.get("agent_communication_protocol") or {})
+    expected_output_contract = dict(
+        request.expected_output_contract
+        or protocol.get("expected_output_contract")
+        or default_expected_output_contract(
+            source_kind=str(protocol.get("source_kind") or payload.get("source_kind") or ""),
+            delegation_kind=request.delegation_kind,
+        )
+    )
     return "\n".join(
         [
             f"委派类型：{request.delegation_kind}",
             f"任务说明：{request.instruction}",
+            "通信协议：",
+            json.dumps(
+                {
+                    "protocol_id": str(protocol.get("protocol_id") or "protocol.agent.direct_delegation.v1"),
+                    "child_agent_contract": dict(protocol.get("child_agent_contract") or {}),
+                    "expected_output_contract": expected_output_contract,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
             "输入：",
             json.dumps(payload, ensure_ascii=False, indent=2),
             "请返回可供主 Agent 收口使用的中文结果摘要，只写已经完成的结果或明确失败原因。",
@@ -600,6 +654,43 @@ def _delegation_payload_primary_path(payload: dict[str, Any]) -> str:
         elif isinstance(values, str) and values.strip():
             return values.strip()
     return ""
+
+
+def _delegation_consumed_handles(*, request: AgentDelegationRequest, child_payload: dict[str, Any]) -> list[str]:
+    explicit = [
+        str(item).strip()
+        for item in list(child_payload.get("consumed_handles") or [])
+        if str(item).strip()
+    ]
+    if explicit:
+        return list(dict.fromkeys(explicit))
+    payload = dict(request.input_payload or {})
+    handles = [
+        str(payload.get("active_subset_handle_id") or "").strip(),
+        str(payload.get("active_result_handle_id") or "").strip(),
+        str(payload.get("active_object_handle_id") or "").strip(),
+        _delegation_payload_primary_path(payload),
+    ]
+    return [item for item in dict.fromkeys(handles) if item]
+
+
+def _delegation_produced_handles(*, child_payload: dict[str, Any]) -> list[str]:
+    explicit = [
+        str(item).strip()
+        for item in list(child_payload.get("produced_handles") or [])
+        if str(item).strip()
+    ]
+    if explicit:
+        return list(dict.fromkeys(explicit))
+    diagnostics = dict(child_payload.get("diagnostics") or {})
+    mcp_result = dict(diagnostics.get("mcp_result") or {})
+    canonical = dict(mcp_result.get("canonical_result") or {})
+    handles = [
+        str(canonical.get("primary_result_handle_id") or "").strip(),
+        *[str(item or "").strip() for item in list(canonical.get("result_handle_ids") or [])],
+        *[str(item or "").strip() for item in list(canonical.get("artifact_refs") or [])],
+    ]
+    return [item for item in dict.fromkeys(handles) if item]
 
 
 def _agent_evidence_shadow_readiness(*, packet: dict[str, Any], summary: str) -> dict[str, Any]:

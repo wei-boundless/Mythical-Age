@@ -3,7 +3,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from orchestration.runtime_loop.event_log import RuntimeEventLog
-from orchestration.runtime_loop.langgraph_coordination_runtime import LangGraphCoordinationRuntime
+from orchestration.runtime_loop.langgraph_coordination_runtime import (
+    LangGraphCoordinationRuntime,
+    _apply_loop_derived_fields,
+    _pending_inputs_for_stage_quality_retry,
+    _stage_execution_message,
+)
 from orchestration.runtime_loop.models import CoordinationRun, TaskRun
 from orchestration.runtime_loop.node_execution_request import NodeResultReadyEvent
 from orchestration.runtime_loop.state_index import RuntimeStateIndex
@@ -13,12 +18,379 @@ from tasks.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition
 from orchestration.runtime_loop.continuation_policy import parse_stage_contracts
 
 
+def _chapter_loop_derived_fields_for_test() -> list[dict]:
+    return [
+        {"key": "volume_index_padded", "op": "format", "template": "{volume_index:03d}"},
+        {"key": "volume_label", "op": "format", "template": "第{volume_index}卷"},
+        {"key": "chapter_index_padded", "op": "format", "template": "{chapter_index:03d}"},
+        {"key": "chapter_label", "op": "format", "template": "第{chapter_index}章"},
+        {"key": "chapter_file_prefix", "op": "format", "template": "chapter_{chapter_index:03d}"},
+        {"key": "batch_start_index", "op": "copy", "from_key": "chapter_index"},
+        {"key": "batch_end_index", "op": "add", "from_key": "chapter_index", "value_key": "chapters_per_round", "offset": -1, "value": 5},
+        {"key": "batch_index", "op": "ordinal_group", "from_key": "chapter_index", "size_key": "chapters_per_round", "size": 5},
+        {"key": "batch_index_padded", "op": "format", "template": "{batch_index:03d}"},
+        {"key": "batch_start_index_padded", "op": "format", "template": "{batch_start_index:03d}"},
+        {"key": "batch_end_index_padded", "op": "format", "template": "{batch_end_index:03d}"},
+        {"key": "batch_chapter_range", "op": "format", "template": "{batch_start_index:03d}-{batch_end_index:03d}"},
+        {"key": "batch_label", "op": "format", "template": "第{batch_start_index}章至第{batch_end_index}章"},
+        {"key": "batch_chapter_numbers", "op": "range", "start_key": "batch_start_index", "end_key": "batch_end_index"},
+        {"key": "batch_chapter_list", "op": "join", "from_key": "batch_chapter_numbers", "prefix": "第", "suffix": "章", "separator": "、"},
+        {"key": "batch_target_words", "op": "multiply", "from_key": "chapter_target_words", "value_key": "chapters_per_round", "value": 5},
+        {"key": "runtime_loop_summary", "op": "format", "template": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。"},
+    ]
+
+
+def test_loop_derived_fields_recompute_stale_batch_descriptions_without_overriding_scope() -> None:
+    result = _apply_loop_derived_fields(
+        {
+            "volume_index": 1,
+            "chapter_index": 1,
+            "batch_start_index": 1,
+            "batch_end_index": 5,
+            "batch_end_index_padded": "010",
+            "batch_chapter_range": "001-010",
+            "batch_label": "第1章至第10章",
+            "batch_chapter_numbers": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            "batch_chapter_list": "第1章、第2章、第3章、第4章、第5章、第6章、第7章、第8章、第9章、第10章",
+            "runtime_loop_summary": "当前卷：第1卷；当前批次：第1章至第10章；本批允许范围：第1章、第2章、第3章、第4章、第5章、第6章、第7章、第8章、第9章、第10章。",
+            "chapters_per_round": 5,
+            "chapter_target_words": 2000,
+            "current_words": 0,
+            "target_words": 1000000,
+            "volume_current_words": 0,
+            "volume_target_words": 200000,
+        },
+        _chapter_loop_derived_fields_for_test(),
+        preserve_existing_batch_scope=True,
+    )
+
+    assert result["batch_start_index"] == 1
+    assert result["batch_end_index"] == 5
+    assert result["batch_end_index_padded"] == "005"
+    assert result["batch_chapter_range"] == "001-005"
+    assert result["batch_label"] == "第1章至第5章"
+    assert result["batch_chapter_numbers"] == [1, 2, 3, 4, 5]
+    assert result["batch_chapter_list"] == "第1章、第2章、第3章、第4章、第5章"
+    assert "第1章至第10章" not in result["runtime_loop_summary"]
+    assert "第6章" not in result["runtime_loop_summary"]
+
+
+def test_quality_retry_pending_inputs_normalize_stale_loop_fields() -> None:
+    state = {
+        "pending_inputs": {
+            "volume_index": 1,
+            "chapter_index": 1,
+            "batch_start_index": 1,
+            "batch_end_index": 5,
+            "batch_end_index_padded": "010",
+            "batch_chapter_range": "001-010",
+            "batch_label": "第1章至第10章",
+            "batch_chapter_numbers": [1, 2, 3, 4, 5],
+            "batch_chapter_list": "第1章、第2章、第3章、第4章、第5章",
+            "runtime_loop_summary": "当前卷：第1卷；当前批次：第1章至第10章；本批允许范围：第1章、第2章、第3章、第4章、第5章、第6章、第7章、第8章、第9章、第10章。",
+            "chapters_per_round": 5,
+            "chapter_target_words": 2000,
+            "current_words": 0,
+            "target_words": 1000000,
+            "volume_current_words": 0,
+            "volume_target_words": 200000,
+        },
+        "diagnostics": {
+            "runtime_loop_policy": {
+                "enabled": True,
+                "derived_fields": _chapter_loop_derived_fields_for_test(),
+            }
+        },
+    }
+    pending_inputs = _pending_inputs_for_stage_quality_retry(
+        state=state,
+        stage_id="chapter_outline",
+        contract={
+            "quality_retry_policy": {
+                "enabled": True,
+                "requirements_input_key": "chapter_revision_requirements",
+                "requirements_template": "范围：{batch_label}；清单：{batch_chapter_list}；问题：{quality_issues}",
+            }
+        },
+        event={
+            "diagnostics": {
+                "stage_business_acceptance": {
+                    "accepted": False,
+                    "issues": ["unexpected_unit_indexes:6,7,8,9,10"],
+                }
+            },
+            "artifact_refs": ["artifact:old-outline"],
+        },
+    )
+
+    assert pending_inputs["round_index"] == 2
+    assert pending_inputs["revision_required"] is True
+    assert pending_inputs["batch_end_index_padded"] == "005"
+    assert pending_inputs["batch_chapter_range"] == "001-005"
+    assert pending_inputs["batch_label"] == "第1章至第5章"
+    assert pending_inputs["batch_chapter_numbers"] == [1, 2, 3, 4, 5]
+    assert "第1章至第5章" in pending_inputs["chapter_revision_requirements"]
+    assert "第1章至第10章" not in pending_inputs["chapter_revision_requirements"]
+    assert "第1章至第10章" not in pending_inputs["runtime_loop_summary"]
+    assert "第6章" not in pending_inputs["runtime_loop_summary"]
+
+
+def test_rewind_refresh_uses_live_graph_loop_policy_instead_of_stale_snapshot(tmp_path) -> None:
+    stale_fields = _chapter_loop_derived_fields_for_test()
+    live_fields = [dict(item) for item in _chapter_loop_derived_fields_for_test()]
+    for item in stale_fields:
+        if item["key"] == "batch_end_index":
+            item.pop("value_key", None)
+            item["value"] = 9
+        if item["key"] == "batch_index":
+            item.pop("size_key", None)
+            item["size"] = 10
+        if item["key"] == "batch_target_words":
+            item.pop("value_key", None)
+            item["value"] = 10
+
+    live_graph = _loop_graph_from_derived_fields(live_fields)
+    stale_graph = _loop_graph_from_derived_fields(stale_fields)
+    registry = _RefreshGraphRegistry(live_graph)
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    stale_graph_ref = runtime.runtime_objects.put_json_once(
+        "task_graph_definitions",
+        "coordrun:loop-refresh",
+        stale_graph.to_dict(),
+    )
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:loop-refresh",
+        task_run_id="taskrun:loop-refresh",
+        graph_ref=live_graph.graph_id,
+        coordinator_agent_id="agent:0",
+        topology_template_id="topology.test.loop_refresh",
+        communication_protocol_id="protocol.test.loop_refresh",
+        status="running",
+        diagnostics={
+            "coordination_flow": {"current_stage_id": "chapter_outline"},
+            "task_graph_definition_ref": stale_graph_ref,
+        },
+    )
+    state_index.upsert_coordination_run(coordination_run)
+
+    initialized = runtime.initialize(coordination_run=coordination_run)
+    assert initialized.state["diagnostics"]["runtime_loop_policy"]["derived_fields"][6]["value"] == 9
+
+    result = runtime.rewind_from_stage(
+        coordination_run_id="coordrun:loop-refresh",
+        stage_id="chapter_outline",
+        reason="refresh_live_policy",
+        inherited_inputs={
+            "chapter_index": 1,
+            "batch_start_index": 1,
+            "batch_end_index": 5,
+            "chapters_per_round": 5,
+            "chapter_target_words": 2000,
+        },
+        refresh_graph_spec=True,
+    )
+
+    derived = {
+        item["key"]: item
+        for item in result.state["diagnostics"]["runtime_loop_policy"]["derived_fields"]
+    }
+    explicit_inputs = result.state["stage_execution_request"]["explicit_inputs"]
+
+    assert derived["batch_end_index"]["value_key"] == "chapters_per_round"
+    assert derived["batch_target_words"]["value_key"] == "chapters_per_round"
+    assert explicit_inputs["batch_end_index"] == 5
+    assert explicit_inputs["batch_chapter_range"] == "001-005"
+    assert explicit_inputs["batch_target_words"] == 10000
+    assert "第1章至第5章" in explicit_inputs["runtime_loop_summary"]
+
+
+def test_stage_execution_message_declares_runtime_batch_boundary_over_stale_project_brief() -> None:
+    message = _stage_execution_message(
+        stage_id="chapter_outline",
+        task_ref="task.test.chapter_outline",
+        contract={"title": "当前批次细纲"},
+        explicit_inputs={
+            "project_title": "洪荒时代",
+            "project_brief": "硬设定：每轮连续创作 10 章。",
+            "batch_start_index": 1,
+            "batch_end_index": 5,
+            "batch_chapter_list": "第1章、第2章、第3章、第4章、第5章",
+            "chapters_per_round": 5,
+            "batch_target_words": 10000,
+            "runtime_loop_summary": "当前卷：第1卷；当前批次：第1章至第5章；本批允许范围：第1章、第2章、第3章、第4章、第5章。",
+        },
+    )
+
+    boundary_pos = message.index("运行时批次边界：")
+    hard_setting_pos = message.index("用户硬设定：")
+
+    assert boundary_pos < hard_setting_pos
+    assert "本节点只允许处理第1章至第5章" in message
+    assert "当前运行时每轮批次大小为 5 章" in message
+    assert "以本运行时批次边界为准" in message
+
+
+def test_loop_derived_fields_use_runtime_batch_size_for_ten_chapter_request() -> None:
+    result = _apply_loop_derived_fields(
+        {
+            "volume_index": 1,
+            "chapter_index": 1,
+            "chapters_per_round": 10,
+            "chapter_target_words": 2000,
+            "current_words": 0,
+            "target_words": 1000000,
+            "volume_current_words": 0,
+            "volume_target_words": 200000,
+        },
+        _chapter_loop_derived_fields_for_test(),
+    )
+
+    assert result["batch_start_index"] == 1
+    assert result["batch_end_index"] == 10
+    assert result["batch_index"] == 1
+    assert result["batch_chapter_numbers"] == list(range(1, 11))
+    assert result["batch_chapter_list"].endswith("第10章")
+    assert result["batch_target_words"] == 20000
+
+    next_result = _apply_loop_derived_fields(
+        {
+            **result,
+            "chapter_index": 11,
+        },
+        _chapter_loop_derived_fields_for_test(),
+        preserve_existing_batch_scope=False,
+    )
+
+    assert next_result["batch_start_index"] == 11
+    assert next_result["batch_end_index"] == 20
+    assert next_result["batch_index"] == 2
+    assert next_result["batch_chapter_numbers"] == list(range(11, 21))
+
+
 class _Trace:
     def __init__(self, traces):
         self.traces = traces
 
     def get_trace(self, task_run_id: str, *, include_payloads: bool = False, include_model_messages: bool = False):
         return self.traces.get(task_run_id)
+
+
+def _loop_graph_from_derived_fields(derived_fields: list[dict], *, graph_id: str = "graph.test.loop_refresh") -> TaskGraphDefinition:
+    nodes = (
+        TaskGraphNodeDefinition(
+            node_id="chapter_outline",
+            node_type="agent",
+            title="Chapter Outline",
+            task_id="task.test.chapter_outline",
+            agent_id="agent:0",
+            phase_id="phase.chapter_loop",
+            sequence_index=1,
+        ),
+        TaskGraphNodeDefinition(
+            node_id="chapter_draft",
+            node_type="agent",
+            title="Chapter Draft",
+            task_id="task.test.chapter_draft",
+            agent_id="agent:0",
+            phase_id="phase.chapter_loop",
+            sequence_index=2,
+        ),
+    )
+    return TaskGraphDefinition(
+        graph_id=graph_id,
+        title="Loop Refresh",
+        task_family="test",
+        graph_kind="multi_agent",
+        nodes=nodes,
+        edges=(
+            TaskGraphEdgeDefinition(
+                edge_id="chapter_outline_draft",
+                source_node_id="chapter_outline",
+                target_node_id="chapter_draft",
+                edge_type="structured_handoff",
+            ),
+        ),
+        default_protocol_id="protocol.test.loop_refresh",
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        metadata={
+            "topology_template_id": "topology.test.loop_refresh",
+            "stage_contracts": [
+                {"stage_id": "chapter_outline", "task_ref": "task.test.chapter_outline", "node_id": "chapter_outline"},
+                {"stage_id": "chapter_draft", "task_ref": "task.test.chapter_draft", "node_id": "chapter_draft"},
+            ],
+            "runtime_loop_policy": {
+                "enabled": True,
+                "initial_inputs": {
+                    "volume_index": 1,
+                    "chapter_index": 1,
+                    "chapter_target_words": 2000,
+                    "current_words": 0,
+                    "target_words": 1000000,
+                    "volume_current_words": 0,
+                    "volume_target_words": 200000,
+                },
+                "derived_fields": derived_fields,
+            },
+        },
+        publish_state="published",
+        enabled=True,
+    )
+
+
+class _RefreshGraphRegistry:
+    def __init__(self, live_graph: TaskGraphDefinition) -> None:
+        self.live_graph = live_graph
+        self.topology = TopologyTemplate(
+            template_id="topology.test.loop_refresh",
+            title="Loop Refresh Topology",
+            nodes=tuple(node.to_dict() for node in live_graph.nodes),
+            edges=tuple(edge.to_dict() for edge in live_graph.edges),
+            enabled=True,
+        )
+        self.protocol = TaskCommunicationProtocol(
+            protocol_id="protocol.test.loop_refresh",
+            title="Loop Refresh Protocol",
+            message_types=("message/send",),
+            enabled=True,
+        )
+        self.tasks = (
+            SpecificTaskRecord(task_id="task.test.chapter_outline", task_title="Chapter Outline", task_family="test"),
+            SpecificTaskRecord(task_id="task.test.chapter_draft", task_title="Chapter Draft", task_family="test"),
+        )
+
+    def get_task_graph(self, graph_id: str):
+        return self.live_graph if graph_id == self.live_graph.graph_id else None
+
+    def derive_coordination_task_view_from_graph(self, graph):
+        nodes = tuple(node.to_dict() for node in graph.nodes)
+        return CoordinationTaskDefinition(
+            graph_id=graph.graph_id,
+            title=graph.title,
+            coordination_mode="pipeline",
+            coordinator_agent_id="agent:0",
+            task_family="test",
+            topology_template_id="topology.test.loop_refresh",
+            graph_nodes=nodes,
+            graph_edges=tuple(edge.to_dict() for edge in graph.edges),
+            metadata=dict(graph.metadata or {}),
+        )
+
+    def get_topology_template(self, template_id: str):
+        return self.topology if template_id == self.topology.template_id else None
+
+    def get_task_communication_protocol(self, protocol_id: str):
+        return self.protocol if protocol_id == self.protocol.protocol_id else None
+
+    def list_specific_task_records(self):
+        return list(self.tasks)
 
 
 def _task_graph_from_coordination(coordination: CoordinationTaskDefinition, *, protocol_id: str = "") -> TaskGraphDefinition:
@@ -1423,6 +1795,124 @@ def test_langgraph_coordination_runtime_ignores_stale_dispatch_result(tmp_path) 
     assert runtime_state["ready_nodes"] == ["c"]
 
 
+def test_langgraph_coordination_runtime_rewinds_stage_and_invalidates_downstream(tmp_path) -> None:
+    runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
+
+    runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            artifact_refs=("ref:a",),
+            accepted=True,
+        ),
+    )
+    runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:b",
+            stage_id="b",
+            task_ref="task.test.b",
+            task_result_ref="taskresult:b",
+            artifact_refs=("artifact:bad-b.md",),
+            accepted=True,
+        ),
+    )
+    runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:c",
+            stage_id="c",
+            task_ref="task.test.c",
+            task_result_ref="taskresult:c",
+            artifact_refs=("artifact:bad-c.md",),
+            accepted=True,
+        ),
+    )
+    runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:d",
+            stage_id="d",
+            task_ref="task.test.d",
+            task_result_ref="taskresult:d",
+            artifact_refs=("artifact:bad-d.md",),
+            accepted=True,
+        ),
+    )
+
+    result = runtime.rewind_from_stage(
+        coordination_run_id="coordrun:diamond",
+        stage_id="b",
+        reason="bad_branch_output",
+        inherited_inputs={"artifact_root": str(tmp_path), "b_ref": "artifact:stale-b.md"},
+        refresh_graph_spec=True,
+    )
+
+    assert result.stage_execution_request is not None
+    assert result.stage_execution_request.stage_id == "b"
+    assert result.stage_execution_request.explicit_inputs["a_ref"] == "ref:a"
+    assert result.stage_execution_request.explicit_inputs.get("b_ref") is None
+    assert result.diagnostics["invalidated_stage_ids"] == ["b", "d"]
+    assert result.state["node_statuses"]["a"] == "completed"
+    assert result.state["node_statuses"]["b"] == "running"
+    assert result.state["node_statuses"]["c"] == "completed"
+    assert result.state["node_statuses"]["d"] == "pending"
+    assert set(result.state["stage_results"].keys()) == {"a", "c"}
+    assert "taskresult:b" not in result.state["latest_stage_result_records"].values()
+    assert "taskresult:d" not in result.state["latest_stage_result_records"].values()
+    assert all(item["stage_id"] not in {"b", "d"} for item in result.state["timeline_result_records"])
+    assert all(item["stage_id"] not in {"b", "d"} for item in result.state["artifact_refs"])
+    assert "b" not in result.state["contract_status"]["acceptance_results"]
+    assert result.state["contract_status"]["node_status"]["b"]["status"] == "pending_rewind"
+    assert result.state["contract_status"]["node_status"]["d"]["status"] == "invalidated_downstream"
+    assert "force_replay" in result.state["pending_inputs"]
+    assert "artifact:stale-b.md" not in str(result.state["pending_inputs"])
+
+    updated = state_index.get_coordination_run("coordrun:diamond")
+    assert updated is not None
+    flow = dict(updated.diagnostics.get("coordination_flow") or {})
+    assert flow["current_stage_id"] == "b"
+
+
+def test_langgraph_coordination_runtime_rewind_ignores_feedback_edges(tmp_path) -> None:
+    runtime, _, coordination_run = _diamond_runtime(tmp_path)
+    runtime.initialize(coordination_run=coordination_run)
+    state = runtime.checkpoints.get_state(thread_id="coordrun:diamond")
+    graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
+    graph_spec["edges"] = [
+        *list(graph_spec.get("edges") or []),
+        {
+            "edge_id": "d_b_feedback",
+            "source_node_id": "d",
+            "target_node_id": "b",
+            "mode": "review_feedback",
+            "metadata": {"dependency_role": "feedback"},
+        },
+    ]
+    state["diagnostics"] = {**dict(state.get("diagnostics") or {}), "coordination_graph_spec": graph_spec}
+    runtime.checkpoints.put_state(thread_id="coordrun:diamond", state=state, metadata={"event": "test_feedback_edge"})
+
+    result = runtime.rewind_from_stage(
+        coordination_run_id="coordrun:diamond",
+        stage_id="d",
+        reason="bad_final_output",
+        refresh_graph_spec=False,
+    )
+
+    assert result.diagnostics["invalidated_stage_ids"] == ["d"]
+
+
 class _SequencedRegistry:
     def __init__(self) -> None:
         self.tasks = (
@@ -1574,6 +2064,34 @@ def test_langgraph_coordination_runtime_retries_failed_stage_when_policy_allows(
     assert result.state["running_nodes"] == ["a"]
 
 
+def test_failed_file_artifact_stage_does_not_satisfy_required_outputs(tmp_path) -> None:
+    runtime, _, coordination_run = _diamond_runtime(tmp_path)
+    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
+    stage_contracts[0]["artifact_policy"] = {"enabled": True}
+    stage_contracts[0]["output_mappings"] = [
+        {"output_key": "contract.test.a:artifact_refs", "required": True}
+    ]
+
+    result = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            artifact_refs=("artifact:debug/run_report_task-test-a.md",),
+            accepted=False,
+        ),
+    )
+
+    record = result.state["timeline_result_records"][-1]
+    assert record["status"] == "rejected"
+    assert record["validation_result"]["required_artifact_outputs_satisfied"] is False
+    assert record["validation_result"]["requires_file_artifact_refs"] is True
+
+
 def test_langgraph_coordination_runtime_enters_human_gate_when_policy_requires(tmp_path) -> None:
     runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
     stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
@@ -1626,7 +2144,10 @@ def test_langgraph_coordination_runtime_does_not_block_human_gate_when_auto_cont
 
     assert result.stage_execution_request is None
     assert result.state["terminal_status"] == "failed"
-    assert result.state["failed_nodes"] == ["a"]
+    assert result.state["failed_nodes"] == ["a", "b", "c", "d"]
+    assert result.state["node_statuses"] == {"a": "failed", "b": "failed", "c": "failed", "d": "failed"}
+    scheduler_state = dict(dict(result.state["diagnostics"]).get("task_graph_scheduler_state") or {})
+    assert scheduler_state["diagnostics"]["failure_propagated_node_ids"] == ["b", "c", "d"]
     assert result.state["human_gate"] == {}
 
 
@@ -1730,7 +2251,9 @@ def test_langgraph_coordination_runtime_human_gate_reject_fails_closed(tmp_path)
 
     assert result.stage_execution_request is None
     assert result.state["terminal_status"] == "failed"
-    assert result.state["failed_nodes"] == ["a"]
+    assert result.state["failed_nodes"] == ["a", "b", "c", "d"]
+    scheduler_state = dict(dict(result.state["diagnostics"]).get("task_graph_scheduler_state") or {})
+    assert scheduler_state["diagnostics"]["failure_propagated_node_ids"] == ["b", "c", "d"]
     assert result.state["contract_status"]["node_status"]["a"]["status"] == "failed"
 
 
@@ -1773,3 +2296,109 @@ def test_parse_stage_contracts_derives_from_graph_nodes_when_metadata_is_missing
     assert contracts[1].required_inputs == ("contract.test.a:artifact_refs",)
     assert contracts[1].input_bindings[0]["source_stage_id"] == "a"
     assert contracts[1].output_mappings[0]["output_key"] == "contract.test.b:artifact_refs"
+
+
+def test_langgraph_runtime_emits_graph_unit_stage_request(tmp_path) -> None:
+    parent_graph = TaskGraphDefinition(
+        graph_id="graph.test.parent_graph_unit_runtime",
+        title="父图 GraphUnit 运行",
+        graph_kind="coordination",
+        default_protocol_id="protocol.test.graph_unit",
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        metadata={
+            "timeline_blocks": [
+                {
+                    "block_id": "block.child",
+                    "block_type": "child_graph",
+                    "title": "子图阶段",
+                    "phase_id": "phase.child",
+                    "linked_graph_id": "graph.test.child_graph_unit_runtime",
+                    "version_ref": "v1",
+                    "handoff_contract_id": "contract.test.graph_unit.handoff",
+                    "input_port_id": "input.child",
+                    "output_port_id": "output.child",
+                }
+            ],
+        },
+        publish_state="published",
+        enabled=True,
+    )
+    registry = _GraphUnitRegistry(parent_graph)
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:graph-unit",
+        task_run_id="taskrun:graph-unit",
+        graph_ref=parent_graph.graph_id,
+        coordinator_agent_id="agent:0",
+        communication_protocol_id="protocol.test.graph_unit",
+        status="running",
+    )
+    state_index.upsert_coordination_run(coordination_run)
+
+    result = runtime.initialize(
+        coordination_run=coordination_run,
+        inherited_inputs={"user_goal": "运行子图"},
+    )
+
+    assert result.stage_execution_request is not None
+    request = result.stage_execution_request
+    assert request.stage_id == "graph_unit.block.child"
+    assert request.executor_type == "graph_unit"
+    assert request.task_ref == "task_graph.node.graph.test.parent_graph_unit_runtime.graph_unit.block.child"
+    assert request.executor_binding["selected_executor"] == "graph_unit"
+    handle = request.runtime_assembly["graph_unit_runtime_handle"]
+    assert handle["authority"] == "orchestration.graph_unit_runtime_handle"
+    assert handle["linked_graph_id"] == "graph.test.child_graph_unit_runtime"
+    assert handle["nested_runtime_plan_id"] == "nested.block.child"
+    assert handle["parent_coordination_run_id"] == "coordrun:graph-unit"
+    assert handle["handoff_contract_id"] == "contract.test.graph_unit.handoff"
+    assert handle["explicit_inputs"]["user_goal"] == "运行子图"
+    assert handle["executor_policy"]["auto_start_child_initial_stage"] is True
+
+
+class _GraphUnitRegistry:
+    def __init__(self, graph: TaskGraphDefinition) -> None:
+        self.graph = graph
+        self.protocol = TaskCommunicationProtocol(
+            protocol_id="protocol.test.graph_unit",
+            title="GraphUnit Protocol",
+            message_types=("message/send",),
+            enabled=True,
+        )
+
+    def get_task_graph(self, graph_id: str):
+        return self.graph if graph_id == self.graph.graph_id else None
+
+    def derive_coordination_task_view_from_graph(self, graph):
+        from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+
+        runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph, communication_protocol=self.protocol)
+        return CoordinationTaskDefinition(
+            graph_id=graph.graph_id,
+            title=graph.title,
+            coordination_mode="pipeline",
+            coordinator_agent_id="agent:0",
+            task_family=graph.task_family,
+            graph_nodes=tuple(node.to_dict() for node in runtime_spec.nodes),
+            graph_edges=tuple(edge.to_dict() for edge in runtime_spec.edges),
+            communication_modes=("handoff",),
+            enabled=True,
+            metadata=dict(graph.metadata or {}),
+        )
+
+    def get_topology_template(self, template_id: str):
+        return None
+
+    def get_task_communication_protocol(self, protocol_id: str):
+        return self.protocol if not protocol_id or protocol_id == self.protocol.protocol_id else None
+
+    def list_specific_task_records(self):
+        return []

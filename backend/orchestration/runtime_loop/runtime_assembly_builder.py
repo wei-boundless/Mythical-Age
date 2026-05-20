@@ -153,6 +153,15 @@ def build_node_runtime_assembly(
     )
     working_diag = _working_memory_diagnostics(working_memory_context)
     task_durable_diag = _task_durable_memory_diagnostics(task_durable_memory_context)
+    node_stream_policy = dict(node.artifact_bindings.get("stream_policy") or getattr(node, "stream_policy", {}) or node.metadata.get("stream_policy") or {})
+    node_memory_read_policy = dict(node.memory_bindings.get("memory_read_policy") or getattr(node, "memory_read_policy", {}) or node.metadata.get("memory_read_policy") or {})
+    node_memory_writeback_policy = dict(
+        node.memory_bindings.get("memory_writeback_policy") or getattr(node, "memory_writeback_policy", {}) or node.metadata.get("memory_writeback_policy") or {}
+    )
+    node_dynamic_memory_read_policy = dict(
+        node.memory_bindings.get("dynamic_memory_read_policy") or getattr(node, "dynamic_memory_read_policy", {}) or node.metadata.get("dynamic_memory_read_policy") or {}
+    )
+    node_artifact_policy = dict(node.artifact_bindings.get("artifact_policy") or getattr(node, "artifact_policy", {}) or node.metadata.get("artifact_policy") or {})
     return NodeRuntimeAssembly(
         assembly_id=_stable_assembly_id("node", manifest.manifest_id, node_id, explicit_inputs or {}),
         manifest_ref=manifest.manifest_id,
@@ -176,11 +185,21 @@ def build_node_runtime_assembly(
             context_strategy="node_status_and_upstream_summary",
         ),
         metadata={
-            "stream_policy": dict(node.metadata.get("stream_policy") or {}),
-            "memory_read_policy": dict(node.metadata.get("memory_read_policy") or {}),
-            "memory_writeback_policy": dict(node.metadata.get("memory_writeback_policy") or {}),
-            "dynamic_memory_read_policy": dict(node.metadata.get("dynamic_memory_read_policy") or {}),
-            "artifact_policy": dict(node.metadata.get("artifact_policy") or {}),
+            "stream_policy": node_stream_policy,
+            "memory_read_policy": node_memory_read_policy,
+            "memory_writeback_policy": node_memory_writeback_policy,
+            "dynamic_memory_read_policy": node_dynamic_memory_read_policy,
+            "artifact_policy": node_artifact_policy,
+            "contract_bindings": {
+                "schema": dict(node.schema_bindings),
+                "execution": dict(node.execution_bindings),
+                "artifact": dict(node.artifact_bindings),
+                "memory": dict(node.memory_bindings),
+                "acceptance": dict(node.acceptance_bindings),
+                "runtime": dict(node.runtime_bindings),
+                "unit_batch": dict(node.unit_batch_bindings),
+                "governance": dict(node.governance_bindings),
+            },
             "layered_context": layered_context,
             "execution_timeline": {
                 "timeline_kind": "node_execution_sequence",
@@ -210,7 +229,7 @@ def build_node_runtime_assembly(
         diagnostics={
             "manifest_valid": manifest.valid,
             "manifest_issue_count": len(manifest.issues),
-            "stream_policy": dict(node.metadata.get("stream_policy") or {}),
+            "stream_policy": node_stream_policy,
             "full_main_session_history_included": False,
             "handoff_packet_count": len(handoff_packets),
             "node_agent_id": node.agent_id,
@@ -452,6 +471,14 @@ def _handoff_packet_from_edge(edge: Any, *, manifest: ContractManifest, target_n
                 if str(item).strip()
             ],
             "memory_expectation": str(edge_metadata.get("memory_expectation") or ""),
+            "contract_bindings": {
+                "schema": dict(getattr(edge, "schema_bindings", {}) or {}),
+                "handoff": dict(getattr(edge, "handoff_bindings", {}) or {}),
+                "temporal": dict(getattr(edge, "temporal_bindings", {}) or {}),
+                "memory": dict(getattr(edge, "memory_bindings", {}) or {}),
+                "artifact": dict(getattr(edge, "artifact_bindings", {}) or {}),
+                "governance": dict(getattr(edge, "governance_bindings", {}) or {}),
+            },
         },
         a2a_trace={
             "message_type": edge.message_type,

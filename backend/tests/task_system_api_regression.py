@@ -2,9 +2,15 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 from api import orchestration as orchestration_api
 from api import tasks as tasks_api
+from orchestration.runtime_loop.node_execution_request import NodeExecutionRequest
+from orchestration.runtime_loop.models import AgentRun, CoordinationRun, TaskRun
+from orchestration.runtime_loop.coordination_trace_adapter import CoordinationTraceAdapter
+from orchestration.runtime_loop.state_index import RuntimeStateIndex
+from orchestration.runtime_loop.task_run_loop import TaskRunLoop
 from soul.facade import SoulFacade
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
 
@@ -45,6 +51,795 @@ def test_orchestration_agents_payload_keeps_removed_legacy_groups_absent(tmp_pat
     assert "formal_memory_read" in payload["options"]["memory_scopes"]
     removed_group_ids = {"group.writing.longform_novel_core"}
     assert all(item["group_id"] not in removed_group_ids for item in groups)
+
+
+def test_coordination_rewind_api_downstream_scan_ignores_feedback_edges() -> None:
+    state = {
+        "stage_order": ["a", "b", "c", "d"],
+        "diagnostics": {
+            "coordination_graph_spec": {
+                "edges": [
+                    {"source_node_id": "a", "target_node_id": "b", "mode": "structured_handoff"},
+                    {"source_node_id": "b", "target_node_id": "c", "mode": "structured_handoff"},
+                    {"source_node_id": "c", "target_node_id": "d", "mode": "structured_handoff"},
+                    {
+                        "source_node_id": "d",
+                        "target_node_id": "b",
+                        "mode": "review_feedback",
+                        "metadata": {"dependency_role": "feedback"},
+                    },
+                ]
+            }
+        },
+    }
+
+    assert orchestration_api._coordination_downstream_stage_ids(
+        state=state,
+        stage_id="d",
+        include_downstream=True,
+    ) == ["d"]
+
+
+def test_coordination_rewind_invalidates_running_stage_task_runs(tmp_path: Path) -> None:
+    state_index = RuntimeStateIndex(tmp_path / "runtime_state")
+    root = TaskRun(
+        task_run_id="taskrun:root",
+        session_id="session:rewind",
+        task_id="task.root",
+        status="running",
+    )
+    stale = TaskRun(
+        task_run_id="taskrun:session:turn:old:volume_plan:abc",
+        session_id="session:rewind",
+        task_id="taskinst:turn:old:volume_plan",
+        agent_id="agent:writer",
+        status="running",
+    )
+    other = TaskRun(
+        task_run_id="taskrun:session:turn:old:chapter_outline:def",
+        session_id="session:rewind",
+        task_id="taskinst:turn:old:chapter_outline",
+        agent_id="agent:writer",
+        status="completed",
+        terminal_reason="completed",
+    )
+    state_index.upsert_task_run(root)
+    state_index.upsert_task_run(stale)
+    state_index.upsert_task_run(other)
+    state_index.upsert_agent_run(
+        AgentRun(
+            agent_run_id="agrun:stale",
+            task_run_id=stale.task_run_id,
+            agent_id="agent:writer",
+            agent_profile_id="writer_runtime",
+            status="running",
+        )
+    )
+    coordination_run = CoordinationRun(
+        coordination_run_id="coordrun:root",
+        task_run_id=root.task_run_id,
+        coordinator_agent_id="agent:coord",
+        graph_ref="graph.test",
+        status="running",
+    )
+
+    changed = orchestration_api._mark_invalidated_stage_task_runs(
+        task_run_loop=type("Loop", (), {"state_index": state_index})(),
+        coordination_run=coordination_run,
+        stage_ids=["volume_plan", "chapter_outline"],
+        reason="bad_stage_output",
+    )
+
+    assert changed == [
+        {
+            "task_run_id": stale.task_run_id,
+            "stage_id": "volume_plan",
+            "previous_status": "running",
+            "status": "aborted",
+        }
+    ]
+    invalidated = state_index.get_task_run(stale.task_run_id)
+    assert invalidated is not None
+    assert invalidated.status == "aborted"
+    assert invalidated.terminal_reason == "user_aborted"
+    assert invalidated.diagnostics["invalidated_by_coordination_rewind"]["stage_id"] == "volume_plan"
+    assert state_index.get_task_run(other.task_run_id).status == "completed"  # type: ignore[union-attr]
+    agent_run = state_index.list_task_agent_runs(stale.task_run_id)[0]
+    assert agent_run.status == "killed"
+
+
+def test_stage_execution_scheduler_skips_existing_same_source_task_run(tmp_path: Path) -> None:
+    state_index = RuntimeStateIndex(tmp_path / "runtime_state")
+    request = NodeExecutionRequest(
+        request_id="nodeexec:draft",
+        coordination_run_id="coordrun:root",
+        thread_id="coordrun:root",
+        root_task_run_id="taskrun:root",
+        stage_id="chapter_draft",
+        node_id="chapter_draft",
+        task_ref="task.test.chapter_draft",
+        explicit_inputs={"outline_ref": "artifact:outline.md"},
+    )
+    existing = TaskRun(
+        task_run_id="taskrun:session:test:taskinst:turn:stable:chapter_draft:aaaa1111",
+        session_id="session:test",
+        task_id="taskinst:turn:stable:chapter_draft",
+        status="running",
+        diagnostics={
+            "coordination_run_id": request.coordination_run_id,
+            "stage_id": request.stage_id,
+            "stage_request_id": request.request_id,
+            "stage_idempotency_key": request.idempotency_key,
+        },
+    )
+    state_index.upsert_task_run(existing)
+    loop = SimpleNamespace(state_index=state_index, event_log=SimpleNamespace(append=lambda *args, **kwargs: None))
+
+    result = orchestration_api._schedule_stage_execution_background(
+        runtime=SimpleNamespace(query_runtime=SimpleNamespace(task_run_loop=loop)),
+        session_id="session:test",
+        source="test",
+        stage_execution_request=request,
+        current_turn_context={},
+    )
+
+    assert result["background_started"] is False
+    assert result["reason"] == "stage_execution_already_has_effective_task_run"
+    assert result["existing_task_run_id"] == existing.task_run_id
+
+
+def test_stage_execution_scheduler_allows_new_idempotency_key(tmp_path: Path) -> None:
+    state_index = RuntimeStateIndex(tmp_path / "runtime_state")
+    first = NodeExecutionRequest(
+        request_id="nodeexec:draft:first",
+        coordination_run_id="coordrun:root",
+        thread_id="coordrun:root",
+        root_task_run_id="taskrun:root",
+        stage_id="chapter_draft",
+        node_id="chapter_draft",
+        task_ref="task.test.chapter_draft",
+        explicit_inputs={"outline_ref": "artifact:outline.md"},
+        dispatch_context={"dispatch_event_id": "tlevent:first"},
+    )
+    retry = NodeExecutionRequest(
+        request_id="nodeexec:draft:retry",
+        coordination_run_id="coordrun:root",
+        thread_id="coordrun:root",
+        root_task_run_id="taskrun:root",
+        stage_id="chapter_draft",
+        node_id="chapter_draft",
+        task_ref="task.test.chapter_draft",
+        explicit_inputs={"outline_ref": "artifact:outline.md"},
+        dispatch_context={"dispatch_event_id": "tlevent:retry"},
+    )
+    state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:session:test:taskinst:turn:first:chapter_draft:aaaa1111",
+            session_id="session:test",
+            task_id="taskinst:turn:first:chapter_draft",
+            status="completed",
+            diagnostics={
+                "coordination_run_id": first.coordination_run_id,
+                "stage_id": first.stage_id,
+                "stage_request_id": first.request_id,
+                "stage_idempotency_key": first.idempotency_key,
+            },
+        )
+    )
+    loop = SimpleNamespace(state_index=state_index)
+
+    assert orchestration_api._matching_stage_execution_task_run(
+        task_run_loop=loop,
+        session_id="session:test",
+        identity=orchestration_api._stage_execution_schedule_identity(retry),
+    ) is None
+
+
+def test_stage_execution_scheduler_ignores_rewind_invalidated_completed_run(tmp_path: Path) -> None:
+    state_index = RuntimeStateIndex(tmp_path / "runtime_state")
+    request = NodeExecutionRequest(
+        request_id="nodeexec:draft",
+        coordination_run_id="coordrun:root",
+        thread_id="coordrun:root",
+        root_task_run_id="taskrun:root",
+        stage_id="chapter_draft",
+        node_id="chapter_draft",
+        task_ref="task.test.chapter_draft",
+        explicit_inputs={"outline_ref": "artifact:outline.md"},
+    )
+    state_index.upsert_task_run(
+        TaskRun(
+            task_run_id="taskrun:session:test:taskinst:turn:first:chapter_draft:aaaa1111",
+            session_id="session:test",
+            task_id="taskinst:turn:first:chapter_draft",
+            status="completed",
+            diagnostics={
+                "coordination_run_id": request.coordination_run_id,
+                "stage_id": request.stage_id,
+                "stage_request_id": request.request_id,
+                "stage_idempotency_key": request.idempotency_key,
+                "invalidated_by_coordination_rewind": {
+                    "coordination_run_id": request.coordination_run_id,
+                    "stage_id": request.stage_id,
+                    "reason": "bad_stage_output",
+                },
+            },
+        )
+    )
+    loop = SimpleNamespace(state_index=state_index)
+
+    assert orchestration_api._matching_stage_execution_task_run(
+        task_run_loop=loop,
+        session_id="session:test",
+        identity=orchestration_api._stage_execution_schedule_identity(request),
+    ) is None
+
+
+def test_graph_unit_stage_scheduler_starts_and_reuses_child_task_graph_run(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    runtime_dir = tmp_path / "runtime_state"
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id="graph.test.graph_unit_child_run",
+        title="GraphUnit 子图",
+        graph_kind="multi_agent",
+        nodes=(
+            {
+                "node_id": "child_node",
+                "node_type": "agent",
+                "title": "子节点",
+                "task_id": "task_graph.node.graph.test.graph_unit_child_run.child_node",
+                "agent_id": "agent:0",
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    loop = TaskRunLoop(runtime_dir, backend_dir=backend_dir)
+    runtime = SimpleNamespace(base_dir=backend_dir, query_runtime=SimpleNamespace(task_run_loop=loop))
+    request = NodeExecutionRequest(
+        request_id="nodeexec:graph-unit",
+        coordination_run_id="coordrun:parent",
+        thread_id="coordrun:parent",
+        root_task_run_id="taskrun:parent",
+        stage_id="graph_unit.block.child",
+        node_id="graph_unit.block.child",
+        task_ref="task_graph.node.graph.test.parent.graph_unit.block.child",
+        executor_type="graph_unit",
+        executor_binding={
+            "selected_executor": "graph_unit",
+            "graph_unit_runtime_handle": {
+                "authority": "orchestration.graph_unit_runtime_handle",
+                "handle_id": "graphunitrun:test",
+                "parent_graph_id": "graph.test.parent",
+                "parent_coordination_run_id": "coordrun:parent",
+                "parent_root_task_run_id": "taskrun:parent",
+                "parent_stage_id": "graph_unit.block.child",
+                "parent_node_id": "graph_unit.block.child",
+                "linked_graph_id": "graph.test.graph_unit_child_run",
+                "nested_runtime_plan_id": "nested.block.child",
+                "handoff_contract_id": "contract.test.graph_unit.handoff",
+                "explicit_inputs": {"user_goal": "启动子图"},
+                "executor_policy": {"auto_start_child_initial_stage": False},
+            },
+        },
+        runtime_assembly={
+            "authority": "orchestration.graph_unit_runtime_assembly",
+            "graph_unit_runtime_handle": {
+                "authority": "orchestration.graph_unit_runtime_handle",
+                "handle_id": "graphunitrun:test",
+                "parent_graph_id": "graph.test.parent",
+                "parent_coordination_run_id": "coordrun:parent",
+                "parent_root_task_run_id": "taskrun:parent",
+                "parent_stage_id": "graph_unit.block.child",
+                "parent_node_id": "graph_unit.block.child",
+                "linked_graph_id": "graph.test.graph_unit_child_run",
+                "nested_runtime_plan_id": "nested.block.child",
+                "handoff_contract_id": "contract.test.graph_unit.handoff",
+                "explicit_inputs": {"user_goal": "启动子图"},
+                "executor_policy": {"auto_start_child_initial_stage": False},
+            },
+        },
+        explicit_inputs={"user_goal": "启动子图"},
+        dispatch_context={"dispatch_event_id": "tlevent:graph-unit:001"},
+    )
+
+    asyncio.run(
+        orchestration_api._execute_stage_request_in_background(
+            runtime=runtime,
+            session_id="session:test",
+            source="test",
+            stage_execution_request=request,
+            current_turn_context={},
+        )
+    )
+
+    child_runs = [
+        task_run
+        for task_run in loop.state_index.list_session_task_runs("session:test")
+        if dict(task_run.diagnostics or {}).get("graph_unit_child_run") is True
+    ]
+    assert len(child_runs) == 1
+    child = child_runs[0]
+    assert child.diagnostics["linked_graph_id"] == "graph.test.graph_unit_child_run"
+    assert child.diagnostics["parent_coordination_run_id"] == "coordrun:parent"
+    assert child.diagnostics["parent_stage_id"] == "graph_unit.block.child"
+    assert child.diagnostics["stage_idempotency_key"] == request.idempotency_key
+
+    reused = orchestration_api._schedule_stage_execution_background(
+        runtime=runtime,
+        session_id="session:test",
+        source="test",
+        stage_execution_request=request,
+        current_turn_context={},
+    )
+
+    assert reused["background_started"] is False
+    assert reused["reason"] == "stage_execution_already_has_effective_task_run"
+    assert reused["existing_task_run_id"] == child.task_run_id
+
+
+def test_graph_unit_child_completion_commits_output_packet_and_releases_parent(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    runtime_dir = tmp_path / "runtime_state"
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id="graph.test.child_graph_unit_commit",
+        title="GraphUnit 子图提交",
+        graph_kind="multi_agent",
+        nodes=(
+            {
+                "node_id": "child_node",
+                "node_type": "agent",
+                "title": "子节点",
+                "task_id": "task_graph.node.graph.test.child_graph_unit_commit.child_node",
+                "agent_id": "agent:0",
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    parent_graph = registry.upsert_task_graph(
+        graph_id="graph.test.parent_graph_unit_commit",
+        title="GraphUnit 父图提交",
+        graph_kind="coordination",
+        nodes=(
+            {
+                "node_id": "after_child",
+                "node_type": "agent",
+                "title": "后续节点",
+                "task_id": "task_graph.node.graph.test.parent_graph_unit_commit.after_child",
+                "agent_id": "agent:0",
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "child_to_after",
+                "source_node_id": "graph_unit.block.child",
+                "target_node_id": "after_child",
+                "payload_contract_id": "contract.test.graph_unit.output",
+                "ack_required": False,
+            },
+        ),
+        metadata={
+            "timeline_blocks": [
+                {
+                    "block_id": "block.child",
+                    "block_type": "child_graph",
+                    "title": "子图阶段",
+                    "phase_id": "phase.child",
+                    "linked_graph_id": "graph.test.child_graph_unit_commit",
+                    "version_ref": "v1",
+                    "handoff_contract_id": "contract.test.graph_unit.handoff",
+                    "input_port_id": "input.child",
+                    "output_port_id": "output.child",
+                }
+            ],
+            "stage_contracts": [
+                {
+                    "stage_id": "graph_unit.block.child",
+                    "task_ref": "task_graph.node.graph.test.parent_graph_unit_commit.graph_unit.block.child",
+                    "node_id": "graph_unit.block.child",
+                    "node_type": "graph_unit",
+                    "title": "子图阶段",
+                    "executor_policy": {
+                        "default_executor": "graph_unit",
+                        "allowed_executors": ["graph_unit"],
+                        "subgraph_id": "graph.test.child_graph_unit_commit",
+                        "auto_start_child_initial_stage": False,
+                    },
+                    "linked_graph_id": "graph.test.child_graph_unit_commit",
+                    "nested_runtime_plan_id": "nested.block.child",
+                    "handoff_contract_id": "contract.test.graph_unit.handoff",
+                    "input_port_id": "input.child",
+                    "output_port_id": "output.child",
+                    "output_mappings": [{"output_key": "contract.test.graph_unit.output:artifact_refs", "required": True}],
+                },
+                {
+                    "stage_id": "after_child",
+                    "task_ref": "task_graph.node.graph.test.parent_graph_unit_commit.after_child",
+                    "node_id": "after_child",
+                    "node_type": "agent",
+                    "title": "后续节点",
+                    "agent_id": "agent:0",
+                    "required_inputs": ["contract.test.graph_unit.output:artifact_refs"],
+                    "input_bindings": [
+                        {
+                            "source": "stage_output",
+                            "source_stage_id": "graph_unit.block.child",
+                            "output_key": "contract.test.graph_unit.output:artifact_refs",
+                            "input_key": "contract.test.graph_unit.output:artifact_refs",
+                            "required": True,
+                        }
+                    ],
+                },
+            ],
+        },
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    loop = TaskRunLoop(runtime_dir, backend_dir=backend_dir)
+    runtime = SimpleNamespace(base_dir=backend_dir, query_runtime=SimpleNamespace(task_run_loop=loop))
+    parent_start = loop.start_task_graph_run(
+        session_id="session:test",
+        graph=parent_graph,
+        runtime_spec=orchestration_api.compile_task_graph_definition_runtime_spec(
+            graph=parent_graph,
+            communication_protocol=None,
+        ),
+        initial_inputs={"user_goal": "运行父图"},
+    )
+    parent_coordination_run = parent_start.coordination_run
+    assert parent_coordination_run is not None
+    parent_state = loop.langgraph_coordination_runtime.checkpoints.get_state(
+        thread_id=parent_coordination_run.coordination_run_id,
+    )
+    parent_request = NodeExecutionRequest.from_dict(parent_state["stage_execution_request"])
+
+    asyncio.run(
+        orchestration_api._execute_stage_request_in_background(
+            runtime=runtime,
+            session_id="session:test",
+            source="test",
+            stage_execution_request=parent_request,
+            current_turn_context={},
+        )
+    )
+    child_run = next(
+        task_run
+        for task_run in loop.state_index.list_session_task_runs("session:test")
+        if dict(task_run.diagnostics or {}).get("graph_unit_child_run") is True
+    )
+    child_coordination_run_id = str(child_run.diagnostics["child_coordination_run_id"])
+    child_state = loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=child_coordination_run_id)
+    child_state["terminal_status"] = "completed"
+    child_state["node_statuses"] = {"child_node": "completed"}
+    child_state["completed_nodes"] = ["child_node"]
+    child_state["stage_results"] = {
+        "child_node": {
+            "task_run_id": "taskrun:child-node",
+            "task_result_ref": "taskresult:child-node",
+            "artifact_refs": ["artifact:child/final.md"],
+            "outputs": {"summary": "子图完成", "output_refs": ["artifact:child/final.md"]},
+            "accepted": True,
+        }
+    }
+    child_state["final_result_ref"] = "taskresult:child-node"
+    loop.langgraph_coordination_runtime.checkpoints.put_state(
+        thread_id=child_coordination_run_id,
+        state=child_state,
+        metadata={"event": "test_child_completed"},
+    )
+    child_coordination_run = loop.state_index.get_coordination_run(child_coordination_run_id)
+    assert child_coordination_run is not None
+    CoordinationTraceAdapter(loop.state_index, loop.event_log).write_state(
+        coordination_run=child_coordination_run,
+        state=child_state,
+        checkpoint_ref="coordchk:test-child-completed",
+        event_task_run_id=child_run.task_run_id,
+    )
+    refreshed_child = loop.state_index.get_task_run(child_run.task_run_id)
+    assert refreshed_child is not None
+    loop.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=refreshed_child.task_run_id,
+            session_id=refreshed_child.session_id,
+            task_id=refreshed_child.task_id,
+            task_contract_ref=refreshed_child.task_contract_ref,
+            owner_agent_seat_id=refreshed_child.owner_agent_seat_id,
+            agent_id=refreshed_child.agent_id,
+            agent_profile_id=refreshed_child.agent_profile_id,
+            runtime_lane=refreshed_child.runtime_lane,
+            status="completed",
+            created_at=refreshed_child.created_at,
+            updated_at=refreshed_child.updated_at,
+            latest_event_offset=refreshed_child.latest_event_offset,
+            latest_checkpoint_ref=refreshed_child.latest_checkpoint_ref,
+            terminal_reason="completed",
+            diagnostics=refreshed_child.diagnostics,
+        )
+    )
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(
+            orchestration_api.continue_coordination_current_stage(
+                parent_coordination_run.coordination_run_id,
+                orchestration_api.CoordinationRunContinueRequest(source="test"),
+            )
+        )
+        second = asyncio.run(
+            orchestration_api.continue_coordination_current_stage(
+                parent_coordination_run.coordination_run_id,
+                orchestration_api.CoordinationRunContinueRequest(source="test"),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert payload["mode"] == "resumed_from_graph_unit_child_output_packet"
+    assert payload["consumed_task_run_id"] == child_run.task_run_id
+    assert payload["packet_ref"].startswith("rtobj:graph_unit_output_packets:")
+    assert payload["stage_execution_request"]["stage_id"] == "after_child"
+    parent_state_after = loop.langgraph_coordination_runtime.checkpoints.get_state(
+        thread_id=parent_coordination_run.coordination_run_id,
+    )
+    assert parent_state_after["node_statuses"]["graph_unit.block.child"] == "completed"
+    assert parent_state_after["node_statuses"]["after_child"] == "running"
+    stage_result = parent_state_after["stage_results"]["graph_unit.block.child"]
+    assert stage_result["task_result_ref"] == payload["packet_ref"]
+    assert stage_result["standard_result_package"]["authority"] == "task_graph.standard_node_result_package"
+    committed_child = loop.state_index.get_task_run(child_run.task_run_id)
+    assert committed_child is not None
+    assert committed_child.diagnostics["graph_unit_output_packet_committed"]["packet_ref"] == payload["packet_ref"]
+    assert second["mode"] in {"replayed_active_stage_request", "resumed_from_task_result"}
+    assert loop.state_index.get_task_run(child_run.task_run_id).diagnostics["graph_unit_output_packet_committed"]["packet_ref"] == payload["packet_ref"]  # type: ignore[union-attr]
+
+
+def test_graph_unit_child_result_waits_until_child_completed(tmp_path: Path) -> None:
+    state_index = RuntimeStateIndex(tmp_path / "runtime_state")
+    child = TaskRun(
+        task_run_id="taskrun:child",
+        session_id="session:test",
+        task_id="task_graph.graph_unit.graph.child",
+        status="running",
+        diagnostics={
+            "graph_unit_child_run": True,
+            "parent_coordination_run_id": "coordrun:parent",
+            "parent_stage_id": "graph_unit.block.child",
+            "parent_stage_request_id": "nodeexec:graph-unit",
+            "parent_stage_idempotency_key": "idem:graph-unit",
+            "child_coordination_run_id": "coordrun:child",
+            "linked_graph_id": "graph.child",
+        },
+    )
+    state_index.upsert_task_run(child)
+    loop = SimpleNamespace(
+        state_index=state_index,
+        runtime_objects=SimpleNamespace(put_object=lambda *args, **kwargs: "rtobj:should:not-write"),
+        checkpoints=SimpleNamespace(load_latest=lambda _task_run_id: None),
+        langgraph_coordination_runtime=SimpleNamespace(
+            checkpoints=SimpleNamespace(get_state=lambda *, thread_id: {"terminal_status": ""})
+        ),
+    )
+    runtime = SimpleNamespace(query_runtime=SimpleNamespace(task_run_loop=loop))
+    result = orchestration_api._latest_unconsumed_graph_unit_child_result(
+        runtime=runtime,
+        session_id="session:test",
+        state={
+            "active_stage_id": "graph_unit.block.child",
+            "stage_execution_request": {
+                "stage_id": "graph_unit.block.child",
+                "task_ref": "task_graph.node.graph.parent.graph_unit.block.child",
+                "executor_type": "graph_unit",
+                "request_id": "nodeexec:graph-unit",
+                "idempotency_key": "idem:graph-unit",
+            },
+            "stage_contracts": {},
+            "stage_results": {},
+            "pending_inputs": {},
+        },
+        active_stage_id="graph_unit.block.child",
+        coordination_run_id="coordrun:parent",
+    )
+
+    assert result == {}
+
+
+def test_graph_unit_child_failure_commits_failure_packet_and_uses_parent_failure_policy(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    runtime_dir = tmp_path / "runtime_state"
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_task_graph(
+        graph_id="graph.test.child_graph_unit_failure",
+        title="GraphUnit 失败子图",
+        graph_kind="multi_agent",
+        nodes=(
+            {
+                "node_id": "child_node",
+                "node_type": "agent",
+                "title": "子节点",
+                "task_id": "task_graph.node.graph.test.child_graph_unit_failure.child_node",
+                "agent_id": "agent:0",
+            },
+        ),
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    parent_graph = registry.upsert_task_graph(
+        graph_id="graph.test.parent_graph_unit_failure",
+        title="GraphUnit 父图失败传播",
+        graph_kind="coordination",
+        nodes=(
+            {
+                "node_id": "after_child",
+                "node_type": "agent",
+                "title": "后续节点",
+                "task_id": "task_graph.node.graph.test.parent_graph_unit_failure.after_child",
+                "agent_id": "agent:0",
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "child_to_after",
+                "source_node_id": "graph_unit.block.child",
+                "target_node_id": "after_child",
+                "payload_contract_id": "contract.test.graph_unit.output",
+                "ack_required": False,
+                "failure_propagation_policy": "fail_downstream",
+            },
+        ),
+        metadata={
+            "timeline_blocks": [
+                {
+                    "block_id": "block.child",
+                    "block_type": "child_graph",
+                    "title": "子图阶段",
+                    "phase_id": "phase.child",
+                    "linked_graph_id": "graph.test.child_graph_unit_failure",
+                    "version_ref": "v1",
+                    "handoff_contract_id": "contract.test.graph_unit.handoff",
+                    "input_port_id": "input.child",
+                    "output_port_id": "output.child",
+                }
+            ],
+            "stage_contracts": [
+                {
+                    "stage_id": "graph_unit.block.child",
+                    "task_ref": "task_graph.node.graph.test.parent_graph_unit_failure.graph_unit.block.child",
+                    "node_id": "graph_unit.block.child",
+                    "node_type": "graph_unit",
+                    "title": "子图阶段",
+                    "executor_policy": {
+                        "default_executor": "graph_unit",
+                        "allowed_executors": ["graph_unit"],
+                        "subgraph_id": "graph.test.child_graph_unit_failure",
+                        "auto_start_child_initial_stage": False,
+                    },
+                    "linked_graph_id": "graph.test.child_graph_unit_failure",
+                    "nested_runtime_plan_id": "nested.block.child",
+                    "handoff_contract_id": "contract.test.graph_unit.handoff",
+                    "input_port_id": "input.child",
+                    "output_port_id": "output.child",
+                    "retry_policy": {"retry_limit": 0},
+                },
+                {
+                    "stage_id": "after_child",
+                    "task_ref": "task_graph.node.graph.test.parent_graph_unit_failure.after_child",
+                    "node_id": "after_child",
+                    "node_type": "agent",
+                    "title": "后续节点",
+                    "agent_id": "agent:0",
+                },
+            ],
+        },
+        runtime_policy={"coordinator_agent_id": "agent:0"},
+        publish_state="published",
+        enabled=True,
+    )
+    loop = TaskRunLoop(runtime_dir, backend_dir=backend_dir)
+    runtime = SimpleNamespace(base_dir=backend_dir, query_runtime=SimpleNamespace(task_run_loop=loop))
+    parent_start = loop.start_task_graph_run(
+        session_id="session:test",
+        graph=parent_graph,
+        runtime_spec=orchestration_api.compile_task_graph_definition_runtime_spec(
+            graph=parent_graph,
+            communication_protocol=None,
+        ),
+        initial_inputs={"user_goal": "运行父图"},
+    )
+    parent_coordination_run = parent_start.coordination_run
+    assert parent_coordination_run is not None
+    parent_state = loop.langgraph_coordination_runtime.checkpoints.get_state(
+        thread_id=parent_coordination_run.coordination_run_id,
+    )
+    parent_request = NodeExecutionRequest.from_dict(parent_state["stage_execution_request"])
+
+    asyncio.run(
+        orchestration_api._execute_stage_request_in_background(
+            runtime=runtime,
+            session_id="session:test",
+            source="test",
+            stage_execution_request=parent_request,
+            current_turn_context={},
+        )
+    )
+    child_run = next(
+        task_run
+        for task_run in loop.state_index.list_session_task_runs("session:test")
+        if dict(task_run.diagnostics or {}).get("graph_unit_child_run") is True
+    )
+    child_coordination_run_id = str(child_run.diagnostics["child_coordination_run_id"])
+    child_state = loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=child_coordination_run_id)
+    child_state["terminal_status"] = "failed"
+    child_state["node_statuses"] = {"child_node": "failed"}
+    child_state["failed_nodes"] = ["child_node"]
+    loop.langgraph_coordination_runtime.checkpoints.put_state(
+        thread_id=child_coordination_run_id,
+        state=child_state,
+        metadata={"event": "test_child_failed"},
+    )
+    child_coordination_run = loop.state_index.get_coordination_run(child_coordination_run_id)
+    assert child_coordination_run is not None
+    CoordinationTraceAdapter(loop.state_index, loop.event_log).write_state(
+        coordination_run=child_coordination_run,
+        state=child_state,
+        checkpoint_ref="coordchk:test-child-failed",
+        event_task_run_id=child_run.task_run_id,
+    )
+    refreshed_child = loop.state_index.get_task_run(child_run.task_run_id)
+    assert refreshed_child is not None
+    loop.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=refreshed_child.task_run_id,
+            session_id=refreshed_child.session_id,
+            task_id=refreshed_child.task_id,
+            task_contract_ref=refreshed_child.task_contract_ref,
+            owner_agent_seat_id=refreshed_child.owner_agent_seat_id,
+            agent_id=refreshed_child.agent_id,
+            agent_profile_id=refreshed_child.agent_profile_id,
+            runtime_lane=refreshed_child.runtime_lane,
+            status="failed",
+            created_at=refreshed_child.created_at,
+            updated_at=refreshed_child.updated_at,
+            latest_event_offset=refreshed_child.latest_event_offset,
+            latest_checkpoint_ref=refreshed_child.latest_checkpoint_ref,
+            terminal_reason="failed",
+            diagnostics=refreshed_child.diagnostics,
+        )
+    )
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(
+            orchestration_api.continue_coordination_current_stage(
+                parent_coordination_run.coordination_run_id,
+                orchestration_api.CoordinationRunContinueRequest(source="test"),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert payload["mode"] == "resumed_from_graph_unit_child_output_packet"
+    assert payload["packet_ref"].startswith("rtobj:graph_unit_failure_packets:")
+    assert payload["stage_execution_request"] is None
+    parent_state_after = loop.langgraph_coordination_runtime.checkpoints.get_state(
+        thread_id=parent_coordination_run.coordination_run_id,
+    )
+    assert parent_state_after["terminal_status"] == "failed"
+    assert parent_state_after["node_statuses"]["graph_unit.block.child"] == "failed"
+    assert parent_state_after["node_statuses"]["after_child"] == "failed"
+    scheduler_state = dict(dict(parent_state_after["diagnostics"]).get("task_graph_scheduler_state") or {})
+    assert scheduler_state["diagnostics"]["failure_propagated_node_ids"] == ["after_child"]
+    committed_child = loop.state_index.get_task_run(child_run.task_run_id)
+    assert committed_child is not None
+    assert committed_child.diagnostics["graph_unit_failure_packet_committed"]["packet_ref"] == payload["packet_ref"]
 
 
 def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Path) -> None:
@@ -253,6 +1048,182 @@ def test_task_system_next_ids_are_generated_with_prefixed_internal_ids_and_displ
     assert str(display_numbers["workflow"]).startswith("流程-")
     assert str(display_numbers["coordination"]).startswith("协作-")
     assert str(display_numbers["topology"]).startswith("拓扑-")
+
+
+def test_task_graph_execution_package_combines_runtime_contracts_and_scheduler(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    registry.upsert_task_graph(
+        graph_id="graph.test.execution_package",
+        title="执行包验证图",
+        graph_kind="multi_agent",
+        nodes=(
+            {
+                "node_id": "start",
+                "node_type": "agent",
+                "title": "开始节点",
+                "agent_id": "agent:0",
+            },
+            {
+                "node_id": "finish",
+                "node_type": "agent",
+                "title": "结束节点",
+                "agent_id": "agent:0",
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "start_finish",
+                "source_node_id": "start",
+                "target_node_id": "finish",
+                "payload_contract_id": "contract.agent_output.markdown",
+                "wait_policy": "wait_handoff_ack",
+                "ack_required": True,
+            },
+        ),
+        contract_bindings={"schema": {"graph_contract_id": "contract.user_request.basic"}},
+        publish_state="published",
+        enabled=True,
+    )
+    original = tasks_api.require_runtime
+    tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(tasks_api.build_task_system_task_graph_execution_package("graph.test.execution_package"))
+    finally:
+        tasks_api.require_runtime = original  # type: ignore[assignment]
+
+    assert payload["authority"] == "task_system.task_graph_execution_package"
+    assert payload["graph_id"] == "graph.test.execution_package"
+    assert payload["runtime_spec"]["graph_id"] == "graph.test.execution_package"
+    assert payload["contract_manifest"]["graph_contract_bindings"]["schema"]["graph_contract_id"] == "contract.user_request.basic"
+    assert payload["scheduler_state"]["authority"] == "task_system.task_graph_scheduler_state"
+    assert payload["summary"]["node_count"] == 2
+    assert payload["summary"]["edge_count"] == 1
+    assert payload["summary"]["assembly_count"] == 2
+    assert payload["summary"]["object_trace_count"] == 4
+    assert payload["node_runtime_assemblies"][0]["authority"] == "orchestration.node_runtime_assembly"
+    trace_by_type = {
+        (item["object_type"], item["object_id"]): item
+        for item in payload["object_trace_index"]
+    }
+    assert trace_by_type[("graph", "graph.test.execution_package")]["manifest_ref"]["manifest_id"] == "contract-manifest:coordination:graph.test.execution_package"
+    assert trace_by_type[("node", "start")]["assembly_ref"]["assembly_id"].startswith("runtime-assembly:node:")
+    assert trace_by_type[("edge", "start_finish")]["manifest_ref"]["contract_refs"] == ["contract.agent_output.markdown"]
+
+
+def test_task_graph_execution_package_expands_graph_unit_child_plan(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    registry.upsert_task_graph(
+        graph_id="graph.test.child_execution_plan",
+        title="子图执行计划",
+        graph_kind="multi_agent",
+        nodes=(
+            {
+                "node_id": "child_start",
+                "node_type": "agent",
+                "title": "子图开始",
+                "agent_id": "agent:0",
+            },
+            {
+                "node_id": "child_finish",
+                "node_type": "agent",
+                "title": "子图结束",
+                "agent_id": "agent:0",
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "child_start_finish",
+                "source_node_id": "child_start",
+                "target_node_id": "child_finish",
+                "payload_contract_id": "contract.agent_output.markdown",
+            },
+        ),
+        publish_state="published",
+        enabled=True,
+    )
+    registry.upsert_task_graph(
+        graph_id="graph.test.parent_execution_plan",
+        title="父图执行计划",
+        graph_kind="coordination",
+        metadata={
+            "timeline_blocks": [
+                {
+                    "block_id": "block.child",
+                    "block_type": "child_graph",
+                    "title": "子图阶段",
+                    "phase_id": "phase.child",
+                    "linked_graph_id": "graph.test.child_execution_plan",
+                    "version_ref": "v1",
+                    "handoff_contract_id": "contract.agent_output.markdown",
+                    "input_port_id": "input.child",
+                    "output_port_id": "output.child",
+                }
+            ],
+        },
+        publish_state="published",
+        enabled=True,
+    )
+    original = tasks_api.require_runtime
+    tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(tasks_api.build_task_system_task_graph_execution_package("graph.test.parent_execution_plan"))
+    finally:
+        tasks_api.require_runtime = original  # type: ignore[assignment]
+
+    plans = payload["graph_unit_execution_plans"]
+    assert payload["summary"]["graph_unit_count"] == 1
+    assert payload["summary"]["graph_unit_handoff_contract_count"] == 1
+    assert payload["summary"]["graph_unit_execution_plan_count"] == 1
+    assert payload["summary"]["graph_unit_execution_plan_issue_count"] == 0
+    assert plans[0]["authority"] == "task_system.graph_unit_execution_plan"
+    assert plans[0]["valid"] is True
+    assert plans[0]["linked_graph_id"] == "graph.test.child_execution_plan"
+    assert plans[0]["child_graph"]["title"] == "子图执行计划"
+    assert plans[0]["child_runtime_spec_summary"]["node_count"] == 2
+    assert plans[0]["child_contract_manifest_summary"]["edge_handoff_contract_count"] == 1
+    assert plans[0]["child_scheduler_summary"]["authority"] == "task_system.task_graph_scheduler_state"
+    assert plans[0]["child_node_runtime_assembly_summary"]["assembly_count"] == 2
+    graph_unit_contracts = payload["contract_manifest"]["graph_unit_handoff_contracts"]
+    assert graph_unit_contracts[0]["runtime_node_id"] == "graph_unit.block.child"
+    assert graph_unit_contracts[0]["handoff_contract_id"] == "contract.agent_output.markdown"
+    graph_unit_trace = next(item for item in payload["object_trace_index"] if item["object_type"] == "graph_unit")
+    assert graph_unit_trace["runtime_ref"]["plan_id"] == "nested.block.child"
+    assert graph_unit_trace["manifest_ref"]["handoff_contract_id"] == "contract.agent_output.markdown"
+    assert graph_unit_trace["child_plan_ref"]["valid"] is True
+
+
+def test_task_graph_execution_package_reports_missing_graph_unit_child(tmp_path: Path) -> None:
+    TaskFlowRegistry(tmp_path).upsert_task_graph(
+        graph_id="graph.test.parent_missing_child",
+        title="父图缺失子图",
+        graph_kind="coordination",
+        metadata={
+            "timeline_blocks": [
+                {
+                    "block_id": "block.missing",
+                    "block_type": "child_graph",
+                    "title": "缺失子图阶段",
+                    "phase_id": "phase.child",
+                    "linked_graph_id": "graph.test.missing_child",
+                    "version_ref": "v1",
+                    "handoff_contract_id": "contract.agent_output.markdown",
+                }
+            ],
+        },
+        publish_state="published",
+        enabled=True,
+    )
+    original = tasks_api.require_runtime
+    tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(tasks_api.build_task_system_task_graph_execution_package("graph.test.parent_missing_child"))
+    finally:
+        tasks_api.require_runtime = original  # type: ignore[assignment]
+
+    assert payload["valid"] is False
+    assert payload["graph_unit_execution_plans"][0]["valid"] is False
+    assert payload["summary"]["graph_unit_execution_plan_issue_count"] == 1
+    assert any(issue["code"] == "graph_unit_linked_graph_not_found" for issue in payload["issues"])
 
 
 def test_task_system_formal_object_upserts_persist_and_return_management_payload(tmp_path: Path) -> None:

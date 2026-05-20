@@ -249,3 +249,97 @@ def test_task_graph_standard_view_api_round_trips_title_and_node_runtime(tmp_pat
     draft = next(item for item in updated["nodes"] if item["node_id"] == "draft")
     assert draft["runtime"]["execution_mode"] == "parallel"
     assert draft["runtime"]["dispatch_group"] == "drafting"
+
+
+def test_runtime_spec_promotes_linked_timeline_block_to_graph_unit(tmp_path: Path) -> None:
+    _seed_graph(tmp_path)
+    graph = TaskFlowRegistry(tmp_path).get_task_graph("graph.test.standard_view")
+    assert graph is not None
+
+    spec = build_task_graph_standard_view(graph=graph).diagnostics["runtime_spec"]
+    graph_units = spec["nested_runtime_plans"]
+    graph_unit_nodes = [node for node in spec["nodes"] if node["node_type"] == "graph_unit"]
+
+    assert graph_units[0]["linked_graph_id"] == "graph.design.initialization"
+    assert graph_units[0]["runtime_node_id"] == "graph_unit.block.design"
+    assert graph_unit_nodes[0]["metadata"]["nested_runtime_plan_id"] == "nested.block.design"
+    assert graph_unit_nodes[0]["metadata"]["execution_mode"] == "nested_graph_run"
+
+
+def test_graph_unit_handoff_contract_binding_overrides_legacy_timeline_field(tmp_path: Path) -> None:
+    _seed_graph(tmp_path)
+    registry = TaskFlowRegistry(tmp_path)
+    graph = registry.get_task_graph("graph.test.standard_view")
+    assert graph is not None
+    metadata = dict(graph.metadata or {})
+    timeline_blocks = [dict(item) for item in list(metadata.get("timeline_blocks") or [])]
+    timeline_blocks[0]["handoff_contract_id"] = "contract.legacy.graph_unit.handoff"
+    timeline_blocks[0]["contract_bindings"] = {
+        "handoff": {"handoff_contract_id": "contract.binding.graph_unit.handoff"}
+    }
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        domain_id=graph.domain_id,
+        task_family=graph.task_family,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(item.to_dict() for item in graph.nodes),
+        edges=tuple(item.to_dict() for item in graph.edges),
+        graph_contract_id=graph.graph_contract_id,
+        contract_bindings=graph.contract_bindings,
+        default_protocol_id=graph.default_protocol_id,
+        working_memory_policy_profile_id=graph.working_memory_policy_profile_id,
+        working_memory_policy=graph.working_memory_policy,
+        runtime_policy=graph.runtime_policy,
+        context_policy=graph.context_policy,
+        publish_state=graph.publish_state,
+        enabled=graph.enabled,
+        metadata={**metadata, "timeline_blocks": timeline_blocks},
+    )
+
+    graph = registry.get_task_graph("graph.test.standard_view")
+    assert graph is not None
+    view = build_task_graph_standard_view(graph=graph).to_dict()
+    graph_interface = next(item for item in view["interfaces"] if item["unit_id"] == "unit.graph.block.design")
+    runtime_spec = view["diagnostics"]["runtime_spec"]
+
+    assert view["timeline"]["timeline_blocks"][0]["handoff_contract_id"] == "contract.binding.graph_unit.handoff"
+    assert graph_interface["input_ports"][0]["payload_contract_id"] == "contract.binding.graph_unit.handoff"
+    assert runtime_spec["nested_runtime_plans"][0]["handoff_contract_id"] == "contract.binding.graph_unit.handoff"
+    assert runtime_spec["nodes"][-1]["metadata"]["handoff_contract_id"] == "contract.binding.graph_unit.handoff"
+
+
+def test_standard_view_round_trips_contract_bindings(tmp_path: Path) -> None:
+    _seed_graph(tmp_path)
+    registry = TaskFlowRegistry(tmp_path)
+    graph = registry.get_task_graph("graph.test.standard_view")
+    assert graph is not None
+
+    registry.upsert_task_graph(
+        graph_id=graph.graph_id,
+        title=graph.title,
+        domain_id=graph.domain_id,
+        task_family=graph.task_family,
+        graph_kind=graph.graph_kind,
+        entry_node_id=graph.entry_node_id,
+        output_node_id=graph.output_node_id,
+        nodes=tuple(item.to_dict() for item in graph.nodes),
+        edges=tuple(item.to_dict() for item in graph.edges),
+        graph_contract_id=graph.graph_contract_id,
+        contract_bindings={"schema": {"graph_contract_id": "contract.graph"}, "unit_batch": {"unit_label": "项"}},
+        default_protocol_id=graph.default_protocol_id,
+        working_memory_policy_profile_id=graph.working_memory_policy_profile_id,
+        working_memory_policy=graph.working_memory_policy,
+        runtime_policy=graph.runtime_policy,
+        context_policy=graph.context_policy,
+        publish_state=graph.publish_state,
+        enabled=graph.enabled,
+        metadata=graph.metadata,
+    )
+    updated = registry.get_task_graph("graph.test.standard_view")
+    assert updated is not None
+    payload = build_task_graph_standard_view(graph=updated).to_dict()
+
+    assert payload["graph"]["contract_bindings"]["unit_batch"]["unit_label"] == "项"

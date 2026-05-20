@@ -144,8 +144,11 @@ class StateMemorySnapshot:
     context_slots: dict[str, Any] = field(default_factory=dict)
     active_handles: dict[str, str] = field(default_factory=dict)
     bundle_result_refs: tuple[dict[str, Any], ...] = ()
+    task_summary_refs: tuple[dict[str, Any], ...] = ()
     file_refs: tuple[StateMemoryFileRef, ...] = ()
     operation_refs: tuple[str, ...] = ()
+    key_results: tuple[str, ...] = ()
+    historical_result_refs: tuple[str, ...] = ()
     next_step: tuple[str, ...] = ()
     updated_at: str = ""
     source: str = "state_memory"
@@ -153,8 +156,11 @@ class StateMemorySnapshot:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["bundle_result_refs"] = [dict(item) for item in self.bundle_result_refs]
+        payload["task_summary_refs"] = [dict(item) for item in self.task_summary_refs]
         payload["file_refs"] = [item.to_dict() for item in self.file_refs]
         payload["operation_refs"] = list(self.operation_refs)
+        payload["key_results"] = list(self.key_results)
+        payload["historical_result_refs"] = list(self.historical_result_refs)
         payload["next_step"] = list(self.next_step)
         return payload
 

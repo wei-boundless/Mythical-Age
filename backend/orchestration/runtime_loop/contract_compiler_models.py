@@ -64,12 +64,28 @@ class CompiledNodeContract:
     output_contract_id: str = ""
     contract_refs: tuple[str, ...] = ()
     source_refs: tuple[str, ...] = ()
+    schema_bindings: dict[str, Any] = field(default_factory=dict)
+    execution_bindings: dict[str, Any] = field(default_factory=dict)
+    artifact_bindings: dict[str, Any] = field(default_factory=dict)
+    memory_bindings: dict[str, Any] = field(default_factory=dict)
+    acceptance_bindings: dict[str, Any] = field(default_factory=dict)
+    runtime_bindings: dict[str, Any] = field(default_factory=dict)
+    unit_batch_bindings: dict[str, Any] = field(default_factory=dict)
+    governance_bindings: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["contract_refs"] = list(self.contract_refs)
         payload["source_refs"] = list(self.source_refs)
+        payload["schema_bindings"] = dict(self.schema_bindings)
+        payload["execution_bindings"] = dict(self.execution_bindings)
+        payload["artifact_bindings"] = dict(self.artifact_bindings)
+        payload["memory_bindings"] = dict(self.memory_bindings)
+        payload["acceptance_bindings"] = dict(self.acceptance_bindings)
+        payload["runtime_bindings"] = dict(self.runtime_bindings)
+        payload["unit_batch_bindings"] = dict(self.unit_batch_bindings)
+        payload["governance_bindings"] = dict(self.governance_bindings)
         return payload
 
 
@@ -81,11 +97,52 @@ class CompiledEdgeHandoffContract:
     message_type: str
     contract_refs: tuple[str, ...] = ()
     handoff_policy: str = "structured_packet"
+    schema_bindings: dict[str, Any] = field(default_factory=dict)
+    handoff_bindings: dict[str, Any] = field(default_factory=dict)
+    temporal_bindings: dict[str, Any] = field(default_factory=dict)
+    memory_bindings: dict[str, Any] = field(default_factory=dict)
+    artifact_bindings: dict[str, Any] = field(default_factory=dict)
+    governance_bindings: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["contract_refs"] = list(self.contract_refs)
+        payload["schema_bindings"] = dict(self.schema_bindings)
+        payload["handoff_bindings"] = dict(self.handoff_bindings)
+        payload["temporal_bindings"] = dict(self.temporal_bindings)
+        payload["memory_bindings"] = dict(self.memory_bindings)
+        payload["artifact_bindings"] = dict(self.artifact_bindings)
+        payload["governance_bindings"] = dict(self.governance_bindings)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledGraphUnitHandoffContract:
+    plan_id: str
+    parent_graph_id: str
+    runtime_node_id: str
+    unit_id: str
+    linked_graph_id: str
+    handoff_contract_id: str = ""
+    contract_refs: tuple[str, ...] = ()
+    version_ref: str = ""
+    input_port_id: str = "input.default"
+    output_port_id: str = "output.default"
+    handoff_policy: str = "nested_graph_commit_packet"
+    source_refs: tuple[str, ...] = ()
+    handoff_bindings: dict[str, Any] = field(default_factory=dict)
+    runtime_bindings: dict[str, Any] = field(default_factory=dict)
+    governance_bindings: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["contract_refs"] = list(self.contract_refs)
+        payload["source_refs"] = list(self.source_refs)
+        payload["handoff_bindings"] = dict(self.handoff_bindings)
+        payload["runtime_bindings"] = dict(self.runtime_bindings)
+        payload["governance_bindings"] = dict(self.governance_bindings)
         return payload
 
 
@@ -132,9 +189,11 @@ class ContractManifest:
     workflow_contracts: tuple[CompiledWorkflowContract, ...] = ()
     node_contracts: tuple[CompiledNodeContract, ...] = ()
     edge_handoff_contracts: tuple[CompiledEdgeHandoffContract, ...] = ()
+    graph_unit_handoff_contracts: tuple[CompiledGraphUnitHandoffContract, ...] = ()
     runtime_contracts: tuple[CompiledRuntimeContract, ...] = ()
     acceptance_contracts: tuple[CompiledAcceptanceContract, ...] = ()
     issues: tuple[ContractCompileIssue, ...] = ()
+    graph_contract_bindings: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     authority: str = "task_system.contract_manifest"
 
@@ -155,9 +214,11 @@ class ContractManifest:
             "workflow_contracts": [item.to_dict() for item in self.workflow_contracts],
             "node_contracts": [item.to_dict() for item in self.node_contracts],
             "edge_handoff_contracts": [item.to_dict() for item in self.edge_handoff_contracts],
+            "graph_unit_handoff_contracts": [item.to_dict() for item in self.graph_unit_handoff_contracts],
             "runtime_contracts": [item.to_dict() for item in self.runtime_contracts],
             "acceptance_contracts": [item.to_dict() for item in self.acceptance_contracts],
             "issues": [item.to_dict() for item in self.issues],
+            "graph_contract_bindings": dict(self.graph_contract_bindings),
             "metadata": dict(self.metadata),
             "valid": self.valid,
         }

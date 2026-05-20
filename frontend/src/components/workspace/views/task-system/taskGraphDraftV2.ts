@@ -37,6 +37,7 @@ export type TaskGraphDraftV2 = {
   nodes: TaskGraphNodeRecord[];
   edges: TaskGraphEdgeRecord[];
   graph_contract_id: string;
+  contract_bindings: Record<string, unknown>;
   default_protocol_id: string;
   runtime_policy: TaskGraphRuntimePolicyDraftV2;
   context_policy: TaskGraphContextPolicyDraftV2;
@@ -159,6 +160,7 @@ export function emptyTaskGraphDraftV2(): TaskGraphDraftV2 {
     nodes: [],
     edges: [],
     graph_contract_id: "",
+    contract_bindings: {},
     default_protocol_id: "",
     runtime_policy: {
       coordinator_agent_id: "agent:0",
@@ -227,6 +229,7 @@ export function taskGraphRecordToDraftV2(graph: TaskGraphRecord): TaskGraphDraft
     nodes: graph.nodes ?? [],
     edges: graph.edges ?? [],
     graph_contract_id: graph.graph_contract_id ?? "",
+    contract_bindings: asRecord(graph.contract_bindings),
     default_protocol_id: graph.default_protocol_id ?? String(metadata.protocol_id ?? ""),
     runtime_policy: {
       ...runtimePolicy,

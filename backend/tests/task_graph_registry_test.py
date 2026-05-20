@@ -155,6 +155,53 @@ def test_task_graph_warns_when_temporal_expansion_has_no_limit() -> None:
     assert "node_temporal_expansion_limit_missing" in issue_codes
 
 
+def test_task_graph_contract_bindings_are_canonical_over_legacy_fields() -> None:
+    graph = task_graph_from_dict(
+        {
+            "graph_id": "graph.test.contract_binding_authority",
+            "graph_contract_id": "contract.legacy.graph",
+            "contract_bindings": {"schema": {"graph_contract_id": "contract.binding.graph"}},
+            "nodes": [
+                {
+                    "node_id": "worker",
+                    "node_type": "agent",
+                    "agent_id": "agent:worker",
+                    "input_contract_id": "contract.legacy.input",
+                    "output_contract_id": "contract.legacy.output",
+                    "node_contract_id": "contract.legacy.node",
+                    "contract_bindings": {
+                        "schema": {
+                            "input_contract_id": "contract.binding.input",
+                            "output_contract_id": "contract.binding.output",
+                        },
+                        "execution": {"node_contract_id": "contract.binding.node"},
+                    },
+                }
+            ],
+            "edges": [
+                {
+                    "edge_id": "edge.worker.worker",
+                    "source_node_id": "worker",
+                    "target_node_id": "worker",
+                    "payload_contract_id": "contract.legacy.payload",
+                    "contract_bindings": {"schema": {"payload_contract_id": "contract.binding.payload"}},
+                }
+            ],
+        }
+    )
+
+    node = graph.nodes[0]
+    edge = graph.edges[0]
+    issue_codes = [issue.code for issue in validate_task_graph(graph)]
+
+    assert graph.graph_contract_id == "contract.binding.graph"
+    assert node.input_contract_id == "contract.binding.input"
+    assert node.output_contract_id == "contract.binding.output"
+    assert node.node_contract_id == "contract.binding.node"
+    assert edge.payload_contract_id == "contract.binding.payload"
+    assert issue_codes.count("contract_binding_conflict") == 5
+
+
 def test_task_graph_round_trips_agent_dispatch_policy(tmp_path: Path) -> None:
     registry = TaskFlowRegistry(tmp_path)
 
@@ -423,10 +470,58 @@ def test_task_graph_runtime_spec_reports_unsupported_scheduler_policy(tmp_path: 
 
     unsupported_fields = {item["field"] for item in scheduler_support["unsupported"]}
     assert "join_policy" in unsupported_fields
-    assert "failure_propagation_policy" in unsupported_fields
     supported_fields = {item["field"] for item in scheduler_support["supported"]}
     assert "wait_policy" in supported_fields
+    assert "failure_propagation_policy" in supported_fields
+    unsupported_values = {(item["field"], item["value"]) for item in scheduler_support["unsupported"]}
+    assert ("failure_propagation_policy", "isolate_failure") not in unsupported_values
     assert any(issue.code == "scheduler_policy_unsupported" and issue.severity == "warning" for issue in spec.issues)
+
+
+def test_task_graph_runtime_spec_reports_edge_temporal_support_matrix(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.edge_temporal_support",
+        title="边时序支持矩阵图",
+        graph_kind="multi_agent",
+        nodes=(
+            {"node_id": "a", "node_type": "agent", "agent_id": "agent:a"},
+            {"node_id": "b", "node_type": "agent", "agent_id": "agent:b"},
+        ),
+        edges=(
+            {
+                "edge_id": "a_b",
+                "source_node_id": "a",
+                "target_node_id": "b",
+                "wait_policy": "wait_handoff_ack",
+                "ack_required": True,
+                "ack_policy": "explicit_ack",
+                "metadata": {
+                    "temporal_semantics": {
+                        "trigger_timing": "after_source_success",
+                        "visibility_timing": "same_clock",
+                        "acknowledgement_timing": "ack_before_phase_exit",
+                        "propagation_timing": "manual_release",
+                    }
+                },
+            },
+        ),
+    )
+
+    spec = compile_task_graph_definition_runtime_spec(graph=graph)
+    scheduler_support = spec.diagnostics["scheduler_support"]
+    supported = {(item["field"], item["value"]) for item in scheduler_support["supported"]}
+    partial = {(item["field"], item["value"]) for item in scheduler_support["partial"]}
+    unsupported = {(item["field"], item["value"]) for item in scheduler_support["unsupported"]}
+
+    assert ("wait_policy", "wait_handoff_ack") in supported
+    assert ("ack_policy", "explicit_ack") in supported
+    assert ("temporal.trigger_timing", "after_source_success") in supported
+    assert ("temporal.visibility_timing", "same_clock") in partial
+    assert ("temporal.acknowledgement_timing", "ack_before_phase_exit") in partial
+    assert ("temporal.propagation_timing", "manual_release") in partial
+    assert ("temporal.trigger_timing", "after_source_success") not in unsupported
+    assert any(issue.code == "scheduler_policy_partial" and issue.edge_id == "a_b" for issue in spec.issues)
 
 
 def test_task_graph_runtime_spec_exposes_layered_graph_diagnostics(tmp_path: Path) -> None:

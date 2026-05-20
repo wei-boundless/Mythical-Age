@@ -23,6 +23,34 @@ def _base_policy(target: str) -> dict:
     }
 
 
+def _draft_policy(target: str) -> dict:
+    return {
+        "artifact_policy": {
+            "enabled": True,
+            "required": True,
+            "default_artifact_root": "output/novel_artifacts/simple_novel/runs",
+            "subdir_template": "{session_id}",
+            "artifacts": [
+                {
+                    "path": target,
+                    "required": True,
+                    "content_source": "section",
+                    "section_keys": ["章节正文候选"],
+                    "stop_section_keys": ["承接说明", "本章目标完成说明", "公开摘要"],
+                    "fallback_to_full_content": False,
+                },
+                {
+                    "path": target.replace("draft_round_001.md", "draft_manifest_round_001.md"),
+                    "required": False,
+                    "content_source": "section",
+                    "section_keys": ["承接说明", "本章目标完成说明", "公开摘要"],
+                    "fallback_to_full_content": False,
+                },
+            ],
+        }
+    }
+
+
 def test_project_brief_stage_materializes_brief_and_target_artifact(tmp_path: Path) -> None:
     result = materialize_task_artifacts(
         workspace_root=tmp_path,
@@ -155,3 +183,47 @@ def test_rejected_stage_artifact_is_isolated_from_official_output(tmp_path: Path
         / "draft_round_006.md"
     ).exists()
     assert all("/rejected/" in ref for ref in result.artifact_refs)
+
+
+def test_chapter_draft_artifact_splits_bracket_sections_without_debug_wrapper(tmp_path: Path) -> None:
+    final_content = "\n\n".join(
+        [
+            "# 【章节正文候选】",
+            "## 第1章「泽中」\n正文一。",
+            "## 第2章「灾异」\n正文二。",
+            "## 【承接说明】\n只允许进入 manifest。",
+            "## 【公开摘要】\n摘要也只允许进入 manifest。",
+        ]
+    )
+
+    result = materialize_task_artifacts(
+        workspace_root=tmp_path,
+        task_run_id="taskrun:test:chapter_draft:split",
+        session_id="session-split",
+        task_ref="task.writing.simple_novel.chapter_draft",
+        coordination_run_id="coordrun:test",
+        final_content=final_content,
+        user_message="写第1-2章。",
+        explicit_inputs={
+            "batch_start_index": 1,
+            "batch_end_index": 2,
+        },
+        task_policy=_draft_policy("volume_001/chapters/chapter_001_002/draft_round_001.md"),
+        task_status="completed",
+    )
+
+    artifact_root = tmp_path / "output" / "novel_artifacts" / "simple_novel" / "runs" / "session-split"
+    draft_path = artifact_root / "volume_001" / "chapters" / "chapter_001_002" / "draft_round_001.md"
+    manifest_path = artifact_root / "volume_001" / "chapters" / "chapter_001_002" / "draft_manifest_round_001.md"
+    assert draft_path.exists()
+    assert manifest_path.exists()
+    draft_text = draft_path.read_text(encoding="utf-8")
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    assert "本文件由任务产物规则创建" not in draft_text
+    assert "第1章" in draft_text
+    assert "第2章" in draft_text
+    assert "承接说明" not in draft_text
+    assert "公开摘要" not in draft_text
+    assert "承接说明" in manifest_text
+    assert "公开摘要" in manifest_text
+    assert "draft_round_001.md" in result.created_files

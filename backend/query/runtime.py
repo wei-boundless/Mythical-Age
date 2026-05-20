@@ -287,6 +287,12 @@ class QueryRuntime:
             for item in list(payload.get("bundle_summary_refs") or [])
             if isinstance(item, dict)
         ]
+        self._write_runtime_state_projection(
+            session_id=session_id,
+            main_context=main_context,
+            task_summary_refs=task_summary_refs,
+            bundle_summary_refs=bundle_summary_refs,
+        )
         receipt = self.memory_facade.enqueue_memory_maintenance_after_commit(
             session_id=session_id,
             messages=history,
@@ -329,6 +335,12 @@ class QueryRuntime:
             for item in list(payload.get("bundle_summary_refs") or [])
             if isinstance(item, dict)
         ]
+        self._write_runtime_state_projection(
+            session_id=session_id,
+            main_context=main_context,
+            task_summary_refs=task_summary_refs,
+            bundle_summary_refs=bundle_summary_refs,
+        )
         receipt = self.memory_facade.enqueue_memory_maintenance_after_commit(
             session_id=session_id,
             messages=history,
@@ -342,6 +354,27 @@ class QueryRuntime:
             **self._memory_receipt_commit_payload(receipt),
             "file_work_context_writeback": bool(main_context or task_summary_refs or bundle_summary_refs),
         }
+
+    def _write_runtime_state_projection(
+        self,
+        *,
+        session_id: str,
+        main_context: dict[str, Any],
+        task_summary_refs: list[dict[str, Any]],
+        bundle_summary_refs: list[dict[str, Any]],
+    ) -> None:
+        if not (main_context or task_summary_refs or bundle_summary_refs):
+            return
+        updater = getattr(getattr(self.memory_facade, "session_memory", None), "update_runtime_state_from_context_state", None)
+        if not callable(updater):
+            return
+        updater(
+            session_id,
+            main_context,
+            task_summaries=task_summary_refs,
+            bundle_summaries=bundle_summary_refs,
+            corrections=[],
+        )
 
     def _memory_receipt_commit_payload(self, receipt: Any) -> dict[str, Any]:
         payload = receipt.to_dict() if hasattr(receipt, "to_dict") else dict(receipt or {})

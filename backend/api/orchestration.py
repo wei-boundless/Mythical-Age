@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import re
 import shutil
 import threading
@@ -27,6 +29,7 @@ from orchestration import (
 )
 from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY, runtime_lane_option_payloads
 from orchestration.runtime_loop import TaskRun
+from orchestration.runtime_loop.models import AgentRun, CoordinationRun as RuntimeCoordinationRun
 from orchestration.runtime_loop.langgraph_coordination_runtime import LangGraphCoordinationRuntimeResult
 from orchestration.delegation_catalog import DelegationCatalogBuilder
 from understanding import analyze_memory_intent
@@ -37,6 +40,10 @@ from sessions import InvalidSessionId, validate_session_id
 router = APIRouter()
 
 
+_STAGE_EXECUTION_SCHEDULE_LOCK = threading.RLock()
+_STAGE_EXECUTION_INFLIGHT: dict[str, dict[str, Any]] = {}
+
+
 async def _execute_stage_request_in_background(
     *,
     runtime: Any,
@@ -45,6 +52,15 @@ async def _execute_stage_request_in_background(
     stage_execution_request: Any,
     current_turn_context: dict[str, Any] | None = None,
 ) -> None:
+    if str(getattr(stage_execution_request, "executor_type", "") or "") == "graph_unit":
+        _start_graph_unit_stage_request(
+            runtime=runtime,
+            session_id=session_id,
+            source=source,
+            stage_execution_request=stage_execution_request,
+            current_turn_context=current_turn_context,
+        )
+        return
     continuation_payload = LangGraphCoordinationRuntimeResult(
         stage_execution_request=stage_execution_request,
     ).continuation_payload(
@@ -81,7 +97,59 @@ def _schedule_stage_execution_background(
     source: str,
     stage_execution_request: Any,
     current_turn_context: dict[str, Any] | None = None,
-) -> None:
+) -> dict[str, Any]:
+    task_run_loop = runtime.query_runtime.task_run_loop
+    identity = _stage_execution_schedule_identity(stage_execution_request)
+    schedule_key = str(identity.get("schedule_key") or "")
+    with _STAGE_EXECUTION_SCHEDULE_LOCK:
+        existing = _matching_stage_execution_task_run(
+            task_run_loop=task_run_loop,
+            session_id=session_id,
+            identity=identity,
+        )
+        if existing is not None:
+            result = {
+                "background_started": False,
+                "reason": "stage_execution_already_has_effective_task_run",
+                "existing_task_run_id": existing.task_run_id,
+                "existing_status": existing.status,
+                "stage_execution_identity": identity,
+            }
+            _append_stage_execution_schedule_event(
+                task_run_loop=task_run_loop,
+                root_task_run_id=str(stage_execution_request.root_task_run_id or ""),
+                event_type="coordination_stage_background_execution_skipped",
+                payload={**result, "source": source},
+                identity=identity,
+            )
+            return result
+        if schedule_key and schedule_key in _STAGE_EXECUTION_INFLIGHT:
+            inflight = dict(_STAGE_EXECUTION_INFLIGHT.get(schedule_key) or {})
+            result = {
+                "background_started": False,
+                "reason": "stage_execution_already_scheduled",
+                "existing_task_run_id": str(inflight.get("task_run_id") or ""),
+                "existing_status": "scheduled",
+                "stage_execution_identity": identity,
+            }
+            _append_stage_execution_schedule_event(
+                task_run_loop=task_run_loop,
+                root_task_run_id=str(stage_execution_request.root_task_run_id or ""),
+                event_type="coordination_stage_background_execution_skipped",
+                payload={**result, "source": source},
+                identity=identity,
+            )
+            return result
+        if schedule_key:
+            _STAGE_EXECUTION_INFLIGHT[schedule_key] = {
+                "coordination_run_id": identity.get("coordination_run_id"),
+                "stage_id": identity.get("stage_id"),
+                "request_id": identity.get("request_id"),
+                "idempotency_key": identity.get("idempotency_key"),
+                "scheduled_at": time.time(),
+                "source": source,
+            }
+
     def runner() -> None:
         try:
             asyncio.run(
@@ -94,7 +162,7 @@ def _schedule_stage_execution_background(
                 )
             )
         except Exception as exc:
-            runtime.query_runtime.task_run_loop.event_log.append(
+            task_run_loop.event_log.append(
                 stage_execution_request.root_task_run_id,
                 "coordination_stage_background_execution_failed",
                 payload={
@@ -110,6 +178,10 @@ def _schedule_stage_execution_background(
                     "stage_id": stage_execution_request.stage_id,
                 },
             )
+        finally:
+            if schedule_key:
+                with _STAGE_EXECUTION_SCHEDULE_LOCK:
+                    _STAGE_EXECUTION_INFLIGHT.pop(schedule_key, None)
 
     thread = threading.Thread(
         target=runner,
@@ -117,6 +189,356 @@ def _schedule_stage_execution_background(
         daemon=True,
     )
     thread.start()
+    result = {
+        "background_started": True,
+        "reason": "scheduled",
+        "existing_task_run_id": "",
+        "existing_status": "",
+        "stage_execution_identity": identity,
+    }
+    _append_stage_execution_schedule_event(
+        task_run_loop=task_run_loop,
+        root_task_run_id=str(stage_execution_request.root_task_run_id or ""),
+        event_type="coordination_stage_background_execution_scheduled",
+        payload={**result, "source": source},
+        identity=identity,
+    )
+    return result
+
+
+def _stage_execution_schedule_identity(stage_execution_request: Any) -> dict[str, Any]:
+    from orchestration.runtime_loop.node_execution_request import build_node_execution_idempotency_key
+
+    payload = (
+        stage_execution_request.to_dict()
+        if hasattr(stage_execution_request, "to_dict")
+        else dict(stage_execution_request or {})
+    )
+    stage_id = str(payload.get("stage_id") or payload.get("node_id") or "").strip()
+    node_id = str(payload.get("node_id") or stage_id).strip()
+    coordination_run_id = str(payload.get("coordination_run_id") or "").strip()
+    request_id = str(payload.get("request_id") or "").strip()
+    idempotency_key = str(payload.get("idempotency_key") or "").strip()
+    if not idempotency_key:
+        idempotency_key = build_node_execution_idempotency_key(
+            coordination_run_id=coordination_run_id,
+            node_id=node_id,
+            explicit_inputs=dict(payload.get("explicit_inputs") or {}),
+            dispatch_context=dict(payload.get("dispatch_context") or {}),
+        )
+    schedule_key = "|".join(
+        [
+            coordination_run_id,
+            stage_id,
+            idempotency_key or request_id,
+        ]
+    )
+    return {
+        "coordination_run_id": coordination_run_id,
+        "root_task_run_id": str(payload.get("root_task_run_id") or "").strip(),
+        "stage_id": stage_id,
+        "node_id": node_id,
+        "task_ref": str(payload.get("task_ref") or "").strip(),
+        "request_id": request_id,
+        "idempotency_key": idempotency_key,
+        "dispatch_event_id": str(dict(payload.get("dispatch_context") or {}).get("dispatch_event_id") or "").strip(),
+        "schedule_key": schedule_key,
+    }
+
+
+def _start_graph_unit_stage_request(
+    *,
+    runtime: Any,
+    session_id: str,
+    source: str,
+    stage_execution_request: Any,
+    current_turn_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    task_run_loop = runtime.query_runtime.task_run_loop
+    request_payload = (
+        stage_execution_request.to_dict()
+        if hasattr(stage_execution_request, "to_dict")
+        else dict(stage_execution_request or {})
+    )
+    identity = _stage_execution_schedule_identity(stage_execution_request)
+    handle = _graph_unit_runtime_handle_from_request(request_payload)
+    linked_graph_id = str(handle.get("linked_graph_id") or "").strip()
+    if not linked_graph_id:
+        raise ValueError("GraphUnit stage request requires linked_graph_id")
+    registry = TaskFlowRegistry(runtime.base_dir)
+    graph = registry.get_task_graph(linked_graph_id)
+    if graph is None:
+        raise ValueError(f"GraphUnit linked TaskGraph not found: {linked_graph_id}")
+    if str(graph.publish_state or "") != "published":
+        raise ValueError(f"GraphUnit linked TaskGraph must be published before run start: {linked_graph_id}")
+    protocol = registry.get_task_communication_protocol(
+        str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "")
+    )
+    runtime_spec = compile_task_graph_definition_runtime_spec(
+        graph=graph,
+        specific_tasks=tuple(registry.list_specific_task_records()),
+        communication_protocol=protocol,
+    )
+    blocking_issues = [issue.to_dict() for issue in runtime_spec.issues if issue.severity == "error"]
+    if blocking_issues:
+        raise ValueError(f"GraphUnit child runtime spec has blocking issues: {blocking_issues}")
+    child_initial_inputs = {
+        **dict(handle.get("explicit_inputs") or {}),
+        "parent_graph_unit_runtime_handle": {
+            key: value
+            for key, value in dict(handle).items()
+            if key not in {"explicit_inputs", "standard_input_package"}
+        },
+        "parent_stage_execution_request": request_payload,
+        "parent_standard_input_package": dict(
+            handle.get("standard_input_package")
+            or request_payload.get("standard_input_package")
+            or {}
+        ),
+    }
+    diagnostics = {
+        "source": "orchestration.graph_unit_stage_request",
+        "graph_unit_child_run": True,
+        "graph_unit_runtime_handle_id": str(handle.get("handle_id") or ""),
+        "parent_graph_unit_runtime_handle": {
+            key: value
+            for key, value in dict(handle).items()
+            if key not in {"explicit_inputs", "standard_input_package"}
+        },
+        "linked_graph_id": linked_graph_id,
+        "parent_graph_id": str(handle.get("parent_graph_id") or ""),
+        "parent_coordination_run_id": str(handle.get("parent_coordination_run_id") or identity.get("coordination_run_id") or ""),
+        "parent_root_task_run_id": str(handle.get("parent_root_task_run_id") or request_payload.get("root_task_run_id") or ""),
+        "parent_stage_id": str(handle.get("parent_stage_id") or identity.get("stage_id") or ""),
+        "parent_node_id": str(handle.get("parent_node_id") or identity.get("node_id") or ""),
+        "parent_task_ref": str(request_payload.get("task_ref") or identity.get("task_ref") or ""),
+        "parent_stage_request_id": str(identity.get("request_id") or ""),
+        "parent_stage_idempotency_key": str(identity.get("idempotency_key") or ""),
+        "parent_dispatch_event_id": str(identity.get("dispatch_event_id") or ""),
+        "parent_source": source,
+        "stage_id": str(identity.get("stage_id") or ""),
+        "coordination_stage_id": str(identity.get("stage_id") or ""),
+        "coordination_run_id": str(identity.get("coordination_run_id") or ""),
+        "stage_request_id": str(identity.get("request_id") or ""),
+        "stage_idempotency_key": str(identity.get("idempotency_key") or ""),
+        "current_turn_context": dict(current_turn_context or {}),
+    }
+    start = task_run_loop.start_task_graph_run(
+        session_id=session_id,
+        task_id=f"task_graph.graph_unit.{linked_graph_id}",
+        graph=graph,
+        runtime_spec=runtime_spec,
+        initial_inputs=child_initial_inputs,
+        diagnostics=diagnostics,
+    )
+    child_coordination_run_id = start.coordination_run.coordination_run_id if start.coordination_run is not None else ""
+    child_request = dict(start.loop_state.diagnostics.get("stage_execution_request") or {})
+    _attach_graph_unit_child_run_identity(
+        task_run_loop=task_run_loop,
+        child_task_run=start.task_run,
+        child_coordination_run_id=child_coordination_run_id,
+        handle=handle,
+        identity=identity,
+    )
+    task_run_loop.event_log.append(
+        str(request_payload.get("root_task_run_id") or ""),
+        "coordination_graph_unit_child_run_started",
+        payload={
+            "source": source,
+            "parent_coordination_run_id": str(identity.get("coordination_run_id") or ""),
+            "parent_stage_id": str(identity.get("stage_id") or ""),
+            "parent_node_id": str(identity.get("node_id") or ""),
+            "graph_unit_runtime_handle_id": str(handle.get("handle_id") or ""),
+            "linked_graph_id": linked_graph_id,
+            "child_task_run_id": start.task_run.task_run_id,
+            "child_coordination_run_id": child_coordination_run_id,
+            "child_initial_stage_execution_request": child_request,
+        },
+        refs={
+            "coordination_run_ref": str(identity.get("coordination_run_id") or ""),
+            "stage_id": str(identity.get("stage_id") or ""),
+            "child_task_run_ref": start.task_run.task_run_id,
+            "child_coordination_run_ref": child_coordination_run_id,
+        },
+    )
+    auto_start = bool(dict(request_payload.get("executor_binding") or {}).get("auto_start_child_initial_stage", False) is True)
+    auto_start = bool(dict(handle.get("executor_policy") or {}).get("auto_start_child_initial_stage", auto_start) is not False)
+    if auto_start and child_request:
+        from orchestration.runtime_loop.node_execution_request import NodeExecutionRequest
+
+        _schedule_stage_execution_background(
+            runtime=runtime,
+            session_id=session_id,
+            source=f"{source}:graph_unit_child_initial_stage",
+            stage_execution_request=NodeExecutionRequest.from_dict(child_request),
+            current_turn_context={
+                "authority": "context.graph_unit_child_run",
+                "parent_coordination_run_id": str(identity.get("coordination_run_id") or ""),
+                "parent_stage_id": str(identity.get("stage_id") or ""),
+                "graph_unit_runtime_handle_id": str(handle.get("handle_id") or ""),
+                "task_graph_id": linked_graph_id,
+                "selected_graph_id": linked_graph_id,
+            },
+        )
+    return {
+        "child_task_run_id": start.task_run.task_run_id,
+        "child_coordination_run_id": child_coordination_run_id,
+        "linked_graph_id": linked_graph_id,
+        "graph_unit_runtime_handle_id": str(handle.get("handle_id") or ""),
+        "child_stage_execution_request": child_request,
+    }
+
+
+def _attach_graph_unit_child_run_identity(
+    *,
+    task_run_loop: Any,
+    child_task_run: TaskRun,
+    child_coordination_run_id: str,
+    handle: dict[str, Any],
+    identity: dict[str, Any],
+) -> None:
+    current = task_run_loop.state_index.get_task_run(child_task_run.task_run_id) or child_task_run
+    diagnostics = {
+        **dict(current.diagnostics or {}),
+        "child_coordination_run_id": child_coordination_run_id,
+        "child_task_run_id": current.task_run_id,
+        "parent_coordination_run_id": str(handle.get("parent_coordination_run_id") or identity.get("coordination_run_id") or ""),
+        "parent_root_task_run_id": str(handle.get("parent_root_task_run_id") or identity.get("root_task_run_id") or ""),
+        "parent_stage_id": str(handle.get("parent_stage_id") or identity.get("stage_id") or ""),
+        "parent_node_id": str(handle.get("parent_node_id") or identity.get("node_id") or ""),
+        "parent_task_ref": str(identity.get("task_ref") or ""),
+        "parent_stage_request_id": str(identity.get("request_id") or ""),
+        "parent_stage_idempotency_key": str(identity.get("idempotency_key") or ""),
+    }
+    task_run_loop.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=current.task_run_id,
+            session_id=current.session_id,
+            task_id=current.task_id,
+            task_contract_ref=current.task_contract_ref,
+            owner_agent_seat_id=current.owner_agent_seat_id,
+            agent_id=current.agent_id,
+            agent_profile_id=current.agent_profile_id,
+            runtime_lane=current.runtime_lane,
+            status=current.status,
+            created_at=current.created_at,
+            updated_at=time.time(),
+            latest_event_offset=current.latest_event_offset,
+            latest_checkpoint_ref=current.latest_checkpoint_ref,
+            terminal_reason=current.terminal_reason,
+            diagnostics=diagnostics,
+        )
+    )
+
+
+def _graph_unit_runtime_handle_from_request(request_payload: dict[str, Any]) -> dict[str, Any]:
+    runtime_assembly = dict(request_payload.get("runtime_assembly") or {})
+    executor_binding = dict(request_payload.get("executor_binding") or {})
+    handle = dict(
+        runtime_assembly.get("graph_unit_runtime_handle")
+        or executor_binding.get("graph_unit_runtime_handle")
+        or {}
+    )
+    if handle:
+        handle.setdefault("executor_policy", dict(executor_binding.get("executor_policy") or runtime_assembly.get("executor_policy") or {}))
+        return handle
+    nested_plan = dict(
+        runtime_assembly.get("nested_runtime_plan")
+        or executor_binding.get("nested_runtime_plan")
+        or {}
+    )
+    return {
+        "authority": "orchestration.graph_unit_runtime_handle",
+        "handle_id": str(runtime_assembly.get("handle_id") or executor_binding.get("handle_id") or ""),
+        "parent_coordination_run_id": str(request_payload.get("coordination_run_id") or ""),
+        "parent_root_task_run_id": str(request_payload.get("root_task_run_id") or ""),
+        "parent_stage_id": str(request_payload.get("stage_id") or ""),
+        "parent_node_id": str(request_payload.get("node_id") or ""),
+        "linked_graph_id": str(
+            runtime_assembly.get("linked_graph_id")
+            or executor_binding.get("subgraph_id")
+            or nested_plan.get("linked_graph_id")
+            or ""
+        ),
+        "nested_runtime_plan_id": str(
+            runtime_assembly.get("nested_runtime_plan_id")
+            or executor_binding.get("nested_runtime_plan_id")
+            or nested_plan.get("plan_id")
+            or ""
+        ),
+        "nested_runtime_plan": nested_plan,
+        "explicit_inputs": dict(request_payload.get("explicit_inputs") or {}),
+        "standard_input_package": dict(request_payload.get("standard_input_package") or {}),
+    }
+
+
+def _matching_stage_execution_task_run(
+    *,
+    task_run_loop: Any,
+    session_id: str,
+    identity: dict[str, Any],
+) -> TaskRun | None:
+    coordination_run_id = str(identity.get("coordination_run_id") or "").strip()
+    stage_id = str(identity.get("stage_id") or "").strip()
+    request_id = str(identity.get("request_id") or "").strip()
+    idempotency_key = str(identity.get("idempotency_key") or "").strip()
+    effective_statuses = {"created", "running", "waiting_approval", "blocked", "completed"}
+    candidates = task_run_loop.state_index.list_session_task_runs(session_id) if session_id else task_run_loop.state_index.list_task_runs()
+    matches: list[TaskRun] = []
+    for task_run in candidates:
+        status = str(task_run.status or "")
+        if status not in effective_statuses:
+            continue
+        diagnostics = dict(task_run.diagnostics or {})
+        if status == "completed" and diagnostics.get("invalidated_by_coordination_rewind"):
+            continue
+        run_coordination_id = str(diagnostics.get("coordination_run_id") or "").strip()
+        if coordination_run_id and run_coordination_id and run_coordination_id != coordination_run_id:
+            continue
+        run_stage_id = str(
+            diagnostics.get("stage_id")
+            or diagnostics.get("coordination_stage_id")
+            or _stage_id_from_task_run(task_run)
+        ).strip()
+        if stage_id and run_stage_id and run_stage_id != stage_id:
+            continue
+        run_idempotency_key = str(diagnostics.get("stage_idempotency_key") or "").strip()
+        run_request_id = str(diagnostics.get("stage_request_id") or "").strip()
+        if idempotency_key and run_idempotency_key == idempotency_key:
+            matches.append(task_run)
+            continue
+        if request_id and run_request_id == request_id:
+            matches.append(task_run)
+            continue
+    if not matches:
+        return None
+    return sorted(matches, key=lambda item: float(item.updated_at or item.created_at or 0.0), reverse=True)[0]
+
+
+def _append_stage_execution_schedule_event(
+    *,
+    task_run_loop: Any,
+    root_task_run_id: str,
+    event_type: str,
+    payload: dict[str, Any],
+    identity: dict[str, Any],
+) -> None:
+    if not root_task_run_id:
+        return
+    try:
+        task_run_loop.event_log.append(
+            root_task_run_id,
+            event_type,
+            payload=payload,
+            refs={
+                "coordination_run_ref": str(identity.get("coordination_run_id") or ""),
+                "stage_id": str(identity.get("stage_id") or ""),
+                "node_execution_request_ref": str(identity.get("request_id") or ""),
+                "idempotency_key": str(identity.get("idempotency_key") or ""),
+            },
+        )
+    except Exception:
+        return
 
 
 def _sanitize_replayed_writing_stage_request_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -717,10 +1139,11 @@ async def orchestration_agents() -> dict[str, Any]:
     registry = AgentRuntimeRegistry(runtime.base_dir)
     catalog = registry.build_catalog()
     groups = AgentGroupRegistry(runtime.base_dir).list_groups()
+    options_payload = await orchestration_runtime_options()
     return {
         **catalog,
         "agent_groups": [item.to_dict() for item in groups],
-        "options": _empty_orchestration_runtime_options(),
+        "options": dict(options_payload.get("options") or _empty_orchestration_runtime_options()),
     }
 
 
@@ -1160,12 +1583,13 @@ async def start_task_graph_runtime_loop_run(
     initial_stage_execution_events: list[dict[str, Any]] = []
     initial_stage_execution_error: dict[str, Any] | None = None
     initial_stage_execution_background = False
+    initial_stage_execution_schedule: dict[str, Any] = {}
     if payload.execute_initial_stage and stage_execution_request:
         from orchestration.runtime_loop.node_execution_request import NodeExecutionRequest
 
         request = NodeExecutionRequest.from_dict(stage_execution_request)
         try:
-            _schedule_stage_execution_background(
+            initial_stage_execution_schedule = _schedule_stage_execution_background(
                 runtime=runtime,
                 session_id=session_id,
                 source="orchestration.runtime_loop.task_graph_start_api",
@@ -1177,7 +1601,7 @@ async def start_task_graph_runtime_loop_run(
                     "explicit_inputs": dict(payload.initial_inputs or {}),
                 },
             )
-            initial_stage_execution_background = True
+            initial_stage_execution_background = bool(initial_stage_execution_schedule.get("background_started"))
         except Exception as exc:
             initial_stage_execution_error = {
                 "error": str(exc),
@@ -1197,6 +1621,7 @@ async def start_task_graph_runtime_loop_run(
         "initial_stage_execution_event_count": len(initial_stage_execution_events),
         "initial_stage_execution_error": initial_stage_execution_error,
         "initial_stage_execution_background": initial_stage_execution_background,
+        "initial_stage_execution_schedule": initial_stage_execution_schedule,
         "trace": (
             runtime.query_runtime.task_run_loop.get_trace(start.task_run.task_run_id)
             if payload.include_trace
@@ -1286,6 +1711,56 @@ async def continue_coordination_current_stage(
         and current_event_task_run_id
         and current_event_task_run_id == current_stage_result_task_run_id
     )
+    graph_unit_child_result = _latest_unconsumed_graph_unit_child_result(
+        runtime=runtime,
+        session_id=session_id,
+        state=state,
+        active_stage_id=active_stage_id,
+        coordination_run_id=coordination_run_id,
+    )
+    if graph_unit_child_result:
+        resume_event = NodeResultReadyEvent(**graph_unit_child_result["event"])
+        result = runtime.query_runtime.task_run_loop.langgraph_coordination_runtime.resume_from_task_result(
+            coordination_run=coordination_run,
+            event=resume_event,
+            current_task_result=dict(graph_unit_child_result.get("task_result") or {}),
+            inherited_inputs=dict(graph_unit_child_result.get("explicit_inputs") or {}),
+            artifact_root=str(graph_unit_child_result.get("artifact_root") or ""),
+        )
+        _mark_graph_unit_child_output_packet_committed(
+            task_run_loop=runtime.query_runtime.task_run_loop,
+            child_task_run_id=str(graph_unit_child_result.get("task_run_id") or ""),
+            packet_ref=str(graph_unit_child_result.get("packet_ref") or ""),
+            packet=dict(graph_unit_child_result.get("packet") or {}),
+        )
+        request = result.stage_execution_request
+        schedule_result: dict[str, Any] = {}
+        if request is not None:
+            schedule_result = _schedule_stage_execution_background(
+                runtime=runtime,
+                session_id=session_id,
+                source=payload.source or "orchestration.coordination_run_continue_api",
+                stage_execution_request=request,
+                current_turn_context={
+                    "authority": "context.coordination_run_continue",
+                    "coordination_run_id": coordination_run_id,
+                    "task_graph_id": coordination_run.graph_ref,
+                    "selected_graph_id": coordination_run.graph_ref,
+                    **dict(payload.current_turn_context or {}),
+                },
+            )
+        return {
+            "authority": "orchestration.coordination_run_continue_current_stage",
+            "coordination_run_id": coordination_run_id,
+            "task_run_id": coordination_run.task_run_id,
+            "session_id": session_id,
+            "stage_execution_request": request.to_dict() if request is not None else None,
+            "background_started": bool(schedule_result.get("background_started")),
+            "stage_execution_schedule": schedule_result,
+            "mode": "resumed_from_graph_unit_child_output_packet",
+            "consumed_task_run_id": str(graph_unit_child_result.get("task_run_id") or ""),
+            "packet_ref": str(graph_unit_child_result.get("packet_ref") or ""),
+        }
     latest_unconsumed_stage_result = (
         {}
         if current_event_is_active_stage_result
@@ -1307,8 +1782,9 @@ async def continue_coordination_current_stage(
             artifact_root=str(latest_unconsumed_stage_result.get("artifact_root") or ""),
         )
         request = result.stage_execution_request
+        schedule_result: dict[str, Any] = {}
         if request is not None:
-            _schedule_stage_execution_background(
+            schedule_result = _schedule_stage_execution_background(
                 runtime=runtime,
                 session_id=session_id,
                 source=payload.source or "orchestration.coordination_run_continue_api",
@@ -1327,7 +1803,8 @@ async def continue_coordination_current_stage(
             "task_run_id": coordination_run.task_run_id,
             "session_id": session_id,
             "stage_execution_request": request.to_dict() if request is not None else None,
-            "background_started": request is not None,
+            "background_started": bool(schedule_result.get("background_started")),
+            "stage_execution_schedule": schedule_result,
             "mode": "resumed_from_unconsumed_stage_task_result",
             "consumed_task_run_id": str(latest_unconsumed_stage_result.get("task_run_id") or ""),
         }
@@ -1346,7 +1823,7 @@ async def continue_coordination_current_stage(
             "selected_graph_id": coordination_run.graph_ref,
             **dict(payload.current_turn_context or {}),
         }
-        _schedule_stage_execution_background(
+        schedule_result = _schedule_stage_execution_background(
             runtime=runtime,
             session_id=session_id,
             source=payload.source or "orchestration.coordination_run_continue_api",
@@ -1359,7 +1836,8 @@ async def continue_coordination_current_stage(
             "task_run_id": coordination_run.task_run_id,
             "session_id": session_id,
             "stage_execution_request": request.to_dict(),
-            "background_started": True,
+            "background_started": bool(schedule_result.get("background_started")),
+            "stage_execution_schedule": schedule_result,
             "mode": "replayed_active_stage_request",
         }
     if str(current_event.get("event_type") or "") != "task_result_ready":
@@ -1376,7 +1854,7 @@ async def continue_coordination_current_stage(
             "selected_graph_id": coordination_run.graph_ref,
             **dict(payload.current_turn_context or {}),
         }
-        _schedule_stage_execution_background(
+        schedule_result = _schedule_stage_execution_background(
             runtime=runtime,
             session_id=session_id,
             source=payload.source or "orchestration.coordination_run_continue_api",
@@ -1389,7 +1867,8 @@ async def continue_coordination_current_stage(
             "task_run_id": coordination_run.task_run_id,
             "session_id": session_id,
             "stage_execution_request": request.to_dict(),
-            "background_started": True,
+            "background_started": bool(schedule_result.get("background_started")),
+            "stage_execution_schedule": schedule_result,
             "mode": "replayed_current_stage_request",
         }
 
@@ -1437,8 +1916,9 @@ async def continue_coordination_current_stage(
         artifact_root=artifact_root,
     )
     request = result.stage_execution_request
+    schedule_result: dict[str, Any] = {}
     if request is not None:
-        _schedule_stage_execution_background(
+        schedule_result = _schedule_stage_execution_background(
             runtime=runtime,
             session_id=session_id,
             source=payload.source or "orchestration.coordination_run_continue_api",
@@ -1457,7 +1937,8 @@ async def continue_coordination_current_stage(
         "task_run_id": coordination_run.task_run_id,
         "session_id": session_id,
         "stage_execution_request": request.to_dict() if request is not None else None,
-        "background_started": request is not None,
+        "background_started": bool(schedule_result.get("background_started")),
+        "stage_execution_schedule": schedule_result,
         "mode": "resumed_from_task_result",
     }
 
@@ -1494,6 +1975,12 @@ async def rewind_coordination_run_from_stage(
         state=previous_state,
         stage_ids=invalidated_stage_ids,
     )
+    invalidated_task_runs = _mark_invalidated_stage_task_runs(
+        task_run_loop=task_run_loop,
+        coordination_run=coordination_run,
+        stage_ids=invalidated_stage_ids,
+        reason=payload.reason,
+    )
     moved_artifacts = []
     if payload.move_artifacts and artifact_root:
         moved_artifacts = _move_invalidated_artifacts(
@@ -1524,11 +2011,22 @@ async def rewind_coordination_run_from_stage(
     request = result.stage_execution_request
     background_started = False
     task_run = task_run_loop.state_index.get_task_run(coordination_run.task_run_id)
+    if task_run is not None and str(task_run.status or "") in {"aborted", "failed", "completed"}:
+        _mark_rewound_task_run_running(
+            task_run_loop=task_run_loop,
+            task_run=task_run,
+            coordination_run=coordination_run,
+            checkpoint_ref=result.checkpoint_ref,
+            reason=payload.reason,
+            stage_id=stage_id,
+        )
+        task_run = task_run_loop.state_index.get_task_run(coordination_run.task_run_id)
     session_id = str(getattr(task_run, "session_id", "") or "").strip()
+    schedule_result: dict[str, Any] = {}
     if payload.continue_after_rewind and request is not None:
         if not session_id:
             raise HTTPException(status_code=409, detail="CoordinationRun root TaskRun has no session_id")
-        _schedule_stage_execution_background(
+        schedule_result = _schedule_stage_execution_background(
             runtime=runtime,
             session_id=session_id,
             source=payload.source,
@@ -1542,7 +2040,7 @@ async def rewind_coordination_run_from_stage(
                 **dict(payload.current_turn_context or {}),
             },
         )
-        background_started = True
+        background_started = bool(schedule_result.get("background_started"))
 
     return {
         "authority": "orchestration.coordination_run_rewind_from_stage",
@@ -1552,13 +2050,187 @@ async def rewind_coordination_run_from_stage(
         "stage_id": stage_id,
         "reason": payload.reason,
         "invalidated_stage_ids": invalidated_stage_ids,
+        "invalidated_task_runs": invalidated_task_runs,
         "invalidated_artifact_refs": invalidated_artifacts,
         "moved_artifacts": moved_artifacts,
         "checkpoint_ref": result.checkpoint_ref,
         "stage_execution_request": request.to_dict() if request is not None else None,
         "background_started": background_started,
+        "stage_execution_schedule": schedule_result,
         "diagnostics": dict(result.diagnostics),
     }
+
+
+def _mark_rewound_task_run_running(
+    *,
+    task_run_loop: Any,
+    task_run: TaskRun,
+    coordination_run: RuntimeCoordinationRun,
+    checkpoint_ref: str,
+    reason: str,
+    stage_id: str,
+) -> None:
+    diagnostics = dict(task_run.diagnostics or {})
+    previous_status = str(task_run.status or "")
+    previous_terminal_reason = str(task_run.terminal_reason or "")
+    diagnostics["last_rewind_reactivated_task_run"] = {
+        "stage_id": stage_id,
+        "reason": reason,
+        "previous_status": previous_status,
+        "previous_terminal_reason": previous_terminal_reason,
+        "created_at": time.time(),
+    }
+    diagnostics.pop("stop_request", None)
+    task_run_loop.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run.task_run_id,
+            session_id=task_run.session_id,
+            task_id=task_run.task_id,
+            task_contract_ref=task_run.task_contract_ref,
+            owner_agent_seat_id=task_run.owner_agent_seat_id,
+            agent_id=task_run.agent_id,
+            agent_profile_id=task_run.agent_profile_id,
+            runtime_lane=task_run.runtime_lane,
+            status="running",
+            created_at=task_run.created_at,
+            updated_at=time.time(),
+            latest_event_offset=task_run.latest_event_offset,
+            latest_checkpoint_ref=checkpoint_ref or task_run.latest_checkpoint_ref,
+            terminal_reason="",  # type: ignore[arg-type]
+            diagnostics=diagnostics,
+        )
+    )
+    coordination_diagnostics = dict(coordination_run.diagnostics or {})
+    coordination_diagnostics.pop("stop_request", None)
+    coordination_diagnostics["last_rewind_reactivated_task_run"] = diagnostics["last_rewind_reactivated_task_run"]
+    task_run_loop.state_index.upsert_coordination_run(
+        RuntimeCoordinationRun(
+            coordination_run_id=coordination_run.coordination_run_id,
+            task_run_id=coordination_run.task_run_id,
+            graph_ref=coordination_run.graph_ref,
+            coordinator_agent_id=coordination_run.coordinator_agent_id,
+            topology_template_id=coordination_run.topology_template_id,
+            communication_protocol_id=coordination_run.communication_protocol_id,
+            handoff_policy=coordination_run.handoff_policy,
+            failure_policy=coordination_run.failure_policy,
+            merge_policy=coordination_run.merge_policy,
+            status="running",
+            latest_checkpoint_ref=checkpoint_ref or coordination_run.latest_checkpoint_ref,
+            latest_merge_result_ref=coordination_run.latest_merge_result_ref,
+            created_at=coordination_run.created_at,
+            updated_at=time.time(),
+            diagnostics=coordination_diagnostics,
+        )
+    )
+
+
+def _mark_invalidated_stage_task_runs(
+    *,
+    task_run_loop: Any,
+    coordination_run: RuntimeCoordinationRun,
+    stage_ids: list[str],
+    reason: str,
+) -> list[dict[str, Any]]:
+    stage_set = {str(item) for item in list(stage_ids or []) if str(item)}
+    if not stage_set:
+        return []
+    session_id = str(getattr(task_run_loop.state_index.get_task_run(coordination_run.task_run_id), "session_id", "") or "")
+    changed: list[dict[str, Any]] = []
+    now = time.time()
+    for task_run in task_run_loop.state_index.list_task_runs():
+        if str(task_run.task_run_id or "") == str(coordination_run.task_run_id or ""):
+            continue
+        if session_id and str(task_run.session_id or "") != session_id:
+            continue
+        stage_id = _stage_id_from_task_run(task_run)
+        if stage_id not in stage_set:
+            continue
+        previous_status = str(task_run.status or "")
+        if previous_status in {"completed", "failed", "aborted"}:
+            continue
+        diagnostics = dict(task_run.diagnostics or {})
+        diagnostics["invalidated_by_coordination_rewind"] = {
+            "coordination_run_id": coordination_run.coordination_run_id,
+            "root_task_run_id": coordination_run.task_run_id,
+            "stage_id": stage_id,
+            "reason": reason,
+            "previous_status": previous_status,
+            "created_at": now,
+        }
+        task_run_loop.state_index.upsert_task_run(
+            TaskRun(
+                task_run_id=task_run.task_run_id,
+                session_id=task_run.session_id,
+                task_id=task_run.task_id,
+                task_contract_ref=task_run.task_contract_ref,
+                owner_agent_seat_id=task_run.owner_agent_seat_id,
+                agent_id=task_run.agent_id,
+                agent_profile_id=task_run.agent_profile_id,
+                runtime_lane=task_run.runtime_lane,
+                status="aborted",
+                created_at=task_run.created_at,
+                updated_at=now,
+                latest_event_offset=task_run.latest_event_offset,
+                latest_checkpoint_ref=task_run.latest_checkpoint_ref,
+                terminal_reason="user_aborted",  # type: ignore[arg-type]
+                diagnostics=diagnostics,
+            )
+        )
+        for agent_run in task_run_loop.state_index.list_task_agent_runs(task_run.task_run_id):
+            if str(agent_run.status or "") not in {"pending", "running"}:
+                continue
+            agent_diagnostics = dict(agent_run.diagnostics or {})
+            agent_diagnostics["invalidated_by_coordination_rewind"] = diagnostics["invalidated_by_coordination_rewind"]
+            task_run_loop.state_index.upsert_agent_run(
+                AgentRun(
+                    agent_run_id=agent_run.agent_run_id,
+                    task_run_id=agent_run.task_run_id,
+                    agent_id=agent_run.agent_id,
+                    agent_profile_id=agent_run.agent_profile_id,
+                    role=agent_run.role,
+                    spawn_mode=agent_run.spawn_mode,
+                    context_scope=agent_run.context_scope,
+                    runtime_lane=agent_run.runtime_lane,
+                    parent_agent_run_ref=agent_run.parent_agent_run_ref,
+                    coordination_run_ref=agent_run.coordination_run_ref,
+                    status="killed",
+                    latest_checkpoint_ref=agent_run.latest_checkpoint_ref,
+                    result_ref=agent_run.result_ref,
+                    created_at=agent_run.created_at,
+                    updated_at=now,
+                    diagnostics=agent_diagnostics,
+                )
+            )
+        changed.append(
+            {
+                "task_run_id": task_run.task_run_id,
+                "stage_id": stage_id,
+                "previous_status": previous_status,
+                "status": "aborted",
+            }
+        )
+    return changed
+
+
+def _stage_id_from_task_run(task_run: TaskRun) -> str:
+    diagnostics = dict(task_run.diagnostics or {})
+    for key in ("stage_id", "node_id", "coordination_stage_id", "coordination_node_id"):
+        value = str(diagnostics.get(key) or "").strip()
+        if value:
+            return value
+    task_id = str(task_run.task_id or "")
+    task_id_parts = [part for part in task_id.split(":") if part]
+    if task_id_parts and task_id_parts[0] == "taskinst" and task_id_parts[-1]:
+        return task_id_parts[-1]
+    if "." in task_id:
+        dotted_stage = task_id.rsplit(".", 1)[-1].strip()
+        if dotted_stage:
+            return dotted_stage
+    task_run_id = str(task_run.task_run_id or "")
+    parts = [part for part in task_run_id.split(":") if part]
+    if len(parts) >= 2 and parts[-2]:
+        return parts[-2]
+    return ""
 
 
 def _stage_request_matches_active_stage(
@@ -1598,13 +2270,19 @@ def _coordination_downstream_stage_ids(
     if not include_downstream:
         return [target]
     known = set(order)
+    order_index = {item: index for index, item in enumerate(order)}
     graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
     outgoing: dict[str, list[str]] = {item: [] for item in known}
     for raw_edge in list(graph_spec.get("edges") or []):
         edge = dict(raw_edge or {})
         source = str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "").strip()
         next_stage = str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
-        if source in known and next_stage in known and next_stage not in outgoing.setdefault(source, []):
+        if (
+            source in known
+            and next_stage in known
+            and _coordination_edge_allows_downstream_invalidation(edge=edge, source=source, target=next_stage, order_index=order_index)
+            and next_stage not in outgoing.setdefault(source, [])
+        ):
             outgoing[source].append(next_stage)
     visited: set[str] = set()
     queue = [target]
@@ -1618,6 +2296,47 @@ def _coordination_downstream_stage_ids(
                 queue.append(next_stage)
     ordered = [item for item in order if item in visited]
     return ordered if ordered else [target]
+
+
+def _coordination_edge_allows_downstream_invalidation(
+    *,
+    edge: dict[str, Any],
+    source: str,
+    target: str,
+    order_index: dict[str, int],
+) -> bool:
+    metadata = dict(edge.get("metadata") or {})
+    mode = str(edge.get("mode") or edge.get("edge_type") or metadata.get("edge_type") or "").strip()
+    dependency_role = str(metadata.get("dependency_role") or edge.get("dependency_role") or "").strip()
+    loop_role = str(metadata.get("loop_role") or edge.get("loop_role") or "").strip()
+    verdict = str(metadata.get("verdict") or edge.get("verdict") or "").strip()
+    if mode in {"review_feedback", "repair_feedback", "conditional_feedback"}:
+        return False
+    if mode in {"revision_request", "repair_route", "human_handoff", "fail_closed", "conditional_route"}:
+        return False
+    if dependency_role in {
+        "feedback",
+        "conditional_feedback",
+        "repair_feedback",
+        "non_blocking_feedback",
+        "conditional_route",
+        "repair_route",
+        "failure_route",
+        "human_handoff",
+    }:
+        return False
+    if loop_role in {"repair", "feedback"}:
+        return False
+    if verdict in {
+        "revise",
+        "repair_world",
+        "repair_outline",
+        "repair_character",
+        "human_review_required",
+        "fail_closed",
+    }:
+        return False
+    return order_index.get(target, -1) >= order_index.get(source, -1)
 
 
 def _coordination_stage_artifact_paths(
@@ -1647,7 +2366,7 @@ def _move_invalidated_artifacts(
     stage_id: str,
     reason: str,
 ) -> list[dict[str, Any]]:
-    root = Path(artifact_root).resolve()
+    root = _resolve_artifact_root(artifact_root)
     invalidated_root = root / "invalidated" / (
         f"{time.strftime('%Y%m%d-%H%M%S')}-{_safe_path_component(stage_id)}-{_safe_path_component(reason)}"
     )
@@ -1656,7 +2375,7 @@ def _move_invalidated_artifacts(
         source_text = str(ref or "")
         if not source_text.startswith("artifact:"):
             continue
-        source = Path(source_text.removeprefix("artifact:")).resolve()
+        source = _resolve_artifact_ref_path(source_text.removeprefix("artifact:"), artifact_root=root)
         try:
             source.relative_to(root)
         except ValueError:
@@ -1678,6 +2397,43 @@ def _move_invalidated_artifacts(
             }
         )
     return moved
+
+
+def _resolve_artifact_root(artifact_root: str) -> Path:
+    raw = Path(str(artifact_root or "").strip())
+    if raw.is_absolute():
+        return raw.resolve()
+    repo_root = Path(__file__).resolve().parents[2]
+    candidates = [
+        raw.resolve(),
+        (repo_root / raw).resolve(),
+        (Path.cwd().parent / raw).resolve(),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[1]
+
+
+def _resolve_artifact_ref_path(ref_path: str, *, artifact_root: Path) -> Path:
+    raw = Path(str(ref_path or "").strip())
+    if raw.is_absolute():
+        return raw.resolve()
+    root = artifact_root.resolve()
+    raw_parts = raw.parts
+    root_parts = root.parts
+    for start in range(len(root_parts)):
+        root_suffix = root_parts[start:]
+        if root_suffix and tuple(raw_parts[: len(root_suffix)]) == tuple(root_suffix):
+            remainder = raw_parts[len(root_suffix) :]
+            return (root / Path(*remainder)).resolve() if remainder else root
+    root_relative = (root / raw).resolve()
+    if root_relative.exists():
+        return root_relative
+    repo_relative = (Path(__file__).resolve().parents[2] / raw).resolve()
+    if repo_relative.exists():
+        return repo_relative
+    return raw.resolve()
 
 
 def _safe_path_component(value: str) -> str:
@@ -1778,6 +2534,495 @@ def _latest_unconsumed_stage_task_result(
             "diagnostics": acceptance_diagnostics,
         },
     }
+
+
+def _latest_unconsumed_graph_unit_child_result(
+    *,
+    runtime: Any,
+    session_id: str,
+    state: dict[str, Any],
+    active_stage_id: str,
+    coordination_run_id: str,
+) -> dict[str, Any]:
+    if not active_stage_id or not _active_stage_is_graph_unit(state=state, active_stage_id=active_stage_id):
+        return {}
+    stage_results = dict(state.get("stage_results") or {})
+    already_consumed_task_run_id = str(dict(stage_results.get(active_stage_id) or {}).get("task_run_id") or "").strip()
+    current_stage_payload = dict(state.get("stage_execution_request") or {})
+    active_task_ref = str(
+        current_stage_payload.get("task_ref")
+        or dict(dict(state.get("stage_contracts") or {}).get(active_stage_id) or {}).get("task_ref")
+        or state.get("active_task_ref")
+        or ""
+    ).strip()
+    active_request_id = str(current_stage_payload.get("request_id") or "").strip()
+    active_idempotency_key = str(current_stage_payload.get("idempotency_key") or "").strip()
+    pending_inputs = dict(state.get("pending_inputs") or {})
+    candidates: list[tuple[float, TaskRun, dict[str, Any], dict[str, Any]]] = []
+    for child_run in runtime.query_runtime.task_run_loop.state_index.list_session_task_runs(session_id):
+        if str(child_run.task_run_id or "") == already_consumed_task_run_id:
+            continue
+        diagnostics = dict(child_run.diagnostics or {})
+        if diagnostics.get("graph_unit_child_run") is not True:
+            continue
+        if str(diagnostics.get("parent_coordination_run_id") or "").strip() != coordination_run_id:
+            continue
+        if str(diagnostics.get("parent_stage_id") or diagnostics.get("stage_id") or "").strip() != active_stage_id:
+            continue
+        child_request_id = str(diagnostics.get("parent_stage_request_id") or "").strip()
+        child_idempotency_key = str(diagnostics.get("parent_stage_idempotency_key") or "").strip()
+        if active_request_id and child_request_id and child_request_id != active_request_id:
+            continue
+        if active_idempotency_key and child_idempotency_key and child_idempotency_key != active_idempotency_key:
+            continue
+        committed = dict(
+            diagnostics.get("graph_unit_output_packet_committed")
+            or diagnostics.get("graph_unit_failure_packet_committed")
+            or {}
+        )
+        if (
+            committed
+            and str(committed.get("parent_coordination_run_id") or "").strip() == coordination_run_id
+            and str(committed.get("parent_stage_id") or "").strip() == active_stage_id
+        ):
+            continue
+        completion = _graph_unit_child_completion_packet(
+            runtime=runtime,
+            child_task_run=child_run,
+            diagnostics=diagnostics,
+        )
+        if not completion:
+            continue
+        candidates.append((float(child_run.updated_at or child_run.created_at or 0.0), child_run, completion, diagnostics))
+    if not candidates:
+        return {}
+    _updated_at, child_run, packet, diagnostics = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
+    packet_status = str(packet.get("status") or "").strip()
+    packet_collection = "graph_unit_failure_packets" if packet_status in {"failed", "blocked", "waiting_for_human"} else "graph_unit_output_packets"
+    packet_ref = runtime.query_runtime.task_run_loop.runtime_objects.put_object(
+        packet_collection,
+        _graph_unit_output_packet_object_id(
+            parent_coordination_run_id=coordination_run_id,
+            parent_stage_id=active_stage_id,
+            child_task_run_id=child_run.task_run_id,
+        ),
+        packet,
+    )
+    artifact_refs = [
+        str(item)
+        for item in list(packet.get("artifact_refs") or [])
+        if str(item).startswith("artifact:")
+    ]
+    task_result = {
+        "result_id": packet_ref,
+        "task_result_ref": packet_ref,
+        "outputs": dict(packet.get("outputs") or {}),
+        "final_outputs": {
+            **dict(packet.get("outputs") or {}),
+            "graph_unit_output_packet_ref": packet_ref,
+            "graph_unit_output_packet": packet,
+        },
+        "output_refs": list(dict.fromkeys([*list(packet.get("output_refs") or []), *artifact_refs])),
+        "result_refs": list(dict.fromkeys([packet_ref, *list(packet.get("result_refs") or [])])),
+        "diagnostics": {
+            "authority": "orchestration.graph_unit_committed_output_packet_result",
+            "graph_unit_output_packet_ref": packet_ref,
+            "graph_unit_output_packet": packet,
+            "linked_graph_id": str(packet.get("linked_graph_id") or ""),
+            "child_coordination_run_id": str(packet.get("child_coordination_run_id") or ""),
+        },
+    }
+    return {
+        "task_run_id": child_run.task_run_id,
+        "packet": packet,
+        "packet_ref": packet_ref,
+        "task_result": task_result,
+        "explicit_inputs": pending_inputs,
+        "artifact_root": str(pending_inputs.get("artifact_root") or ""),
+        "event": {
+            "event_type": "task_result_ready",
+            "coordination_run_id": coordination_run_id,
+            "task_run_id": child_run.task_run_id,
+            "stage_id": active_stage_id,
+            "task_ref": active_task_ref or str(diagnostics.get("parent_task_ref") or child_run.task_id or ""),
+            "task_result_ref": packet_ref,
+            "artifact_refs": tuple(artifact_refs or [packet_ref]),
+            "accepted": bool(packet.get("accepted") is True),
+            "agent_run_result_ref": "",
+            "request_id": active_request_id or str(diagnostics.get("parent_stage_request_id") or ""),
+            "dispatch_event_id": str(diagnostics.get("parent_dispatch_event_id") or ""),
+            "diagnostics": {
+                "authority": "orchestration.graph_unit_committed_output_packet" if bool(packet.get("accepted") is True) else "orchestration.graph_unit_committed_failure_packet",
+                "graph_unit_output_packet_ref": packet_ref,
+                "graph_unit_output_packet": packet,
+                "graph_unit_child_run": True,
+                "child_task_run_id": child_run.task_run_id,
+                "child_coordination_run_id": str(packet.get("child_coordination_run_id") or ""),
+                "linked_graph_id": str(packet.get("linked_graph_id") or ""),
+                "terminal_reason": str(child_run.terminal_reason or "completed"),
+            },
+        },
+    }
+
+
+def _active_stage_is_graph_unit(*, state: dict[str, Any], active_stage_id: str) -> bool:
+    request_payload = dict(state.get("stage_execution_request") or {})
+    if str(request_payload.get("executor_type") or "") == "graph_unit":
+        return True
+    contract = dict(dict(state.get("stage_contracts") or {}).get(active_stage_id) or {})
+    if str(contract.get("node_type") or "") == "graph_unit":
+        return True
+    metadata = dict(contract.get("metadata") or {})
+    executor_policy = dict(contract.get("executor_policy") or {})
+    return bool(metadata.get("graph_unit")) or str(executor_policy.get("default_executor") or "") == "graph_unit"
+
+
+def _graph_unit_child_completion_packet(
+    *,
+    runtime: Any,
+    child_task_run: TaskRun,
+    diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    task_run_loop = runtime.query_runtime.task_run_loop
+    child_coordination_run_id = str(diagnostics.get("child_coordination_run_id") or "").strip()
+    if not child_coordination_run_id:
+        for coordination_run in task_run_loop.state_index.list_task_coordination_runs(child_task_run.task_run_id):
+            child_coordination_run_id = coordination_run.coordination_run_id
+            break
+    child_coordination_run = (
+        task_run_loop.state_index.get_coordination_run(child_coordination_run_id)
+        if child_coordination_run_id
+        else None
+    )
+    child_state = (
+        task_run_loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=child_coordination_run_id)
+        if child_coordination_run_id
+        else {}
+    )
+    merge_result = (
+        task_run_loop.state_index.get_latest_coordination_merge_result(child_coordination_run_id)
+        if child_coordination_run_id
+        else None
+    )
+    child_terminal_status = _graph_unit_child_terminal_status(
+        child_task_run=child_task_run,
+        child_coordination_run=child_coordination_run,
+        child_state=child_state,
+        merge_result=merge_result,
+    )
+    if child_terminal_status in {"failed", "blocked", "waiting_for_human"}:
+        return _graph_unit_child_failure_packet(
+            child_task_run=child_task_run,
+            diagnostics=diagnostics,
+            child_coordination_run_id=child_coordination_run_id,
+            child_coordination_run=child_coordination_run,
+            child_state=child_state,
+            child_terminal_status=child_terminal_status,
+        )
+    if child_terminal_status != "completed":
+        return {}
+    checkpoint = task_run_loop.checkpoints.load_latest(child_task_run.task_run_id)
+    checkpoint_task_result = dict(getattr(checkpoint, "commit_state", {}) or {}).get("task_result") if checkpoint is not None else {}
+    checkpoint_task_result = dict(checkpoint_task_result or {})
+    stage_results = {
+        str(key): dict(value)
+        for key, value in dict(child_state.get("stage_results") or {}).items()
+        if str(key) and isinstance(value, dict)
+    }
+    artifact_refs = _dedupe_strings(
+        [
+            *[
+                str(ref)
+                for result in stage_results.values()
+                for ref in list(result.get("artifact_refs") or [])
+                if str(ref)
+            ],
+            *[
+                str(ref)
+                for ref in list(checkpoint_task_result.get("output_refs") or [])
+                if str(ref).startswith("artifact:")
+            ],
+        ]
+    )
+    output_refs = _dedupe_strings(
+        [
+            *artifact_refs,
+            *[str(ref) for result in stage_results.values() for ref in list(dict(result.get("outputs") or {}).get("output_refs") or []) if str(ref)],
+            *[str(ref) for ref in list(checkpoint_task_result.get("output_refs") or []) if str(ref)],
+        ]
+    )
+    final_result_ref = str(
+        dict(child_state or {}).get("final_result_ref")
+        or getattr(merge_result, "final_result_ref", "")
+        or checkpoint_task_result.get("result_id")
+        or child_task_run.latest_checkpoint_ref
+        or child_task_run.task_run_id
+        or ""
+    )
+    result_refs = _dedupe_strings(
+        [
+            final_result_ref,
+            str(getattr(merge_result, "merge_result_id", "") or ""),
+            *[str(ref) for ref in list(checkpoint_task_result.get("result_refs") or []) if str(ref)],
+        ]
+    )
+    child_flow = dict(dict(getattr(child_coordination_run, "diagnostics", {}) or {}).get("coordination_flow") or {})
+    stage_summaries = [
+        {
+            "stage_id": str(stage_id),
+            "task_result_ref": str(result.get("task_result_ref") or ""),
+            "artifact_refs": list(result.get("artifact_refs") or []),
+            "accepted": bool(result.get("accepted") is True),
+        }
+        for stage_id, result in stage_results.items()
+    ]
+    handle = dict(diagnostics.get("parent_graph_unit_runtime_handle") or {})
+    if not handle:
+        handle = {
+            key: diagnostics.get(key)
+            for key in (
+                "graph_unit_runtime_handle_id",
+                "linked_graph_id",
+                "parent_graph_id",
+                "parent_coordination_run_id",
+                "parent_root_task_run_id",
+                "parent_stage_id",
+                "parent_node_id",
+            )
+            if diagnostics.get(key) is not None
+        }
+    return {
+        "authority": "orchestration.graph_unit_committed_output_packet",
+        "packet_id": f"graphunit-output:{_hash_payload({'parent': diagnostics.get('parent_coordination_run_id'), 'stage': diagnostics.get('parent_stage_id'), 'child': child_task_run.task_run_id})}",
+        "status": "completed",
+        "accepted": True,
+        "parent_coordination_run_id": str(diagnostics.get("parent_coordination_run_id") or ""),
+        "parent_root_task_run_id": str(diagnostics.get("parent_root_task_run_id") or ""),
+        "parent_stage_id": str(diagnostics.get("parent_stage_id") or ""),
+        "parent_node_id": str(diagnostics.get("parent_node_id") or ""),
+        "parent_stage_request_id": str(diagnostics.get("parent_stage_request_id") or ""),
+        "parent_stage_idempotency_key": str(diagnostics.get("parent_stage_idempotency_key") or ""),
+        "child_task_run_id": child_task_run.task_run_id,
+        "child_coordination_run_id": child_coordination_run_id,
+        "linked_graph_id": str(diagnostics.get("linked_graph_id") or ""),
+        "graph_unit_runtime_handle_id": str(diagnostics.get("graph_unit_runtime_handle_id") or ""),
+        "nested_runtime_plan_id": str(handle.get("nested_runtime_plan_id") or ""),
+        "handoff_contract_id": str(handle.get("handoff_contract_id") or ""),
+        "input_port_id": str(handle.get("input_port_id") or ""),
+        "output_port_id": str(handle.get("output_port_id") or ""),
+        "isolation_policy": str(handle.get("isolation_policy") or "isolated_per_nested_run"),
+        "visibility_policy": str(handle.get("visibility_policy") or "committed_only"),
+        "detach_policy": str(handle.get("detach_policy") or "preserve_version_anchor"),
+        "final_result_ref": final_result_ref,
+        "merge_result_ref": str(getattr(merge_result, "merge_result_id", "") or ""),
+        "artifact_refs": artifact_refs,
+        "output_refs": output_refs,
+        "result_refs": result_refs,
+        "outputs": {
+            "graph_unit_output_packet_id": f"graphunit-output:{_hash_payload({'parent': diagnostics.get('parent_coordination_run_id'), 'stage': diagnostics.get('parent_stage_id'), 'child': child_task_run.task_run_id})}",
+            "child_task_run_id": child_task_run.task_run_id,
+            "child_coordination_run_id": child_coordination_run_id,
+            "linked_graph_id": str(diagnostics.get("linked_graph_id") or ""),
+            "final_result_ref": final_result_ref,
+            "merge_result_ref": str(getattr(merge_result, "merge_result_id", "") or ""),
+            "artifact_refs": artifact_refs,
+            "output_refs": output_refs,
+        },
+        "child_summary": {
+            "task_run_status": str(child_task_run.status or ""),
+            "task_run_terminal_reason": str(child_task_run.terminal_reason or ""),
+            "coordination_status": str(getattr(child_coordination_run, "status", "") or ""),
+            "coordination_terminal_status": str(child_state.get("terminal_status") or child_flow.get("terminal_status") or ""),
+            "completed_stage_ids": list(child_flow.get("completed_stage_ids") or child_state.get("completed_nodes") or []),
+            "stage_result_count": len(stage_results),
+            "stage_results": stage_summaries,
+        },
+        "created_at": time.time(),
+    }
+
+
+def _graph_unit_child_failure_packet(
+    *,
+    child_task_run: TaskRun,
+    diagnostics: dict[str, Any],
+    child_coordination_run_id: str,
+    child_coordination_run: Any,
+    child_state: dict[str, Any],
+    child_terminal_status: str,
+) -> dict[str, Any]:
+    child_flow = dict(dict(getattr(child_coordination_run, "diagnostics", {}) or {}).get("coordination_flow") or {})
+    handle = dict(diagnostics.get("parent_graph_unit_runtime_handle") or {})
+    if not handle:
+        handle = {
+            key: diagnostics.get(key)
+            for key in (
+                "graph_unit_runtime_handle_id",
+                "linked_graph_id",
+                "parent_graph_id",
+                "parent_coordination_run_id",
+                "parent_root_task_run_id",
+                "parent_stage_id",
+                "parent_node_id",
+            )
+            if diagnostics.get(key) is not None
+        }
+    failed_stage_ids = _dedupe_strings(
+        [
+            *list(child_state.get("failed_nodes") or []),
+            *list(child_flow.get("failed_stage_ids") or []),
+        ]
+    )
+    blocked_stage_ids = _dedupe_strings(
+        [
+            *list(child_state.get("blocked_nodes") or []),
+            *list(child_flow.get("blocked_stage_ids") or []),
+        ]
+    )
+    packet_id = f"graphunit-failure:{_hash_payload({'parent': diagnostics.get('parent_coordination_run_id'), 'stage': diagnostics.get('parent_stage_id'), 'child': child_task_run.task_run_id, 'status': child_terminal_status})}"
+    return {
+        "authority": "orchestration.graph_unit_committed_failure_packet",
+        "packet_id": packet_id,
+        "status": child_terminal_status or "failed",
+        "accepted": False,
+        "parent_coordination_run_id": str(diagnostics.get("parent_coordination_run_id") or ""),
+        "parent_root_task_run_id": str(diagnostics.get("parent_root_task_run_id") or ""),
+        "parent_stage_id": str(diagnostics.get("parent_stage_id") or ""),
+        "parent_node_id": str(diagnostics.get("parent_node_id") or ""),
+        "parent_stage_request_id": str(diagnostics.get("parent_stage_request_id") or ""),
+        "parent_stage_idempotency_key": str(diagnostics.get("parent_stage_idempotency_key") or ""),
+        "child_task_run_id": child_task_run.task_run_id,
+        "child_coordination_run_id": child_coordination_run_id,
+        "linked_graph_id": str(diagnostics.get("linked_graph_id") or ""),
+        "graph_unit_runtime_handle_id": str(diagnostics.get("graph_unit_runtime_handle_id") or ""),
+        "nested_runtime_plan_id": str(handle.get("nested_runtime_plan_id") or ""),
+        "handoff_contract_id": str(handle.get("handoff_contract_id") or ""),
+        "input_port_id": str(handle.get("input_port_id") or ""),
+        "output_port_id": str(handle.get("output_port_id") or ""),
+        "isolation_policy": str(handle.get("isolation_policy") or "isolated_per_nested_run"),
+        "visibility_policy": str(handle.get("visibility_policy") or "committed_only"),
+        "detach_policy": str(handle.get("detach_policy") or "preserve_version_anchor"),
+        "final_result_ref": str(child_state.get("final_result_ref") or child_task_run.latest_checkpoint_ref or child_task_run.task_run_id or ""),
+        "artifact_refs": [],
+        "output_refs": [],
+        "result_refs": _dedupe_strings([str(child_state.get("final_result_ref") or ""), child_task_run.latest_checkpoint_ref, child_task_run.task_run_id]),
+        "outputs": {
+            "graph_unit_failure_packet_id": packet_id,
+            "child_task_run_id": child_task_run.task_run_id,
+            "child_coordination_run_id": child_coordination_run_id,
+            "linked_graph_id": str(diagnostics.get("linked_graph_id") or ""),
+            "terminal_status": child_terminal_status or "failed",
+            "failed_stage_ids": failed_stage_ids,
+            "blocked_stage_ids": blocked_stage_ids,
+        },
+        "child_summary": {
+            "task_run_status": str(child_task_run.status or ""),
+            "task_run_terminal_reason": str(child_task_run.terminal_reason or ""),
+            "coordination_status": str(getattr(child_coordination_run, "status", "") or ""),
+            "coordination_terminal_status": str(child_state.get("terminal_status") or child_flow.get("terminal_status") or child_terminal_status),
+            "failed_stage_ids": failed_stage_ids,
+            "blocked_stage_ids": blocked_stage_ids,
+        },
+        "created_at": time.time(),
+    }
+
+
+def _graph_unit_child_terminal_status(
+    *,
+    child_task_run: TaskRun,
+    child_coordination_run: Any,
+    child_state: dict[str, Any],
+    merge_result: Any,
+) -> str:
+    if merge_result is not None and getattr(merge_result, "accepted", False) is True:
+        return "completed"
+    state_terminal = str(child_state.get("terminal_status") or "").strip()
+    if state_terminal in {"completed", "failed", "blocked", "waiting_for_human"}:
+        return state_terminal
+    coordination_status = str(getattr(child_coordination_run, "status", "") or "").strip()
+    if coordination_status in {"completed", "failed", "blocked", "waiting"}:
+        return "completed" if coordination_status == "completed" else coordination_status
+    return ""
+
+
+def _mark_graph_unit_child_output_packet_committed(
+    *,
+    task_run_loop: Any,
+    child_task_run_id: str,
+    packet_ref: str,
+    packet: dict[str, Any],
+) -> None:
+    if not child_task_run_id or not packet_ref:
+        return
+    child_run = task_run_loop.state_index.get_task_run(child_task_run_id)
+    if child_run is None:
+        return
+    diagnostics = dict(child_run.diagnostics or {})
+    committed_key = "graph_unit_output_packet_committed" if bool(packet.get("accepted") is True) else "graph_unit_failure_packet_committed"
+    diagnostics[committed_key] = {
+        "packet_ref": packet_ref,
+        "packet_id": str(packet.get("packet_id") or ""),
+        "status": str(packet.get("status") or ""),
+        "accepted": bool(packet.get("accepted") is True),
+        "parent_coordination_run_id": str(packet.get("parent_coordination_run_id") or ""),
+        "parent_stage_id": str(packet.get("parent_stage_id") or ""),
+        "child_coordination_run_id": str(packet.get("child_coordination_run_id") or ""),
+        "linked_graph_id": str(packet.get("linked_graph_id") or ""),
+        "committed_at": time.time(),
+    }
+    task_run_loop.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=child_run.task_run_id,
+            session_id=child_run.session_id,
+            task_id=child_run.task_id,
+            task_contract_ref=child_run.task_contract_ref,
+            owner_agent_seat_id=child_run.owner_agent_seat_id,
+            agent_id=child_run.agent_id,
+            agent_profile_id=child_run.agent_profile_id,
+            runtime_lane=child_run.runtime_lane,
+            status=child_run.status,
+            created_at=child_run.created_at,
+            updated_at=time.time(),
+            latest_event_offset=child_run.latest_event_offset,
+            latest_checkpoint_ref=child_run.latest_checkpoint_ref,
+            terminal_reason=child_run.terminal_reason,
+            diagnostics=diagnostics,
+        )
+    )
+
+
+def _graph_unit_output_packet_object_id(
+    *,
+    parent_coordination_run_id: str,
+    parent_stage_id: str,
+    child_task_run_id: str,
+) -> str:
+    return _safe_path_component(
+        "graphunit-output-"
+        + _hash_payload(
+            {
+                "parent_coordination_run_id": parent_coordination_run_id,
+                "parent_stage_id": parent_stage_id,
+                "child_task_run_id": child_task_run_id,
+            }
+        )
+    )
+
+
+def _dedupe_strings(values: list[Any]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in values:
+        value = str(item or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def _hash_payload(payload: Any) -> str:
+    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
 
 
 def _read_first_artifact_text(*, runtime: Any, artifact_refs: list[str]) -> str:

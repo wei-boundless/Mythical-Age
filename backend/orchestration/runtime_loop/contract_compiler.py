@@ -15,6 +15,7 @@ from .contract_compiler_models import (
     CompiledAcceptanceContract,
     CompiledEdgeHandoffContract,
     CompiledGlobalContract,
+    CompiledGraphUnitHandoffContract,
     CompiledNodeContract,
     CompiledRuntimeContract,
     CompiledWorkflowContract,
@@ -136,6 +137,7 @@ def compile_coordination_contract_manifest(
     agent_profiles: tuple[AgentRuntimeProfile, ...] = (),
 ) -> ContractManifest:
     graph_ref = str(graph_spec.graph_id or dict(coordination_task.metadata or {}).get("graph_id") or coordination_task.graph_id).strip()
+    graph_contract_bindings = _contract_bindings_payload(dict(graph_spec.diagnostics or {}).get("contract_bindings"))
     issues: list[ContractCompileIssue] = [
         ContractCompileIssue(
             code=f"graph_{item.code}",
@@ -156,20 +158,34 @@ def compile_coordination_contract_manifest(
     for node in graph_spec.nodes:
         task = task_by_id.get(node.task_id)
         node_metadata = dict(node.metadata or {})
+        node_bindings = _contract_bindings_payload(node_metadata.get("contract_bindings"))
+        schema_bindings = dict(node_bindings.get("schema") or {})
+        execution_bindings = dict(node_bindings.get("execution") or {})
+        artifact_bindings = dict(node_bindings.get("artifact") or {})
+        memory_bindings = dict(node_bindings.get("memory") or {})
+        acceptance_bindings = dict(node_bindings.get("acceptance") or {})
+        runtime_bindings = dict(node_bindings.get("runtime") or {})
+        unit_batch_bindings = dict(node_bindings.get("unit_batch") or {})
+        governance_bindings = dict(node_bindings.get("governance") or {})
+        legacy_contract_fields = dict(node_metadata.get("legacy_contract_fields") or {})
         node_projection_id = str(
             getattr(node, "projection_id", "")
             or node_metadata.get("projection_id")
             or node_metadata.get("projection_overlay_id")
             or ""
         ).strip()
+        legacy_input_contract_id = str(legacy_contract_fields.get("input_contract_id") or getattr(node, "input_contract_id", "") or node_metadata.get("input_contract_id") or "").strip()
+        legacy_output_contract_id = str(legacy_contract_fields.get("output_contract_id") or getattr(node, "output_contract_id", "") or node_metadata.get("output_contract_id") or "").strip()
+        legacy_node_contract_id = str(legacy_contract_fields.get("node_contract_id") or node_metadata.get("node_contract_id") or node_metadata.get("contract_id") or "").strip()
+        binding_node_contract_id = str(execution_bindings.get("node_contract_id") or execution_bindings.get("contract_id") or "").strip()
         explicit_input_contract_id = str(
-            getattr(node, "input_contract_id", "")
-            or node_metadata.get("input_contract_id")
+            schema_bindings.get("input_contract_id")
+            or legacy_input_contract_id
             or ""
         ).strip()
         explicit_output_contract_id = str(
-            getattr(node, "output_contract_id", "")
-            or node_metadata.get("output_contract_id")
+            schema_bindings.get("output_contract_id")
+            or legacy_output_contract_id
             or ""
         ).strip()
         input_contract_id = str(
@@ -186,15 +202,35 @@ def compile_coordination_contract_manifest(
             ref
             for ref in dict.fromkeys(
                 [
-                    str(node_metadata.get("node_contract_id") or node_metadata.get("contract_id") or "").strip(),
+                    binding_node_contract_id or legacy_node_contract_id,
                     *[
                         str(item).strip()
                         for item in list(node_metadata.get("contract_refs") or [])
                         if str(item).strip()
                     ],
+                    *[
+                        str(item).strip()
+                        for item in list(execution_bindings.get("contract_refs") or [])
+                        if str(item).strip()
+                    ],
                 ]
             )
             if ref
+        )
+        _append_contract_binding_conflicts(
+            issues=issues,
+            source_ref=f"{graph_ref}:{node.node_id}",
+            node_id=node.node_id,
+            legacy_values={
+                "metadata.input_contract_id": legacy_input_contract_id,
+                "metadata.output_contract_id": legacy_output_contract_id,
+                "metadata.node_contract_id": legacy_node_contract_id,
+            },
+            binding_values={
+                "schema.input_contract_id": str(schema_bindings.get("input_contract_id") or "").strip(),
+                "schema.output_contract_id": str(schema_bindings.get("output_contract_id") or "").strip(),
+                "execution.node_contract_id": str(execution_bindings.get("node_contract_id") or "").strip(),
+            },
         )
         if task is not None or input_contract_id or output_contract_id:
             for contract_id, purpose in (
@@ -211,7 +247,7 @@ def compile_coordination_contract_manifest(
                     issues=issues,
                     node_id=node.node_id,
                 )
-        elif node.task_id:
+        elif node.task_id and not str(node.task_id or "").startswith("task_graph.node."):
             issues.append(
                 ContractCompileIssue(
                     code="node_task_missing",
@@ -246,6 +282,14 @@ def compile_coordination_contract_manifest(
                 output_contract_id=output_contract_id,
                 contract_refs=tuple(ref for ref in (input_contract_id, output_contract_id, *explicit_node_contract_refs) if ref),
                 source_refs=(graph_ref, node.task_id),
+                schema_bindings=schema_bindings,
+                execution_bindings=execution_bindings,
+                artifact_bindings=artifact_bindings,
+                memory_bindings=memory_bindings,
+                acceptance_bindings=acceptance_bindings,
+                runtime_bindings=runtime_bindings,
+                unit_batch_bindings=unit_batch_bindings,
+                governance_bindings=governance_bindings,
                 metadata={
                     "role": node.role,
                     "explicit_node_contract_refs": explicit_node_contract_refs,
@@ -257,6 +301,7 @@ def compile_coordination_contract_manifest(
                     "human_gate_policy": dict(getattr(node, "human_gate_policy", {}) or {}),
                     "artifact_policy": dict(getattr(node, "artifact_policy", {}) or {}),
                     "stream_policy": dict(getattr(node, "stream_policy", {}) or {}),
+                    "contract_bindings": node_bindings,
                 },
             )
         )
@@ -284,17 +329,33 @@ def compile_coordination_contract_manifest(
     protocol_payload_contracts = tuple(str(item).strip() for item in getattr(communication_protocol, "payload_contracts", ()) if str(item).strip())
     for edge in graph_spec.edges:
         metadata = dict(edge.metadata or {})
+        edge_bindings = _contract_bindings_payload(metadata.get("contract_bindings"))
+        edge_schema_bindings = dict(edge_bindings.get("schema") or {})
+        edge_handoff_bindings = dict(edge_bindings.get("handoff") or {})
+        edge_temporal_bindings = dict(edge_bindings.get("temporal") or {})
+        edge_memory_bindings = dict(edge_bindings.get("memory") or {})
+        edge_artifact_bindings = dict(edge_bindings.get("artifact") or {})
+        edge_governance_bindings = dict(edge_bindings.get("governance") or {})
+        legacy_contract_fields = dict(metadata.get("legacy_contract_fields") or {})
+        legacy_payload_contract_id = str(legacy_contract_fields.get("payload_contract_id") or getattr(edge, "payload_contract_id", "") or metadata.get("payload_contract_id") or metadata.get("contract_id") or "").strip()
+        binding_payload_contract_id = str(edge_schema_bindings.get("payload_contract_id") or "").strip()
         contract_refs = tuple(
             dict.fromkeys(
                 str(item).strip()
                 for item in [
-                    getattr(edge, "payload_contract_id", ""),
-                    metadata.get("contract_id"),
+                    binding_payload_contract_id or legacy_payload_contract_id,
                     *list(metadata.get("contract_refs") or []),
                     *protocol_payload_contracts,
                 ]
                 if str(item or "").strip()
             )
+        )
+        _append_contract_binding_conflicts(
+            issues=issues,
+            source_ref=f"{graph_ref}:{edge.edge_id}",
+            edge_id=edge.edge_id,
+            legacy_values={"edge.payload_contract_id": legacy_payload_contract_id},
+            binding_values={"schema.payload_contract_id": str(edge_schema_bindings.get("payload_contract_id") or "").strip()},
         )
         for contract_id in contract_refs:
             _collect_contract(
@@ -325,6 +386,12 @@ def compile_coordination_contract_manifest(
                 message_type=edge.mode if edge.mode.startswith("message/") else DEFAULT_A2A_MESSAGE_TYPE,
                 contract_refs=contract_refs,
                 handoff_policy=coordination_task.handoff_policy,
+                schema_bindings=edge_schema_bindings,
+                handoff_bindings=edge_handoff_bindings,
+                temporal_bindings=edge_temporal_bindings,
+                memory_bindings=edge_memory_bindings,
+                artifact_bindings=edge_artifact_bindings,
+                governance_bindings=edge_governance_bindings,
                 metadata={
                     "business_mode": edge.mode,
                     "protocol_id": getattr(communication_protocol, "protocol_id", "") or "",
@@ -335,9 +402,19 @@ def compile_coordination_contract_manifest(
                         if str(item).strip()
                     ],
                     "memory_expectation": str(metadata.get("memory_expectation") or ""),
+                    "contract_bindings": edge_bindings,
                 },
             )
         )
+
+    graph_unit_handoff_contracts = _compile_graph_unit_handoff_contracts(
+        contract_registry=contract_registry,
+        graph_ref=graph_ref,
+        graph_spec=graph_spec,
+        global_contracts=global_contracts,
+        acceptance_contracts=acceptance_contracts,
+        issues=issues,
+    )
 
     runtime_contracts = _compile_runtime_contracts(
         agent_profiles=agent_profiles,
@@ -354,14 +431,17 @@ def compile_coordination_contract_manifest(
         global_contracts=tuple(global_contracts.values()),
         node_contracts=tuple(node_contracts),
         edge_handoff_contracts=tuple(edge_contracts),
+        graph_unit_handoff_contracts=tuple(graph_unit_handoff_contracts),
         runtime_contracts=tuple(runtime_contracts),
         acceptance_contracts=tuple(acceptance_contracts.values()),
         issues=tuple(issues),
+        graph_contract_bindings=graph_contract_bindings,
         metadata={
             "compiler": "contract_compiler.v1",
             "agent_group_id": coordination_task.agent_group_id,
             "communication_protocol_id": getattr(communication_protocol, "protocol_id", "") or "",
             "layered_graph": _layered_graph_manifest_payload(graph_spec),
+            "nested_runtime_plans": [item.to_dict() for item in getattr(graph_spec, "nested_runtime_plans", ())],
         },
     )
 
@@ -376,6 +456,7 @@ def _layered_graph_manifest_payload(graph_spec: TaskGraphRuntimeSpec) -> dict[st
         "artifact_context_edges": [dict(item) for item in graph_spec.artifact_context_edges],
         "revision_edges": [dict(item) for item in graph_spec.revision_edges],
         "loop_frames": [dict(item) for item in graph_spec.loop_frames],
+        "nested_runtime_plans": [item.to_dict() for item in getattr(graph_spec, "nested_runtime_plans", ())],
         "memory_matrix": dict(graph_spec.memory_matrix),
         "summary": {
             "resource_node_count": len(graph_spec.resource_nodes),
@@ -384,8 +465,137 @@ def _layered_graph_manifest_payload(graph_spec: TaskGraphRuntimeSpec) -> dict[st
             "artifact_context_edge_count": len(graph_spec.artifact_context_edges),
             "revision_edge_count": len(graph_spec.revision_edges),
             "loop_frame_count": len(graph_spec.loop_frames),
+            "nested_runtime_plan_count": len(getattr(graph_spec, "nested_runtime_plans", ())),
         },
     }
+
+
+def _compile_graph_unit_handoff_contracts(
+    *,
+    contract_registry: TaskContractRegistry,
+    graph_ref: str,
+    graph_spec: TaskGraphRuntimeSpec,
+    global_contracts: dict[str, CompiledGlobalContract],
+    acceptance_contracts: dict[str, CompiledAcceptanceContract],
+    issues: list[ContractCompileIssue],
+) -> list[CompiledGraphUnitHandoffContract]:
+    compiled: list[CompiledGraphUnitHandoffContract] = []
+    for plan in getattr(graph_spec, "nested_runtime_plans", ()) or ():
+        metadata = dict(getattr(plan, "metadata", {}) or {})
+        plan_bindings = _contract_bindings_payload(metadata.get("contract_bindings"))
+        handoff_bindings = dict(plan_bindings.get("handoff") or {})
+        runtime_bindings = dict(plan_bindings.get("runtime") or {})
+        governance_bindings = dict(plan_bindings.get("governance") or {})
+        raw_block = dict(metadata.get("raw_block") or {})
+        binding_handoff_contract_id = str(handoff_bindings.get("handoff_contract_id") or "").strip()
+        plan_handoff_contract_id = str(getattr(plan, "handoff_contract_id", "") or "").strip()
+        metadata_legacy_fields = dict(metadata.get("legacy_contract_fields") or {})
+        raw_block_legacy_fields = dict(dict(raw_block.get("metadata") or {}).get("legacy_contract_fields") or {})
+        legacy_handoff_contract_id = str(
+            metadata_legacy_fields.get("handoff_contract_id")
+            or raw_block_legacy_fields.get("handoff_contract_id")
+            or raw_block.get("handoff_contract_id")
+            or ""
+        ).strip()
+        handoff_contract_id = binding_handoff_contract_id or plan_handoff_contract_id or legacy_handoff_contract_id
+        source_ref = f"{graph_ref}:{plan.plan_id}"
+        _append_contract_binding_conflicts(
+            issues=issues,
+            source_ref=source_ref,
+            node_id=plan.runtime_node_id,
+            legacy_values={"timeline_block.handoff_contract_id": legacy_handoff_contract_id},
+            binding_values={"handoff.handoff_contract_id": binding_handoff_contract_id},
+        )
+        if handoff_contract_id:
+            _collect_contract(
+                registry=contract_registry,
+                contract_id=handoff_contract_id,
+                source_ref=source_ref,
+                purpose="graph_unit_handoff_contract",
+                global_contracts=global_contracts,
+                acceptance_contracts=acceptance_contracts,
+                issues=issues,
+                node_id=plan.runtime_node_id,
+            )
+        else:
+            issues.append(
+                ContractCompileIssue(
+                    code="graph_unit_handoff_contract_missing",
+                    message=f"GraphUnit 缺少父子图提交包 handoff 契约：{plan.runtime_node_id}",
+                    severity="warning",
+                    source_ref=source_ref,
+                    node_id=plan.runtime_node_id,
+                )
+            )
+        compiled.append(
+            CompiledGraphUnitHandoffContract(
+                plan_id=plan.plan_id,
+                parent_graph_id=plan.parent_graph_id,
+                runtime_node_id=plan.runtime_node_id,
+                unit_id=plan.unit_id,
+                linked_graph_id=plan.linked_graph_id,
+                handoff_contract_id=handoff_contract_id,
+                contract_refs=tuple(ref for ref in (handoff_contract_id,) if ref),
+                version_ref=plan.version_ref,
+                input_port_id=plan.input_port_id,
+                output_port_id=plan.output_port_id,
+                source_refs=(graph_ref, source_ref),
+                handoff_bindings=handoff_bindings,
+                runtime_bindings=runtime_bindings,
+                governance_bindings=governance_bindings,
+                metadata={
+                    "timeline_block_id": str(raw_block.get("block_id") or metadata.get("timeline_block_id") or ""),
+                    "block_type": str(raw_block.get("block_type") or metadata.get("block_type") or ""),
+                    "visibility_policy": plan.visibility_policy,
+                    "isolation_policy": plan.isolation_policy,
+                    "detach_policy": plan.detach_policy,
+                    "contract_bindings": plan_bindings,
+                    "legacy_handoff_contract_id": legacy_handoff_contract_id,
+                    "binding_handoff_contract_id": binding_handoff_contract_id,
+                    "authority": "task_system.graph_unit_handoff_contract",
+                },
+            )
+        )
+    return compiled
+
+
+def _contract_bindings_payload(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key).strip(): dict(item) for key, item in value.items() if str(key).strip() and isinstance(item, dict)}
+
+
+def _append_contract_binding_conflicts(
+    *,
+    issues: list[ContractCompileIssue],
+    source_ref: str,
+    legacy_values: dict[str, str],
+    binding_values: dict[str, str],
+    node_id: str = "",
+    edge_id: str = "",
+) -> None:
+    for legacy_path, legacy_value in legacy_values.items():
+        legacy = str(legacy_value or "").strip()
+        if not legacy:
+            continue
+        legacy_key = legacy_path.rsplit(".", 1)[-1]
+        binding_path = next((key for key in binding_values if key.endswith(f".{legacy_key}")), "")
+        if not binding_path:
+            continue
+        binding = str(binding_values.get(binding_path) or "").strip()
+        if not binding or binding == legacy:
+            continue
+        issues.append(
+            ContractCompileIssue(
+                code="contract_binding_conflict",
+                message=f"历史契约字段 {legacy_path} 与 contract_bindings.{binding_path} 冲突：{legacy} != {binding}",
+                severity="error",
+                source_ref=source_ref,
+                node_id=node_id,
+                edge_id=edge_id,
+                contract_id=binding,
+            )
+        )
 
 
 def _collect_contract(

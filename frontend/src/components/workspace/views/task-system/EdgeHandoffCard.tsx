@@ -2,6 +2,7 @@
 
 import { TaskSystemField, TaskSystemSelectField, taskSystemOptionLabel } from "./TaskSystemWorkbenchUi";
 import { TASK_GRAPH_HANDOFF_KIND_OPTIONS, TASK_GRAPH_HANDOFF_SCOPE_OPTIONS } from "./taskGraphHandoffOptions";
+import { formatRuntimeSupportOption, runtimeOptionIsUnsupported } from "./taskGraphRuntimeSupport";
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -74,21 +75,22 @@ export function EdgeHandoffCard({
           />
         </TaskSystemField>
         <TaskSystemSelectField
-          formatOption={taskSystemOptionLabel}
+          formatOption={formatRuntimeSupportOption("wait_policy")}
+          isOptionDisabled={(value) => runtimeOptionIsUnsupported("wait_policy", value)}
           label="等待策略"
           onChange={(value) => updateTaskGraphEdge(selectedGraphEdgeId, { wait_policy: value })}
           options={["wait_all_upstream_completed", "wait_any_upstream_completed", "wait_required_contracts", "wait_handoff_ack", "fire_and_continue"]}
           value={String(selectedGraphEdge.wait_policy ?? "wait_all_upstream_completed")}
         />
         <TaskSystemSelectField
-          formatOption={taskSystemOptionLabel}
+          formatOption={formatRuntimeSupportOption("failure_propagation_policy")}
           label="失败传播"
           onChange={(value) => updateTaskGraphEdge(selectedGraphEdgeId, { failure_propagation_policy: value })}
-          options={["fail_downstream", "isolate_failure", "allow_partial"]}
+          options={["fail_downstream", "isolate_failure", "allow_partial", "coordinator_decides"]}
           value={String(selectedGraphEdge.failure_propagation_policy ?? "fail_downstream")}
         />
         <TaskSystemSelectField
-          formatOption={taskSystemOptionLabel}
+          formatOption={formatRuntimeSupportOption("result_delivery_policy")}
           label="结果投递"
           onChange={(value) => updateTaskGraphEdge(selectedGraphEdgeId, { result_delivery_policy: value })}
           options={["contract_payload_and_refs", "summary_and_refs", "notification_only"]}

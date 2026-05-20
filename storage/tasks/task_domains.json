@@ -12,6 +12,17 @@
       }
     },
     {
+      "domain_id": "domain.writing.simple_novel",
+      "task_family": "writing_simple_novel",
+      "title": "写作组简易长篇小说",
+      "description": "写作组简易长篇小说完整任务图配置域。",
+      "enabled": true,
+      "sort_order": 80,
+      "metadata": {
+        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer"
+      }
+    },
+    {
       "domain_id": "domain.custom_4",
       "task_family": "custom_4",
       "title": "开发任务",
@@ -44,17 +55,6 @@
       "sort_order": 270,
       "metadata": {
         "derived": true
-      }
-    },
-    {
-      "domain_id": "domain.writing.simple_novel",
-      "task_family": "writing_simple_novel",
-      "title": "写作组简易长篇小说",
-      "description": "写作组简易长篇小说完整任务图配置域。",
-      "enabled": true,
-      "sort_order": 80,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer"
       }
     }
   ],

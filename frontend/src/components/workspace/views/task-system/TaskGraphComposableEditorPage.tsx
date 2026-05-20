@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import type { ContractSpec, OrchestrationAgentRuntimeCatalog, SpecificTaskRecord, TaskGraphRecord, TaskGraphStandardView } from "@/lib/api";
+import type { ContractSpec, OrchestrationAgentRuntimeCatalog, TaskGraphRecord, TaskGraphStandardView } from "@/lib/api";
 
 import { TaskGraphComposableCanvas } from "./TaskGraphComposableCanvas";
 import { TaskGraphDiagnosticsDock } from "./TaskGraphDiagnosticsDock";
@@ -40,7 +40,6 @@ export function TaskGraphComposableEditorPage({
   onOpenGraph,
   orchestrationAgentCatalog,
   projectionCards,
-  selectedDomainTasks,
   standardView,
   standardViewLoading,
   taskGraphDraft,
@@ -64,7 +63,6 @@ export function TaskGraphComposableEditorPage({
   onOpenGraph?: (graphId: string) => void;
   orchestrationAgentCatalog?: OrchestrationAgentRuntimeCatalog | null;
   projectionCards?: Array<{ projection_id: string; title?: string; soul_name?: string; soul_id?: string }>;
-  selectedDomainTasks: SpecificTaskRecord[];
   standardView: TaskGraphStandardView | null;
   standardViewLoading?: boolean;
   taskGraphDraft: TaskGraphDraftV2;
@@ -183,7 +181,6 @@ export function TaskGraphComposableEditorPage({
           orchestrationAgentCatalog={orchestrationAgentCatalog}
           portEdges={composableModel.portEdges}
           projectionCards={projectionCards}
-          selectedDomainTasks={selectedDomainTasks}
           selectedSubject={selectedSubject}
           taskGraphs={taskGraphs}
           units={composableModel.units}

@@ -55,8 +55,21 @@ TASK_GRAPH_NODE_TYPES = {
     "runtime_state_store",
     "working_memory_store",
     "loop_frame",
+    "graph_unit",
 }
 MEMORY_RESOURCE_OPERATIONS = {"read", "write", "handoff", "commit", "finalize"}
+CONTRACT_BINDING_SECTIONS = {
+    "schema",
+    "execution",
+    "unit_batch",
+    "artifact",
+    "memory",
+    "handoff",
+    "acceptance",
+    "runtime",
+    "governance",
+    "temporal",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +85,7 @@ class TaskGraphNodeDefinition:
     node_contract_id: str = ""
     input_contract_id: str = ""
     output_contract_id: str = ""
+    contract_bindings: dict[str, Any] = field(default_factory=dict)
     runtime_lane: str = ""
     context_visibility_policy: dict[str, Any] = field(default_factory=dict)
     projection_id: str = ""
@@ -114,6 +128,7 @@ class TaskGraphEdgeDefinition:
     edge_type: str = "handoff"
     a2a_message_type: str = "message/send"
     payload_contract_id: str = ""
+    contract_bindings: dict[str, Any] = field(default_factory=dict)
     context_filter_policy: dict[str, Any] = field(default_factory=dict)
     artifact_ref_policy: dict[str, Any] = field(default_factory=dict)
     working_memory_handoff_policy: dict[str, Any] = field(default_factory=dict)
@@ -154,6 +169,7 @@ class TaskGraphDefinition:
     nodes: tuple[TaskGraphNodeDefinition, ...] = ()
     edges: tuple[TaskGraphEdgeDefinition, ...] = ()
     graph_contract_id: str = ""
+    contract_bindings: dict[str, Any] = field(default_factory=dict)
     default_protocol_id: str = ""
     working_memory_policy_profile_id: str = ""
     working_memory_policy: dict[str, Any] = field(default_factory=dict)
@@ -191,6 +207,39 @@ class TaskGraphDefinition:
 
 
 def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinition:
+    explicit_bindings = _contract_bindings_payload(payload.get("contract_bindings"))
+    explicit_schema_bindings = dict(explicit_bindings.get("schema") or {})
+    explicit_execution_bindings = dict(explicit_bindings.get("execution") or {})
+    legacy_node_contract_id = str(payload.get("node_contract_id") or payload.get("contract_id") or "").strip()
+    legacy_input_contract_id = str(payload.get("input_contract_id") or "").strip()
+    legacy_output_contract_id = str(payload.get("output_contract_id") or "").strip()
+    node_contract_id = str(explicit_execution_bindings.get("node_contract_id") or legacy_node_contract_id or "").strip()
+    input_contract_id = str(explicit_schema_bindings.get("input_contract_id") or legacy_input_contract_id or "").strip()
+    output_contract_id = str(explicit_schema_bindings.get("output_contract_id") or legacy_output_contract_id or "").strip()
+    runtime_lane = str(payload.get("runtime_lane") or "").strip()
+    executor_policy = dict(payload.get("executor_policy") or {})
+    memory_read_policy = dict(payload.get("memory_read_policy") or {})
+    memory_writeback_policy = dict(payload.get("memory_writeback_policy") or {})
+    dynamic_memory_read_policy = dict(payload.get("dynamic_memory_read_policy") or {})
+    artifact_policy = dict(payload.get("artifact_policy") or {})
+    stream_policy = dict(payload.get("stream_policy") or {})
+    review_gate_policy = dict(payload.get("review_gate_policy") or {})
+    human_gate_policy = dict(payload.get("human_gate_policy") or {})
+    failure_policy = dict(payload.get("failure_policy") or {})
+    background_policy = dict(payload.get("background_policy") or {})
+    notification_policy = dict(payload.get("notification_policy") or {})
+    resource_lifecycle_policy = dict(payload.get("resource_lifecycle_policy") or {})
+    execution_mode = str(payload.get("execution_mode") or "sync").strip() or "sync"
+    wait_policy = str(payload.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed"
+    join_policy = str(payload.get("join_policy") or "all_success").strip() or "all_success"
+    metadata = _legacy_contract_metadata(
+        dict(payload.get("metadata") or {}),
+        {
+            "node_contract_id": legacy_node_contract_id,
+            "input_contract_id": legacy_input_contract_id,
+            "output_contract_id": legacy_output_contract_id,
+        },
+    )
     return TaskGraphNodeDefinition(
         node_id=str(payload.get("node_id") or payload.get("id") or "").strip(),
         node_type=str(payload.get("node_type") or payload.get("type") or "agent").strip(),
@@ -200,60 +249,117 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
         agent_selection_policy=str(payload.get("agent_selection_policy") or "explicit_agent").strip(),
         agent_group_id=str(payload.get("agent_group_id") or "").strip(),
         work_posture=str(payload.get("work_posture") or payload.get("role") or "").strip(),
-        node_contract_id=str(payload.get("node_contract_id") or "").strip(),
-        input_contract_id=str(payload.get("input_contract_id") or "").strip(),
-        output_contract_id=str(payload.get("output_contract_id") or "").strip(),
-        runtime_lane=str(payload.get("runtime_lane") or "").strip(),
+        node_contract_id=node_contract_id,
+        input_contract_id=input_contract_id,
+        output_contract_id=output_contract_id,
+        contract_bindings=normalize_node_contract_bindings(
+            explicit=explicit_bindings,
+            node_contract_id=node_contract_id,
+            input_contract_id=input_contract_id,
+            output_contract_id=output_contract_id,
+            executor_policy=executor_policy,
+            artifact_policy=artifact_policy,
+            stream_policy=stream_policy,
+            review_gate_policy=review_gate_policy,
+            human_gate_policy=human_gate_policy,
+            memory_read_policy=memory_read_policy,
+            memory_writeback_policy=memory_writeback_policy,
+            dynamic_memory_read_policy=dynamic_memory_read_policy,
+            runtime_lane=runtime_lane,
+            execution_mode=execution_mode,
+            wait_policy=wait_policy,
+            join_policy=join_policy,
+            failure_policy=failure_policy,
+            background_policy=background_policy,
+            notification_policy=notification_policy,
+            resource_lifecycle_policy=resource_lifecycle_policy,
+            metadata=metadata,
+        ),
+        runtime_lane=runtime_lane,
         context_visibility_policy=dict(payload.get("context_visibility_policy") or {}),
         projection_id=str(payload.get("projection_id") or payload.get("projection_overlay_id") or "").strip(),
         projection_overlay_id=str(payload.get("projection_overlay_id") or "").strip(),
-        executor_policy=dict(payload.get("executor_policy") or {}),
-        failure_policy=dict(payload.get("failure_policy") or {}),
-        human_gate_policy=dict(payload.get("human_gate_policy") or {}),
-        memory_read_policy=dict(payload.get("memory_read_policy") or {}),
-        memory_writeback_policy=dict(payload.get("memory_writeback_policy") or {}),
-        dynamic_memory_read_policy=dict(payload.get("dynamic_memory_read_policy") or {}),
+        executor_policy=executor_policy,
+        failure_policy=failure_policy,
+        human_gate_policy=human_gate_policy,
+        memory_read_policy=memory_read_policy,
+        memory_writeback_policy=memory_writeback_policy,
+        dynamic_memory_read_policy=dynamic_memory_read_policy,
         phase_id=str(payload.get("phase_id") or "").strip(),
         sequence_index=_int_value(payload.get("sequence_index"), 0),
         timeline_group_id=str(payload.get("timeline_group_id") or "").strip(),
         main_chain=bool(payload.get("main_chain", True)),
         blocks_phase_exit=bool(payload.get("blocks_phase_exit", True)),
         loop_policy=dict(payload.get("loop_policy") or {}),
-        review_gate_policy=dict(payload.get("review_gate_policy") or {}),
-        artifact_policy=dict(payload.get("artifact_policy") or {}),
-        stream_policy=dict(payload.get("stream_policy") or {}),
+        review_gate_policy=review_gate_policy,
+        artifact_policy=artifact_policy,
+        stream_policy=stream_policy,
         artifact_target=str(payload.get("artifact_target") or "").strip(),
         output_path=str(payload.get("output_path") or "").strip(),
-        execution_mode=str(payload.get("execution_mode") or "sync").strip() or "sync",
+        execution_mode=execution_mode,
         dispatch_group=str(payload.get("dispatch_group") or "").strip(),
-        wait_policy=str(payload.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed",
-        join_policy=str(payload.get("join_policy") or "all_success").strip() or "all_success",
-        background_policy=dict(payload.get("background_policy") or {}),
-        notification_policy=dict(payload.get("notification_policy") or {}),
-        resource_lifecycle_policy=dict(payload.get("resource_lifecycle_policy") or {}),
-        metadata=dict(payload.get("metadata") or {}),
+        wait_policy=wait_policy,
+        join_policy=join_policy,
+        background_policy=background_policy,
+        notification_policy=notification_policy,
+        resource_lifecycle_policy=resource_lifecycle_policy,
+        metadata=metadata,
     )
 
 
 def task_graph_edge_from_dict(payload: dict[str, Any]) -> TaskGraphEdgeDefinition:
+    explicit_bindings = _contract_bindings_payload(payload.get("contract_bindings"))
+    explicit_schema_bindings = dict(explicit_bindings.get("schema") or {})
+    legacy_payload_contract_id = str(payload.get("payload_contract_id") or payload.get("contract_id") or "").strip()
+    payload_contract_id = str(explicit_schema_bindings.get("payload_contract_id") or legacy_payload_contract_id or "").strip()
+    context_filter_policy = dict(payload.get("context_filter_policy") or {})
+    artifact_ref_policy = dict(payload.get("artifact_ref_policy") or {})
+    working_memory_handoff_policy = dict(payload.get("working_memory_handoff_policy") or {})
+    ack_policy = str(payload.get("ack_policy") or "explicit_ack").strip()
+    timeout_policy = str(payload.get("timeout_policy") or "fail_closed").strip()
+    wait_policy = str(payload.get("wait_policy") or "").strip()
+    failure_propagation_policy = str(payload.get("failure_propagation_policy") or "fail_downstream").strip() or "fail_downstream"
+    result_delivery_policy = str(payload.get("result_delivery_policy") or "contract_payload_and_refs").strip() or "contract_payload_and_refs"
+    failure_policy = dict(payload.get("failure_policy") or {})
+    metadata = _legacy_contract_metadata(
+        dict(payload.get("metadata") or {}),
+        {
+            "payload_contract_id": legacy_payload_contract_id,
+        },
+    )
     return TaskGraphEdgeDefinition(
         edge_id=str(payload.get("edge_id") or payload.get("id") or "").strip(),
         source_node_id=str(payload.get("source_node_id") or payload.get("from") or payload.get("source") or "").strip(),
         target_node_id=str(payload.get("target_node_id") or payload.get("to") or payload.get("target") or "").strip(),
         edge_type=str(payload.get("edge_type") or payload.get("mode") or payload.get("policy") or "handoff").strip(),
         a2a_message_type=str(payload.get("a2a_message_type") or "message/send").strip(),
-        payload_contract_id=str(payload.get("payload_contract_id") or "").strip(),
-        context_filter_policy=dict(payload.get("context_filter_policy") or {}),
-        artifact_ref_policy=dict(payload.get("artifact_ref_policy") or {}),
-        working_memory_handoff_policy=dict(payload.get("working_memory_handoff_policy") or {}),
-        ack_policy=str(payload.get("ack_policy") or "explicit_ack").strip(),
-        timeout_policy=str(payload.get("timeout_policy") or "fail_closed").strip(),
-        wait_policy=str(payload.get("wait_policy") or "").strip(),
+        payload_contract_id=payload_contract_id,
+        contract_bindings=normalize_edge_contract_bindings(
+            explicit=explicit_bindings,
+            payload_contract_id=payload_contract_id,
+            context_filter_policy=context_filter_policy,
+            artifact_ref_policy=artifact_ref_policy,
+            working_memory_handoff_policy=working_memory_handoff_policy,
+            ack_policy=ack_policy,
+            timeout_policy=timeout_policy,
+            wait_policy=wait_policy,
+            ack_required=bool(payload.get("ack_required", True)),
+            failure_propagation_policy=failure_propagation_policy,
+            result_delivery_policy=result_delivery_policy,
+            failure_policy=failure_policy,
+            metadata=metadata,
+        ),
+        context_filter_policy=context_filter_policy,
+        artifact_ref_policy=artifact_ref_policy,
+        working_memory_handoff_policy=working_memory_handoff_policy,
+        ack_policy=ack_policy,
+        timeout_policy=timeout_policy,
+        wait_policy=wait_policy,
         ack_required=bool(payload.get("ack_required", True)),
-        failure_propagation_policy=str(payload.get("failure_propagation_policy") or "fail_downstream").strip() or "fail_downstream",
-        result_delivery_policy=str(payload.get("result_delivery_policy") or "contract_payload_and_refs").strip() or "contract_payload_and_refs",
-        failure_policy=dict(payload.get("failure_policy") or {}),
-        metadata=dict(payload.get("metadata") or {}),
+        failure_propagation_policy=failure_propagation_policy,
+        result_delivery_policy=result_delivery_policy,
+        failure_policy=failure_policy,
+        metadata=metadata,
     )
 
 
@@ -277,6 +383,18 @@ def task_graph_from_dict(payload: dict[str, Any]) -> TaskGraphDefinition:
     ).strip()
     if working_memory_policy_profile_id and "working_memory_profile_id" not in runtime_policy:
         runtime_policy["working_memory_profile_id"] = working_memory_policy_profile_id
+    explicit_bindings = _contract_bindings_payload(payload.get("contract_bindings"))
+    explicit_schema_bindings = dict(explicit_bindings.get("schema") or {})
+    legacy_graph_contract_id = str(payload.get("graph_contract_id") or "").strip()
+    graph_contract_id = str(explicit_schema_bindings.get("graph_contract_id") or legacy_graph_contract_id or "").strip()
+    working_memory_policy = dict(payload.get("working_memory_policy") or {})
+    context_policy = dict(payload.get("context_policy") or {})
+    metadata = _legacy_contract_metadata(
+        dict(payload.get("metadata") or {}),
+        {
+            "graph_contract_id": legacy_graph_contract_id,
+        },
+    )
     return TaskGraphDefinition(
         graph_id=graph_id,
         title=str(payload.get("title") or graph_id or "未命名任务图").strip(),
@@ -287,15 +405,23 @@ def task_graph_from_dict(payload: dict[str, Any]) -> TaskGraphDefinition:
         output_node_id=str(payload.get("output_node_id") or _first_terminal_node(nodes, edges) or "").strip(),
         nodes=nodes,
         edges=edges,
-        graph_contract_id=str(payload.get("graph_contract_id") or "").strip(),
+        graph_contract_id=graph_contract_id,
+        contract_bindings=normalize_graph_contract_bindings(
+            explicit=explicit_bindings,
+            graph_contract_id=graph_contract_id,
+            working_memory_policy=working_memory_policy,
+            runtime_policy=runtime_policy,
+            context_policy=context_policy,
+            metadata=metadata,
+        ),
         default_protocol_id=str(payload.get("default_protocol_id") or payload.get("protocol_id") or "").strip(),
         working_memory_policy_profile_id=working_memory_policy_profile_id,
-        working_memory_policy=dict(payload.get("working_memory_policy") or {}),
+        working_memory_policy=working_memory_policy,
         runtime_policy=runtime_policy,
-        context_policy=dict(payload.get("context_policy") or {}),
+        context_policy=context_policy,
         publish_state=_normalize_publish_state(payload.get("publish_state"), bool(payload.get("enabled", False))),
         enabled=bool(payload.get("enabled", False)),
-        metadata=dict(payload.get("metadata") or {}),
+        metadata=metadata,
     )
 
 
@@ -364,6 +490,7 @@ def validate_task_graph(graph: TaskGraphDefinition) -> tuple[TaskGraphValidation
                 issues.append(TaskGraphValidationIssue(code="node_temporal_expansion_limit_missing", message="节点允许 temporal 扩展时需要配置 max_temporal_expansion_depth", severity="warning", node_id=node.node_id))
             if not _positive_int_policy(node.dynamic_memory_read_policy, "max_dynamic_reads_per_node_run"):
                 issues.append(TaskGraphValidationIssue(code="node_dynamic_read_limit_missing", message="节点动态读取策略缺少 max_dynamic_reads_per_node_run", severity="warning", node_id=node.node_id))
+        issues.extend(_contract_binding_conflict_issues_for_node(node))
     for edge in graph.edges:
         if not edge.edge_id:
             issues.append(TaskGraphValidationIssue(code="edge_missing_id", message="边缺少 edge_id"))
@@ -381,7 +508,299 @@ def validate_task_graph(graph: TaskGraphDefinition) -> tuple[TaskGraphValidation
             issues.append(TaskGraphValidationIssue(code="edge_ack_policy_missing", message="要求 ack 的边必须配置 ack_policy", edge_id=edge.edge_id))
         if edge.working_memory_handoff_policy and not _listish_policy(edge.working_memory_handoff_policy, ("carry_kinds", "carry_scopes", "working_memory_refs")):
             issues.append(TaskGraphValidationIssue(code="edge_working_memory_handoff_policy_shape", message="边工作记忆交接策略缺少 carry_kinds、carry_scopes 或 working_memory_refs", severity="warning", edge_id=edge.edge_id))
+        issues.extend(_contract_binding_conflict_issues_for_edge(edge))
+    issues.extend(_contract_binding_conflict_issues_for_graph(graph))
     return tuple(issues)
+
+
+def normalize_graph_contract_bindings(
+    *,
+    explicit: Any,
+    graph_contract_id: str = "",
+    working_memory_policy: dict[str, Any] | None = None,
+    runtime_policy: dict[str, Any] | None = None,
+    context_policy: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    graph_contract_id = str(graph_contract_id or "").strip()
+    derived: dict[str, Any] = {}
+    if graph_contract_id:
+        derived.setdefault("schema", {})["graph_contract_id"] = graph_contract_id
+    if working_memory_policy:
+        derived.setdefault("memory", {})["working_memory_policy"] = dict(working_memory_policy)
+    if runtime_policy:
+        derived.setdefault("runtime", {})["runtime_policy"] = dict(runtime_policy)
+    if context_policy:
+        derived.setdefault("handoff", {})["context_policy"] = dict(context_policy)
+    metadata = dict(metadata or {})
+    for section in ("unit_batch", "governance", "acceptance"):
+        value = metadata.get(f"{section}_contract") or metadata.get(f"{section}_policy")
+        if isinstance(value, dict):
+            derived.setdefault(section, {}).update(dict(value))
+    return _merge_contract_bindings(derived, explicit)
+
+
+def normalize_node_contract_bindings(
+    *,
+    explicit: Any,
+    node_contract_id: str = "",
+    input_contract_id: str = "",
+    output_contract_id: str = "",
+    executor_policy: dict[str, Any] | None = None,
+    artifact_policy: dict[str, Any] | None = None,
+    stream_policy: dict[str, Any] | None = None,
+    review_gate_policy: dict[str, Any] | None = None,
+    human_gate_policy: dict[str, Any] | None = None,
+    memory_read_policy: dict[str, Any] | None = None,
+    memory_writeback_policy: dict[str, Any] | None = None,
+    dynamic_memory_read_policy: dict[str, Any] | None = None,
+    runtime_lane: str = "",
+    execution_mode: str = "",
+    wait_policy: str = "",
+    join_policy: str = "",
+    failure_policy: dict[str, Any] | None = None,
+    background_policy: dict[str, Any] | None = None,
+    notification_policy: dict[str, Any] | None = None,
+    resource_lifecycle_policy: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    derived: dict[str, Any] = {}
+    if input_contract_id:
+        derived.setdefault("schema", {})["input_contract_id"] = str(input_contract_id).strip()
+    if output_contract_id:
+        derived.setdefault("schema", {})["output_contract_id"] = str(output_contract_id).strip()
+    if node_contract_id:
+        derived.setdefault("execution", {})["node_contract_id"] = str(node_contract_id).strip()
+    if executor_policy:
+        derived.setdefault("execution", {})["executor_policy"] = dict(executor_policy)
+    if artifact_policy:
+        derived.setdefault("artifact", {})["artifact_policy"] = dict(artifact_policy)
+    if stream_policy:
+        derived.setdefault("artifact", {})["stream_policy"] = dict(stream_policy)
+    if review_gate_policy:
+        derived.setdefault("acceptance", {})["review_gate_policy"] = dict(review_gate_policy)
+    if human_gate_policy:
+        derived.setdefault("acceptance", {})["human_gate_policy"] = dict(human_gate_policy)
+    memory: dict[str, Any] = {}
+    if memory_read_policy:
+        memory["memory_read_policy"] = dict(memory_read_policy)
+    if dynamic_memory_read_policy:
+        memory["dynamic_memory_read_policy"] = dict(dynamic_memory_read_policy)
+    if memory_writeback_policy:
+        memory["memory_writeback_policy"] = dict(memory_writeback_policy)
+    if memory:
+        derived["memory"] = memory
+    runtime: dict[str, Any] = {}
+    for key, value in (
+        ("runtime_lane", runtime_lane),
+        ("execution_mode", execution_mode),
+        ("wait_policy", wait_policy),
+        ("join_policy", join_policy),
+    ):
+        if str(value or "").strip():
+            runtime[key] = str(value or "").strip()
+    if failure_policy:
+        runtime["failure_policy"] = dict(failure_policy)
+    if background_policy:
+        runtime["background_policy"] = dict(background_policy)
+    if notification_policy:
+        runtime["notification_policy"] = dict(notification_policy)
+    if resource_lifecycle_policy:
+        runtime["resource_lifecycle_policy"] = dict(resource_lifecycle_policy)
+    if runtime:
+        derived["runtime"] = runtime
+    metadata = dict(metadata or {})
+    for section in ("unit_batch", "governance"):
+        value = metadata.get(f"{section}_contract") or metadata.get(f"{section}_policy")
+        if isinstance(value, dict):
+            derived.setdefault(section, {}).update(dict(value))
+    return _merge_contract_bindings(derived, explicit)
+
+
+def normalize_edge_contract_bindings(
+    *,
+    explicit: Any,
+    payload_contract_id: str = "",
+    context_filter_policy: dict[str, Any] | None = None,
+    artifact_ref_policy: dict[str, Any] | None = None,
+    working_memory_handoff_policy: dict[str, Any] | None = None,
+    ack_policy: str = "",
+    timeout_policy: str = "",
+    wait_policy: str = "",
+    ack_required: bool = True,
+    failure_propagation_policy: str = "",
+    result_delivery_policy: str = "",
+    failure_policy: dict[str, Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    derived: dict[str, Any] = {}
+    if payload_contract_id:
+        derived.setdefault("schema", {})["payload_contract_id"] = str(payload_contract_id).strip()
+    handoff: dict[str, Any] = {
+        "ack_required": bool(ack_required),
+    }
+    for key, value in (
+        ("ack_policy", ack_policy),
+        ("timeout_policy", timeout_policy),
+        ("wait_policy", wait_policy),
+        ("failure_propagation_policy", failure_propagation_policy),
+        ("result_delivery_policy", result_delivery_policy),
+    ):
+        if str(value or "").strip():
+            handoff[key] = str(value or "").strip()
+    if context_filter_policy:
+        handoff["context_filter_policy"] = dict(context_filter_policy)
+    if failure_policy:
+        handoff["failure_policy"] = dict(failure_policy)
+    if handoff:
+        derived["handoff"] = handoff
+    if artifact_ref_policy:
+        derived.setdefault("artifact", {})["artifact_ref_policy"] = dict(artifact_ref_policy)
+    if working_memory_handoff_policy:
+        derived.setdefault("memory", {})["working_memory_handoff_policy"] = dict(working_memory_handoff_policy)
+    metadata = dict(metadata or {})
+    temporal = dict(metadata.get("temporal_semantics") or {})
+    for key in ("trigger_timing", "visibility_timing", "acknowledgement_timing", "propagation_timing", "phase_timing"):
+        if str(metadata.get(key) or "").strip() and key not in temporal:
+            temporal[key] = str(metadata.get(key) or "").strip()
+    if temporal:
+        derived["temporal"] = temporal
+    return _merge_contract_bindings(derived, explicit)
+
+
+def _merge_contract_bindings(derived: dict[str, Any], explicit: Any) -> dict[str, Any]:
+    explicit_payload = _contract_bindings_payload(explicit)
+    merged: dict[str, Any] = {
+        key: dict(value)
+        for key, value in derived.items()
+        if isinstance(value, dict) and (key in CONTRACT_BINDING_SECTIONS or key)
+    }
+    for key, value in explicit_payload.items():
+        if isinstance(value, dict):
+            merged[key] = {**dict(merged.get(key) or {}), **dict(value)}
+        else:
+            merged[key] = value
+    return _prune_empty_contract_bindings(merged)
+
+
+def _contract_bindings_payload(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key).strip(): value for key, value in value.items() if str(key).strip()}
+
+
+def _legacy_contract_metadata(metadata: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
+    legacy_values = {
+        key: str(value or "").strip()
+        for key, value in values.items()
+        if str(value or "").strip()
+    }
+    if not legacy_values:
+        return metadata
+    legacy_contract_fields = dict(metadata.get("legacy_contract_fields") or {})
+    legacy_contract_fields.update(legacy_values)
+    metadata["legacy_contract_fields"] = legacy_contract_fields
+    return metadata
+
+
+def _legacy_contract_fields(metadata: dict[str, Any]) -> dict[str, Any]:
+    return dict((metadata or {}).get("legacy_contract_fields") or {})
+
+
+def _prune_empty_contract_bindings(value: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, section in value.items():
+        if isinstance(section, dict):
+            pruned = {
+                str(item_key): item_value
+                for item_key, item_value in section.items()
+                if item_value not in ("", None, [], {})
+            }
+            if pruned:
+                result[key] = pruned
+        elif section not in ("", None, [], {}):
+            result[key] = section
+    return result
+
+
+def _binding_value(bindings: dict[str, Any], section: str, key: str) -> Any:
+    payload = dict(bindings.get(section) or {})
+    return payload.get(key)
+
+
+def _contract_binding_conflict_issues_for_graph(graph: TaskGraphDefinition) -> list[TaskGraphValidationIssue]:
+    issues: list[TaskGraphValidationIssue] = []
+    legacy_fields = _legacy_contract_fields(graph.metadata)
+    _append_binding_conflict_issue(
+        issues,
+        scope="graph",
+        legacy_field="graph_contract_id",
+        legacy_value=legacy_fields.get("graph_contract_id", graph.graph_contract_id),
+        binding_path="schema.graph_contract_id",
+        binding_value=_binding_value(graph.contract_bindings, "schema", "graph_contract_id"),
+    )
+    return issues
+
+
+def _contract_binding_conflict_issues_for_node(node: TaskGraphNodeDefinition) -> list[TaskGraphValidationIssue]:
+    issues: list[TaskGraphValidationIssue] = []
+    legacy_fields = _legacy_contract_fields(node.metadata)
+    for legacy_field, section, key, legacy_value in (
+        ("node_contract_id", "execution", "node_contract_id", legacy_fields.get("node_contract_id", node.node_contract_id)),
+        ("input_contract_id", "schema", "input_contract_id", legacy_fields.get("input_contract_id", node.input_contract_id)),
+        ("output_contract_id", "schema", "output_contract_id", legacy_fields.get("output_contract_id", node.output_contract_id)),
+    ):
+        _append_binding_conflict_issue(
+            issues,
+            scope="node",
+            legacy_field=legacy_field,
+            legacy_value=legacy_value,
+            binding_path=f"{section}.{key}",
+            binding_value=_binding_value(node.contract_bindings, section, key),
+            node_id=node.node_id,
+        )
+    return issues
+
+
+def _contract_binding_conflict_issues_for_edge(edge: TaskGraphEdgeDefinition) -> list[TaskGraphValidationIssue]:
+    issues: list[TaskGraphValidationIssue] = []
+    legacy_fields = _legacy_contract_fields(edge.metadata)
+    _append_binding_conflict_issue(
+        issues,
+        scope="edge",
+        legacy_field="payload_contract_id",
+        legacy_value=legacy_fields.get("payload_contract_id", edge.payload_contract_id),
+        binding_path="schema.payload_contract_id",
+        binding_value=_binding_value(edge.contract_bindings, "schema", "payload_contract_id"),
+        edge_id=edge.edge_id,
+    )
+    return issues
+
+
+def _append_binding_conflict_issue(
+    issues: list[TaskGraphValidationIssue],
+    *,
+    scope: str,
+    legacy_field: str,
+    legacy_value: Any,
+    binding_path: str,
+    binding_value: Any,
+    node_id: str = "",
+    edge_id: str = "",
+) -> None:
+    legacy = str(legacy_value or "").strip()
+    binding = str(binding_value or "").strip()
+    if not legacy or not binding or legacy == binding:
+        return
+    issues.append(
+        TaskGraphValidationIssue(
+            code="contract_binding_conflict",
+            message=f"{scope} 的历史字段 {legacy_field} 与 contract_bindings.{binding_path} 冲突：{legacy} != {binding}",
+            severity="error",
+            node_id=node_id,
+            edge_id=edge_id,
+        )
+    )
 
 
 def _normalize_graph_kind(value: Any, nodes: tuple[TaskGraphNodeDefinition, ...]) -> TaskGraphKind:

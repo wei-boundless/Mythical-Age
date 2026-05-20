@@ -78,6 +78,7 @@ def build_composable_graph_view(
             "title": graph.title,
             "domain_id": graph.domain_id,
             "graph_contract_id": graph.graph_contract_id,
+            "contract_bindings": dict(graph.contract_bindings or {}),
             "default_protocol_id": graph.default_protocol_id,
             "source_model": "task_system.task_graph_definition",
         },
@@ -315,6 +316,7 @@ def _unit_from_node(node: TaskGraphNodeDefinition) -> ComposableUnit:
             "agent_group_id": node.agent_group_id,
             "main_chain": bool(node.main_chain),
             "blocks_phase_exit": bool(node.blocks_phase_exit),
+            "contract_bindings": dict(node.contract_bindings or {}),
             "raw_metadata": dict(node.metadata or {}),
         },
     )
@@ -324,6 +326,7 @@ def _unit_from_timeline_block(*, graph: TaskGraphDefinition, block: dict[str, An
     unit_id = _graph_unit_id_from_block(block, index)
     linked_graph_id = str(block.get("linked_graph_id") or "").strip()
     version_ref = str(block.get("version_ref") or "").strip()
+    handoff_contract_id = _timeline_block_handoff_contract_id(block)
     return ComposableUnit(
         unit_id=unit_id,
         unit_type="graph",
@@ -349,7 +352,8 @@ def _unit_from_timeline_block(*, graph: TaskGraphDefinition, block: dict[str, An
             "block_type": str(block.get("block_type") or "").strip(),
             "entry_node_id": str(block.get("entry_node_id") or "").strip(),
             "exit_node_id": str(block.get("exit_node_id") or "").strip(),
-            "handoff_contract_id": str(block.get("handoff_contract_id") or "").strip(),
+            "handoff_contract_id": handoff_contract_id,
+            "contract_bindings": dict(block.get("contract_bindings") or {}),
             "visibility_policy": str(block.get("visibility_policy") or "committed_only").strip() or "committed_only",
             "raw_metadata": dict(block.get("metadata") or {}),
         },
@@ -361,6 +365,12 @@ def _interface_from_node(node: TaskGraphNodeDefinition) -> UnitInterface:
     input_contract_id = str(node.input_contract_id or "").strip()
     output_contract_id = str(node.output_contract_id or "").strip()
     node_contract_id = str(node.node_contract_id or "").strip()
+    bindings = dict(getattr(node, "contract_bindings", {}) or {})
+    schema_bindings = dict(bindings.get("schema") or {})
+    execution_bindings = dict(bindings.get("execution") or {})
+    input_contract_id = str(schema_bindings.get("input_contract_id") or input_contract_id).strip()
+    output_contract_id = str(schema_bindings.get("output_contract_id") or output_contract_id).strip()
+    node_contract_id = str(execution_bindings.get("node_contract_id") or node_contract_id).strip()
     metadata = dict(node.metadata or {})
     context_visibility = dict(node.context_visibility_policy or {})
     return UnitInterface(
@@ -396,12 +406,13 @@ def _interface_from_node(node: TaskGraphNodeDefinition) -> UnitInterface:
             "node_contract_id": node_contract_id,
             "input_contract_id": input_contract_id,
             "output_contract_id": output_contract_id,
+            "contract_bindings": bindings,
         },
     )
 
 
 def _interface_from_timeline_block(*, block: dict[str, Any], unit_id: str) -> UnitInterface:
-    handoff_contract_id = str(block.get("handoff_contract_id") or "").strip()
+    handoff_contract_id = _timeline_block_handoff_contract_id(block)
     visibility_policy = str(block.get("visibility_policy") or "committed_only").strip() or "committed_only"
     block_id = str(block.get("block_id") or unit_id).strip()
     return UnitInterface(
@@ -438,18 +449,21 @@ def _interface_from_timeline_block(*, block: dict[str, Any], unit_id: str) -> Un
             "linked_graph_id": str(block.get("linked_graph_id") or "").strip(),
             "entry_node_id": str(block.get("entry_node_id") or "").strip(),
             "exit_node_id": str(block.get("exit_node_id") or "").strip(),
+            "contract_bindings": dict(block.get("contract_bindings") or {}),
         },
     )
 
 
 def _port_edge_from_graph_edge(edge: TaskGraphEdgeDefinition) -> UnitPortEdge:
+    bindings = dict(getattr(edge, "contract_bindings", {}) or {})
+    schema_bindings = dict(bindings.get("schema") or {})
     return UnitPortEdge(
         edge_id=edge.edge_id,
         source_unit_id=_node_unit_id(edge.source_node_id),
         source_port_id=str(dict(edge.metadata or {}).get("source_port_id") or "output.default").strip() or "output.default",
         target_unit_id=_node_unit_id(edge.target_node_id),
         target_port_id=str(dict(edge.metadata or {}).get("target_port_id") or "input.default").strip() or "input.default",
-        payload_contract_id=edge.payload_contract_id,
+        payload_contract_id=str(schema_bindings.get("payload_contract_id") or edge.payload_contract_id).strip(),
         edge_type=edge.edge_type,
         temporal_semantics=_temporal_semantics_from_edge(edge),
         handoff={
@@ -464,6 +478,7 @@ def _port_edge_from_graph_edge(edge: TaskGraphEdgeDefinition) -> UnitPortEdge:
             "source_node_id": edge.source_node_id,
             "target_node_id": edge.target_node_id,
             "legacy_edge": True,
+            "contract_bindings": bindings,
             "raw_metadata": dict(edge.metadata or {}),
         },
     )
@@ -482,7 +497,7 @@ def _nested_runtime_from_timeline_block(
         unit_id=unit_id,
         linked_graph_id=str(block.get("linked_graph_id") or "").strip(),
         version_ref=str(block.get("version_ref") or "").strip(),
-        handoff_contract_id=str(block.get("handoff_contract_id") or "").strip(),
+        handoff_contract_id=_timeline_block_handoff_contract_id(block),
         input_port_id="input.default",
         output_port_id="output.default",
         isolation_policy="isolated_per_nested_run",
@@ -493,8 +508,15 @@ def _nested_runtime_from_timeline_block(
             "phase_id": str(block.get("phase_id") or "").strip(),
             "entry_node_id": str(block.get("entry_node_id") or "").strip(),
             "exit_node_id": str(block.get("exit_node_id") or "").strip(),
+            "contract_bindings": dict(block.get("contract_bindings") or {}),
         },
     )
+
+
+def _timeline_block_handoff_contract_id(block: dict[str, Any]) -> str:
+    bindings = dict(block.get("contract_bindings") or {})
+    handoff = dict(bindings.get("handoff") or {})
+    return str(handoff.get("handoff_contract_id") or block.get("handoff_contract_id") or "").strip()
 
 
 def _unit_type_from_node_type(node_type: str) -> str:

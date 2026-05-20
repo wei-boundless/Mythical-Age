@@ -1,4 +1,4 @@
-import type { TaskGraphRecord } from "@/lib/api";
+import type { TaskGraphEdgeRecord, TaskGraphNodeRecord, TaskGraphRecord } from "@/lib/api";
 
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import { asRecord, stringListOf } from "./taskGraphDraftV2";
@@ -13,7 +13,12 @@ export type BuildTaskGraphUpsertPayloadInput = {
 
 function compactRecord(payload: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(payload).filter(([, value]) => value !== undefined),
+    Object.entries(payload).filter(([, value]) => {
+      if (value === undefined || value === null || value === "") return false;
+      if (Array.isArray(value) && value.length === 0) return false;
+      if (typeof value === "object" && !Array.isArray(value) && Object.keys(value as Record<string, unknown>).length === 0) return false;
+      return true;
+    }),
   );
 }
 
@@ -43,9 +48,11 @@ export function buildTaskGraphUpsertPayload({
   const metadata = asRecord(taskGraphDraft.metadata);
   const coordinatorAgentId = String(taskGraphDraft.runtime_policy.coordinator_agent_id ?? "agent:0").trim() || "agent:0";
   const explicitParticipants = stringListOf(taskGraphDraft.runtime_policy.participant_agent_ids);
+  const draftNodes = taskGraphDraft.nodes.map(normalizeNodeContractBindings);
+  const draftEdges = taskGraphDraft.edges.map(normalizeEdgeContractBindings);
   const participant_agent_ids = explicitParticipants.length
     ? explicitParticipants
-    : participantAgentIdsFromNodes(taskGraphDraft.nodes, coordinatorAgentId);
+    : participantAgentIdsFromNodes(draftNodes, coordinatorAgentId);
   const workingMemoryProfileId = String(taskGraphDraft.working_memory_policy_profile_id ?? "").trim();
   const runtime_policy = compactRecord({
     ...asRecord(taskGraphDraft.runtime_policy),
@@ -65,6 +72,9 @@ export function buildTaskGraphUpsertPayload({
     shared_context_policy: String(taskGraphDraft.context_policy.shared_context_policy ?? "explicit_refs_only"),
     memory_sharing_policy: String(taskGraphDraft.context_policy.memory_sharing_policy ?? "isolated_by_default"),
   });
+  const graphContractBindings = normalizeGraphContractBindings(taskGraphDraft);
+  const nodes = draftNodes;
+  const edges = draftEdges;
 
   return {
     graph_id: taskGraphDraft.graph_id,
@@ -74,9 +84,10 @@ export function buildTaskGraphUpsertPayload({
     graph_kind: taskGraphDraft.graph_kind,
     entry_node_id: taskGraphDraft.entry_node_id,
     output_node_id: taskGraphDraft.output_node_id,
-    nodes: taskGraphDraft.nodes,
-    edges: taskGraphDraft.edges,
+    nodes,
+    edges,
     graph_contract_id: taskGraphDraft.graph_contract_id,
+    contract_bindings: graphContractBindings,
     default_protocol_id: taskGraphDraft.default_protocol_id,
     working_memory_policy_profile_id: workingMemoryProfileId,
     working_memory_policy: asRecord(taskGraphDraft.working_memory_policy),
@@ -96,9 +107,93 @@ export function buildTaskGraphUpsertPayload({
       output_merge_policy: String(metadata.output_merge_policy ?? ""),
       continuation_policy: continuationPolicy,
       business_communication_modes: stringListOf(
-        metadata.business_communication_modes ?? communicationModesFromEdges(taskGraphDraft.edges),
+        metadata.business_communication_modes ?? communicationModesFromEdges(edges),
       ),
-      subtask_refs: Array.from(new Set([...(stringListOf(metadata.subtask_refs)), ...subtaskRefsFromNodes(taskGraphDraft.nodes)])),
+      subtask_refs: Array.from(new Set([...(stringListOf(metadata.subtask_refs)), ...subtaskRefsFromNodes(nodes)])),
     }),
   };
+}
+
+function mergeSection(bindings: Record<string, unknown>, section: string, patch: Record<string, unknown>): Record<string, unknown> {
+  const current = asRecord(bindings[section]);
+  const next = compactRecord({ ...patch, ...current });
+  return compactRecord({ ...bindings, [section]: next });
+}
+
+function normalizeGraphContractBindings(taskGraphDraft: TaskGraphDraftV2): Record<string, unknown> {
+  let bindings = asRecord(taskGraphDraft.contract_bindings);
+  bindings = mergeSection(bindings, "schema", {
+    graph_contract_id: taskGraphDraft.graph_contract_id || undefined,
+  });
+  bindings = mergeSection(bindings, "runtime", {
+    runtime_policy: asRecord(taskGraphDraft.runtime_policy),
+    working_memory_policy_profile_id: taskGraphDraft.working_memory_policy_profile_id || undefined,
+  });
+  bindings = mergeSection(bindings, "memory", {
+    working_memory_policy: asRecord(taskGraphDraft.working_memory_policy),
+  });
+  bindings = mergeSection(bindings, "handoff", {
+    context_policy: asRecord(taskGraphDraft.context_policy),
+  });
+  return bindings;
+}
+
+function normalizeNodeContractBindings(node: TaskGraphNodeRecord): TaskGraphNodeRecord {
+  let bindings = asRecord(node.contract_bindings);
+  bindings = mergeSection(bindings, "schema", {
+    input_contract_id: String(node.input_contract_id ?? "").trim() || undefined,
+    output_contract_id: String(node.output_contract_id ?? "").trim() || undefined,
+  });
+  bindings = mergeSection(bindings, "execution", {
+    node_contract_id: String(node.node_contract_id ?? node.contract_id ?? "").trim() || undefined,
+    executor_policy: asRecord(node.executor_policy),
+  });
+  bindings = mergeSection(bindings, "artifact", {
+    artifact_policy: asRecord(node.artifact_policy),
+    stream_policy: asRecord(node.stream_policy),
+  });
+  bindings = mergeSection(bindings, "memory", {
+    memory_read_policy: asRecord(node.memory_read_policy),
+    dynamic_memory_read_policy: asRecord(node.dynamic_memory_read_policy),
+    memory_writeback_policy: asRecord(node.memory_writeback_policy),
+  });
+  bindings = mergeSection(bindings, "acceptance", {
+    review_gate_policy: asRecord(node.review_gate_policy),
+    human_gate_policy: asRecord(node.human_gate_policy),
+  });
+  bindings = mergeSection(bindings, "runtime", {
+    runtime_lane: String(node.runtime_lane ?? "").trim() || undefined,
+    execution_mode: String(node.execution_mode ?? "").trim() || undefined,
+    wait_policy: String(node.wait_policy ?? "").trim() || undefined,
+    join_policy: String(node.join_policy ?? "").trim() || undefined,
+    background_policy: asRecord(node.background_policy),
+    notification_policy: asRecord(node.notification_policy),
+    failure_policy: asRecord(node.failure_policy),
+  });
+  return { ...node, contract_bindings: bindings };
+}
+
+function normalizeEdgeContractBindings(edge: TaskGraphEdgeRecord): TaskGraphEdgeRecord {
+  let bindings = asRecord(edge.contract_bindings);
+  bindings = mergeSection(bindings, "schema", {
+    payload_contract_id: String(edge.payload_contract_id ?? edge.contract_id ?? "").trim() || undefined,
+  });
+  bindings = mergeSection(bindings, "handoff", {
+    ack_policy: String(edge.ack_policy ?? "").trim() || undefined,
+    timeout_policy: String(edge.timeout_policy ?? "").trim() || undefined,
+    wait_policy: String(edge.wait_policy ?? "").trim() || undefined,
+    ack_required: edge.ack_required,
+    failure_propagation_policy: String(edge.failure_propagation_policy ?? "").trim() || undefined,
+    result_delivery_policy: String(edge.result_delivery_policy ?? "").trim() || undefined,
+    context_filter_policy: asRecord(edge.context_filter_policy),
+    failure_policy: asRecord(edge.failure_policy),
+  });
+  bindings = mergeSection(bindings, "memory", {
+    working_memory_handoff_policy: asRecord(edge.working_memory_handoff_policy),
+  });
+  bindings = mergeSection(bindings, "artifact", {
+    artifact_ref_policy: asRecord(edge.artifact_ref_policy),
+  });
+  bindings = mergeSection(bindings, "temporal", asRecord(asRecord(edge.metadata).temporal_semantics));
+  return { ...edge, contract_bindings: bindings };
 }

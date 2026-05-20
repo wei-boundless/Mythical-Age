@@ -748,6 +748,7 @@ def _collect_task_signals(
     )
     skill_authoring_request = _looks_like_skill_authoring_request(message, lowered)
     binding_view = _normalize_active_bindings(active_bindings)
+    binding_view = _align_binding_view_with_message(lowered, binding_view)
     followup_resolution = _resolve_followup_target(lowered, binding_view)
     if (
         followup_resolution["target_kind"] != "bundle_ordinals"
@@ -1276,6 +1277,34 @@ def _normalize_active_bindings(active_bindings: dict[str, Any] | None) -> dict[s
         "bound_pdf_pages": bound_pdf_pages,
         "binding_source": binding_source,
     }
+
+
+def _align_binding_view_with_message(lowered: str, binding_view: dict[str, Any]) -> dict[str, Any]:
+    """Do not let a stale domain binding outvote the current turn language."""
+
+    result = dict(binding_view)
+    dataset_path = str(result.get("bound_dataset_path") or "").strip()
+    pdf_path = str(result.get("bound_pdf_path") or "").strip()
+    if not dataset_path and not pdf_path:
+        return result
+    dataset_signal = _looks_like_dataset_followup_request(lowered) or _looks_like_active_subset_followup(lowered)
+    pdf_signal = _looks_like_pdf_followup_request(lowered)
+    if dataset_signal and not pdf_signal:
+        result["bound_pdf_path"] = ""
+        result["bound_pdf_pages"] = []
+        result["bound_pdf_mode"] = ""
+        result["bound_pdf_section"] = ""
+    elif pdf_signal and not dataset_signal:
+        result["bound_dataset_path"] = ""
+    elif dataset_signal and pdf_signal:
+        if _looks_like_active_subset_followup(lowered) and dataset_path:
+            result["bound_pdf_path"] = ""
+            result["bound_pdf_pages"] = []
+            result["bound_pdf_mode"] = ""
+            result["bound_pdf_section"] = ""
+        elif pdf_path and ("第" in lowered or "page" in lowered or "pdf" in lowered):
+            result["bound_dataset_path"] = ""
+    return result
 
 
 def _looks_like_dataset_followup_request(lowered: str) -> bool:

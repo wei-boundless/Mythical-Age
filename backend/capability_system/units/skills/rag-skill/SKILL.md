@@ -77,6 +77,7 @@ description: 面向本地知识库、FAQ 和内部资料的检索问答工作流
 - 期望回答范围
 - 已知知识库锚点或文档线索
 - 若有，当前绑定的资料名、主题词、路径线索或 follow-up 约束
+- `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations` 和 `confidence`
 
 适合的主 Agent 指令风格：
 
@@ -89,6 +90,15 @@ description: 面向本地知识库、FAQ 和内部资料的检索问答工作流
 
 如果用户的问题其实是 PDF 页级阅读、表格统计或最新外部信息，你应明确回传“这不是知识库检索的最佳入口”，并提示主 Agent 改派对应技能。
 
+## 主 Agent 收口方式
+
+主 Agent 收到你的结果后，应把它当成证据包，而不是直接原样转发。主 Agent 需要：
+
+1. 先判断 `limitations` 是否影响最终结论。
+2. 用用户能懂的话整合 `summary` 和 `answer_candidate`。
+3. 保留关键证据锚点，但不暴露内部检索工具名。
+4. 如果 `evidence_refs` 为空或置信度低，应明确说“现有知识库证据不足”，不要补写成确定结论。
+
 ## 回传协议
 
 你返回给主 Agent 的结果应保持稳定结构：
@@ -98,6 +108,8 @@ description: 面向本地知识库、FAQ 和内部资料的检索问答工作流
 - `artifact_refs`：如有，可回传产物引用
 - `limitations`：证据不足、覆盖范围有限、索引不全等限制
 - `followup_questions`：只有在必须补充上下文时才提出
+- `consumed_handles`：你实际使用的知识库、文档或检索锚点
+- `produced_handles`：如生成了可复用结果，回传结果句柄
 
 回传内容应满足：
 
@@ -105,6 +117,7 @@ description: 面向本地知识库、FAQ 和内部资料的检索问答工作流
 - 证据不足就直接说不足，不要编造补全
 - 不暴露内部工具名、路由名、协议名
 - 如果只能给出近似判断，要明确标注不确定性
+- 如果判断出任务不属于知识库检索，应在 `limitations` 中写明推荐的能力域，例如 `requires_pdf_reading` 或 `requires_structured_data_analysis`
 
 ## 回答要求
 

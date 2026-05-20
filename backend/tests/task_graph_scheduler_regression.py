@@ -79,6 +79,105 @@ def test_scheduler_bootstrap_marks_downstream_ready_after_upstream_completed() -
     assert edge.status == "ack_waiting"
 
 
+def test_scheduler_blocks_wait_handoff_ack_until_edge_acknowledged() -> None:
+    spec = TaskGraphRuntimeSpec(
+        graph_id="graph.test.handoff_ack",
+        domain_id="domain.test",
+        task_family="test",
+        coordinator_agent_id="agent:0",
+        nodes=(
+            TaskGraphRuntimeNode(node_id="source", title="Source", node_type="agent", role="worker"),
+            TaskGraphRuntimeNode(node_id="target", title="Target", node_type="agent", role="worker"),
+        ),
+        edges=(
+            TaskGraphRuntimeEdge(
+                edge_id="source_target",
+                source_node_id="source",
+                target_node_id="target",
+                mode="handoff",
+                wait_policy="wait_handoff_ack",
+                ack_required=True,
+            ),
+        ),
+        start_node_ids=("source",),
+        terminal_node_ids=("target",),
+    )
+
+    missing = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={"source": "completed", "target": "pending"},
+    )
+    target = next(item for item in missing.node_states if item.node_id == "target")
+
+    assert "target" in missing.blocked_node_ids
+    assert "handoff_ack_missing:source_target" in target.blocked_reasons
+
+    waiting = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={"source": "completed", "target": "pending"},
+        edge_handoff_index={
+            "source_target": {
+                "handoff_id": "handoff:source_target",
+                "edge_id": "source_target",
+                "ack_state": "pending",
+            }
+        },
+    )
+    target = next(item for item in waiting.node_states if item.node_id == "target")
+
+    assert "target" in waiting.blocked_node_ids
+    assert "handoff_ack_waiting:source_target" in target.blocked_reasons
+
+    acknowledged = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={"source": "completed", "target": "pending"},
+        edge_handoff_index={
+            "source_target": {
+                "handoff_id": "handoff:source_target",
+                "edge_id": "source_target",
+                "ack_state": "acknowledged",
+            }
+        },
+    )
+
+    assert acknowledged.ready_node_ids == ("target",)
+    edge = next(item for item in acknowledged.edge_states if item.edge_id == "source_target")
+    assert edge.status == "acknowledged"
+    assert edge.diagnostics["handoff_ack_state"] == "acknowledged"
+
+
+def test_scheduler_does_not_require_ack_for_plain_completed_upstream() -> None:
+    spec = TaskGraphRuntimeSpec(
+        graph_id="graph.test.no_ack_gate",
+        domain_id="domain.test",
+        task_family="test",
+        coordinator_agent_id="agent:0",
+        nodes=(
+            TaskGraphRuntimeNode(node_id="source", title="Source", node_type="agent", role="worker"),
+            TaskGraphRuntimeNode(node_id="target", title="Target", node_type="agent", role="worker"),
+        ),
+        edges=(
+            TaskGraphRuntimeEdge(
+                edge_id="source_target",
+                source_node_id="source",
+                target_node_id="target",
+                mode="handoff",
+                ack_required=True,
+            ),
+        ),
+        start_node_ids=("source",),
+        terminal_node_ids=("target",),
+    )
+
+    state = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={"source": "completed", "target": "pending"},
+    )
+
+    assert state.ready_node_ids == ("target",)
+    assert "target" not in state.blocked_node_ids
+
+
 def test_scheduler_blocks_completed_upstream_without_timeline_result_when_gate_enabled() -> None:
     state = bootstrap_scheduler_state(
         runtime_spec=_runtime_spec(),
@@ -269,7 +368,13 @@ def test_scheduler_allows_partial_join_after_upstreams_reach_terminal_state() ->
         ),
         edges=(
             TaskGraphRuntimeEdge(edge_id="a_merge", source_node_id="a", target_node_id="merge", mode="handoff"),
-            TaskGraphRuntimeEdge(edge_id="b_merge", source_node_id="b", target_node_id="merge", mode="handoff"),
+            TaskGraphRuntimeEdge(
+                edge_id="b_merge",
+                source_node_id="b",
+                target_node_id="merge",
+                mode="handoff",
+                failure_propagation_policy="allow_partial",
+            ),
         ),
         terminal_node_ids=("merge",),
     )
@@ -302,7 +407,13 @@ def test_scheduler_blocks_partial_join_until_all_upstreams_are_terminal() -> Non
         ),
         edges=(
             TaskGraphRuntimeEdge(edge_id="a_merge", source_node_id="a", target_node_id="merge", mode="handoff"),
-            TaskGraphRuntimeEdge(edge_id="b_merge", source_node_id="b", target_node_id="merge", mode="handoff"),
+            TaskGraphRuntimeEdge(
+                edge_id="b_merge",
+                source_node_id="b",
+                target_node_id="merge",
+                mode="handoff",
+                failure_propagation_policy="allow_partial",
+            ),
         ),
         terminal_node_ids=("merge",),
     )
@@ -315,6 +426,127 @@ def test_scheduler_blocks_partial_join_until_all_upstreams_are_terminal() -> Non
     assert "merge" in state.blocked_node_ids
     merge = next(item for item in state.node_states if item.node_id == "merge")
     assert "upstream:b" in merge.blocked_reasons
+
+
+def test_scheduler_fail_downstream_propagates_failure_chain() -> None:
+    spec = TaskGraphRuntimeSpec(
+        graph_id="graph.test.fail_downstream",
+        domain_id="domain.test",
+        task_family="test",
+        coordinator_agent_id="agent:0",
+        nodes=(
+            TaskGraphRuntimeNode(node_id="source", title="Source", node_type="agent", role="worker"),
+            TaskGraphRuntimeNode(node_id="middle", title="Middle", node_type="agent", role="worker"),
+            TaskGraphRuntimeNode(node_id="final", title="Final", node_type="agent", role="worker"),
+        ),
+        edges=(
+            TaskGraphRuntimeEdge(
+                edge_id="source_middle",
+                source_node_id="source",
+                target_node_id="middle",
+                mode="handoff",
+                failure_propagation_policy="fail_downstream",
+            ),
+            TaskGraphRuntimeEdge(
+                edge_id="middle_final",
+                source_node_id="middle",
+                target_node_id="final",
+                mode="handoff",
+                failure_propagation_policy="fail_downstream",
+            ),
+        ),
+        start_node_ids=("source",),
+        terminal_node_ids=("final",),
+    )
+
+    state = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={"source": "failed", "middle": "pending", "final": "pending"},
+    )
+
+    assert state.failed_node_ids == ("source", "middle", "final")
+    assert state.ready_node_ids == ()
+    assert state.terminal_status == "failed"
+    assert state.diagnostics["failure_propagated_node_ids"] == ["final", "middle"]
+    middle = next(item for item in state.node_states if item.node_id == "middle")
+    final = next(item for item in state.node_states if item.node_id == "final")
+    assert middle.diagnostics["failure_propagated"] is True
+    assert final.diagnostics["failure_propagated"] is True
+
+
+def test_scheduler_isolates_failure_without_releasing_downstream() -> None:
+    spec = TaskGraphRuntimeSpec(
+        graph_id="graph.test.isolate_failure",
+        domain_id="domain.test",
+        task_family="test",
+        coordinator_agent_id="agent:0",
+        nodes=(
+            TaskGraphRuntimeNode(node_id="source", title="Source", node_type="agent", role="worker"),
+            TaskGraphRuntimeNode(node_id="target", title="Target", node_type="agent", role="worker"),
+        ),
+        edges=(
+            TaskGraphRuntimeEdge(
+                edge_id="source_target",
+                source_node_id="source",
+                target_node_id="target",
+                mode="handoff",
+                failure_propagation_policy="isolate_failure",
+            ),
+        ),
+        start_node_ids=("source",),
+        terminal_node_ids=("target",),
+    )
+
+    state = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={"source": "failed", "target": "pending"},
+    )
+
+    assert state.failed_node_ids == ("source",)
+    assert "target" in state.blocked_node_ids
+    assert "target" not in state.ready_node_ids
+    target = next(item for item in state.node_states if item.node_id == "target")
+    assert "upstream_failed:source" in target.blocked_reasons
+    assert target.diagnostics["failure_propagated"] is False
+    edge = next(item for item in state.edge_states if item.edge_id == "source_target")
+    assert edge.status == "failure_isolated"
+
+
+def test_scheduler_allow_partial_requires_target_partial_join() -> None:
+    spec = TaskGraphRuntimeSpec(
+        graph_id="graph.test.allow_partial_requires_join",
+        domain_id="domain.test",
+        task_family="test",
+        coordinator_agent_id="agent:0",
+        nodes=(
+            TaskGraphRuntimeNode(node_id="a", title="A", node_type="agent", role="worker"),
+            TaskGraphRuntimeNode(node_id="b", title="B", node_type="agent", role="worker"),
+            TaskGraphRuntimeNode(node_id="merge", title="Merge", node_type="agent", role="coordinator", join_policy="all_success"),
+        ),
+        edges=(
+            TaskGraphRuntimeEdge(edge_id="a_merge", source_node_id="a", target_node_id="merge", mode="handoff"),
+            TaskGraphRuntimeEdge(
+                edge_id="b_merge",
+                source_node_id="b",
+                target_node_id="merge",
+                mode="handoff",
+                failure_propagation_policy="allow_partial",
+            ),
+        ),
+        terminal_node_ids=("merge",),
+    )
+
+    state = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={"a": "completed", "b": "failed", "merge": "pending"},
+    )
+
+    assert state.ready_node_ids == ()
+    assert "merge" in state.blocked_node_ids
+    merge = next(item for item in state.node_states if item.node_id == "merge")
+    assert "upstream_failed:b" in merge.blocked_reasons
+    edge = next(item for item in state.edge_states if item.edge_id == "b_merge")
+    assert edge.status == "partial_failure_allowed"
 
 
 def test_scheduler_does_not_schedule_conditional_repair_or_failure_routes_by_default() -> None:

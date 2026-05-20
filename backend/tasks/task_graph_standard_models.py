@@ -41,6 +41,7 @@ class TaskGraphStandardEdgeSpec:
     target_node_id: str
     edge_type: str
     payload_contract_id: str = ""
+    contract_bindings: dict[str, Any] = field(default_factory=dict)
     handoff: dict[str, Any] = field(default_factory=dict)
     memory: dict[str, Any] = field(default_factory=dict)
     artifact_context: dict[str, Any] = field(default_factory=dict)
@@ -262,6 +263,7 @@ def build_task_graph_standard_view(
             "task_family": graph.task_family,
             "graph_kind": graph.graph_kind,
             "graph_contract_id": graph.graph_contract_id,
+            "contract_bindings": dict(graph.contract_bindings or {}),
             "default_protocol_id": graph.default_protocol_id,
             "publish_state": graph.publish_state,
             "enabled": graph.enabled,
@@ -306,6 +308,7 @@ def apply_task_graph_standard_view_update(
             "nodes": [_graph_node_payload_from_standard_node(item) for item in node_payloads],
             "edges": [_graph_edge_payload_from_standard_edge(item) for item in edge_payloads],
             "graph_contract_id": str(graph_payload.get("graph_contract_id") or graph.graph_contract_id).strip(),
+            "contract_bindings": dict(graph_payload.get("contract_bindings") or graph.contract_bindings or {}),
             "default_protocol_id": str(graph_payload.get("default_protocol_id") or graph.default_protocol_id).strip(),
             "working_memory_policy_profile_id": str(graph_payload.get("working_memory_policy_profile_id") or graph.working_memory_policy_profile_id).strip(),
             "working_memory_policy": dict(graph_payload.get("working_memory_policy") or graph.working_memory_policy or {}),
@@ -345,6 +348,7 @@ def _node_spec_from_graph_node(node: Any, *, resource_nodes: list[dict[str, Any]
             "node_contract_id": node.node_contract_id,
             "input_contract_id": node.input_contract_id,
             "output_contract_id": node.output_contract_id,
+            "contract_bindings": dict(getattr(node, "contract_bindings", {}) or {}),
         },
         context={
             "context_visibility_policy": dict(node.context_visibility_policy or {}),
@@ -389,6 +393,7 @@ def _edge_spec_from_graph_edge(
         target_node_id=edge.target_node_id,
         edge_type=edge.edge_type,
         payload_contract_id=edge.payload_contract_id,
+        contract_bindings=dict(getattr(edge, "contract_bindings", {}) or {}),
         handoff={
             "a2a_message_type": edge.a2a_message_type,
             "ack_policy": edge.ack_policy,
@@ -482,6 +487,7 @@ def _graph_node_payload_from_standard_node(payload: dict[str, Any]) -> dict[str,
         "node_contract_id": str(contracts.get("node_contract_id") or "").strip(),
         "input_contract_id": str(contracts.get("input_contract_id") or "").strip(),
         "output_contract_id": str(contracts.get("output_contract_id") or "").strip(),
+        "contract_bindings": dict(contracts.get("contract_bindings") or payload.get("contract_bindings") or {}),
         "context_visibility_policy": dict(context.get("context_visibility_policy") or {}),
         "runtime_lane": str(runtime.get("runtime_lane") or "").strip(),
         "execution_mode": str(runtime.get("execution_mode") or "sync").strip() or "sync",
@@ -515,6 +521,7 @@ def _graph_edge_payload_from_standard_edge(payload: dict[str, Any]) -> dict[str,
         "target_node_id": str(payload.get("target_node_id") or "").strip(),
         "edge_type": str(payload.get("edge_type") or "handoff").strip() or "handoff",
         "payload_contract_id": str(payload.get("payload_contract_id") or "").strip(),
+        "contract_bindings": dict(payload.get("contract_bindings") or {}),
         "a2a_message_type": str(handoff.get("a2a_message_type") or "message/send").strip() or "message/send",
         "ack_policy": str(handoff.get("ack_policy") or "explicit_ack").strip() or "explicit_ack",
         "timeout_policy": str(handoff.get("timeout_policy") or "fail_closed").strip() or "fail_closed",

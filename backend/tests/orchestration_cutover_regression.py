@@ -18,7 +18,10 @@ from tasks import TaskFlowRegistry
 
 
 class _MemoryFacadeStub:
-    session_memory = SimpleNamespace(manager=lambda _session_id: SimpleNamespace(load_state=lambda: None))
+    session_memory = SimpleNamespace(
+        manager=lambda _session_id: SimpleNamespace(load_state=lambda: None),
+        update_runtime_state_from_context_state=lambda *_args, **_kwargs: None,
+    )
 
     def build_memory_context_package(self, *_args, **_kwargs):
         return None

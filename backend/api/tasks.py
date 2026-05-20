@@ -5,13 +5,16 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from orchestration.agent_registry import AgentRegistry
+from orchestration.agent_runtime_models import AgentRuntimeProfile
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration.runtime_loop.contract_compiler import (
     compile_coordination_contract_manifest,
 )
+from orchestration.runtime_loop.contract_compiler_models import ContractManifest
 from orchestration.runtime_loop.runtime_assembly_builder import (
     build_node_runtime_assembly,
 )
+from orchestration.runtime_loop.task_graph_scheduler import bootstrap_scheduler_state
 from soul.facade import SoulFacade
 from tasks import (
     TaskContractRegistry,
@@ -21,6 +24,8 @@ from tasks import (
     build_task_graph_standard_view,
     compile_task_graph_definition_runtime_spec,
 )
+from tasks.coordination_graph_models import TaskGraphRuntimeSpec
+from tasks.flow_models import SpecificTaskRecord
 from tasks.task_graph_models import validate_task_graph
 
 router = APIRouter()
@@ -265,6 +270,7 @@ class TaskGraphUpsertRequest(BaseModel):
     nodes: list[dict[str, object]] = Field(default_factory=list)
     edges: list[dict[str, object]] = Field(default_factory=list)
     graph_contract_id: str = Field(default="", max_length=160)
+    contract_bindings: dict[str, object] = Field(default_factory=dict)
     default_protocol_id: str = Field(default="", max_length=160)
     working_memory_policy_profile_id: str = Field(default="", max_length=160)
     working_memory_policy: dict[str, object] = Field(default_factory=dict)
@@ -615,6 +621,516 @@ def _graph_or_404(*, registry: TaskFlowRegistry, graph_id: str):
     return graph
 
 
+def _compiled_task_graph_execution_parts(graph_id: str) -> dict[str, object]:
+    runtime = require_runtime()
+    registry = TaskFlowRegistry(runtime.base_dir)
+    contract_registry = TaskContractRegistry(runtime.base_dir)
+    runtime_registry = AgentRuntimeRegistry(runtime.base_dir)
+    graph = _graph_or_404(registry=registry, graph_id=graph_id)
+    specific_tasks = tuple(registry.list_specific_task_records())
+    protocol = registry.get_task_communication_protocol(
+        str(graph.default_protocol_id or dict(graph.metadata or {}).get("protocol_id") or "")
+    )
+    standard_view = build_task_graph_standard_view(
+        graph=graph,
+        specific_tasks=specific_tasks,
+        communication_protocol=protocol,
+    )
+    runtime_spec = compile_task_graph_definition_runtime_spec(
+        graph=graph,
+        specific_tasks=specific_tasks,
+        communication_protocol=protocol,
+    )
+    agent_profiles = _agent_profiles_for_runtime_spec(
+        runtime_registry=runtime_registry,
+        runtime_spec=runtime_spec,
+    )
+    coordination_task = registry.derive_coordination_task_view_from_graph(graph)
+    manifest = compile_coordination_contract_manifest(
+        contract_registry=contract_registry,
+        coordination_task=coordination_task,
+        graph_spec=runtime_spec,
+        specific_tasks=specific_tasks,
+        communication_protocol=protocol,
+        agent_profiles=agent_profiles,
+    )
+    scheduler_state = bootstrap_scheduler_state(
+        runtime_spec=runtime_spec,
+        mode="shadow",
+    )
+    assemblies, assembly_errors, graph_unit_node_ids = _node_runtime_assemblies_for_spec(
+        runtime_registry=runtime_registry,
+        runtime_spec=runtime_spec,
+        manifest=manifest,
+    )
+    graph_unit_execution_plans, graph_unit_plan_issues = _graph_unit_execution_plans(
+        registry=registry,
+        contract_registry=contract_registry,
+        runtime_registry=runtime_registry,
+        parent_graph_id=graph.graph_id,
+        runtime_spec=runtime_spec,
+        specific_tasks=specific_tasks,
+    )
+    return {
+        "graph": graph,
+        "standard_view": standard_view,
+        "runtime_spec": runtime_spec,
+        "manifest": manifest,
+        "scheduler_state": scheduler_state,
+        "node_runtime_assemblies": assemblies,
+        "assembly_errors": assembly_errors,
+        "graph_unit_node_ids": sorted(graph_unit_node_ids),
+        "graph_unit_execution_plans": graph_unit_execution_plans,
+        "graph_unit_plan_issues": graph_unit_plan_issues,
+    }
+
+
+def _agent_profiles_for_runtime_spec(
+    *,
+    runtime_registry: AgentRuntimeRegistry,
+    runtime_spec: TaskGraphRuntimeSpec,
+) -> tuple[AgentRuntimeProfile, ...]:
+    return tuple(
+        profile
+        for profile in (
+            runtime_registry.get_profile(str(node.agent_id or "").strip())
+            for node in runtime_spec.nodes
+            if str(node.agent_id or "").strip()
+        )
+        if profile is not None
+    )
+
+
+def _node_runtime_assemblies_for_spec(
+    *,
+    runtime_registry: AgentRuntimeRegistry,
+    runtime_spec: TaskGraphRuntimeSpec,
+    manifest: ContractManifest,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], set[str]]:
+    assemblies: list[dict[str, object]] = []
+    assembly_errors: list[dict[str, object]] = []
+    graph_unit_node_ids = {
+        node.node_id
+        for node in runtime_spec.nodes
+        if node.node_type == "graph_unit" or bool(dict(node.metadata or {}).get("graph_unit"))
+    }
+    for node in runtime_spec.nodes:
+        if node.node_id in graph_unit_node_ids:
+            continue
+        try:
+            assemblies.append(
+                build_node_runtime_assembly(
+                    manifest=manifest,
+                    node_id=node.node_id,
+                    agent_profile=runtime_registry.get_profile(node.agent_id),
+                    explicit_inputs={},
+                ).to_dict()
+            )
+        except ValueError as exc:
+            assembly_errors.append(
+                {
+                    "node_id": node.node_id,
+                    "code": "runtime_assembly_unavailable",
+                    "message": str(exc),
+                    "severity": "warning",
+                }
+            )
+    return assemblies, assembly_errors, graph_unit_node_ids
+
+
+def _graph_unit_execution_plans(
+    *,
+    registry: TaskFlowRegistry,
+    contract_registry: TaskContractRegistry,
+    runtime_registry: AgentRuntimeRegistry,
+    parent_graph_id: str,
+    runtime_spec: TaskGraphRuntimeSpec,
+    specific_tasks: tuple[SpecificTaskRecord, ...],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    plans: list[dict[str, object]] = []
+    package_issues: list[dict[str, object]] = []
+    for nested_plan in getattr(runtime_spec, "nested_runtime_plans", ()) or ():
+        plan_payload = nested_plan.to_dict()
+        runtime_node = next((node for node in runtime_spec.nodes if node.node_id == nested_plan.runtime_node_id), None)
+        linked_graph_id = str(nested_plan.linked_graph_id or "").strip()
+        plan_issues: list[dict[str, object]] = []
+        package = {
+            "authority": "task_system.graph_unit_execution_plan",
+            "plan_id": nested_plan.plan_id,
+            "parent_graph_id": parent_graph_id,
+            "unit_id": nested_plan.unit_id,
+            "runtime_node_id": nested_plan.runtime_node_id,
+            "linked_graph_id": linked_graph_id,
+            "version_ref": nested_plan.version_ref,
+            "handoff_contract_id": nested_plan.handoff_contract_id,
+            "input_port_id": nested_plan.input_port_id,
+            "output_port_id": nested_plan.output_port_id,
+            "isolation_policy": nested_plan.isolation_policy,
+            "visibility_policy": nested_plan.visibility_policy,
+            "detach_policy": nested_plan.detach_policy,
+            "runtime_node": runtime_node.to_dict() if runtime_node is not None else None,
+            "nested_runtime_plan": plan_payload,
+            "child_graph": None,
+            "child_standard_view_summary": {},
+            "child_runtime_spec_summary": {},
+            "child_contract_manifest_summary": {},
+            "child_scheduler_summary": {},
+            "child_node_runtime_assembly_summary": {},
+            "issues": plan_issues,
+            "valid": False,
+        }
+        if not linked_graph_id:
+            plan_issues.append(
+                _graph_unit_execution_issue(
+                    code="graph_unit_linked_graph_id_missing",
+                    message="GraphUnit 缺少 linked_graph_id，无法编译子图执行计划。",
+                    parent_graph_id=parent_graph_id,
+                    runtime_node_id=nested_plan.runtime_node_id,
+                    plan_id=nested_plan.plan_id,
+                    linked_graph_id=linked_graph_id,
+                    severity="error",
+                )
+            )
+        elif linked_graph_id == parent_graph_id:
+            plan_issues.append(
+                _graph_unit_execution_issue(
+                    code="graph_unit_self_reference",
+                    message="GraphUnit 不能直接引用父图自身，否则运行计划会形成无限递归。",
+                    parent_graph_id=parent_graph_id,
+                    runtime_node_id=nested_plan.runtime_node_id,
+                    plan_id=nested_plan.plan_id,
+                    linked_graph_id=linked_graph_id,
+                    severity="error",
+                )
+            )
+        else:
+            child_graph = registry.get_task_graph(linked_graph_id)
+            if child_graph is None:
+                plan_issues.append(
+                    _graph_unit_execution_issue(
+                        code="graph_unit_linked_graph_not_found",
+                        message=f"GraphUnit 引用的子任务图不存在：{linked_graph_id}",
+                        parent_graph_id=parent_graph_id,
+                        runtime_node_id=nested_plan.runtime_node_id,
+                        plan_id=nested_plan.plan_id,
+                        linked_graph_id=linked_graph_id,
+                        severity="error",
+                    )
+                )
+            else:
+                child_protocol = registry.get_task_communication_protocol(
+                    str(child_graph.default_protocol_id or dict(child_graph.metadata or {}).get("protocol_id") or "")
+                )
+                child_standard_view = build_task_graph_standard_view(
+                    graph=child_graph,
+                    specific_tasks=specific_tasks,
+                    communication_protocol=child_protocol,
+                )
+                child_runtime_spec = compile_task_graph_definition_runtime_spec(
+                    graph=child_graph,
+                    specific_tasks=specific_tasks,
+                    communication_protocol=child_protocol,
+                )
+                child_agent_profiles = _agent_profiles_for_runtime_spec(
+                    runtime_registry=runtime_registry,
+                    runtime_spec=child_runtime_spec,
+                )
+                child_manifest = compile_coordination_contract_manifest(
+                    contract_registry=contract_registry,
+                    coordination_task=registry.derive_coordination_task_view_from_graph(child_graph),
+                    graph_spec=child_runtime_spec,
+                    specific_tasks=specific_tasks,
+                    communication_protocol=child_protocol,
+                    agent_profiles=child_agent_profiles,
+                )
+                child_scheduler_state = bootstrap_scheduler_state(
+                    runtime_spec=child_runtime_spec,
+                    mode="shadow",
+                )
+                child_assemblies, child_assembly_errors, child_graph_unit_node_ids = _node_runtime_assemblies_for_spec(
+                    runtime_registry=runtime_registry,
+                    runtime_spec=child_runtime_spec,
+                    manifest=child_manifest,
+                )
+                standard_payload = child_standard_view.to_dict()
+                package["child_graph"] = {
+                    "graph_id": child_graph.graph_id,
+                    "title": child_graph.title,
+                    "domain_id": child_graph.domain_id,
+                    "task_family": child_graph.task_family,
+                    "publish_state": child_graph.publish_state,
+                    "enabled": child_graph.enabled,
+                }
+                package["child_standard_view_summary"] = {
+                    "unit_count": len(standard_payload.get("units") or []),
+                    "interface_count": len(standard_payload.get("interfaces") or []),
+                    "port_edge_count": len(standard_payload.get("port_edges") or []),
+                    "nested_runtime_count": len(standard_payload.get("nested_runtime") or []),
+                    "issue_count": len(standard_payload.get("issues") or []),
+                }
+                package["child_runtime_spec_summary"] = {
+                    "graph_id": child_runtime_spec.graph_id,
+                    "valid": child_runtime_spec.valid,
+                    "node_count": len(child_runtime_spec.nodes),
+                    "edge_count": len(child_runtime_spec.edges),
+                    "start_node_ids": list(child_runtime_spec.start_node_ids),
+                    "terminal_node_ids": list(child_runtime_spec.terminal_node_ids),
+                    "graph_unit_count": len(getattr(child_runtime_spec, "nested_runtime_plans", ()) or ()),
+                    "graph_unit_node_ids": sorted(child_graph_unit_node_ids),
+                    "issue_count": len(child_runtime_spec.issues),
+                }
+                package["child_contract_manifest_summary"] = {
+                    "manifest_id": child_manifest.manifest_id,
+                    "valid": child_manifest.valid,
+                    "node_contract_count": len(child_manifest.node_contracts),
+                    "edge_handoff_contract_count": len(child_manifest.edge_handoff_contracts),
+                    "runtime_contract_count": len(child_manifest.runtime_contracts),
+                    "acceptance_contract_count": len(child_manifest.acceptance_contracts),
+                    "issue_count": len(child_manifest.issues),
+                }
+                package["child_scheduler_summary"] = {
+                    "authority": child_scheduler_state.authority,
+                    "mode": child_scheduler_state.mode,
+                    "ready_node_ids": list(child_scheduler_state.ready_node_ids),
+                    "blocked_node_ids": list(child_scheduler_state.blocked_node_ids),
+                    "running_node_ids": list(child_scheduler_state.running_node_ids),
+                    "completed_node_ids": list(child_scheduler_state.completed_node_ids),
+                    "failed_node_ids": list(child_scheduler_state.failed_node_ids),
+                    "terminal_status": child_scheduler_state.terminal_status,
+                }
+                package["child_node_runtime_assembly_summary"] = {
+                    "assembly_count": len(child_assemblies),
+                    "assembly_error_count": len(child_assembly_errors),
+                    "graph_unit_node_count": len(child_graph_unit_node_ids),
+                    "assembly_node_ids": [str(item.get("node_id") or "") for item in child_assemblies],
+                    "assembly_errors": child_assembly_errors,
+                }
+                if not child_runtime_spec.valid:
+                    plan_issues.append(
+                        _graph_unit_execution_issue(
+                            code="graph_unit_child_runtime_spec_invalid",
+                            message=f"GraphUnit 子图 RuntimeSpec 存在阻塞问题：{linked_graph_id}",
+                            parent_graph_id=parent_graph_id,
+                            runtime_node_id=nested_plan.runtime_node_id,
+                            plan_id=nested_plan.plan_id,
+                            linked_graph_id=linked_graph_id,
+                            severity="error",
+                        )
+                    )
+                if not child_manifest.valid:
+                    plan_issues.append(
+                        _graph_unit_execution_issue(
+                            code="graph_unit_child_contract_manifest_invalid",
+                            message=f"GraphUnit 子图 ContractManifest 存在阻塞问题：{linked_graph_id}",
+                            parent_graph_id=parent_graph_id,
+                            runtime_node_id=nested_plan.runtime_node_id,
+                            plan_id=nested_plan.plan_id,
+                            linked_graph_id=linked_graph_id,
+                            severity="error",
+                        )
+                    )
+                package["child_runtime_issues"] = [item.to_dict() for item in child_runtime_spec.issues]
+                package["child_contract_issues"] = [item.to_dict() for item in child_manifest.issues]
+        package["valid"] = not any(str(issue.get("severity") or "error") == "error" for issue in plan_issues)
+        plans.append(package)
+        package_issues.extend(plan_issues)
+    return plans, package_issues
+
+
+def _graph_unit_execution_issue(
+    *,
+    code: str,
+    message: str,
+    parent_graph_id: str,
+    runtime_node_id: str,
+    plan_id: str,
+    linked_graph_id: str,
+    severity: str,
+) -> dict[str, object]:
+    return {
+        "code": code,
+        "message": message,
+        "severity": severity,
+        "scope": "graph_unit",
+        "source_ref": f"{parent_graph_id}:{plan_id}",
+        "node_id": runtime_node_id,
+        "graph_id": parent_graph_id,
+        "plan_id": plan_id,
+        "linked_graph_id": linked_graph_id,
+    }
+
+
+def _task_graph_execution_object_trace_index(
+    *,
+    graph: object,
+    runtime_spec: TaskGraphRuntimeSpec,
+    manifest: ContractManifest,
+    scheduler_state: object,
+    node_runtime_assemblies: list[dict[str, object]],
+    graph_unit_execution_plans: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    runtime_nodes_by_id = {node.node_id: node for node in runtime_spec.nodes}
+    runtime_edges_by_id = {edge.edge_id: edge for edge in runtime_spec.edges}
+    node_contracts_by_id = {item.node_id: item for item in manifest.node_contracts}
+    edge_contracts_by_id = {item.edge_id: item for item in manifest.edge_handoff_contracts}
+    graph_unit_contracts_by_plan_id = {
+        item.plan_id: item
+        for item in getattr(manifest, "graph_unit_handoff_contracts", ()) or ()
+    }
+    assemblies_by_node_id = {
+        str(item.get("node_id") or ""): item
+        for item in node_runtime_assemblies
+        if str(item.get("node_id") or "")
+    }
+    scheduler_payload = scheduler_state.to_dict() if hasattr(scheduler_state, "to_dict") else dict(scheduler_state or {})
+    scheduler_nodes_by_id = {
+        str(item.get("node_id") or ""): dict(item)
+        for item in list(scheduler_payload.get("node_states") or [])
+        if isinstance(item, dict) and str(item.get("node_id") or "")
+    }
+    scheduler_edges_by_id = {
+        str(item.get("edge_id") or ""): dict(item)
+        for item in list(scheduler_payload.get("edge_states") or [])
+        if isinstance(item, dict) and str(item.get("edge_id") or "")
+    }
+    child_plans_by_plan_id = {
+        str(item.get("plan_id") or ""): dict(item)
+        for item in graph_unit_execution_plans
+        if isinstance(item, dict) and str(item.get("plan_id") or "")
+    }
+    traces: list[dict[str, object]] = [
+        {
+            "object_type": "graph",
+            "object_id": str(getattr(graph, "graph_id", "") or runtime_spec.graph_id),
+            "title": str(getattr(graph, "title", "") or runtime_spec.graph_id),
+            "source_path": "graph",
+            "runtime_ref": {
+                "runtime_spec_graph_id": runtime_spec.graph_id,
+                "scheduler_graph_id": str(scheduler_payload.get("graph_id") or ""),
+            },
+            "manifest_ref": {
+                "manifest_id": manifest.manifest_id,
+                "graph_contract_binding_sections": sorted(str(key) for key in dict(manifest.graph_contract_bindings or {}).keys()),
+            },
+            "assembly_ref": {},
+            "scheduler_ref": {
+                "terminal_status": str(scheduler_payload.get("terminal_status") or ""),
+                "ready_node_ids": list(scheduler_payload.get("ready_node_ids") or []),
+                "blocked_node_ids": list(scheduler_payload.get("blocked_node_ids") or []),
+            },
+            "child_plan_ref": {},
+            "status": "ready" if runtime_spec.valid and manifest.valid else "blocked",
+        }
+    ]
+    for node in getattr(graph, "nodes", ()) or ():
+        node_id = str(getattr(node, "node_id", "") or "")
+        runtime_node = runtime_nodes_by_id.get(node_id)
+        node_contract = node_contracts_by_id.get(node_id)
+        assembly = assemblies_by_node_id.get(node_id)
+        scheduler_node = scheduler_nodes_by_id.get(node_id, {})
+        traces.append(
+            {
+                "object_type": "node",
+                "object_id": node_id,
+                "title": str(getattr(node, "title", "") or node_id),
+                "source_path": f"graph.nodes[{node_id}]",
+                "runtime_ref": {
+                    "node_id": runtime_node.node_id if runtime_node is not None else "",
+                    "node_type": runtime_node.node_type if runtime_node is not None else "",
+                    "task_ref": runtime_node.task_id if runtime_node is not None else "",
+                },
+                "manifest_ref": {
+                    "node_contract_id": node_contract.node_id if node_contract is not None else "",
+                    "contract_refs": list(node_contract.contract_refs) if node_contract is not None else [],
+                },
+                "assembly_ref": {
+                    "assembly_id": str(assembly.get("assembly_id") or "") if assembly else "",
+                    "context_section_count": len(list(assembly.get("context_sections") or [])) if assembly else 0,
+                },
+                "scheduler_ref": _scheduler_node_trace(scheduler_node),
+                "child_plan_ref": {},
+                "status": str(scheduler_node.get("status") or ("ready" if runtime_node is not None else "uncompiled")),
+            }
+        )
+    for edge in getattr(graph, "edges", ()) or ():
+        edge_id = str(getattr(edge, "edge_id", "") or "")
+        runtime_edge = runtime_edges_by_id.get(edge_id)
+        edge_contract = edge_contracts_by_id.get(edge_id)
+        scheduler_edge = scheduler_edges_by_id.get(edge_id, {})
+        traces.append(
+            {
+                "object_type": "edge",
+                "object_id": edge_id,
+                "title": edge_id,
+                "source_path": f"graph.edges[{edge_id}]",
+                "runtime_ref": {
+                    "edge_id": runtime_edge.edge_id if runtime_edge is not None else "",
+                    "source_node_id": runtime_edge.source_node_id if runtime_edge is not None else "",
+                    "target_node_id": runtime_edge.target_node_id if runtime_edge is not None else "",
+                    "payload_contract_id": runtime_edge.payload_contract_id if runtime_edge is not None else "",
+                },
+                "manifest_ref": {
+                    "edge_contract_id": edge_contract.edge_id if edge_contract is not None else "",
+                    "contract_refs": list(edge_contract.contract_refs) if edge_contract is not None else [],
+                },
+                "assembly_ref": {},
+                "scheduler_ref": {
+                    "edge_id": str(scheduler_edge.get("edge_id") or ""),
+                    "status": str(scheduler_edge.get("status") or ""),
+                    "ack_required": bool(scheduler_edge.get("ack_required", False)),
+                    "wait_policy": str(scheduler_edge.get("wait_policy") or ""),
+                },
+                "child_plan_ref": {},
+                "status": str(scheduler_edge.get("status") or ("ready" if runtime_edge is not None else "uncompiled")),
+            }
+        )
+    for plan in getattr(runtime_spec, "nested_runtime_plans", ()) or ():
+        runtime_node = runtime_nodes_by_id.get(plan.runtime_node_id)
+        graph_unit_contract = graph_unit_contracts_by_plan_id.get(plan.plan_id)
+        scheduler_node = scheduler_nodes_by_id.get(plan.runtime_node_id, {})
+        child_plan = child_plans_by_plan_id.get(plan.plan_id, {})
+        traces.append(
+            {
+                "object_type": "graph_unit",
+                "object_id": plan.unit_id,
+                "title": plan.linked_graph_id or plan.unit_id,
+                "source_path": f"metadata.timeline_blocks[{dict(plan.metadata or {}).get('timeline_block_id') or plan.plan_id}]",
+                "runtime_ref": {
+                    "plan_id": plan.plan_id,
+                    "runtime_node_id": plan.runtime_node_id,
+                    "linked_graph_id": plan.linked_graph_id,
+                    "node_type": runtime_node.node_type if runtime_node is not None else "",
+                },
+                "manifest_ref": {
+                    "graph_unit_handoff_plan_id": graph_unit_contract.plan_id if graph_unit_contract is not None else "",
+                    "handoff_contract_id": graph_unit_contract.handoff_contract_id if graph_unit_contract is not None else "",
+                    "contract_refs": list(graph_unit_contract.contract_refs) if graph_unit_contract is not None else [],
+                },
+                "assembly_ref": {},
+                "scheduler_ref": _scheduler_node_trace(scheduler_node),
+                "child_plan_ref": {
+                    "plan_id": str(child_plan.get("plan_id") or ""),
+                    "valid": bool(child_plan.get("valid", False)),
+                    "linked_graph_id": str(child_plan.get("linked_graph_id") or ""),
+                    "issue_count": len(list(child_plan.get("issues") or [])),
+                },
+                "status": str(scheduler_node.get("status") or ("ready" if runtime_node is not None else "uncompiled")),
+            }
+        )
+    return traces
+
+
+def _scheduler_node_trace(scheduler_node: dict[str, object]) -> dict[str, object]:
+    return {
+        "node_id": str(scheduler_node.get("node_id") or ""),
+        "status": str(scheduler_node.get("status") or ""),
+        "phase_id": str(scheduler_node.get("phase_id") or ""),
+        "upstream_node_ids": list(scheduler_node.get("upstream_node_ids") or []),
+        "downstream_node_ids": list(scheduler_node.get("downstream_node_ids") or []),
+        "blocked_reasons": list(scheduler_node.get("blocked_reasons") or []),
+    }
+
+
 @router.get("/tasks/contract-manifests/task-graphs/{graph_id}")
 async def compile_task_system_task_graph_contract_manifest(graph_id: str) -> dict[str, object]:
     runtime = require_runtime()
@@ -671,6 +1187,67 @@ async def compile_task_system_task_graph_runtime_spec(graph_id: str) -> dict[str
     return graph_spec.to_dict()
 
 
+@router.get("/tasks/execution-packages/task-graphs/{graph_id}")
+async def build_task_system_task_graph_execution_package(graph_id: str) -> dict[str, object]:
+    parts = _compiled_task_graph_execution_parts(graph_id)
+    graph = parts["graph"]
+    standard_view = parts["standard_view"]
+    runtime_spec = parts["runtime_spec"]
+    manifest = parts["manifest"]
+    scheduler_state = parts["scheduler_state"]
+    node_runtime_assemblies = list(parts["node_runtime_assemblies"])
+    assembly_errors = list(parts["assembly_errors"])
+    graph_unit_execution_plans = list(parts["graph_unit_execution_plans"])
+    graph_unit_plan_issues = list(parts["graph_unit_plan_issues"])
+    object_trace_index = _task_graph_execution_object_trace_index(
+        graph=graph,  # type: ignore[arg-type]
+        runtime_spec=runtime_spec,  # type: ignore[arg-type]
+        manifest=manifest,  # type: ignore[arg-type]
+        scheduler_state=scheduler_state,  # type: ignore[arg-type]
+        node_runtime_assemblies=node_runtime_assemblies,
+        graph_unit_execution_plans=graph_unit_execution_plans,
+    )
+    runtime_issues = [item.to_dict() for item in runtime_spec.issues]  # type: ignore[attr-defined]
+    manifest_issues = [item.to_dict() for item in manifest.issues]  # type: ignore[attr-defined]
+    valid = bool(runtime_spec.valid and manifest.valid and not assembly_errors and not any(str(item.get("severity") or "error") == "error" for item in graph_unit_plan_issues))  # type: ignore[attr-defined]
+    return {
+        "authority": "task_system.task_graph_execution_package",
+        "package_id": f"execution-package:task-graph:{graph_id}",
+        "graph_id": graph_id,
+        "title": str(getattr(graph, "title", "") or graph_id),
+        "valid": valid,
+        "standard_view": standard_view.to_dict(),  # type: ignore[attr-defined]
+        "contract_manifest": manifest.to_dict(),  # type: ignore[attr-defined]
+        "runtime_spec": runtime_spec.to_dict(),  # type: ignore[attr-defined]
+        "node_runtime_assemblies": node_runtime_assemblies,
+        "scheduler_state": scheduler_state.to_dict(),  # type: ignore[attr-defined]
+        "graph_units": [item.to_dict() for item in getattr(runtime_spec, "nested_runtime_plans", ()) or ()],  # type: ignore[attr-defined]
+        "graph_unit_execution_plans": graph_unit_execution_plans,
+        "object_trace_index": object_trace_index,
+        "issues": [
+            *manifest_issues,
+            *runtime_issues,
+            *assembly_errors,
+            *graph_unit_plan_issues,
+        ],
+        "summary": {
+            "node_count": len(getattr(runtime_spec, "nodes", ()) or ()),
+            "edge_count": len(getattr(runtime_spec, "edges", ()) or ()),
+            "contract_issue_count": len(manifest_issues),
+            "runtime_issue_count": len(runtime_issues),
+            "assembly_count": len(node_runtime_assemblies),
+            "assembly_error_count": len(assembly_errors),
+            "graph_unit_count": len(getattr(runtime_spec, "nested_runtime_plans", ()) or ()),
+            "graph_unit_handoff_contract_count": len(getattr(manifest, "graph_unit_handoff_contracts", ()) or ()),
+            "graph_unit_execution_plan_count": len(graph_unit_execution_plans),
+            "graph_unit_execution_plan_issue_count": len(graph_unit_plan_issues),
+            "object_trace_count": len(object_trace_index),
+            "scheduler_ready_count": len(getattr(scheduler_state, "ready_node_ids", ()) or ()),
+            "scheduler_blocked_count": len(getattr(scheduler_state, "blocked_node_ids", ()) or ()),
+        },
+    }
+
+
 @router.get("/tasks/task-graphs/{graph_id}")
 async def get_task_system_task_graph(graph_id: str) -> dict[str, object]:
     runtime = require_runtime()
@@ -720,6 +1297,7 @@ async def upsert_task_system_task_graph_standard_view(
             nodes=tuple(dict(item) for item in next_graph.to_dict().get("nodes", [])),
             edges=tuple(dict(item) for item in next_graph.to_dict().get("edges", [])),
             graph_contract_id=next_graph.graph_contract_id,
+            contract_bindings=next_graph.contract_bindings,
             default_protocol_id=next_graph.default_protocol_id,
             working_memory_policy_profile_id=next_graph.working_memory_policy_profile_id,
             working_memory_policy=next_graph.working_memory_policy,
@@ -1031,6 +1609,7 @@ async def upsert_task_system_task_graph(
             nodes=migrated_nodes,
             edges=tuple(dict(item) for item in payload.edges),
             graph_contract_id=payload.graph_contract_id,
+            contract_bindings=payload.contract_bindings,
             default_protocol_id=payload.default_protocol_id,
             working_memory_policy_profile_id=payload.working_memory_policy_profile_id,
             working_memory_policy=payload.working_memory_policy,

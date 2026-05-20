@@ -527,8 +527,8 @@
       "editable": true,
       "default_soul_id": "hebo",
       "default_projection_id": "projection.writing.simple_novel.project_brief",
-      "created_at": 1779178541.2260666,
-      "updated_at": 1779178541.2260666,
+      "created_at": 1779206451.2111056,
+      "updated_at": 1779206451.2111056,
       "metadata": {
         "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "task_family": "writing_simple_novel",
@@ -555,8 +555,8 @@
       "editable": true,
       "default_soul_id": "hebo",
       "default_projection_id": "projection.writing.simple_novel.memory_steward",
-      "created_at": 1779178541.2260666,
-      "updated_at": 1779178541.2260666,
+      "created_at": 1779206451.2111056,
+      "updated_at": 1779206451.2111056,
       "metadata": {
         "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "task_family": "writing_simple_novel",
@@ -583,8 +583,8 @@
       "editable": true,
       "default_soul_id": "hebo",
       "default_projection_id": "projection.writing.simple_novel.runtime_monitor",
-      "created_at": 1779178541.2260666,
-      "updated_at": 1779178541.2260666,
+      "created_at": 1779206451.2111056,
+      "updated_at": 1779206451.2111056,
       "metadata": {
         "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
         "task_family": "writing_simple_novel",

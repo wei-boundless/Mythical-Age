@@ -6,6 +6,7 @@ import type { TaskGraphStandardView } from "@/lib/api";
 
 import { PhaseLifecycleEditor } from "./PhaseLifecycleEditor";
 import { buildTaskGraphTimelineStandardModel } from "./taskGraphStandardView";
+import { formatRuntimeSupportOption, runtimeOptionIsUnsupported } from "./taskGraphRuntimeSupport";
 import { TaskSystemField, TaskSystemSelectField, taskSystemOptionLabel } from "./TaskSystemWorkbenchUi";
 import { buildTimelinePhases, buildTimelinePreflightIssues, coordinationPhaseDefinitions, coordinationTimelineBlocks } from "./taskGraphTimeline";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
@@ -269,30 +270,40 @@ export function TaskGraphTimelinePage({
                     <span>{edgeId}</span>
                   </div>
                   <TaskSystemSelectField
+                    formatOption={formatRuntimeSupportOption("trigger_timing")}
+                    isOptionDisabled={(value) => runtimeOptionIsUnsupported("trigger_timing", value)}
                     label="触发时序"
                     onChange={(value) => patchEdgeTemporalSemantics(edge, edgeId, { trigger_timing: value })}
                     options={["after_source_success", "after_required_contracts", "manual_release", "phase_entry", "phase_exit"]}
                     value={String(temporal.trigger_timing ?? "after_source_success")}
                   />
                   <TaskSystemSelectField
+                    formatOption={formatRuntimeSupportOption("visibility_timing")}
+                    isOptionDisabled={(value) => runtimeOptionIsUnsupported("visibility_timing", value)}
                     label="可见时序"
                     onChange={(value) => patchEdgeTemporalSemantics(edge, edgeId, { visibility_timing: value })}
                     options={["same_clock", "next_clock", "after_commit", "next_iteration", "manual_release"]}
                     value={String(temporal.visibility_timing ?? "after_commit")}
                   />
                   <TaskSystemSelectField
+                    formatOption={formatRuntimeSupportOption("acknowledgement_timing")}
+                    isOptionDisabled={(value) => runtimeOptionIsUnsupported("acknowledgement_timing", value)}
                     label="确认时序"
                     onChange={(value) => patchEdgeTemporalSemantics(edge, edgeId, { acknowledgement_timing: value })}
                     options={["no_ack", "explicit_ack", "ack_before_downstream", "ack_before_phase_exit"]}
                     value={String(temporal.acknowledgement_timing ?? "explicit_ack")}
                   />
                   <TaskSystemSelectField
+                    formatOption={formatRuntimeSupportOption("propagation_timing")}
+                    isOptionDisabled={(value) => runtimeOptionIsUnsupported("propagation_timing", value)}
                     label="传播时序"
                     onChange={(value) => patchEdgeTemporalSemantics(edge, edgeId, { propagation_timing: value })}
                     options={["immediate", "buffer_until_commit", "summary_only", "refs_only", "blocked_on_failure"]}
                     value={String(temporal.propagation_timing ?? "buffer_until_commit")}
                   />
                   <TaskSystemSelectField
+                    formatOption={formatRuntimeSupportOption("phase_timing")}
+                    isOptionDisabled={(value) => runtimeOptionIsUnsupported("phase_timing", value)}
                     label="阶段时序"
                     onChange={(value) => patchEdgeTemporalSemantics(edge, edgeId, { phase_timing: value })}
                     options={["within_phase", "cross_phase_handoff", "blocks_phase_exit", "revision_return", "non_blocking_feedback"]}

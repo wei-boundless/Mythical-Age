@@ -109,6 +109,12 @@ class CoordinationTraceAdapter:
                     for item in list(state.get("handoff_packets") or [])[-10:]
                     if isinstance(item, dict)
                 ],
+                "handoff_envelope_count": len(list(state.get("handoff_envelopes") or [])),
+                "handoff_envelopes": [
+                    dict(item)
+                    for item in list(state.get("handoff_envelopes") or [])[-10:]
+                    if isinstance(item, dict)
+                ],
                 "working_memory_contexts": dict(state.get("working_memory_contexts") or {}),
                 "working_memory_operations": [
                     dict(item)

@@ -56,6 +56,18 @@ def resolve_execution_shape(
     lowered_goal = str(task_intent_contract.user_goal or "").lower()
     capability_requests = set(task_intent_contract.capability_requests)
     diagnostics_payload = dict(task_intent_contract.diagnostics or {})
+    intent_target_domain = str(
+        diagnostics_payload.get("intent_target_domain_hint")
+        or dict(current_turn.get("intent_decision") or {}).get("target_domain_hint")
+        or dict(current_turn.get("runtime_assembly_hint") or {}).get("target_domain_hint")
+        or ""
+    ).strip()
+    intent_execution_strategy = str(
+        diagnostics_payload.get("intent_execution_strategy")
+        or dict(current_turn.get("intent_decision") or {}).get("execution_strategy")
+        or dict(current_turn.get("runtime_assembly_hint") or {}).get("execution_strategy")
+        or ""
+    ).strip()
     structural_signals = dict(understanding.get("structural_signals") or {})
     followup_target_kind = str(
         diagnostics_payload.get("followup_target_kind")
@@ -76,6 +88,10 @@ def resolve_execution_shape(
         or modality == "pdf"
         or has_explicit_pdf
         or followup_target_kind == "active_pdf"
+        or (
+            intent_execution_strategy in {"specialist_handoff", "specialist_subagent_long_run"}
+            and intent_target_domain == "pdf"
+        )
     )
     has_dataset_route = (
         effective_route == "structured_data"
@@ -83,6 +99,10 @@ def resolve_execution_shape(
         or source_kind == "dataset"
         or has_explicit_dataset
         or followup_target_kind == "active_dataset"
+        or (
+            intent_execution_strategy in {"specialist_handoff", "specialist_subagent_long_run"}
+            and intent_target_domain == "dataset"
+        )
     )
     reasons: list[str] = []
 

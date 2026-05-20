@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from capability_system.local_mcp_registry import get_local_mcp_unit_for_source_kind
+from orchestration.delegation_protocol import build_agent_delegation_protocol, default_expected_output_contract
+from continuation.profile_registry import profile_by_domain
 
 from .bundle_models import BundleItemSpec, BundleSpec
 from .definitions import default_task_definitions
@@ -102,6 +104,12 @@ def build_runtime_task_intent_contract(
             ],
         ]
     )
+    capability_requests = _dedupe(
+        [
+            *capability_requests,
+            *_capability_requests_from_intent(current_turn),
+        ]
+    )
     followup_target_refs = _dedupe(
         [
             *[
@@ -154,6 +162,16 @@ def build_runtime_task_intent_contract(
             "preferred_skill": str(understanding.get("preferred_skill") or ""),
             "source_kind": str(understanding.get("source_kind") or ""),
             "modality": str(understanding.get("modality") or ""),
+            "intent_target_domain_hint": str(
+                dict(current_turn.get("intent_decision") or {}).get("target_domain_hint")
+                or dict(current_turn.get("runtime_assembly_hint") or {}).get("target_domain_hint")
+                or ""
+            ),
+            "intent_execution_strategy": str(
+                dict(current_turn.get("intent_decision") or {}).get("execution_strategy")
+                or dict(current_turn.get("runtime_assembly_hint") or {}).get("execution_strategy")
+                or ""
+            ),
             "followup_target_kind": str(
                 dict(understanding.get("structural_signals") or {}).get("followup_target_kind")
                 or explicit_inputs.get("followup_target_kind")
@@ -230,6 +248,30 @@ def _intent_requested_outputs(
     if "document_analysis" in capability_requests or "dataset_analysis" in capability_requests:
         return ["final_answer", "task_summary_refs"]
     return ["final_answer"]
+
+
+def _capability_requests_from_intent(current_turn_context: dict[str, Any]) -> list[str]:
+    intent_decision = dict(current_turn_context.get("intent_decision") or {})
+    runtime_hint = dict(current_turn_context.get("runtime_assembly_hint") or {})
+    target_domain = str(
+        intent_decision.get("target_domain_hint")
+        or runtime_hint.get("target_domain_hint")
+        or ""
+    ).strip()
+    strategy = str(
+        intent_decision.get("execution_strategy")
+        or runtime_hint.get("execution_strategy")
+        or ""
+    ).strip()
+    if strategy not in {"specialist_handoff", "specialist_subagent_long_run"}:
+        return []
+    if target_domain == "dataset":
+        return ["dataset_analysis"]
+    if target_domain == "pdf":
+        return ["document_analysis"]
+    if target_domain == "knowledge":
+        return ["knowledge_lookup"]
+    return []
 
 
 def _resolve_task_workflow(
@@ -330,6 +372,12 @@ def _build_task_spec(
         current_turn_context=current_turn_context,
         resolved_bindings=resolved_bindings,
     )
+    agent_communication_protocol = _build_agent_communication_protocol(
+        selected_recipe=selected_recipe,
+        user_goal=user_goal,
+        current_turn_context=current_turn_context,
+        followup_execution_contract=followup_execution_contract,
+    )
     step_input_bindings = _build_step_input_bindings(
         selected_recipe=selected_recipe,
         current_turn_context=current_turn_context,
@@ -357,6 +405,7 @@ def _build_task_spec(
         inputs={
             **explicit_inputs,
             **followup_execution_contract,
+            **({"agent_communication_protocol": agent_communication_protocol} if agent_communication_protocol else {}),
             **({"explicit_workspace_path": default_artifact_path} if default_artifact_path else {}),
             **({"coordination_request_brief": coordination_request_brief} if coordination_request_brief else {}),
             **({"bundle_spec": bundle_spec.to_dict()} if bundle_spec is not None else {}),
@@ -375,6 +424,7 @@ def _build_task_spec(
                 if str(item).strip()
             ],
             **({"followup_execution_contract_ref": followup_execution_contract["followup_execution_contract"]["contract_id"]} if followup_execution_contract else {}),
+            **({"agent_communication_protocol_ref": agent_communication_protocol["protocol_id"]} if agent_communication_protocol else {}),
             **({"coordination_request_ref": coordination_request_brief["brief_id"]} if coordination_request_brief else {}),
         },
         current_turn_context_ref=str(current_turn_context.get("authority") or ""),
@@ -387,6 +437,67 @@ def _build_task_spec(
         operation_requirement_ref=operation_requirement_ref,
         safety_envelope=dict(dict(operation_requirement.get("metadata") or {}).get("safety_envelope") or {}),
     )
+
+
+def _build_agent_communication_protocol(
+    *,
+    selected_recipe,
+    user_goal: str,
+    current_turn_context: dict[str, Any],
+    followup_execution_contract: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = dict(getattr(selected_recipe, "metadata", {}) or {})
+    target_agent_id = str(metadata.get("delegate_target_agent_id") or "").strip()
+    delegation_kind = str(metadata.get("delegation_kind") or "").strip()
+    recipe_strategy = str(metadata.get("execution_strategy") or "").strip()
+    followup_contract = dict(dict(followup_execution_contract or {}).get("followup_execution_contract") or {})
+    source_kind = str(
+        followup_contract.get("source_kind")
+        or getattr(selected_recipe, "source_kind", "")
+        or metadata.get("source_kind")
+        or ""
+    ).strip()
+    runtime_hint = dict(current_turn_context.get("runtime_assembly_hint") or {})
+    profile = profile_by_domain().get(source_kind)
+    if not target_agent_id and profile is not None:
+        target_agent_id = str(getattr(profile, "target_agent_id", "") or "").strip()
+        delegation_kind = delegation_kind or str(getattr(profile, "delegation_kind", "") or "").strip()
+    if not target_agent_id and source_kind == "dataset":
+        target_agent_id = "agent:table_analyst"
+        delegation_kind = delegation_kind or "table_analysis"
+    elif not target_agent_id and source_kind == "pdf":
+        target_agent_id = "agent:pdf_reader"
+        delegation_kind = delegation_kind or "pdf_reading"
+    elif not target_agent_id and source_kind in {"knowledge", "knowledge_base", "retrieval"}:
+        target_agent_id = "agent:rag_analyst"
+        delegation_kind = delegation_kind or "evidence_lookup"
+    should_emit = bool(target_agent_id) and (
+        recipe_strategy == "delegate_preferred"
+        or runtime_hint.get("runtime_mode") in {"specialist_handoff", "retrieval_augmented_answer"}
+        or followup_contract
+    )
+    if not should_emit:
+        return {}
+    if followup_contract:
+        active_bindings = dict(dict(current_turn_context.get("continuation_decision") or {}).get("active_bindings") or {})
+        target_agent_id = str(active_bindings.get("target_agent_id") or target_agent_id).strip()
+        delegation_kind = str(active_bindings.get("delegation_kind") or delegation_kind).strip()
+    protocol = build_agent_delegation_protocol(
+        source_agent_id="agent:0",
+        target_agent_id=target_agent_id,
+        delegation_kind=delegation_kind,
+        source_kind="knowledge" if source_kind in {"knowledge_base", "retrieval"} else source_kind,
+        user_goal=user_goal,
+        followup_contract=followup_contract,
+        intent_decision=dict(current_turn_context.get("intent_decision") or {}),
+        continuation_decision=dict(current_turn_context.get("continuation_decision") or {}),
+        runtime_assembly_hint=runtime_hint,
+    )
+    protocol["expected_output_contract"] = default_expected_output_contract(
+        source_kind=str(protocol.get("source_kind") or ""),
+        delegation_kind=delegation_kind,
+    )
+    return protocol
 
 
 def _build_followup_execution_contract(
@@ -431,7 +542,7 @@ def _build_followup_execution_contract(
     active_result_handle_id = str((subset_binding or {}).get("result_handle_id") or "").strip()
     active_object_handle_id = str((subset_binding or {}).get("source_handle_id") or "").strip()
     active_source_path = str(binding_metadata.get("path") or (subset_binding or {}).get("identity") or "").strip()
-    source_kind = "dataset" if str((subset_binding or {}).get("file_kind") or "") == "dataset" else "pdf" if str((subset_binding or {}).get("file_kind") or "") == "pdf" else ""
+    source_kind = _source_kind_for_binding(subset_binding or {})
     contract = {
         "authority": "task_system.followup_execution_contract",
         "contract_id": f"followup-contract:{current_turn_context.get('task_id') or getattr(task_intent_contract, 'task_id', 'task')}",
@@ -469,10 +580,9 @@ def _build_followup_execution_contract(
         if value not in ("", [], {}, None):
             result[key] = value
     if active_source_path:
-        if source_kind == "dataset":
-            result.setdefault("active_dataset", active_source_path)
-        elif source_kind == "pdf":
-            result.setdefault("active_pdf", active_source_path)
+        binding_key = _binding_key_for_source_kind(source_kind)
+        if binding_key:
+            result.setdefault(binding_key, active_source_path)
     result["followup_constraint_policy"] = compact["constraint_policy"]
     return result
 
@@ -506,13 +616,47 @@ def _binding_for_followup_kind(
     followup_target_kind: str,
 ) -> dict[str, Any]:
     target_kind = str(followup_target_kind or "").strip()
-    if target_kind == "active_pdf":
-        return next((item for item in resolved_bindings if str(item.get("file_kind") or "") == "pdf"), {})
-    if target_kind in {"active_dataset", "active_subset"}:
-        dataset = next((item for item in resolved_bindings if str(item.get("file_kind") or "") == "dataset"), {})
-        if dataset:
-            return dataset
+    target_profile = next(
+        (
+            profile
+            for profile in profile_by_domain().values()
+            if str(getattr(profile, "followup_target_kind", "") or "").strip() == target_kind
+            or str(getattr(profile, "subset_followup_target_kind", "") or "").strip() == target_kind
+        ),
+        None,
+    )
+    if target_profile is not None:
+        desired_file_kind = str(getattr(target_profile, "file_kind", "") or "").strip()
+        desired_source_kind = str(getattr(target_profile, "source_kind", "") or "").strip()
+        binding = next(
+            (
+                item
+                for item in resolved_bindings
+                if (desired_file_kind and str(item.get("file_kind") or "") == desired_file_kind)
+                or (desired_source_kind and str(dict(item.get("metadata") or {}).get("source_kind") or "") == desired_source_kind)
+            ),
+            {},
+        )
+        if binding:
+            return binding
     return next((item for item in resolved_bindings if str(item.get("subset_handle_id") or "").strip()), {})
+
+
+def _source_kind_for_binding(binding: dict[str, Any]) -> str:
+    metadata = dict(binding.get("metadata") or {})
+    source_kind = str(metadata.get("source_kind") or "").strip()
+    if source_kind:
+        return source_kind
+    file_kind = str(binding.get("file_kind") or "").strip()
+    for profile in profile_by_domain().values():
+        if str(getattr(profile, "file_kind", "") or "").strip() == file_kind:
+            return str(getattr(profile, "source_kind", "") or "").strip()
+    return file_kind
+
+
+def _binding_key_for_source_kind(source_kind: str) -> str:
+    profile = profile_by_domain().get(str(source_kind or "").strip())
+    return str(getattr(profile, "binding_key", "") or "").strip()
 
 
 def _default_task_artifact_path(selected_recipe, current_turn_context: dict[str, Any]) -> str:

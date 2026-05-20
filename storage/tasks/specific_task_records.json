@@ -2582,41 +2582,12 @@
       }
     },
     {
-      "task_id": "task.000001",
-      "task_title": "TaskGraph 收尾验证任务",
-      "task_family": "general",
-      "description": "用于 TaskGraph Studio 收尾联调",
-      "enabled": true,
-      "runtime_lane": "",
-      "input_contract_id": "UserMessage",
-      "output_contract_id": "AssistantFinalAnswer",
-      "acceptance_profile_id": "",
-      "default_flow_contract_id": "flow.000001",
-      "default_workflow_id": "workflow.000001",
-      "default_projection_policy": "workflow_compatible_or_task_default",
-      "task_policy": {
-        "safety_policy": {
-          "verification_mode": "artifact_or_trace",
-          "write_mode": "scoped",
-          "safety_class": "S2_bounded"
-        },
-        "task_structure": {
-          "execution_chain_type": "coordination_chain",
-          "trigger_signals": []
-        }
-      },
-      "metadata": {
-        "managed_by": "codex_smoke",
-        "domain_id": "domain.general"
-      }
-    },
-    {
       "task_id": "task.writing.simple_novel.project_brief",
       "task_title": "项目启动包",
       "task_family": "writing_simple_novel",
-      "task_mode": "project_brief",
       "description": "写作组简易长篇小说节点任务：项目启动包",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.user_goal",
       "output_contract_id": "contract.writing.simple_novel.project_brief",
       "acceptance_profile_id": "",
@@ -2652,7 +2623,11 @@
           "projection_id": "projection.writing.simple_novel.project_brief",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -2678,7 +2653,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -2706,9 +2683,9 @@
       "task_id": "task.writing.simple_novel.world_design",
       "task_title": "世界观设定候选",
       "task_family": "writing_simple_novel",
-      "task_mode": "world_design",
       "description": "写作组简易长篇小说节点任务：世界观设定候选",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.project_brief",
       "output_contract_id": "contract.writing.simple_novel.world_candidate",
       "acceptance_profile_id": "",
@@ -2744,7 +2721,11 @@
           "projection_id": "projection.writing.simple_novel.world_designer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -2770,7 +2751,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -2798,9 +2781,9 @@
       "task_id": "task.writing.simple_novel.world_review",
       "task_title": "世界观审核",
       "task_family": "writing_simple_novel",
-      "task_mode": "world_review",
       "description": "写作组简易长篇小说节点任务：世界观审核",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.world_candidate",
       "output_contract_id": "contract.writing.simple_novel.world_review",
       "acceptance_profile_id": "",
@@ -2836,7 +2819,11 @@
           "projection_id": "projection.writing.simple_novel.world_reviewer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -2862,7 +2849,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -2890,9 +2879,9 @@
       "task_id": "task.writing.simple_novel.memory_commit_world",
       "task_title": "世界观写入",
       "task_family": "writing_simple_novel",
-      "task_mode": "memory_commit_world",
       "description": "写作组简易长篇小说节点任务：世界观写入",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.world_review",
       "output_contract_id": "contract.writing.simple_novel.memory_commit_world",
       "acceptance_profile_id": "",
@@ -2928,7 +2917,11 @@
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -2954,7 +2947,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -2982,9 +2977,9 @@
       "task_id": "task.writing.simple_novel.character_design",
       "task_title": "人设与关系设计",
       "task_family": "writing_simple_novel",
-      "task_mode": "character_design",
       "description": "写作组简易长篇小说节点任务：人设与关系设计",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.memory_commit_world",
       "output_contract_id": "contract.writing.simple_novel.character_design",
       "acceptance_profile_id": "",
@@ -3020,7 +3015,11 @@
           "projection_id": "projection.writing.simple_novel.character_designer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -3046,7 +3045,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -3074,9 +3075,9 @@
       "task_id": "task.writing.simple_novel.plot_design",
       "task_title": "剧情与伏笔设计",
       "task_family": "writing_simple_novel",
-      "task_mode": "plot_design",
       "description": "写作组简易长篇小说节点任务：剧情与伏笔设计",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.character_design",
       "output_contract_id": "contract.writing.simple_novel.plot_design",
       "acceptance_profile_id": "",
@@ -3112,7 +3113,11 @@
           "projection_id": "projection.writing.simple_novel.plot_designer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -3138,7 +3143,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -3166,9 +3173,9 @@
       "task_id": "task.writing.simple_novel.design_sync",
       "task_title": "设计对齐讨论",
       "task_family": "writing_simple_novel",
-      "task_mode": "design_sync",
       "description": "写作组简易长篇小说节点任务：设计对齐讨论",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.design_sync_input",
       "output_contract_id": "contract.writing.simple_novel.design_sync",
       "acceptance_profile_id": "",
@@ -3204,7 +3211,11 @@
           "projection_id": "projection.writing.simple_novel.design_synchronizer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -3230,7 +3241,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -3258,9 +3271,9 @@
       "task_id": "task.writing.simple_novel.outline_design",
       "task_title": "全书大纲设计",
       "task_family": "writing_simple_novel",
-      "task_mode": "outline_design",
       "description": "写作组简易长篇小说节点任务：全书大纲设计",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.design_sync",
       "output_contract_id": "contract.writing.simple_novel.outline_design",
       "acceptance_profile_id": "",
@@ -3296,7 +3309,11 @@
           "projection_id": "projection.writing.simple_novel.outline_designer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -3322,7 +3339,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -3350,9 +3369,9 @@
       "task_id": "task.writing.simple_novel.outline_review",
       "task_title": "全书大纲审核",
       "task_family": "writing_simple_novel",
-      "task_mode": "outline_review",
       "description": "写作组简易长篇小说节点任务：全书大纲审核",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.outline_design",
       "output_contract_id": "contract.writing.simple_novel.outline_review",
       "acceptance_profile_id": "",
@@ -3388,7 +3407,11 @@
           "projection_id": "projection.writing.simple_novel.outline_reviewer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -3414,7 +3437,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -3442,9 +3467,9 @@
       "task_id": "task.writing.simple_novel.baseline_memory_seed",
       "task_title": "基准记忆库初始化",
       "task_family": "writing_simple_novel",
-      "task_mode": "baseline_memory_seed",
       "description": "写作组简易长篇小说节点任务：基准记忆库初始化",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.outline_review",
       "output_contract_id": "contract.writing.simple_novel.baseline_memory_commit",
       "acceptance_profile_id": "",
@@ -3480,7 +3505,11 @@
           "projection_id": "projection.writing.simple_novel.baseline_memory_steward",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -3506,7 +3535,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -3534,9 +3565,9 @@
       "task_id": "task.writing.simple_novel.volume_plan",
       "task_title": "分卷规划",
       "task_family": "writing_simple_novel",
-      "task_mode": "volume_plan",
       "description": "写作组简易长篇小说节点任务：分卷规划",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.baseline_memory_commit",
       "output_contract_id": "contract.writing.simple_novel.volume_plan_commit",
       "acceptance_profile_id": "",
@@ -3572,7 +3603,11 @@
           "projection_id": "projection.writing.simple_novel.volume_planner",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 720,
+          "max_model_calls": 8,
+          "max_events": 10000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -3598,7 +3633,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 240,
+          "stream_recovery_timeout_seconds": 240
         },
         "operation_policy": {
           "allowed_operations": [
@@ -3626,9 +3663,9 @@
       "task_id": "task.writing.simple_novel.chapter_outline",
       "task_title": "当前批次细纲",
       "task_family": "writing_simple_novel",
-      "task_mode": "chapter_outline",
       "description": "写作组简易长篇小说节点任务：当前批次细纲",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.chapter_outline_input",
       "output_contract_id": "contract.writing.simple_novel.chapter_outline",
       "acceptance_profile_id": "",
@@ -3664,7 +3701,11 @@
           "projection_id": "projection.writing.simple_novel.chapter_outliner",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 720,
+          "max_model_calls": 8,
+          "max_events": 10000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -3690,7 +3731,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 240,
+          "stream_recovery_timeout_seconds": 240
         },
         "operation_policy": {
           "allowed_operations": [
@@ -3718,9 +3761,9 @@
       "task_id": "task.writing.simple_novel.chapter_draft",
       "task_title": "当前批次正文候选",
       "task_family": "writing_simple_novel",
-      "task_mode": "chapter_draft",
       "description": "写作组简易长篇小说节点任务：当前批次正文候选",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.chapter_draft_input",
       "output_contract_id": "contract.writing.simple_novel.chapter_draft",
       "acceptance_profile_id": "",
@@ -3756,7 +3799,11 @@
           "projection_id": "projection.writing.simple_novel.chapter_writer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 900,
+          "max_model_calls": 10,
+          "max_events": 12000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -3800,7 +3847,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 300,
+          "stream_recovery_timeout_seconds": 300
         },
         "operation_policy": {
           "allowed_operations": [
@@ -3828,9 +3877,9 @@
       "task_id": "task.writing.simple_novel.chapter_review",
       "task_title": "当前批次轻量审核",
       "task_family": "writing_simple_novel",
-      "task_mode": "chapter_review",
       "description": "写作组简易长篇小说节点任务：当前批次轻量审核",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.chapter_review_input",
       "output_contract_id": "contract.writing.simple_novel.chapter_review",
       "acceptance_profile_id": "",
@@ -3866,7 +3915,11 @@
           "projection_id": "projection.writing.simple_novel.chapter_reviewer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -3892,7 +3945,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -3920,9 +3975,9 @@
       "task_id": "task.writing.simple_novel.memory_commit_chapter",
       "task_title": "章节批次写入",
       "task_family": "writing_simple_novel",
-      "task_mode": "memory_commit_chapter",
       "description": "写作组简易长篇小说节点任务：章节批次写入",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.chapter_review",
       "output_contract_id": "contract.writing.simple_novel.chapter_commit",
       "acceptance_profile_id": "",
@@ -3958,7 +4013,11 @@
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -3984,7 +4043,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -4012,9 +4073,9 @@
       "task_id": "task.writing.simple_novel.chapter_progress_router",
       "task_title": "章节批次推进判断",
       "task_family": "writing_simple_novel",
-      "task_mode": "chapter_progress_router",
       "description": "写作组简易长篇小说节点任务：章节批次推进判断",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.chapter_commit",
       "output_contract_id": "contract.writing.simple_novel.chapter_progress_decision",
       "acceptance_profile_id": "",
@@ -4076,7 +4137,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -4104,9 +4167,9 @@
       "task_id": "task.writing.simple_novel.volume_review",
       "task_title": "卷级总审核",
       "task_family": "writing_simple_novel",
-      "task_mode": "volume_review",
       "description": "写作组简易长篇小说节点任务：卷级总审核",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.volume_review_input",
       "output_contract_id": "contract.writing.simple_novel.volume_review",
       "acceptance_profile_id": "",
@@ -4142,7 +4205,11 @@
           "projection_id": "projection.writing.simple_novel.volume_reviewer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -4168,7 +4235,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -4196,9 +4265,9 @@
       "task_id": "task.writing.simple_novel.volume_commit",
       "task_title": "卷级写入",
       "task_family": "writing_simple_novel",
-      "task_mode": "volume_commit",
       "description": "写作组简易长篇小说节点任务：卷级写入",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.volume_review",
       "output_contract_id": "contract.writing.simple_novel.volume_commit",
       "acceptance_profile_id": "",
@@ -4234,7 +4303,11 @@
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -4260,7 +4333,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -4288,9 +4363,9 @@
       "task_id": "task.writing.simple_novel.volume_postmortem",
       "task_title": "卷后复盘",
       "task_family": "writing_simple_novel",
-      "task_mode": "volume_postmortem",
       "description": "写作组简易长篇小说节点任务：卷后复盘",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.volume_commit",
       "output_contract_id": "contract.writing.simple_novel.volume_postmortem",
       "acceptance_profile_id": "",
@@ -4326,7 +4401,11 @@
           "projection_id": "projection.writing.simple_novel.volume_postmortem",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -4352,7 +4431,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -4380,9 +4461,9 @@
       "task_id": "task.writing.simple_novel.world_outline_extension_proposal",
       "task_title": "可改动库更新提案",
       "task_family": "writing_simple_novel",
-      "task_mode": "world_outline_extension_proposal",
       "description": "写作组简易长篇小说节点任务：可改动库更新提案",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.volume_postmortem",
       "output_contract_id": "contract.writing.simple_novel.world_outline_extension_proposal",
       "acceptance_profile_id": "",
@@ -4418,7 +4499,11 @@
           "projection_id": "projection.writing.simple_novel.world_outline_extension_proposer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -4444,7 +4529,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -4472,9 +4559,9 @@
       "task_id": "task.writing.simple_novel.extension_review",
       "task_title": "可改动库更新审核",
       "task_family": "writing_simple_novel",
-      "task_mode": "extension_review",
       "description": "写作组简易长篇小说节点任务：可改动库更新审核",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.world_outline_extension_proposal",
       "output_contract_id": "contract.writing.simple_novel.extension_review",
       "acceptance_profile_id": "",
@@ -4510,7 +4597,11 @@
           "projection_id": "projection.writing.simple_novel.extension_reviewer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -4536,7 +4627,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -4564,9 +4657,9 @@
       "task_id": "task.writing.simple_novel.extension_commit",
       "task_title": "可改动记忆库更新",
       "task_family": "writing_simple_novel",
-      "task_mode": "extension_commit",
       "description": "写作组简易长篇小说节点任务：可改动记忆库更新",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.extension_review",
       "output_contract_id": "contract.writing.simple_novel.extension_commit",
       "acceptance_profile_id": "",
@@ -4602,7 +4695,11 @@
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -4628,7 +4725,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -4656,9 +4755,9 @@
       "task_id": "task.writing.simple_novel.next_volume_router",
       "task_title": "下一卷推进判断",
       "task_family": "writing_simple_novel",
-      "task_mode": "next_volume_router",
       "description": "写作组简易长篇小说节点任务：下一卷推进判断",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.extension_commit",
       "output_contract_id": "contract.writing.simple_novel.next_volume_decision",
       "acceptance_profile_id": "",
@@ -4720,7 +4819,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -4748,9 +4849,9 @@
       "task_id": "task.writing.simple_novel.final_assemble",
       "task_title": "交付包整编",
       "task_family": "writing_simple_novel",
-      "task_mode": "final_assemble",
       "description": "写作组简易长篇小说节点任务：交付包整编",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.next_volume_decision",
       "output_contract_id": "contract.writing.simple_novel.final_manuscript",
       "acceptance_profile_id": "",
@@ -4812,7 +4913,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -4840,9 +4943,9 @@
       "task_id": "task.writing.simple_novel.final_review",
       "task_title": "最终交付审核",
       "task_family": "writing_simple_novel",
-      "task_mode": "final_review",
       "description": "写作组简易长篇小说节点任务：最终交付审核",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.final_review_input",
       "output_contract_id": "contract.writing.simple_novel.final_review",
       "acceptance_profile_id": "",
@@ -4878,7 +4981,11 @@
           "projection_id": "projection.writing.simple_novel.final_reviewer",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -4904,7 +5011,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -4932,9 +5041,9 @@
       "task_id": "task.writing.simple_novel.memory_finalize",
       "task_title": "任务收尾归档",
       "task_family": "writing_simple_novel",
-      "task_mode": "memory_finalize",
       "description": "写作组简易长篇小说节点任务：任务收尾归档",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.final_review",
       "output_contract_id": "contract.writing.simple_novel.delivery_package",
       "acceptance_profile_id": "",
@@ -4970,7 +5079,11 @@
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -4996,7 +5109,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -5024,9 +5139,9 @@
       "task_id": "task.writing.simple_novel.runtime_monitor",
       "task_title": "运行监测",
       "task_family": "writing_simple_novel",
-      "task_mode": "runtime_monitor",
       "description": "写作组简易长篇小说节点任务：运行监测",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.taskgraph.monitor.snapshot",
       "output_contract_id": "contract.taskgraph.monitor.decision",
       "acceptance_profile_id": "",
@@ -5088,7 +5203,9 @@
           "emit_text_preview": false,
           "preview_char_limit": 0,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 0,
+          "stream_recovery_timeout_seconds": 0
         },
         "operation_policy": {
           "allowed_operations": [
@@ -5116,9 +5233,9 @@
       "task_id": "task.writing.simple_novel.fail_closed",
       "task_title": "失败关闭",
       "task_family": "writing_simple_novel",
-      "task_mode": "fail_closed",
       "description": "写作组简易长篇小说节点任务：失败关闭",
       "enabled": true,
+      "runtime_lane": "coordination_task",
       "input_contract_id": "contract.writing.simple_novel.failure_input",
       "output_contract_id": "contract.writing.simple_novel.failure_report",
       "acceptance_profile_id": "",
@@ -5154,7 +5271,11 @@
           "projection_id": "projection.writing.simple_novel.memory_steward",
           "memory_closed_loop": true
         },
-        "runtime_limits": {},
+        "runtime_limits": {
+          "max_runtime_seconds": 480,
+          "max_model_calls": 8,
+          "max_events": 8000
+        },
         "artifact_policy": {
           "enabled": true,
           "required": true,
@@ -5180,7 +5301,9 @@
           "emit_text_preview": true,
           "preview_char_limit": 6000,
           "persist_full_stream_text": false,
-          "fallback_to_non_stream_on_error": true
+          "fallback_to_non_stream_on_error": true,
+          "non_stream_fallback_timeout_seconds": 180,
+          "stream_recovery_timeout_seconds": 180
         },
         "operation_policy": {
           "allowed_operations": [
@@ -5202,6 +5325,35 @@
         "projection_id": "projection.writing.simple_novel.memory_steward",
         "source_flow_id": "flow.writing.simple_novel.fail_closed",
         "package_template": "writing_simple_novel"
+      }
+    },
+    {
+      "task_id": "task.000001",
+      "task_title": "TaskGraph 收尾验证任务",
+      "task_family": "general",
+      "description": "用于 TaskGraph Studio 收尾联调",
+      "enabled": true,
+      "runtime_lane": "",
+      "input_contract_id": "UserMessage",
+      "output_contract_id": "AssistantFinalAnswer",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.000001",
+      "default_workflow_id": "workflow.000001",
+      "default_projection_policy": "workflow_compatible_or_task_default",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "execution_chain_type": "coordination_chain",
+          "trigger_signals": []
+        }
+      },
+      "metadata": {
+        "managed_by": "codex_smoke",
+        "domain_id": "domain.general"
       }
     }
   ],

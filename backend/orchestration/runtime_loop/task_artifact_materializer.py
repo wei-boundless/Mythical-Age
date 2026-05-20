@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 @dataclass(frozen=True, slots=True)
 class MaterializedTaskArtifacts:
     enabled: bool
@@ -152,7 +151,7 @@ def materialize_task_artifacts(
         enabled=True,
         artifact_root=_relative_or_absolute(artifact_root, workspace),
         artifact_refs=artifact_refs,
-        created_files=tuple(created),
+        created_files=tuple(_created_files_public_view(created)),
         skipped_files=tuple(skipped),
         diagnostics={
             "status": "created",
@@ -165,6 +164,21 @@ def materialize_task_artifacts(
             "source": "task_policy.artifact_policy",
         },
     )
+
+
+def _created_files_public_view(created_files: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in created_files:
+        value = str(item or "").replace("\\", "/").strip()
+        if value and value not in seen:
+            seen.add(value)
+            result.append(value)
+        leaf = Path(value).name if value else ""
+        if leaf and leaf not in seen:
+            seen.add(leaf)
+            result.append(leaf)
+    return result
 
 
 def _artifact_specs(policy: dict[str, Any]) -> list[dict[str, Any]]:
@@ -344,6 +358,92 @@ def _split_markdown_sections(content: str) -> dict[str, str]:
     return sections
 
 
+def extract_markdown_section_content(
+    content: str,
+    section_keys: tuple[str, ...] | list[str],
+    *,
+    stop_section_keys: tuple[str, ...] | list[str] | None = None,
+    include_heading: bool = True,
+) -> str:
+    text = str(content or "").strip()
+    keys = tuple(str(item).strip() for item in list(section_keys or []) if str(item).strip())
+    if not text or not keys:
+        return ""
+    boundaries = _markdown_section_boundaries(text)
+    if not boundaries:
+        return ""
+    stop_keys = tuple(
+        dict.fromkeys(
+            [
+                *[str(item).strip() for item in list(stop_section_keys or []) if str(item).strip()],
+            ]
+        )
+    )
+    chunks: list[str] = []
+    for index, boundary in enumerate(boundaries):
+        title = str(boundary.get("title") or "")
+        if not any(_section_title_matches(title, key) for key in keys):
+            continue
+        end = len(text)
+        for next_boundary in boundaries[index + 1 :]:
+            next_title = str(next_boundary.get("title") or "")
+            if any(_section_title_matches(next_title, stop_key) for stop_key in stop_keys):
+                end = int(next_boundary.get("start") or end)
+                break
+        start = int(boundary.get("start") if include_heading else boundary.get("end") or 0)
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+    return "\n\n".join(chunks).strip()
+
+
+def _markdown_section_boundaries(text: str) -> list[dict[str, Any]]:
+    boundaries: list[dict[str, Any]] = []
+    offset = 0
+    for line in str(text or "").splitlines(keepends=True):
+        stripped = line.strip()
+        markdown_match = re.match(r"^(?P<hashes>#{1,6})\s+(?P<title>.+?)\s*$", stripped)
+        bracket_match = re.match(r"^【(?P<title>[^】]{1,80})】\s*$", stripped)
+        if markdown_match:
+            title = str(markdown_match.group("title") or "").strip().strip("#").strip()
+            boundaries.append(
+                {
+                    "start": offset,
+                    "end": offset + len(line),
+                    "level": len(str(markdown_match.group("hashes") or "")),
+                    "title": title,
+                }
+            )
+        elif bracket_match:
+            title = str(bracket_match.group("title") or "").strip()
+            boundaries.append(
+                {
+                    "start": offset,
+                    "end": offset + len(line),
+                    "level": 1,
+                    "title": title,
+                }
+            )
+        offset += len(line)
+    return boundaries
+
+
+def _normalize_section_title(value: str) -> str:
+    text = str(value or "").strip().strip("#").strip()
+    text = re.sub(r"^[【\[\(（]+", "", text)
+    text = re.sub(r"[】\]\)）]+$", "", text)
+    text = re.sub(r"\s+", "", text)
+    return text.lower()
+
+
+def _section_title_matches(title: str, key: str) -> bool:
+    normalized_title = _normalize_section_title(title)
+    normalized_key = _normalize_section_title(key)
+    if not normalized_title or not normalized_key:
+        return False
+    return normalized_title == normalized_key or normalized_key in normalized_title or normalized_title in normalized_key
+
+
 def _content_for_artifact_spec(
     spec: dict[str, Any],
     sections: dict[str, str],
@@ -358,6 +458,18 @@ def _content_for_artifact_spec(
     path = str(spec.get("path") or "")
     if str(spec.get("content_source") or "").strip() == "final_content":
         return str(final_content or "").strip()
+    section_content = extract_markdown_section_content(
+        final_content,
+        keys,
+        stop_section_keys=[
+            str(item).strip()
+            for item in list(spec.get("stop_section_keys") or spec.get("section_stop_keys") or [])
+            if str(item).strip()
+        ],
+        include_heading=True,
+    )
+    if section_content.strip():
+        return section_content
     for key in keys:
         for title, content in sections.items():
             if key == title or key.lower() in title.lower() or title.lower() in key.lower():

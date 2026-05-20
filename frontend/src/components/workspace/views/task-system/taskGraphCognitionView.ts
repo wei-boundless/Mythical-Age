@@ -5,6 +5,12 @@ import {
   taskGraphEdgeTarget,
   type TaskGraphMemorySnapshotPreview,
 } from "./taskGraphMemoryMatrix";
+import {
+  edgePayloadContractIdOf,
+  nodeExecutionContractIdOf,
+  nodeInputContractIdOf,
+  nodeOutputContractIdOf,
+} from "./taskGraphContractBindings";
 
 export type TaskGraphCognitionPacketKind =
   | "dispatch_context"
@@ -100,7 +106,7 @@ function edgeType(edge: Record<string, unknown>) {
 }
 
 function edgeContract(edge: Record<string, unknown>) {
-  return stringValue(edge.payload_contract_id ?? edge.contract_id);
+  return edgePayloadContractIdOf(edge);
 }
 
 function artifactPacket(edge: Record<string, unknown>, index: number): TaskGraphCognitionPacket | null {
@@ -216,7 +222,7 @@ function nodeOutputs(
       kind: "artifact",
       targetId: artifactTarget,
       title: "节点产物",
-      contractId: stringValue(node.output_contract_id),
+      contractId: nodeOutputContractIdOf(node),
       visibility: "artifact_ref",
     });
   }
@@ -250,13 +256,14 @@ function nodeOutputs(
       visibility: stringValue(edge.result_delivery_policy, "contract_payload_and_refs"),
     });
   }
-  if (stringValue(node.output_contract_id)) {
+  const outputContractId = nodeOutputContractIdOf(node);
+  if (outputContractId) {
     outputs.push({
       outputId: `${nodeId}:timeline_result`,
       kind: "timeline_result",
       targetId: "timeline_result_record",
       title: "时序结果记录",
-      contractId: stringValue(node.output_contract_id),
+      contractId: outputContractId,
       visibility: "由运行时时序坐标控制",
     });
   }
@@ -328,8 +335,8 @@ export function buildTaskGraphCognitionModel({
         sequenceIndex: Number(node.sequence_index ?? index + 1),
         timelineScope: `${stringValue(node.phase_id, "phase.unassigned")}/S${Number(node.sequence_index ?? index + 1)}`,
         executionMode: stringValue(node.execution_mode, "sync"),
-        inputContractId: stringValue(node.input_contract_id ?? node.node_contract_id ?? node.contract_id),
-        outputContractId: stringValue(node.output_contract_id),
+        inputContractId: nodeInputContractIdOf(node) || nodeExecutionContractIdOf(node),
+        outputContractId: nodeOutputContractIdOf(node),
         roleIdentity: stringValue(metadata.role_identity),
         responsibilityScope: stringValue(metadata.responsibility_scope),
         responsibilityExclusions: stringValue(metadata.responsibility_exclusions),

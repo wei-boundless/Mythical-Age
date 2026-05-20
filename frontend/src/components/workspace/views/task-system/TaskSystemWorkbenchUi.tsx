@@ -349,6 +349,7 @@ export function TaskSystemSelectField({
   onChange,
   wide = false,
   formatOption = taskSystemOptionLabel,
+  isOptionDisabled,
 }: {
   label: string;
   value: string;
@@ -356,13 +357,14 @@ export function TaskSystemSelectField({
   onChange: (value: string) => void;
   wide?: boolean;
   formatOption?: (value: string) => string;
+  isOptionDisabled?: (value: string) => boolean;
 }) {
   const resolvedOptions = uniqueStrings([value, ...options]);
   return (
     <TaskSystemField label={label} wide={wide}>
       <select value={value} onChange={(event) => onChange(event.target.value)}>
         {resolvedOptions.map((item) => (
-          <option key={item} value={item}>{formatOption(item)}</option>
+          <option disabled={isOptionDisabled?.(item) === true && item !== value} key={item} value={item}>{formatOption(item)}</option>
         ))}
       </select>
     </TaskSystemField>

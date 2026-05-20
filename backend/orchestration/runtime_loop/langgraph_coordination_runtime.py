@@ -24,6 +24,7 @@ from .contract_compiler_models import (
     CompiledAcceptanceContract,
     CompiledEdgeHandoffContract,
     CompiledGlobalContract,
+    CompiledGraphUnitHandoffContract,
     CompiledNodeContract,
     CompiledRuntimeContract,
     ContractCompileIssue,
@@ -165,6 +166,20 @@ class LangGraphCoordinationRuntimeResult:
                 "requires_human_executor": True,
                 "suppress_done": True,
             }
+        if request.executor_type == "graph_unit":
+            return {
+                "session_id": session_id,
+                "coordination_run_id": request.coordination_run_id,
+                "thread_id": request.thread_id,
+                "current_task_run_id": request.root_task_run_id,
+                "next_stage_id": request.stage_id,
+                "current_turn_context": turn_context,
+                "stage_execution_request": request.to_dict(),
+                "a2a_payload": dict(request.a2a_payload),
+                "graph_unit_runtime_handle": dict(request.runtime_assembly.get("graph_unit_runtime_handle") or {}),
+                "requires_graph_unit_executor": True,
+                "suppress_done": True,
+            }
         return {
             "session_id": session_id,
             "coordination_run_id": request.coordination_run_id,
@@ -222,8 +237,8 @@ class LangGraphCoordinationRuntime:
         self._app = self._build_app()
         self.kernel = LangGraphRuntimeKernel(app=self._app, checkpoints=self.checkpoints)
 
-    def _resolve_task_graph_view(self, coordination_run: CoordinationRun):
-        task_graph = self._resolve_task_graph_definition(coordination_run)
+    def _resolve_task_graph_view(self, coordination_run: CoordinationRun, *, prefer_live_graph: bool = False):
+        task_graph = self._resolve_task_graph_definition(coordination_run, prefer_live_graph=prefer_live_graph)
         if task_graph is None:
             return None
         derive = getattr(self.task_flow_registry, "derive_coordination_task_view_from_graph", None)
@@ -231,13 +246,19 @@ class LangGraphCoordinationRuntime:
             return None
         return derive(task_graph)
 
-    def _resolve_task_graph_definition(self, coordination_run: CoordinationRun):
+    def _resolve_task_graph_definition(self, coordination_run: CoordinationRun, *, prefer_live_graph: bool = False):
+        target = str(coordination_run.graph_ref or "").strip()
+        if prefer_live_graph and target:
+            get_task_graph = getattr(self.task_flow_registry, "get_task_graph", None)
+            if callable(get_task_graph):
+                live_graph = get_task_graph(target)
+                if live_graph is not None:
+                    return live_graph
         diagnostics = dict(coordination_run.diagnostics or {})
         definition_ref = str(diagnostics.get("task_graph_definition_ref") or "").strip()
         snapshot = self.runtime_objects.get_object(definition_ref) if definition_ref else {}
         if snapshot:
             return task_graph_from_dict(snapshot)
-        target = str(coordination_run.graph_ref or "").strip()
         if not target:
             return None
         get_task_graph = getattr(self.task_flow_registry, "get_task_graph", None)
@@ -456,9 +477,13 @@ class LangGraphCoordinationRuntime:
             return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_stage_id"})
 
         if refresh_graph_spec:
-            coordination_task = self._resolve_task_graph_view(coordination_run)
+            coordination_task = self._resolve_task_graph_view(coordination_run, prefer_live_graph=True)
             if coordination_task is not None:
-                refreshed = self._bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
+                refreshed = self._bootstrap_state(
+                    coordination_run=coordination_run,
+                    coordination_task=coordination_task,
+                    prefer_live_graph=True,
+                )
                 for key in (
                     "stage_order",
                     "stage_contracts",
@@ -561,17 +586,12 @@ class LangGraphCoordinationRuntime:
             if kept:
                 accepted_result_records_by_scope[str(scope_key)] = kept
 
-        contract_status = dict(state.get("contract_status") or {})
-        for stage in invalidated_set:
-            if stage in contract_status:
-                contract_status[stage] = {
-                    **dict(contract_status.get(stage) or {}),
-                    "status": "pending_rewind" if stage == target_stage_id else "invalidated_downstream",
-                    "accepted": False,
-                    "task_result_ref": "",
-                    "artifact_refs": [],
-                    "diagnostics": {"rewound_from_stage": target_stage_id, "reason": reason},
-                }
+        contract_status = _rewound_contract_status(
+            dict(state.get("contract_status") or {}),
+            invalidated_stage_ids=invalidated_stage_ids,
+            target_stage_id=target_stage_id,
+            reason=reason,
+        )
 
         artifact_refs = [
             dict(item)
@@ -582,20 +602,47 @@ class LangGraphCoordinationRuntime:
             dict(item)
             for item in list(state.get("handoff_packets") or [])
             if isinstance(item, dict)
-            and str(item.get("source_node_id") or item.get("target_node_id") or "") not in invalidated_set
-            and str(item.get("source_stage_id") or item.get("target_stage_id") or "") not in invalidated_set
+            and str(item.get("source_node_id") or "") not in invalidated_set
+            and str(item.get("target_node_id") or "") not in invalidated_set
+            and str(item.get("source_stage_id") or "") not in invalidated_set
+            and str(item.get("target_stage_id") or "") not in invalidated_set
         ]
         working_memory_operations = [
             dict(item)
             for item in list(state.get("working_memory_operations") or [])
-            if isinstance(item, dict) and str(item.get("stage_id") or item.get("node_id") or "") not in invalidated_set
+            if isinstance(item, dict)
+            and str(item.get("stage_id") or "") not in invalidated_set
+            and str(item.get("node_id") or "") not in invalidated_set
+            and str(item.get("source_node_id") or "") not in invalidated_set
+            and str(item.get("target_node_id") or "") not in invalidated_set
         ]
 
-        pending_inputs = {**dict(state.get("pending_inputs") or {}), **dict(inherited_inputs or {})}
+        preserved_pending_inputs = _rewind_preserved_pending_inputs(
+            dict(state.get("pending_inputs") or {}),
+            invalidated_stage_ids=invalidated_stage_ids,
+            stage_results=stage_results,
+        )
+        inherited_payload = dict(inherited_inputs or {})
+        preserved_inherited_inputs = _rewind_preserved_pending_inputs(
+            inherited_payload,
+            invalidated_stage_ids=invalidated_stage_ids,
+            stage_results=stage_results,
+        )
+        rewind_metadata_inputs = {
+            key: inherited_payload[key]
+            for key in ("artifact_root", "workspace_root", "rewind_invalidated_artifacts")
+            if key in inherited_payload
+        }
+        pending_inputs = {**preserved_pending_inputs, **preserved_inherited_inputs, **rewind_metadata_inputs}
         pending_inputs["force_replay"] = True
         pending_inputs["force_replay_after"] = time.time()
         pending_inputs["rewind_from_stage"] = target_stage_id
         pending_inputs["rewind_reason"] = reason
+        pending_inputs = _normalize_pending_inputs_with_runtime_loop_policy(
+            state=state,
+            pending_inputs=pending_inputs,
+            preserve_existing_batch_scope=True,
+        )
 
         diagnostics = {
             **dict(state.get("diagnostics") or {}),
@@ -613,6 +660,16 @@ class LangGraphCoordinationRuntime:
             if not any(str(item).startswith(f"{stage}:") for stage in invalidated_set)
         ]
         diagnostics["committed_stage_identities"] = committed_identities
+        for key in (
+            "last_accepted_stage_id",
+            "retry_stage_id",
+            "last_duplicate_commit_identity",
+            "last_stale_result_reason",
+            "human_gate",
+        ):
+            value = str(diagnostics.get(key) or "")
+            if value in invalidated_set or key in {"last_accepted_stage_id", "retry_stage_id"}:
+                diagnostics.pop(key, None)
 
         state.update(
             {
@@ -642,9 +699,14 @@ class LangGraphCoordinationRuntime:
                 "diagnostics": diagnostics,
             }
         )
-        scheduler = _scheduler_node_sets(order=order, node_statuses=node_statuses, state=state, terminal_status="")
-        state.update(scheduler)
-        prepared = self._stage_execute(state)
+        prepared_inputs = self._stage_prepare(state)
+        state.update(prepared_inputs)
+        if str(state.get("terminal_status") or "") == "blocked":
+            prepared = {}
+        else:
+            scheduler = _scheduler_node_sets(order=order, node_statuses=node_statuses, state=state, terminal_status="")
+            state.update(scheduler)
+            prepared = self._stage_execute(state)
         state.update(prepared)
         state = self._attach_timeline_snapshot(state)
         checkpoint = self.checkpoints.put_state(
@@ -1094,7 +1156,9 @@ class LangGraphCoordinationRuntime:
             memory_write_candidate_refs=created_memory_refs,
             memory_commit_refs=committed_memory_refs,
             validation_result={
-                "required_artifact_outputs_satisfied": accepted or not bool(event.get("accepted") is True),
+                "required_artifact_outputs_satisfied": accepted
+                if bool(event.get("accepted") is True)
+                else not _contract_has_required_artifact_outputs(output_mappings, requires_file_artifact_refs=requires_file_artifact_refs),
                 "requires_file_artifact_refs": requires_file_artifact_refs,
             },
         )
@@ -1444,6 +1508,9 @@ class LangGraphCoordinationRuntime:
                 },
             )
             self.state_index.upsert_handoff_envelope(envelope)
+            handoff_envelopes = [dict(item) for item in list(state.get("handoff_envelopes") or []) if isinstance(item, dict)]
+            handoff_envelopes.append(envelope.to_dict())
+            state["handoff_envelopes"] = handoff_envelopes
             self.event_log.append(
                 task_run_id,
                 "handoff_envelope_created",
@@ -1621,13 +1688,23 @@ class LangGraphCoordinationRuntime:
             "result_refs": [str(current_event.get("task_result_ref") or "")],
         }
         stage_outputs = _collect_stage_outputs(dict(state.get("stage_results") or {}))
+        inherited_inputs = _normalize_pending_inputs_with_runtime_loop_policy(
+            state=state,
+            pending_inputs=dict(state.get("pending_inputs") or {}),
+            preserve_existing_batch_scope=True,
+        )
         binding = self.input_binder.bind(
             stage_contract=contract,
             current_task_result=current_task_result,
             current_task_ref=current_task_ref,
             stage_outputs=stage_outputs,
-            inherited_inputs=dict(state.get("pending_inputs") or {}),
-            artifact_root=str(dict(state.get("pending_inputs") or {}).get("artifact_root") or ""),
+            inherited_inputs=inherited_inputs,
+            artifact_root=str(inherited_inputs.get("artifact_root") or ""),
+        )
+        explicit_inputs = _normalize_pending_inputs_with_runtime_loop_policy(
+            state=state,
+            pending_inputs=dict(binding.explicit_inputs),
+            preserve_existing_batch_scope=True,
         )
         if binding.blocked:
             node_statuses = dict(state.get("node_statuses") or {})
@@ -1641,7 +1718,7 @@ class LangGraphCoordinationRuntime:
                 missing_required_inputs=list(binding.missing_required_inputs),
             )
             return {
-                "pending_inputs": dict(binding.explicit_inputs),
+                "pending_inputs": explicit_inputs,
                 "missing_required_inputs": list(binding.missing_required_inputs),
                 "terminal_status": "blocked",
                 "node_statuses": node_statuses,
@@ -1655,7 +1732,7 @@ class LangGraphCoordinationRuntime:
                 "diagnostics": {**dict(state.get("diagnostics") or {}), "binding": dict(binding.diagnostics)},
             }
         return {
-            "pending_inputs": dict(binding.explicit_inputs),
+            "pending_inputs": explicit_inputs,
             "missing_required_inputs": [],
             "diagnostics": {**dict(state.get("diagnostics") or {}), "binding": dict(binding.diagnostics)},
         }
@@ -1663,7 +1740,11 @@ class LangGraphCoordinationRuntime:
     def _stage_execute(self, state: CoordinationRuntimeState) -> dict[str, Any]:
         stage_id = str(state.get("active_stage_id") or "").strip()
         contract = dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {})
-        explicit_inputs = dict(state.get("pending_inputs") or {})
+        explicit_inputs = _normalize_pending_inputs_with_runtime_loop_policy(
+            state=state,
+            pending_inputs=dict(state.get("pending_inputs") or {}),
+            preserve_existing_batch_scope=True,
+        )
         current_event = dict(state.get("current_event") or {})
         source_stage_id = str(current_event.get("stage_id") or "").strip()
         diagnostics = dict(state.get("diagnostics") or {})
@@ -1703,6 +1784,13 @@ class LangGraphCoordinationRuntime:
             **({stage_id: working_memory_context} if working_memory_context else {}),
         }
         stage_scope = self._stage_scope(state=state, stage_id=stage_id, contract=contract)
+        dispatch_idempotency_key = _node_dispatch_idempotency_key(
+            coordination_run_id=str(state.get("coordination_run_id") or ""),
+            stage_id=stage_id,
+            stage_scope=stage_scope,
+            explicit_inputs=explicit_inputs,
+            retry_counts=dict(state.get("retry_counts") or {}),
+        )
         dispatch_event = self._append_timeline_event(
             state,
             event_type="node_dispatch_requested",
@@ -1718,7 +1806,7 @@ class LangGraphCoordinationRuntime:
                 "task_ref": str(contract.get("task_ref") or state.get("active_task_ref") or ""),
                 "explicit_input_keys": sorted(str(key) for key in explicit_inputs.keys()),
             },
-            idempotency_key="",
+            idempotency_key=dispatch_idempotency_key,
         )
         dispatch_context = {
             "dispatch_event_id": str(dispatch_event.event_id if dispatch_event is not None else ""),
@@ -1801,6 +1889,70 @@ class LangGraphCoordinationRuntime:
             metadata["standard_input_package_id"] = standard_input_package.package_id
             metadata["executor_binding"] = executor_binding.to_dict()
             runtime_assembly_payload["metadata"] = metadata
+        graph_unit_handle = (
+            _graph_unit_runtime_handle_from_contract(
+                state=state,
+                stage_id=stage_id,
+                node_id=node_id,
+                contract=contract,
+                explicit_inputs=explicit_inputs,
+                dispatch_context=dispatch_context,
+                standard_input_package=standard_input_package.to_dict(),
+            )
+            if _is_graph_unit_stage(contract)
+            else {}
+        )
+        if graph_unit_handle:
+            graph_unit_executor_binding_payload = executor_binding.to_dict()
+            graph_unit_executor_binding_payload.update(
+                {
+                    "selected_executor": "graph_unit",
+                    "default_executor": "graph_unit",
+                    "allowed_executors": ["graph_unit"],
+                    "subgraph_id": str(graph_unit_handle.get("linked_graph_id") or ""),
+                    "graph_unit_runtime_handle": graph_unit_handle,
+                }
+            )
+            executor_binding = type(executor_binding)(
+                node_id=executor_binding.node_id,
+                default_executor="graph_unit",
+                allowed_executors=("graph_unit",),
+                selected_executor="graph_unit",
+                override_policy=executor_binding.override_policy,
+                agent_profile_id=executor_binding.agent_profile_id,
+                human_profile_id=executor_binding.human_profile_id,
+                tool_binding_id=executor_binding.tool_binding_id,
+                subgraph_id=str(graph_unit_handle.get("linked_graph_id") or ""),
+                interaction_schema_id=executor_binding.interaction_schema_id,
+                diagnostics={
+                    **dict(executor_binding.diagnostics),
+                    "graph_unit_runtime_handle": graph_unit_handle,
+                },
+            )
+            runtime_assembly_payload = {
+                **dict(runtime_assembly_payload or {}),
+                "authority": "orchestration.graph_unit_runtime_assembly",
+                "assembly_id": str(
+                    runtime_assembly_payload.get("assembly_id")
+                    or f"runtime-assembly:graph-unit:{_safe_id(graph_unit_handle.get('handle_id'))}"
+                ),
+                "graph_id": _graph_id_from_state(state),
+                "graph_ref": _graph_id_from_state(state),
+                "node_id": node_id,
+                "task_ref": str(contract.get("task_ref") or state.get("active_task_ref") or ""),
+                "agent_id": "",
+                "agent_profile_id": "",
+                "runtime_lane": str(contract.get("runtime_lane") or "task_graph_coordination"),
+                "metadata": {
+                    **dict(runtime_assembly_payload.get("metadata") or {}),
+                    "dispatch_context": dict(dispatch_context),
+                    "standard_input_package_id": standard_input_package.package_id,
+                    "executor_binding": graph_unit_executor_binding_payload,
+                },
+                "graph_unit_runtime_handle": graph_unit_handle,
+            }
+        else:
+            graph_unit_executor_binding_payload = {}
         if dispatch_event is not None:
             self._append_timeline_event(
                 state,
@@ -1833,6 +1985,7 @@ class LangGraphCoordinationRuntime:
                     "revision_packet_id": str(revision_packet.get("revision_packet_id") or ""),
                     "standard_input_package_id": standard_input_package.package_id,
                     "executor_type": executor_binding.selected_executor,
+                    "graph_unit_runtime_handle_id": str(graph_unit_handle.get("handle_id") or ""),
                 },
                 causal_event_ids=[dispatch_event.event_id],
                 idempotency_key="",
@@ -1873,7 +2026,7 @@ class LangGraphCoordinationRuntime:
             agent_profile_id=str(runtime_assembly_payload.get("agent_profile_id") or getattr(agent_profile, "agent_profile_id", "") or ""),
             runtime_lane=str(contract.get("runtime_lane") or ""),
             executor_type=executor_binding.selected_executor,
-            executor_binding=executor_binding.to_dict(),
+            executor_binding=graph_unit_executor_binding_payload or executor_binding.to_dict(),
             explicit_inputs=dict(explicit_inputs),
             standard_input_package=standard_input_package.to_dict(),
             human_work_packet=human_work_packet.to_dict() if human_work_packet is not None else {},
@@ -1912,6 +2065,7 @@ class LangGraphCoordinationRuntime:
             "node_execution_request": request.to_dict(),
             "stage_execution_request": request.to_dict(),
             "a2a_payload": a2a_payload,
+            "pending_inputs": explicit_inputs,
             "handoff_packets": next_handoff_packets,
             "working_memory_contexts": working_memory_contexts,
             "working_memory_operations": working_memory_operations,
@@ -2480,11 +2634,17 @@ class LangGraphCoordinationRuntime:
             return stored
         return self._bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
 
-    def _bootstrap_state(self, *, coordination_run: CoordinationRun, coordination_task: Any) -> dict[str, Any]:
+    def _bootstrap_state(
+        self,
+        *,
+        coordination_run: CoordinationRun,
+        coordination_task: Any,
+        prefer_live_graph: bool = False,
+    ) -> dict[str, Any]:
         topology_template = self.task_flow_registry.get_topology_template(coordination_run.topology_template_id)
         communication_protocol = self.task_flow_registry.get_task_communication_protocol(coordination_run.communication_protocol_id)
         specific_tasks = tuple(self.task_flow_registry.list_specific_task_records())
-        task_graph = self._resolve_task_graph_definition(coordination_run)
+        task_graph = self._resolve_task_graph_definition(coordination_run, prefer_live_graph=prefer_live_graph)
         if task_graph is None:
             return {
                 "coordination_run_id": coordination_run.coordination_run_id,
@@ -2506,7 +2666,7 @@ class LangGraphCoordinationRuntime:
                 },
             }
         runtime_spec_ref = str(dict(coordination_run.diagnostics or {}).get("task_graph_runtime_spec_ref") or "").strip()
-        graph_spec_payload = self.runtime_objects.get_object(runtime_spec_ref) if runtime_spec_ref else {}
+        graph_spec_payload = self.runtime_objects.get_object(runtime_spec_ref) if runtime_spec_ref and not prefer_live_graph else {}
         graph_spec = (
             _runtime_spec_from_payload(graph_spec_payload)
             if graph_spec_payload
@@ -2576,6 +2736,7 @@ class LangGraphCoordinationRuntime:
             runtime_spec=graph_spec,
             node_statuses=node_statuses,
             terminal_status="blocked" if issues else "",
+            edge_handoff_index={},
             mode="active",
         )
         return {
@@ -2597,6 +2758,7 @@ class LangGraphCoordinationRuntime:
             "completed_nodes": list(scheduler_state.completed_node_ids),
             "failed_nodes": list(scheduler_state.failed_node_ids),
             "handoff_packets": [],
+            "handoff_envelopes": [],
             "acceptance_results": {},
             "node_statuses": node_statuses,
             "stage_results": {},
@@ -2713,6 +2875,40 @@ def _contract_payload(contract: CoordinationStageContract, *, topology_nodes: li
     ):
         if key in node and (key not in payload or payload.get(key) in ("", None, [], {})):
             payload[key] = node[key]
+    metadata = dict(node.get("metadata") or {}) if isinstance(node.get("metadata"), dict) else {}
+    if metadata and (not isinstance(payload.get("metadata"), dict) or not payload.get("metadata")):
+        payload["metadata"] = metadata
+    if (
+        str(payload.get("node_type") or "").strip() == "graph_unit"
+        or bool(metadata.get("graph_unit"))
+        or str(metadata.get("execution_mode") or "").strip() == "nested_graph_run"
+    ):
+        for key in (
+            "nested_runtime_plan_id",
+            "nested_runtime_plan",
+            "linked_graph_id",
+            "version_ref",
+            "handoff_contract_id",
+            "input_port_id",
+            "output_port_id",
+            "isolation_policy",
+            "visibility_policy",
+            "detach_policy",
+        ):
+            if key in metadata and (key not in payload or payload.get(key) in ("", None, [], {})):
+                payload[key] = metadata[key]
+        executor_policy = {
+            **dict(payload.get("executor_policy") or {}),
+            **dict(metadata.get("executor_policy") or {}),
+        }
+        executor_policy.setdefault("default_executor", "graph_unit")
+        executor_policy.setdefault("allowed_executors", ["graph_unit"])
+        executor_policy.setdefault("subgraph_id", str(payload.get("linked_graph_id") or ""))
+        executor_policy.setdefault("auto_start_child_initial_stage", True)
+        payload["executor_policy"] = executor_policy
+        if not str(payload.get("task_ref") or "").strip():
+            graph_id = str(payload.get("parent_graph_id") or dict(payload.get("nested_runtime_plan") or {}).get("parent_graph_id") or "")
+            payload["task_ref"] = f"task_graph.node.{graph_id or 'graph'}.{payload.get('node_id') or contract.stage_id}"
     artifact_policy = dict(payload.get("artifact_policy") or {})
     artifact_target = str(payload.get("artifact_target") or payload.get("output_path") or artifact_policy.get("artifact_target") or "").strip()
     if artifact_target:
@@ -2764,13 +2960,138 @@ def _graph_id_from_state(state: dict[str, Any]) -> str:
     return str(graph_spec.get("graph_ref") or graph_spec.get("graph_id") or diagnostics.get("graph_ref") or "")
 
 
-def _runtime_node_value(state: dict[str, Any], node_id: str, key: str) -> Any:
+def _runtime_node_payload(state: dict[str, Any], node_id: str) -> dict[str, Any]:
     graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
     for item in list(graph_spec.get("nodes") or []):
         node = dict(item or {})
         if str(node.get("node_id") or "") == str(node_id or ""):
-            return node.get(key)
-    return None
+            return node
+    return {}
+
+
+def _runtime_node_value(state: dict[str, Any], node_id: str, key: str) -> Any:
+    return _runtime_node_payload(state, node_id).get(key)
+
+
+def _is_graph_unit_stage(contract: dict[str, Any]) -> bool:
+    metadata = dict(contract.get("metadata") or {}) if isinstance(contract.get("metadata"), dict) else {}
+    return (
+        str(contract.get("node_type") or "").strip() == "graph_unit"
+        or bool(contract.get("graph_unit") is True)
+        or bool(metadata.get("graph_unit") is True)
+        or bool(contract.get("linked_graph_id"))
+        or bool(metadata.get("linked_graph_id"))
+        or str(metadata.get("execution_mode") or "").strip() == "nested_graph_run"
+    )
+
+
+def _graph_unit_runtime_handle_from_contract(
+    *,
+    state: dict[str, Any],
+    stage_id: str,
+    node_id: str,
+    contract: dict[str, Any],
+    explicit_inputs: dict[str, Any],
+    dispatch_context: dict[str, Any],
+    standard_input_package: dict[str, Any],
+) -> dict[str, Any]:
+    runtime_node = _runtime_node_payload(state, node_id)
+    metadata = dict(runtime_node.get("metadata") or {})
+    contract_metadata = dict(contract.get("metadata") or {}) if isinstance(contract.get("metadata"), dict) else {}
+    nested_plan = dict(
+        contract.get("nested_runtime_plan")
+        or contract_metadata.get("nested_runtime_plan")
+        or metadata.get("nested_runtime_plan")
+        or {}
+    )
+    linked_graph_id = str(
+        contract.get("linked_graph_id")
+        or contract_metadata.get("linked_graph_id")
+        or metadata.get("linked_graph_id")
+        or nested_plan.get("linked_graph_id")
+        or ""
+    ).strip()
+    nested_plan_id = str(
+        contract.get("nested_runtime_plan_id")
+        or contract_metadata.get("nested_runtime_plan_id")
+        or metadata.get("nested_runtime_plan_id")
+        or nested_plan.get("plan_id")
+        or ""
+    ).strip()
+    parent_graph_id = _graph_id_from_state(state) or str(nested_plan.get("parent_graph_id") or "")
+    seed = {
+        "parent_coordination_run_id": str(state.get("coordination_run_id") or ""),
+        "parent_stage_id": stage_id,
+        "node_id": node_id,
+        "linked_graph_id": linked_graph_id,
+        "dispatch_event_id": str(dispatch_context.get("dispatch_event_id") or ""),
+        "scope_path": list(dispatch_context.get("scope_path") or []),
+    }
+    return {
+        "authority": "orchestration.graph_unit_runtime_handle",
+        "handle_id": f"graphunitrun:{_short_hash(seed)}",
+        "parent_graph_id": parent_graph_id,
+        "parent_coordination_run_id": str(state.get("coordination_run_id") or ""),
+        "parent_root_task_run_id": str(state.get("root_task_run_id") or ""),
+        "parent_stage_id": stage_id,
+        "parent_node_id": node_id,
+        "linked_graph_id": linked_graph_id,
+        "nested_runtime_plan_id": nested_plan_id,
+        "nested_runtime_plan": nested_plan,
+        "version_ref": str(
+            contract.get("version_ref")
+            or contract_metadata.get("version_ref")
+            or metadata.get("version_ref")
+            or nested_plan.get("version_ref")
+            or ""
+        ).strip(),
+        "handoff_contract_id": str(
+            contract.get("handoff_contract_id")
+            or contract_metadata.get("handoff_contract_id")
+            or metadata.get("handoff_contract_id")
+            or nested_plan.get("handoff_contract_id")
+            or ""
+        ).strip(),
+        "input_port_id": str(
+            contract.get("input_port_id")
+            or contract_metadata.get("input_port_id")
+            or metadata.get("input_port_id")
+            or nested_plan.get("input_port_id")
+            or "input.default"
+        ).strip() or "input.default",
+        "output_port_id": str(
+            contract.get("output_port_id")
+            or contract_metadata.get("output_port_id")
+            or metadata.get("output_port_id")
+            or nested_plan.get("output_port_id")
+            or "output.default"
+        ).strip() or "output.default",
+        "isolation_policy": str(
+            contract.get("isolation_policy")
+            or contract_metadata.get("isolation_policy")
+            or metadata.get("isolation_policy")
+            or nested_plan.get("isolation_policy")
+            or "isolated_per_nested_run"
+        ).strip() or "isolated_per_nested_run",
+        "visibility_policy": str(
+            contract.get("visibility_policy")
+            or contract_metadata.get("visibility_policy")
+            or metadata.get("visibility_policy")
+            or nested_plan.get("visibility_policy")
+            or "committed_only"
+        ).strip() or "committed_only",
+        "detach_policy": str(
+            contract.get("detach_policy")
+            or contract_metadata.get("detach_policy")
+            or metadata.get("detach_policy")
+            or nested_plan.get("detach_policy")
+            or "preserve_version_anchor"
+        ).strip() or "preserve_version_anchor",
+        "executor_policy": dict(contract.get("executor_policy") or metadata.get("executor_policy") or {}),
+        "explicit_inputs": dict(explicit_inputs or {}),
+        "standard_input_package": dict(standard_input_package or {}),
+        "dispatch_context": dict(dispatch_context or {}),
+    }
 
 
 def _working_memory_root_for_runtime(root_dir: Any) -> Path:
@@ -3557,14 +3878,23 @@ def _required_artifact_outputs_satisfied(
 ) -> bool:
     if not requires_file_artifact_refs:
         return True
-    requires_artifact = any(
+    if not _contract_has_required_artifact_outputs(output_mappings, requires_file_artifact_refs=requires_file_artifact_refs):
+        return True
+    return bool(artifact_refs)
+
+
+def _contract_has_required_artifact_outputs(
+    output_mappings: list[dict[str, Any]],
+    *,
+    requires_file_artifact_refs: bool,
+) -> bool:
+    if not requires_file_artifact_refs:
+        return False
+    return any(
         item.get("required") is True and str(item.get("output_key") or "").endswith(":artifact_refs")
         for item in output_mappings
         if isinstance(item, dict)
     )
-    if not requires_artifact:
-        return True
-    return bool(artifact_refs)
 
 
 def _filter_working_memory_refs_for_handoff(refs: list[str], policy: dict[str, Any], service: WorkingMemoryService) -> list[str]:
@@ -3640,6 +3970,28 @@ def _merge_runtime_nodes(*, compiled_nodes: list[dict[str, Any]], configured_nod
     return merged
 
 
+def _runtime_loop_policy_from_state(state: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(state.get("diagnostics") or {})
+    return dict(diagnostics.get("runtime_loop_policy") or {})
+
+
+def _normalize_pending_inputs_with_runtime_loop_policy(
+    *,
+    state: dict[str, Any],
+    pending_inputs: dict[str, Any],
+    preserve_existing_batch_scope: bool = True,
+) -> dict[str, Any]:
+    policy = _runtime_loop_policy_from_state(state)
+    derived_fields = list(policy.get("derived_fields") or [])
+    if not derived_fields:
+        return dict(pending_inputs or {})
+    return _apply_loop_derived_fields(
+        dict(pending_inputs or {}),
+        derived_fields,
+        preserve_existing_batch_scope=preserve_existing_batch_scope,
+    )
+
+
 def _initial_loop_state(*, metadata: dict[str, Any]) -> dict[str, Any]:
     policy = dict(metadata.get("runtime_loop_policy") or {})
     if not policy.get("enabled"):
@@ -3688,7 +4040,11 @@ def _loop_after_stage_accept(
         if key:
             pending_inputs[key] = _safe_int(pending_inputs.get(key), 0) + max(increment, 0)
     pending_inputs = _advance_loop_counters(pending_inputs, route_policy)
-    pending_inputs = _apply_loop_derived_fields(pending_inputs, list(route_policy.get("derived_fields") or []))
+    pending_inputs = _apply_loop_derived_fields(
+        pending_inputs,
+        list(route_policy.get("derived_fields") or []),
+        preserve_existing_batch_scope=False,
+    )
     continue_stage_id = str(route_policy.get("continue_stage_id") or "").strip()
     exit_stage_id = str(route_policy.get("exit_stage_id") or "").strip()
     target_value = _safe_int(pending_inputs.get(target_key), 0)
@@ -3799,6 +4155,11 @@ def _pending_inputs_for_stage_quality_retry(
     current_output_key = str(policy.get("carry_current_output_as") or "").strip()
     if current_output_key:
         pending_inputs[current_output_key] = _first_artifact_ref(event)
+    pending_inputs = _normalize_pending_inputs_with_runtime_loop_policy(
+        state=state,
+        pending_inputs=pending_inputs,
+        preserve_existing_batch_scope=True,
+    )
     requirements_key = str(policy.get("requirements_input_key") or "").strip()
     template = str(policy.get("requirements_template") or "").strip()
     if requirements_key and template:
@@ -3818,7 +4179,11 @@ def _pending_inputs_for_stage_quality_retry(
     for key in list(policy.get("clear_input_keys") or []):
         if str(key).strip():
             pending_inputs.pop(str(key).strip(), None)
-    return pending_inputs
+    return _normalize_pending_inputs_with_runtime_loop_policy(
+        state=state,
+        pending_inputs=pending_inputs,
+        preserve_existing_batch_scope=True,
+    )
 
 
 def _pending_inputs_for_revision_retry(
@@ -3862,7 +4227,11 @@ def _pending_inputs_for_revision_retry(
     for key in list(policy.get("clear_input_keys") or []):
         if str(key).strip():
             pending_inputs.pop(str(key).strip(), None)
-    return pending_inputs
+    return _normalize_pending_inputs_with_runtime_loop_policy(
+        state=state,
+        pending_inputs=pending_inputs,
+        preserve_existing_batch_scope=True,
+    )
 
 
 def _resolve_revision_context_value(item: dict[str, Any], *, pending_inputs: dict[str, Any], event: dict[str, Any]) -> Any:
@@ -3975,11 +4344,20 @@ def _advance_loop_counters(pending_inputs: dict[str, Any], policy: dict[str, Any
         elif mode == "copy":
             updated[key] = updated.get(str(item.get("from_key") or ""), item.get("default"))
         else:
-            updated[key] = _safe_int(updated.get(key), _safe_int(item.get("start"), 0)) + _safe_int(item.get("step"), 1)
+            step = _safe_int(
+                updated.get(str(item.get("step_key") or "")),
+                _safe_int(item.get("step"), 1),
+            )
+            updated[key] = _safe_int(updated.get(key), _safe_int(item.get("start"), 0)) + step
     return updated
 
 
-def _apply_loop_derived_fields(pending_inputs: dict[str, Any], derived_fields: list[Any]) -> dict[str, Any]:
+def _apply_loop_derived_fields(
+    pending_inputs: dict[str, Any],
+    derived_fields: list[Any],
+    *,
+    preserve_existing_batch_scope: bool = False,
+) -> dict[str, Any]:
     updated = dict(pending_inputs)
     for raw in derived_fields:
         if not isinstance(raw, dict):
@@ -3989,18 +4367,34 @@ def _apply_loop_derived_fields(pending_inputs: dict[str, Any], derived_fields: l
             continue
         op = str(raw.get("op") or "format").strip()
         if op == "copy":
+            if preserve_existing_batch_scope and key == "batch_start_index" and updated.get(key) not in ("", None, [], {}):
+                continue
             updated[key] = updated.get(str(raw.get("from_key") or ""), raw.get("default"))
         elif op == "add":
-            updated[key] = _safe_int(updated.get(str(raw.get("from_key") or "")), 0) + _safe_int(raw.get("value"), 0)
+            if preserve_existing_batch_scope and key == "batch_end_index" and updated.get(key) not in ("", None, [], {}):
+                continue
+            value = _safe_int(
+                updated.get(str(raw.get("value_key") or "")),
+                _safe_int(raw.get("value"), 0),
+            )
+            offset = _safe_int(raw.get("offset"), 0)
+            updated[key] = _safe_int(updated.get(str(raw.get("from_key") or "")), 0) + value + offset
         elif op == "multiply":
-            updated[key] = _safe_int(updated.get(str(raw.get("from_key") or "")), 0) * _safe_int(raw.get("value"), 1)
+            value = _safe_int(
+                updated.get(str(raw.get("value_key") or "")),
+                _safe_int(raw.get("value"), 1),
+            )
+            updated[key] = _safe_int(updated.get(str(raw.get("from_key") or "")), 0) * value
         elif op == "range":
             start = _safe_int(updated.get(str(raw.get("start_key") or "")), 0)
             end = _safe_int(updated.get(str(raw.get("end_key") or "")), start)
             updated[key] = list(range(start, end + 1)) if end >= start else []
         elif op == "ordinal_group":
             value = _safe_int(updated.get(str(raw.get("from_key") or "")), 1)
-            size = max(_safe_int(raw.get("size"), 1), 1)
+            size = max(
+                _safe_int(updated.get(str(raw.get("size_key") or "")), _safe_int(raw.get("size"), 1)),
+                1,
+            )
             updated[key] = ((max(value, 1) - 1) // size) + 1
         elif op == "join":
             values = updated.get(str(raw.get("from_key") or ""))
@@ -4046,6 +4440,10 @@ def _stage_execution_message(
     if loop_summary:
         lines.append("当前循环上下文：")
         lines.append(loop_summary)
+    batch_boundary = _runtime_batch_boundary_instruction(explicit_inputs)
+    if batch_boundary:
+        lines.append("运行时批次边界：")
+        lines.append(batch_boundary)
     user_seed = _explicit_project_brief(explicit_inputs)
     if user_seed:
         lines.append("用户硬设定：")
@@ -4258,6 +4656,28 @@ def _render_runtime_template(template: str, values: dict[str, Any]) -> str:
         for key, value in dict(values or {}).items():
             rendered = rendered.replace("{" + str(key) + "}", str(value))
         return rendered
+
+
+def _runtime_batch_boundary_instruction(explicit_inputs: dict[str, Any]) -> str:
+    start = _safe_int(explicit_inputs.get("batch_start_index") or explicit_inputs.get("chapter_index"), 0)
+    end = _safe_int(explicit_inputs.get("batch_end_index"), 0)
+    chapters_per_round = _safe_int(explicit_inputs.get("chapters_per_round") or explicit_inputs.get("chapter_batch_size"), 0)
+    if start <= 0 or end < start:
+        return ""
+    chapter_list = str(explicit_inputs.get("batch_chapter_list") or "").strip()
+    if not chapter_list:
+        chapter_list = "、".join(f"第{index}章" for index in range(start, end + 1))
+    words = _safe_int(explicit_inputs.get("batch_target_words"), 0)
+    parts = [
+        f"本节点只允许处理第{start}章至第{end}章。",
+        f"允许章号清单：{chapter_list}。",
+    ]
+    if chapters_per_round:
+        parts.append(f"当前运行时每轮批次大小为 {chapters_per_round} 章。")
+    if words:
+        parts.append(f"当前批次目标正文量约 {words} 字。")
+    parts.append("如果项目启动包、上游旧产物或历史摘要出现其他批次大小或其他章号范围，以本运行时批次边界为准。")
+    return "".join(parts)
 
 
 class _SafeFormatValues(dict):
@@ -4843,7 +5263,7 @@ def _downstream_stage_ids(*, state: dict[str, Any], stage_id: str, include_self:
         if (
             source in known
             and next_stage in known
-            and order_index.get(next_stage, -1) >= order_index.get(source, -1)
+            and _edge_allows_downstream_invalidation(edge=edge, source=source, target=next_stage, order_index=order_index)
             and next_stage not in outgoing.setdefault(source, [])
         ):
             outgoing[source].append(next_stage)
@@ -4863,6 +5283,156 @@ def _downstream_stage_ids(*, state: dict[str, Any], stage_id: str, include_self:
     if not include_self:
         ordered = [item for item in ordered if item != target]
     return ordered
+
+
+def _edge_allows_downstream_invalidation(
+    *,
+    edge: dict[str, Any],
+    source: str,
+    target: str,
+    order_index: dict[str, int],
+) -> bool:
+    metadata = dict(edge.get("metadata") or {})
+    mode = str(edge.get("mode") or edge.get("edge_type") or metadata.get("edge_type") or "").strip()
+    dependency_role = str(metadata.get("dependency_role") or edge.get("dependency_role") or "").strip()
+    loop_role = str(metadata.get("loop_role") or edge.get("loop_role") or "").strip()
+    verdict = str(metadata.get("verdict") or edge.get("verdict") or "").strip()
+    if mode in {"review_feedback", "repair_feedback", "conditional_feedback"}:
+        return False
+    if mode in {"revision_request", "repair_route", "human_handoff", "fail_closed", "conditional_route"}:
+        return False
+    if dependency_role in {
+        "feedback",
+        "conditional_feedback",
+        "repair_feedback",
+        "non_blocking_feedback",
+        "conditional_route",
+        "repair_route",
+        "failure_route",
+        "human_handoff",
+    }:
+        return False
+    if loop_role in {"repair", "feedback"}:
+        return False
+    if verdict in {
+        "revise",
+        "repair_world",
+        "repair_outline",
+        "repair_character",
+        "human_review_required",
+        "fail_closed",
+    }:
+        return False
+    return order_index.get(target, -1) >= order_index.get(source, -1)
+
+
+def _rewound_contract_status(
+    status: dict[str, Any],
+    *,
+    invalidated_stage_ids: list[str],
+    target_stage_id: str,
+    reason: str,
+) -> dict[str, Any]:
+    invalidated = {str(item) for item in list(invalidated_stage_ids or []) if str(item)}
+    next_status = dict(status or {})
+    node_status = {
+        str(stage): dict(payload)
+        for stage, payload in dict(next_status.get("node_status") or {}).items()
+        if str(stage) and isinstance(payload, dict)
+    }
+    acceptance_results = {
+        str(stage): dict(payload)
+        for stage, payload in dict(next_status.get("acceptance_results") or {}).items()
+        if str(stage) and isinstance(payload, dict) and str(stage) not in invalidated
+    }
+    for stage in invalidated:
+        if stage not in node_status:
+            continue
+        node_status[stage] = {
+            **dict(node_status.get(stage) or {}),
+            "status": "pending_rewind" if stage == target_stage_id else "invalidated_downstream",
+            "accepted": False,
+            "task_result_ref": "",
+            "artifact_refs": [],
+            "missing_required_inputs": [],
+            "updated_at": time.time(),
+            "diagnostics": {"rewound_from_stage": target_stage_id, "reason": reason},
+        }
+    next_status["node_status"] = node_status
+    next_status["acceptance_results"] = acceptance_results
+    return next_status
+
+
+def _rewind_preserved_pending_inputs(
+    pending_inputs: dict[str, Any],
+    *,
+    invalidated_stage_ids: list[str],
+    stage_results: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    invalidated = {str(item) for item in list(invalidated_stage_ids or []) if str(item)}
+    valid_artifact_refs = {
+        str(ref)
+        for result in dict(stage_results or {}).values()
+        if isinstance(result, dict)
+        for ref in list(result.get("artifact_refs") or [])
+        if str(ref)
+    }
+    preserved: dict[str, Any] = {}
+    for key, value in dict(pending_inputs or {}).items():
+        key_text = str(key)
+        if key_text in {
+            "upstream_output_refs",
+            "revision_required",
+            "required_changes",
+            "review_verdict",
+            "previous_candidate_artifact_refs",
+            "rewind_invalidated_artifacts",
+        }:
+            continue
+        if _input_key_scoped_to_invalidated_stage(key_text, invalidated):
+            continue
+        filtered = _filter_rewind_input_value(value, valid_artifact_refs=valid_artifact_refs)
+        if filtered in ("", None, [], {}):
+            continue
+        preserved[key_text] = filtered
+    return preserved
+
+
+def _input_key_scoped_to_invalidated_stage(key: str, invalidated_stage_ids: set[str]) -> bool:
+    key_text = str(key or "")
+    for stage in invalidated_stage_ids:
+        stage_text = str(stage or "")
+        if not stage_text:
+            continue
+        if key_text == stage_text:
+            return True
+        if key_text.startswith((f"{stage_text}_", f"{stage_text}:", f"{stage_text}.")):
+            return True
+        if key_text.endswith((f"_{stage_text}", f":{stage_text}", f".{stage_text}")):
+            return True
+        if key_text.endswith(f"{stage_text}_ref") or key_text.endswith(f"{stage_text}_refs"):
+            return True
+        if f".{stage_text}." in key_text or f":{stage_text}:" in key_text:
+            return True
+    return False
+
+
+def _filter_rewind_input_value(value: Any, *, valid_artifact_refs: set[str]) -> Any:
+    if isinstance(value, list):
+        filtered = [_filter_rewind_input_value(item, valid_artifact_refs=valid_artifact_refs) for item in value]
+        return [item for item in filtered if item not in ("", None, [], {})]
+    if isinstance(value, tuple):
+        filtered = [_filter_rewind_input_value(item, valid_artifact_refs=valid_artifact_refs) for item in value]
+        return [item for item in filtered if item not in ("", None, [], {})]
+    if isinstance(value, dict):
+        return {
+            str(key): filtered
+            for key, item in value.items()
+            if (filtered := _filter_rewind_input_value(item, valid_artifact_refs=valid_artifact_refs)) not in ("", None, [], {})
+        }
+    if isinstance(value, str) and value.startswith("artifact:") and valid_artifact_refs and value not in valid_artifact_refs:
+        return ""
+    return value
 
 
 def _scheduler_node_sets(
@@ -4899,10 +5469,17 @@ def _scheduler_node_sets(
         node_statuses=node_statuses,
         result_record_index=dict(state.get("result_record_index") or {}),
         accepted_result_records_by_scope=dict(state.get("accepted_result_records_by_scope") or {}),
+        edge_handoff_index=_edge_handoff_index_from_state(state),
         active_scope_key=_active_scope_key_for_scheduler(state),
         terminal_status=terminal_status,
         mode="active",
     )
+    effective_node_statuses = {
+        str(key): str(value)
+        for key, value in dict(scheduler_state.diagnostics.get("effective_node_statuses") or {}).items()
+        if str(key)
+    }
+    resolved_node_statuses = effective_node_statuses or dict(node_statuses)
     return {
         "ready_nodes": list(scheduler_state.ready_node_ids),
         "blocked_nodes": list(scheduler_state.blocked_node_ids),
@@ -4915,6 +5492,7 @@ def _scheduler_node_sets(
         "completed_nodes": list(scheduler_state.completed_node_ids),
         "failed_nodes": list(scheduler_state.failed_node_ids),
         "terminal_status": scheduler_state.terminal_status,
+        "node_statuses": resolved_node_statuses,
         "diagnostics": {
             **dict(state.get("diagnostics") or {}),
             "task_graph_scheduler_state": scheduler_state.to_dict(),
@@ -4926,6 +5504,23 @@ def _scheduler_node_sets(
 def _runtime_spec_from_state(state: dict[str, Any]) -> TaskGraphRuntimeSpec | None:
     payload = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
     return _runtime_spec_from_payload(payload)
+
+
+def _edge_handoff_index_from_state(state: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    index: dict[str, dict[str, Any]] = {}
+    for raw in list(state.get("handoff_envelopes") or []):
+        if not isinstance(raw, dict):
+            continue
+        payload = dict(raw)
+        diagnostics = dict(payload.get("diagnostics") or {})
+        edge_id = str(payload.get("edge_id") or diagnostics.get("edge_id") or "").strip()
+        source = str(payload.get("source_node_id") or diagnostics.get("source_node_id") or diagnostics.get("source_stage_id") or "").strip()
+        target = str(payload.get("target_node_id") or diagnostics.get("target_node_id") or diagnostics.get("target_stage_id") or "").strip()
+        keys = [edge_id, f"{source}->{target}" if source and target else "", f"{source}:{target}" if source and target else ""]
+        for key in keys:
+            if key:
+                index[key] = payload
+    return index
 
 
 def _dependency_scope_key_from_inputs(inputs: dict[str, Any]) -> str:
@@ -4948,6 +5543,32 @@ def _dependency_scope_key_from_inputs(inputs: dict[str, Any]) -> str:
     if iteration_index > 0:
         parts.append(f"iteration[{iteration_index}]")
     return "/".join(parts)
+
+
+def _node_dispatch_idempotency_key(
+    *,
+    coordination_run_id: str,
+    stage_id: str,
+    stage_scope: dict[str, Any],
+    explicit_inputs: dict[str, Any],
+    retry_counts: dict[str, Any],
+) -> str:
+    retry_index = _safe_int(dict(retry_counts or {}).get(stage_id), 0)
+    force_replay_after = str(explicit_inputs.get("force_replay_after") or "").strip()
+    seed = {
+        "coordination_run_id": coordination_run_id,
+        "stage_id": stage_id,
+        "scope_path": list(stage_scope.get("scope_path") or []),
+        "dependency_scope_key": str(stage_scope.get("dependency_scope_key") or ""),
+        "volume_index": _safe_int(stage_scope.get("volume_index"), 0),
+        "batch_start_index": _safe_int(stage_scope.get("batch_start_index"), 0),
+        "batch_end_index": _safe_int(stage_scope.get("batch_end_index"), 0),
+        "round_index": _safe_int(stage_scope.get("round_index"), 0),
+        "iteration_index": _safe_int(stage_scope.get("iteration_index"), 0),
+        "retry_index": retry_index,
+        "force_replay_after": force_replay_after,
+    }
+    return f"{coordination_run_id}:{stage_id}:dispatch:{_short_hash(seed)}"
 
 
 def _active_scope_key_for_scheduler(state: dict[str, Any]) -> str:
@@ -5173,9 +5794,15 @@ def _manifest_from_payload(payload: dict[str, Any]) -> ContractManifest | None:
         global_contracts=tuple(_global_contract_from_payload(item) for item in list(payload.get("global_contracts") or []) if isinstance(item, dict)),
         node_contracts=tuple(_node_contract_from_payload(item) for item in list(payload.get("node_contracts") or []) if isinstance(item, dict)),
         edge_handoff_contracts=tuple(_edge_contract_from_payload(item) for item in list(payload.get("edge_handoff_contracts") or []) if isinstance(item, dict)),
+        graph_unit_handoff_contracts=tuple(
+            _graph_unit_contract_from_payload(item)
+            for item in list(payload.get("graph_unit_handoff_contracts") or [])
+            if isinstance(item, dict)
+        ),
         runtime_contracts=tuple(_runtime_contract_from_payload(item) for item in list(payload.get("runtime_contracts") or []) if isinstance(item, dict)),
         acceptance_contracts=tuple(_acceptance_contract_from_payload(item) for item in list(payload.get("acceptance_contracts") or []) if isinstance(item, dict)),
         issues=tuple(_compile_issue_from_payload(item) for item in list(payload.get("issues") or []) if isinstance(item, dict)),
+        graph_contract_bindings=dict(payload.get("graph_contract_bindings") or {}),
         metadata=dict(payload.get("metadata") or {}),
     )
 
@@ -5205,6 +5832,14 @@ def _node_contract_from_payload(payload: dict[str, Any]) -> CompiledNodeContract
         output_contract_id=str(payload.get("output_contract_id") or ""),
         contract_refs=tuple(str(item) for item in list(payload.get("contract_refs") or []) if str(item)),
         source_refs=tuple(str(item) for item in list(payload.get("source_refs") or []) if str(item)),
+        schema_bindings=dict(payload.get("schema_bindings") or {}),
+        execution_bindings=dict(payload.get("execution_bindings") or {}),
+        artifact_bindings=dict(payload.get("artifact_bindings") or {}),
+        memory_bindings=dict(payload.get("memory_bindings") or {}),
+        acceptance_bindings=dict(payload.get("acceptance_bindings") or {}),
+        runtime_bindings=dict(payload.get("runtime_bindings") or {}),
+        unit_batch_bindings=dict(payload.get("unit_batch_bindings") or {}),
+        governance_bindings=dict(payload.get("governance_bindings") or {}),
         metadata=dict(payload.get("metadata") or {}),
     )
 
@@ -5217,6 +5852,33 @@ def _edge_contract_from_payload(payload: dict[str, Any]) -> CompiledEdgeHandoffC
         message_type=str(payload.get("message_type") or ""),
         contract_refs=tuple(str(item) for item in list(payload.get("contract_refs") or []) if str(item)),
         handoff_policy=str(payload.get("handoff_policy") or "structured_packet"),
+        schema_bindings=dict(payload.get("schema_bindings") or {}),
+        handoff_bindings=dict(payload.get("handoff_bindings") or {}),
+        temporal_bindings=dict(payload.get("temporal_bindings") or {}),
+        memory_bindings=dict(payload.get("memory_bindings") or {}),
+        artifact_bindings=dict(payload.get("artifact_bindings") or {}),
+        governance_bindings=dict(payload.get("governance_bindings") or {}),
+        metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def _graph_unit_contract_from_payload(payload: dict[str, Any]) -> CompiledGraphUnitHandoffContract:
+    return CompiledGraphUnitHandoffContract(
+        plan_id=str(payload.get("plan_id") or ""),
+        parent_graph_id=str(payload.get("parent_graph_id") or ""),
+        runtime_node_id=str(payload.get("runtime_node_id") or ""),
+        unit_id=str(payload.get("unit_id") or ""),
+        linked_graph_id=str(payload.get("linked_graph_id") or ""),
+        handoff_contract_id=str(payload.get("handoff_contract_id") or ""),
+        contract_refs=tuple(str(item) for item in list(payload.get("contract_refs") or []) if str(item)),
+        version_ref=str(payload.get("version_ref") or ""),
+        input_port_id=str(payload.get("input_port_id") or "input.default") or "input.default",
+        output_port_id=str(payload.get("output_port_id") or "output.default") or "output.default",
+        handoff_policy=str(payload.get("handoff_policy") or "nested_graph_commit_packet"),
+        source_refs=tuple(str(item) for item in list(payload.get("source_refs") or []) if str(item)),
+        handoff_bindings=dict(payload.get("handoff_bindings") or {}),
+        runtime_bindings=dict(payload.get("runtime_bindings") or {}),
+        governance_bindings=dict(payload.get("governance_bindings") or {}),
         metadata=dict(payload.get("metadata") or {}),
     )
 

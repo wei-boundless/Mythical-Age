@@ -337,6 +337,43 @@ def test_direct_delegation_does_not_create_coordination_run(tmp_path) -> None:
     assert "agent_delegation_parent_observation_created" in event_types
 
 
+def test_delegation_executor_fails_closed_on_child_timeout(tmp_path) -> None:
+    async def _slow_child_runner(_context):
+        await asyncio.sleep(1.0)
+        return {
+            "status": "completed",
+            "summary": "迟到的结果不应进入本轮。",
+        }
+
+    executor = AgentDelegationExecutor(tmp_path, child_runner=_slow_child_runner)
+    parent_run = AgentRun(
+        agent_run_id="agrun:taskrun:test:main",
+        task_run_id="taskrun:test",
+        agent_id="agent:0",
+        agent_profile_id="main_interactive_agent",
+        status="running",
+    )
+    request = AgentDelegationRequest(
+        request_id="delegation:req:timeout",
+        task_run_id="taskrun:test",
+        session_id="session:test",
+        parent_agent_run_ref=parent_run.agent_run_id,
+        source_agent_id="agent:0",
+        target_agent_id="agent:rag_analyst",
+        delegation_kind="evidence_lookup",
+        instruction="请检索证据。",
+        input_payload={"query": "test"},
+        timeout_policy={"timeout_seconds": 0.01},
+    )
+
+    outcome = asyncio.run(executor.execute(request=request, parent_agent_run=parent_run))
+    result = outcome["result"]
+
+    assert result.status == "failed"
+    assert "delegation_timeout" in result.limitations
+    assert result.diagnostics["timeout_seconds"] == 1.0
+
+
 def test_delegation_executor_enforces_max_delegate_calls_per_turn(tmp_path) -> None:
     async def _child_runner(_context):
         return {

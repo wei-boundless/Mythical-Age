@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import os
 import platform
@@ -379,42 +378,28 @@ def _ensure_session(client: TestClient, session_ids: dict[str, str], alias: str,
 
 
 def _sync_memory(runtime, session_id: str, *, durable: bool = False) -> dict[str, Any]:
-    async def _enqueue_and_wait() -> dict[str, Any]:
-        receipt = await runtime.memory_facade.arun_memory_maintenance_after_commit(
-            session_id=session_id,
-            messages=runtime.session_manager.load_session(session_id),
-            durable_lane_enabled=durable,
-        )
-        task_kind = str(getattr(receipt, "diagnostics", {}).get("background_task_kind") or "memory_maintenance_after_commit")
-        task_id = str(getattr(receipt, "diagnostics", {}).get("background_task_id") or "").strip()
-        task_record = None
-        if task_id:
-            deadline = time.perf_counter() + 30.0
-            while time.perf_counter() < deadline:
-                task_record = runtime.memory_facade.background_task_manager.load(task_id, task_kind)
-                if task_record is not None and str(getattr(task_record, "status", "") or "") in {"succeeded", "failed", "skipped"}:
-                    break
-                await asyncio.sleep(0.05)
+    if not durable:
+        session_summary = runtime.memory_facade.session_memory.manager(session_id).load()
         return {
-            "receipt": receipt,
-            "task_kind": task_kind,
-            "task_id": task_id,
-            "task_record": task_record,
+            "session_summary_chars": len(str(session_summary or "").strip()),
+            "durable_saved": 0,
+            "memory_maintenance_status": "skipped",
+            "memory_maintenance_mode": "runtime_state_already_projected",
+            "memory_maintenance_skip_reason": "durable_lane_not_requested",
         }
-
-    result = asyncio.run(_enqueue_and_wait())
-    receipt = result["receipt"]
-    task_kind = result["task_kind"]
-    task_id = result["task_id"]
-    task_record = result["task_record"]
+    receipt = runtime.memory_facade.run_memory_maintenance_after_commit(
+        session_id=session_id,
+        messages=runtime.session_manager.load_session(session_id),
+        durable_lane_enabled=durable,
+    )
     session_summary = runtime.memory_facade.session_memory.manager(session_id).load()
     return {
         "session_summary_chars": len(str(session_summary or "").strip()),
-        "durable_saved": int(getattr(task_record, "result", {}).get("durable_write_count") or 0) if task_record else 0,
-        "memory_maintenance_status": str(getattr(task_record, "status", "") or getattr(receipt, "status", "") or ""),
-        "memory_maintenance_mode": "background",
-        "memory_maintenance_task_id": task_id,
-        "memory_maintenance_task_kind": task_kind,
+        "durable_saved": int(getattr(receipt, "durable_write_count", 0) or 0),
+        "memory_maintenance_status": str(getattr(receipt, "status", "") or ""),
+        "memory_maintenance_mode": "forced_sync",
+        "memory_maintenance_receipt_path": str(getattr(receipt, "receipt_path", "") or ""),
+        "memory_maintenance_run_id": str(getattr(receipt, "run_id", "") or ""),
     }
 
 
@@ -648,37 +633,53 @@ def _resolve_nonnegative_int_env(name: str, default: int) -> int:
     return value if value >= 0 else default
 
 
-def _cap_model_runtime_for_long_eval(runtime) -> tuple[float, int]:
+def _cap_model_runtime_for_long_eval(runtime) -> tuple[float, float, int]:
     timeout_cap = _resolve_positive_float_env("SYSTEM_EVAL_LLM_TIMEOUT_SECONDS", 60.0)
     retry_cap = _resolve_nonnegative_int_env("SYSTEM_EVAL_LLM_MAX_RETRIES", 0)
     original = (
         float(runtime.model_runtime.request_timeout_seconds),
+        float(runtime.model_runtime.long_output_timeout_seconds),
         int(runtime.model_runtime.max_retries),
     )
     _set_model_runtime_limits(
         runtime,
         timeout_seconds=min(original[0], timeout_cap),
-        max_retries=min(original[1], retry_cap),
+        long_output_timeout_seconds=min(original[1], timeout_cap),
+        max_retries=min(original[2], retry_cap),
     )
     return original
 
 
-def _set_model_runtime_limits(runtime, *, timeout_seconds: float, max_retries: int) -> None:
+def _set_model_runtime_limits(
+    runtime,
+    *,
+    timeout_seconds: float,
+    long_output_timeout_seconds: float | None = None,
+    max_retries: int,
+) -> None:
     model_runtime = runtime.model_runtime
     timeout_descriptor = getattr(type(model_runtime), "request_timeout_seconds", None)
     retry_descriptor = getattr(type(model_runtime), "max_retries", None)
     if isinstance(timeout_descriptor, property) and timeout_descriptor.fset is not None:
         model_runtime.request_timeout_seconds = timeout_seconds
+        if long_output_timeout_seconds is not None:
+            model_runtime.long_output_timeout_seconds = long_output_timeout_seconds
         model_runtime.max_retries = max_retries
         return
 
     settings_service = getattr(model_runtime, "settings_service", None)
     if settings_service is None:
         raise RuntimeError("ModelRuntime does not expose writable settings for long eval limits")
+    effective_long_timeout = (
+        float(long_output_timeout_seconds)
+        if long_output_timeout_seconds is not None
+        else float(timeout_seconds)
+    )
     settings_service.set_runtime_config_group(
         "runtime",
         {
             "llm_timeout_seconds": float(timeout_seconds),
+            "llm_long_output_timeout_seconds": effective_long_timeout,
             "llm_max_retries": int(max_retries),
         },
     )
@@ -1320,7 +1321,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         runtime = app_runtime.require_ready()
         original_post_turn = runtime.query_runtime._run_post_turn_tasks
-        original_timeout, original_retries = _cap_model_runtime_for_long_eval(runtime)
+        original_timeout, original_long_timeout, original_retries = _cap_model_runtime_for_long_eval(runtime)
 
         async def _noop_post_turn(_session_id: str, *, title_seed: str | None = None) -> None:
             return None
@@ -1341,6 +1342,7 @@ def main(argv: list[str] | None = None) -> int:
             _set_model_runtime_limits(
                 runtime,
                 timeout_seconds=original_timeout,
+                long_output_timeout_seconds=original_long_timeout,
                 max_retries=original_retries,
             )
     finally:
@@ -1359,6 +1361,7 @@ def main(argv: list[str] | None = None) -> int:
         "passed": sum(1 for result in run_result.results if result.passed),
         "failed": sum(1 for result in run_result.results if not result.passed),
         "llm_timeout_seconds": min(original_timeout, _resolve_positive_float_env("SYSTEM_EVAL_LLM_TIMEOUT_SECONDS", 60.0)),
+        "llm_long_output_timeout_seconds": min(original_long_timeout, _resolve_positive_float_env("SYSTEM_EVAL_LLM_TIMEOUT_SECONDS", 60.0)),
         "llm_max_retries": min(original_retries, _resolve_nonnegative_int_env("SYSTEM_EVAL_LLM_MAX_RETRIES", 0)),
     }
 

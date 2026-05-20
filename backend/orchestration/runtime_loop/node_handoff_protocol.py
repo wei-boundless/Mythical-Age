@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-EXECUTOR_TYPES = {"agent", "human", "tool", "subgraph"}
+EXECUTOR_TYPES = {"agent", "human", "tool", "subgraph", "graph_unit"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -518,6 +518,8 @@ def _normalize_executor(value: Any) -> str:
         text = "agent"
     if text in {"manual", "user", "operator"}:
         text = "human"
+    if text in {"nested_graph", "graphunit", "graph-unit"}:
+        text = "graph_unit"
     return text if text in EXECUTOR_TYPES else ""
 
 

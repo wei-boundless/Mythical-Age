@@ -86,6 +86,13 @@ describe("TaskGraphDraftV2 mapping", () => {
     expect(payload.working_memory_policy_profile_id).toBe("wmprofile.story");
     expect(payload.working_memory_policy?.default_scope).toBe("graph_scope");
     expect(payload.graph_contract_id).toBe("contract.story.graph");
+    expect((payload.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.schema).toEqual({ graph_contract_id: "contract.story.graph" });
+    expect((payload.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.memory).toEqual({
+      working_memory_policy: {
+        default_scope: "graph_scope",
+        default_visibility: "handoff_only",
+      },
+    });
     expect(payload.entry_node_id).toBe("draft");
     expect(payload.output_node_id).toBe("review");
     expect(payload.metadata?.runtime_policy).toBeUndefined();
@@ -94,6 +101,131 @@ describe("TaskGraphDraftV2 mapping", () => {
     expect(payload.metadata?.artifact_policy).toEqual({ enabled: true });
     expect(payload.metadata?.subtask_refs).toEqual(["task.review", "task.draft"]);
     expect(payload.enabled).toBe(true);
+  });
+
+  it("normalizes graph node and edge contracts into contract_bindings", () => {
+    const draft = {
+      ...emptyTaskGraphDraftV2(),
+      graph_id: "graph.test.contracts",
+      title: "Contract graph",
+      graph_contract_id: "contract.graph",
+      nodes: [
+        {
+          node_id: "draft",
+          node_type: "agent",
+          title: "Draft",
+          input_contract_id: "contract.input",
+          output_contract_id: "contract.output",
+          node_contract_id: "contract.executor",
+          memory_read_policy: { readable_scopes: ["baseline"] },
+          artifact_policy: { target: "draft.md" },
+        },
+      ],
+      edges: [
+        {
+          edge_id: "edge.1",
+          source_node_id: "draft",
+          target_node_id: "draft",
+          edge_type: "handoff",
+          payload_contract_id: "contract.payload",
+          ack_required: true,
+          ack_policy: "explicit_ack",
+          metadata: { temporal_semantics: { visibility_timing: "after_commit" } },
+        },
+      ],
+    };
+
+    const payload = buildTaskGraphUpsertPayload({
+      taskGraphDraft: draft,
+      domain_id: "",
+      task_family: "",
+      task_id: "",
+      publish_state: "draft",
+    });
+
+    expect((payload.nodes[0]?.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.schema).toEqual({
+      input_contract_id: "contract.input",
+      output_contract_id: "contract.output",
+    });
+    expect((payload.nodes[0]?.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.execution).toEqual({
+      node_contract_id: "contract.executor",
+    });
+    expect((payload.nodes[0]?.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.memory).toEqual({
+      memory_read_policy: { readable_scopes: ["baseline"] },
+    });
+    expect((payload.edges[0]?.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.schema).toEqual({
+      payload_contract_id: "contract.payload",
+    });
+    expect((payload.edges[0]?.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.handoff).toMatchObject({
+      ack_required: true,
+      ack_policy: "explicit_ack",
+    });
+    expect((payload.edges[0]?.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.temporal).toEqual({
+      visibility_timing: "after_commit",
+    });
+  });
+
+  it("preserves explicit contract_bindings when legacy contract fields differ", () => {
+    const draft = {
+      ...emptyTaskGraphDraftV2(),
+      graph_id: "graph.test.contract-authority",
+      title: "Contract authority graph",
+      graph_contract_id: "contract.legacy.graph",
+      contract_bindings: {
+        schema: { graph_contract_id: "contract.binding.graph" },
+      },
+      nodes: [
+        {
+          node_id: "draft",
+          node_type: "agent",
+          title: "Draft",
+          input_contract_id: "contract.legacy.input",
+          output_contract_id: "contract.legacy.output",
+          node_contract_id: "contract.legacy.executor",
+          contract_bindings: {
+            schema: {
+              input_contract_id: "contract.binding.input",
+              output_contract_id: "contract.binding.output",
+            },
+            execution: { node_contract_id: "contract.binding.executor" },
+          },
+        },
+      ],
+      edges: [
+        {
+          edge_id: "edge.1",
+          source_node_id: "draft",
+          target_node_id: "draft",
+          edge_type: "handoff",
+          payload_contract_id: "contract.legacy.payload",
+          contract_bindings: {
+            schema: { payload_contract_id: "contract.binding.payload" },
+          },
+        },
+      ],
+    };
+
+    const payload = buildTaskGraphUpsertPayload({
+      taskGraphDraft: draft,
+      domain_id: "",
+      task_family: "",
+      task_id: "",
+      publish_state: "draft",
+    });
+
+    expect((payload.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.schema).toEqual({
+      graph_contract_id: "contract.binding.graph",
+    });
+    expect((payload.nodes[0]?.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.schema).toEqual({
+      input_contract_id: "contract.binding.input",
+      output_contract_id: "contract.binding.output",
+    });
+    expect((payload.nodes[0]?.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.execution).toEqual({
+      node_contract_id: "contract.binding.executor",
+    });
+    expect((payload.edges[0]?.contract_bindings as Record<string, Record<string, unknown>> | undefined)?.schema).toEqual({
+      payload_contract_id: "contract.binding.payload",
+    });
   });
 
   it("restores a V2 draft from TaskGraph first-class fields before metadata fallbacks", () => {
@@ -129,6 +261,9 @@ describe("TaskGraphDraftV2 mapping", () => {
       },
       publish_state: "published",
       enabled: true,
+      contract_bindings: {
+        schema: { graph_contract_id: "contract.restore" },
+      },
       metadata: {
         task_id: "task.restore",
         coordinator_agent_id: "agent:legacy",
@@ -152,5 +287,6 @@ describe("TaskGraphDraftV2 mapping", () => {
     expect(draft.metadata.runtime_policy).toBeUndefined();
     expect(draft.metadata.graph_contract_id).toBeUndefined();
     expect(draft.publish_state).toBe("published");
+    expect((draft.contract_bindings.schema as Record<string, unknown> | undefined)).toEqual({ graph_contract_id: "contract.restore" });
   });
 });

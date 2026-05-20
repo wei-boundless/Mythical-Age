@@ -25,17 +25,24 @@ def bootstrap_scheduler_state(
     node_statuses: dict[str, str] | None = None,
     result_record_index: dict[str, dict[str, Any]] | None = None,
     accepted_result_records_by_scope: dict[str, dict[str, str]] | None = None,
+    edge_handoff_index: dict[str, dict[str, Any]] | None = None,
     active_scope_key: str = "",
     terminal_status: str = "",
     mode: str = "shadow",
 ) -> TaskGraphSchedulerState:
-    statuses = _initial_node_statuses(runtime_spec=runtime_spec, node_statuses=node_statuses)
+    raw_statuses = _initial_node_statuses(runtime_spec=runtime_spec, node_statuses=node_statuses)
+    statuses, failure_propagation = _apply_failure_propagation(
+        nodes=runtime_spec.nodes,
+        edges=runtime_spec.edges,
+        statuses=raw_statuses,
+    )
     incoming, outgoing = _node_adjacency(runtime_spec.nodes, runtime_spec.edges, runtime_spec.temporal_edges)
     incoming_edges = _incoming_edges_by_target(runtime_spec.edges, runtime_spec.temporal_edges)
     optional_node_ids = _optional_feedback_subgraph_nodes(runtime_spec.nodes, runtime_spec.edges)
     temporal_gate_enabled = bool(result_record_index is not None or accepted_result_records_by_scope is not None)
     record_index = _normalize_result_record_index(result_record_index)
     accepted_by_scope = _normalize_accepted_result_records(accepted_result_records_by_scope)
+    handoff_index = _normalize_edge_handoff_index(edge_handoff_index)
     completed = {node_id for node_id, status in statuses.items() if status in TERMINAL_COMPLETED}
     failed = {node_id for node_id, status in statuses.items() if status in TERMINAL_FAILED}
     running = {node_id for node_id, status in statuses.items() if status in ACTIVE_STATUSES}
@@ -82,6 +89,7 @@ def bootstrap_scheduler_state(
                 incoming_edges=tuple(incoming_edges.get(node.node_id, ())),
                 result_record_index=record_index,
                 accepted_result_records_by_scope=accepted_by_scope,
+                edge_handoff_index=handoff_index,
                 active_scope_key=active_scope_key,
             ) and timing_allowed
             if ready:
@@ -89,8 +97,13 @@ def bootstrap_scheduler_state(
                 ready_node_ids.append(node.node_id)
             else:
                 status = "blocked"
-                missing_sources = [source for source in required_sources if source not in completed]
-                blocked_reasons.extend(f"upstream:{source}" for source in missing_sources)
+                for source in required_sources:
+                    if source in completed:
+                        continue
+                    if source in failed:
+                        blocked_reasons.append(f"upstream_failed:{source}")
+                    else:
+                        blocked_reasons.append(f"upstream:{source}")
                 blocked_reasons.extend(
                     _timeline_gate_blocked_reasons(
                         node=node,
@@ -100,11 +113,19 @@ def bootstrap_scheduler_state(
                         incoming_edges=tuple(incoming_edges.get(node.node_id, ())),
                         result_record_index=record_index,
                         accepted_result_records_by_scope=accepted_by_scope,
+                        edge_handoff_index=handoff_index,
                         active_scope_key=active_scope_key,
                     )
                 )
                 blocked_reasons.extend(timing_reasons)
-                if node.wait_policy not in {"wait_all_upstream_completed", "wait_required_contracts"}:
+                if node.wait_policy not in {
+                    "wait_all_upstream_completed",
+                    "wait_required_contracts",
+                    "wait_any_upstream_completed",
+                    "wait_handoff_ack",
+                    "fire_and_continue",
+                    "manual_release",
+                }:
                     blocked_reasons.append(f"unsupported_wait_policy:{node.wait_policy}")
                 blocked_node_ids.append(node.node_id)
         elif status in ACTIVE_STATUSES:
@@ -133,6 +154,15 @@ def bootstrap_scheduler_state(
                 diagnostics={
                     "dispatch_group": node.dispatch_group,
                     "blocks_phase_exit": node.blocks_phase_exit,
+                    "node_type": node.node_type,
+                    "graph_unit": bool(dict(node.metadata or {}).get("graph_unit")),
+                    "nested_runtime_plan_id": str(dict(node.metadata or {}).get("nested_runtime_plan_id") or ""),
+                    "linked_graph_id": str(dict(node.metadata or {}).get("linked_graph_id") or ""),
+                    "raw_status": str(raw_statuses.get(node.node_id, "")),
+                    "failure_propagated": bool(
+                        raw_statuses.get(node.node_id) != "failed"
+                        and statuses.get(node.node_id) == "failed"
+                    ),
                 },
             )
         )
@@ -144,6 +174,7 @@ def bootstrap_scheduler_state(
             temporal_gate_enabled=temporal_gate_enabled,
             result_record_index=record_index,
             accepted_result_records_by_scope=accepted_by_scope,
+            edge_handoff_index=handoff_index,
             active_scope_key=active_scope_key,
         )
         for edge in runtime_spec.edges
@@ -181,7 +212,24 @@ def bootstrap_scheduler_state(
             "active_sequence_by_phase": dict(active_sequence_by_phase),
             "optional_node_ids": sorted(optional_node_ids),
             "timeline_gate_enabled": temporal_gate_enabled,
+            "edge_handoff_gate_enabled": bool(handoff_index),
             "active_scope_key": active_scope_key,
+            "input_node_statuses": dict(raw_statuses),
+            "effective_node_statuses": dict(statuses),
+            "failure_propagation": failure_propagation,
+            "failure_propagated_node_ids": sorted(
+                {
+                    str(item.get("target_node_id") or "")
+                    for item in failure_propagation
+                    if str(item.get("target_node_id") or "")
+                }
+            ),
+            "nested_runtime_plan_count": len(getattr(runtime_spec, "nested_runtime_plans", ())),
+            "graph_unit_node_ids": [
+                node.node_id
+                for node in runtime_spec.nodes
+                if node.node_type == "graph_unit" or bool(dict(node.metadata or {}).get("graph_unit"))
+            ],
         },
     )
 
@@ -202,6 +250,61 @@ def _initial_node_statuses(
         node.node_id: "ready" if node.node_id in start_ids else "pending"
         for node in runtime_spec.nodes
     }
+
+
+def _apply_failure_propagation(
+    *,
+    nodes: tuple[TaskGraphRuntimeNode, ...],
+    edges: tuple[TaskGraphRuntimeEdge, ...],
+    statuses: dict[str, str],
+) -> tuple[dict[str, str], list[dict[str, Any]]]:
+    effective = dict(statuses)
+    node_ids = {node.node_id for node in nodes}
+    propagation: list[dict[str, Any]] = []
+    propagated_keys: set[tuple[str, str, str]] = set()
+    changed = True
+    while changed:
+        changed = False
+        for edge in edges:
+            source = str(edge.source_node_id or "").strip()
+            target = str(edge.target_node_id or "").strip()
+            if source not in node_ids or target not in node_ids:
+                continue
+            if _is_feedback_edge(edge) or _is_conditional_route_edge(edge):
+                continue
+            if effective.get(source) != "failed":
+                continue
+            policy = _failure_propagation_policy(edge)
+            if policy != "fail_downstream":
+                continue
+            target_status = str(effective.get(target) or "pending")
+            if target_status in TERMINAL_COMPLETED | TERMINAL_FAILED | ACTIVE_STATUSES | WAITING_STATUSES:
+                continue
+            effective[target] = "failed"
+            key = (source, edge.edge_id, target)
+            if key not in propagated_keys:
+                propagation.append(
+                    {
+                        "source_node_id": source,
+                        "target_node_id": target,
+                        "edge_id": edge.edge_id,
+                        "failure_propagation_policy": policy,
+                        "previous_target_status": target_status,
+                    }
+                )
+                propagated_keys.add(key)
+            changed = True
+    return effective, propagation
+
+
+def _failure_propagation_policy(edge: TaskGraphRuntimeEdge | dict[str, Any] | None) -> str:
+    if edge is None:
+        return "fail_downstream"
+    if isinstance(edge, TaskGraphRuntimeEdge):
+        value = str(edge.failure_propagation_policy or "fail_downstream").strip()
+    else:
+        value = str(edge.get("failure_propagation_policy") or "fail_downstream").strip()
+    return value or "fail_downstream"
 
 
 def _node_adjacency(
@@ -325,6 +428,7 @@ def _node_ready(
     incoming_edges: tuple[TaskGraphRuntimeEdge | dict[str, Any], ...] = (),
     result_record_index: dict[str, dict[str, Any]] | None = None,
     accepted_result_records_by_scope: dict[str, dict[str, str]] | None = None,
+    edge_handoff_index: dict[str, dict[str, Any]] | None = None,
     active_scope_key: str = "",
 ) -> bool:
     if node.wait_policy == "fire_and_continue":
@@ -332,35 +436,47 @@ def _node_ready(
     if not required_sources:
         return current_status == "ready" or node.node_id in start_node_ids
     if failed and node.join_policy in {"allow_partial_with_issues", "coordinator_decides"}:
-        terminal_sources = completed | failed
+        allowed_failed_sources = {
+            source
+            for source in required_sources
+            if source in failed
+            and _failure_propagation_policy(_edge_for_source(incoming_edges, source)) in {"allow_partial", "coordinator_decides"}
+        }
+        terminal_sources = completed | allowed_failed_sources
         if not (all(source in terminal_sources for source in required_sources) and any(source in completed for source in required_sources)):
             return False
-        return _timeline_dependencies_satisfied(
+        return _source_readiness_dependencies_satisfied(
+            node=node,
             required_sources=tuple(source for source in required_sources if source in completed),
             temporal_gate_enabled=temporal_gate_enabled,
             incoming_edges=incoming_edges,
             result_record_index=result_record_index or {},
             accepted_result_records_by_scope=accepted_result_records_by_scope or {},
+            edge_handoff_index=edge_handoff_index or {},
             active_scope_key=active_scope_key,
         )
     if node.wait_policy == "wait_any_upstream_completed":
         completed_sources = tuple(source for source in required_sources if source in completed)
-        return any(completed_sources) and _timeline_dependencies_satisfied(
+        return any(completed_sources) and _source_readiness_dependencies_satisfied(
+            node=node,
             required_sources=completed_sources,
             temporal_gate_enabled=temporal_gate_enabled,
             incoming_edges=incoming_edges,
             result_record_index=result_record_index or {},
             accepted_result_records_by_scope=accepted_result_records_by_scope or {},
+            edge_handoff_index=edge_handoff_index or {},
             active_scope_key=active_scope_key,
             any_source=True,
         )
-    if node.wait_policy in {"wait_all_upstream_completed", "wait_required_contracts"}:
-        return all(source in completed for source in required_sources) and _timeline_dependencies_satisfied(
+    if node.wait_policy in {"wait_all_upstream_completed", "wait_required_contracts", "wait_handoff_ack"}:
+        return all(source in completed for source in required_sources) and _source_readiness_dependencies_satisfied(
+            node=node,
             required_sources=required_sources,
             temporal_gate_enabled=temporal_gate_enabled,
             incoming_edges=incoming_edges,
             result_record_index=result_record_index or {},
             accepted_result_records_by_scope=accepted_result_records_by_scope or {},
+            edge_handoff_index=edge_handoff_index or {},
             active_scope_key=active_scope_key,
         )
     if node.wait_policy == "manual_release":
@@ -443,24 +559,27 @@ def _node_timing_allowed(
     return not reasons, reasons
 
 
-def _timeline_dependencies_satisfied(
+def _source_readiness_dependencies_satisfied(
     *,
+    node: TaskGraphRuntimeNode,
     required_sources: tuple[str, ...],
     temporal_gate_enabled: bool,
     incoming_edges: tuple[TaskGraphRuntimeEdge | dict[str, Any], ...],
     result_record_index: dict[str, dict[str, Any]],
     accepted_result_records_by_scope: dict[str, dict[str, str]],
+    edge_handoff_index: dict[str, dict[str, Any]],
     active_scope_key: str = "",
     any_source: bool = False,
 ) -> bool:
-    if not temporal_gate_enabled:
-        return True
     checks = [
-        _source_has_effective_result_record(
+        _source_ready_dependency_satisfied(
+            node=node,
             source=source,
             edge=_edge_for_source(incoming_edges, source),
+            temporal_gate_enabled=temporal_gate_enabled,
             result_record_index=result_record_index,
             accepted_result_records_by_scope=accepted_result_records_by_scope,
+            edge_handoff_index=edge_handoff_index,
             active_scope_key=active_scope_key,
         )
         for source in required_sources
@@ -477,32 +596,67 @@ def _timeline_gate_blocked_reasons(
     incoming_edges: tuple[TaskGraphRuntimeEdge | dict[str, Any], ...],
     result_record_index: dict[str, dict[str, Any]],
     accepted_result_records_by_scope: dict[str, dict[str, str]],
+    edge_handoff_index: dict[str, dict[str, Any]],
     active_scope_key: str = "",
 ) -> list[str]:
-    if not temporal_gate_enabled:
-        return []
     reasons: list[str] = []
     for source in required_sources:
         if source not in completed:
             continue
         edge = _edge_for_source(incoming_edges, source)
-        record = _effective_result_record(
-            source=source,
-            edge=edge,
-            result_record_index=result_record_index,
-            accepted_result_records_by_scope=accepted_result_records_by_scope,
-            active_scope_key=active_scope_key,
+        if temporal_gate_enabled:
+            record = _effective_result_record(
+                source=source,
+                edge=edge,
+                result_record_index=result_record_index,
+                accepted_result_records_by_scope=accepted_result_records_by_scope,
+                active_scope_key=active_scope_key,
+            )
+            if not record:
+                reasons.append(f"timeline_result_missing:{source}")
+                continue
+            if record.get("accepted") is not True:
+                reasons.append(f"timeline_result_not_accepted:{source}")
+            if int(record.get("effective_from_clock_seq") or 0) <= 0:
+                reasons.append(f"timeline_result_not_effective:{source}")
+            if _edge_requires_artifacts(edge) and not list(record.get("produced_artifact_refs") or []):
+                reasons.append(f"timeline_result_missing_artifacts:{source}")
+        reasons.extend(
+            _edge_handoff_blocked_reasons(
+                node=node,
+                source=source,
+                edge=edge,
+                edge_handoff_index=edge_handoff_index,
+            )
         )
-        if not record:
-            reasons.append(f"timeline_result_missing:{source}")
-            continue
-        if record.get("accepted") is not True:
-            reasons.append(f"timeline_result_not_accepted:{source}")
-        if int(record.get("effective_from_clock_seq") or 0) <= 0:
-            reasons.append(f"timeline_result_not_effective:{source}")
-        if _edge_requires_artifacts(edge) and not list(record.get("produced_artifact_refs") or []):
-            reasons.append(f"timeline_result_missing_artifacts:{source}")
     return reasons
+
+
+def _source_ready_dependency_satisfied(
+    *,
+    node: TaskGraphRuntimeNode,
+    source: str,
+    edge: TaskGraphRuntimeEdge | dict[str, Any] | None,
+    temporal_gate_enabled: bool,
+    result_record_index: dict[str, dict[str, Any]],
+    accepted_result_records_by_scope: dict[str, dict[str, str]],
+    edge_handoff_index: dict[str, dict[str, Any]],
+    active_scope_key: str = "",
+) -> bool:
+    if temporal_gate_enabled and not _source_has_effective_result_record(
+        source=source,
+        edge=edge,
+        result_record_index=result_record_index,
+        accepted_result_records_by_scope=accepted_result_records_by_scope,
+        active_scope_key=active_scope_key,
+    ):
+        return False
+    return _edge_handoff_satisfied(
+        node=node,
+        source=source,
+        edge=edge,
+        edge_handoff_index=edge_handoff_index,
+    )
 
 
 def _source_has_effective_result_record(
@@ -552,6 +706,128 @@ def _effective_result_record(
             if record:
                 return record
     return {}
+
+
+def _edge_handoff_satisfied(
+    *,
+    node: TaskGraphRuntimeNode,
+    source: str,
+    edge: TaskGraphRuntimeEdge | dict[str, Any] | None,
+    edge_handoff_index: dict[str, dict[str, Any]],
+) -> bool:
+    if not _edge_requires_handoff_ack(node=node, edge=edge):
+        return True
+    record = _handoff_record_for_edge(edge=edge, source=source, target=node.node_id, edge_handoff_index=edge_handoff_index)
+    if not record:
+        return False
+    return _handoff_ack_satisfied(record)
+
+
+def _edge_handoff_blocked_reasons(
+    *,
+    node: TaskGraphRuntimeNode,
+    source: str,
+    edge: TaskGraphRuntimeEdge | dict[str, Any] | None,
+    edge_handoff_index: dict[str, dict[str, Any]],
+) -> list[str]:
+    if not _edge_requires_handoff_ack(node=node, edge=edge):
+        return []
+    edge_ref = _edge_id(edge) or f"{source}->{node.node_id}"
+    record = _handoff_record_for_edge(edge=edge, source=source, target=node.node_id, edge_handoff_index=edge_handoff_index)
+    if not record:
+        return [f"handoff_ack_missing:{edge_ref}"]
+    if not _handoff_ack_satisfied(record):
+        return [f"handoff_ack_waiting:{edge_ref}"]
+    return []
+
+
+def _edge_requires_handoff_ack(
+    *,
+    node: TaskGraphRuntimeNode,
+    edge: TaskGraphRuntimeEdge | dict[str, Any] | None,
+) -> bool:
+    if edge is None:
+        return False
+    if _edge_ack_required(edge) is False:
+        return False
+    metadata = dict(edge.metadata or {}) if isinstance(edge, TaskGraphRuntimeEdge) else dict(edge.get("metadata") or {})
+    bindings = dict(metadata.get("contract_bindings") or {})
+    handoff_bindings = dict(bindings.get("handoff") or {})
+    temporal_bindings = dict(bindings.get("temporal") or {})
+    return (
+        node.wait_policy == "wait_handoff_ack"
+        or _edge_wait_policy(edge) == "wait_handoff_ack"
+        or str(handoff_bindings.get("ack_timing") or "").strip() == "before_downstream_ready"
+        or str(temporal_bindings.get("dependency_gate") or "").strip() == "handoff_ack"
+    )
+
+
+def _edge_ack_required(edge: TaskGraphRuntimeEdge | dict[str, Any] | None) -> bool:
+    if edge is None:
+        return False
+    if isinstance(edge, TaskGraphRuntimeEdge):
+        return bool(edge.ack_required)
+    return bool(edge.get("ack_required", True))
+
+
+def _edge_wait_policy(edge: TaskGraphRuntimeEdge | dict[str, Any] | None) -> str:
+    if edge is None:
+        return ""
+    if isinstance(edge, TaskGraphRuntimeEdge):
+        return str(edge.wait_policy or "").strip()
+    return str(edge.get("wait_policy") or "").strip()
+
+
+def _edge_id(edge: TaskGraphRuntimeEdge | dict[str, Any] | None) -> str:
+    if edge is None:
+        return ""
+    if isinstance(edge, TaskGraphRuntimeEdge):
+        return str(edge.edge_id or "").strip()
+    return str(edge.get("edge_id") or edge.get("id") or "").strip()
+
+
+def _edge_target(edge: TaskGraphRuntimeEdge | dict[str, Any] | None) -> str:
+    if edge is None:
+        return ""
+    if isinstance(edge, TaskGraphRuntimeEdge):
+        return str(edge.target_node_id or "").strip()
+    return str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
+
+
+def _handoff_record_for_edge(
+    *,
+    edge: TaskGraphRuntimeEdge | dict[str, Any] | None,
+    source: str,
+    target: str,
+    edge_handoff_index: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    candidates = [
+        _edge_id(edge),
+        f"{source}->{target}",
+        f"{source}:{target}",
+    ]
+    edge_target = _edge_target(edge)
+    if edge_target and edge_target != target:
+        candidates.append(f"{source}->{edge_target}")
+    for key in candidates:
+        record = dict(edge_handoff_index.get(str(key or "").strip()) or {})
+        if record:
+            return record
+    return {}
+
+
+def _handoff_ack_satisfied(record: dict[str, Any]) -> bool:
+    ack_state = str(record.get("ack_state") or record.get("status") or "").strip().lower()
+    return ack_state in {
+        "acknowledged",
+        "acked",
+        "accepted",
+        "received",
+        "delivered",
+        "not_required",
+        "completed",
+        "satisfied",
+    }
 
 
 def _scope_candidates(*, edge: TaskGraphRuntimeEdge | dict[str, Any] | None, active_scope_key: str) -> tuple[str, ...]:
@@ -623,6 +899,23 @@ def _normalize_accepted_result_records(value: dict[str, dict[str, str]] | None) 
     }
 
 
+def _normalize_edge_handoff_index(value: dict[str, dict[str, Any]] | None) -> dict[str, dict[str, Any]]:
+    normalized: dict[str, dict[str, Any]] = {}
+    for key, raw in dict(value or {}).items():
+        if not isinstance(raw, dict):
+            continue
+        record = dict(raw)
+        keys = {str(key or "").strip()}
+        diagnostics = dict(record.get("diagnostics") or {})
+        edge_id = str(record.get("edge_id") or diagnostics.get("edge_id") or "").strip()
+        source = str(record.get("source_node_id") or diagnostics.get("source_node_id") or diagnostics.get("source_stage_id") or "").strip()
+        target = str(record.get("target_node_id") or diagnostics.get("target_node_id") or diagnostics.get("target_stage_id") or "").strip()
+        keys.update(item for item in (edge_id, f"{source}->{target}" if source and target else "", f"{source}:{target}" if source and target else "") if item)
+        for item in keys:
+            normalized[item] = record
+    return normalized
+
+
 def _edge_state(
     *,
     edge: TaskGraphRuntimeEdge,
@@ -630,6 +923,7 @@ def _edge_state(
     temporal_gate_enabled: bool = False,
     result_record_index: dict[str, dict[str, Any]] | None = None,
     accepted_result_records_by_scope: dict[str, dict[str, str]] | None = None,
+    edge_handoff_index: dict[str, dict[str, Any]] | None = None,
     active_scope_key: str = "",
 ) -> TaskGraphEdgeHandoffState:
     source_status = statuses.get(edge.source_node_id, "pending")
@@ -641,10 +935,28 @@ def _edge_state(
         accepted_result_records_by_scope=accepted_result_records_by_scope or {},
         active_scope_key=active_scope_key,
     ) if temporal_gate_enabled else {}
+    handoff_record = _handoff_record_for_edge(
+        edge=edge,
+        source=edge.source_node_id,
+        target=edge.target_node_id,
+        edge_handoff_index=edge_handoff_index or {},
+    )
     if source_status == "failed":
-        status = "failed"
+        policy = _failure_propagation_policy(edge)
+        if policy == "fail_downstream":
+            status = "failed"
+        elif policy == "isolate_failure":
+            status = "failure_isolated"
+        elif policy in {"allow_partial", "coordinator_decides"}:
+            status = "partial_failure_allowed"
+        else:
+            status = "failed"
     elif temporal_gate_enabled and source_status == "completed" and not record:
         status = "timeline_waiting"
+    elif handoff_record and _handoff_ack_satisfied(handoff_record):
+        status = "acknowledged" if edge.ack_required else "delivered"
+    elif handoff_record and edge.ack_required:
+        status = "ack_waiting"
     elif source_status == "completed" and target_status in {"completed", "running"}:
         status = "acknowledged" if edge.ack_required else "delivered"
     elif source_status == "completed":
@@ -668,6 +980,8 @@ def _edge_state(
             "timeline_gate_enabled": temporal_gate_enabled,
             "result_record_id": str(record.get("result_record_id") or ""),
             "result_scope_key": str(record.get("scope_key") or ""),
+            "handoff_id": str(handoff_record.get("handoff_id") or ""),
+            "handoff_ack_state": str(handoff_record.get("ack_state") or handoff_record.get("status") or ""),
         },
     )
 

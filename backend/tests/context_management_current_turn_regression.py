@@ -122,6 +122,9 @@ def test_context_resolver_keeps_bound_pdf_alongside_explicit_dataset() -> None:
             "structural_signals": {
                 "explicit_dataset_path": "knowledge/E-commerce Data/employees.xlsx",
                 "bound_pdf_path": "knowledge/AI Knowledge/report.pdf",
+                "document_reference": True,
+                "page_reference": True,
+                "mixed_direct_capabilities": True,
             },
         },
     )

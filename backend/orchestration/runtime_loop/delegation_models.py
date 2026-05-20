@@ -80,6 +80,8 @@ class AgentDelegationResult:
     confidence: str = "unknown"
     limitations: tuple[str, ...] = ()
     followup_questions: tuple[str, ...] = ()
+    consumed_handles: tuple[str, ...] = ()
+    produced_handles: tuple[str, ...] = ()
     created_at: float = 0.0
     diagnostics: dict[str, Any] = field(default_factory=dict)
     authority: str = "orchestration.agent_delegation_result"
@@ -98,7 +100,7 @@ class AgentDelegationResult:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        for key in ("evidence_refs", "artifact_refs", "limitations", "followup_questions"):
+        for key in ("evidence_refs", "artifact_refs", "limitations", "followup_questions", "consumed_handles", "produced_handles"):
             payload[key] = list(payload[key])
         return payload
 
@@ -138,6 +140,8 @@ def delegation_result_from_dict(payload: dict[str, Any]) -> AgentDelegationResul
         confidence=str(payload.get("confidence") or "unknown"),
         limitations=tuple(str(item) for item in list(payload.get("limitations") or []) if str(item)),
         followup_questions=tuple(str(item) for item in list(payload.get("followup_questions") or []) if str(item)),
+        consumed_handles=tuple(str(item) for item in list(payload.get("consumed_handles") or []) if str(item)),
+        produced_handles=tuple(str(item) for item in list(payload.get("produced_handles") or []) if str(item)),
         created_at=float(payload.get("created_at") or 0.0),
         diagnostics=dict(payload.get("diagnostics") or {}),
     )

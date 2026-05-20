@@ -49,6 +49,7 @@ export type TaskGraphTimelineBlock = {
   visibility_policy?: string;
   version_ref?: string;
   detach_policy?: string;
+  contract_bindings?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 };
 
@@ -91,6 +92,10 @@ export const DEFAULT_TIMELINE_POLICY: TaskGraphTimelinePolicy = {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+export function timelineBlockHandoffContractIdOf(block: Record<string, unknown>): string {
+  return String(asRecord(asRecord(block.contract_bindings).handoff).handoff_contract_id ?? block.handoff_contract_id ?? "").trim();
 }
 
 function asRecordArray(value: unknown): Array<Record<string, unknown>> {
@@ -207,6 +212,7 @@ export function coordinationTimelineBlocks(metadata: Record<string, unknown> | u
         visibility_policy: String(item.visibility_policy ?? "committed_only").trim() || "committed_only",
         version_ref: String(item.version_ref ?? "").trim() || undefined,
         detach_policy: String(item.detach_policy ?? "preserve_version_anchor").trim() || "preserve_version_anchor",
+        contract_bindings: asRecord(item.contract_bindings),
         metadata: asRecord(item.metadata),
       };
     })
@@ -409,7 +415,7 @@ export function buildTimelinePreflightIssues(
     } else if (!nodeIds.has(block.exit_node_id)) {
       issues.push({ code: "timeline_block_exit_unknown", message: `图块 ${block.title || block.block_id} 的出口节点不存在。`, severity: "error", node_id: block.exit_node_id, phase_id: block.phase_id });
     }
-    if (!block.handoff_contract_id) {
+    if (!timelineBlockHandoffContractIdOf(block as unknown as Record<string, unknown>)) {
       issues.push({ code: "timeline_block_handoff_contract_missing", message: `图块 ${block.title || block.block_id} 缺少 handoff_contract_id。`, severity: "warning", phase_id: block.phase_id });
     }
     if (!block.linked_graph_id) {

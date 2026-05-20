@@ -166,6 +166,7 @@ def build_orchestration_runtime_bundle(
             "required_operations": list(operation_requirement.get("required_operations") or ()),
             "optional_operations": list(operation_requirement.get("optional_operations") or ()),
             "approval_policy": str(dict(operation_requirement.get("metadata") or {}).get("approval_policy") or "default"),
+            "intent_runtime_assembly_hint": dict(current_turn_payload.get("runtime_assembly_hint") or {}),
         },
         verification_gate_plan={
             "task_constraints": dict(task_execution_assembly.get("task_constraints") or {}),
@@ -190,6 +191,9 @@ def build_orchestration_runtime_bundle(
             "runtime_lane": runtime_lane_profile.lane_id,
             "requested_runtime_lane": requested_runtime_lane,
             "active_skill_name": str(active_skill_payload.get("name") or ""),
+            "intent_decision": dict(current_turn_payload.get("intent_decision") or {}),
+            "runtime_assembly_hint": dict(current_turn_payload.get("runtime_assembly_hint") or {}),
+            "continuation_decision": dict(current_turn_payload.get("continuation_decision") or {}),
         },
     )
     runtime_spec = AgentRuntimeSpec(
@@ -223,6 +227,9 @@ def build_orchestration_runtime_bundle(
             "requested_runtime_lane": requested_runtime_lane,
             "output_boundary_profile_ref": output_boundary_profile.profile_id,
             "projection_resolution": projection_diagnostics,
+            "intent_decision": dict(current_turn_payload.get("intent_decision") or {}),
+            "runtime_assembly_hint": dict(current_turn_payload.get("runtime_assembly_hint") or {}),
+            "continuation_decision": dict(current_turn_payload.get("continuation_decision") or {}),
         },
     )
     return {
@@ -375,7 +382,7 @@ def _build_runtime_prompt_contract(
         "resource_section": "",
         "projection_section": _projection_section(projection_requirement),
         "output_section": _output_section(task_execution_assembly=task_execution_assembly, task_spec=task_spec),
-        "guardrail_section": "",
+        "guardrail_section": _communication_guardrail_section(task_spec),
         "metadata": {
             "agent_id": agent_id,
             "resource_policy_ref": str(operation_requirement.get("requirement_id") or ""),
@@ -383,6 +390,26 @@ def _build_runtime_prompt_contract(
             "selected_recipe_id": str(selected_recipe.get("recipe_id") or ""),
         },
     }
+
+
+def _communication_guardrail_section(task_spec: dict[str, Any]) -> str:
+    inputs = dict(task_spec.get("inputs") or {})
+    protocol = dict(inputs.get("agent_communication_protocol") or {})
+    if not protocol:
+        return ""
+    main_contract = dict(protocol.get("main_agent_contract") or {})
+    child_contract = dict(protocol.get("child_agent_contract") or {})
+    parent_contract = dict(protocol.get("parent_closeout_contract") or {})
+    lines = [
+        "Agent communication protocol:",
+        f"- Transport: {str(protocol.get('transport') or 'runtime_tool:delegate_to_agent')}.",
+        f"- Delegate when: {str(main_contract.get('delegate_when') or '').strip()}",
+        f"- Main instruction style: {str(main_contract.get('instruction_style') or '').strip()}",
+        f"- Scope rule: {str(main_contract.get('scope_rule') or '').strip()}",
+        f"- Child must return: {', '.join(list(child_contract.get('must_return') or [])) or 'summary, answer_candidate'}.",
+        f"- Parent closeout: {str(parent_contract.get('closeout_rule') or '').strip()}",
+    ]
+    return "\n".join(line for line in lines if line.strip() and not line.endswith(": "))
 
 
 def _workflow_section(

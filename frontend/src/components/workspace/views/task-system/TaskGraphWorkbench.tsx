@@ -432,7 +432,6 @@ export function TaskGraphWorkbench({
           onOpenGraph={openGraphInStudio}
           orchestrationAgentCatalog={rest.orchestrationAgentCatalog}
           projectionCards={rest.projectionCards}
-          selectedDomainTasks={rest.selectedDomainTasks}
           standardView={rest.taskGraphStandardView}
           standardViewLoading={rest.taskGraphStandardViewLoading}
           taskGraphDraft={taskGraphDraftV2}

@@ -266,3 +266,19 @@ def test_runtime_config_console_includes_long_output_fields(monkeypatch: pytest.
     assert field_map["llm_long_output_timeout_seconds"]["value"] == 360
     assert field_map["llm_thinking_mode"]["options"] == ["disabled", "enabled"]
     assert field_map["llm_reasoning_effort"]["options"] == ["high", "max"]
+
+
+def test_repo_default_runtime_config_prefers_deepseek_pro_long_output_defaults() -> None:
+    import json
+
+    payload = json.loads((BACKEND_DIR / "config.json").read_text(encoding="utf-8"))
+
+    assert payload["model_provider"]["provider"] == "deepseek"
+    assert payload["model_provider"]["model"] == "deepseek-v4-pro"
+    assert payload["model_provider"]["base_url"] == "https://api.deepseek.com/v1"
+
+    runtime = payload["system_config"]["runtime"]
+    assert runtime["llm_max_output_tokens"] == 65536
+    assert runtime["llm_long_output_timeout_seconds"] == 360.0
+    assert runtime["llm_thinking_mode"] == "disabled"
+    assert runtime["llm_reasoning_effort"] == "high"

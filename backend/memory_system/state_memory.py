@@ -65,7 +65,18 @@ class StateMemoryStoreAdapter:
                 for item in list(getattr(state, "bundle_result_refs", []) or [])
                 if isinstance(item, dict)
             ),
+            task_summary_refs=tuple(
+                _task_summary_from_current_result_ref(index=index, value=value, context_slots=context_slots)
+                for index, value in enumerate(list(getattr(state, "current_result_refs", []) or []), start=1)
+                if _clean(value)
+            ),
             operation_refs=tuple(_clean(item) for item in getattr(state, "current_result_refs", []) or [] if _clean(item)),
+            key_results=tuple(_clean(item) for item in getattr(state, "key_results", []) or [] if _clean(item)),
+            historical_result_refs=tuple(
+                _clean(item)
+                for item in getattr(state, "historical_result_refs", []) or []
+                if _clean(item)
+            ),
             next_step=tuple(_clean(item) for item in getattr(state, "next_step", []) or [] if _clean(item)),
             updated_at=_clean(getattr(state, "updated_at", "")),
             source="structured_memory.process_state",
@@ -300,6 +311,66 @@ def _active_constraints_from_context_slots(context_slots: dict[str, Any]) -> dic
     if active_binding_identity:
         constraints["active_binding_identity"] = active_binding_identity
     return constraints
+
+
+def _task_summary_from_current_result_ref(
+    *,
+    index: int,
+    value: Any,
+    context_slots: dict[str, Any],
+) -> dict[str, Any]:
+    summary = _clean(value)
+    active_dataset = _clean(context_slots.get("active_dataset"))
+    active_pdf = _clean(context_slots.get("active_pdf"))
+    task_id = _clean(context_slots.get("active_result_handle_id")) or f"state-result:{index}"
+    if active_dataset:
+        key_points = [f"dataset={active_dataset}"]
+        subset_labels = [
+            _clean(item)
+            for item in list(context_slots.get("active_subset_labels") or [])
+            if _clean(item)
+        ]
+        if subset_labels:
+            key_points.append(f"subset={','.join(subset_labels[:8])}")
+        return {
+            "task_id": task_id,
+            "summary": summary,
+            "answer": summary,
+            "task_kind": "structured_data",
+            "key_points": key_points,
+            **({"subset_labels": subset_labels} if subset_labels else {}),
+            **(
+                {"subset_filter_column": _clean(context_slots.get("active_subset_filter_column"))}
+                if _clean(context_slots.get("active_subset_filter_column"))
+                else {}
+            ),
+        }
+    if active_pdf:
+        key_points = [f"pdf={active_pdf}"]
+        pdf_mode = _clean(context_slots.get("active_pdf_mode"))
+        if pdf_mode:
+            key_points.append(f"pdf_mode={pdf_mode}")
+        pages = [
+            int(item)
+            for item in list(context_slots.get("active_pdf_pages") or [])
+            if str(item).strip().isdigit()
+        ]
+        if pages:
+            key_points.append(f"pdf_pages={','.join(str(page) for page in pages)}")
+        return {
+            "task_id": task_id,
+            "summary": summary,
+            "answer": summary,
+            "task_kind": "pdf",
+            "key_points": key_points,
+        }
+    return {
+        "task_id": task_id,
+        "summary": summary,
+        "answer": summary,
+        "task_kind": "general",
+        "key_points": [],
+    }
 
 
 def _safe_int(value: Any) -> int:

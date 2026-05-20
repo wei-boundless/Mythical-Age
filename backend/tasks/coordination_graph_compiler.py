@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from .coordination_graph_models import TaskGraphRuntimeEdge, TaskGraphRuntimeNode, TaskGraphRuntimeSpec, TaskGraphRuntimeValidationIssue
+from .coordination_graph_models import (
+    TaskGraphNestedRuntimePlan,
+    TaskGraphRuntimeEdge,
+    TaskGraphRuntimeNode,
+    TaskGraphRuntimeSpec,
+    TaskGraphRuntimeValidationIssue,
+)
 from .flow_models import SpecificTaskRecord, TaskCommunicationProtocol
 from .layered_graph_normalizer import normalize_task_graph_layers
 from .task_graph_models import TaskGraphDefinition, TaskGraphValidationIssue, validate_task_graph
@@ -24,6 +30,8 @@ def compile_task_graph_definition_runtime_spec(
     default_execution_mode = str(runtime_policy.get("default_execution_mode") or "sync").strip() or "sync"
     default_wait_policy = str(runtime_policy.get("default_wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed"
     default_join_policy = str(runtime_policy.get("default_join_policy") or "all_success").strip() or "all_success"
+    layered_graph = normalize_task_graph_layers(graph)
+    nested_runtime_plans = _nested_runtime_plans_from_layered_graph(graph=graph, layered_graph=layered_graph)
     nodes = [
         _runtime_node_from_task_graph_node(
             raw_node=node,
@@ -38,6 +46,7 @@ def compile_task_graph_definition_runtime_spec(
         )
         for node in graph.nodes
     ]
+    nodes.extend(_runtime_nodes_from_nested_runtime_plans(nested_runtime_plans))
     if not nodes:
         nodes = [
             TaskGraphRuntimeNode(
@@ -122,9 +131,9 @@ def compile_task_graph_definition_runtime_spec(
         edges=edges,
     )
     working_memory_resource_steps = _working_memory_resource_steps(nodes=nodes, edges=edges)
-    layered_graph = normalize_task_graph_layers(graph)
     validation_issues.extend(_runtime_issues_from_scheduler_support(scheduler_support))
     validation_issues.extend(_runtime_issues_from_layered_graph(layered_graph))
+    validation_issues.extend(_runtime_issues_from_nested_runtime_plans(nested_runtime_plans))
     return TaskGraphRuntimeSpec(
         graph_id=graph.graph_id,
         graph_ref=graph.graph_id,
@@ -144,11 +153,13 @@ def compile_task_graph_definition_runtime_spec(
         artifact_context_edges=tuple(dict(item) for item in list(layered_graph.get("artifact_context_edges") or []) if isinstance(item, dict)),
         revision_edges=tuple(dict(item) for item in list(layered_graph.get("revision_edges") or []) if isinstance(item, dict)),
         loop_frames=tuple(dict(item) for item in list(layered_graph.get("loop_frames") or []) if isinstance(item, dict)),
+        nested_runtime_plans=tuple(nested_runtime_plans),
         memory_matrix=dict(layered_graph.get("memory_matrix") or {}),
         issues=tuple(validation_issues),
         diagnostics={
             "source": "task_system.task_graph_definition_runtime_compiler",
             "graph_contract_id": graph.graph_contract_id,
+            "contract_bindings": dict(graph.contract_bindings or {}),
             "default_protocol_id": graph.default_protocol_id,
             "communication_protocol_id": str(getattr(communication_protocol, "protocol_id", "") or ""),
             "runtime_policy": runtime_policy,
@@ -161,6 +172,7 @@ def compile_task_graph_definition_runtime_spec(
             "scheduler_support": scheduler_support,
             "working_memory_resource_steps": working_memory_resource_steps,
             "layered_graph": layered_graph,
+            "nested_runtime_plans": [item.to_dict() for item in nested_runtime_plans],
         },
     )
 
@@ -231,6 +243,7 @@ def _runtime_node_from_task_graph_node(
             "node_contract_id": str(raw_node.node_contract_id or "").strip(),
             "input_contract_id": str(raw_node.input_contract_id or "").strip(),
             "output_contract_id": str(raw_node.output_contract_id or "").strip(),
+            "contract_bindings": dict(getattr(raw_node, "contract_bindings", {}) or {}),
             "executor_policy": dict(getattr(raw_node, "executor_policy", {}) or node_metadata.get("executor_policy") or {}),
             "failure_policy": dict(raw_node.failure_policy or {}),
             "human_gate_policy": dict(raw_node.human_gate_policy or {}),
@@ -265,6 +278,7 @@ def _runtime_edge_from_task_graph_edge(*, raw_edge: Any) -> TaskGraphRuntimeEdge
         working_memory_handoff_policy=dict(raw_edge.working_memory_handoff_policy or {}),
         metadata={
             **dict(raw_edge.metadata or {}),
+            "contract_bindings": dict(getattr(raw_edge, "contract_bindings", {}) or {}),
             "timeout_policy": str(raw_edge.timeout_policy or "fail_closed").strip(),
             "failure_policy": dict(raw_edge.failure_policy or {}),
             "effective_policy_sources": {
@@ -275,6 +289,148 @@ def _runtime_edge_from_task_graph_edge(*, raw_edge: Any) -> TaskGraphRuntimeEdge
             },
         },
     )
+
+
+def _nested_runtime_plans_from_layered_graph(
+    *,
+    graph: TaskGraphDefinition,
+    layered_graph: dict[str, Any],
+) -> list[TaskGraphNestedRuntimePlan]:
+    plans: list[TaskGraphNestedRuntimePlan] = []
+    seen: set[str] = set()
+    for index, raw_block in enumerate(list(layered_graph.get("timeline_blocks") or []), start=1):
+        if not isinstance(raw_block, dict):
+            continue
+        block = dict(raw_block)
+        linked_graph_id = str(block.get("linked_graph_id") or "").strip()
+        if not linked_graph_id:
+            continue
+        block_id = str(block.get("block_id") or f"timeline_block_{index}").strip() or f"timeline_block_{index}"
+        plan_id = f"nested.{_safe_runtime_identifier(block_id)}"
+        if plan_id in seen:
+            plan_id = f"{plan_id}.{index}"
+        seen.add(plan_id)
+        runtime_node_id = f"graph_unit.{_safe_runtime_identifier(block_id)}"
+        plans.append(
+            TaskGraphNestedRuntimePlan(
+                plan_id=plan_id,
+                parent_graph_id=graph.graph_id,
+                unit_id=f"unit.graph.{_safe_runtime_identifier(block_id)}",
+                runtime_node_id=runtime_node_id,
+                linked_graph_id=linked_graph_id,
+                version_ref=str(block.get("version_ref") or "").strip(),
+                handoff_contract_id=_timeline_block_handoff_contract_id(block),
+                input_port_id=str(block.get("input_port_id") or "input.default").strip() or "input.default",
+                output_port_id=str(block.get("output_port_id") or "output.default").strip() or "output.default",
+                isolation_policy=str(block.get("isolation_policy") or "isolated_per_nested_run").strip() or "isolated_per_nested_run",
+                visibility_policy=str(block.get("visibility_policy") or "committed_only").strip() or "committed_only",
+                detach_policy=str(block.get("detach_policy") or "preserve_version_anchor").strip() or "preserve_version_anchor",
+                phase_id=str(block.get("phase_id") or "").strip(),
+                sequence_index=int(block.get("sequence_index") or index),
+                metadata={
+                    "timeline_block_id": block_id,
+                    "block_type": str(block.get("block_type") or "").strip(),
+                    "entry_node_id": str(block.get("entry_node_id") or "").strip(),
+                    "exit_node_id": str(block.get("exit_node_id") or "").strip(),
+                    "source_authority": str(block.get("authority") or "task_system.timeline_block"),
+                    "contract_bindings": dict(block.get("contract_bindings") or {}),
+                    "legacy_contract_fields": dict(dict(block.get("metadata") or {}).get("legacy_contract_fields") or {}),
+                    "raw_block": block,
+                },
+            )
+        )
+    return plans
+
+
+def _runtime_nodes_from_nested_runtime_plans(plans: list[TaskGraphNestedRuntimePlan]) -> list[TaskGraphRuntimeNode]:
+    return [
+        TaskGraphRuntimeNode(
+            node_id=plan.runtime_node_id,
+            title=str(dict(plan.metadata or {}).get("raw_block", {}).get("title") or plan.linked_graph_id or plan.runtime_node_id),
+            node_type="graph_unit",
+            role="nested_graph",
+            task_id=f"task_graph.node.{plan.parent_graph_id}.{plan.runtime_node_id}",
+            executor_policy={
+                "default_executor": "graph_unit",
+                "allowed_executors": ["graph_unit"],
+                "subgraph_id": plan.linked_graph_id,
+                "auto_start_child_initial_stage": True,
+                "source": "nested_runtime_plan",
+            },
+            execution_mode="async",
+            wait_policy="wait_all_upstream_completed",
+            join_policy="all_success",
+            phase_id=plan.phase_id,
+            sequence_index=plan.sequence_index,
+            timeline_group_id=f"nested:{plan.unit_id}",
+            blocks_phase_exit=True,
+            context_visibility_policy={
+                "nested_runtime_visibility": plan.visibility_policy,
+                "parent_visible_scope": "run_handle_and_committed_output",
+            },
+            artifact_policy={
+                "visibility_policy": plan.visibility_policy,
+                "source": "nested_graph_commit",
+            },
+            metadata={
+                "graph_unit": True,
+                "execution_mode": "nested_graph_run",
+                "nested_runtime_plan_id": plan.plan_id,
+                "nested_runtime_plan": plan.to_dict(),
+                "linked_graph_id": plan.linked_graph_id,
+                "version_ref": plan.version_ref,
+                "handoff_contract_id": plan.handoff_contract_id,
+                "input_port_id": plan.input_port_id,
+                "output_port_id": plan.output_port_id,
+                "isolation_policy": plan.isolation_policy,
+                "visibility_policy": plan.visibility_policy,
+                "detach_policy": plan.detach_policy,
+                "effective_policy_sources": {
+                    "node_id": "graph.metadata.timeline_blocks[].linked_graph_id",
+                    "execution_mode": "nested_runtime_plan",
+                    "wait_policy": "nested_runtime_plan.default_wait_policy",
+                    "join_policy": "nested_runtime_plan.default_join_policy",
+                },
+            },
+        )
+        for plan in plans
+    ]
+
+
+def _runtime_issues_from_nested_runtime_plans(plans: list[TaskGraphNestedRuntimePlan]) -> list[TaskGraphRuntimeValidationIssue]:
+    issues: list[TaskGraphRuntimeValidationIssue] = []
+    for plan in plans:
+        if not plan.version_ref:
+            issues.append(
+                TaskGraphRuntimeValidationIssue(
+                    code="graph_unit_version_anchor_missing",
+                    message="GraphUnit 缺少 version_ref，父图运行无法稳定锚定子图版本。",
+                    severity="warning",
+                    node_id=plan.runtime_node_id,
+                )
+            )
+        if not plan.handoff_contract_id:
+            issues.append(
+                TaskGraphRuntimeValidationIssue(
+                    code="graph_unit_handoff_contract_missing",
+                    message="GraphUnit 缺少 handoff_contract_id，父子图提交包无法通过契约追溯。",
+                    severity="warning",
+                    node_id=plan.runtime_node_id,
+                )
+            )
+    return issues
+
+
+def _safe_runtime_identifier(value: str) -> str:
+    sanitized = str(value or "").strip().replace(":", ".").replace("/", ".").replace("\\", ".")
+    sanitized = ".".join(part for part in sanitized.split(".") if part)
+    return sanitized or "unknown"
+
+
+def _timeline_block_handoff_contract_id(block: dict[str, Any]) -> str:
+    bindings = dict(block.get("contract_bindings") or {})
+    handoff = dict(bindings.get("handoff") or {})
+    return str(handoff.get("handoff_contract_id") or block.get("handoff_contract_id") or "").strip()
 
 
 def _default_communication_mode(
@@ -402,7 +558,7 @@ def _scheduler_support_report(
 
         if node.wait_policy in {"wait_all_upstream_completed", "wait_required_contracts"}:
             mark(scope="node", ref_id=node.node_id, field="wait_policy", value=node.wait_policy, status="supported", reason="运行层已按上游完成和输入绑定阻塞节点。")
-        elif node.wait_policy in {"wait_any_upstream_completed", "fire_and_continue", "manual_release"}:
+        elif node.wait_policy in {"wait_any_upstream_completed", "wait_handoff_ack", "fire_and_continue", "manual_release"}:
             mark(scope="node", ref_id=node.node_id, field="wait_policy", value=node.wait_policy, status="supported", reason="TaskGraphSchedulerState 已消费该等待策略并参与 ready/blocked 判断。")
         else:
             mark(scope="node", ref_id=node.node_id, field="wait_policy", value=node.wait_policy, status="unsupported", reason="当前 ready/blocked 判断尚未完整消费该 wait_policy。")
@@ -427,12 +583,23 @@ def _scheduler_support_report(
 
     for edge in edges:
         if edge.wait_policy:
-            status = "supported" if edge.wait_policy in {"wait_all_upstream_completed", "wait_required_contracts", "wait_any_upstream_completed", "fire_and_continue", "manual_release"} else "unsupported"
-            mark(scope="edge", ref_id=edge.edge_id, field="wait_policy", value=edge.wait_policy, status=status, reason="边级等待策略已纳入统一调度判定，按阻塞/放行语义参与运行推进。")
+            status, reason = _edge_wait_policy_support_status(edge.wait_policy)
+            mark(scope="edge", ref_id=edge.edge_id, field="wait_policy", value=edge.wait_policy, status=status, reason=reason)
         if edge.ack_required or edge.ack_policy:
-            mark(scope="edge", ref_id=edge.edge_id, field="ack_policy", value=edge.ack_policy, status="partial", reason="ack 策略已进入 RuntimeSpec/A2A payload，但下游 ready/blocked 尚未严格等待边 ack 状态。")
-        if edge.failure_propagation_policy != "fail_downstream":
-            mark(scope="edge", ref_id=edge.edge_id, field="failure_propagation_policy", value=edge.failure_propagation_policy, status="unsupported", reason="当前调度器尚未实现边级失败传播策略。")
+            status, reason = _edge_ack_policy_support_status(edge=edge)
+            mark(scope="edge", ref_id=edge.edge_id, field="ack_policy", value=edge.ack_policy, status=status, reason=reason)
+        temporal_bindings = dict(dict(edge.metadata or {}).get("contract_bindings") or {}).get("temporal")
+        temporal_policy = dict(temporal_bindings or dict(edge.metadata or {}).get("temporal_semantics") or {})
+        for field, value in temporal_policy.items():
+            value = str(value or "").strip()
+            if not value:
+                continue
+            status, reason = _edge_temporal_support_status(field=field, value=value)
+            mark(scope="edge", ref_id=edge.edge_id, field=f"temporal.{field}", value=value, status=status, reason=reason)
+        if edge.failure_propagation_policy in {"fail_downstream", "isolate_failure", "allow_partial", "coordinator_decides"}:
+            mark(scope="edge", ref_id=edge.edge_id, field="failure_propagation_policy", value=edge.failure_propagation_policy, status="supported", reason="TaskGraphSchedulerState 已按边级失败传播策略计算有效节点状态，并由运行路由消费。")
+        else:
+            mark(scope="edge", ref_id=edge.edge_id, field="failure_propagation_policy", value=edge.failure_propagation_policy, status="unsupported", reason="当前调度器未实现该边级失败传播策略。")
         if edge.result_delivery_policy != "contract_payload_and_refs":
             mark(scope="edge", ref_id=edge.edge_id, field="result_delivery_policy", value=edge.result_delivery_policy, status="partial", reason="结果投递策略已保留，但运行视图和 handoff 状态尚未完整区分不同投递方式。")
         timeout_policy = str(dict(edge.metadata or {}).get("timeout_policy") or "")
@@ -450,6 +617,68 @@ def _scheduler_support_report(
         "partial_count": len(partial),
         "unsupported_count": len(unsupported),
     }
+
+
+def _edge_wait_policy_support_status(value: str) -> tuple[str, str]:
+    value = str(value or "").strip()
+    if value == "wait_handoff_ack":
+        return "supported", "edge.wait_policy=wait_handoff_ack 已由 scheduler 消费，会要求 handoff ack 后才释放下游。"
+    if value in {"wait_all_upstream_completed", "wait_required_contracts", "wait_any_upstream_completed"}:
+        return "partial", "等价节点等待策略已支持，但 edge.wait_policy 目前只作为边级元数据保留；实际 ready 主要由目标节点 wait_policy 决定。"
+    if value in {"fire_and_continue", "manual_release"}:
+        return "unsupported", "当前 scheduler 尚未把该 edge.wait_policy 作为边级放行算子消费。"
+    return "unsupported", "当前 scheduler 未实现该 edge.wait_policy。"
+
+
+def _edge_ack_policy_support_status(*, edge: TaskGraphRuntimeEdge) -> tuple[str, str]:
+    value = str(edge.ack_policy or "").strip()
+    if bool(edge.ack_required) is False:
+        return "supported", "ack_required=false 时 scheduler 不再要求 handoff ack；ack_policy 仅作为审计字段保留。"
+    if value == "explicit_ack":
+        return "supported", "显式 ack 已由 wait_handoff_ack / handoff envelope 状态参与下游 ready 判断。"
+    if value in {"implicit_ack", "none"}:
+        return "partial", "该 ack_policy 会被保存，但 scheduler 不会仅凭该值自动视为确认；若不需要确认，应设置 ack_required=false。"
+    if value == "manual_ack":
+        return "partial", "handoff envelope 可记录人工确认状态，但独立人工确认工作流尚未完整实现。"
+    return "unsupported", "当前 scheduler 未声明支持该 ack_policy。"
+
+
+def _edge_temporal_support_status(*, field: str, value: str) -> tuple[str, str]:
+    field = str(field or "").strip()
+    value = str(value or "").strip()
+    if field == "trigger_timing":
+        if value in {"after_source_success", "after_source_commit"}:
+            return "supported", "调度器以源节点完成和有效结果记录作为边触发条件。"
+        if value == "after_required_contracts":
+            return "partial", "契约引用已进入 RuntimeSpec/Manifest，但 ready 判断仍主要按上游完成和输入绑定处理。"
+        if value in {"manual_release", "phase_entry", "phase_exit", "phase_gate_passed"}:
+            return "unsupported", "当前运行层尚未实现边级手动释放或 phase 事件触发。"
+    if field == "visibility_timing":
+        if value in {"after_commit", "next_clock"}:
+            return "supported", "timeline gate 使用 accepted result record 和 effective clock 控制下游可见。"
+        if value in {"same_clock", "after_ack"}:
+            return "partial", "运行层可记录 handoff/ack 状态，但模型输入可见性仍未按该值单独分层。"
+        if value in {"next_iteration", "manual_release"}:
+            return "unsupported", "当前调度器尚未实现迭代级或边级人工可见性释放。"
+    if field == "acknowledgement_timing":
+        if value in {"explicit_ack", "ack_before_downstream", "before_downstream_ready"}:
+            return "supported", "wait_handoff_ack 和 handoff ack envelope 会阻塞下游 ready。"
+        if value in {"no_ack", "none", "implicit_ack"}:
+            return "supported", "关闭 ack 或隐式确认时不会额外阻塞下游。"
+        if value in {"manual_ack", "ack_before_phase_exit"}:
+            return "partial", "ack envelope 可记录确认状态，但 phase exit 级确认尚未成为独立运行门。"
+    if field == "propagation_timing":
+        if value in {"buffer_until_commit", "blocked_on_failure"}:
+            return "supported", "运行层按 accepted result packet 和失败传播策略控制下游释放。"
+        if value in {"refs_only", "immediate_refs_only", "summary_only"}:
+            return "partial", "结果包和引用可保留，但下游输入装配尚未完整区分该投递方式。"
+        if value in {"immediate", "manual_release", "block_until_ack"}:
+            return "partial", "调度器有 ack/结果门控，但尚未把该传播值作为独立时序算子。"
+    if field in {"phase_timing", "dependency_gate"}:
+        if field == "dependency_gate" and value == "handoff_ack":
+            return "supported", "dependency_gate=handoff_ack 已由 scheduler 转换为 handoff ack 阻塞。"
+        return "partial", "该时序字段会被保留到契约绑定，但运行层只兑现其中一部分门控语义。"
+    return "unsupported", "当前调度器未声明支持该边时序字段。"
 
 
 def _working_memory_resource_steps(
@@ -550,6 +779,8 @@ def _validate_runtime_graph_for_tasks(
         issues.append(TaskGraphRuntimeValidationIssue(code="missing_edges", message="多节点任务图必须配置交接边"))
     for node in nodes:
         if not node.task_id:
+            continue
+        if str(node.task_id or "").startswith("task_graph.node."):
             continue
         task = task_by_id.get(node.task_id)
         if task is None:

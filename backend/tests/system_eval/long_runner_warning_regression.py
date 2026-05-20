@@ -6,7 +6,9 @@ from tests.system_eval.long_runner import (
     TurnResult,
     _collect_critical_quality_failures,
     _collect_quality_warnings,
+    _cap_model_runtime_for_long_eval,
     _issues_from_result,
+    _sync_memory,
 )
 
 
@@ -125,6 +127,69 @@ def test_long_runner_treats_budget_fallback_as_critical_failure() -> None:
 
     assert "answer.fallback_critical=runtime_budget_exhausted" in failures
     assert any(item.startswith("response.critical_marker=") for item in failures)
+
+
+def test_long_runner_caps_long_output_timeout_with_regular_timeout(monkeypatch) -> None:
+    monkeypatch.setenv("SYSTEM_EVAL_LLM_TIMEOUT_SECONDS", "7")
+    monkeypatch.setenv("SYSTEM_EVAL_LLM_MAX_RETRIES", "0")
+
+    class _SettingsService:
+        def __init__(self) -> None:
+            self.values = {}
+
+        def set_runtime_config_group(self, group_id, values):
+            assert group_id == "runtime"
+            self.values.update(values)
+
+    class _ModelRuntime:
+        request_timeout_seconds = 45.0
+        long_output_timeout_seconds = 360.0
+        max_retries = 2
+
+        def __init__(self) -> None:
+            self.settings_service = _SettingsService()
+
+    class _Runtime:
+        def __init__(self) -> None:
+            self.model_runtime = _ModelRuntime()
+
+    runtime = _Runtime()
+
+    original = _cap_model_runtime_for_long_eval(runtime)
+
+    assert original == (45.0, 360.0, 2)
+    assert runtime.model_runtime.settings_service.values["llm_timeout_seconds"] == 7.0
+    assert runtime.model_runtime.settings_service.values["llm_long_output_timeout_seconds"] == 7.0
+    assert runtime.model_runtime.settings_service.values["llm_max_retries"] == 0
+
+
+def test_forced_memory_sync_skips_background_wait_when_durable_not_requested() -> None:
+    class _SessionSummaryManager:
+        def load(self) -> str:
+            return "state already projected"
+
+    class _SessionMemory:
+        def manager(self, _session_id):
+            return _SessionSummaryManager()
+
+    class _MemoryFacade:
+        session_memory = _SessionMemory()
+
+        def run_memory_maintenance_after_commit(self, **_kwargs):
+            raise AssertionError("non-durable forced sync must not run heavy memory maintenance")
+
+    class _Runtime:
+        memory_facade = _MemoryFacade()
+
+        class session_manager:
+            @staticmethod
+            def load_session(_session_id):
+                return []
+
+    result = _sync_memory(_Runtime(), "session-a", durable=False)
+
+    assert result["memory_maintenance_status"] == "skipped"
+    assert result["memory_maintenance_mode"] == "runtime_state_already_projected"
 
 
 def test_reporter_renders_runtime_control_summary() -> None:

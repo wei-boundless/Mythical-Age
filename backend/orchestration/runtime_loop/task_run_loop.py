@@ -97,8 +97,8 @@ from .project_supervision import (
     record_delivery_state,
     record_failure,
 )
-from .node_execution_request import NodeExecutionRequest, NodeResultReadyEvent
-from .task_artifact_materializer import MaterializedTaskArtifacts, materialize_task_artifacts
+from .node_execution_request import NodeExecutionRequest, NodeResultReadyEvent, build_node_execution_idempotency_key
+from .task_artifact_materializer import MaterializedTaskArtifacts, extract_markdown_section_content, materialize_task_artifacts
 from .task_graph_monitoring import (
     compact_monitor_snapshot,
     evaluate_task_graph_monitor_snapshot,
@@ -1075,6 +1075,7 @@ class TaskRunLoop:
                 "runtime_channel": "single_agent_runtime",
                 "search_policy": list(search_policy) if search_policy is not None else None,
                 "allowed_search_sources": sorted(allowed_search_sources),
+                **_stage_execution_request_diagnostics(dict(task_selection or {})),
             },
         )
         state = start.loop_state
@@ -1288,6 +1289,14 @@ class TaskRunLoop:
                 refs={"task_contract_ref": task_contract_ref},
             )
             yield {"type": "runtime_loop_event", "event": current_turn_event.to_dict()}
+            for trace_event in _intent_continuation_trace_events(current_turn_context):
+                trace_record = self.event_log.append(
+                    state.task_run_id,
+                    trace_event["event_type"],
+                    payload=dict(trace_event.get("payload") or {}),
+                    refs={"task_contract_ref": task_contract_ref},
+                )
+                yield {"type": "runtime_loop_event", "event": trace_record.to_dict()}
         query_understanding = dict(task_operation.get("query_understanding") or {})
         retrieval_results: list[dict[str, Any]] | None = None
         if self._should_run_recipe_mcp_phase(
@@ -2768,6 +2777,19 @@ class TaskRunLoop:
                     final_task_summary_refs,
                     final_bundle_summary_refs,
                 ) = self._apply_observation_aggregation(aggregation)
+        binding_projection = projection_from_bound_answer(
+            content=final_content or user_message,
+            current_turn_context=current_turn_context,
+            existing_task_summary_refs=final_task_summary_refs,
+            existing_main_context=final_main_context,
+        )
+        if binding_projection.main_context or binding_projection.task_summary_refs:
+            aggregation = observation_aggregator.add_projection(binding_projection, tool_name="current_turn_binding")
+            (
+                final_main_context,
+                final_task_summary_refs,
+                final_bundle_summary_refs,
+            ) = self._apply_observation_aggregation(aggregation)
         if current_bundle_items and final_content:
             bundle_projection = projection_from_bundle_answer(
                 content=final_content,
@@ -3470,6 +3492,10 @@ class TaskRunLoop:
                     terminal_status=terminal_state.status,
                     requires_file_artifact_refs=requires_file_artifact_refs,
                 )
+                accepted_content_metric_total = int(
+                    stage_acceptance.get("content_metric_total")
+                    or _count_text_units(final_content)
+                )
                 ready_event = NodeResultReadyEvent(
                     event_type="task_result_ready",
                     coordination_run_id=target_coordination_run.coordination_run_id,
@@ -3485,7 +3511,8 @@ class TaskRunLoop:
                     diagnostics={
                         "terminal_reason": terminal_state.terminal_reason,
                         "last_error": dict(terminal_state.diagnostics.get("last_error") or {}),
-                        "content_metric_total": _count_text_units(final_content),
+                        "content_metric_total": accepted_content_metric_total,
+                        "raw_content_metric_total": _count_text_units(final_content),
                         "stage_business_acceptance": stage_acceptance,
                     },
                 )
@@ -4610,7 +4637,12 @@ class TaskRunLoop:
             stage_agent_runtime_profile = self.agent_runtime_registry.get_profile(stage_agent_id)
             if stage_agent_runtime_profile is None:
                 raise ValueError(f"TaskGraph node agent has no runtime profile: {stage_agent_id}")
-        turn_marker = str(next_turn_context.get("turn_id") or "").strip() or f"turn:{session_id}:{uuid.uuid4().hex[:8]}"
+        stage_request = dict(next_turn_context.get("stage_execution_request") or continuation_payload.get("stage_execution_request") or {})
+        turn_marker = str(next_turn_context.get("turn_id") or "").strip() or _stable_stage_turn_id(
+            session_id=session_id,
+            task_ref=next_task_ref,
+            stage_request=stage_request,
+        )
         next_turn_context["turn_id"] = turn_marker
         next_task_id = f"taskinst:{turn_marker}:{next_task_ref.split('.')[-1]}"
         task_selection = {
@@ -5306,9 +5338,19 @@ class TaskRunLoop:
         task_run = self.state_index.get_task_run(task_run_id)
         instruction = str(tool_args.get("instruction") or "").strip()
         input_payload = dict(tool_args.get("input_payload") or {})
+        task_spec_payload = dict(dict(task_operation or {}).get("task_spec") or {})
+        task_spec_inputs = dict(task_spec_payload.get("inputs") or {})
+        agent_communication_protocol = dict(task_spec_inputs.get("agent_communication_protocol") or {})
+        if agent_communication_protocol:
+            input_payload.setdefault("agent_communication_protocol", agent_communication_protocol)
         input_payload = _merge_followup_contract_into_payload(
             input_payload,
-            followup_contract=_followup_contract_from_task_spec(dict(task_operation or {}).get("task_spec")),
+            followup_contract=_followup_contract_from_task_spec(task_spec_payload),
+        )
+        input_payload = _merge_task_spec_binding_into_delegation_payload(
+            input_payload,
+            task_spec_payload=task_spec_payload,
+            user_message=user_message,
         )
         recipe_metadata = dict(dict(dict(task_operation or {}).get("selected_recipe") or {}).get("metadata") or {})
         delegation_kind = str(tool_args.get("delegation_kind") or recipe_metadata.get("delegation_kind") or "").strip()
@@ -5337,7 +5379,11 @@ class TaskRunLoop:
             instruction=instruction,
             input_payload=input_payload,
             context_policy=dict(tool_args.get("context_policy") or {}),
-            expected_output_contract=dict(tool_args.get("expected_output_contract") or {}),
+            expected_output_contract=dict(
+                tool_args.get("expected_output_contract")
+                or agent_communication_protocol.get("expected_output_contract")
+                or {}
+            ),
             timeout_policy=dict(tool_args.get("timeout_policy") or {}),
             created_at=time.time(),
             diagnostics=diagnostics,
@@ -5418,6 +5464,7 @@ class TaskRunLoop:
                         "model": str(event.get("model") or ""),
                         "detail": str(event.get("detail") or ""),
                         "partial_delta_count": int(event.get("partial_delta_count") or 0),
+                        "fallback_timeout_seconds": float(event.get("fallback_timeout_seconds") or 0),
                     },
                     refs={
                         "directive_ref": str(event.get("directive_ref") or ""),
@@ -7075,6 +7122,78 @@ def _followup_contract_from_task_spec(task_spec_payload: dict[str, Any] | None) 
     return contract if str(contract.get("authority") or "") == "task_system.followup_execution_contract" else {}
 
 
+def _merge_task_spec_binding_into_delegation_payload(
+    payload: dict[str, Any],
+    *,
+    task_spec_payload: dict[str, Any] | None,
+    user_message: str,
+) -> dict[str, Any]:
+    merged = dict(payload or {})
+    inputs = dict(dict(task_spec_payload or {}).get("inputs") or {})
+    tool_input = dict(inputs.get("tool_input") or {})
+    if user_message:
+        merged.setdefault("query", str(user_message or "").strip())
+    for key in ("query", "mode", "extract_mode", "section", "page", "pages", "max_chunks"):
+        value = tool_input.get(key)
+        if value not in ("", [], {}, None):
+            merged.setdefault(key, value)
+    explicit_dataset = _clean_text(
+        inputs.get("active_dataset")
+        or inputs.get("explicit_dataset_path")
+        or tool_input.get("active_dataset")
+        or tool_input.get("path")
+        or tool_input.get("file_path")
+    )
+    explicit_pdf = _clean_text(
+        inputs.get("active_pdf")
+        or inputs.get("explicit_pdf_path")
+        or tool_input.get("active_pdf")
+        or tool_input.get("path")
+        or tool_input.get("file_path")
+    )
+    source_kind = _task_spec_source_kind(task_spec_payload or {})
+    if source_kind == "dataset" and explicit_dataset:
+        merged.setdefault("active_dataset", explicit_dataset)
+        merged.setdefault("path", explicit_dataset)
+        merged.setdefault("file_path", explicit_dataset)
+    elif source_kind == "pdf" and explicit_pdf:
+        merged.setdefault("active_pdf", explicit_pdf)
+        merged.setdefault("path", explicit_pdf)
+        merged.setdefault("file_path", explicit_pdf)
+    elif explicit_dataset and not explicit_pdf:
+        merged.setdefault("active_dataset", explicit_dataset)
+        merged.setdefault("path", explicit_dataset)
+        merged.setdefault("file_path", explicit_dataset)
+    elif explicit_pdf:
+        merged.setdefault("active_pdf", explicit_pdf)
+        merged.setdefault("path", explicit_pdf)
+        merged.setdefault("file_path", explicit_pdf)
+    return merged
+
+
+def _task_spec_source_kind(task_spec_payload: dict[str, Any]) -> str:
+    recipe_id = str(task_spec_payload.get("recipe_id") or "").strip()
+    if "structured_data" in recipe_id:
+        return "dataset"
+    if "pdf" in recipe_id:
+        return "pdf"
+    inputs = dict(task_spec_payload.get("inputs") or {})
+    followup_contract = dict(inputs.get("followup_execution_contract") or {})
+    source_kind = str(followup_contract.get("source_kind") or "").strip()
+    if source_kind:
+        return source_kind
+    bindings = dict(task_spec_payload.get("bindings") or {})
+    for item in list(bindings.get("resolved_bindings") or []):
+        if not isinstance(item, dict):
+            continue
+        file_kind = str(item.get("file_kind") or "").strip()
+        if file_kind == "dataset":
+            return "dataset"
+        if file_kind == "pdf":
+            return "pdf"
+    return ""
+
+
 def _followup_contract_source_path(followup_contract: dict[str, Any], *, binding_key: str) -> str:
     if not followup_contract:
         return ""
@@ -7301,6 +7420,116 @@ def _selection_is_coordination_task(selection: dict[str, Any]) -> bool:
     if str(runtime_assembly.get("runtime_lane") or "").strip() == "coordination_task":
         return True
     return str(selection.get("runtime_lane") or "").strip() == "coordination_task"
+
+
+def _intent_continuation_trace_events(current_turn_context: dict[str, Any]) -> list[dict[str, Any]]:
+    context = dict(current_turn_context or {})
+    intent_frame = dict(context.get("intent_frame") or {})
+    intent_decision = dict(context.get("intent_decision") or {})
+    runtime_assembly_hint = dict(context.get("runtime_assembly_hint") or {})
+    continuation_candidates = [
+        dict(item)
+        for item in list(context.get("continuation_candidates") or [])
+        if isinstance(item, dict)
+    ]
+    continuation_decision = dict(context.get("continuation_decision") or {})
+    events: list[dict[str, Any]] = []
+    if intent_frame:
+        events.append(
+            {
+                "event_type": "intent_frame_built",
+                "payload": {
+                    "intent_frame": intent_frame,
+                    "action_hypotheses": list(intent_frame.get("action_hypotheses") or []),
+                    "target_domain_hints": list(intent_frame.get("target_domain_hints") or []),
+                },
+            }
+        )
+    if intent_decision:
+        events.append(
+            {
+                "event_type": "intent_decision_made",
+                "payload": {
+                    "intent_decision": intent_decision,
+                    "runtime_assembly_hint": runtime_assembly_hint,
+                },
+            }
+        )
+    if continuation_candidates:
+        events.append(
+            {
+                "event_type": "continuation_candidates_built",
+                "payload": {
+                    "continuation_candidates": continuation_candidates,
+                    "candidate_count": len(continuation_candidates),
+                    "compatible_candidate_count": sum(1 for item in continuation_candidates if item.get("compatible") is True),
+                },
+            }
+        )
+    if continuation_decision:
+        events.append(
+            {
+                "event_type": "continuation_decision_made",
+                "payload": {
+                    "continuation_decision": continuation_decision,
+                    "selected_candidate_id": str(continuation_decision.get("selected_candidate_id") or ""),
+                    "decision_kind": str(continuation_decision.get("decision_kind") or ""),
+                },
+            }
+        )
+    return events
+
+
+def _stable_stage_turn_id(*, session_id: str, task_ref: str, stage_request: dict[str, Any] | None) -> str:
+    request = dict(stage_request or {})
+    stage_id = str(request.get("stage_id") or request.get("node_id") or task_ref.rsplit(".", 1)[-1] or "").strip()
+    idempotency_key = str(request.get("idempotency_key") or "").strip()
+    if not idempotency_key and request:
+        idempotency_key = build_node_execution_idempotency_key(
+            coordination_run_id=str(request.get("coordination_run_id") or ""),
+            node_id=str(request.get("node_id") or stage_id),
+            explicit_inputs=dict(request.get("explicit_inputs") or {}),
+            dispatch_context=dict(request.get("dispatch_context") or {}),
+        )
+    identity = idempotency_key or str(request.get("request_id") or "").strip()
+    if not identity:
+        identity = f"{session_id}:{task_ref}:{uuid.uuid4().hex[:8]}"
+    return f"turn:{session_id}:{_stable_stage_turn_suffix(identity)}:{_safe_task_id_component(stage_id or 'stage')}"
+
+
+def _stable_stage_turn_suffix(value: str) -> str:
+    import hashlib
+
+    return hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()[:12]
+
+
+def _safe_task_id_component(value: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or "").strip())[:80] or "stage"
+
+
+def _stage_execution_request_diagnostics(selection: dict[str, Any]) -> dict[str, Any]:
+    request = dict(selection.get("stage_execution_request") or {})
+    if not request:
+        return {}
+    stage_id = str(request.get("stage_id") or request.get("node_id") or "").strip()
+    idempotency_key = str(request.get("idempotency_key") or "").strip()
+    if not idempotency_key:
+        idempotency_key = build_node_execution_idempotency_key(
+            coordination_run_id=str(request.get("coordination_run_id") or ""),
+            node_id=str(request.get("node_id") or stage_id),
+            explicit_inputs=dict(request.get("explicit_inputs") or {}),
+            dispatch_context=dict(request.get("dispatch_context") or {}),
+        )
+    return {
+        "coordination_run_id": str(request.get("coordination_run_id") or ""),
+        "coordination_stage_id": stage_id,
+        "stage_id": stage_id,
+        "node_id": str(request.get("node_id") or stage_id),
+        "stage_request_id": str(request.get("request_id") or ""),
+        "stage_idempotency_key": idempotency_key,
+        "stage_dispatch_event_id": str(dict(request.get("dispatch_context") or {}).get("dispatch_event_id") or ""),
+        "continuation_stage_id": str(selection.get("continuation_stage_id") or stage_id),
+    }
 
 
 def _extract_task_search_policy(selection: dict[str, Any]) -> list[str] | tuple[str, ...] | set[str] | None:
@@ -7854,6 +8083,9 @@ def _model_stream_policy_from_task_execution_assembly(
         "preview_char_limit": _safe_int(policy.get("preview_char_limit")),
         "persist_full_stream_text": bool(policy.get("persist_full_stream_text") is True),
         "fallback_to_non_stream_on_error": bool(policy.get("fallback_to_non_stream_on_error", True) is not False),
+        "non_stream_fallback_timeout_seconds": float(policy.get("non_stream_fallback_timeout_seconds") or 0),
+        "stream_recovery_timeout_seconds": float(policy.get("stream_recovery_timeout_seconds") or 0),
+        "fallback_timeout_seconds": float(policy.get("fallback_timeout_seconds") or 0),
         "authority": "orchestration.task_stream_policy",
     }
 
@@ -7897,6 +8129,70 @@ def _count_text_units(content: str) -> int:
     cjk_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
     latin_words = len(re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?", text))
     return cjk_chars + latin_words
+
+
+def _quality_gate_metric_text(content: str, policy: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    text = str(content or "").strip()
+    if not text:
+        return "", {"metric_content_source": "empty"}
+    section_keys = tuple(
+        str(item).strip()
+        for item in list(policy.get("metric_section_keys") or policy.get("body_section_keys") or [])
+        if str(item).strip()
+    )
+    stop_section_keys = tuple(
+        str(item).strip()
+        for item in list(policy.get("metric_stop_section_keys") or policy.get("body_stop_section_keys") or [])
+        if str(item).strip()
+    )
+    if section_keys:
+        section_text = extract_markdown_section_content(
+            text,
+            section_keys,
+            stop_section_keys=stop_section_keys,
+            include_heading=True,
+        )
+        if section_text.strip():
+            return section_text.strip(), {
+                "metric_content_source": "section",
+                "metric_section_keys": list(section_keys),
+                "metric_stop_section_keys": list(stop_section_keys),
+            }
+    if stop_section_keys:
+        truncated = _truncate_text_at_quality_sections(text, stop_section_keys)
+        if truncated.strip() != text:
+            return truncated.strip(), {
+                "metric_content_source": "truncated_full_content",
+                "metric_section_keys": list(section_keys),
+                "metric_stop_section_keys": list(stop_section_keys),
+            }
+    return text, {
+        "metric_content_source": "full_content",
+        "metric_section_keys": list(section_keys),
+        "metric_stop_section_keys": list(stop_section_keys),
+    }
+
+
+def _truncate_text_at_quality_sections(content: str, section_keys: tuple[str, ...]) -> str:
+    text = str(content or "")
+    if not text.strip() or not section_keys:
+        return text
+    stop_positions: list[int] = []
+    for match in re.finditer(r"^(?:#{1,6}\s+)?【(?P<title>[^】]{1,80})】\s*$", text, flags=re.MULTILINE):
+        title = str(match.group("title") or "").strip()
+        if any(_quality_section_title_matches(title, key) for key in section_keys):
+            stop_positions.append(int(match.start()))
+    if not stop_positions:
+        return text
+    return text[: min(stop_positions)]
+
+
+def _quality_section_title_matches(title: str, key: str) -> bool:
+    title_norm = re.sub(r"\s+", "", str(title or "").strip().strip("#").strip("【】[]（）()")).lower()
+    key_norm = re.sub(r"\s+", "", str(key or "").strip().strip("#").strip("【】[]（）()")).lower()
+    if not title_norm or not key_norm:
+        return False
+    return title_norm == key_norm or key_norm in title_norm or title_norm in key_norm
 
 
 def _stage_business_acceptance(
@@ -8051,7 +8347,9 @@ def _sectioned_text_batch_quality_gate(
     policy: dict[str, Any],
 ) -> dict[str, Any]:
     text = str(content or "").strip()
-    content_metric_total = _count_text_units(text)
+    metric_text, metric_text_diagnostics = _quality_gate_metric_text(text, policy)
+    raw_content_metric_total = _count_text_units(text)
+    content_metric_total = _count_text_units(metric_text)
     unit_count_key = str(policy.get("unit_count_key") or "unit_count")
     unit_start_key = str(policy.get("unit_start_key") or "unit_start_index")
     unit_end_key = str(policy.get("unit_end_key") or "unit_end_index")
@@ -8065,15 +8363,67 @@ def _sectioned_text_batch_quality_gate(
     start_index = _safe_int(explicit_inputs.get(unit_start_key) or explicit_inputs.get(unit_index_key)) or 1
     end_index = _safe_int(explicit_inputs.get(unit_end_key)) or (start_index + units_per_batch - 1)
     expected_indexes = list(range(start_index, end_index + 1)) if end_index >= start_index else [start_index]
+    expected_index_set = set(expected_indexes)
     heading_patterns = tuple(str(item).strip() for item in list(policy.get("required_heading_patterns") or []) if str(item).strip())
-    found_indexes = _extract_indexed_markers(text, heading_patterns)
+    heading_match_scope = str(policy.get("heading_match_scope") or policy.get("unit_heading_scope") or "anywhere").strip()
+    ignored_heading_parent_keywords = tuple(
+        str(item).strip()
+        for item in list(policy.get("ignored_heading_parent_keywords") or [])
+        if str(item).strip()
+    )
+    section_ranges = _extract_indexed_section_ranges(
+        text,
+        heading_patterns,
+        heading_match_scope=heading_match_scope,
+        ignored_parent_keywords=ignored_heading_parent_keywords,
+    )
+    found_indexes = set(section_ranges)
     missing_indexes = [index for index in expected_indexes if index not in found_indexes] if heading_patterns else []
+    unexpected_indexes = (
+        sorted(index for index in found_indexes if index not in expected_index_set)
+        if bool(policy.get("forbid_unexpected_unit_indexes"))
+        else []
+    )
+    unexpected_ranges = (
+        _unexpected_unit_range_declarations(
+            text,
+            expected_start=start_index,
+            expected_end=end_index,
+            expected_indexes=expected_index_set,
+        )
+        if bool(policy.get("forbid_unexpected_unit_ranges"))
+        else []
+    )
     target_metric_total = _safe_int(explicit_inputs.get(target_metric_key)) or (
         (_safe_int(explicit_inputs.get(unit_target_metric_key)) or 0) * units_per_batch
     )
     min_ratio = float(policy.get("minimum_metric_ratio") or 0.0)
     min_per_unit = _safe_int(policy.get("minimum_metric_per_unit"))
     min_metric_total = max(min_per_unit * units_per_batch, int(target_metric_total * min_ratio))
+    unit_metric_counts = {
+        str(index): _count_text_units(metric_text[start:end])
+        for index, (start, end) in sorted(
+            _extract_indexed_section_ranges(
+                metric_text,
+                heading_patterns,
+                heading_match_scope=heading_match_scope,
+                ignored_parent_keywords=ignored_heading_parent_keywords,
+            ).items()
+        )
+        if index in expected_indexes
+    }
+    insufficient_unit_metrics = [
+        {
+            "unit_index": index,
+            "metric_value": int(unit_metric_counts.get(str(index)) or 0),
+            "min_required_metric": min_per_unit,
+            "deficit": max(min_per_unit - int(unit_metric_counts.get(str(index)) or 0), 0),
+        }
+        for index in expected_indexes
+        if min_per_unit > 0
+        and index in found_indexes
+        and int(unit_metric_counts.get(str(index)) or 0) < min_per_unit
+    ]
     refusal_markers = tuple(str(item) for item in list(policy.get("refusal_markers") or [])) or (
         "抱歉，我无法",
         "无法执行这个请求",
@@ -8091,27 +8441,74 @@ def _sectioned_text_batch_quality_gate(
         issues.append("refusal_or_process_text_detected")
     if min_metric_total > 0 and content_metric_total < min_metric_total:
         issues.append(f"insufficient_metric:{content_metric_total}<{min_metric_total}")
+    for item in insufficient_unit_metrics:
+        issues.append(
+            "insufficient_unit_metric:"
+            f"{item['unit_index']}:{item['metric_value']}<{item['min_required_metric']}"
+        )
+    if unexpected_indexes:
+        issues.append("unexpected_unit_indexes:" + ",".join(str(index) for index in unexpected_indexes))
+    for item in unexpected_ranges[:5]:
+        issues.append(
+            "unexpected_unit_range:"
+            f"{item['start_index']}-{item['end_index']}!=expected:{start_index}-{end_index}"
+        )
     if missing_indexes:
         issues.append("missing_required_sections:" + ",".join(str(index) for index in missing_indexes))
     return {
         "accepted": not issues,
         "content_metric_total": content_metric_total,
+        "raw_content_metric_total": raw_content_metric_total,
         "min_required_metric_total": min_metric_total,
+        **metric_text_diagnostics,
         "expected_unit_indexes": expected_indexes,
         "found_unit_indexes": sorted(found_indexes),
         "missing_unit_indexes": missing_indexes,
+        "unexpected_unit_indexes": unexpected_indexes,
+        "unexpected_unit_ranges": unexpected_ranges,
+        "minimum_metric_per_unit": min_per_unit,
+        "unit_metric_counts": unit_metric_counts,
+        "insufficient_unit_metrics": insufficient_unit_metrics,
+        "unit_metric_summary": _unit_metric_summary(
+            expected_indexes=expected_indexes,
+            unit_metric_counts=unit_metric_counts,
+            min_per_unit=min_per_unit,
+            insufficient_unit_metrics=insufficient_unit_metrics,
+            missing_indexes=missing_indexes,
+        ),
         "issues": issues,
     }
 
 
 def _extract_indexed_markers(content: str, patterns: tuple[str, ...]) -> set[int]:
-    indexes: set[int] = set()
+    return set(_extract_indexed_section_ranges(content, patterns))
+
+
+def _extract_indexed_section_ranges(
+    content: str,
+    patterns: tuple[str, ...],
+    *,
+    heading_match_scope: str = "anywhere",
+    ignored_parent_keywords: tuple[str, ...] = (),
+) -> dict[int, tuple[int, int]]:
+    text = str(content or "")
+    scope = str(heading_match_scope or "anywhere").strip().lower()
+    ignored_ranges = _ignored_parent_section_ranges(text, ignored_parent_keywords)
+    markers: list[tuple[int, int]] = []
     for pattern in patterns:
         try:
-            matches = list(re.finditer(pattern, str(content or ""), flags=re.MULTILINE))
+            matches = list(re.finditer(pattern, text, flags=re.MULTILINE))
         except re.error:
             continue
         for match in matches:
+            if scope in {"formal_heading", "heading", "markdown_heading"} and not _is_formal_indexed_heading_match(
+                text,
+                match,
+                require_markdown=scope == "markdown_heading",
+            ):
+                continue
+            if _position_in_ranges(match.start(), ignored_ranges):
+                continue
             value = ""
             if "index" in match.groupdict():
                 value = str(match.groupdict().get("index") or "")
@@ -8119,8 +8516,252 @@ def _extract_indexed_markers(content: str, patterns: tuple[str, ...]) -> set[int
                 value = str(match.group(1) or "")
             parsed = _parse_index_number(value)
             if parsed > 0:
-                indexes.add(parsed)
+                markers.append((match.start(), parsed))
+    if not markers:
+        return {}
+    ranges: dict[int, tuple[int, int]] = {}
+    ordered = sorted(markers, key=lambda item: item[0])
+    for position, (start, parsed) in enumerate(ordered):
+        end = ordered[position + 1][0] if position + 1 < len(ordered) else len(text)
+        ranges.setdefault(parsed, (start, end))
+    return ranges
+
+
+def _is_formal_indexed_heading_match(text: str, match: re.Match[str], *, require_markdown: bool = False) -> bool:
+    line_start = text.rfind("\n", 0, match.start()) + 1
+    line_end = text.find("\n", match.end())
+    if line_end < 0:
+        line_end = len(text)
+    line = text[line_start:line_end]
+    prefix = line[: match.start() - line_start]
+    if require_markdown:
+        if not re.fullmatch(r"\s{0,3}#{1,6}\s+", prefix):
+            return False
+    elif not re.fullmatch(r"\s{0,3}(?:#{1,6}\s+)?", prefix):
+        return False
+    suffix = line[match.end() - line_start :].lstrip()
+    if suffix.startswith(("至", "到", "-", "—", "~", "～")):
+        return False
+    return True
+
+
+def _ignored_parent_section_ranges(text: str, keywords: tuple[str, ...]) -> list[tuple[int, int]]:
+    if not keywords:
+        return []
+    lines = text.splitlines(keepends=True)
+    starts: list[int] = []
+    offset = 0
+    for line in lines:
+        starts.append(offset)
+        offset += len(line)
+    ranges: list[tuple[int, int]] = []
+    active_start: int | None = None
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        is_boundary = _is_quality_gate_section_boundary(stripped)
+        has_keyword = any(keyword in stripped for keyword in keywords)
+        if has_keyword and is_boundary:
+            if active_start is None:
+                active_start = starts[idx]
+            continue
+        if active_start is not None and is_boundary and not has_keyword:
+            ranges.append((active_start, starts[idx]))
+            active_start = None
+    if active_start is not None:
+        ranges.append((active_start, len(text)))
+    return ranges
+
+
+def _is_quality_gate_section_boundary(stripped_line: str) -> bool:
+    if re.match(r"^#{1,6}\s+\S", stripped_line):
+        return True
+    if re.match(r"^【[^】]{1,60}】\s*$", stripped_line):
+        return True
+    if re.match(r"^[^：:\n]{1,40}[：:]\s*$", stripped_line):
+        return True
+    return False
+
+
+def _position_in_ranges(position: int, ranges: list[tuple[int, int]]) -> bool:
+    return any(start <= position < end for start, end in ranges)
+
+
+def _unexpected_unit_range_declarations(
+    content: str,
+    *,
+    expected_start: int,
+    expected_end: int,
+    expected_indexes: set[int],
+) -> list[dict[str, Any]]:
+    text = str(content or "")
+    if not text.strip() or expected_start <= 0 or expected_end <= 0:
+        return []
+    exact_range_keywords = (
+        "当前批次",
+        "当前章批次",
+        "本批允许范围",
+        "本批允许章号",
+        "允许范围",
+        "批次目标",
+        "批次摘要",
+        "当前批次细纲",
+        "当前批次正文",
+    )
+    broad_batch_keywords = ("本批", "本轮")
+    unexpected: list[dict[str, Any]] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        is_exact_declaration = any(keyword in stripped for keyword in exact_range_keywords) or bool(
+            re.search(r"第\s*[0-9一二三四五六七八九十百零〇两]+\s*(?:[-—~～]|至|到)\s*第?\s*[0-9一二三四五六七八九十百零〇两]+\s*章\s*批次摘要", stripped)
+        )
+        is_batch_line = is_exact_declaration or any(keyword in stripped for keyword in broad_batch_keywords)
+        if not is_batch_line:
+            continue
+        line_ranges = _chapter_range_mentions_in_text(stripped)
+        line_indexes = _chapter_indexes_in_text(stripped)
+        for range_mention in line_ranges:
+            start_index = int(range_mention.get("start_index") or 0)
+            end_index = int(range_mention.get("end_index") or 0)
+            if (
+                not is_exact_declaration
+                and _is_future_unit_range_reference(
+                    stripped,
+                    range_mention=range_mention,
+                    expected_end=expected_end,
+                )
+            ):
+                continue
+            exact_mismatch = is_exact_declaration and (start_index != expected_start or end_index != expected_end)
+            subset_mismatch = not is_exact_declaration and not (
+                start_index >= expected_start and end_index <= expected_end
+            )
+            if exact_mismatch or subset_mismatch:
+                unexpected.append(
+                    {
+                        "line_number": line_number,
+                        "line_preview": stripped[:160],
+                        "start_index": start_index,
+                        "end_index": end_index,
+                        "expected_start_index": expected_start,
+                        "expected_end_index": expected_end,
+                    }
+                )
+        if is_exact_declaration:
+            outside_indexes = sorted(index for index in line_indexes if index not in expected_indexes)
+            if outside_indexes:
+                unexpected.append(
+                    {
+                        "line_number": line_number,
+                        "line_preview": stripped[:160],
+                        "start_index": outside_indexes[0],
+                        "end_index": outside_indexes[-1],
+                        "expected_start_index": expected_start,
+                        "expected_end_index": expected_end,
+                        "outside_indexes": outside_indexes,
+                    }
+                )
+    return unexpected
+
+
+def _chapter_ranges_in_text(content: str) -> list[tuple[int, int]]:
+    return [
+        (int(item["start_index"]), int(item["end_index"]))
+        for item in _chapter_range_mentions_in_text(content)
+    ]
+
+
+def _chapter_range_mentions_in_text(content: str) -> list[dict[str, int]]:
+    text = str(content or "")
+    pattern = re.compile(
+        r"第\s*(?P<start>[0-9一二三四五六七八九十百零〇两]+)\s*章?\s*(?:至|到|[-—~～])\s*第?\s*(?P<end>[0-9一二三四五六七八九十百零〇两]+)\s*章"
+    )
+    ranges: list[dict[str, int]] = []
+    for match in pattern.finditer(text):
+        start_index = _parse_index_number(str(match.group("start") or ""))
+        end_index = _parse_index_number(str(match.group("end") or ""))
+        if start_index > 0 and end_index > 0:
+            if start_index <= end_index:
+                normalized_start, normalized_end = start_index, end_index
+            else:
+                normalized_start, normalized_end = end_index, start_index
+            ranges.append(
+                {
+                    "start_index": normalized_start,
+                    "end_index": normalized_end,
+                    "match_start": int(match.start()),
+                    "match_end": int(match.end()),
+                }
+            )
+    return ranges
+
+
+def _is_future_unit_range_reference(
+    line: str,
+    *,
+    range_mention: dict[str, int],
+    expected_end: int,
+) -> bool:
+    start_index = int(range_mention.get("start_index") or 0)
+    end_index = int(range_mention.get("end_index") or 0)
+    if start_index <= expected_end and end_index <= expected_end:
+        return False
+    future_keywords = (
+        "下一批",
+        "下批",
+        "下一轮",
+        "下轮",
+        "后续批次",
+        "后续章节",
+        "后续章",
+        "后续承接",
+        "承接点",
+        "下一阶段",
+    )
+    match_start = int(range_mention.get("match_start") or 0)
+    prefix = str(line or "")[:match_start]
+    suffix = str(line or "")[match_start : int(range_mention.get("match_end") or match_start)]
+    nearby = str(line or "")[max(match_start - 36, 0) : min(int(range_mention.get("match_end") or match_start) + 36, len(str(line or "")))]
+    return any(keyword in prefix or keyword in suffix or keyword in nearby for keyword in future_keywords)
+
+
+def _chapter_indexes_in_text(content: str) -> set[int]:
+    indexes: set[int] = set()
+    for match in re.finditer(r"第\s*([0-9一二三四五六七八九十百零〇两]+)\s*章", str(content or "")):
+        parsed = _parse_index_number(str(match.group(1) or ""))
+        if parsed > 0:
+            indexes.add(parsed)
     return indexes
+
+
+def _unit_metric_summary(
+    *,
+    expected_indexes: list[int],
+    unit_metric_counts: dict[str, int],
+    min_per_unit: int,
+    insufficient_unit_metrics: list[dict[str, int]],
+    missing_indexes: list[int],
+) -> str:
+    if not expected_indexes:
+        return ""
+    insufficient_by_index = {
+        int(item.get("unit_index") or 0): item for item in insufficient_unit_metrics
+    }
+    parts: list[str] = []
+    for index in expected_indexes:
+        if index in missing_indexes:
+            parts.append(f"第{index}章缺失")
+            continue
+        count = int(unit_metric_counts.get(str(index)) or 0)
+        if index in insufficient_by_index and min_per_unit > 0:
+            deficit = int(insufficient_by_index[index].get("deficit") or 0)
+            parts.append(f"第{index}章约{count}字，低于{min_per_unit}字，需补约{deficit}字")
+        else:
+            parts.append(f"第{index}章约{count}字")
+    return "；".join(parts)
 
 
 def _parse_index_number(value: str) -> int:

@@ -5,7 +5,9 @@ from pathlib import Path
 from typing import Any
 
 from capability_system.local_mcp_registry import get_local_mcp_unit
+from continuation import collect_continuation_candidates, decide_continuation
 from context_management import ContextResolver
+from intent import build_runtime_assembly_hint, collect_intent_frame, decide_intent
 from tasks.assembly_builder import build_task_execution_assembly_bundle
 from tasks.flow_registry import TaskFlowRegistry
 from understanding.capability_resolution_view import capability_resolution_view
@@ -66,7 +68,27 @@ class AgentRuntimeChainAssembler:
             memory_intent=memory_intent,
             memory_request_profile=initial_memory_request_profile,
         )
-        active_bindings = _active_bindings_from_memory_payload(memory_payload)
+        intent_frame = collect_intent_frame(
+            message,
+            memory_intent=memory_intent,
+            memory_runtime_view=memory_payload,
+        )
+        intent_decision = decide_intent(intent_frame)
+        continuation_candidates = collect_continuation_candidates(
+            message=message,
+            memory_runtime_view=memory_payload,
+            intent_frame=intent_frame,
+            intent_decision=intent_decision,
+        )
+        continuation_decision = decide_continuation(
+            candidates=continuation_candidates,
+            intent_decision=intent_decision,
+        )
+        runtime_assembly_hint = build_runtime_assembly_hint(
+            intent_frame=intent_frame,
+            intent_decision=intent_decision,
+        )
+        active_bindings = _active_bindings_from_continuation_decision(continuation_decision.to_dict())
         query_understanding = analyze_query_understanding(
             message,
             memory_intent,
@@ -85,6 +107,11 @@ class AgentRuntimeChainAssembler:
             user_message=message,
             memory_runtime_view=memory_payload,
             query_understanding=asdict(query_understanding),
+            intent_frame=intent_frame.to_dict(),
+            intent_decision=intent_decision.to_dict(),
+            runtime_assembly_hint=runtime_assembly_hint,
+            continuation_candidates=[item.to_dict() for item in continuation_candidates],
+            continuation_decision=continuation_decision.to_dict(),
         )
         current_turn_context_payload = current_turn_context.to_dict()
         if current_turn_context_override:
@@ -273,44 +300,35 @@ def _to_dict(value: Any) -> dict[str, Any]:
     return dict(value)
 
 
-def _active_bindings_from_memory_payload(memory_payload: dict[str, Any]) -> dict[str, Any]:
-    state_snapshot = dict(memory_payload.get("state_snapshot") or {})
-    context_slots = dict(state_snapshot.get("context_slots") or {})
-    active_handles = dict(state_snapshot.get("active_handles") or {})
-    active_constraints = dict(context_slots.get("active_constraints") or state_snapshot.get("active_constraints") or {})
+def _active_bindings_from_continuation_decision(decision: dict[str, Any]) -> dict[str, Any]:
+    if str(decision.get("decision_kind") or "").strip() != "selected":
+        return {}
+    active_bindings = dict(decision.get("active_bindings") or {})
+    source_kind = str(decision.get("source_kind") or active_bindings.get("source_kind") or "").strip()
     result: dict[str, Any] = {}
+    if source_kind == "dataset":
+        path = str(active_bindings.get("active_dataset") or active_bindings.get("path") or "").strip()
+        if path:
+            result["active_dataset"] = path
+    elif source_kind == "pdf":
+        path = str(active_bindings.get("active_pdf") or active_bindings.get("path") or "").strip()
+        if path:
+            result["active_pdf"] = path
     for key in (
-        "active_pdf",
         "active_pdf_mode",
         "active_pdf_section",
         "active_pdf_pages",
-        "active_dataset",
-        "active_binding_kind",
-        "active_binding_identity",
-        "active_binding_owner_task_id",
-        "committed_pdf",
-        "committed_pdf_owner_task_id",
-        "committed_dataset",
-        "committed_dataset_owner_task_id",
+        "active_object_handle_id",
+        "active_result_handle_id",
+        "active_subset_handle_id",
     ):
-        value = context_slots.get(key)
-        if value not in ("", [], {}, None):
+        value = active_bindings.get(key)
+        if value not in ("", None, [], {}):
             result[key] = value
+    active_constraints = dict(active_bindings.get("active_constraints") or {})
     if active_constraints:
         result["active_constraints"] = active_constraints
-    bundle_refs = list(state_snapshot.get("bundle_result_refs") or [])
-    if bundle_refs:
-        result["bundle_result_refs"] = [
-            dict(item)
-            for item in bundle_refs
-            if isinstance(item, dict)
-        ]
-    for key in ("active_object_handle_id", "active_result_handle_id", "active_subset_handle_id"):
-        value = active_handles.get(key) or context_slots.get(key)
-        if value not in ("", [], {}, None):
-            result[key] = value
     return result
-
 
 def _memory_request_profile_for_context_assembly(
     memory_request_profile: dict[str, Any],
