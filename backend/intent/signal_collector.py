@@ -52,6 +52,7 @@ def collect_intent_frame(
             "collector": "intent.signal_collector",
             "state_candidate_count": evidence["state_candidate_count"],
             "restore_candidate_count": evidence["restore_candidate_count"],
+            "task_summary_candidate_count": evidence["task_summary_candidate_count"],
             "context_candidate_count": evidence["context_candidate_count"],
         },
     )
@@ -90,6 +91,27 @@ def _collect_evidence(
     memory_profile = profiles.get("memory") or _empty_profile("memory")
     graph_profile = profiles.get("workflow_graph") or _empty_profile("workflow_graph")
     long_task_profile = profiles.get("long_task") or _empty_profile("long_task")
+    official_source_requirement = bool(_contains_any(lowered, ("官网", "官方", "官方文档", "权威来源", "一手来源", "official docs", "official")))
+    official_external_context = official_source_requirement and _contains_any(
+        lowered,
+        ("公告", "发布", "更新", "来源", "时间", "最近", "近期", "最新", "recent", "release", "update"),
+    )
+    external_requirement = official_external_context or _contains_any(
+        lowered,
+        ("联网", "官网", "官方文档", "web search", "上网", "网上查", "look it up", "news"),
+    )
+    freshness_requirement = _contains_any(
+        lowered,
+        ("今年", "现在", "目前", "还在", "最新", "最新状态", "实时", "最近", "近期", "today", "latest", "current", "currently", "recent"),
+    )
+    weather_domain = _contains_any(
+        lowered,
+        ("weather", "forecast", "temperature", "天气", "气温", "温度", "降雨", "下雨", "风速", "风向", "预报"),
+    )
+    gold_price_domain = _contains_any(
+        lowered,
+        ("gold price", "spot gold", "xau", "xauusd", "黄金", "金价", "现货黄金", "黄金价格"),
+    )
     dataset_language = (
         marker_hits(lowered, tuple(getattr(dataset_profile, "markers", ()) or ())) > 0
         or explicit_dataset
@@ -119,11 +141,15 @@ def _collect_evidence(
         and dataset_language
         and _looks_like_dataset_analysis_followup(lowered)
     )
-    continuation_language = continuation_source_available and (
+    continuation_language = (
+        continuation_source_available
+        and not (weather_domain or gold_price_domain or external_requirement)
+        and (
         scope_refinement
         or dataset_analysis_followup
         or _contains_any(lowered, ("继续", "再", "刚才", "这些", "这个", "这份", "回到", "展开一下", "按"))
         or page_or_section
+        )
     )
     retrieve_knowledge = marker_hits(lowered, tuple(getattr(knowledge_profile, "markers", ()) or ())) > 0
     memory_recall = bool(getattr(memory_intent, "should_skip_rag", False)) or _contains_any(
@@ -174,6 +200,11 @@ def _collect_evidence(
         "continuation_language": continuation_language,
         "retrieve_knowledge": retrieve_knowledge,
         "memory_recall": memory_recall,
+        "external_requirement": external_requirement,
+        "official_source_requirement": official_source_requirement,
+        "freshness_requirement": freshness_requirement,
+        "weather_domain": weather_domain,
+        "gold_price_domain": gold_price_domain,
         "delegation_work": delegation_work,
         "long_task": long_task,
         "background": background,
@@ -181,12 +212,15 @@ def _collect_evidence(
         "profile_hits": profile_hits,
         "state_candidate_count": 1 if has_state_candidate else 0,
         "restore_candidate_count": len(restore_candidates),
+        "task_summary_candidate_count": len(task_summary_candidates),
         "context_candidate_count": len(context_candidates),
     }
 
 
 def _domain_hints(evidence: dict[str, Any]) -> list[str]:
     hints: list[str] = []
+    if evidence.get("weather_domain") or evidence.get("gold_price_domain") or evidence.get("external_requirement"):
+        hints.append("realtime")
     if evidence.get("dataset_language") or evidence.get("explicit_dataset"):
         hints.append("dataset")
     if evidence.get("pdf_language") or evidence.get("explicit_pdf"):
@@ -201,6 +235,8 @@ def _domain_hints(evidence: dict[str, Any]) -> list[str]:
 
 
 def _execution_strategy_candidates(evidence: dict[str, Any]) -> list[str]:
+    if evidence.get("weather_domain") or evidence.get("gold_price_domain") or evidence.get("external_requirement"):
+        return ["single_react_loop"]
     if evidence.get("graph_coordination"):
         return ["graph_coordination_run", "autonomous_task_run"]
     if evidence.get("background"):

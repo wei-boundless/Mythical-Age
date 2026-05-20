@@ -19,7 +19,6 @@ from understanding.task_understanding import analyze_task_understanding
 def _assemble(
     *,
     user_goal: str,
-    active_bindings: dict,
     context_slots: dict,
     active_constraints: dict | None = None,
     task_id: str,
@@ -48,10 +47,7 @@ def _assemble(
         intent_frame=intent_frame,
         intent_decision=intent_decision,
     )
-    selected_active_bindings = dict(continuation_decision.active_bindings or {})
-    if selected_active_bindings.get("active_dataset") or selected_active_bindings.get("active_pdf"):
-        active_bindings = selected_active_bindings
-    understanding = asdict(analyze_task_understanding(user_goal, active_bindings=active_bindings))
+    understanding = asdict(analyze_task_understanding(user_goal))
     current_turn = ContextResolver().resolve(
         session_id="session-semantic-boundary",
         task_id=task_id,
@@ -79,7 +75,6 @@ def test_explicit_dataset_path_beats_stale_pdf_binding_in_main_assembly() -> Non
     stale_pdf = "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
     bundle = _assemble(
         user_goal="现在切到 knowledge/E-commerce Data/employees.xlsx。找出薪资最高的前五名员工，并带上姓名、部门、薪资。",
-        active_bindings={"committed_pdf": stale_pdf, "committed_dataset": "inventory.xlsx"},
         context_slots={"committed_pdf": stale_pdf, "committed_dataset": "inventory.xlsx"},
         task_id="task-semantic-explicit-dataset",
     )
@@ -99,7 +94,6 @@ def test_explicit_dataset_path_beats_stale_pdf_binding_in_main_assembly() -> Non
 def test_realtime_request_beats_stale_file_bindings_in_main_assembly() -> None:
     bundle = _assemble(
         user_goal="北京今天天气怎么样，直接给温度范围和时间口径。",
-        active_bindings={"active_pdf": "report.pdf", "active_dataset": "inventory.xlsx"},
         context_slots={"active_pdf": "report.pdf", "active_dataset": "inventory.xlsx"},
         task_id="task-semantic-realtime",
     )
@@ -115,7 +109,6 @@ def test_realtime_request_beats_stale_file_bindings_in_main_assembly() -> None:
 def test_active_subset_followup_is_result_level_contract() -> None:
     bundle = _assemble(
         user_goal="只基于刚才这前五名员工，按部门做一个归类总结，不要回到全表重算。",
-        active_bindings={"active_dataset": "Data/employees.xlsx"},
         context_slots={
             "active_dataset": "Data/employees.xlsx",
             "active_result_handle_id": "result:structured:employees:top5",
@@ -133,8 +126,6 @@ def test_active_subset_followup_is_result_level_contract() -> None:
     current_turn = bundle["current_turn_context"]
     explicit_inputs = dict(current_turn["explicit_inputs"])
 
-    assert explicit_inputs["followup_target_kind"] == "active_subset"
-    assert explicit_inputs["followup_scope"] == "active_subset"
     assert "bound_dataset_path" not in explicit_inputs
     assert current_turn["followup_target_refs"] == [
         "subset:selection:employees:top5",
@@ -145,24 +136,21 @@ def test_active_subset_followup_is_result_level_contract() -> None:
     assert bundle["selected_recipe"]["recipe_id"] == "runtime.recipe.structured_data_analysis"
     assert bundle["execution_shape"]["resolution_reasons"] == ["subset_followup"]
     task_inputs = dict(bundle["task_spec"]["inputs"])
-    followup_contract = dict(task_inputs["followup_execution_contract"])
-    assert followup_contract["constraint_policy"] == "result_subset_only_do_not_expand_to_full_object"
-    assert followup_contract["followup_target_refs"] == [
-        "subset:selection:employees:top5",
-        "result:structured:employees:top5",
-    ]
-    assert followup_contract["active_subset_handle_id"] == "subset:selection:employees:top5"
-    assert followup_contract["active_result_handle_id"] == "result:structured:employees:top5"
-    assert followup_contract["subset_filter_column"] == "name"
-    assert followup_contract["subset_labels"] == ["Alice", "Bob", "Chen", "Diaz", "Eve"]
-    assert task_inputs["followup_constraint_policy"] == "result_subset_only_do_not_expand_to_full_object"
+    protocol = dict(task_inputs["agent_communication_protocol"])
+    recall_context = dict(dict(protocol["handoff_context"])["recall_context"])
+    recall_payload = dict(recall_context["candidates"][0]["recall_payload"])
+    assert "followup_execution_contract" not in task_inputs
+    assert recall_context["candidate_policy"] == "candidate_only_child_must_verify_before_use"
+    assert recall_payload["active_subset_handle_id"] == "subset:selection:employees:top5"
+    assert recall_payload["active_result_handle_id"] == "result:structured:employees:top5"
+    assert recall_payload["active_constraints"]["subset_filter_column"] == "name"
+    assert recall_payload["active_constraints"]["subset_labels"] == ["Alice", "Bob", "Chen", "Diaz", "Eve"]
 
 
 def test_dataset_subset_followup_rejects_stale_pdf_candidate() -> None:
     stale_pdf = "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
     bundle = _assemble(
         user_goal="按部门汇总这些人，只总结这前五名，不要扩展回全表。",
-        active_bindings={"active_pdf": stale_pdf, "active_dataset": "Data/employees.xlsx"},
         context_slots={
             "active_pdf": stale_pdf,
             "active_dataset": "Data/employees.xlsx",
@@ -182,9 +170,13 @@ def test_dataset_subset_followup_rejects_stale_pdf_candidate() -> None:
     bindings = list(current_turn["resolved_bindings"])
     assert current_turn["intent_decision"]["primary_action"] == "refine_scope"
     assert current_turn["continuation_decision"]["source_kind"] == "dataset"
-    assert current_turn["explicit_inputs"]["followup_target_kind"] == "active_subset"
-    assert any(binding["file_kind"] == "dataset" and binding["source"] == "continuation_decision" for binding in bindings)
+    assert current_turn["continuation_decision"]["followup_target_kind"] == "active_subset"
+    assert not any(binding["source"] != "explicit_user_input" for binding in bindings)
     assert all(binding["file_kind"] != "pdf" for binding in bindings)
+    assert any(
+        candidate["source_kind"] == "dataset" and candidate.get("selected_by_context_recall") is True
+        for candidate in current_turn["context_recall_candidates"]
+    )
     assert any(
         candidate["source_kind"] == "pdf" and candidate["compatible"] is False
         for candidate in current_turn["continuation_candidates"]
@@ -194,7 +186,6 @@ def test_dataset_subset_followup_rejects_stale_pdf_candidate() -> None:
 def test_pdf_deictic_followup_builds_pdf_continuation_contract() -> None:
     bundle = _assemble(
         user_goal="把这份 PDF 的结论压成三条行动建议，每条都要带行动动词。",
-        active_bindings={"active_pdf": "knowledge/AI Knowledge/report.pdf"},
         context_slots={
             "active_pdf": "knowledge/AI Knowledge/report.pdf",
             "active_result_handle_id": "result:pdf_answer:p3",
@@ -204,17 +195,18 @@ def test_pdf_deictic_followup_builds_pdf_continuation_contract() -> None:
 
     current_turn = bundle["current_turn_context"]
     task_inputs = dict(bundle["task_spec"]["inputs"])
-    followup_contract = dict(task_inputs["followup_execution_contract"])
     communication_protocol = dict(task_inputs["agent_communication_protocol"])
 
     assert current_turn["intent_decision"]["primary_action"] == "continue"
     assert current_turn["continuation_decision"]["source_kind"] == "pdf"
-    assert current_turn["explicit_inputs"]["followup_target_kind"] == "active_pdf"
-    assert followup_contract["source_kind"] == "pdf"
-    assert followup_contract["source_path"] == "knowledge/AI Knowledge/report.pdf"
+    assert current_turn["continuation_decision"]["followup_target_kind"] == "active_pdf"
+    assert "followup_execution_contract" not in task_inputs
     assert communication_protocol["transport"] == "runtime_tool:delegate_to_agent"
     assert communication_protocol["target_agent_id"] == "agent:pdf_reader"
     assert communication_protocol["delegation_kind"] == "pdf_reading"
+    recall_context = dict(dict(communication_protocol["handoff_context"])["recall_context"])
+    assert recall_context["candidate_policy"] == "candidate_only_child_must_verify_before_use"
+    assert recall_context["candidates"][0]["recall_payload"]["active_pdf"] == "knowledge/AI Knowledge/report.pdf"
     orchestration_bundle = build_orchestration_runtime_bundle(
         base_dir=BACKEND_DIR,
         session_id="session-semantic-boundary",

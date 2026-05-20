@@ -14,6 +14,11 @@ class TaskSummaryRef:
     response_style: str = ""
     source: str = ""
     key_points: list[str] = field(default_factory=list)
+    active_object_handle_id: str = ""
+    active_result_handle_id: str = ""
+    active_subset_handle_id: str = ""
+    subset_labels: list[str] = field(default_factory=list)
+    subset_filter_column: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

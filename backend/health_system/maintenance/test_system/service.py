@@ -20,6 +20,7 @@ from .harness_map import build_harness_map
 from .harness_records import harness_record_store
 from .profiles import list_profiles
 from .runtime_loop_probe import runtime_loop_summary_from_turn_payload
+from .task_graph_health import build_task_graph_health_projection
 from health_system.evidence_extractor import build_turn_artifact_evidence_packet
 
 
@@ -395,6 +396,21 @@ class TestSystemService:
         if trace is None:
             raise ValueError("TaskRun trace not found")
         return summarize_runtime_loop_trace(trace)
+
+    def get_task_graph_health(self, task_run_id: str, *, runtime_loop=None) -> dict[str, Any]:
+        if runtime_loop is None:
+            raise ValueError("runtime_loop is required")
+        if not hasattr(runtime_loop, "get_task_graph_run_monitor"):
+            raise ValueError("runtime_loop does not expose TaskGraph monitor")
+        monitor = runtime_loop.get_task_graph_run_monitor(task_run_id)
+        if monitor is None:
+            raise ValueError("TaskGraph monitor not found")
+        trace = runtime_loop.get_trace(task_run_id, include_payloads=True, include_model_messages=False)
+        return build_task_graph_health_projection(
+            monitor,
+            trace=trace,
+            question="这个任务图运行当前有哪些健康风险、恢复边界和证据？",
+        )
 
     def _list_turns(self, output_dir: Path) -> list[TestTurn]:
         experiment_turns = list_experiment_turns(output_dir)
@@ -779,6 +795,8 @@ def _profiles_for_scenario_sets(scenario_sets: list[str]) -> list[str]:
         profiles.append("long_core")
     if "task_acceptance" in scenario_sets:
         profiles.append("task_acceptance")
+    if "sandbox" in scenario_sets:
+        profiles.append("sandbox")
     if "batches" in scenario_sets or "extended" in scenario_sets:
         profiles.append("long_batches")
     if "mega" in scenario_sets:

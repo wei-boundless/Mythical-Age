@@ -4,13 +4,15 @@ param(
     [string]$PythonExe = "C:\Users\admin\.conda\envs\agent\python.exe",
     [switch]$SkipBackendRestart,
     [switch]$SkipRunStart,
-    [string]$GraphId = "graph.writing.simple_novel",
-    [string]$TaskId = "task.writing.simple_novel.formal_million_word_run",
+    [string]$GraphId = "graph.writing.modular_novel.master",
+    [string]$TaskId = "task.writing.modular_novel.master",
     [string]$SessionId = "",
     [string]$ProjectId = "project:honghuang-times",
     [string]$ProjectTitle = "洪荒时代",
     [string]$ProjectBriefFile = "output/novel_artifacts/simple_novel/project_brief.md",
-    [int]$TargetWords = 1000000,
+    [int]$TargetVolumes = 1,
+    [int]$ChaptersPerVolume = 50,
+    [int]$TargetWords = 100000,
     [int]$ChapterTargetWords = 2000,
     [int]$ChaptersPerRound = 10,
     [string]$ArtifactRoot = "",
@@ -148,6 +150,8 @@ if (-not $SkipRunStart) {
         -ProjectBriefFile $ProjectBriefFile `
         -TargetWords $TargetWords `
         -ChapterTargetWords $ChapterTargetWords `
+        -TargetVolumes $TargetVolumes `
+        -ChaptersPerVolume $ChaptersPerVolume `
         -ChaptersPerRound $ChaptersPerRound `
         -ArtifactRoot $ArtifactRoot
     $result.run = $runOutput | ConvertFrom-Json

@@ -80,6 +80,26 @@ class AgentRuntimeChainAssembler:
             memory_runtime_view=memory_payload,
         )
         intent_decision = decide_intent(intent_frame)
+        if _should_request_state_recall(message=message, intent_frame=intent_frame, intent_decision=intent_decision):
+            memory_payload = self.build_memory_runtime_view_payload(
+                task_id=task_id,
+                agent_id=str(getattr(effective_agent_runtime_profile, "agent_id", "") or "agent:0"),
+                session_id=session_id,
+                message=message,
+                memory_intent=memory_intent,
+                memory_request_profile={
+                    "requested_memory_layers": ["state"],
+                    "state_read_mode": "recall_candidates",
+                    "memory_scope_hint": "intent_gated_state_recall",
+                    "allow_long_term_memory": False,
+                },
+            )
+            intent_frame = collect_intent_frame(
+                message,
+                memory_intent=memory_intent,
+                memory_runtime_view=memory_payload,
+            )
+            intent_decision = decide_intent(intent_frame)
         continuation_candidates = collect_continuation_candidates(
             message=message,
             memory_runtime_view=memory_payload,
@@ -94,11 +114,9 @@ class AgentRuntimeChainAssembler:
             intent_frame=intent_frame,
             intent_decision=intent_decision,
         )
-        active_bindings = _active_bindings_from_continuation_decision(continuation_decision.to_dict())
         query_understanding = analyze_query_understanding(
             message,
             memory_intent,
-            active_bindings=active_bindings,
             skill_registry=self.skill_registry,
             tool_registry=self.tool_registry,
         )
@@ -306,36 +324,6 @@ def _to_dict(value: Any) -> dict[str, Any]:
     return dict(value)
 
 
-def _active_bindings_from_continuation_decision(decision: dict[str, Any]) -> dict[str, Any]:
-    if str(decision.get("decision_kind") or "").strip() != "selected":
-        return {}
-    active_bindings = dict(decision.get("active_bindings") or {})
-    source_kind = str(decision.get("source_kind") or active_bindings.get("source_kind") or "").strip()
-    result: dict[str, Any] = {}
-    if source_kind == "dataset":
-        path = str(active_bindings.get("active_dataset") or active_bindings.get("path") or "").strip()
-        if path:
-            result["active_dataset"] = path
-    elif source_kind == "pdf":
-        path = str(active_bindings.get("active_pdf") or active_bindings.get("path") or "").strip()
-        if path:
-            result["active_pdf"] = path
-    for key in (
-        "active_pdf_mode",
-        "active_pdf_section",
-        "active_pdf_pages",
-        "active_object_handle_id",
-        "active_result_handle_id",
-        "active_subset_handle_id",
-    ):
-        value = active_bindings.get(key)
-        if value not in ("", None, [], {}):
-            result[key] = value
-    active_constraints = dict(active_bindings.get("active_constraints") or {})
-    if active_constraints:
-        result["active_constraints"] = active_constraints
-    return result
-
 def _memory_request_profile_for_context_assembly(
     memory_request_profile: dict[str, Any],
     *,
@@ -351,8 +339,6 @@ def _memory_request_profile_for_context_assembly(
         for item in list(profile.get("requested_memory_layers") or [])
         if str(item).strip() and str(item).strip() != "conversation"
     ]
-    if not requested_layers:
-        requested_layers = ["state"]
     profile["requested_memory_layers"] = requested_layers
     profile["allow_long_term_memory"] = False
     profile["conversation_memory_suppressed"] = True
@@ -360,6 +346,41 @@ def _memory_request_profile_for_context_assembly(
     metadata["context_assembly_policy"] = "suppress_conversation_memory"
     profile["metadata"] = metadata
     return profile
+
+
+def _should_request_state_recall(*, message: str, intent_frame: Any, intent_decision: Any) -> bool:
+    evidence = dict(getattr(intent_frame, "evidence", {}) or {})
+    if bool(evidence.get("explicit_target")):
+        return False
+    if bool(evidence.get("weather_domain")) or bool(evidence.get("gold_price_domain")):
+        return False
+    if bool(evidence.get("external_requirement")):
+        return False
+    if str(getattr(intent_decision, "primary_action", "") or "") in {"retrieve_knowledge", "recall_memory"}:
+        return False
+    text = str(message or "").lower()
+    has_followup_language = any(
+        marker in text
+        for marker in (
+            "继续",
+            "再",
+            "刚才",
+            "这些",
+            "这个",
+            "这份",
+            "回到",
+            "展开一下",
+            "只基于",
+            "上面",
+            "前五",
+            "不要回到",
+        )
+    )
+    if not has_followup_language:
+        return False
+    if bool(evidence.get("dataset_language")) or bool(evidence.get("pdf_language")) or bool(evidence.get("scope_refinement")):
+        return True
+    return any(token in text for token in ("pdf", "报告", "表", "数据", "员工", "仓库", "库存", "第", "页"))
 
 
 def _context_assembly_policy_from_payloads(*payloads: dict[str, Any] | None) -> dict[str, Any]:

@@ -45,7 +45,7 @@ def _state_slot_candidates(*, memory_view: dict[str, Any]) -> list[ContinuationC
             if not path:
                 continue
             is_active = slot.startswith("active_")
-            binding_payload = {
+            recall_payload = {
                 "path": path,
                 _binding_key(profile): path,
                 "slot_name": slot,
@@ -76,7 +76,7 @@ def _state_slot_candidates(*, memory_view: dict[str, Any]) -> list[ContinuationC
                     identity=_identity(path),
                     source="state_snapshot",
                     score=70.0 if is_active else 54.0,
-                    binding_payload=_compact_dict(binding_payload),
+                    recall_payload=_compact_dict(recall_payload),
                     metadata={"slot_name": slot, "profile_id": profile.domain_id},
                 )
             )
@@ -108,7 +108,7 @@ def _restore_candidates(*, memory_view: dict[str, Any]) -> list[ContinuationCand
                 identity=_identity(path),
                 source="restore_candidate",
                 score=float(raw.get("confidence") or 0.0) * 70,
-                binding_payload={
+                recall_payload={
                     "path": path,
                     _binding_key(profile): path,
                     "slot_name": slot_name,
@@ -151,7 +151,7 @@ def _bundle_candidates(*, memory_view: dict[str, Any]) -> list[ContinuationCandi
                 identity=task_id,
                 source="state_snapshot.bundle_result_refs",
                 score=82.0,
-                binding_payload={"result_handle_id": task_id, "ordinal": ordinal, "source_kind": source_kind},
+                recall_payload={"result_handle_id": task_id, "ordinal": ordinal, "source_kind": source_kind},
                 metadata={**item, "profile_id": str(getattr(profile, "domain_id", "") or "task_bundle")},
             )
         )
@@ -191,18 +191,21 @@ def _task_summary_candidates(*, memory_view: dict[str, Any]) -> list[Continuatio
         if not path:
             continue
         result_handle_id = str(item.get("task_id") or item.get("result_handle_id") or "").strip()
-        binding_payload = {
+        active_result_handle_id = str(item.get("active_result_handle_id") or result_handle_id).strip()
+        active_object_handle_id = str(item.get("active_object_handle_id") or "").strip()
+        active_subset_handle_id = str(item.get("active_subset_handle_id") or item.get("subset_handle_id") or "").strip()
+        recall_payload = {
             "path": path,
             _binding_key(profile): path,
             "source_kind": profile.source_kind,
-            "active_result_handle_id": result_handle_id,
-            "active_object_handle_id": str(item.get("active_object_handle_id") or ""),
-            "active_subset_handle_id": str(item.get("active_subset_handle_id") or ""),
+            "active_result_handle_id": active_result_handle_id,
+            "active_object_handle_id": active_object_handle_id,
+            "active_subset_handle_id": active_subset_handle_id,
             "active_binding_owner_task_id": result_handle_id,
         }
         subset = _subset_constraints_from_summary(item)
         if subset:
-            binding_payload["active_constraints"] = {
+            recall_payload["active_constraints"] = {
                 "source_kind": profile.source_kind,
                 _binding_key(profile): path,
                 **subset,
@@ -216,7 +219,7 @@ def _task_summary_candidates(*, memory_view: dict[str, Any]) -> list[Continuatio
                 identity=_identity(path),
                 source="state_snapshot.task_summary_refs",
                 score=76.0 if subset else 64.0,
-                binding_payload=_compact_dict(binding_payload),
+                recall_payload=_compact_dict(recall_payload),
                 metadata={
                     "profile_id": profile.domain_id,
                     "task_id": result_handle_id,
@@ -261,7 +264,7 @@ def _text_file_candidate(*, path: str, source: str, profile: ContinuationDomainP
         identity=_identity(path),
         source=source,
         score=46.0,
-        binding_payload={"path": path, binding_key: path, "source_kind": profile.source_kind},
+        recall_payload={"path": path, binding_key: path, "source_kind": profile.source_kind},
         metadata={"profile_id": profile.domain_id},
     )
 
@@ -301,7 +304,7 @@ def _score_candidate(
         score=score,
         compatible=compatible,
         conflict_reasons=tuple(_dedupe(conflicts)),
-        binding_payload=dict(candidate.binding_payload),
+        recall_payload=dict(candidate.recall_payload),
         metadata={**dict(candidate.metadata), "scored_by": "continuation.candidate_collector"},
     )
 
@@ -316,6 +319,9 @@ def _target_kind(
         return candidate.target_kind
     lowered = str(intent_frame.user_message or "").lower()
     if profile is not None and _marker_hits(lowered, profile.subset_markers):
+        payload = dict(candidate.recall_payload or {})
+        if not str(payload.get("active_subset_handle_id") or payload.get("subset_handle_id") or "").strip():
+            return "source_object"
         return "result_subset"
     return "source_object"
 
@@ -387,18 +393,15 @@ def _path_from_key_points(key_points: list[Any], profile: ContinuationDomainProf
 
 
 def _subset_constraints_from_summary(item: dict[str, Any]) -> dict[str, Any]:
+    subset_handle_id = str(item.get("active_subset_handle_id") or item.get("subset_handle_id") or "").strip()
+    if not subset_handle_id:
+        return {}
     labels = [
         str(value or "").strip()
         for value in list(item.get("subset_labels") or [])
         if str(value or "").strip()
     ]
     filter_column = str(item.get("subset_filter_column") or "").strip()
-    if not labels:
-        for point in list(item.get("key_points") or []):
-            text = str(point or "").strip()
-            if text.startswith("subset="):
-                labels = [value.strip() for value in text[len("subset="):].split(",") if value.strip()]
-                break
     result: dict[str, Any] = {}
     if labels:
         result["subset_labels"] = labels

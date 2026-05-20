@@ -46,12 +46,6 @@ class TaskSignals:
     explicit_dataset_path: str = ""
     explicit_pdf_path: str = ""
     explicit_workspace_path: str = ""
-    bound_dataset_path: str = ""
-    bound_pdf_path: str = ""
-    bound_pdf_mode: str = ""
-    bound_pdf_section: str = ""
-    bound_pdf_pages: list[int] = field(default_factory=list)
-    binding_source: str = ""
     explicit_urls: list[str] = field(default_factory=list)
     anchor_kinds: list[str] = field(default_factory=list)
     page_reference: bool = False
@@ -82,12 +76,6 @@ class TaskSignals:
             "explicit_dataset_path": self.explicit_dataset_path,
             "explicit_pdf_path": self.explicit_pdf_path,
             "explicit_workspace_path": self.explicit_workspace_path,
-            "bound_dataset_path": self.bound_dataset_path,
-            "bound_pdf_path": self.bound_pdf_path,
-            "bound_pdf_mode": self.bound_pdf_mode,
-            "bound_pdf_section": self.bound_pdf_section,
-            "bound_pdf_pages": list(self.bound_pdf_pages),
-            "binding_source": self.binding_source,
             "explicit_urls": list(self.explicit_urls),
             "anchor_kinds": list(self.anchor_kinds),
             "page_reference": self.page_reference,
@@ -140,15 +128,12 @@ class TaskUnderstanding:
 def analyze_task_understanding(
     message: str,
     memory_intent: MemoryIntent | None = None,
-    *,
-    active_bindings: dict[str, Any] | None = None,
 ) -> TaskUnderstanding:
     normalized = (message or "").strip()
     lowered = normalized.lower()
     signals = _collect_task_signals(
         normalized,
         lowered,
-        active_bindings=active_bindings,
     )
 
     if (
@@ -200,15 +185,10 @@ def analyze_task_understanding(
 def _signals_require_capability_understanding(signals: TaskSignals) -> bool:
     if signals.explicit_pdf_path or signals.explicit_dataset_path or signals.explicit_workspace_path:
         return True
-    if signals.bound_pdf_path and (
-        signals.followup_target_kind == "active_pdf"
-        or signals.document_reference
-        or signals.page_reference
-        or signals.section_reference
-        or signals.document_read_intent
+    if (
+        (signals.document_reference or signals.page_reference or signals.section_reference)
+        and (signals.page_reference or signals.section_reference or signals.document_read_intent)
     ):
-        return True
-    if signals.bound_dataset_path and signals.followup_target_kind in {"active_dataset", "active_subset"}:
         return True
     if signals.business_dataset_request or signals.workspace_read_request or signals.workspace_write_request or signals.workspace_search_request:
         return True
@@ -501,38 +481,20 @@ def _build_bounded_dataset_task(
         return None
     if signals.followup_target_kind == "bundle_ordinals":
         return None
-    followup_dataset_request = (
-        bool(signals.bound_dataset_path)
-        and not signals.explicit_pdf_path
-        and not signals.explicit_workspace_path
-        and signals.followup_target_kind in {"active_dataset", "active_subset"}
-    )
-    bundle_followup_request = _looks_like_bundle_followup_request(message.lower())
-    if not signals.explicit_dataset_path and not signals.business_dataset_request and not followup_dataset_request:
-        if not (bundle_followup_request and signals.bound_dataset_path):
-            return None
+    if not signals.explicit_dataset_path and not signals.business_dataset_request:
+        return None
     parameters: dict[str, Any] = {"query": message}
     reasons = ["business_dataset_intent"]
     if signals.explicit_dataset_path:
         reasons = ["explicit_dataset_anchor"]
         parameters["path"] = signals.explicit_dataset_path
-    elif followup_dataset_request:
-        reasons = ["active_subset_followup" if signals.followup_target_kind == "active_subset" else "bound_dataset_followup"]
-        parameters["path"] = signals.bound_dataset_path
-        if signals.followup_target_kind == "active_subset" and signals.followup_scope:
-            parameters["followup_scope"] = signals.followup_scope
-    elif bundle_followup_request and signals.bound_dataset_path:
-        reasons = ["bundle_subtask_followup"]
-        parameters["path"] = signals.bound_dataset_path
-    elif signals.bound_dataset_path:
-        parameters["path"] = signals.bound_dataset_path
 
     understanding = _build_bounded_lookup_task(
         message=message,
         source_kind="dataset",
         task_kind="dataset_query",
         modality="table",
-        confidence=0.96 if signals.explicit_dataset_path else 0.91 if (followup_dataset_request or bundle_followup_request) else 0.86,
+        confidence=0.96 if signals.explicit_dataset_path else 0.86,
         reasons=reasons,
         direct_route_reason=reasons[0],
         signals=signals,
@@ -547,13 +509,7 @@ def _build_bounded_pdf_task(
     message: str,
     signals: TaskSignals,
 ) -> TaskUnderstanding | None:
-    followup_pdf_request = (
-        bool(signals.bound_pdf_path)
-        and not signals.explicit_dataset_path
-        and not signals.explicit_workspace_path
-        and _looks_like_pdf_followup_request(message.lower())
-    )
-    has_document_anchor = bool(signals.explicit_pdf_path) or followup_pdf_request or (
+    has_document_anchor = bool(signals.explicit_pdf_path) or (
         (signals.document_reference or signals.page_reference or signals.section_reference)
         and (signals.page_reference or signals.section_reference or signals.document_read_intent)
     )
@@ -573,16 +529,9 @@ def _build_bounded_pdf_task(
     if signals.explicit_pdf_path:
         parameters["path"] = signals.explicit_pdf_path
         reasons.append("explicit_pdf_anchor")
-    elif signals.bound_pdf_path:
-        parameters["path"] = signals.bound_pdf_path
-        reasons.append("bound_pdf_followup")
-        if mode == "document" and signals.bound_pdf_mode and not _looks_like_pdf_document_scope_request(message.lower()):
-            parameters["mode"] = signals.bound_pdf_mode
     direct_route_reason = (
         "explicit_pdf_anchor"
         if signals.explicit_pdf_path
-        else "bound_pdf_followup"
-        if followup_pdf_request
         else "document_scope_anchor"
     )
     understanding = _build_bounded_lookup_task(
@@ -590,7 +539,7 @@ def _build_bounded_pdf_task(
         source_kind="document",
         task_kind=task_kind,
         modality="pdf",
-        confidence=0.94 if signals.explicit_pdf_path else 0.91 if followup_pdf_request else 0.87,
+        confidence=0.94 if signals.explicit_pdf_path else 0.87,
         reasons=reasons,
         direct_route_reason=direct_route_reason,
         signals=signals,
@@ -690,8 +639,6 @@ def _apply_capability_resolution_state(understanding: TaskUnderstanding) -> None
 def _collect_task_signals(
     message: str,
     lowered: str,
-    *,
-    active_bindings: dict[str, Any] | None,
 ) -> TaskSignals:
     explicit_dataset_path = _extract_explicit_dataset_reference(message)
     explicit_pdf_references = PdfAnalysisCatalog.extract_explicit_pdf_references(message)
@@ -747,9 +694,7 @@ def _collect_task_signals(
         ("gold price", "spot gold", "xau", "xauusd", "黄金", "金价", "现货黄金", "黄金价格"),
     )
     skill_authoring_request = _looks_like_skill_authoring_request(message, lowered)
-    binding_view = _normalize_active_bindings(active_bindings)
-    binding_view = _align_binding_view_with_message(lowered, binding_view)
-    followup_resolution = _resolve_followup_target(lowered, binding_view)
+    followup_resolution = _resolve_followup_target(lowered)
     if (
         followup_resolution["target_kind"] != "bundle_ordinals"
         and (explicit_dataset_path or explicit_pdf_path or explicit_workspace_path or weather_domain or gold_price_domain or external_requirement)
@@ -771,10 +716,6 @@ def _collect_task_signals(
         anchor_kinds.append("section_reference")
     if explicit_urls:
         anchor_kinds.append("url")
-    if binding_view["bound_dataset_path"]:
-        anchor_kinds.append("bound_dataset")
-    if binding_view["bound_pdf_path"]:
-        anchor_kinds.append("bound_pdf")
     if external_requirement:
         anchor_kinds.append("external_requirement")
     if official_source_requirement:
@@ -795,12 +736,6 @@ def _collect_task_signals(
         explicit_dataset_path=explicit_dataset_path,
         explicit_pdf_path=explicit_pdf_path,
         explicit_workspace_path=explicit_workspace_path,
-        bound_dataset_path=binding_view["bound_dataset_path"],
-        bound_pdf_path=binding_view["bound_pdf_path"],
-        bound_pdf_mode=binding_view["bound_pdf_mode"],
-        bound_pdf_section=binding_view["bound_pdf_section"],
-        bound_pdf_pages=list(binding_view["bound_pdf_pages"]),
-        binding_source=binding_view["binding_source"],
         explicit_urls=explicit_urls,
         anchor_kinds=anchor_kinds,
         page_reference=page_reference,
@@ -1231,171 +1166,6 @@ def _build_capability_requests(
     return deduped
 
 
-def _normalize_active_bindings(active_bindings: dict[str, Any] | None) -> dict[str, Any]:
-    payload = dict(active_bindings or {})
-    active_constraints = dict(payload.get("active_constraints") or {})
-    bound_pdf_path = str(
-        payload.get("active_pdf")
-        or active_constraints.get("active_pdf")
-        or payload.get("committed_pdf")
-        or active_constraints.get("committed_pdf")
-        or ""
-    ).strip()
-    bound_dataset_path = str(
-        payload.get("active_dataset")
-        or active_constraints.get("active_dataset")
-        or payload.get("committed_dataset")
-        or active_constraints.get("committed_dataset")
-        or ""
-    ).strip()
-    raw_pages = (
-        payload.get("active_pdf_pages")
-        or active_constraints.get("active_pdf_pages")
-        or payload.get("pdf_focus_pages")
-        or active_constraints.get("pdf_focus_pages")
-        or []
-    )
-    bound_pdf_pages = [int(item) for item in list(raw_pages or []) if str(item).strip().isdigit()]
-    binding_source = "active" if (payload.get("active_pdf") or payload.get("active_dataset") or active_constraints.get("active_pdf") or active_constraints.get("active_dataset")) else "committed" if (payload.get("committed_pdf") or payload.get("committed_dataset") or active_constraints.get("committed_pdf") or active_constraints.get("committed_dataset")) else ""
-    return {
-        "bound_pdf_path": bound_pdf_path,
-        "bound_dataset_path": bound_dataset_path,
-        "bound_pdf_mode": str(
-            payload.get("active_pdf_mode")
-            or active_constraints.get("active_pdf_mode")
-            or payload.get("pdf_mode")
-            or active_constraints.get("pdf_mode")
-            or ""
-        ).strip(),
-        "bound_pdf_section": str(
-            payload.get("active_pdf_section")
-            or active_constraints.get("active_pdf_section")
-            or payload.get("pdf_section")
-            or active_constraints.get("pdf_section")
-            or ""
-        ).strip(),
-        "bound_pdf_pages": bound_pdf_pages,
-        "binding_source": binding_source,
-    }
-
-
-def _align_binding_view_with_message(lowered: str, binding_view: dict[str, Any]) -> dict[str, Any]:
-    """Do not let a stale domain binding outvote the current turn language."""
-
-    result = dict(binding_view)
-    dataset_path = str(result.get("bound_dataset_path") or "").strip()
-    pdf_path = str(result.get("bound_pdf_path") or "").strip()
-    if not dataset_path and not pdf_path:
-        return result
-    dataset_signal = _looks_like_dataset_followup_request(lowered) or _looks_like_active_subset_followup(lowered)
-    pdf_signal = _looks_like_pdf_followup_request(lowered)
-    if dataset_signal and not pdf_signal:
-        result["bound_pdf_path"] = ""
-        result["bound_pdf_pages"] = []
-        result["bound_pdf_mode"] = ""
-        result["bound_pdf_section"] = ""
-    elif pdf_signal and not dataset_signal:
-        result["bound_dataset_path"] = ""
-    elif dataset_signal and pdf_signal:
-        if _looks_like_active_subset_followup(lowered) and dataset_path:
-            result["bound_pdf_path"] = ""
-            result["bound_pdf_pages"] = []
-            result["bound_pdf_mode"] = ""
-            result["bound_pdf_section"] = ""
-        elif pdf_path and ("第" in lowered or "page" in lowered or "pdf" in lowered):
-            result["bound_dataset_path"] = ""
-    return result
-
-
-def _looks_like_dataset_followup_request(lowered: str) -> bool:
-    if not lowered.strip():
-        return False
-    dataset_markers = (
-        "汇总",
-        "统计",
-        "排行",
-        "排名",
-        "前五",
-        "前三",
-        "前十",
-        "top",
-        "按仓库",
-        "按地区",
-        "按部门",
-        "这些人",
-        "这些数据",
-        "这个表",
-        "这张表",
-        "上面的表",
-        "继续分析",
-        "展开一下",
-        "再看",
-        "再查",
-        "完全没有缺口",
-        "没有缺口",
-        "缺口",
-        "是否存在",
-        "如果没有",
-        "只基于刚才",
-        "刚才这",
-        "前五名",
-        "这些员工",
-        "这些人",
-    )
-    return _contains_any(lowered, dataset_markers)
-
-
-def _looks_like_pdf_followup_request(lowered: str) -> bool:
-    if not lowered.strip():
-        return False
-    pdf_markers = (
-        "这份 pdf",
-        "这个 pdf",
-        "这份报告",
-        "这个报告",
-        "第几页",
-        "第三页",
-        "第四页",
-        "第二部分",
-        "这一页",
-        "那一页",
-        "这一部分",
-        "那一部分",
-        "核心结论",
-        "行动建议",
-        "重点看",
-        "压成",
-        "总结一下",
-        "继续",
-        "展开一下",
-    )
-    return _contains_any(lowered, pdf_markers) or bool(PAGE_REFERENCE_PATTERN.search(lowered)) or bool(SECTION_REFERENCE_PATTERN.search(lowered))
-
-
-def _looks_like_pdf_document_scope_request(lowered: str) -> bool:
-    if not lowered.strip():
-        return False
-    if PAGE_REFERENCE_PATTERN.search(lowered) or SECTION_REFERENCE_PATTERN.search(lowered):
-        return False
-    if _contains_any(lowered, ("这一页", "那一页", "这几页", "第几页", "第三页", "第四页", "第二部分")):
-        return False
-    return _contains_any(
-        lowered,
-        (
-            "这份 pdf",
-            "这个 pdf",
-            "这份报告",
-            "这个报告",
-            "整份",
-            "全文",
-            "整体",
-            "核心结论",
-            "结论",
-            "行动建议",
-        ),
-    )
-
-
 def _looks_like_bundle_followup_request(lowered: str) -> bool:
     markers = (
         "子任务",
@@ -1409,39 +1179,11 @@ def _looks_like_bundle_followup_request(lowered: str) -> bool:
     return _contains_any(lowered, markers)
 
 
-def _resolve_followup_target(lowered: str, binding_view: dict[str, Any]) -> dict[str, Any]:
+def _resolve_followup_target(lowered: str) -> dict[str, Any]:
     ordinals = _extract_followup_ordinals(lowered)
     if ordinals:
         return {"target_kind": "bundle_ordinals", "ordinals": ordinals, "scope": "bundle_result"}
-    if _looks_like_active_subset_followup(lowered):
-        if str(binding_view.get("bound_dataset_path") or "").strip():
-            return {"target_kind": "active_subset", "ordinals": [], "scope": "active_subset"}
-        if str(binding_view.get("bound_pdf_path") or "").strip():
-            return {"target_kind": "active_subset", "ordinals": [], "scope": "active_subset"}
-    if str(binding_view.get("bound_dataset_path") or "").strip() and _looks_like_dataset_followup_request(lowered):
-        return {"target_kind": "active_dataset", "ordinals": [], "scope": "active_object"}
-    if str(binding_view.get("bound_pdf_path") or "").strip() and _looks_like_pdf_followup_request(lowered):
-        return {"target_kind": "active_pdf", "ordinals": [], "scope": "active_object"}
     return {"target_kind": "", "ordinals": [], "scope": ""}
-
-
-def _looks_like_active_subset_followup(lowered: str) -> bool:
-    markers = (
-        "只基于刚才",
-        "基于刚才",
-        "刚才这",
-        "刚才的",
-        "这前五",
-        "这几条",
-        "这些人",
-        "这些员工",
-        "上面这",
-        "上面的",
-        "不要回到全表",
-        "不要全表",
-        "不要重算",
-    )
-    return _contains_any(lowered, markers)
 
 
 def _extract_followup_ordinals(lowered: str) -> list[int]:

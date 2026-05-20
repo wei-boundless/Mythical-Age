@@ -167,6 +167,24 @@ class MCPProjectionAdapter:
             key_points.append(f"table={bindings['active_table']}")
             task_kind = "structured_data"
         key_points.extend(f"artifact={item}" for item in canonical_result.artifact_refs[:3] if str(item).strip())
+        presentation_hints = dict(canonical_result.presentation_hints or {})
+        object_handle_ids = [
+            str(item).strip()
+            for item in list(canonical_result.object_handle_ids or [])
+            if str(item).strip()
+        ]
+        result_handle_ids = [
+            str(item).strip()
+            for item in list(canonical_result.result_handle_ids or [])
+            if str(item).strip()
+        ]
+        subset_labels = [
+            str(item or "").strip()
+            for item in list(presentation_hints.get("subset_labels") or [])
+            if str(item or "").strip()
+        ]
+        subset_filter_column = str(presentation_hints.get("subset_filter_column") or "").strip()
+        subset_handle_id = str(presentation_hints.get("subset_handle_id") or "").strip()
         return [
             TaskSummaryRef(
                 task_id=f"{canonical_result.result_kind or 'mcp'}:{_slug(query)}",
@@ -176,6 +194,14 @@ class MCPProjectionAdapter:
                 task_kind=task_kind,
                 source="evidence_projection",
                 key_points=key_points,
+                active_object_handle_id=object_handle_ids[0] if object_handle_ids else "",
+                active_result_handle_id=(
+                    str(canonical_result.primary_result_handle_id or "").strip()
+                    or (result_handle_ids[0] if result_handle_ids else "")
+                ),
+                active_subset_handle_id=subset_handle_id,
+                subset_labels=subset_labels,
+                subset_filter_column=subset_filter_column,
             )
         ]
 

@@ -365,6 +365,7 @@ def _batch_lifecycle_view(raw: dict[str, Any]) -> dict[str, Any]:
         "active_execution_by_node": dict(raw.get("active_execution_by_node") or {}),
         "active_execution_by_batch": dict(raw.get("active_execution_by_batch") or {}),
         "execution_mode_by_plan": dict(raw.get("execution_mode_by_plan") or {}),
+        "diagnostics": dict(raw.get("diagnostics") or {}),
         "ready_batch_ids": _string_list(raw.get("ready_batch_ids")),
         "running_batch_ids": _string_list(raw.get("running_batch_ids")),
         "committed_batch_ids": _string_list(raw.get("committed_batch_ids")),

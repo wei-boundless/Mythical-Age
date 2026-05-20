@@ -16,7 +16,9 @@ class _WorkspacePathMixin:
     def _resolve_path(self, path: str = "") -> Path:
         normalized = str(path or ".").strip() or "."
         candidate = (self._root_dir / normalized).resolve()
-        if self._root_dir in candidate.parents or candidate == self._root_dir:
+        if (self._root_dir in candidate.parents or candidate == self._root_dir) and (
+            candidate.exists() or self._root_dir.name != "backend"
+        ):
             return candidate
         if self._root_dir.name == "backend":
             workspace_root = self._root_dir.parent.resolve()

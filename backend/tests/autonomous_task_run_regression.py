@@ -17,6 +17,7 @@ from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration.runtime_lane_registry import RuntimeLaneRegistry
 from query import QueryRuntime
 from tasks.assembly_support import build_runtime_task_intent_contract
+from tasks.execution_recipe_builder import build_execution_recipe
 from tasks.execution_shape_resolver import resolve_execution_shape
 
 
@@ -105,6 +106,32 @@ class _ToolRuntimeWithDelegateStub:
     @property
     def definitions(self):
         return [self._definition_map["delegate_to_agent"]]
+
+    @property
+    def instances(self):
+        return list(self._instances)
+
+    def get_definition(self, name):
+        return self._definition_map.get(str(name or ""))
+
+    def get_instance(self, name):
+        target = str(name or "")
+        return next((tool for tool in self._instances if getattr(tool, "name", "") == target), None)
+
+
+class _ToolRuntimeWithSideEffectsStub:
+    registry = None
+
+    def __init__(self, root_dir: Path) -> None:
+        self._definition_map = get_tool_definition_map()
+        self._instances = [
+            self._definition_map["write_file"].build(root_dir),
+            self._definition_map["terminal"].build(root_dir),
+        ]
+
+    @property
+    def definitions(self):
+        return [self._definition_map["write_file"], self._definition_map["terminal"]]
 
     @property
     def instances(self):
@@ -229,6 +256,74 @@ class _DelegatingModelRuntimeStub:
         )
 
 
+class _SandboxWriteModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.plain_calls = 0
+        self.seen_tool_result = False
+
+    async def invoke_messages(self, messages, **_kwargs):
+        self.plain_calls += 1
+        tool_text = "\n".join(
+            str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+            if item.__class__.__name__ == "ToolMessage"
+        )
+        self.seen_tool_result = "Write succeeded" in tool_text
+        return SimpleNamespace(content="已在隔离沙箱中完成写入实验，真实工程未直接修改。")
+
+    async def invoke_messages_with_tools(self, _messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        assert any(getattr(tool, "name", "") == "write_file" for tool in list(tools or []))
+        return AIMessage(
+            content="我先在沙箱里写一个探针文件验证隔离边界。",
+            tool_calls=[
+                {
+                    "id": "call-write-sandbox-probe",
+                    "name": "write_file",
+                    "args": {
+                        "path": "backend/sandbox_probe.txt",
+                        "content": "sandbox-only",
+                    },
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _SandboxTerminalModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.plain_calls = 0
+        self.seen_sandbox_cwd = False
+
+    async def invoke_messages(self, messages, **_kwargs):
+        self.plain_calls += 1
+        tool_text = "\n".join(
+            str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+            if item.__class__.__name__ == "ToolMessage"
+        )
+        normalized = tool_text.replace("\\", "/")
+        self.seen_sandbox_cwd = "/output/sandbox_runs/" in normalized and normalized.endswith("/workspace")
+        return SimpleNamespace(content="已验证 terminal 在 sandbox workspace 内运行。")
+
+    async def invoke_messages_with_tools(self, _messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        assert any(getattr(tool, "name", "") == "terminal" for tool in list(tools or []))
+        return AIMessage(
+            content="我需要确认命令运行目录是否被隔离。",
+            tool_calls=[
+                {
+                    "id": "call-terminal-pwd",
+                    "name": "terminal",
+                    "args": {"command": "Get-Location | Select-Object -ExpandProperty Path"},
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
 class _SessionManagerStub:
     def __init__(self) -> None:
         self.messages: list[dict[str, object]] = []
@@ -253,6 +348,35 @@ def _isolated_backend_root() -> Path:
     return root
 
 
+def _step_by_id(ledger: dict[str, object], step_id: str) -> dict[str, object]:
+    return next(
+        dict(step)
+        for step in list(ledger.get("step_runs") or [])
+        if dict(step).get("step_id") == step_id
+    )
+
+
+def _assert_final_check_bound_to_verification(
+    ledger: dict[str, object],
+    verify_event: dict[str, object],
+    *,
+    expected_mode: str = "standard",
+) -> None:
+    verification_ref = f"runtime_event:{verify_event.get('event_id')}"
+    final_check_step = _step_by_id(ledger, "autonomous.final_check")
+    diagnostics = dict(final_check_step.get("diagnostics") or {})
+
+    assert dict(verify_event.get("refs") or {})["task_step_ref"] == "autonomous.final_check"
+    assert final_check_step.get("status") == "completed"
+    assert final_check_step.get("step_result_ref") == verification_ref
+    assert verification_ref in list(final_check_step.get("observation_refs") or [])
+    assert verification_ref in list(final_check_step.get("output_refs") or [])
+    assert diagnostics["transition_reason"] == "autonomous_task_verification_completed"
+    assert diagnostics["verification_ref"] == verification_ref
+    assert diagnostics["verification_passed"] is True
+    assert diagnostics["autonomy_mode"] == expected_mode
+
+
 def test_autonomous_task_run_recipe_is_selected_without_specialist_route() -> None:
     current_turn_context = {
         "intent_decision": {"execution_strategy": "autonomous_task_run"},
@@ -275,6 +399,37 @@ def test_autonomous_task_run_recipe_is_selected_without_specialist_route() -> No
     assert shape.recipe_id == "runtime.recipe.autonomous_task_run"
     assert shape.execution_kind == "autonomous_task_run"
     assert shape.resolution_source == "intent_runtime_assembly"
+
+
+def test_autonomous_task_run_managed_mode_is_preserved_in_recipe_policy() -> None:
+    current_turn_context = {
+        "autonomy_mode": "managed",
+        "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "managed"},
+        "runtime_assembly_hint": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "managed"},
+    }
+    contract = build_runtime_task_intent_contract(
+        session_id="session-autonomous-managed-shape",
+        task_id="taskinst:autonomous-managed-shape",
+        user_goal="后台追踪这个长任务问题，完整实施到结束并持续保留恢复证据。",
+        query_understanding={},
+        current_turn_context=current_turn_context,
+    )
+
+    shape = resolve_execution_shape(
+        task_intent_contract=contract,
+        query_understanding={},
+        current_turn_context=current_turn_context,
+    )
+    recipe = build_execution_recipe(base_dir=_isolated_backend_root(), execution_shape=shape)
+    metadata = dict(recipe.metadata)
+
+    assert shape.recipe_id == "runtime.recipe.autonomous_task_run"
+    assert shape.diagnostics["autonomy_mode"] == "managed"
+    assert metadata["autonomy_mode"] == "managed"
+    assert metadata["background_policy"]["enabled"] is True
+    assert metadata["recovery_policy"]["allow_resume"] is True
+    assert metadata["verification_policy"]["strict"] is True
+    assert metadata["delegation_policy"]["max_delegate_calls_per_task_run"] == 4
 
 
 def test_specialist_routes_still_outrank_autonomous_task_run() -> None:
@@ -405,6 +560,9 @@ def test_query_runtime_standard_autonomy_adds_dynamic_plan_steps() -> None:
     plan_event = next(
         event for event in runtime_events if event.get("event_type") == "autonomous_task_plan_drafted"
     )
+    verify_event = next(
+        event for event in runtime_events if event.get("event_type") == "autonomous_task_verification_checked"
+    )
     step_added_events = [
         event for event in runtime_events if event.get("event_type") == "step_added"
     ]
@@ -421,6 +579,7 @@ def test_query_runtime_standard_autonomy_adds_dynamic_plan_steps() -> None:
     assert "autonomous.goal_lock" in step_ids
     assert "autonomous.context_review" in step_ids
     assert "autonomous.final_check" in step_ids
+    _assert_final_check_bound_to_verification(ledger, verify_event)
     assert done["terminal_reason"] == "completed"
 
 
@@ -475,11 +634,15 @@ def test_query_runtime_standard_autonomy_runs_one_controlled_tool_observation() 
         for event in runtime_events
         if event.get("event_type") == "executor_observation_received"
     ]
+    tool_request_event = next(
+        event for event in runtime_events if event.get("event_type") == "tool_call_requested"
+    )
     verify_event = next(
         event for event in runtime_events if event.get("event_type") == "autonomous_task_verification_checked"
     )
     done = next(event for event in events if event.get("type") == "done")
     trace = runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)
+    monitor = runtime.task_run_loop.get_task_run_live_monitor(task_run_id)
 
     assert dict(plan_event.get("payload") or {})["tool_execution_enabled"] is True
     assert dict(executor_event.get("payload") or {})["allowed_tool_names"] == ["search_text"]
@@ -501,6 +664,24 @@ def test_query_runtime_standard_autonomy_runs_one_controlled_tool_observation() 
     assert model_runtime.seen_tool_result is True
     assert trace is not None
     assert trace["coordination_runs"] == []
+    assert dict(tool_request_event.get("refs") or {})["task_step_ref"] == "autonomous.context_review"
+    ledger = dict(done.get("task_run_ledger") or {})
+    context_review_step = _step_by_id(ledger, "autonomous.context_review")
+    assert dict(context_review_step).get("status") == "completed"
+    assert list(dict(context_review_step).get("observation_refs") or [])
+    assert list(dict(context_review_step).get("output_refs") or [])
+    _assert_final_check_bound_to_verification(ledger, verify_event)
+    assert monitor is not None
+    assert monitor["has_coordination"] is False
+    autonomous_summary = dict(monitor["autonomous_task_summary"] or {})
+    assert autonomous_summary["runtime_driver"] == "autonomous_task_run"
+    assert autonomous_summary["mode"] == "standard"
+    assert autonomous_summary["goal"] == "追踪一下 AutonomousTaskRunDriver 的标准模式工具闭环。"
+    assert autonomous_summary["plan"]["tool_execution_enabled"] is True
+    assert autonomous_summary["observation"]["tool_call_count"] == 1
+    assert autonomous_summary["observation"]["tool_observation_count"] == 1
+    assert autonomous_summary["verification"]["status"] == "passed"
+    assert autonomous_summary["latest_checkpoint"] is not None
 
 
 def test_query_runtime_standard_autonomy_runs_one_controlled_agent_delegation() -> None:
@@ -543,6 +724,9 @@ def test_query_runtime_standard_autonomy_runs_one_controlled_agent_delegation() 
     plan_event = next(
         event for event in runtime_events if event.get("event_type") == "autonomous_task_plan_drafted"
     )
+    tool_request_event = next(
+        event for event in runtime_events if event.get("event_type") == "tool_call_requested"
+    )
     verify_event = next(
         event for event in runtime_events if event.get("event_type") == "autonomous_task_verification_checked"
     )
@@ -569,3 +753,205 @@ def test_query_runtime_standard_autonomy_runs_one_controlled_agent_delegation() 
     assert model_runtime.seen_delegation_result is True
     assert trace is not None
     assert trace["coordination_runs"] == []
+    assert dict(tool_request_event.get("refs") or {})["task_step_ref"] == "autonomous.context_review"
+    ledger = dict(done.get("task_run_ledger") or {})
+    context_review_step = _step_by_id(ledger, "autonomous.context_review")
+    assert dict(context_review_step).get("status") == "completed"
+    assert list(dict(context_review_step).get("observation_refs") or [])
+    _assert_final_check_bound_to_verification(ledger, verify_event)
+
+
+def test_autonomous_task_run_sandbox_redirects_write_file_side_effects() -> None:
+    backend_root = _isolated_backend_root()
+    project_root = backend_root.parent
+    model_runtime = _SandboxWriteModelRuntimeStub()
+    runtime = QueryRuntime(
+        base_dir=backend_root,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=model_runtime,
+    )
+
+    async def _collect() -> tuple[list[dict[str, object]], str]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-autonomous-sandbox-write",
+                message="请在隔离环境里写一个探针文件，验证不会误伤真实工程。",
+                history=[],
+                task_selection={
+                    "autonomy_mode": "standard",
+                    "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+                    "runtime_assembly_hint": {
+                        "execution_strategy": "autonomous_task_run",
+                        "autonomy_mode": "standard",
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        started = next(event for event in events if event["type"] == "runtime_loop_started")
+        return events, str(dict(started["task_run"]).get("task_run_id") or "")
+
+    events, task_run_id = asyncio.run(_collect())
+    runtime_events = [
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    sandbox_event = next(event for event in runtime_events if event.get("event_type") == "runtime_sandbox_prepared")
+    sandbox_policy = dict(dict(sandbox_event.get("payload") or {}).get("sandbox_policy") or {})
+    sandbox_root = Path(str(sandbox_policy.get("sandbox_root") or ""))
+    real_probe = project_root / "backend" / "sandbox_probe.txt"
+    sandbox_probe = sandbox_root / "backend" / "sandbox_probe.txt"
+    execution_result_event = next(
+        event for event in runtime_events if event.get("event_type") == "execution_result_recorded"
+    )
+    execution_record = dict(dict(execution_result_event.get("payload") or {}).get("execution_record") or {})
+    result_payload = dict(execution_record.get("result_payload") or {})
+    done = next(event for event in events if event.get("type") == "done")
+
+    assert sandbox_policy["enabled"] is True
+    assert sandbox_policy["real_workspace_access"] == "read_only"
+    assert real_probe.exists() is False
+    assert sandbox_probe.read_text(encoding="utf-8") == "sandbox-only"
+    assert dict(result_payload.get("sandbox") or {})["sandbox_root"] == str(sandbox_root)
+    assert model_runtime.tool_enabled_calls == 1
+    assert model_runtime.plain_calls == 1
+    assert model_runtime.seen_tool_result is True
+    assert done["terminal_reason"] == "completed"
+    assert runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)["coordination_runs"] == []
+
+
+def test_autonomous_task_run_sandbox_runs_terminal_inside_overlay_workspace() -> None:
+    backend_root = _isolated_backend_root()
+    model_runtime = _SandboxTerminalModelRuntimeStub()
+    runtime = QueryRuntime(
+        base_dir=backend_root,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=model_runtime,
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-autonomous-sandbox-terminal",
+                message="请在隔离环境里运行一个命令，确认 terminal 的工作目录。",
+                history=[],
+                task_selection={
+                    "autonomy_mode": "standard",
+                    "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+                    "runtime_assembly_hint": {
+                        "execution_strategy": "autonomous_task_run",
+                        "autonomy_mode": "standard",
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    runtime_events = [
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    sandbox_event = next(event for event in runtime_events if event.get("event_type") == "runtime_sandbox_prepared")
+    sandbox_root = str(dict(dict(sandbox_event.get("payload") or {}).get("sandbox_policy") or {}).get("sandbox_root") or "")
+    tool_result_event = next(event for event in runtime_events if event.get("event_type") == "tool_result_received")
+    observation = dict(dict(tool_result_event.get("payload") or {}).get("observation") or {})
+    observation_payload = dict(observation.get("payload") or {})
+
+    assert sandbox_root
+    assert str(observation_payload.get("tool_name") or "") == "terminal"
+    assert str(observation_payload.get("result") or "").strip() == sandbox_root
+    assert model_runtime.tool_enabled_calls == 1
+    assert model_runtime.plain_calls == 1
+    assert model_runtime.seen_sandbox_cwd is True
+
+
+def test_query_runtime_managed_autonomy_preserves_mode_without_coordination_run() -> None:
+    runtime = QueryRuntime(
+        base_dir=_isolated_backend_root(),
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_ToolRuntimeStub(),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_ModelRuntimeStub(),
+    )
+
+    async def _collect() -> tuple[list[dict[str, object]], str]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-autonomous-managed",
+                message="后台追踪这个长任务问题，完整实施到结束并保留恢复证据。",
+                history=[],
+                task_selection={
+                    "autonomy_mode": "managed",
+                    "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "managed"},
+                    "runtime_assembly_hint": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "managed"},
+                },
+            )
+        ):
+            events.append(event)
+        started = next(event for event in events if event["type"] == "runtime_loop_started")
+        return events, str(dict(started["task_run"]).get("task_run_id") or "")
+
+    events, task_run_id = asyncio.run(_collect())
+    runtime_events = [
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    start_event = next(event for event in runtime_events if event.get("event_type") == "autonomous_task_started")
+    plan_event = next(event for event in runtime_events if event.get("event_type") == "autonomous_task_plan_drafted")
+    executor_event = next(
+        event
+        for event in runtime_events
+        if event.get("event_type") == "executor_started"
+        and dict(event.get("payload") or {}).get("runtime_channel") == "autonomous_task_run"
+    )
+    verify_event = next(
+        event for event in runtime_events if event.get("event_type") == "autonomous_task_verification_checked"
+    )
+    done = next(event for event in events if event.get("type") == "done")
+    trace = runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)
+    monitor = runtime.task_run_loop.get_task_run_live_monitor(task_run_id)
+    ledger = dict(done.get("task_run_ledger") or {})
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+
+    assert dict(start_event.get("payload") or {})["mode"] == "managed"
+    assert dict(plan_event.get("payload") or {})["mode"] == "managed"
+    assert dict(executor_event.get("payload") or {})["autonomy_mode"] == "managed"
+    assert verification["mode"] == "managed"
+    _assert_final_check_bound_to_verification(ledger, verify_event, expected_mode="managed")
+    assert done["terminal_reason"] == "completed"
+    assert trace is not None
+    assert trace["coordination_runs"] == []
+    assert monitor is not None
+    assert monitor["has_coordination"] is False
+    autonomous_summary = dict(monitor["autonomous_task_summary"] or {})
+    assert autonomous_summary["mode"] == "managed"

@@ -194,6 +194,52 @@
         "memory_access_model": "edge_based_repository_access"
       },
       "authority": "task_system.task_communication_protocol"
+    },
+    {
+      "protocol_id": "protocol.writing.modular_novel",
+      "title": "模块化长篇写作通信协议",
+      "message_types": [
+        "message/send",
+        "task/status",
+        "task/artifact",
+        "task/review_feedback",
+        "task/revision_request",
+        "task/memory_read",
+        "task/memory_write",
+        "task/graph_unit_commit"
+      ],
+      "payload_contracts": [
+        "contract.writing.modular_novel.graph",
+        "contract.writing.modular_novel.graph_unit_handoff",
+        "contract.writing.modular_novel.design_commit",
+        "contract.writing.modular_novel.chapter_batch_request",
+        "contract.writing.modular_novel.chapter_batch_commit",
+        "contract.writing.modular_novel.final_delivery",
+        "contract.writing.simple_novel.memory_pack",
+        "contract.writing.simple_novel.memory_write_receipt"
+      ],
+      "signal_rules": [
+        "graph_unit_commits_before_next_graph_unit",
+        "unit_batch_range_is_runtime_contract",
+        "review_result_required_before_commit",
+        "baseline_memory_updates_only_through_commit_nodes"
+      ],
+      "handoff_rules": [
+        "structured_artifact_refs_only",
+        "no_raw_agent_dialogue",
+        "committed_refs_only_between_graph_units",
+        "batch_candidate_not_visible_as_committed_memory"
+      ],
+      "ack_policy": "explicit_ack",
+      "timeout_policy": "fail_closed",
+      "error_signal_policy": "raise_to_coordinator",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "task_family": "writing_modular_novel",
+        "domain_id": "domain.writing.modular_novel"
+      },
+      "authority": "task_system.task_communication_protocol"
     }
   ]
 }

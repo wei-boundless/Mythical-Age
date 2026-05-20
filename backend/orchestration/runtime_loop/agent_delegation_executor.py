@@ -451,6 +451,9 @@ class AgentDelegationExecutor:
             if reason not in limitations and normalized_status in {"failed", "invalid_output"}:
                 limitations.append(str(reason))
         diagnostics = dict(child_payload.get("diagnostics") or {})
+        direct_writeback_hints = dict(child_payload.get("context_writeback_hints") or {})
+        if direct_writeback_hints:
+            diagnostics["context_writeback_hints"] = direct_writeback_hints
         evidence_packet = dict(diagnostics.get("agent_evidence_packet") or {})
         consumed_handles = _delegation_consumed_handles(request=request, child_payload=child_payload)
         produced_handles = _delegation_produced_handles(child_payload=child_payload)
@@ -535,6 +538,13 @@ def _soul_base_dir(root_dir: Path) -> Path:
 
 def _context_writeback_hints_from_result(result: AgentDelegationResult) -> dict[str, Any]:
     diagnostics = dict(result.diagnostics or {})
+    direct_hints = {
+        key: value
+        for key, value in dict(diagnostics.get("context_writeback_hints") or {}).items()
+        if value not in ("", [], {}, None)
+    }
+    if direct_hints:
+        return direct_hints
     mcp_result = dict(diagnostics.get("mcp_result") or {})
     canonical = dict(mcp_result.get("canonical_result") or {})
     bindings = dict(canonical.get("bindings") or {})

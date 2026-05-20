@@ -112,7 +112,7 @@ def build_memory_scope_policy(
     memory_request_profile: dict[str, Any] | None = None,
 ) -> MemoryScopePolicy:
     profile = dict(memory_request_profile or {})
-    allowed_layers = _normalize_strings(profile.get("requested_memory_layers")) or ["conversation", "state"]
+    allowed_layers = _normalize_strings(profile.get("requested_memory_layers"))
     allow_long_term = bool(profile.get("allow_long_term_memory", False)) or "long_term" in allowed_layers
     allow_task_durable = "task_durable" in allowed_layers or "task_durable_memory" in allowed_layers
     return MemoryScopePolicy(
@@ -121,8 +121,8 @@ def build_memory_scope_policy(
         allowed_layers=tuple(allowed_layers),
         allow_long_term_read=allow_long_term,
         allow_long_term_write=False,
-        allow_state_restore="state" in allowed_layers or not allowed_layers,
-        allow_working_memory_read="working" in allowed_layers or not allowed_layers,
+        allow_state_restore="state" in allowed_layers,
+        allow_working_memory_read="working" in allowed_layers,
         allow_task_durable_memory_read=allow_task_durable,
         allow_cross_task_memory=False,
         writeback_policy=str(profile.get("writeback_policy") or "task_default"),

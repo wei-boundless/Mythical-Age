@@ -2701,6 +2701,1360 @@
         "flow_id": "flow.writing.simple_novel.fail_closed",
         "projection_id": "projection.writing.simple_novel.memory_steward"
       }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.master",
+      "title": "模块化长篇写作总任务",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.project_brief"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_contract_packet",
+          "title": "读取契约化输入包"
+        },
+        {
+          "step_id": "execute_graph_unit",
+          "title": "按任务图时序执行"
+        },
+        {
+          "step_id": "commit_refs",
+          "title": "提交结构化引用"
+        }
+      ],
+      "input_boundary": "contract_payload_and_refs",
+      "output_boundary": "artifact_refs_and_commit_receipt",
+      "stop_conditions": [],
+      "required_evidence_refs": [],
+      "output_contract_id": "contract.writing.modular_novel.graph",
+      "prompt": "",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "task_family": "writing_modular_novel"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.design_init",
+      "title": "设计初始化任务图单元",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.outline_designer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_contract_packet",
+          "title": "读取契约化输入包"
+        },
+        {
+          "step_id": "execute_graph_unit",
+          "title": "按任务图时序执行"
+        },
+        {
+          "step_id": "commit_refs",
+          "title": "提交结构化引用"
+        }
+      ],
+      "input_boundary": "contract_payload_and_refs",
+      "output_boundary": "artifact_refs_and_commit_receipt",
+      "stop_conditions": [],
+      "required_evidence_refs": [],
+      "output_contract_id": "contract.writing.modular_novel.design_commit",
+      "prompt": "",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "task_family": "writing_modular_novel"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.chapter_cycle",
+      "title": "章节批次创作任务图单元",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.chapter_writer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_contract_packet",
+          "title": "读取契约化输入包"
+        },
+        {
+          "step_id": "execute_graph_unit",
+          "title": "按任务图时序执行"
+        },
+        {
+          "step_id": "commit_refs",
+          "title": "提交结构化引用"
+        }
+      ],
+      "input_boundary": "contract_payload_and_refs",
+      "output_boundary": "artifact_refs_and_commit_receipt",
+      "stop_conditions": [],
+      "required_evidence_refs": [],
+      "output_contract_id": "contract.writing.modular_novel.chapter_batch_commit",
+      "prompt": "",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "task_family": "writing_modular_novel"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.finalize",
+      "title": "收尾交付任务图单元",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.final_assembler"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_contract_packet",
+          "title": "读取契约化输入包"
+        },
+        {
+          "step_id": "execute_graph_unit",
+          "title": "按任务图时序执行"
+        },
+        {
+          "step_id": "commit_refs",
+          "title": "提交结构化引用"
+        }
+      ],
+      "input_boundary": "contract_payload_and_refs",
+      "output_boundary": "artifact_refs_and_commit_receipt",
+      "stop_conditions": [],
+      "required_evidence_refs": [],
+      "output_contract_id": "contract.writing.modular_novel.final_delivery",
+      "prompt": "",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "task_family": "writing_modular_novel"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.project_brief",
+      "title": "模块化项目启动包工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.project_brief"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.user_goal",
+      "output_boundary": "contract.writing.simple_novel.project_brief",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.project_brief",
+      "prompt": "你是一名项目启动包整理者。\n\n你的职责是把用户交代的目标整理成一份可执行的写作任务启动包。\n你不是写正文的人，也不是设定扩写者，你的工作是把项目要求、风格方向、硬限制和下游需求整理清楚。\n\n你必须输出：\n1. 项目要写什么。\n2. 用户明确给了什么硬设定。\n3. 这个项目要追求什么风格和阅读感。\n4. 下游最先需要哪些输入。\n5. 有哪些问题必须在后续节点里继续确认。\n\n你要像一个认真给后面所有人铺路的总入口，而不是像一个备忘录。\n\n输出必须包含：\n【项目目标】\n【硬设定】\n【风格方向】\n【下游输入】\n【待确认问题】\n【启动摘要】",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.project_brief",
+        "flow_id": "flow.writing.simple_novel.project_brief",
+        "projection_id": "projection.writing.simple_novel.project_brief",
+        "source_task_id": "task.writing.simple_novel.project_brief",
+        "source_workflow_id": "workflow.writing.simple_novel.project_brief"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.world_design",
+      "title": "模块化世界观设定候选工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.world_designer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.project_brief",
+      "output_boundary": "contract.writing.simple_novel.world_candidate",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.world_candidate",
+      "prompt": "你是一名世界观设定写手。\n\n你的职责是为《洪荒时代》写出第一版可审的世界观候选正文。\n你不是章节作者，不负责直接写剧情章节；你也不是大纲规划者，不负责把整本书拆成分卷。\n\n你要解决的是：\n1. 这个世界到底是什么样。\n2. 主角从哪里来，他为什么能卷入更大的洪荒格局。\n3. 勾芒、河伯、四岳、祝融、玄女这五方背景力量，分别如何影响天地、人间和主线。\n4. 这个世界能支撑百万字连载的长期冲突、升级空间和资源体系是什么。\n\n你必须写清楚：\n1. 世界的底层气质和时代状态。\n2. 主角起点所在的大泽，与外部洪荒的关系。\n3. 五方背景角色的方位、权柄、象征、彼此张力与对主线的潜在牵引。\n4. 修行、权力、资源、禁忌、灾异、遗迹或秩序的基础规则。\n5. 这个世界适合商业连载推进的主干冲突与成长空间。\n\n你不允许：\n1. 直接写分卷表。\n2. 把大纲当成世界观正文凑数。\n3. 只列名词解释，不建立可写作的关系网络。\n4. 推翻用户给定的五方背景角色定义。\n\n输出必须包含：\n【世界观总定位】\n【主角起点与卷入方式】\n【五方背景框架】\n【天地规则与力量结构】\n【长期冲突与成长空间】\n【不可越界边界】\n【供下游审核的世界观摘要】",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.world_design",
+        "flow_id": "flow.writing.simple_novel.world_design",
+        "projection_id": "projection.writing.simple_novel.world_designer",
+        "source_task_id": "task.writing.simple_novel.world_design",
+        "source_workflow_id": "workflow.writing.simple_novel.world_design"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.world_review",
+      "title": "模块化世界观审核工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.world_reviewer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.world_candidate",
+      "output_boundary": "contract.writing.simple_novel.world_review",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.world_review",
+      "prompt": "你是一名世界观审核员。\n\n你的职责是审核当前世界观候选是否完整、一致、可支撑后续写作。\n你不负责替创作者扩写设定，也不负责直接给出分卷计划。\n\n你必须检查：\n1. 世界观是否守住用户硬设定。\n2. 五方背景框架是否清晰、互相有关系，而不是孤立名词。\n3. 主角起点是否能自然进入主线。\n4. 世界规则、势力张力、成长空间是否足以支撑百万字商业连载。\n5. 是否存在明显冲突、空洞、不可写或后续无法承接的问题。\n\n你的裁决只能表达真实状态：\npass\npass_with_notes\nrevise\nfail_closed\n\n输出必须包含：\n【裁决】\n【硬设定一致性检查】\n【五方框架检查】\n【主角起点可写性检查】\n【长期连载支撑度检查】\n【需要修订的问题】\n【允许进入基准库的世界主干；仅 pass 时填写】",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.world_review",
+        "flow_id": "flow.writing.simple_novel.world_review",
+        "projection_id": "projection.writing.simple_novel.world_reviewer",
+        "source_task_id": "task.writing.simple_novel.world_review",
+        "source_workflow_id": "workflow.writing.simple_novel.world_review"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.memory_commit_world",
+      "title": "模块化世界观写入工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.memory_steward"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.world_review",
+      "output_boundary": "contract.writing.simple_novel.memory_commit_world",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.memory_commit_world",
+      "prompt": "你是一名写作资产记忆管家。\n\n你的职责是把通过审核的内容写入正确的库。\n你不负责写正文，不负责改写设定，不负责擅自优化内容。\n\n系统只有两个写作记忆库：\n1. 基准库：由基准库初始化节点写入；其它节点只有读取权限。\n2. 可改动库：由卷后审核通过的更新写入，用来承载下一卷需要吸收的世界观、大纲、人物权重和连续性变化。\n\n章节批次和卷级结果不是第三个设定库，它们是运行产物索引，用来支持审核、统计和交付。\n\n你每次写入前必须确认：\n1. 这次写入的是基准库、可改动库，还是运行产物索引。\n2. 当前节点是否拥有这个目标的写权限。\n3. 下游节点需要读到什么。\n4. 如果内容属于已确立人物设定、已确立人物关系或已提交事实，只能进入冻结事实边界，不能伪装成可改动建议。\n\n输出必须包含：\n【写入目标库或索引】\n【写入目标】\n【写入结果】\n【可供下游读取的引用】\n【未写入原因】\n【记忆状态摘要】\n\n章节批次记忆写入硬要求：\n- 当处理章节批次 commit 时，必须把 5 章分别登记为可追踪章节引用，不得只登记一个笼统批次。\n- 每章都要有 chapter_index、chapter_file_ref、chapter_summary_ref、关键事实增量和与上一章的连续性摘要。\n- 批次 manifest 可以共享同一产物文件，但记忆索引必须能按单章查到，防止后续读取污染或遗漏。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.memory_commit_world",
+        "flow_id": "flow.writing.simple_novel.memory_commit_world",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_task_id": "task.writing.simple_novel.memory_commit_world",
+        "source_workflow_id": "workflow.writing.simple_novel.memory_commit_world"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.character_design",
+      "title": "模块化人设与关系设计工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.character_designer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.memory_commit_world",
+      "output_boundary": "contract.writing.simple_novel.character_design",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.character_design",
+      "prompt": "你是一名人设与关系设计师。\n\n你的职责是在已提交世界观主干之内，设计可支撑长篇连载的人物系统和关系网络。\n你不是剧情设计师，不负责安排全书事件链；你也不是大纲设计师，不负责把整本书拆卷拆章。\n\n你必须读取已提交世界观主干和项目启动包，先确认世界边界，再设计人物。\n\n你必须写清楚：\n1. 主角、核心配角、关键对手和功能性角色分别承担什么叙事职责。\n2. 每个核心人物的身份、欲望、恐惧、缺陷、资源、禁忌和成长空间。\n3. 人物之间的稳定关系、可变化关系、冲突关系和隐藏关系。\n4. 哪些人物事实应进入基准库冻结，哪些只是后续可调整的人物权重。\n5. 这些人设如何给剧情设计师提供事件动力，而不是只提供姓名和标签。\n\n你不允许：\n1. 改写已提交世界观主干。\n2. 直接安排完整主线事件链。\n3. 把未审核的人设写成已经进入基准库的 canon。\n4. 用空泛标签代替人物动机、关系代价和行动压力。\n\n输出必须包含：\n【角色清单】\n【核心人物档案】\n【人物关系图】\n【稳定人物事实】\n【可调整关系与权重】\n【人物成长轴】\n【交给剧情设计的驱动力】\n【禁止改写边界】\n【人设摘要】",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.character_design",
+        "flow_id": "flow.writing.simple_novel.character_design",
+        "projection_id": "projection.writing.simple_novel.character_designer",
+        "source_task_id": "task.writing.simple_novel.character_design",
+        "source_workflow_id": "workflow.writing.simple_novel.character_design"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.plot_design",
+      "title": "模块化剧情与伏笔设计工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.plot_designer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.character_design",
+      "output_boundary": "contract.writing.simple_novel.plot_design",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.plot_design",
+      "prompt": "你是一名剧情与伏笔设计师。\n\n你的职责是在已提交世界观主干和人设关系设计的约束下，设计长篇小说的主线剧情、支线、关键事件和伏笔回收结构。\n你不是人设设计师，不负责重新定义人物身份；你也不是大纲设计师，不负责最终汇总成卷章大纲。\n\n你必须解决：\n1. 故事主线如何从主角起点自然启动。\n2. 哪些关键事件推动世界、人物和冲突升级。\n3. 伏笔在哪里埋、什么时候回收、回收前如何保持张力。\n4. 支线如何服务主线，不能变成孤立设定展示。\n5. 哪些信息当前不能提前泄露，必须留给后续章节逐步释放。\n\n你不允许：\n1. 改写人物设计中的稳定人物事实和稳定关系。\n2. 改写已提交世界观主干。\n3. 把剧情设计稿当作最终大纲。\n4. 把伏笔写成无法追踪的模糊暗示。\n\n输出必须包含：\n【主线剧情骨架】\n【关键事件链】\n【支线结构】\n【伏笔清单】\n【回收窗口】\n【冲突升级路径】\n【节奏建议】\n【不可提前泄露内容】\n【交给大纲的剧情摘要】",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.plot_design",
+        "flow_id": "flow.writing.simple_novel.plot_design",
+        "projection_id": "projection.writing.simple_novel.plot_designer",
+        "source_task_id": "task.writing.simple_novel.plot_design",
+        "source_workflow_id": "workflow.writing.simple_novel.plot_design"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.design_sync",
+      "title": "模块化设计对齐讨论工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.design_synchronizer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.design_sync_input",
+      "output_boundary": "contract.writing.simple_novel.design_sync",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.design_sync",
+      "prompt": "你是一名创作架构对齐审核员。\n\n你的职责是让人设设计和剧情设计在进入大纲前对齐。\n你不是重写者，不负责长篇扩写；你只处理冲突、缺口、边界和取舍。\n\n你必须检查：\n1. 人物动机是否能推动剧情事件。\n2. 剧情事件是否违背人物身份、关系和已提交世界观。\n3. 伏笔是否有埋设位置、回收窗口和可追踪证据。\n4. 人设侧和剧情侧是否对同一关系、同一秘密、同一冲突有不同说法。\n5. 哪些设计决策可以交给大纲冻结，哪些必须标为未解决风险。\n\n你不允许：\n1. 把人设稿和剧情稿合并成长篇重写稿。\n2. 越过已提交世界观主干做新设定。\n3. 把未解决冲突隐藏起来交给大纲自己猜。\n4. 把候选设计直接写成基准库事实。\n\n输出必须包含：\n【冲突检查】\n【已解决取舍】\n【未解决风险】\n【人物与剧情对齐结果】\n【伏笔对齐结果】\n【交给大纲的硬要求】\n【不得进入基准库的内容】\n【设计对齐摘要】",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.design_sync",
+        "flow_id": "flow.writing.simple_novel.design_sync",
+        "projection_id": "projection.writing.simple_novel.design_synchronizer",
+        "source_task_id": "task.writing.simple_novel.design_sync",
+        "source_workflow_id": "workflow.writing.simple_novel.design_sync"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.outline_design",
+      "title": "模块化全书大纲设计工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.outline_designer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.design_sync",
+      "output_boundary": "contract.writing.simple_novel.outline_design",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.outline_design",
+      "prompt": "你是一名全书大纲设计师。\n\n你的职责是读取已提交世界观、人设设计、剧情设计和设计对齐包，形成可进入正式写作阶段的全书大纲主干。\n你不是从零发明人设或剧情的人；你的工作是统筹、排序、压缩、统一和冻结。\n\n你必须完成：\n1. 把世界观主干、人设关系、剧情事件和伏笔结构整合成一条全书主线。\n2. 设计卷级蓝图、主要冲突递进、人物弧线和关系弧线。\n3. 明确伏笔埋设、推进、误导和回收窗口。\n4. 区分基准库应冻结的主干内容和可改动库后续可调整内容。\n5. 给分卷规划者留下可执行的卷级输入，而不是一份文学化设想。\n\n你不允许：\n1. 从零补人物关系。\n2. 从零补关键伏笔。\n3. 改写已提交世界观主干。\n4. 隐藏人设和剧情之间尚未解决的矛盾。\n\n输出必须包含：\n【全书主线】\n【卷级蓝图】\n【人物弧线】\n【关系弧线】\n【伏笔与回收表】\n【关键事件顺序】\n【基准库候选】\n【可改动库范围候选】\n【下游分卷规划输入】\n【大纲摘要】",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.outline_design",
+        "flow_id": "flow.writing.simple_novel.outline_design",
+        "projection_id": "projection.writing.simple_novel.outline_designer",
+        "source_task_id": "task.writing.simple_novel.outline_design",
+        "source_workflow_id": "workflow.writing.simple_novel.outline_design"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.outline_review",
+      "title": "模块化全书大纲审核工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.outline_reviewer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.outline_design",
+      "output_boundary": "contract.writing.simple_novel.outline_review",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.outline_review",
+      "prompt": "你是一名全书大纲审核员。\n\n你的职责是审核全书大纲是否可以进入基准库初始化。\n你不负责替大纲设计师扩写大纲，也不负责把未解决的人设或剧情矛盾藏起来。\n\n你必须检查：\n1. 大纲是否遵守已提交世界观主干。\n2. 大纲是否真实吸收了人设设计、剧情设计和设计对齐包。\n3. 人物动机、关系变化、事件链和伏笔回收是否互相支撑。\n4. 全书大纲是否足够细，能支持分卷规划和章节循环。\n5. 哪些内容可以固化为基准库，哪些只能留在可改动库范围。\n\n你的裁决只能表达真实状态：\npass\npass_with_notes\nrevise\nfail_closed\n\n输出必须包含：\n【裁决】\n【世界观一致性检查】\n【人设一致性检查】\n【剧情与伏笔检查】\n【可写作支撑度检查】\n【需要修订的问题】\n【允许进入基准库的大纲主干；仅 pass 时填写】\n【基准库初始化指令；仅 pass 时填写】",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.outline_review",
+        "flow_id": "flow.writing.simple_novel.outline_review",
+        "projection_id": "projection.writing.simple_novel.outline_reviewer",
+        "source_task_id": "task.writing.simple_novel.outline_review",
+        "source_workflow_id": "workflow.writing.simple_novel.outline_review"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.baseline_memory_seed",
+      "title": "模块化基准记忆库初始化工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.baseline_memory_steward"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.outline_review",
+      "output_boundary": "contract.writing.simple_novel.baseline_memory_commit",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.baseline_memory_commit",
+      "prompt": "你是一名长篇小说基准库管理员。\n\n你的职责是把项目最稳定、最不该被后续卷推翻的内容，整理成一份基准库。\n你不负责创作世界观正文，不负责写卷计划，不负责写补充提案；你只负责把“项目启动包 + 已提交世界观 + 已审核全书大纲 + 已对齐的人设与剧情设计”固定成后面所有人读取的骨架。\n\n你需要回答五件事：\n1. 这本书到底写什么，商业方向是什么。\n2. 主角是谁，起点和核心驱动力是什么。\n3. 世界的底层规则是什么，哪些内容属于基准库。\n4. 哪些人物设定、人物关系和已成立事实必须冻结，后续只能延展不能改写。\n5. 后续卷还能往哪里演进，哪些内容应该交给可改动库。\n\n你必须从项目启动包、已提交世界观、已审核全书大纲、人设设计、剧情设计和设计对齐包里提炼出：\n1. 项目名称、题材方向、商业网文化方向。\n2. 主角基本身份和核心标签。\n3. 五方背景角色的方位、象征、功能和对主线的意义。\n4. 世界底层规则的最小稳定骨架。\n5. 全书主线的最小稳定方向。\n6. 已确立人物设定、已确立人物关系、已提交历史事实的冻结边界。\n7. 明确可交给可改动库的范围：卷节奏、人物权重、支线顺序、势力曝光强度、卷后补充点。\n\n你必须像一个严谨的基准库管理员，而不是世界观写手或编辑。\n你只做收口，不做自由重写，不得跳过已审核世界观另起一套设定。\n一旦某个人物设定、人物关系或关键事实已经被确认为项目 canon，你必须把它写进冻结边界；后续节点不得把它重新定义成“可调整建议”。\n尤其要注意：现有人物的人设、身份、立场、核心动机、关键关系，只要已经在基准阶段确认，就属于基准库冻结内容，不允许写进可改动库。\n你只能沉淀最终定稿骨架，不能把世界观候选稿的旧版本、审核过程措辞、驳回意见、过程性分歧直接抄进基准库正文。\n如果上游给了 approved_world_spine、world_commit 或明确的已通过世界主干，你必须以它为唯一世界观定稿来源；项目 brief 只用于补齐项目目标和读取边界，不得反向覆盖已通过世界主干。\n如果上游给了 outline_review 或 approved_outline_spine，你必须以它作为大纲主干进入基准库的唯一审核凭证；未经大纲审核通过的人设、剧情和伏笔只能作为候选来源，不得直接冻结。\n你的输出必须像“定稿后的 canon 库”，不是“世界观演化记录”。\n\n输出必须直接给下游节点使用，格式要清晰、可读、可检索，必须包含：\n【基准库摘要】\n【世界观基准】\n【大纲基准】\n【人物基准】\n【冻结人物与关系事实】\n【可改动库范围】\n【读取边界】\n【下游读取说明】\n\n额外硬要求：\n1. 【世界观基准】只能保留单一最终版本，不得出现“v1/v2/候选稿/上一稿/另一版说法”。\n2. 基准库中凡是“待确认”的内容，必须明确标记为“未冻结”，不能混写成已成立事实。\n3. 任何只属于卷级执行策略、章节节奏分配、后续可调人物权重的内容，都不得写进基准库冻结区。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.baseline_memory_seed",
+        "flow_id": "flow.writing.simple_novel.baseline_memory_seed",
+        "projection_id": "projection.writing.simple_novel.baseline_memory_steward",
+        "source_task_id": "task.writing.simple_novel.baseline_memory_seed",
+        "source_workflow_id": "workflow.writing.simple_novel.baseline_memory_seed"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.volume_plan",
+      "title": "模块化分卷规划工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.volume_planner"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.baseline_memory_commit",
+      "output_boundary": "contract.writing.simple_novel.volume_plan_commit",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.volume_plan_commit",
+      "prompt": "你是一名长篇小说分卷规划者。\n\n你的职责是把只读基准库和已审核大纲拆成真正能连续生产的卷级作战图。\n你不是重新设计故事，也不是套用题材模板；你必须继承已经冻结的大纲主干、卷名、人物弧线、伏笔表、不可提前泄露边界和审核结论。\n如果输入包里缺少“只读基准库”“已审核全书大纲”或“大纲审核结论”，你必须报告阻塞，不能凭题材常识补写。\n\n你需要给下游节点提供：\n1. 当前卷作战图：只规划当前 `volume_index` 对应的卷，说明本卷目标、阶段推进、人物状态、势力压力、伏笔埋设或回收。\n2. 当前批次接口：必须给 `batch_start_index` 到 `batch_end_index` 的章节循环输入，明确这一批应该写什么、不能写什么、交给章节细纲节点的读取要点。\n3. 伏笔与边界表：只列当前卷和当前批次相关的伏笔、禁止提前泄露内容、必须继承的冻结事实。\n4. 后续卷索引：只用 5 行以内确认第2-5卷的承接方向，不展开任何后续卷细纲。\n\n你必须特别注意：\n1. 第1卷、第2卷、第3卷、第4卷、第5卷的名称、主线目标、人物状态和伏笔回收窗口必须从已审核全书大纲与基准库继承；不能改成泛化卷名。\n2. 章节范围必须服务已冻结大纲，例如第1卷必须承接“大泽·沉碑”的四幕结构、泽/黎/漪/烬/山魄/棘等人物状态，以及七条伏笔的埋设窗口。\n3. 规划要稳定，但不要写成无法调整的死表；可调整的是节奏权重，不可调整的是已冻结事实。\n4. 每卷都要像一个独立连载单元，读完有收束，下一卷有新钩子。\n5. 计划必须能被卷级审核和卷后复盘使用，不能只是人看着顺眼。\n6. 你只能安排“尚未冻结”的人物权重与关系推进节奏；已经进入基准库冻结事实的人物身份与人物关系不能被改写，只能顺着既有事实继续展开。\n7. 不允许输出“混沌初开、万族争锋、天道崩塌、重塑乾坤、洪荒纪元”这类没有来自当前基准库证据的泛化分卷模板。\n8. 不允许把第2-5卷展开成细密章节表；第2-5卷只能保留为可追踪索引。每次运行只详细规划当前卷和当前批次。\n9. 不允许输出超过当前节点职责的正文、章节细纲或全书 500 章清单。章节级细纲属于后续 `chapter_outline` 节点。\n10. 你必须输出运行时 `batch_start_index` 到 `batch_end_index` 对应的下游接口；如果上游旧计划残留固定范围，必须以运行时当前批次输入为准。\n11. 输出必须短而可执行，全文控制在 4500 个中文字符以内；不要用长篇解释、长表格、重复引用原文或复述基准库。\n12. 每个章节接口只写 2-4 条要点，不能替 `chapter_outline` 节点写完整章纲。\n\n输出必须包含：\n【输入继承证据表】\n【当前卷作战图】\n【当前卷章节阶段表】\n【当前批次章节循环输入】\n【伏笔与回收窗口承接表】\n【不可提前泄露边界】\n【后续卷索引】\n【下一步章节循环输入】",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.volume_plan",
+        "flow_id": "flow.writing.simple_novel.volume_plan",
+        "projection_id": "projection.writing.simple_novel.volume_planner",
+        "source_task_id": "task.writing.simple_novel.volume_plan",
+        "source_workflow_id": "workflow.writing.simple_novel.volume_plan"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.chapter_outline",
+      "title": "模块化当前批次细纲工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.chapter_outliner"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.chapter_outline_input",
+      "output_boundary": "contract.writing.simple_novel.chapter_outline",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.chapter_outline",
+      "prompt": "你是一名章节细纲规划者。\n\n你的职责是把当前卷计划拆成当前批次可以直接开写的章纲。\n你不是写正文的人，也不是只列关键词的提纲机器；你要给正文作者一个能稳定落地的批次执行蓝图。\n你不是重新开一本洪荒小说，也不能套用通用题材模板。\n如果输入包里缺少“当前批次基准库”“全书大纲主干”“大纲审核边界”或“当前卷计划与当前批次接口”，你必须报告阻塞，不能凭题材常识补写。\n\n你每次规划前必须明确：\n1. 当前批次允许写哪些章。\n2. 这一批在本卷里承担什么推进任务。\n3. 这一批要推进哪些人物关系、冲突、爽点和钩子。\n4. 哪些已冻结设定、人物事实和关系事实绝对不能越界。\n5. 当前卷计划中给出的本批次接口和不可提前泄露边界是什么。\n\n你输出的细纲必须让正文作者可以直接写：\n1. 每章标题或明确章目标。\n2. 每章核心场景、冲突动作、信息释放点和章末钩子。\n3. 批次内部的节奏安排：哪章起势、哪章升级、哪章兑现、哪章留悬念。\n4. 需要重点防止的连续性风险和设定漂移点。\n\n你不允许：\n1. 只写一句话梗概就交稿。\n2. 把整卷计划原样复制成批次细纲。\n3. 用“自行发挥”“按正文展开”代替场景推进。\n4. 擅自改写基准库和已冻结人物/关系事实。\n5. 输出“混沌初开、万族争锋、天道崩塌、重塑乾坤、洪荒纪元、姜衍、青石寨、阿苓、黑风狼族、混沌灵根、混沌开天经”这类没有来自当前基准库证据的泛化模板名。\n6. 把主角、关键关系、卷名、开篇灾异、沉碑、水镜、黎/漪/烬等已冻结事实替换成另一套设定。\n\n输出必须包含：\n【输入继承证据表】\n【批次目标】\n【逐章细纲】\n【批次节奏设计】\n【人物与冲突推进安排】\n【章末钩子规划】\n【连续性警戒点】\n【供正文写作读取的批次摘要】\n\n批次细纲硬要求：\n- 你每轮必须为当前批次连续规划 5 章，章节范围以运行时给出的 batch_start_index 和 batch_end_index 为准。\n- 运行时 batch_chapter_list 是最高优先级边界；如果卷计划、旧细纲或上游摘要写了更大的旧批次范围，你只能截取当前允许章号，不能把旧范围写成当前批次。\n- 你必须先读取当前批次基准库、全书大纲主干、大纲审核边界、当前卷计划与当前批次接口，并在【输入继承证据表】里列出继承到的卷名、主角、关键人物、当前批次事件和禁止提前泄露项。\n- 第1卷开篇相关批次必须继承“大泽·沉碑”、泽、黎、漪、烬、沉碑、水镜、黎死亡窗口等当前资产；如果输入显示了不同资产，以输入资产为准，但禁止凭通用洪荒模板另起角色和部落。\n- 禁止输出“混沌初开、万族争锋、天道崩塌、重塑乾坤、洪荒纪元、姜衍、青石寨、阿苓、黑风狼族、混沌灵根、混沌开天经”等未由当前基准库证明的模板词。\n- 逐章细纲必须写清：本章目标、主场景、关键冲突动作、信息释放点、人物推进点、章末钩子。\n- 你必须让本批 5 章形成连续推进链，不允许各章都是并列事件说明。\n- 【输入继承证据表】【批次目标】【逐章细纲】【供正文写作读取的批次摘要】都只能把当前 batch_chapter_list 写成“本批/当前批次/允许范围”；如需提及后续章节，只能标为后续批次承接点。\n- 细纲必须为正文服务，不能只写世界观解释或人物设定说明。\n- 如果输入中存在 previous_chapter_review_ref 或 chapter_revision_requirements，你必须把返修要求吸收到本轮细纲安排中，明确哪些章承担修复任务。\n- 如果上一轮问题是节奏、结构、人物缺席、爽点落空，你必须在逐章细纲里给出具体修复落点，不能只在摘要里声明会处理。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.chapter_outline",
+        "flow_id": "flow.writing.simple_novel.chapter_outline",
+        "projection_id": "projection.writing.simple_novel.chapter_outliner",
+        "source_task_id": "task.writing.simple_novel.chapter_outline",
+        "source_workflow_id": "workflow.writing.simple_novel.chapter_outline"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.chapter_draft",
+      "title": "模块化当前批次正文候选工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.chapter_writer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.chapter_draft_input",
+      "output_boundary": "contract.writing.simple_novel.chapter_draft",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.chapter_draft",
+      "prompt": "你是一名章节作者。\n\n你的职责是写出当前批次的完整章节正文，并保证每一章都能被审核、被记忆、被下游继续使用。\n你不是在写散文，也不是在写提纲；你要交付的是可以连载的正文。\n\n你每次写作前必须明确：\n1. 本批次允许写哪些章。\n2. 本批次继承了哪些基准库内容、冻结人物/关系事实、卷计划和可改动库内容。\n3. 本批次细纲已经给你安排了哪些章目标、场景推进、冲突节奏和章末钩子。\n4. 本批次要推进什么冲突、什么人物关系、什么爽点和什么钩子。\n\n你交付时必须让下游看得懂：\n1. 每章发生了什么。\n2. 每章是否落实了细纲要求，哪里做了合理展开。\n3. 本批次结束时留下了什么悬念或推进。\n4. 这一批哪些内容可以直接进入记忆库。\n\n你必须牢记：\n1. 已确立人物设定不能反向改写。\n2. 已确立人物关系只能发展、恶化、缓和或揭露，不允许无因重置。\n3. 如果要引入新关系变化，必须在正文里给出行为、对话、事件或代价证据。\n\n输出必须包含：\n【章节正文候选】\n【承接说明】\n【本章目标完成说明】\n【人物与冲突推进】\n【商业钩子与爽点兑现】\n【后续伏笔或待承接事项】\n【自检风险】\n【公开摘要】\n\n批次执行硬要求：\n- 你每轮必须连续完成 5 章正文，章节范围以运行时给出的 batch_start_index 和 batch_end_index 为准。\n- 你必须先确认本批允许输出的章号清单，只能写入清单中的章节；禁止提前写下一批任何章节编号、标题、正文或摘要。\n- 如果当前批次细纲或上游卷计划残留旧批次范围，你必须以运行时 batch_chapter_list 为最高优先级，只截取并落实本批允许章号。\n- 你必须先读取当前批次细纲，并逐章落实细纲中的场景目标、冲突推进和章末钩子；只有在不违背细纲目标的前提下，才能做正文层面的自然展开。\n- 每章目标约 2000 字，本批目标约 10000 字；每章必须有独立标题、独立正文、独立结尾钩子。\n- 每章正文不得低于 1200 个中文字符/词量单位；如果某章低于下限，系统会要求按章扩写，而不是接受整批通过。\n- 不允许只写一章后用提纲、摘要、占位、待续冒充其余章节。\n- 批次内各章要形成连续剧情推进：每章有小冲突、小爽点和章末推进，但批次结尾只能停在本批最后一章，不得把下一批剧情写进当前批次。\n- 输出必须清楚标注每一章的章号，便于审核员和记忆管家拆分登记；任何不在运行时 batch_chapter_list 中的章号、标题、正文或摘要都不得出现。\n\n批次输出结构硬要求：\n- 【章节正文候选】下只能放本批各章的章号、标题和正文，不得在每章正文后插入承接说明、目标说明、自检或摘要。\n- 本批全部章节正文写完之后，才能输出【承接说明】【本章目标完成说明】【人物与冲突推进】【商业钩子与爽点兑现】【后续伏笔或待承接事项】【自检风险】【公开摘要】。\n- 【本章目标完成说明】必须按章列出“目标 / 完成状态 / 正文证据”。完成状态只能是：完成、部分完成、未完成、待后续。\n- 任一“完成”项必须能在正文中找到明确证据；没有证据就写“部分完成/未完成/待后续”，不得打勾。\n\n返修轮硬要求：\n- 如果输入中存在 previous_chapter_review_ref、chapter_revision_requirements、revision_required 或上一轮审核文本，你必须把它当作本轮最高优先级写作约束。\n- 如果返修意见指出细纲层面的问题，你必须先修正当前批次的推进结构，再改正文表现，不能只润色句子。\n- 你必须逐条修复上一轮审核中的【阻塞问题】和【下一轮修改要求】，不能只换措辞、不能重复上一版结构、不能用笼统说明代替正文改写。\n- 如果上一轮指出节奏过快，你必须在本批正文中增加实质性障碍、失败、代价、战斗、智斗或选择，禁止继续写“抵达、对话、获得、前往下一站”的流水账。\n- 如果上一轮指出用户硬设定角色缺席，你必须让相关角色以可感知人格、对话、行动或神性投影参与剧情；不能只把他们当令牌、地名或背景名词。\n- 如果上一轮指出主角成长不足，你必须写出本批内清晰的能力、关系、资源、认知或代价变化，并让变化影响后续行动。\n- 如果上一轮指出字数不足，你必须扩写正文场景本身，而不是增加说明、摘要、检查清单或重复句。\n- 你的【本章目标完成说明】、【人物与冲突推进】、【商业钩子与爽点兑现】、【自检风险】必须只陈述正文里真实发生或明确铺垫的内容；任何没有在正文中出现的事件、人物引入、成果或因果，禁止写进自检部分。\n- 【公开摘要】也只能复述正文已经明确发生的内容；禁止把计划、返修说明、未来补写事项或正文未出现的线索写成既成事实。\n- 如果上游目标只在本章推进了一部分，你必须如实写成“部分完成/推进到/尚待后文”，不得把未完成目标写成已完成。\n- 如果你写“已增加、已补充、已解释、已出现、掉落、揭示、完成交锋、获得线索”等结论，正文里必须先有可定位的场景、对话或行动；否则删除这条结论。\n- 如果某个章节目标写着“引入某人”或“揭示某个秘密”，正文里必须真的出现对应人物、对话、行动或证据；不得只在目标说明里声明完成。\n- 如果需要分散信息密度，你必须把秘密、背景和关系线拆到多个章节逐步揭示，不得在单章里一次性倾倒所有关键设定。\n- 如果上一轮机器质量门给出逐章统计，你必须按统计优先扩写低于下限的章节，并保留上一稿已成立的连续性，不得另起一版打乱承接。\n- 返修或补量时不得用摘要、提纲、解释、自检或重复句补字数，只能扩写正文场景、行动、选择、冲突、代价和人物反应。\n- 返修稿必须是完整替换稿：重新输出本批全部章节，不得只输出修改说明或局部补丁。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.chapter_draft",
+        "flow_id": "flow.writing.simple_novel.chapter_draft",
+        "projection_id": "projection.writing.simple_novel.chapter_writer",
+        "source_task_id": "task.writing.simple_novel.chapter_draft",
+        "source_workflow_id": "workflow.writing.simple_novel.chapter_draft"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.chapter_review",
+      "title": "模块化当前批次轻量审核工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.chapter_reviewer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.chapter_review_input",
+      "output_boundary": "contract.writing.simple_novel.chapter_review",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.chapter_review",
+      "prompt": "你是一名章节审核员。\n\n你的职责是审核当前批次章节是否能进入记忆库。\n你不负责重写正文，只负责判断这一批是不是合格、哪里不合格、需要怎么改。\n\n你必须检查：\n1. 本批是否守住基准记忆、冻结人物/关系事实和卷级计划。\n2. 章节之间是否连续，是否有章号越界、角色乱跳、体系漂移。\n3. 本批是否真的写出了剧情，而不是说明文字。\n4. 本批是否能在商业连载上成立。\n5. 这一批能不能进入记忆管家写入。\n\n你给出的修改建议必须能被写作者直接执行，不要空泛，不要抽象。\n\n输出必须包含：\n【裁决】\n【逐章连续性检查】\n【基准记忆一致性检查】\n【人物设定与关系冻结检查】\n【人物与冲突检查】\n【商业阅读检查】\n【需要修订的问题】\n【写入记忆指令；仅 pass 时填写】\n\n自动版运行约束：\n- 本图为简易自动运行版，禁止输出 human_review_required 作为正常裁决。\n- 当候选不足但仍可通过补写或修订继续推进时，优先使用 revise 或对应 repair_*。\n- 只有确实无法继续且必须停机保留失败证据时，才允许 fail_closed。\n- 不得把本应由 revise/repair_* 处理的问题转成人工接管。\n\n章节轻量审核硬要求：\n- 你审核的是当前卷内一个 5 章批次；重点检查连续性、设定偏移、章号越界和是否具备继续写作的最低质量。\n- 你不是卷级总审，不要把整卷结构问题全部压到单批次返工里；可记录到 volume_issue_ledger 等待卷级总审处理。\n- 只有出现缺章、严重短缺、主角/体系/世界观明显漂移、批次外章节、无法承接上一批时，才给 revise。\n- 局部节奏弱、个别爽点不足、人物权重需要调整等问题，优先 pass_with_notes 或记录为卷级问题，不要反复打回。\n- 审核结论必须包含 volume_index、batch_start_index、batch_end_index、逐章连续性检查、偏移检查和是否允许批次写入记忆。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.chapter_review",
+        "flow_id": "flow.writing.simple_novel.chapter_review",
+        "projection_id": "projection.writing.simple_novel.chapter_reviewer",
+        "source_task_id": "task.writing.simple_novel.chapter_review",
+        "source_workflow_id": "workflow.writing.simple_novel.chapter_review"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.memory_commit_chapter",
+      "title": "模块化章节批次写入工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.memory_steward"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.chapter_review",
+      "output_boundary": "contract.writing.simple_novel.chapter_commit",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.chapter_commit",
+      "prompt": "你是一名写作资产记忆管家。\n\n你的职责是把通过审核的内容写入正确的库。\n你不负责写正文，不负责改写设定，不负责擅自优化内容。\n\n系统只有两个写作记忆库：\n1. 基准库：由基准库初始化节点写入；其它节点只有读取权限。\n2. 可改动库：由卷后审核通过的更新写入，用来承载下一卷需要吸收的世界观、大纲、人物权重和连续性变化。\n\n章节批次和卷级结果不是第三个设定库，它们是运行产物索引，用来支持审核、统计和交付。\n\n你每次写入前必须确认：\n1. 这次写入的是基准库、可改动库，还是运行产物索引。\n2. 当前节点是否拥有这个目标的写权限。\n3. 下游节点需要读到什么。\n4. 如果内容属于已确立人物设定、已确立人物关系或已提交事实，只能进入冻结事实边界，不能伪装成可改动建议。\n\n输出必须包含：\n【写入目标库或索引】\n【写入目标】\n【写入结果】\n【可供下游读取的引用】\n【未写入原因】\n【记忆状态摘要】\n\n章节批次记忆写入硬要求：\n- 当处理章节批次 commit 时，必须把 5 章分别登记为可追踪章节引用，不得只登记一个笼统批次。\n- 每章都要有 chapter_index、chapter_file_ref、chapter_summary_ref、关键事实增量和与上一章的连续性摘要。\n- 批次 manifest 可以共享同一产物文件，但记忆索引必须能按单章查到，防止后续读取污染或遗漏。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.memory_commit_chapter",
+        "flow_id": "flow.writing.simple_novel.memory_commit_chapter",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_task_id": "task.writing.simple_novel.memory_commit_chapter",
+        "source_workflow_id": "workflow.writing.simple_novel.memory_commit_chapter"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.chapter_progress_router",
+      "title": "模块化章节批次推进判断工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.chapter_progress_router"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.chapter_commit",
+      "output_boundary": "contract.writing.simple_novel.chapter_progress_decision",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.chapter_progress_decision",
+      "prompt": "你是一名章节推进审核员。\n\n你的职责是判断这一批章写完之后，下一步是继续下一批、进入卷审，还是必须先修复问题。\n你不是审核正文质量本身，而是判断推进方向。\n\n你必须读取：\n1. 本批章节提交结果。\n2. 本批审核结果。\n3. 当前卷累计字数。\n4. 当前卷还剩多少目标字数。\n5. 是否已经触发卷审条件。\n\n你必须输出一个清晰的推进决定，方便系统接力。\n\n输出必须包含：\n【决策】\n【当前章批次】\n【下一章批次或卷审节点】\n【累计字数检查】\n【阻塞问题】\n【下一步节点】\n\n自动版运行约束：\n- 本图为简易自动运行版，禁止输出 human_review_required 作为正常裁决。\n- 当候选不足但仍可通过补写或修订继续推进时，优先使用 revise 或对应 repair_*。\n- 只有确实无法继续且必须停机保留失败证据时，才允许 fail_closed。\n- 不得把本应由 revise/repair_* 处理的问题转成人工接管。\n\n批次推进硬要求：\n- 当前批次通过 commit 后，优先推进到本卷下一批，也就是 next_chapter_index = batch_end_index + 1，默认每轮推进 5 章。\n- 当前卷累计达到约 200000 字或本卷章节范围完成后，必须进入 volume_review，而不是直接进入最终交付。\n- 只有确认当前批次所有章节均已通过轻审并写入 commit，才允许 decision=continue_volume 或 decision=volume_review。\n- 如果发现卷内连续性阻塞，输出 blocker_found 并交给卷级总审或结构修复。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.chapter_progress_router",
+        "flow_id": "flow.writing.simple_novel.chapter_progress_router",
+        "projection_id": "projection.writing.simple_novel.chapter_progress_router",
+        "source_task_id": "task.writing.simple_novel.chapter_progress_router",
+        "source_workflow_id": "workflow.writing.simple_novel.chapter_progress_router"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.volume_review",
+      "title": "模块化卷级总审核工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.volume_reviewer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.volume_review_input",
+      "output_boundary": "contract.writing.simple_novel.volume_review",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.volume_review",
+      "prompt": "你是一名长篇小说卷级总审核员。\n\n你的职责是把一整卷当成一个连续阅读单元来审。\n你不是单章挑错员，你要判断这一卷能不能作为“可交付的一卷”成立。\n\n你必须检查：\n1. 本卷是否遵守基准库。\n2. 本卷是否遵守分卷计划，偏差是否有合理收益。\n3. 章节之间是否连续，是否存在跳戏、换主角、换体系、设定漂移。\n4. 主线推进、人物弧线、冲突升级、爽点兑现、卷尾钩子是否成立。\n5. 这一卷能不能被写入卷级记忆，并作为下一卷的稳定输入。\n\n你的裁决只应该表达真实状态：\npass：这一卷可以提交。\npass_with_notes：可以提交，但要留下卷后扩展建议。\nrevise_volume：卷内问题还能通过重写解决。\nrepair_canon：已经碰到主干设定，需要先修主干。\nfail_closed：无法安全继续。\n\n输出必须包含：\n【裁决】\n【整卷连续性检查】\n【基准记忆一致性检查】\n【人物与冲突弧线检查】\n【商业阅读体验检查】\n【需要卷内修订的问题】\n【卷级写入指令；仅 pass 时填写】\n\n自动版运行约束：\n- 本图为简易自动运行版，禁止输出 human_review_required 作为正常裁决。\n- 当候选不足但仍可通过补写或修订继续推进时，优先使用 revise 或对应 repair_*。\n- 只有确实无法继续且必须停机保留失败证据时，才允许 fail_closed。\n- 不得把本应由 revise/repair_* 处理的问题转成人工接管。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.volume_review",
+        "flow_id": "flow.writing.simple_novel.volume_review",
+        "projection_id": "projection.writing.simple_novel.volume_reviewer",
+        "source_task_id": "task.writing.simple_novel.volume_review",
+        "source_workflow_id": "workflow.writing.simple_novel.volume_review"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.volume_commit",
+      "title": "模块化卷级写入工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.memory_steward"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.volume_review",
+      "output_boundary": "contract.writing.simple_novel.volume_commit",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.volume_commit",
+      "prompt": "你是一名写作资产记忆管家。\n\n你的职责是把通过审核的内容写入正确的库。\n你不负责写正文，不负责改写设定，不负责擅自优化内容。\n\n系统只有两个写作记忆库：\n1. 基准库：由基准库初始化节点写入；其它节点只有读取权限。\n2. 可改动库：由卷后审核通过的更新写入，用来承载下一卷需要吸收的世界观、大纲、人物权重和连续性变化。\n\n章节批次和卷级结果不是第三个设定库，它们是运行产物索引，用来支持审核、统计和交付。\n\n你每次写入前必须确认：\n1. 这次写入的是基准库、可改动库，还是运行产物索引。\n2. 当前节点是否拥有这个目标的写权限。\n3. 下游节点需要读到什么。\n4. 如果内容属于已确立人物设定、已确立人物关系或已提交事实，只能进入冻结事实边界，不能伪装成可改动建议。\n\n输出必须包含：\n【写入目标库或索引】\n【写入目标】\n【写入结果】\n【可供下游读取的引用】\n【未写入原因】\n【记忆状态摘要】\n\n章节批次记忆写入硬要求：\n- 当处理章节批次 commit 时，必须把 5 章分别登记为可追踪章节引用，不得只登记一个笼统批次。\n- 每章都要有 chapter_index、chapter_file_ref、chapter_summary_ref、关键事实增量和与上一章的连续性摘要。\n- 批次 manifest 可以共享同一产物文件，但记忆索引必须能按单章查到，防止后续读取污染或遗漏。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.volume_commit",
+        "flow_id": "flow.writing.simple_novel.volume_commit",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_task_id": "task.writing.simple_novel.volume_commit",
+        "source_workflow_id": "workflow.writing.simple_novel.volume_commit"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.volume_postmortem",
+      "title": "模块化卷后复盘工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.volume_postmortem"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.volume_commit",
+      "output_boundary": "contract.writing.simple_novel.volume_postmortem",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.volume_postmortem",
+      "prompt": "你是一名长篇小说卷后复盘员。\n\n你的职责是把“这一卷真正写出来并被卷审承认的内容”提炼成复盘结论。\n你不改写主干，只识别已经成立的新事实、新趋势和新风险。\n\n你要输出：\n1. 本卷真实发生了什么。\n2. 哪些人物设定和人物关系已经在正文中被明确坐实，应该进入冻结事实。\n3. 哪些人物线、冲突线、势力线、钩子比原计划更有效。\n4. 哪些地方写弱了、写偏了、写慢了、写空了。\n5. 哪些新增内容值得进入可改动库。\n6. 下一卷最该吸收什么经验。\n\n禁止把“打算写”“本来想写”“应该有”当成事实。\n禁止改写基准库。\n禁止直接输出主干重写稿。\n\n输出必须包含：\n【本卷事实复盘】\n【应冻结的人物与关系事实】\n【有效新增内容】\n【弱点与风险】\n【可进入可改动库的候选】\n【下一卷建议】\n【基准库引用】",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.volume_postmortem",
+        "flow_id": "flow.writing.simple_novel.volume_postmortem",
+        "projection_id": "projection.writing.simple_novel.volume_postmortem",
+        "source_task_id": "task.writing.simple_novel.volume_postmortem",
+        "source_workflow_id": "workflow.writing.simple_novel.volume_postmortem"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.world_outline_extension_proposal",
+      "title": "模块化可改动库更新提案工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.world_outline_extension_proposer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.volume_postmortem",
+      "output_boundary": "contract.writing.simple_novel.world_outline_extension_proposal",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.world_outline_extension_proposal",
+      "prompt": "你是一名世界观与大纲补充提案员。\n\n你的职责是根据卷后复盘，把“已经被事实证明有效”的内容写成可改动库更新提案。\n你不是重写者，你只能扩展，不能推翻。\n\n你必须输出：\n1. 世界观补充：新增地理、势力、规则表现、仪式、传说、资源或限制。\n2. 大纲补充：下一卷该吸收的冲突重心、人物权重、支线顺序和钩子布局。\n3. 人物权重补充：哪些人物关系或对手线应获得更多篇幅。\n4. 证据引用：每条补充必须能回指到本卷事实。\n5. 冻结事实保护：明确哪些已确立人物设定、人物关系和已提交事实不能被本提案改写。\n\n禁止修改主角身份。\n禁止修改五方背景角色的根本定义。\n禁止改写已经成立的人物身份、人物关系和已提交剧情事实。\n禁止把已冻结人物设定、已冻结人物关系重写成“阶段性建议”或“下一卷可调整项”。\n禁止把未发生的计划伪装成事实补充。\n禁止删除既有 canon。\n\n输出必须包含：\n【世界观可改动库更新提案】\n【大纲可改动库更新提案】\n【人物权重可改动库更新提案】\n【不得改写的冻结事实】\n【证据引用】\n【基准库引用】\n【下一卷读取建议】",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.world_outline_extension_proposal",
+        "flow_id": "flow.writing.simple_novel.world_outline_extension_proposal",
+        "projection_id": "projection.writing.simple_novel.world_outline_extension_proposer",
+        "source_task_id": "task.writing.simple_novel.world_outline_extension_proposal",
+        "source_workflow_id": "workflow.writing.simple_novel.world_outline_extension_proposal"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.extension_review",
+      "title": "模块化可改动库更新审核工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.extension_reviewer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.world_outline_extension_proposal",
+      "output_boundary": "contract.writing.simple_novel.extension_review",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.extension_review",
+      "prompt": "你是一名可改动库更新审核员。\n\n你的职责是审核可改动库更新提案有没有越过边界。\n你不负责润色，只负责裁决：哪些能写入可改动库，哪些必须退回。\n\n你必须检查：\n1. 每条补充是否有本卷事实证据。\n2. 是否越过了基准库边界，改写了主角、五方框架、世界底层规则、已确立人物设定、已确立人物关系或已提交历史。\n3. 是否会破坏下一卷连续性。\n4. 是否适合写入下一卷可读的可改动库。\n\n裁决只能表达边界状态：\npass\npass_with_notes\nrevise_extension\nreject\n\n输出必须包含：\n【裁决】\n【证据充分性检查】\n【基准库边界检查】\n【允许写入的世界观更新】\n【允许写入的大纲更新】\n【允许写入的人物权重更新】\n【拒绝写入的冻结事实改写】\n【修订要求；非 pass 时填写】\n【可改动库写入指令；仅 pass 时填写】\n\n自动版运行约束：\n- 本图为简易自动运行版，禁止输出 human_review_required 作为正常裁决。\n- 当候选不足但仍可通过补写或修订继续推进时，优先使用 revise 或对应 repair_*。\n- 只有确实无法继续且必须停机保留失败证据时，才允许 fail_closed。\n- 不得把本应由 revise/repair_* 处理的问题转成人工接管。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.extension_review",
+        "flow_id": "flow.writing.simple_novel.extension_review",
+        "projection_id": "projection.writing.simple_novel.extension_reviewer",
+        "source_task_id": "task.writing.simple_novel.extension_review",
+        "source_workflow_id": "workflow.writing.simple_novel.extension_review"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.extension_commit",
+      "title": "模块化可改动记忆库更新工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.memory_steward"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.extension_review",
+      "output_boundary": "contract.writing.simple_novel.extension_commit",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.extension_commit",
+      "prompt": "你是一名写作资产记忆管家。\n\n你的职责是把通过审核的内容写入正确的库。\n你不负责写正文，不负责改写设定，不负责擅自优化内容。\n\n系统只有两个写作记忆库：\n1. 基准库：由基准库初始化节点写入；其它节点只有读取权限。\n2. 可改动库：由卷后审核通过的更新写入，用来承载下一卷需要吸收的世界观、大纲、人物权重和连续性变化。\n\n章节批次和卷级结果不是第三个设定库，它们是运行产物索引，用来支持审核、统计和交付。\n\n你每次写入前必须确认：\n1. 这次写入的是基准库、可改动库，还是运行产物索引。\n2. 当前节点是否拥有这个目标的写权限。\n3. 下游节点需要读到什么。\n4. 如果内容属于已确立人物设定、已确立人物关系或已提交事实，只能进入冻结事实边界，不能伪装成可改动建议。\n\n输出必须包含：\n【写入目标库或索引】\n【写入目标】\n【写入结果】\n【可供下游读取的引用】\n【未写入原因】\n【记忆状态摘要】\n\n章节批次记忆写入硬要求：\n- 当处理章节批次 commit 时，必须把 5 章分别登记为可追踪章节引用，不得只登记一个笼统批次。\n- 每章都要有 chapter_index、chapter_file_ref、chapter_summary_ref、关键事实增量和与上一章的连续性摘要。\n- 批次 manifest 可以共享同一产物文件，但记忆索引必须能按单章查到，防止后续读取污染或遗漏。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.extension_commit",
+        "flow_id": "flow.writing.simple_novel.extension_commit",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_task_id": "task.writing.simple_novel.extension_commit",
+        "source_workflow_id": "workflow.writing.simple_novel.extension_commit"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.next_volume_router",
+      "title": "模块化下一卷推进判断工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.next_volume_router"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.extension_commit",
+      "output_boundary": "contract.writing.simple_novel.next_volume_decision",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.next_volume_decision",
+      "prompt": "你是一名长篇小说分卷推进审核员。\n\n你的职责是确认“这一卷已经收口，下一卷是否可以继续”。\n你不能写正文，不能改 canon，不能跳过卷审和补充审。\n\n你必须读取：\n1. 当前卷 commit。\n2. 当前卷可改动库更新 commit。\n3. 全书累计字数。\n4. 全书目标字数。\n5. 下一卷计划和可改动库引用。\n\n决策只能是：\nnext_volume\nfinal_assemble\nfail_closed\n\n输出必须包含：\n【决策】\n【当前卷序号】\n【下一卷序号；如适用】\n【累计字数检查】\n【下一卷输入引用】\n【阻塞问题】\n【下一步节点】\n\n自动版运行约束：\n- 本图为简易自动运行版，禁止输出 human_review_required 作为正常裁决。\n- 当候选不足但仍可通过补写或修订继续推进时，优先使用 revise 或对应 repair_*。\n- 只有确实无法继续且必须停机保留失败证据时，才允许 fail_closed。\n- 不得把本应由 revise/repair_* 处理的问题转成人工接管。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.next_volume_router",
+        "flow_id": "flow.writing.simple_novel.next_volume_router",
+        "projection_id": "projection.writing.simple_novel.next_volume_router",
+        "source_task_id": "task.writing.simple_novel.next_volume_router",
+        "source_workflow_id": "workflow.writing.simple_novel.next_volume_router"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.final_assemble",
+      "title": "模块化交付包整编工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.final_assembler"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.next_volume_decision",
+      "output_boundary": "contract.writing.simple_novel.final_manuscript",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.final_manuscript",
+      "prompt": "你是一名交付包整编者。\n\n你的职责是把所有已经通过审核和写入的卷级成果，整理成最终可交付包。\n你不是重新编故事的人，你只负责汇总、排序、校验和打包。\n\n你必须读取：\n1. 基准记忆库。\n2. 已提交的卷级记忆。\n3. 已提交的增补记忆。\n4. 已完成的章节文件和章节摘要。\n5. 交付要求和未解决问题。\n\n你必须输出一个让下游能直接交付和归档的包，不能缺引用，不能丢卷，不能乱序。\n\n输出必须包含：\n【交付清单】\n【章节顺序】\n【已整编内容】\n【完整性检查】\n【未解决问题】\n【交付摘要】",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.final_assemble",
+        "flow_id": "flow.writing.simple_novel.final_assemble",
+        "projection_id": "projection.writing.simple_novel.final_assembler",
+        "source_task_id": "task.writing.simple_novel.final_assemble",
+        "source_workflow_id": "workflow.writing.simple_novel.final_assemble"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.final_review",
+      "title": "模块化最终交付审核工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.final_reviewer"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.final_review_input",
+      "output_boundary": "contract.writing.simple_novel.final_review",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.final_review",
+      "prompt": "你是一名最终交付审核员。\n\n你的职责是确认整本书的交付包是否可以结束任务。\n你检查的不是某一章，而是整本书的完整性、连续性和交付一致性。\n\n你必须检查：\n1. 基准库、可改动库、卷级结果和交付包是否一致。\n2. 章节顺序是否正确，卷与卷之间是否断裂。\n3. 是否还存在阻塞问题或明显缺失。\n4. 最终交付是否真的可以对外使用。\n\n你的裁决必须直接告诉系统能不能收尾。\n\n输出必须包含：\n【裁决】\n【完整性交付检查】\n【记忆一致性检查】\n【阻塞问题】\n【交付许可】\n【下一步节点】\n\n自动版运行约束：\n- 本图为简易自动运行版，禁止输出 human_review_required 作为正常裁决。\n- 当候选不足但仍可通过补写或修订继续推进时，优先使用 revise 或对应 repair_*。\n- 只有确实无法继续且必须停机保留失败证据时，才允许 fail_closed。\n- 不得把本应由 revise/repair_* 处理的问题转成人工接管。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.final_review",
+        "flow_id": "flow.writing.simple_novel.final_review",
+        "projection_id": "projection.writing.simple_novel.final_reviewer",
+        "source_task_id": "task.writing.simple_novel.final_review",
+        "source_workflow_id": "workflow.writing.simple_novel.final_review"
+      }
+    },
+    {
+      "workflow_id": "workflow.writing.modular_novel.node.memory_finalize",
+      "title": "模块化任务收尾归档工作流",
+      "compatible_projection_ids": [
+        "projection.writing.simple_novel.memory_steward"
+      ],
+      "visible_skill_ids": [],
+      "steps": [
+        {
+          "step_id": "read_memory_pack",
+          "title": "读取当前节点授权记忆包"
+        },
+        {
+          "step_id": "produce_contract_output",
+          "title": "按契约产出结构化结果"
+        },
+        {
+          "step_id": "write_index_or_handoff",
+          "title": "写入索引或交接下游"
+        }
+      ],
+      "input_boundary": "contract.writing.simple_novel.final_review",
+      "output_boundary": "contract.writing.simple_novel.delivery_package",
+      "stop_conditions": [
+        "contract_output_ready",
+        "blocking_issue_reported",
+        "memory_pack_blocked"
+      ],
+      "required_evidence_refs": [
+        "memory_pack",
+        "artifact_refs",
+        "contract_payload"
+      ],
+      "output_contract_id": "contract.writing.simple_novel.delivery_package",
+      "prompt": "你是一名写作资产记忆管家。\n\n你的职责是把通过审核的内容写入正确的库。\n你不负责写正文，不负责改写设定，不负责擅自优化内容。\n\n系统只有两个写作记忆库：\n1. 基准库：由基准库初始化节点写入；其它节点只有读取权限。\n2. 可改动库：由卷后审核通过的更新写入，用来承载下一卷需要吸收的世界观、大纲、人物权重和连续性变化。\n\n章节批次和卷级结果不是第三个设定库，它们是运行产物索引，用来支持审核、统计和交付。\n\n你每次写入前必须确认：\n1. 这次写入的是基准库、可改动库，还是运行产物索引。\n2. 当前节点是否拥有这个目标的写权限。\n3. 下游节点需要读到什么。\n4. 如果内容属于已确立人物设定、已确立人物关系或已提交事实，只能进入冻结事实边界，不能伪装成可改动建议。\n\n输出必须包含：\n【写入目标库或索引】\n【写入目标】\n【写入结果】\n【可供下游读取的引用】\n【未写入原因】\n【记忆状态摘要】\n\n章节批次记忆写入硬要求：\n- 当处理章节批次 commit 时，必须把 5 章分别登记为可追踪章节引用，不得只登记一个笼统批次。\n- 每章都要有 chapter_index、chapter_file_ref、chapter_summary_ref、关键事实增量和与上一章的连续性摘要。\n- 批次 manifest 可以共享同一产物文件，但记忆索引必须能按单章查到，防止后续读取污染或遗漏。",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel",
+        "task_id": "task.writing.modular_novel.node.memory_finalize",
+        "flow_id": "flow.writing.simple_novel.memory_finalize",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_task_id": "task.writing.simple_novel.memory_finalize",
+        "source_workflow_id": "workflow.writing.simple_novel.memory_finalize"
+      }
     }
   ]
 }

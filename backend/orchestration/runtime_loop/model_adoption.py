@@ -10,6 +10,7 @@ from orchestration.resource_scope_mapping import map_operations_to_resource_scop
 from ..runtime_directive import RuntimeDirective
 
 MODEL_VISIBLE_AGENT_OPERATIONS = {"op.delegate_to_agent"}
+SANDBOX_SIDE_EFFECT_OPERATIONS = {"op.write_file", "op.edit_file", "op.shell", "op.python_repl"}
 
 
 def build_model_response_runtime_adoption(
@@ -18,6 +19,7 @@ def build_model_response_runtime_adoption(
     operation_registry: OperationRegistry | None = None,
     agent_runtime_profile: AgentRuntimeProfile | None = None,
     approval_context: RuntimeApprovalContext | None = None,
+    sandbox_policy: dict[str, Any] | None = None,
 ) -> tuple[RuntimeDirective, ResourcePolicy]:
     """Adopt the current single-agent model lane into an executable directive.
 
@@ -39,6 +41,7 @@ def build_model_response_runtime_adoption(
         registry=registry,
         agent_runtime_profile=agent_runtime_profile,
         approval_context=context,
+        sandbox_policy=dict(sandbox_policy or {}),
     )
     allowed_operations = tuple(decision.operation_id for decision in decisions if decision.decision == "allow")
     denied_operations = tuple(decision.operation_id for decision in decisions if decision.decision == "deny")
@@ -93,6 +96,7 @@ def build_model_response_runtime_adoption(
             "filesystem_write_allowed": any(
                 operation in {"op.write_file", "op.edit_file"} for operation in allowed_operations
             ),
+            "sandbox_policy": _public_sandbox_policy(sandbox_policy),
             "adoption_owner": "TaskRunLoop",
             "authorization_inputs": {
                 "task_operation_requirement": True,
@@ -139,6 +143,7 @@ def build_runtime_capability_state(
     resource_policy: ResourcePolicy,
     agent_runtime_profile: AgentRuntimeProfile | None = None,
     visible_tool_names: list[str] | tuple[str, ...] = (),
+    sandbox_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Describe capability layers without turning them into extra permissions."""
 
@@ -182,6 +187,7 @@ def build_runtime_capability_state(
             ),
             "meaning": "This describes the current turn resource policy, not the agent profile capability ceiling.",
         },
+        "sandbox_policy": _public_sandbox_policy(sandbox_policy),
         "authority": "orchestration.runtime_capability_state",
     }
 
@@ -192,6 +198,7 @@ def _build_runtime_decisions(
     registry: OperationRegistry | None,
     agent_runtime_profile: AgentRuntimeProfile | None,
     approval_context: RuntimeApprovalContext,
+    sandbox_policy: dict[str, Any],
 ) -> list[ResourceDecision]:
     requested = _requested_operations(task_operation)
     agent_allowed = _agent_allowed_operations(agent_runtime_profile)
@@ -209,6 +216,7 @@ def _build_runtime_decisions(
                 agent_blocked=agent_blocked,
                 approval_context=approval_context,
                 approval_policy=approval_policy,
+                sandbox_policy=sandbox_policy,
             )
         )
     if not any(decision.operation_id == "op.model_response" for decision in decisions):
@@ -257,6 +265,7 @@ def _decide_runtime_operation(
     agent_blocked: set[str],
     approval_context: RuntimeApprovalContext,
     approval_policy: str,
+    sandbox_policy: dict[str, Any],
 ) -> ResourceDecision:
     if operation_id in agent_blocked:
         return ResourceDecision(
@@ -301,6 +310,17 @@ def _decide_runtime_operation(
             risk_tags=descriptor.risk_tags,
             diagnostics={"approval_policy": approval_policy},
         )
+    if _sandbox_allows_side_effect(descriptor.operation_id, sandbox_policy=sandbox_policy):
+        return ResourceDecision(
+            operation_id=descriptor.operation_id,
+            decision="allow",
+            reason="operation allowed inside runtime sandbox side-effect boundary",
+            risk_tags=descriptor.risk_tags,
+            diagnostics={
+                "approval_policy": "sandboxed_side_effects",
+                "sandbox": _public_sandbox_policy(sandbox_policy),
+            },
+        )
     if descriptor.requires_approval_by_default or descriptor.destructive:
         approval_available = bool(
             approval_context.approval_hook_available
@@ -340,6 +360,42 @@ def _approval_policy(task_operation: dict[str, Any], profile: AgentRuntimeProfil
     if profile is not None and profile.approval_policy:
         return str(profile.approval_policy)
     return explicit_policy or "default"
+
+
+def _sandbox_allows_side_effect(operation_id: str, *, sandbox_policy: dict[str, Any]) -> bool:
+    policy = dict(sandbox_policy or {})
+    if policy.get("enabled") is not True:
+        return False
+    if str(policy.get("approval_policy") or "") != "sandboxed_side_effects":
+        return False
+    operations = {
+        str(item or "").strip()
+        for item in list(policy.get("side_effect_operations") or SANDBOX_SIDE_EFFECT_OPERATIONS)
+        if str(item or "").strip()
+    }
+    return str(operation_id or "").strip() in operations
+
+
+def _public_sandbox_policy(sandbox_policy: dict[str, Any] | None) -> dict[str, Any]:
+    policy = dict(sandbox_policy or {})
+    if not policy:
+        return {}
+    return {
+        key: value
+        for key, value in policy.items()
+        if key
+        in {
+            "enabled",
+            "mode",
+            "sandbox_root",
+            "side_effect_root",
+            "workspace_dir_name",
+            "real_workspace_access",
+            "approval_policy",
+            "side_effect_tools",
+            "side_effect_operations",
+        }
+    }
 
 
 def _dedupe(values: list[Any] | tuple[Any, ...]) -> list[str]:

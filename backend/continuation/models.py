@@ -15,7 +15,7 @@ class ContinuationCandidate:
     score: float = 0.0
     compatible: bool = True
     conflict_reasons: tuple[str, ...] = ()
-    binding_payload: dict[str, Any] = field(default_factory=dict)
+    recall_payload: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     authority: str = "continuation.candidate"
 
@@ -35,7 +35,6 @@ class ContinuationDecision:
     followup_scope: str = ""
     followup_target_refs: tuple[str, ...] = ()
     constraint_policy: str = ""
-    active_bindings: dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0
     reason: str = ""
     rejected_candidate_ids: tuple[str, ...] = ()

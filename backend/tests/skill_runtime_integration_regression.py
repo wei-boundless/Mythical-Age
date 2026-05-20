@@ -13,7 +13,11 @@ from capability_system.tool_registry import ToolRegistry
 
 
 class _MemoryFacadeStub:
+    def __init__(self) -> None:
+        self.runtime_view_calls: list[dict] = []
+
     def build_memory_runtime_view(self, **_kwargs):
+        self.runtime_view_calls.append(dict(_kwargs))
         return {"view_id": "memory-view:test"}
 
     def build_memory_context_package(self, **_kwargs):
@@ -29,6 +33,10 @@ class _MemoryFacadeStub:
 
 class _FileBindingMemoryFacadeStub(_MemoryFacadeStub):
     def build_memory_runtime_view(self, **_kwargs):
+        self.runtime_view_calls.append(dict(_kwargs))
+        profile = dict(_kwargs.get("memory_request_profile") or {})
+        if "state" not in list(profile.get("requested_memory_layers") or []):
+            return {"view_id": "memory-view:test"}
         return {
             "view_id": "memory-view:test",
             "state_snapshot": {
@@ -80,10 +88,11 @@ def test_agent_runtime_chain_uses_realtime_network_without_active_skill() -> Non
     assert "Task mode: information_search" in contents
 
 
-def test_agent_runtime_chain_uses_active_file_binding_for_followup() -> None:
+def test_agent_runtime_chain_uses_intent_gated_state_recall_for_followup() -> None:
+    memory_facade = _FileBindingMemoryFacadeStub()
     assembler = AgentRuntimeChainAssembler(
         base_dir=ROOT,
-        memory_facade=_FileBindingMemoryFacadeStub(),
+        memory_facade=memory_facade,
         skill_registry=SkillRegistry(ROOT),
         tool_registry=ToolRegistry(ROOT),
     )
@@ -100,17 +109,26 @@ def test_agent_runtime_chain_uses_active_file_binding_for_followup() -> None:
     understanding = dict(task_operation.get("query_understanding") or {})
     operation_requirement = dict(task_operation.get("operation_requirement") or {})
     memory_request_profile = dict(task_operation.get("task_memory_request_profile") or {})
+    current_turn = dict(runtime.get("current_turn_context") or {})
+    task_inputs = dict(dict(task_operation.get("task_spec") or {}).get("inputs") or {})
+    protocol = dict(task_inputs.get("agent_communication_protocol") or {})
+    recall_context = dict(dict(protocol.get("handoff_context") or {}).get("recall_context") or {})
 
-    assert active_skill["name"] == "structured-data-analysis"
-    assert understanding["route"] == "structured_data"
+    requested_layers_by_call = [
+        list(dict(call.get("memory_request_profile") or {}).get("requested_memory_layers") or [])
+        for call in memory_facade.runtime_view_calls
+    ]
+    assert [] in requested_layers_by_call
+    assert ["state"] in requested_layers_by_call
+    assert active_skill == {}
+    assert understanding["route"] == "agent"
     assert understanding["tool_name"] is None
-    assert understanding["skill_name"] == "structured-data-analysis"
+    assert understanding["skill_name"] is None
     assert understanding["candidate_tools"] == []
-    assert any(item["candidate_type"] == "mcp" and item["name"] == "structured_data" for item in list(understanding.get("candidate_capabilities") or []))
-    assert understanding["tool_input"] == {
-        "query": "按仓库汇总前五。",
-        "path": "Data/inventory.xlsx",
-    }
-    assert "bound_dataset_followup" in list(understanding.get("reasons") or [])
+    assert understanding["tool_input"] == {"query": "按仓库汇总前五。"}
+    assert current_turn["resolved_bindings"] == []
+    assert current_turn["context_recall_candidates"][0]["recall_payload"]["active_dataset"] == "Data/inventory.xlsx"
+    assert recall_context["candidate_policy"] == "candidate_only_child_must_verify_before_use"
+    assert recall_context["candidates"][0]["recall_payload"]["active_dataset"] == "Data/inventory.xlsx"
     assert "op.mcp_structured_data" in list(operation_requirement.get("required_operations") or [])
     assert "conversation" in list(memory_request_profile.get("requested_memory_layers") or [])

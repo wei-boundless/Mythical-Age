@@ -63,6 +63,11 @@ export function TaskGraphWorkbench({
   const [executionPackageError, setExecutionPackageError] = useState("");
   const [executionPackageLoading, setExecutionPackageLoading] = useState(false);
   const [showTemplateChooser, setShowTemplateChooser] = useState(false);
+  const selectedTaskGraphId = rest.selectedTaskGraphId;
+  const taskGraphStandardView = rest.taskGraphStandardView;
+  const taskGraphStandardViewLoading = rest.taskGraphStandardViewLoading;
+  const taskGraphStandardViewError = rest.taskGraphStandardViewError;
+  const refreshTaskGraphStandardView = rest.refreshTaskGraphStandardView;
   const activeLayer = editorFocus.layer;
   const coordinatorAgentId = String(taskGraphDraftV2.runtime_policy.coordinator_agent_id || "agent:0");
   const issueCount = rest.editorIssueCount;
@@ -304,14 +309,14 @@ export function TaskGraphWorkbench({
   };
 
   useEffect(() => {
-    if (!rest.selectedTaskGraphId || rest.taskGraphStandardViewLoading) return;
-    if (rest.taskGraphStandardView?.graph?.graph_id === rest.selectedTaskGraphId) return;
-    void rest.refreshTaskGraphStandardView();
+    if (!selectedTaskGraphId || taskGraphStandardViewLoading) return;
+    if (taskGraphStandardView?.graph?.graph_id === selectedTaskGraphId) return;
+    void refreshTaskGraphStandardView();
   }, [
-    rest.refreshTaskGraphStandardView,
-    rest.selectedTaskGraphId,
-    rest.taskGraphStandardView,
-    rest.taskGraphStandardViewLoading,
+    refreshTaskGraphStandardView,
+    selectedTaskGraphId,
+    taskGraphStandardView,
+    taskGraphStandardViewLoading,
   ]);
 
   const standardViewBanner = (
@@ -319,32 +324,32 @@ export function TaskGraphWorkbench({
       <div className="task-graph-standard-status__identity">
         <span>标准对象视图</span>
         <strong>
-          {rest.taskGraphStandardViewLoading
+          {taskGraphStandardViewLoading
             ? "正在编译图对象视图"
-            : rest.taskGraphStandardView
+            : taskGraphStandardView
               ? "节点 / 边 / 资源 / 时序已对齐"
               : "尚未载入标准对象视图"}
         </strong>
         <small>
-          {rest.taskGraphStandardView
-            ? `graph=${String(rest.taskGraphStandardView.graph.graph_id ?? taskGraphDraftV2.graph_id)} · ${rest.taskGraphStandardView.nodes.length} nodes · ${rest.taskGraphStandardView.edges.length} edges · ${rest.taskGraphStandardView.resources.length} resources`
+          {taskGraphStandardView
+            ? `graph=${String(taskGraphStandardView.graph.graph_id ?? taskGraphDraftV2.graph_id)} · ${taskGraphStandardView.nodes.length} nodes · ${taskGraphStandardView.edges.length} edges · ${taskGraphStandardView.resources.length} resources`
             : "图工作台当前页面会优先读取后端编译出的标准对象视图，避免前端和 runtime 语义分叉。"}
         </small>
       </div>
       <div className="task-graph-standard-status__actions">
-        {rest.taskGraphStandardViewError ? (
+        {taskGraphStandardViewError ? (
           <div className="task-graph-standard-status__error">
             <AlertTriangle aria-hidden="true" size={14} />
-            <span>{rest.taskGraphStandardViewError}</span>
+            <span>{taskGraphStandardViewError}</span>
           </div>
         ) : null}
         <button
           className="task-graph-standard-status__refresh"
-          disabled={rest.taskGraphStandardViewLoading || !rest.selectedTaskGraphId}
-          onClick={() => { void rest.refreshTaskGraphStandardView(); }}
+          disabled={taskGraphStandardViewLoading || !selectedTaskGraphId}
+          onClick={() => { void refreshTaskGraphStandardView(); }}
           type="button"
         >
-          {rest.taskGraphStandardViewLoading ? <Loader2 aria-hidden="true" size={15} /> : <RefreshCw aria-hidden="true" size={15} />}
+          {taskGraphStandardViewLoading ? <Loader2 aria-hidden="true" size={15} /> : <RefreshCw aria-hidden="true" size={15} />}
           <span>刷新标准视图</span>
         </button>
       </div>

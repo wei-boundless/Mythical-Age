@@ -12,6 +12,12 @@ from continuation.profile_registry import default_continuation_profiles
 from intent import build_runtime_assembly_hint, collect_intent_frame, decide_intent
 from intent.profile_registry import default_intent_profiles
 from understanding.task_understanding import analyze_task_understanding
+from understanding.memory_intent import analyze_memory_intent
+
+
+def _selected_payload(candidates, continuation) -> dict:
+    selected = next(candidate for candidate in candidates if candidate.candidate_id == continuation.selected_candidate_id)
+    return dict(selected.recall_payload or {})
 
 
 def test_turn57_intent_selects_dataset_subset_and_rejects_pdf_candidate() -> None:
@@ -33,7 +39,8 @@ def test_turn57_intent_selects_dataset_subset_and_rejects_pdf_candidate() -> Non
     }
     message = "按部门汇总这些人，只总结这前五名，不要扩展回全表。"
 
-    frame = collect_intent_frame(message, memory_runtime_view=memory_view)
+    memory_intent = analyze_memory_intent(message)
+    frame = collect_intent_frame(message, memory_intent=memory_intent, memory_runtime_view=memory_view)
     decision = decide_intent(frame)
     candidates = collect_continuation_candidates(
         message=message,
@@ -47,9 +54,10 @@ def test_turn57_intent_selects_dataset_subset_and_rejects_pdf_candidate() -> Non
     assert decision.needs_continuation is True
     assert continuation.followup_target_kind == "active_subset"
     assert continuation.source_kind == "dataset"
-    assert continuation.active_bindings["active_dataset"] == "Data/employees.xlsx"
-    assert continuation.active_bindings["delegation_kind"] == "table_analysis"
-    assert continuation.active_bindings["target_agent_id"] == "agent:table_analyst"
+    payload = _selected_payload(candidates, continuation)
+    assert payload["active_dataset"] == "Data/employees.xlsx"
+    assert payload["active_subset_handle_id"] == "subset:selection:employees:top5"
+    assert payload["active_constraints"]["subset_filter_column"] == "name"
     assert any(candidate.source_kind == "pdf" and candidate.compatible is False for candidate in candidates)
 
 
@@ -66,7 +74,8 @@ def test_deictic_pdf_followup_uses_continuation_not_switch_target() -> None:
     }
     message = "把这份 PDF 的结论压成三条行动建议。"
 
-    frame = collect_intent_frame(message, memory_runtime_view=memory_view)
+    memory_intent = analyze_memory_intent(message)
+    frame = collect_intent_frame(message, memory_intent=memory_intent, memory_runtime_view=memory_view)
     decision = decide_intent(frame)
     candidates = collect_continuation_candidates(
         message=message,
@@ -80,8 +89,9 @@ def test_deictic_pdf_followup_uses_continuation_not_switch_target() -> None:
     assert decision.needs_continuation is True
     assert continuation.source_kind == "pdf"
     assert continuation.followup_target_kind == "active_pdf"
-    assert continuation.active_bindings["target_agent_id"] == "agent:pdf_reader"
-    assert continuation.active_bindings["delegation_kind"] == "pdf_reading"
+    payload = _selected_payload(candidates, continuation)
+    assert payload["active_pdf"] == "knowledge/AI Knowledge/report.pdf"
+    assert payload["active_result_handle_id"] == "result:pdf_answer:p3"
 
 
 def test_pdf_document_followup_widens_previous_page_scope() -> None:
@@ -104,7 +114,8 @@ def test_pdf_document_followup_widens_previous_page_scope() -> None:
     }
     message = "把这份 PDF 的结论压成三条行动建议，每条都要带行动动词。"
 
-    frame = collect_intent_frame(message, memory_runtime_view=memory_view)
+    memory_intent = analyze_memory_intent(message)
+    frame = collect_intent_frame(message, memory_intent=memory_intent, memory_runtime_view=memory_view)
     decision = decide_intent(frame)
     candidates = collect_continuation_candidates(
         message=message,
@@ -113,16 +124,79 @@ def test_pdf_document_followup_widens_previous_page_scope() -> None:
         intent_decision=decision,
     )
     continuation = decide_continuation(candidates=candidates, intent_decision=decision)
-    understanding = analyze_task_understanding(message, active_bindings=continuation.active_bindings)
+    understanding = analyze_task_understanding(message)
 
     assert continuation.source_kind == "pdf"
     assert continuation.followup_target_kind == "active_pdf"
-    assert continuation.active_bindings["active_pdf_mode"] == "document"
-    assert "active_subset_handle_id" not in continuation.active_bindings
-    assert continuation.active_bindings["active_constraints"]["active_pdf_mode"] == "document"
-    assert "active_pdf_pages" not in continuation.active_bindings["active_constraints"]
-    assert understanding.parameters["mode"] == "document"
-    assert "pages" not in understanding.parameters
+    payload = _selected_payload(candidates, continuation)
+    assert payload["active_pdf"] == "knowledge/AI Knowledge/report.pdf"
+    assert payload["active_constraints"]["active_pdf_mode"] == "page"
+    assert understanding.route_hint == "agent"
+    assert understanding.source_kind == "conversation"
+    assert "mode" not in understanding.parameters
+    assert "path" not in understanding.parameters
+
+
+def test_pdf_page_followup_with_memory_signal_uses_memory_to_restore_object_then_read_pdf() -> None:
+    memory_view = {
+        "state_snapshot": {
+            "context_slots": {
+                "active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                "committed_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                "active_result_handle_id": "result:pdf_answer:p4",
+                "active_subset_handle_id": "subset:pdf_pages:p4",
+                "active_constraints": {
+                    "active_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                    "source_kind": "pdf",
+                    "active_pdf_mode": "page",
+                    "active_pdf_pages": [4],
+                },
+            }
+        },
+        "restore_candidates": [
+            {
+                "candidate_id": "state-restore:session:context_slot:active_pdf",
+                "restore_kind": "context_slot",
+                "value": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                "confidence": 0.82,
+                "metadata": {"slot_name": "active_pdf"},
+            },
+            {
+                "candidate_id": "state-restore:session:flow:pdf_document_flow:knowledge-ai-knowledge-2025-ai-pdf",
+                "restore_kind": "context_slot",
+                "value": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+                "confidence": 0.76,
+                "metadata": {"slot_name": "committed_pdf"},
+            },
+        ],
+    }
+    message = "如果我要把这份报告讲给业务负责人听，第四页最值得摘出来的两到三句是什么？请直接给我摘读重点和原因。"
+
+    memory_intent = analyze_memory_intent(message)
+    frame = collect_intent_frame(message, memory_intent=memory_intent, memory_runtime_view=memory_view)
+    decision = decide_intent(frame)
+    candidates = collect_continuation_candidates(
+        message=message,
+        memory_runtime_view=memory_view,
+        intent_frame=frame,
+        intent_decision=decision,
+    )
+    continuation = decide_continuation(candidates=candidates, intent_decision=decision)
+    understanding = analyze_task_understanding(message)
+
+    assert frame.evidence["memory_recall"] is True
+    assert decision.primary_action == "refine_scope"
+    assert decision.needs_continuation is True
+    assert decision.memory_recall_required is False
+    assert continuation.source_kind == "pdf"
+    assert continuation.followup_target_kind == "active_subset"
+    assert continuation.followup_scope == "active_subset"
+    payload = _selected_payload(candidates, continuation)
+    assert payload["active_pdf"] == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
+    assert payload["active_constraints"]["active_pdf_mode"] == "page"
+    assert payload["active_constraints"]["active_pdf_pages"] == [4]
+    assert understanding.route_hint == "pdf"
+    assert "path" not in understanding.parameters
 
 
 def test_deictic_pdf_followup_uses_committed_pdf_when_active_slot_is_absent() -> None:
@@ -157,7 +231,7 @@ def test_deictic_pdf_followup_uses_committed_pdf_when_active_slot_is_absent() ->
 
     assert decision.needs_continuation is True
     assert continuation.source_kind == "pdf"
-    assert continuation.active_bindings["active_pdf"] == "knowledge/AI Knowledge/report.pdf"
+    assert _selected_payload(candidates, continuation)["active_pdf"] == "knowledge/AI Knowledge/report.pdf"
 
 
 def test_dataset_followup_can_restore_from_projected_task_summary_refs() -> None:
@@ -166,12 +240,14 @@ def test_dataset_followup_can_restore_from_projected_task_summary_refs() -> None
             "task_summary_refs": [
                 {
                     "task_id": "result:structured:employees:top5",
+                    "active_result_handle_id": "result:structured:employees:top5",
+                    "active_subset_handle_id": "subset:selection:employees:top5",
                     "summary": "薪资最高前五名员工是 Alice、Bob、Chen、Diaz、Eve。",
                     "task_kind": "structured_data",
                     "key_points": [
                         "dataset=knowledge/E-commerce Data/employees.xlsx",
-                        "subset=Alice,Bob,Chen,Diaz,Eve",
                     ],
+                    "subset_labels": ["Alice", "Bob", "Chen", "Diaz", "Eve"],
                     "subset_filter_column": "name",
                 }
             ]
@@ -192,14 +268,52 @@ def test_dataset_followup_can_restore_from_projected_task_summary_refs() -> None
     assert decision.primary_action == "refine_scope"
     assert continuation.source_kind == "dataset"
     assert continuation.followup_target_kind == "active_subset"
-    assert continuation.active_bindings["active_dataset"] == "knowledge/E-commerce Data/employees.xlsx"
-    assert continuation.active_bindings["active_constraints"]["subset_labels"] == [
+    payload = _selected_payload(candidates, continuation)
+    assert payload["active_dataset"] == "knowledge/E-commerce Data/employees.xlsx"
+    assert payload["active_constraints"]["subset_labels"] == [
         "Alice",
         "Bob",
         "Chen",
         "Diaz",
         "Eve",
     ]
+
+
+def test_dataset_followup_does_not_restore_subset_from_key_points_text() -> None:
+    memory_view = {
+        "state_snapshot": {
+            "task_summary_refs": [
+                {
+                    "task_id": "result:structured:employees:top5",
+                    "summary": "数据源：employees.xlsx 筛选条件：无 查询模式：记录排序 员工编号 E-0074 E-0148。",
+                    "task_kind": "structured_data",
+                    "key_points": [
+                        "dataset=knowledge/E-commerce Data/employees.xlsx",
+                        "subset=数据源,筛选条件,员工编号,E-0074,E-0148",
+                    ],
+                    "subset_filter_column": "name",
+                }
+            ]
+        }
+    }
+    message = "按部门汇总这些人，只总结这前五名，不要扩展回全表。"
+
+    frame = collect_intent_frame(message, memory_runtime_view=memory_view)
+    decision = decide_intent(frame)
+    candidates = collect_continuation_candidates(
+        message=message,
+        memory_runtime_view=memory_view,
+        intent_frame=frame,
+        intent_decision=decision,
+    )
+    continuation = decide_continuation(candidates=candidates, intent_decision=decision)
+
+    assert decision.primary_action == "refine_scope"
+    assert continuation.source_kind == "dataset"
+    assert continuation.followup_target_kind == "active_dataset"
+    payload = _selected_payload(candidates, continuation)
+    assert payload["active_dataset"] == "knowledge/E-commerce Data/employees.xlsx"
+    assert "active_constraints" not in payload
 
 
 def test_dataset_analysis_question_continues_active_dataset_without_deictic_wording() -> None:
@@ -232,8 +346,42 @@ def test_dataset_analysis_question_continues_active_dataset_without_deictic_word
     assert decision.execution_strategy == "specialist_handoff"
     assert continuation.source_kind == "dataset"
     assert continuation.followup_target_kind == "active_dataset"
-    assert continuation.active_bindings["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
-    assert continuation.active_bindings["target_agent_id"] == "agent:table_analyst"
+    assert _selected_payload(candidates, continuation)["active_dataset"] == "knowledge/E-commerce Data/inventory.xlsx"
+
+
+def test_realtime_request_with_continuation_word_does_not_bind_stale_dataset() -> None:
+    memory_view = {
+        "state_snapshot": {
+            "task_summary_refs": [
+                {
+                    "task_id": "result:structured_answer:inventory",
+                    "summary": "武汉仓、上海仓、深圳仓、广州仓、成都仓、北京仓都没有库存缺口。",
+                    "task_kind": "structured_data",
+                    "key_points": ["dataset=inventory.xlsx", "subset=武汉仓,上海仓,深圳仓,广州仓,成都仓,北京仓"],
+                    "subset_filter_column": "warehouse",
+                }
+            ]
+        }
+    }
+    message = "再看一下北京今天天气，直接给天气结论和温度范围。"
+
+    frame = collect_intent_frame(message, memory_runtime_view=memory_view)
+    decision = decide_intent(frame)
+    candidates = collect_continuation_candidates(
+        message=message,
+        memory_runtime_view=memory_view,
+        intent_frame=frame,
+        intent_decision=decision,
+    )
+    continuation = decide_continuation(candidates=candidates, intent_decision=decision)
+    understanding = analyze_task_understanding(message)
+
+    assert frame.evidence["weather_domain"] is True
+    assert decision.target_domain_hint == "realtime"
+    assert decision.needs_continuation is False
+    assert candidates == ()
+    assert understanding.route_hint == "realtime_network"
+    assert "weather" in understanding.capability_requests
 
 
 def test_local_knowledge_request_uses_rag_runtime_strategy_not_text_search() -> None:

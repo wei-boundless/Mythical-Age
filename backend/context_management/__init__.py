@@ -14,7 +14,6 @@ __all__ = [
     "CurrentTurnContext",
     "BundleItem",
     "ResolvedBinding",
-    "projection_from_bound_answer",
 ]
 
 
@@ -62,10 +61,5 @@ def __getattr__(name: str) -> Any:
         from .projection import ContextProjection
 
         return ContextProjection
-
-    if name == "projection_from_bound_answer":
-        from .projection import projection_from_bound_answer
-
-        return projection_from_bound_answer
 
     raise AttributeError(name)

@@ -133,20 +133,17 @@ def main() -> None:
         "path": "inventory.xlsx",
     }
 
-    bound_structured = analyze_query_understanding(
+    deictic_structured = analyze_query_understanding(
         "按仓库汇总前五。",
-        active_bindings={"active_dataset": "Data/inventory.xlsx"},
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert bound_structured.route == "structured_data"
-    assert bound_structured.tool_name is None
-    assert bound_structured.candidate_tools == []
-    assert bound_structured.tool_input == {
-        "query": "按仓库汇总前五。",
-        "path": "Data/inventory.xlsx",
-    }
-    assert "bound_dataset_followup" in bound_structured.reasons
+    assert deictic_structured.route == "agent"
+    assert deictic_structured.execution_posture == "bounded_agent"
+    assert deictic_structured.tool_name is None
+    assert deictic_structured.candidate_tools == []
+    assert deictic_structured.tool_input == {"query": "按仓库汇总前五。"}
+    assert "bound_dataset_followup" not in deictic_structured.reasons
 
     pdf = analyze_query_understanding(
         "2025年AI治理报告的第三页讲得什么",
@@ -161,21 +158,17 @@ def main() -> None:
     assert pdf.target_object is None
     assert pdf.tool_input.get("mode") == "page"
 
-    bound_pdf = analyze_query_understanding(
+    deictic_pdf = analyze_query_understanding(
         "把这份 PDF 的核心结论压成三条行动建议。",
-        active_bindings={"committed_pdf": "knowledge/AI Knowledge/report.pdf"},
         skill_registry=skill_registry,
         tool_registry=tool_registry,
     )
-    assert bound_pdf.route == "pdf"
-    assert bound_pdf.tool_name is None
-    assert bound_pdf.candidate_tools == []
-    assert bound_pdf.tool_input == {
-        "query": "把这份 PDF 的核心结论压成三条行动建议。",
-        "mode": "document",
-        "path": "knowledge/AI Knowledge/report.pdf",
-    }
-    assert "bound_pdf_followup" in bound_pdf.reasons
+    assert deictic_pdf.route == "agent"
+    assert deictic_pdf.execution_posture == "bounded_agent"
+    assert deictic_pdf.tool_name is None
+    assert deictic_pdf.candidate_tools == []
+    assert deictic_pdf.tool_input == {"query": "把这份 PDF 的核心结论压成三条行动建议。"}
+    assert "bound_pdf_followup" not in deictic_pdf.reasons
 
     skill_create = analyze_query_understanding(
         "帮我创建一个用于章节审核的 skill",

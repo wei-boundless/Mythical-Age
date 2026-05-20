@@ -43,6 +43,9 @@ export function TaskGraphExecutionPackagePanel({
   const splitPlans = executionPackage?.split_plans ?? [];
   const splitMergeIssues = executionPackage?.split_merge_issues ?? [];
   const objectTraceIndex = executionPackage?.object_trace_index ?? [];
+  const runtimeDiagnostics = runtimeSpec?.diagnostics ?? {};
+  const lengthBudget = recordValue(runtimeDiagnostics, "length_budget") as Record<string, unknown> | null | undefined;
+  const lengthBudgetPreview = recordValue(runtimeDiagnostics, "length_budget_preview") as Record<string, unknown> | null | undefined;
   const splitLifecycleCount = Number(executionPackage?.summary.split_batch_lifecycle_plan_count ?? 0);
   const splitLifecycleStepCount = Number(executionPackage?.summary.split_batch_lifecycle_step_count ?? 0);
 
@@ -70,6 +73,20 @@ export function TaskGraphExecutionPackagePanel({
             <strong>{executionPackage.package_id}</strong>
             <span>这是一份发布前真实执行包：标准对象视图、契约清单、运行规格、调度影子态与节点装配来自同一份后端编译结果。</span>
           </div>
+          {lengthBudget && recordValue(lengthBudget, "configured") ? (
+            <section className="task-graph-runtime-spec-panel">
+              <header><strong>长度预算契约</strong><span>contract_bindings.runtime.length_budget</span></header>
+              <div className="task-graph-mini-kv">
+                <p><span>范围</span><strong>{String(recordValue(lengthBudgetPreview, "budget_scope") ?? recordValue(lengthBudget, "budget_scope") ?? "-")}</strong></p>
+                <p><span>计量</span><strong>{String(recordValue(lengthBudgetPreview, "measurement_mode") ?? recordValue(lengthBudget, "measurement_mode") ?? "-")}</strong></p>
+                <p><span>单元</span><strong>{String(recordValue(lengthBudgetPreview, "unit_label_zh") ?? recordValue(lengthBudget, "unit_label_zh") ?? "-")}</strong></p>
+                <p><span>目标</span><strong>{String(recordNumberValue(lengthBudget, "target_units"))}</strong></p>
+                <p><span>最小</span><strong>{String(recordNumberValue(lengthBudget, "min_units"))}</strong></p>
+                <p><span>最大</span><strong>{String(recordNumberValue(lengthBudget, "max_units"))}</strong></p>
+                <p><span>单元数</span><strong>{String(recordNumberValue(lengthBudget, "batch_unit_count"))}</strong></p>
+              </div>
+            </section>
+          ) : null}
           {splitPlans.length ? (
             <section className="task-graph-runtime-spec-panel">
               <header><strong>批次拆分计划</strong><span>contract_bindings.unit_batch / runtime.split_policy</span></header>

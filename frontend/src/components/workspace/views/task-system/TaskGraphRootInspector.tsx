@@ -1,4 +1,4 @@
-import { Cable, GitBranch, Layers3, Plus } from "lucide-react";
+import { Cable, GitBranch, Layers3, Plus, RotateCw } from "lucide-react";
 
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import { TaskGraphContractBindingInspector } from "./TaskGraphContractBindingInspector";
@@ -7,7 +7,15 @@ import {
   TaskGraphInspectorSummary,
   TaskGraphObjectSelectField,
 } from "./TaskGraphInspectorPrimitives";
+import {
+  buildTaskGraphRuntimeLoopInputPatch,
+  taskGraphRuntimeLoopFrames,
+  taskGraphRuntimeLoopInitialInputs,
+  taskGraphRuntimeLoopNumber,
+  taskGraphRuntimeLoopRecord,
+} from "./taskGraphRuntimeLoopConfig";
 import { TaskSystemField, TaskSystemSelectField } from "./TaskSystemWorkbenchUi";
+import { mergeContractBindingPath } from "./taskGraphContractBindings";
 
 function stringValue(value: unknown, fallback = "") {
   const next = String(value ?? "").trim();
@@ -51,6 +59,27 @@ export function TaskGraphRootInspector({
 }) {
   const nodeOptions = activeGraphNodes.map((node) => stringValue(node.node_id)).filter(Boolean);
   const formatNode = (value: string) => nodeTitle(activeGraphNodes.find((node) => stringValue(node.node_id) === value) ?? null, value);
+  const loopInputs = taskGraphRuntimeLoopInitialInputs(graphDraft);
+  const loopFrames = taskGraphRuntimeLoopFrames(graphDraft);
+  const chaptersPerRound = taskGraphRuntimeLoopNumber(loopInputs.chapters_per_round ?? loopInputs.chapter_batch_size, 10);
+  const chaptersPerVolume = taskGraphRuntimeLoopNumber(loopInputs.chapters_per_volume, 50);
+  const targetVolumes = taskGraphRuntimeLoopNumber(loopInputs.target_volumes, 1);
+  const chapterTargetWords = taskGraphRuntimeLoopNumber(loopInputs.chapter_target_words, 2000);
+  const volumeTargetWords = taskGraphRuntimeLoopNumber(loopInputs.volume_target_words, chaptersPerVolume * chapterTargetWords);
+  const targetWords = taskGraphRuntimeLoopNumber(loopInputs.target_words, targetVolumes * volumeTargetWords);
+  const lengthBudget = taskGraphRuntimeLoopRecord(taskGraphRuntimeLoopRecord(taskGraphRuntimeLoopRecord(graphDraft.contract_bindings).runtime).length_budget);
+  const lengthBudgetRepairPolicy = taskGraphRuntimeLoopRecord(lengthBudget.repair_policy);
+  const lengthBudgetAcceptancePolicy = taskGraphRuntimeLoopRecord(lengthBudget.acceptance_policy);
+  const lengthBudgetEnabled = lengthBudget.enabled === true
+    || taskGraphRuntimeLoopNumber(lengthBudget.target_units, 0) > 0
+    || taskGraphRuntimeLoopNumber(lengthBudget.min_units, 0) > 0
+    || taskGraphRuntimeLoopNumber(lengthBudget.max_units, 0) > 0;
+  const updateRuntimeLoopInput = (key: string, value: unknown) => {
+    updateTaskGraphDraft(buildTaskGraphRuntimeLoopInputPatch(graphDraft, key, value));
+  };
+  const updateLengthBudget = (path: string[], value: unknown) => {
+    updateTaskGraphDraft(mergeContractBindingPath(graphDraft, "runtime", ["length_budget", ...path], value));
+  };
   void formatContract;
   return (
     <>
@@ -108,7 +137,7 @@ export function TaskGraphRootInspector({
         contractOptions={contractOptions}
         fieldKeysBySection={{
           schema: ["graph_contract_id"],
-          runtime: ["model_requirement.profile_ref", "model_requirement.provider_family", "model_requirement.min_output_tokens", "model_requirement.preferred_output_tokens", "model_requirement.capability_tags"],
+          runtime: ["model_requirement.profile_ref", "model_requirement.provider_family", "model_requirement.min_output_tokens", "model_requirement.preferred_output_tokens", "model_requirement.capability_tags", "length_budget.enabled", "length_budget.budget_scope", "length_budget.measurement_mode", "length_budget.unit_kind", "length_budget.unit_label_zh", "length_budget.target_units", "length_budget.min_units", "length_budget.max_units", "length_budget.batch_unit_count", "length_budget.repair_policy.mode", "length_budget.repair_policy.max_repair_rounds", "length_budget.acceptance_policy.require_continuity", "length_budget.acceptance_policy.require_formal_headings"],
           memory: ["memory_read_policy_ref", "dynamic_memory_read_policy_ref", "memory_writeback_policy_ref"],
           handoff: ["wait_policy", "failure_propagation_policy", "result_delivery_policy"],
           acceptance: ["human_gate_policy.mode", "human_gate_policy.blocking", "acceptance_policy_ref"],
@@ -119,6 +148,132 @@ export function TaskGraphRootInspector({
         sections={["schema", "runtime", "memory", "handoff", "acceptance", "governance"]}
         target={graphDraft}
       />
+
+      <TaskGraphInspectorSection icon={<RotateCw aria-hidden="true" size={15} />} title="循环与批次" aside="graph runtime">
+        <div className="task-graph-batch-contract">
+          <div className="task-graph-note">
+            <strong>{targetVolumes || 1} 卷 · 每卷 {chaptersPerVolume || 0} 章 · 每批 {chaptersPerRound || 0} 章</strong>
+            <span>这些是任务图级运行参数；节点只执行当前时序点，完整章节循环由图级帧和路由节点推进。</span>
+          </div>
+          <div className="boundary-form task-graph-composer-inspector-form">
+            <TaskSystemField label="目标卷数">
+              <input
+                min={1}
+                onChange={(event) => updateRuntimeLoopInput("target_volumes", Number(event.target.value || 1))}
+                type="number"
+                value={targetVolumes}
+              />
+            </TaskSystemField>
+            <TaskSystemField label="每卷章节">
+              <input
+                min={1}
+                onChange={(event) => {
+                  const value = Number(event.target.value || 1);
+                  updateRuntimeLoopInput("chapters_per_volume", value);
+                }}
+                type="number"
+                value={chaptersPerVolume}
+              />
+            </TaskSystemField>
+            <TaskSystemField label="每批章节">
+              <input
+                min={1}
+                onChange={(event) => updateRuntimeLoopInput("chapters_per_round", Number(event.target.value || 1))}
+                type="number"
+                value={chaptersPerRound}
+              />
+            </TaskSystemField>
+            <TaskSystemField label="单章字数">
+              <input
+                min={1}
+                onChange={(event) => updateRuntimeLoopInput("chapter_target_words", Number(event.target.value || 1))}
+                type="number"
+                value={chapterTargetWords}
+              />
+            </TaskSystemField>
+            <TaskSystemField label="本卷字数">
+              <input
+                min={1}
+                onChange={(event) => updateRuntimeLoopInput("volume_target_words", Number(event.target.value || 1))}
+                type="number"
+                value={volumeTargetWords}
+              />
+            </TaskSystemField>
+            <TaskSystemField label="本次字数">
+              <input
+                min={1}
+                onChange={(event) => updateRuntimeLoopInput("target_words", Number(event.target.value || 1))}
+                type="number"
+                value={targetWords}
+              />
+            </TaskSystemField>
+          </div>
+          <div className="task-graph-note">
+            <strong>{String(lengthBudget.unit_label_zh ?? "章节")} 长度预算</strong>
+            <span>这里是业务契约，不是模型上限。它会进入 runtime.length_budget，并在运行时作为验收门使用。</span>
+          </div>
+          <div className="boundary-form task-graph-composer-inspector-form">
+            <label className="boundary-check">
+              <input checked={lengthBudgetEnabled} onChange={(event) => updateLengthBudget(["enabled"], event.target.checked)} type="checkbox" />
+              启用长度预算验收
+            </label>
+            <TaskSystemSelectField
+              label="预算范围"
+              onChange={(value) => updateLengthBudget(["budget_scope"], value)}
+              options={["graph", "volume", "batch", "node"]}
+              value={String(lengthBudget.budget_scope ?? "graph")}
+            />
+            <TaskSystemSelectField
+              label="计量方式"
+              onChange={(value) => updateLengthBudget(["measurement_mode"], value)}
+              options={["text_units", "tokens", "hybrid"]}
+              value={String(lengthBudget.measurement_mode ?? "text_units")}
+            />
+            <TaskSystemField label="目标长度">
+              <input min={1} onChange={(event) => updateLengthBudget(["target_units"], Number(event.target.value || 0))} type="number" value={Number(lengthBudget.target_units ?? targetWords)} />
+            </TaskSystemField>
+            <TaskSystemField label="最小长度">
+              <input min={1} onChange={(event) => updateLengthBudget(["min_units"], Number(event.target.value || 0))} type="number" value={Number(lengthBudget.min_units ?? chapterTargetWords)} />
+            </TaskSystemField>
+            <TaskSystemField label="最大长度">
+              <input min={1} onChange={(event) => updateLengthBudget(["max_units"], Number(event.target.value || 0))} type="number" value={Number(lengthBudget.max_units ?? targetWords)} />
+            </TaskSystemField>
+            <TaskSystemField label="单元数量">
+              <input min={1} onChange={(event) => updateLengthBudget(["batch_unit_count"], Number(event.target.value || 0))} type="number" value={Number(lengthBudget.batch_unit_count ?? chaptersPerRound)} />
+            </TaskSystemField>
+            <TaskSystemField label="单元中文名">
+              <input onChange={(event) => updateLengthBudget(["unit_label_zh"], event.target.value)} value={String(lengthBudget.unit_label_zh ?? "章节")} />
+            </TaskSystemField>
+          </div>
+          <div className="boundary-form task-graph-composer-inspector-form">
+            <TaskSystemSelectField
+              label="修复策略"
+              onChange={(value) => updateLengthBudget(["repair_policy", "mode"], value)}
+              options={["expand_or_split", "split_first", "expand_first"]}
+              value={String(lengthBudgetRepairPolicy.mode ?? "expand_or_split")}
+            />
+            <TaskSystemField label="最大修复轮次">
+              <input min={0} onChange={(event) => updateLengthBudget(["repair_policy", "max_repair_rounds"], Number(event.target.value || 0))} type="number" value={Number(lengthBudgetRepairPolicy.max_repair_rounds ?? 2)} />
+            </TaskSystemField>
+            <label className="boundary-check">
+              <input checked={Boolean(lengthBudgetAcceptancePolicy.require_continuity ?? true)} onChange={(event) => updateLengthBudget(["acceptance_policy", "require_continuity"], event.target.checked)} type="checkbox" />
+              需要连续性
+            </label>
+            <label className="boundary-check">
+              <input checked={Boolean(lengthBudgetAcceptancePolicy.require_formal_headings ?? true)} onChange={(event) => updateLengthBudget(["acceptance_policy", "require_formal_headings"], event.target.checked)} type="checkbox" />
+              需要正式标题
+            </label>
+          </div>
+          <div className="task-graph-composer-kv">
+            {loopFrames.map((frame) => (
+              <p key={stringValue(frame.frame_id)}>
+                <span>{stringValue(frame.title ?? frame.frame_id, "循环帧")}</span>
+                <strong>{`${stringValue(frame.entry_stage_id, "入口")} -> ${stringValue(frame.router_stage_id ?? frame.exit_stage_id, "路由")}`}</strong>
+              </p>
+            ))}
+          </div>
+        </div>
+      </TaskGraphInspectorSection>
 
       <TaskGraphInspectorSection icon={<Plus aria-hidden="true" size={15} />} title="结构动作">
         <div className="task-graph-topology-actions task-graph-topology-actions--stacked">

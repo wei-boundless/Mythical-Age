@@ -125,6 +125,21 @@ def evaluate_turn_assertion(payload: dict[str, Any], assertion: str) -> Assertio
         expected = expression.split("=", 1)[1]
         actual = [str(item) for item in list(dict(payload.get("runtime_trace") or {}).get("artifact_refs") or [])]
         return _pass(expression, any(expected in item for item in actual), actual=actual)
+    if expression.startswith("trace.coordination_runs="):
+        expected = int(expression.split("=", 1)[1])
+        actual = int(dict(payload.get("runtime_trace") or {}).get("coordination_run_count") or 0)
+        return _pass(expression, actual == expected, actual=actual)
+    if expression == "sandbox.enabled":
+        actual = bool(dict(payload.get("result") or {}).get("sandbox_enabled") is True)
+        return _pass(expression, actual, actual=dict(payload.get("result") or {}))
+    if expression.startswith("sandbox.root.contains="):
+        expected = expression.split("=", 1)[1]
+        actual = str(dict(payload.get("result") or {}).get("sandbox_root") or "").replace("\\", "/")
+        return _pass(expression, expected in actual, actual=actual)
+    if expression.startswith("sandbox.real_workspace_access="):
+        expected = expression.split("=", 1)[1]
+        actual = str(dict(payload.get("result") or {}).get("sandbox_real_workspace_access") or "")
+        return _pass(expression, actual == expected, actual=actual)
 
     return AssertionResult(expression=expression, status="unsupported", reason="assertion is not recognized")
 

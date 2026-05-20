@@ -5,6 +5,11 @@ import { AlertTriangle, Network, Save } from "lucide-react";
 import type { TaskGraphRecord } from "@/lib/api";
 
 import type { TaskGraphDraftV2 } from "../taskGraphDraftV2";
+import {
+  isRecommendedTaskGraph,
+  sortTaskGraphsForWorkbench,
+  taskGraphFeatureBadges,
+} from "../taskGraphSelection";
 import { TaskGraphManagementPage } from "../TaskSystemPages";
 import { TaskSystemToolbarButton as ToolbarButton } from "../TaskSystemWorkbenchUi";
 
@@ -59,6 +64,8 @@ export function TaskGraphLibraryPage({
   taskGraphDraft: TaskGraphDraftV2;
   taskGraphs: TaskGraphRecord[];
 }) {
+  const orderedTaskGraphs = sortTaskGraphsForWorkbench(taskGraphs);
+
   return (
     <TaskGraphManagementPage>
       <aside className="task-management-directory">
@@ -70,7 +77,10 @@ export function TaskGraphLibraryPage({
           </ToolbarButton>
         </div>
         <div className="boundary-list">
-          {taskGraphs.map((graph) => (
+          {orderedTaskGraphs.map((graph) => {
+            const badges = taskGraphFeatureBadges(graph);
+            const recommended = isRecommendedTaskGraph(graph, orderedTaskGraphs);
+            return (
             <button
               className={graph.graph_id === selectedTaskGraphId ? "boundary-list-row boundary-list-row--active task-domain-task-row" : "boundary-list-row task-domain-task-row"}
               key={graph.graph_id}
@@ -78,9 +88,16 @@ export function TaskGraphLibraryPage({
               type="button"
             >
               <strong>{graph.title}</strong>
-              <span>{graph.publish_state || "draft"} / {(graph.nodes ?? []).length} 节点</span>
+              <span>{graph.publish_state || "draft"} / {(graph.node_count ?? graph.nodes?.length ?? 0)} 节点 / {(graph.edge_count ?? graph.edges?.length ?? 0)} 边</span>
+              {badges.length ? (
+                <small className="task-graph-library-badges">
+                  {recommended ? <em>默认入口</em> : null}
+                  {badges.slice(0, 4).map((badge) => <em key={badge}>{badge}</em>)}
+                </small>
+              ) : null}
             </button>
-          ))}
+            );
+          })}
           {!taskGraphs.length ? <div className="boundary-empty">当前任务域暂无任务图草稿。</div> : null}
         </div>
       </aside>

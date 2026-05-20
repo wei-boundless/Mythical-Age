@@ -114,6 +114,13 @@ class TurnResult:
     runtime_control_warnings: list[str] = field(default_factory=list)
     runtime_control_diagnostics: dict[str, Any] = field(default_factory=dict)
     output_commit_diagnostics: dict[str, Any] = field(default_factory=dict)
+    runtime_loop_event_types: list[str] = field(default_factory=list)
+    trace_agent_run_result_count: int = 0
+    trace_artifact_refs: list[str] = field(default_factory=list)
+    trace_coordination_run_count: int = 0
+    sandbox_enabled: bool = False
+    sandbox_root: str = ""
+    sandbox_real_workspace_access: str = ""
     memory_sync_ms: float = 0.0
     tasks_count: int = 0
     task_run_id: str = ""
@@ -278,6 +285,34 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
         if check == "trace.available":
             if not turn.trace_available:
                 failures.append(check)
+            continue
+        if check == "trace.agent_run_results.nonempty":
+            if turn.trace_agent_run_result_count <= 0:
+                failures.append(f"{check} (actual={turn.trace_agent_run_result_count})")
+            continue
+        if check.startswith("trace.artifact.contains="):
+            expected = check.split("=", 1)[1]
+            if not any(expected in item for item in turn.trace_artifact_refs):
+                failures.append(f"{check} (actual={turn.trace_artifact_refs})")
+            continue
+        if check.startswith("trace.coordination_runs="):
+            expected = int(check.split("=", 1)[1])
+            if turn.trace_coordination_run_count != expected:
+                failures.append(f"{check} (actual={turn.trace_coordination_run_count})")
+            continue
+        if check == "sandbox.enabled":
+            if not turn.sandbox_enabled:
+                failures.append(check)
+            continue
+        if check.startswith("sandbox.root.contains="):
+            expected = check.split("=", 1)[1]
+            if expected not in turn.sandbox_root.replace("\\", "/"):
+                failures.append(f"{check} (actual={turn.sandbox_root})")
+            continue
+        if check.startswith("sandbox.real_workspace_access="):
+            expected = check.split("=", 1)[1]
+            if turn.sandbox_real_workspace_access != expected:
+                failures.append(f"{check} (actual={turn.sandbox_real_workspace_access})")
             continue
         failures.append(f"unsupported check: {check}")
     return failures
@@ -831,6 +866,23 @@ def _execute_operator_turn(
         normalized = [str(item).replace("\\", "/") for item in list(params.get("paths", []) or [])]
         missing = [path for path in normalized if not (BACKEND_DIR / path).exists()]
         return {"action": action, "ok": not missing, "paths": normalized, "missing": missing}
+    if action == "assert_file_contains":
+        path = str(params.get("path") or "").replace("\\", "/")
+        expected = str(params.get("text") or "")
+        file_path = (BACKEND_DIR / path).resolve()
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return {"action": action, "ok": False, "path": path, "missing": True}
+        except UnicodeDecodeError:
+            content = file_path.read_text(encoding="utf-8", errors="ignore")
+        return {
+            "action": action,
+            "ok": expected in content,
+            "path": path,
+            "expected": expected,
+            "actual_preview": content[:200],
+        }
     if action == "sync_memory":
         session_id = _ensure_session(client, session_ids, turn.session)
         _sync_memory(runtime, session_id, durable=bool(params.get("durable", False)))
@@ -935,6 +987,14 @@ def _execute_user_turn(
     ]
     delegated_markers = _delegated_capability_markers(events)
     event_types = [str(item.get("event", "")) for item in events]
+    runtime_loop_event_types = [
+        str(dict(dict(item.get("data") or {}).get("event") or {}).get("event_type") or "")
+        for item in events
+        if str(item.get("event") or "") == "runtime_loop_event"
+    ]
+    event_types.extend(
+        event_type for event_type in runtime_loop_event_types if event_type and event_type not in event_types
+    )
     event_types.extend(
         marker for marker in delegated_markers["event_types"] if marker and marker not in event_types
     )
@@ -961,6 +1021,8 @@ def _execute_user_turn(
     task_count = int(dict(task_trace_summary or {}).get("task_run_count") or 0)
     task_run_id = _task_run_id_from_events(events)
     runtime_trace = _runtime_trace_summary(runtime, task_run_id)
+    sandbox_payload = _first_runtime_loop_payload(events, "runtime_sandbox_prepared")
+    sandbox_policy = dict(sandbox_payload.get("sandbox_policy") or {})
 
     turn_result = TurnResult(
         index=turn_index,
@@ -1015,6 +1077,17 @@ def _execute_user_turn(
         runtime_control_warnings=runtime_control_warnings,
         runtime_control_diagnostics=runtime_control_diagnostics,
         output_commit_diagnostics=dict(done_payload.get("output_commit") or {}),
+        runtime_loop_event_types=[item for item in runtime_loop_event_types if item],
+        trace_agent_run_result_count=int(runtime_trace.get("agent_run_result_count") or 0),
+        trace_artifact_refs=[
+            str(item)
+            for item in list(runtime_trace.get("artifact_refs") or [])
+            if str(item).strip()
+        ],
+        trace_coordination_run_count=int(runtime_trace.get("coordination_run_count") or 0),
+        sandbox_enabled=bool(sandbox_policy.get("enabled") is True),
+        sandbox_root=str(sandbox_policy.get("sandbox_root") or ""),
+        sandbox_real_workspace_access=str(sandbox_policy.get("real_workspace_access") or ""),
         memory_sync_ms=memory_sync_ms,
         tasks_count=task_count,
         task_run_id=task_run_id,
@@ -1160,6 +1233,11 @@ def _execute_scenario(
             cleanup[alias] = _cleanup_session(runtime, session_id)
 
     failed_turns = [turn for turn in turn_results if not turn.passed]
+    failed_operator_results = [
+        result
+        for result in operator_results
+        if bool(result.get("ok", True)) is not True
+    ]
     warning_turns = [turn for turn in turn_results if turn.quality_warnings]
     warning_counts = Counter(
         warning.split("=", 1)[0]
@@ -1239,11 +1317,13 @@ def _execute_scenario(
     summary = f"{len(turn_results) - len(failed_turns)}/{len(turn_results)} user turns passed"
     if failed_turns:
         summary += f"; first failure turn={failed_turns[0].index}"
+    if failed_operator_results:
+        summary += f"; operator_failures={len(failed_operator_results)}"
     if warning_turns:
         summary += f"; warnings={len(warning_turns)} turns"
     if runtime_blocked_turns:
         summary += f"; runtime_blocked={len(runtime_blocked_turns)} turns"
-    scenario_status = "passed" if not failed_turns else "failed"
+    scenario_status = "passed" if not failed_turns and not failed_operator_results else "failed"
 
     details = {
         "goal": scenario.goal,
@@ -1252,6 +1332,7 @@ def _execute_scenario(
         "rerun_skipped_turns": skipped_turns,
         "rerun_mode": "target_turn_with_prefix_replay" if selected_turns else "",
         "operator_results": operator_results,
+        "operator_failed_results": failed_operator_results,
         "turn_results": [turn.to_dict() for turn in turn_results],
         "quality_warning_count": sum(len(turn.quality_warnings) for turn in warning_turns),
         "quality_warning_turn_count": len(warning_turns),
@@ -1310,7 +1391,7 @@ def _execute_scenario(
     result = ScenarioResult(
         name=scenario.title,
         category="long_scenario",
-        passed=not failed_turns,
+        passed=not failed_turns and not failed_operator_results,
         status=scenario_status,
         summary=summary,
         timing=TimingSnapshot(

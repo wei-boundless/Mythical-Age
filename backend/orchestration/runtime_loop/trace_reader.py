@@ -298,11 +298,19 @@ class RuntimeLoopTraceReader:
                 "latest_merge_result": _merge_result_payload_summary(merge_result) if merge_result is not None else None,
             }
         loop_state = checkpoint.loop_state.to_dict() if checkpoint is not None else {}
+        events = self.event_log.list_events(task_run_id)
+        autonomous_task_summary = _autonomous_task_summary(
+            task_run=task_run,
+            loop_state=loop_state,
+            events=events,
+            checkpoint=checkpoint,
+        )
         return {
             "task_run": task_run,
             "latest_checkpoint": _checkpoint_summary(checkpoint) if checkpoint is not None else None,
             "loop_state": _loop_state_summary(loop_state),
             "coordination_run": coordination_view,
+            "autonomous_task_summary": autonomous_task_summary,
             "project_runtime_status": (
                 self.state_index.get_project_runtime_status(str(dict(task_run).get("diagnostics", {}).get("project_id") or "")).to_dict()
                 if str(dict(task_run).get("diagnostics", {}).get("project_id") or "")
@@ -461,6 +469,288 @@ def _loop_state_summary(loop_state: dict[str, Any]) -> dict[str, Any]:
         },
         "authority": str(loop_state.get("authority") or "orchestration.runtime_loop_state"),
     }
+
+
+def _autonomous_task_summary(
+    *,
+    task_run: dict[str, Any],
+    loop_state: dict[str, Any],
+    events: list[RuntimeEvent],
+    checkpoint: Any,
+) -> dict[str, Any] | None:
+    started_event = _latest_runtime_event(events, "autonomous_task_started")
+    plan_event = _latest_runtime_event(events, "autonomous_task_plan_drafted")
+    state_event = _latest_runtime_event(events, "autonomous_task_state_changed")
+    verification_event = _latest_runtime_event(events, "autonomous_task_verification_checked")
+    diagnostics = dict(loop_state.get("diagnostics") or {})
+    is_autonomous = bool(
+        started_event is not None
+        or plan_event is not None
+        or verification_event is not None
+        or str(task_run.get("runtime_lane") or "") == "autonomous_task"
+        or str(loop_state.get("runtime_lane") or "") == "autonomous_task"
+        or str(loop_state.get("task_template_id") or "") == "runtime.recipe.autonomous_task_run"
+        or str(diagnostics.get("autonomy_mode") or diagnostics.get("autonomous_task_mode") or "")
+    )
+    if not is_autonomous:
+        return None
+
+    started_payload = dict(started_event.payload or {}) if started_event is not None else {}
+    plan_payload = dict(plan_event.payload or {}) if plan_event is not None else {}
+    state_payload = dict(state_event.payload or {}) if state_event is not None else {}
+    ledger = _latest_task_run_ledger_from_events(events)
+    current_step_id = str(
+        dict(ledger).get("current_step_id")
+        or loop_state.get("current_step_id")
+        or ""
+    )
+    verification = _autonomous_verification_summary(verification_event)
+    observation = _autonomous_observation_summary(events)
+    return {
+        "available": True,
+        "task_run_id": str(task_run.get("task_run_id") or loop_state.get("task_run_id") or ""),
+        "runtime_driver": "autonomous_task_run",
+        "mode": str(
+            started_payload.get("mode")
+            or plan_payload.get("mode")
+            or diagnostics.get("autonomy_mode")
+            or diagnostics.get("autonomous_task_mode")
+            or ""
+        ),
+        "goal": str(started_payload.get("goal") or ""),
+        "state": str(state_payload.get("to_state") or diagnostics.get("autonomous_state") or ""),
+        "transition": {
+            "from_state": str(state_payload.get("from_state") or ""),
+            "to_state": str(state_payload.get("to_state") or ""),
+            "terminal_reason": str(state_payload.get("terminal_reason") or ""),
+        },
+        "plan": {
+            "source": str(plan_payload.get("plan_source") or ""),
+            "ledger_backed": bool(plan_payload.get("ledger_backed") is True or bool(ledger)),
+            "item_count": len(list(plan_payload.get("plan_items") or [])),
+            "tool_execution_enabled": bool(plan_payload.get("tool_execution_enabled") is True),
+            "delegation_enabled": bool(plan_payload.get("delegation_enabled") is True),
+            "allowed_tool_names": [
+                str(item)
+                for item in list(plan_payload.get("allowed_tool_names") or [])
+                if str(item)
+            ],
+        },
+        "current_plan_item": _current_plan_item_summary(ledger, current_step_id=current_step_id),
+        "progress": _autonomous_ledger_progress(ledger, current_step_id=current_step_id),
+        "observation": observation,
+        "verification": verification,
+        "blocker": _autonomous_task_blocker(
+            task_run=task_run,
+            loop_state=loop_state,
+            events=events,
+            verification=verification,
+        ),
+        "latest_checkpoint": (
+            {
+                "checkpoint_id": checkpoint.checkpoint_id,
+                "event_offset": checkpoint.event_offset,
+                "created_at": checkpoint.created_at,
+            }
+            if checkpoint is not None
+            else None
+        ),
+        "latest_event": (
+            {
+                "event_id": events[-1].event_id,
+                "event_type": events[-1].event_type,
+                "offset": events[-1].offset,
+                "created_at": events[-1].created_at,
+            }
+            if events
+            else None
+        ),
+        "authority": "orchestration.runtime_loop_autonomous_task_summary",
+    }
+
+
+def _latest_runtime_event(events: list[RuntimeEvent], event_type: str) -> RuntimeEvent | None:
+    for event in reversed(events):
+        if str(event.event_type or "") == event_type:
+            return event
+    return None
+
+
+def _latest_task_run_ledger_from_events(events: list[RuntimeEvent]) -> dict[str, Any]:
+    for event in reversed(events):
+        payload = dict(event.payload or {})
+        ledger = dict(payload.get("task_run_ledger") or {})
+        if ledger:
+            return ledger
+    return {}
+
+
+def _autonomous_ledger_progress(ledger: dict[str, Any], *, current_step_id: str) -> dict[str, Any]:
+    step_runs = [dict(item) for item in list(dict(ledger or {}).get("step_runs") or []) if isinstance(item, dict)]
+    return {
+        "ledger_id": str(dict(ledger or {}).get("ledger_id") or ""),
+        "ledger_status": str(dict(ledger or {}).get("status") or ""),
+        "current_step_id": str(current_step_id or dict(ledger or {}).get("current_step_id") or ""),
+        "step_count": len(step_runs),
+        "plan_item_count": sum(1 for item in step_runs if _is_autonomous_plan_step(item)),
+        "completed_count": sum(1 for item in step_runs if str(item.get("status") or "") == "completed"),
+        "running_count": sum(1 for item in step_runs if str(item.get("status") or "") == "running"),
+        "pending_count": sum(1 for item in step_runs if str(item.get("status") or "") == "pending"),
+        "failed_count": sum(1 for item in step_runs if str(item.get("status") or "") == "failed"),
+        "skipped_count": sum(1 for item in step_runs if str(item.get("status") or "") == "skipped"),
+    }
+
+
+def _current_plan_item_summary(ledger: dict[str, Any], *, current_step_id: str) -> dict[str, Any]:
+    step_runs = [dict(item) for item in list(dict(ledger or {}).get("step_runs") or []) if isinstance(item, dict)]
+    if not step_runs:
+        return {}
+    selected = None
+    if current_step_id:
+        selected = next((item for item in step_runs if str(item.get("step_id") or "") == current_step_id), None)
+    if selected is None:
+        selected = next((item for item in step_runs if str(item.get("status") or "") == "running"), None)
+    if selected is None:
+        selected = next((item for item in step_runs if str(item.get("status") or "") == "pending"), None)
+    if selected is None:
+        selected = step_runs[-1]
+    diagnostics = dict(selected.get("diagnostics") or {})
+    plan_item = dict(diagnostics.get("plan_item") or {})
+    return {
+        "step_id": str(selected.get("step_id") or ""),
+        "title": str(selected.get("title") or ""),
+        "status": str(selected.get("status") or ""),
+        "step_kind": str(selected.get("step_kind") or ""),
+        "executor_type": str(selected.get("executor_type") or ""),
+        "action_kind": str(plan_item.get("action_kind") or ""),
+        "summary": str(plan_item.get("summary") or ""),
+        "attempt_count": int(selected.get("attempt_count") or 0),
+        "failure_reason": str(selected.get("failure_reason") or ""),
+        "required_operations": [
+            str(item)
+            for item in list(selected.get("required_operations") or [])
+            if str(item)
+        ],
+        "observation_ref_count": len(list(selected.get("observation_refs") or [])),
+        "output_ref_count": len(list(selected.get("output_refs") or [])),
+    }
+
+
+def _is_autonomous_plan_step(step_run: dict[str, Any]) -> bool:
+    diagnostics = dict(step_run.get("diagnostics") or {})
+    return bool(
+        str(step_run.get("step_kind") or "") == "plan_item"
+        or dict(diagnostics.get("plan_item") or {})
+        or str(step_run.get("step_id") or "").startswith("autonomous.")
+        or str(step_run.get("step_id") or "").startswith("simple.")
+    )
+
+
+def _autonomous_observation_summary(events: list[RuntimeEvent]) -> dict[str, Any]:
+    tool_call_events = [event for event in events if str(event.event_type or "") == "tool_call_requested"]
+    observation_events = [
+        event
+        for event in events
+        if _executor_observation_payload(event).get("observation_type") == "tool_result"
+    ]
+    delegation_events = [
+        event
+        for event in events
+        if str(event.event_type or "") in {
+            "agent_delegation_requested",
+            "agent_delegation_result_created",
+            "agent_delegation_parent_observation_created",
+        }
+    ]
+    delegation_observations = [
+        event
+        for event in observation_events
+        if str(dict(_executor_observation_payload(event).get("payload") or {}).get("tool_name") or "") == "delegate_to_agent"
+    ]
+    latest_observation = observation_events[-1] if observation_events else None
+    latest_payload = _executor_observation_payload(latest_observation) if latest_observation is not None else {}
+    latest_tool_payload = dict(latest_payload.get("payload") or {})
+    return {
+        "tool_call_count": len(tool_call_events),
+        "tool_observation_count": len(observation_events),
+        "delegation_event_count": len(delegation_events),
+        "delegation_observation_count": len(delegation_observations),
+        "latest_observation": (
+            {
+                "event_id": latest_observation.event_id,
+                "observation_type": str(latest_payload.get("observation_type") or ""),
+                "source": str(latest_payload.get("source") or ""),
+                "tool_name": str(latest_tool_payload.get("tool_name") or ""),
+                "content_chars": int(latest_payload.get("content_chars") or 0),
+                "created_at": latest_observation.created_at,
+            }
+            if latest_observation is not None
+            else None
+        ),
+    }
+
+
+def _executor_observation_payload(event: RuntimeEvent | None) -> dict[str, Any]:
+    if event is None or str(event.event_type or "") != "executor_observation_received":
+        return {}
+    payload = dict(event.payload or {})
+    observation = dict(payload.get("observation") or {})
+    if not observation:
+        return {}
+    return observation
+
+
+def _autonomous_verification_summary(event: RuntimeEvent | None) -> dict[str, Any]:
+    if event is None:
+        return {"status": "not_run", "passed": False}
+    verification = dict(dict(event.payload or {}).get("verification") or {})
+    passed = bool(verification.get("passed") is True)
+    return {
+        "status": "passed" if passed else "failed",
+        "passed": passed,
+        "mode": str(verification.get("mode") or ""),
+        "checks": dict(verification.get("checks") or {}),
+        "event_id": event.event_id,
+        "created_at": event.created_at,
+    }
+
+
+def _autonomous_task_blocker(
+    *,
+    task_run: dict[str, Any],
+    loop_state: dict[str, Any],
+    events: list[RuntimeEvent],
+    verification: dict[str, Any],
+) -> dict[str, Any]:
+    loop_error = _latest_runtime_event(events, "loop_error")
+    if loop_error is not None:
+        payload = dict(loop_error.payload or {})
+        return {
+            "kind": str(payload.get("error") or "loop_error"),
+            "summary": str(payload.get("message") or payload.get("reason") or "Runtime loop emitted an error."),
+            "event_id": loop_error.event_id,
+        }
+    status = str(task_run.get("status") or loop_state.get("status") or "")
+    terminal_reason = str(task_run.get("terminal_reason") or loop_state.get("terminal_reason") or "")
+    if status in {"blocked", "failed", "aborted"}:
+        return {
+            "kind": terminal_reason or status,
+            "summary": f"Task run status is {status}.",
+            "event_id": "",
+        }
+    if terminal_reason and terminal_reason not in {"completed", "waiting_approval"}:
+        return {
+            "kind": terminal_reason,
+            "summary": f"Task run terminal reason is {terminal_reason}.",
+            "event_id": "",
+        }
+    if str(verification.get("status") or "") == "failed":
+        return {
+            "kind": "verification_failed",
+            "summary": "Autonomous task verification did not pass.",
+            "event_id": str(verification.get("event_id") or ""),
+        }
+    return {}
 
 
 def _coordination_run_summary(coordination_run: CoordinationRun) -> dict[str, Any]:

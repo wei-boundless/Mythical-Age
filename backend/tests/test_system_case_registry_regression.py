@@ -103,10 +103,14 @@ def test_test_system_exposes_real_long_scenario_catalog() -> None:
     assert payload["scenarios"]
     game = next(item for item in payload["scenarios"] if item["scenario_id"] == "task-system-light-web-game-acceptance")
     story = next(item for item in payload["scenarios"] if item["scenario_id"] == "task-system-short-story-coordination-acceptance")
+    sandbox = next(item for item in payload["scenarios"] if item["scenario_id"] == "sandbox-file-ops-acceptance")
     marathon = next(item for item in payload["scenarios"] if item["scenario_id"] == "sixty-turn-real-user-marathon")
     assert "task_acceptance" in game["profile_refs"]
     assert "task_acceptance" in story["profile_refs"]
     assert "task_acceptance" in game["scenario_sets"]
     assert "task_acceptance" in story["scenario_sets"]
+    assert "sandbox" in sandbox["profile_refs"]
+    assert "sandbox" in sandbox["scenario_sets"]
+    assert any("sandbox" in turn["content"].lower() for turn in sandbox["turns"])
     assert "marathon" in marathon["profile_refs"]
     assert len(marathon["turns"]) >= 60

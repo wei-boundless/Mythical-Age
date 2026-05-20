@@ -24,6 +24,7 @@ from capability_system.units.tools.read_file_tool import ReadFileTool
 from capability_system.units.tools.search_files_tool import SearchFilesTool, SearchTextTool
 from capability_system.units.tools.structured_file_tool import ReadStructuredFileTool
 from capability_system.units.tools.terminal_tool import TerminalTool
+from capability_system.units.tools.text_metric_tool import TextMetricTool
 from capability_system.units.tools.web_search_tool import WebSearchTool
 from capability_system.units.tools.write_file_tool import EditFileTool, WriteFileTool
 
@@ -300,6 +301,34 @@ def _tool_definitions() -> list[ToolDefinition]:
             route_hints=["tool", "workspace_read", "structured_config"],
             safe_for_auto_route=False,
             schema_identity="local.tools/read_structured_file",
+            prompt_exposure_policy="schema_only",
+            resource_exposure_policy="explicit_resource",
+            is_read_only=True,
+            is_destructive=False,
+            is_concurrency_safe=True,
+        ),
+        ToolDefinition(
+            name="text_metric",
+            display_name="文本计量",
+            operation_id="op.text_metric",
+            module="tools.text_metric_tool",
+            factory=lambda base_dir: TextMetricTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=[],
+                optional_inputs=["text", "path", "measurement_mode"],
+                owner_scope="explicit_text_or_path",
+                missing_binding_behavior="clarify",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
+            resolution_contract=ToolResolutionContract(path_field="path", path_kind="workspace"),
+            output_contract=ToolOutputContract(display_mode="summary_text"),
+            capability_tags=["text", "metric", "length_budget", "word_count", "content_quality"],
+            supported_modalities=["text", "document", "workspace"],
+            safety_tags=["read"],
+            route_hints=["tool", "text_metric", "word_count", "length_budget"],
+            safe_for_auto_route=True,
+            schema_identity="local.tools/text_metric",
             prompt_exposure_policy="schema_only",
             resource_exposure_policy="explicit_resource",
             is_read_only=True,

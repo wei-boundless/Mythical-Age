@@ -81,7 +81,7 @@ def build_authorized_tool_set(
         if operation_id not in allowed_operations:
             filtered_out.append({"tool_name": tool_name, "operation_id": operation_id, "reason": "operation_not_allowed"})
             continue
-        if runtime_lane == "main_runtime" and definition.runtime_visibility != "main_runtime":
+        if runtime_lane == "main_runtime" and definition.runtime_visibility != "main_runtime" and not include_hidden:
             filtered_out.append({"tool_name": tool_name, "operation_id": operation_id, "reason": "not_main_runtime_visible"})
             continue
         if not include_hidden and definition.prompt_exposure_policy != "schema_only":
@@ -97,4 +97,3 @@ def build_authorized_tool_set(
         operation_ids=tuple(operation_ids),
         filtered_out=tuple(filtered_out),
     )
-

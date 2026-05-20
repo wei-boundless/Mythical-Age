@@ -50,6 +50,7 @@ def main() -> None:
         "path_exists",
         "glob_paths",
         "read_structured_file",
+        "text_metric",
         "git_status",
         "git_diff",
         "git_log",
@@ -61,6 +62,8 @@ def main() -> None:
 
     assert by_name["python_repl"]["safe_for_auto_route"] is False
     assert by_name["terminal"]["safe_for_auto_route"] is False
+    assert by_name["text_metric"]["operation_id"] == "op.text_metric"
+    assert "length_budget" in by_name["text_metric"]["capability_tags"]
 
     runtime_registry = registry_module.ToolRegistry(ROOT)
     assert runtime_registry.select_best(

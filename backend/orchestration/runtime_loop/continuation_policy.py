@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .length_budget_compiler import compile_length_budget
+
 
 ALLOWED_BINDING_SOURCES = {
     "current_output",
@@ -48,6 +50,7 @@ class CoordinationStageContract:
     revision_context_policy: dict[str, Any] = field(default_factory=dict)
     quality_retry_policy: dict[str, Any] = field(default_factory=dict)
     artifact_targets: tuple[dict[str, Any], ...] = ()
+    length_budget: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -82,6 +85,7 @@ class CoordinationStageContract:
             "revision_context_policy": dict(self.revision_context_policy),
             "quality_retry_policy": dict(self.quality_retry_policy),
             "artifact_targets": [dict(item) for item in self.artifact_targets],
+            "length_budget": dict(self.length_budget),
         }
 
 
@@ -185,6 +189,25 @@ def parse_stage_contracts(
                 revision_context_policy=dict(raw.get("revision_context_policy") or node.get("revision_context_policy") or {}),
                 quality_retry_policy=dict(raw.get("quality_retry_policy") or node.get("quality_retry_policy") or {}),
                 artifact_targets=tuple(_artifact_targets_from_node({**node, **raw})),
+                length_budget=compile_length_budget(
+                    explicit=_merged_length_budget_sources(
+                        raw.get("length_budget"),
+                        _length_budget_from_contract_bindings(raw),
+                    ),
+                    inherited=_merged_length_budget_sources(
+                        dict(node.get("metadata") or {}).get("length_budget"),
+                        node.get("length_budget"),
+                        _length_budget_from_contract_bindings(node),
+                    ),
+                    source_chain=(
+                        f"stage_contracts.{stage_id}.length_budget",
+                        f"stage_contracts.{stage_id}.contract_bindings.runtime.length_budget",
+                        f"graph.nodes[{stage_id}].contract_bindings.runtime.length_budget",
+                        f"graph.nodes[{stage_id}].metadata.contract_bindings.runtime.length_budget",
+                        f"graph.nodes[{stage_id}].metadata.length_budget",
+                    ),
+                    source_ref=stage_id,
+                ).to_dict(),
             )
         )
     return tuple(contracts)
@@ -274,6 +297,20 @@ def derive_stage_contracts_from_graph(
                 revision_context_policy=dict(node.get("revision_context_policy") or {}),
                 quality_retry_policy=dict(node.get("quality_retry_policy") or {}),
                 artifact_targets=tuple(_artifact_targets_from_node(node)),
+                length_budget=compile_length_budget(
+                    explicit=_merged_length_budget_sources(
+                        node.get("length_budget"),
+                        _length_budget_from_contract_bindings(node),
+                    ),
+                    inherited=dict(dict(node.get("metadata") or {}).get("length_budget") or {}),
+                    source_chain=(
+                        f"graph.nodes[{node_id}].length_budget",
+                        f"graph.nodes[{node_id}].contract_bindings.runtime.length_budget",
+                        f"graph.nodes[{node_id}].metadata.contract_bindings.runtime.length_budget",
+                        f"graph.nodes[{node_id}].metadata.length_budget",
+                    ),
+                    source_ref=node_id,
+                ).to_dict(),
             )
         )
     return tuple(contracts)
@@ -480,6 +517,44 @@ def _artifact_targets_from_node(node: dict[str, Any]) -> list[dict[str, Any]]:
     if target and not any(str(item.get("path") or "") == target for item in targets):
         targets.append({"path": target, "required": bool(policy.get("required", True)), "source": "task_graph_node"})
     return targets
+
+
+def _length_budget_from_contract_bindings(value: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    candidates = (
+        value.get("contract_bindings"),
+        dict(value.get("metadata") or {}).get("contract_bindings"),
+    )
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        runtime = candidate.get("runtime")
+        if not isinstance(runtime, dict):
+            continue
+        length_budget = runtime.get("length_budget")
+        if isinstance(length_budget, dict):
+            return dict(length_budget)
+    return {}
+
+
+def _merged_length_budget_sources(*sources: Any) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key, value in source.items():
+            normalized_key = str(key or "").strip()
+            if not normalized_key:
+                continue
+            if isinstance(value, dict):
+                merged[normalized_key] = {
+                    **dict(merged.get(normalized_key) or {}),
+                    **dict(value),
+                }
+            else:
+                merged[normalized_key] = value
+    return merged
 
 
 def _derived_gate_policy(node: dict[str, Any]) -> str:

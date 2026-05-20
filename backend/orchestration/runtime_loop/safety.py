@@ -6,17 +6,43 @@ from typing import Any
 from orchestration.resource_gate import OperationGateResult
 
 
-def build_task_safety_validators(*, root_dir: Path, safety_envelope: dict[str, Any] | None) -> dict[str, Any]:
+def build_task_safety_validators(
+    *,
+    root_dir: Path,
+    safety_envelope: dict[str, Any] | None,
+    sandbox_policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     envelope = dict(safety_envelope or {})
+    sandbox = dict(sandbox_policy or {})
     return {
-        "filesystem_path": _filesystem_validator(root_dir=root_dir, safety_envelope=envelope),
+        "filesystem_path": _filesystem_validator(
+            root_dir=root_dir,
+            safety_envelope=envelope,
+            sandbox_policy=sandbox,
+        ),
+        "shell_read_only": _shell_validator(sandbox_policy=sandbox),
     }
 
 
-def _filesystem_validator(*, root_dir: Path, safety_envelope: dict[str, Any]):
+def _filesystem_validator(
+    *,
+    root_dir: Path,
+    safety_envelope: dict[str, Any],
+    sandbox_policy: dict[str, Any],
+):
     workspace_root = Path(root_dir).resolve()
     if workspace_root.name == "backend" and workspace_root.parent.exists():
         workspace_root = workspace_root.parent.resolve()
+    sandbox_root = (
+        Path(str(sandbox_policy.get("sandbox_root") or "")).resolve()
+        if sandbox_policy.get("enabled") is True and sandbox_policy.get("sandbox_root")
+        else None
+    )
+    sandbox_operations = {
+        str(item or "").strip()
+        for item in list(sandbox_policy.get("side_effect_operations") or [])
+        if str(item or "").strip()
+    }
 
     write_root_values = list(safety_envelope.get("write_roots") or [])
     if not write_root_values:
@@ -43,13 +69,18 @@ def _filesystem_validator(*, root_dir: Path, safety_envelope: dict[str, Any]):
         normalized = _normalize_relative_path(raw_path)
         if not normalized:
             return False, "filesystem path is required"
-        candidate = (workspace_root / normalized).resolve()
-        if workspace_root not in candidate.parents and candidate != workspace_root:
-            return False, "path traversal detected"
-        normalized_candidate = candidate.relative_to(workspace_root).as_posix()
         write_sensitive = operation_id in {"op.write_file", "op.edit_file"}
         if not write_sensitive and not operation_id:
             write_sensitive = any(key in input_payload for key in ("content", "old_text", "new_text"))
+        effective_root = (
+            sandbox_root
+            if sandbox_root is not None and (write_sensitive or operation_id in sandbox_operations)
+            else workspace_root
+        )
+        candidate = (effective_root / normalized).resolve()
+        if effective_root not in candidate.parents and candidate != effective_root:
+            return False, "path traversal detected"
+        normalized_candidate = candidate.relative_to(effective_root).as_posix()
         if write_sensitive:
             if any(
                 normalized_candidate == blocked or normalized_candidate.startswith(f"{blocked}/")
@@ -63,6 +94,21 @@ def _filesystem_validator(*, root_dir: Path, safety_envelope: dict[str, Any]):
                 ):
                     return False, f"path outside task write roots: {normalized_candidate}"
         return True
+
+    return _validate
+
+
+def _shell_validator(*, sandbox_policy: dict[str, Any]):
+    sandbox_enabled = bool(sandbox_policy.get("enabled") is True and sandbox_policy.get("sandbox_root"))
+
+    def _validate(operation_input: dict[str, Any]) -> bool | tuple[bool, str] | OperationGateResult:
+        if sandbox_enabled:
+            return True
+        try:
+            from capability_system.validators import validate_shell_read_only
+        except Exception:
+            return False, "shell safety validator unavailable"
+        return validate_shell_read_only(operation_input)
 
     return _validate
 

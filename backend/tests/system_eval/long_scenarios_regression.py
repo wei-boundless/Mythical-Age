@@ -23,6 +23,7 @@ def test_long_scenarios_core_assets_exist() -> None:
         "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
         "knowledge/E-commerce Data/inventory.xlsx",
         "knowledge/E-commerce Data/employees.xlsx",
+        "tests/fixtures/sandbox_file_ops/source_brief.md",
     ]
     for relative_path in required_paths:
         assert (root / relative_path).exists(), relative_path
@@ -44,6 +45,7 @@ def test_long_scenarios_are_rebuilt_around_batches_and_a_sixty_turn_marathon() -
     assert "compound-task-decomposition-and-focus-return" in by_id
     assert "task-system-light-web-game-acceptance" in by_id
     assert "task-system-short-story-coordination-acceptance" in by_id
+    assert "sandbox-file-ops-acceptance" in by_id
     assert "permission-boundary-and-safe-fallback" in by_id
     assert "multi-session-workbench-isolation" in by_id
     assert "sixty-turn-real-user-marathon" in by_id
@@ -52,6 +54,8 @@ def test_long_scenarios_are_rebuilt_around_batches_and_a_sixty_turn_marathon() -
     assert "mega" in SCENARIO_SETS
     assert SCENARIO_SETS["mega"] == ("sixty-turn-real-user-marathon",)
     assert "batches" in SCENARIO_SETS
+    assert "sandbox-file-ops-acceptance" in SCENARIO_SETS["batches"]
+    assert SCENARIO_SETS["sandbox"] == ("sandbox-file-ops-acceptance",)
     assert "task_acceptance" in SCENARIO_SETS
     assert SCENARIO_SETS["task_acceptance"] == (
         "task-system-light-web-game-acceptance",

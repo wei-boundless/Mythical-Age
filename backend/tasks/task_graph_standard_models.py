@@ -6,6 +6,7 @@ from typing import Any
 from .composable_graph_builder import build_composable_graph_view
 from .composable_graph_models import ComposableUnit, NestedRuntimePlan, UnitInterface, UnitPortEdge
 from .coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+from orchestration.runtime_loop.length_budget_compiler import compiled_length_budget_preview, compile_length_budget
 from .flow_models import SpecificTaskRecord, TaskCommunicationProtocol
 from .task_graph_models import TaskGraphDefinition, task_graph_from_dict
 
@@ -172,6 +173,12 @@ def build_task_graph_standard_view(
         specific_tasks=specific_tasks,
         communication_protocol=communication_protocol,
     )
+    length_budget = compile_length_budget(
+        explicit=dict(dict(graph.contract_bindings or {}).get("runtime") or {}).get("length_budget"),
+        inherited=dict(dict(graph.metadata or {}).get("length_budget") or {}),
+        source_chain=("graph.contract_bindings.runtime.length_budget", "graph.metadata.length_budget"),
+        source_ref=graph.graph_id,
+    )
     layered = dict(runtime_spec.diagnostics.get("layered_graph") or {})
     composable = build_composable_graph_view(graph=graph, layered_graph=layered)
     resource_nodes = [dict(item) for item in list(layered.get("resource_nodes") or []) if isinstance(item, dict)]
@@ -281,6 +288,8 @@ def build_task_graph_standard_view(
         memory_matrix=dict(layered.get("memory_matrix") or {}),
         diagnostics={
             "runtime_spec": runtime_spec.to_dict(),
+            "length_budget": length_budget.to_dict(),
+            "length_budget_preview": compiled_length_budget_preview(length_budget),
             "layered_graph": layered,
             "composable_graph": composable.to_dict(),
         },

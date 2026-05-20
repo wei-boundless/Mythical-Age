@@ -73,8 +73,10 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
     recipe_id = str(execution_shape.recipe_id or "").strip()
     if recipe_id == "runtime.recipe.autonomous_task_run":
         autonomy_mode = str(execution_shape.diagnostics.get("autonomy_mode") or "simple").strip() or "simple"
-        if autonomy_mode not in {"simple", "standard"}:
+        if autonomy_mode not in {"simple", "standard", "managed"}:
             autonomy_mode = "simple"
+        managed = autonomy_mode == "managed"
+        standard_or_managed = autonomy_mode in {"standard", "managed"}
         return {
             "title": "Main Agent autonomous task",
             "description": "Run a graphless autonomous task through the main Agent with plan, observation, verification, and committed closeout.",
@@ -94,6 +96,9 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "op.git_diff",
                 "op.memory_read",
                 "op.delegate_to_agent",
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
             ),
             "step_blueprints": (
                 _step("understand_goal", "Understand goal", "understand", required_operations=("op.model_response",)),
@@ -106,20 +111,26 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "runtime_driver": "autonomous_task_run",
                 "autonomy_mode": autonomy_mode,
                 "runtime_limits": {
-                    "max_turns": 4,
-                    "max_model_calls": 6,
-                    "max_runtime_seconds": 300,
-                    "max_events": 120,
+                    "max_turns": 12 if managed else (4 if autonomy_mode == "standard" else 4),
+                    "max_model_calls": 32 if managed else (12 if autonomy_mode == "standard" else 6),
+                    "max_runtime_seconds": 1800 if managed else (600 if autonomy_mode == "standard" else 300),
+                    "max_events": 480 if managed else (180 if autonomy_mode == "standard" else 120),
+                    "repair_budget": 3 if managed else (1 if autonomy_mode == "standard" else 0),
+                    "stall_detector": managed or autonomy_mode == "standard",
                 },
                 "checkpoint_policy": {
                     "before_commit": True,
                     "terminal": True,
-                    "after_each_plan_item": False,
+                    "after_each_plan_item": standard_or_managed,
+                    "after_each_tool_action": managed,
+                    "after_delegation": standard_or_managed,
                 },
                 "delegation_policy": {
-                    "enabled": autonomy_mode == "standard",
+                    "enabled": standard_or_managed,
                     "max_delegate_calls_per_step": 1,
-                    "max_delegate_calls_per_task_run": 1,
+                    "max_delegate_calls_per_task_run": 4 if managed else (1 if autonomy_mode == "standard" else 0),
+                    "delegate_retry_budget": 1 if managed else 0,
+                    "nested_delegation": False,
                     "allowed_tool_name": "delegate_to_agent",
                     "allowed_operation_ref": "op.delegate_to_agent",
                     "allowed_agent_ids": [
@@ -130,7 +141,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                     ],
                 },
                 "tool_execution_policy": {
-                    "enabled": autonomy_mode == "standard",
+                    "enabled": standard_or_managed,
                     "max_tool_calls_per_round": 1,
                     "allowed_operation_refs": [
                         "op.read_file",
@@ -139,6 +150,9 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                         "op.git_status",
                         "op.git_diff",
                         "op.delegate_to_agent",
+                        "op.write_file",
+                        "op.edit_file",
+                        "op.shell",
                     ],
                     "allowed_tool_names": [
                         "read_file",
@@ -147,13 +161,50 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                         "git_status",
                         "git_diff",
                         "delegate_to_agent",
+                        "write_file",
+                        "edit_file",
+                        "terminal",
                     ],
                     "denied_tool_names": [],
                 },
+                "sandbox_policy": {
+                    "enabled": True,
+                    "mode": "workspace_overlay",
+                    "side_effect_root": "output/sandbox_runs",
+                    "workspace_dir_name": "workspace",
+                    "real_workspace_access": "read_only",
+                    "approval_policy": "sandboxed_side_effects",
+                    "side_effect_tools": [
+                        "write_file",
+                        "edit_file",
+                        "terminal",
+                        "python_repl",
+                    ],
+                    "side_effect_operations": [
+                        "op.write_file",
+                        "op.edit_file",
+                        "op.shell",
+                        "op.python_repl",
+                    ],
+                    "exposure_note": "python_repl remains controlled by agent profile and is not exposed when blocked.",
+                },
+                "background_policy": {
+                    "enabled": managed,
+                    "progress_event_interval_seconds": 30,
+                    "notify_on_blocked": managed,
+                    "notify_on_completed": managed,
+                },
+                "recovery_policy": {
+                    "allow_resume": managed,
+                    "manual_recovery_on_unknown_side_effect": managed,
+                    "reuse_completed_read_results": True,
+                },
                 "verification_policy": {
-                    "required": False,
+                    "required": standard_or_managed,
+                    "strict": managed,
                     "require_summary_check": True,
                     "require_artifact_refs_for_write": True,
+                    "require_test_or_limitation": standard_or_managed,
                 },
                 "final_answer_requirements": (
                     "Explain the goal, the lightweight plan, the work completed, and any limitations.",
@@ -209,20 +260,25 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
             output_schema={"final_answer": {"type": "string", "required": True}, "task_summary_refs": {"type": "array", "required": False}},
         )
     if recipe_id == "runtime.recipe.information_search":
-        return _delegate_profile(
-            title="Information search",
-            description="Search external or realtime information and summarize traceable results.",
-            task_family="search",
-            task_mode="information_search",
-            source_kind="external_web",
-            delegate_target_agent_id="agent:web_researcher",
-            delegation_kind="web_research",
-            fallback_operation="op.web_search",
-            steps=(
+        return {
+            "title": "Information search",
+            "description": "Search external or realtime information and summarize traceable results.",
+            "task_family": "search",
+            "task_mode": "information_search",
+            "source_kind": "external_web",
+            "required_operations": ("op.model_response", "op.web_search"),
+            "optional_operations": ("op.fetch_url",),
+            "step_blueprints": (
                 _step("search_information", "Search information", "execute", required_operations=("op.web_search",)),
                 _step("summarize_sources", "Summarize sources", "finalize"),
             ),
-        )
+            "metadata": {
+                "execution_strategy": "direct_tool_preferred",
+                "runtime_lane_hint": "information_search",
+                "primary_tool_name": "web_search",
+                "primary_operation_ref": "op.web_search",
+            },
+        }
     if recipe_id == "runtime.recipe.memory_recall":
         return {
             "title": "Memory recall answer",

@@ -73,6 +73,7 @@ def resolve_execution_shape(
         diagnostics_payload.get("followup_target_kind")
         or explicit_inputs.get("followup_target_kind")
         or structural_signals.get("followup_target_kind")
+        or dict(current_turn.get("continuation_decision") or {}).get("followup_target_kind")
         or ""
     ).strip()
     has_explicit_pdf = bool(str(explicit_inputs.get("explicit_pdf_path") or "").strip())
@@ -360,7 +361,7 @@ def _autonomy_mode_from_turn(current_turn: dict[str, Any]) -> str:
         or ""
     ).strip().lower()
     if mode in {"standard", "managed"}:
-        return "standard"
+        return mode
     if mode == "simple":
         return "simple"
     return ""

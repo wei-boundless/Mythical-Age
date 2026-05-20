@@ -133,7 +133,7 @@ export function TaskGraphNodeUnitInspector({
           memory: ["memory_read_policy_ref", "dynamic_memory_read_policy_ref", "memory_writeback_policy_ref"],
           artifact: ["artifact_policy.artifact_target", "artifact_policy.visibility_policy", "artifact_policy.required", "artifact_ref_policy_ref"],
           acceptance: ["review_gate_policy_ref", "human_gate_policy.mode", "human_gate_policy.blocking", "acceptance_policy_ref"],
-          runtime: ["model_requirement.profile_ref", "model_requirement.provider_family", "model_requirement.min_output_tokens", "model_requirement.preferred_output_tokens", "model_requirement.capability_tags", "model_requirement.streaming_required"],
+          runtime: ["model_requirement.profile_ref", "model_requirement.provider_family", "model_requirement.min_output_tokens", "model_requirement.preferred_output_tokens", "model_requirement.capability_tags", "model_requirement.streaming_required", "length_budget.enabled", "length_budget.budget_scope", "length_budget.measurement_mode", "length_budget.unit_kind", "length_budget.unit_label_zh", "length_budget.target_units", "length_budget.min_units", "length_budget.max_units", "length_budget.batch_unit_count", "length_budget.repair_policy.mode", "length_budget.repair_policy.max_repair_rounds", "length_budget.acceptance_policy.require_continuity", "length_budget.acceptance_policy.require_formal_headings"],
           governance: ["thread_ledger_policy_ref", "issue_ledger_policy_ref", "context_boundary_policy_ref"],
         }}
         formatContract={formatContract}

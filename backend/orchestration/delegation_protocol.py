@@ -13,13 +13,12 @@ def build_agent_delegation_protocol(
     delegation_kind: str = "",
     source_kind: str = "",
     user_goal: str = "",
-    followup_contract: dict[str, Any] | None = None,
+    recall_context: dict[str, Any] | None = None,
     intent_decision: dict[str, Any] | None = None,
-    continuation_decision: dict[str, Any] | None = None,
     runtime_assembly_hint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    followup_payload = dict(followup_contract or {})
-    source = str(source_kind or followup_payload.get("source_kind") or "").strip()
+    recall_payload = dict(recall_context or {})
+    source = str(source_kind or recall_payload.get("source_kind") or "").strip()
     return {
         "authority": "orchestration.agent_communication_protocol",
         "protocol_id": AGENT_DELEGATION_PROTOCOL_ID,
@@ -32,7 +31,7 @@ def build_agent_delegation_protocol(
             "delegate_when": _delegate_when(source),
             "must_send": _must_send_fields(source),
             "instruction_style": _instruction_style(source),
-            "scope_rule": _scope_rule(source, followup_payload),
+        "scope_rule": _scope_rule(source, recall_payload),
         },
         "child_agent_contract": {
             "role_instruction": _child_role_instruction(source),
@@ -48,9 +47,8 @@ def build_agent_delegation_protocol(
         "handoff_context": {
             "user_goal": str(user_goal or "").strip(),
             "intent_decision": dict(intent_decision or {}),
-            "continuation_decision": dict(continuation_decision or {}),
             "runtime_assembly_hint": dict(runtime_assembly_hint or {}),
-            "followup_execution_contract": followup_payload,
+            "recall_context": recall_payload,
         },
     }
 
@@ -100,10 +98,9 @@ def _instruction_style(source_kind: str) -> str:
     return "Use role-language instructions, not developer shorthand or node labels."
 
 
-def _scope_rule(source_kind: str, followup_contract: dict[str, Any]) -> str:
-    constraint = str(followup_contract.get("constraint_policy") or "").strip()
-    if constraint == "result_subset_only_do_not_expand_to_full_object":
-        return "The child must only use the selected result subset and must not expand back to the full object."
+def _scope_rule(source_kind: str, recall_context: dict[str, Any]) -> str:
+    if recall_context:
+        return "The child may use supplied recall candidates only after verifying they match the current user request; candidates are not execution facts."
     if source_kind in {"dataset", "pdf"}:
         return "The child must not switch source objects unless the main Agent explicitly delegates a different source."
     return "The child must stay inside the supplied delegation scope."

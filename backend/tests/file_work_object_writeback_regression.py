@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from context_management.projection import projection_from_bound_answer
 from memory_system import MemoryFacade
 from orchestration.runtime_loop.task_run_loop import _project_file_work_context_from_tool_observation
 from query.runtime import QueryRuntime
@@ -30,9 +29,10 @@ def test_structured_mcp_observation_projects_file_work_context() -> None:
     assert main_context["active_constraints"]["active_dataset"] == "knowledge/E-commerce Data/employees.xlsx"
     assert main_context["active_object_handle_id"].startswith("source:dataset:")
     assert main_context["active_result_handle_id"].startswith("result:structured_answer:")
-    assert main_context["active_subset_handle_id"].startswith("subset:structured_selection:")
+    assert main_context["active_subset_handle_id"] == ""
     assert task_refs[0]["task_kind"] == "structured_data"
     assert "dataset=knowledge/E-commerce Data/employees.xlsx" in task_refs[0]["key_points"]
+    assert not any(str(item).startswith("subset=") for item in task_refs[0]["key_points"])
 
 
 def test_delegated_structured_observation_uses_canonical_subset_hints() -> None:
@@ -72,6 +72,42 @@ def test_delegated_structured_observation_uses_canonical_subset_hints() -> None:
     assert main_context["active_constraints"]["subset_labels"] == ["Alice", "Bob", "Chen", "Diaz", "Eve"]
 
 
+def test_auto_delegated_structured_observation_infers_kind_from_writeback_protocol() -> None:
+    main_context, task_refs = _project_file_work_context_from_tool_observation(
+        {
+            "tool_name": "delegate_to_agent",
+            "tool_args": {
+                "instruction": "是否存在完全没有缺口的仓库？如果没有，直接说没有。",
+                "current_user_message": "再补一句：是否存在完全没有缺口的仓库？如果没有，直接说没有。",
+                "input_payload": {"query": "是否存在完全没有缺口的仓库？"},
+            },
+            "result": json.dumps(
+                {
+                    "type": "agent_delegation_result",
+                    "status": "completed",
+                    "target_agent_id": "agent:table_analyst",
+                    "summary": "数据源：inventory.xlsx\n结论：没有完全没有缺口的仓库。",
+                    "answer_candidate": "数据源：inventory.xlsx\n结论：没有完全没有缺口的仓库。",
+                    "context_writeback_hints": {
+                        "source_kind": "dataset",
+                        "source_path": "inventory.xlsx",
+                        "active_object_handle_id": "source:dataset:inventory",
+                        "active_result_handle_id": "result:structured:inventory:no_gap",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+        }
+    )
+
+    assert main_context["active_work_item"] == "structured_data"
+    assert main_context["active_constraints"]["active_dataset"] == "inventory.xlsx"
+    assert main_context["active_object_handle_id"] == "source:dataset:inventory"
+    assert main_context["active_result_handle_id"] == "result:structured:inventory:no_gap"
+    assert task_refs[0]["task_kind"] == "structured_data"
+    assert "dataset=inventory.xlsx" in task_refs[0]["key_points"]
+
+
 def test_pdf_mcp_observation_projects_file_work_context() -> None:
     main_context, task_refs = _project_file_work_context_from_tool_observation(
         {
@@ -95,110 +131,45 @@ def test_pdf_mcp_observation_projects_file_work_context() -> None:
     assert task_refs[0]["task_kind"] == "pdf"
 
 
-def test_bound_answer_projection_prefers_dataset_template_over_prior_pdf_binding() -> None:
-    projection = projection_from_bound_answer(
-        content="没有。每个仓库至少存在一条库存低于补货线的记录。",
-        current_turn_context={
-            "intent": "general_query",
-            "source_kind": "dataset",
-            "explicit_inputs": {
-                "bound_dataset_path": "inventory.xlsx",
-                "bound_pdf_path": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
-                "tool_input": {
-                    "query": "是否存在完全没有缺口的仓库？",
-                    "path": "inventory.xlsx",
-                },
+def test_structured_projection_does_not_infer_subset_from_answer_text() -> None:
+    main_context, task_refs = _project_file_work_context_from_tool_observation(
+        {
+            "tool_name": "delegate_to_agent",
+            "tool_args": {
+                "delegation_kind": "table_analysis",
+                "instruction": "找出薪资前五名员工。",
+                "current_user_message": "找出薪资前五名员工。",
+                "input_payload": {"path": "Data/employees.xlsx", "query": "找出薪资前五名员工。"},
             },
-            "resolved_bindings": [
+            "result": json.dumps(
                 {
-                    "binding_kind": "source_file",
-                    "identity": "knowledge/ai knowledge/2025年ai治理报告：回归现实主义.pdf",
-                    "file_kind": "pdf",
-                    "metadata": {"path": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"},
+                    "status": "completed",
+                    "summary": (
+                        "数据源：employees.xlsx\n"
+                        "筛选条件：无\n"
+                        "查询模式：记录排序\n"
+                        "排序字段：薪水\n\n"
+                        "前 5 条记录：\n"
+                        "员工编号 姓名 部门 职位 城市 薪水\n"
+                        "E-0074 罗凯 运营 运营专员 北京 34900\n"
+                        "E-0148 唐琳 技术 后端工程师 杭州 34800"
+                    ),
+                    "context_writeback_hints": {
+                        "source_kind": "dataset",
+                        "source_path": "Data/employees.xlsx",
+                        "active_object_handle_id": "source:dataset:employees",
+                        "active_result_handle_id": "result:structured:employees:top5",
+                    },
                 },
-                {
-                    "binding_kind": "source_file",
-                    "identity": "inventory.xlsx",
-                    "file_kind": "dataset",
-                    "metadata": {"path": "inventory.xlsx"},
-                },
-            ],
-        },
+                ensure_ascii=False,
+            ),
+        }
     )
 
-    assert projection.main_context["active_work_item"] == "structured_data"
-    assert projection.main_context["followup_binding_key"] == "active_dataset"
-    assert projection.main_context["active_constraints"]["active_dataset"] == "inventory.xlsx"
-    assert projection.main_context["active_result_handle_id"].startswith("result:structured_answer:")
-    assert projection.task_summary_refs[0]["task_kind"] == "structured_data"
-
-
-def test_bound_answer_projection_prefers_pdf_template_over_dataset_binding() -> None:
-    pdf_path = "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
-    projection = projection_from_bound_answer(
-        content="第三页承担目录和结构导航作用。",
-        current_turn_context={
-            "intent": "general_query",
-            "source_kind": "pdf",
-            "explicit_inputs": {
-                "bound_dataset_path": "inventory.xlsx",
-                "bound_pdf_path": pdf_path,
-                "tool_input": {
-                    "query": "第三页承担什么作用？",
-                    "path": pdf_path,
-                    "mode": "page",
-                },
-            },
-            "resolved_bindings": [
-                {
-                    "binding_kind": "source_file",
-                    "identity": "inventory.xlsx",
-                    "file_kind": "dataset",
-                    "metadata": {"path": "inventory.xlsx"},
-                },
-                {
-                    "binding_kind": "source_file",
-                    "identity": pdf_path.lower(),
-                    "file_kind": "pdf",
-                    "metadata": {"path": pdf_path},
-                },
-            ],
-        },
-    )
-
-    assert projection.main_context["active_work_item"] == "pdf"
-    assert projection.main_context["followup_binding_key"] == "active_pdf"
-    assert projection.main_context["active_constraints"]["active_pdf"] == pdf_path
-    assert projection.main_context["active_result_handle_id"].startswith("result:pdf_answer:")
-    assert projection.task_summary_refs[0]["task_kind"] == "pdf"
-
-
-def test_bound_answer_projection_ignores_non_file_task_with_stale_binding() -> None:
-    projection = projection_from_bound_answer(
-        content="现货黄金约 4737 美元/盎司，时间口径为 2026-05-11 21:03 UTC。",
-        current_turn_context={
-            "intent": "realtime_network",
-            "source_kind": "external_web",
-            "explicit_inputs": {
-                "bound_dataset_path": "inventory.xlsx",
-                "tool_input": {
-                    "query": "顺便查一下黄金价格，直接给结论和时间口径。",
-                },
-            },
-            "resolved_bindings": [
-                {
-                    "binding_kind": "source_file",
-                    "identity": "inventory.xlsx",
-                    "file_kind": "dataset",
-                    "metadata": {"path": "inventory.xlsx"},
-                },
-            ],
-        },
-    )
-
-    assert projection.main_context == {}
-    assert projection.task_summary_refs == []
-    assert projection.result_handle_ids == []
+    assert main_context["active_constraints"]["active_dataset"] == "Data/employees.xlsx"
+    assert main_context["active_subset_handle_id"] == ""
+    assert "subset_labels" not in main_context["active_constraints"]
+    assert not any(str(item).startswith("subset=") for item in task_refs[0]["key_points"])
 
 
 def test_assistant_commit_uses_context_state_writeback_for_file_work_objects(tmp_path: Path) -> None:
@@ -255,7 +226,7 @@ def test_assistant_commit_uses_context_state_writeback_for_file_work_objects(tmp
     assert state.context_slots.active_subset_labels == ["Alice", "Bob", "Chen", "Diaz", "Eve"]
 
 
-def test_memory_maintenance_without_model_does_not_rewrite_bound_pdf_followup_slots(tmp_path: Path) -> None:
+def test_memory_maintenance_without_model_does_not_rewrite_pdf_work_object_slots(tmp_path: Path) -> None:
     facade = MemoryFacade(tmp_path)
     session_id = "session-pdf-history-refresh"
     pdf_path = "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"

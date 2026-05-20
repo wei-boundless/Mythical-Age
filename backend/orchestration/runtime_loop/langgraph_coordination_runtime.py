@@ -3194,6 +3194,18 @@ def _contract_payload(contract: CoordinationStageContract, *, topology_nodes: li
         if key in node and (key not in payload or payload.get(key) in ("", None, [], {})):
             payload[key] = node[key]
     metadata = dict(node.get("metadata") or {}) if isinstance(node.get("metadata"), dict) else {}
+    for key in (
+        "artifact_context_policy",
+        "revision_context_policy",
+        "quality_retry_policy",
+        "progress_commit_policy",
+        "loop_kind",
+        "loop_scope_id",
+        "title_template",
+        "loop_route_policy",
+    ):
+        if key in metadata and (key not in payload or payload.get(key) in ("", None, [], {})):
+            payload[key] = metadata[key]
     if metadata and (not isinstance(payload.get("metadata"), dict) or not payload.get("metadata")):
         payload["metadata"] = metadata
     if (
@@ -4383,8 +4395,6 @@ def _loop_after_stage_accept(
         for loop_stage_id in loop_stage_ids:
             node_statuses[loop_stage_id] = "pending"
         node_statuses[stage_id] = "completed"
-        if exit_stage_id:
-            node_statuses[exit_stage_id] = "pending"
         return {
             "node_statuses": node_statuses,
             "pending_inputs": pending_inputs,
@@ -4400,6 +4410,7 @@ def _loop_after_stage_accept(
                     "current_value": current_value,
                     "target_key": target_key,
                     "target_value": target_value,
+                    "exit_stage_id": exit_stage_id,
                 }
             },
         }

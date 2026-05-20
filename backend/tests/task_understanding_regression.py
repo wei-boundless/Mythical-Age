@@ -62,44 +62,25 @@ def main() -> None:
     assert generic_followup.capability_requests == []
     assert generic_followup.should_skip_rag is True
 
-    bound_dataset_followup = analyze_task_understanding(
-        "按仓库展开一下",
-        active_bindings={"active_dataset": "Data/inventory.xlsx"},
+    deictic_dataset_followup = analyze_task_understanding(
+        "再补一句：是否存在完全没有缺口的仓库？如果没有，直接说没有。"
     )
-    assert bound_dataset_followup.source_kind == "dataset"
-    assert bound_dataset_followup.task_kind == "dataset_query"
-    assert bound_dataset_followup.route_hint == "structured_data"
-    assert bound_dataset_followup.preferred_skill == "structured-data-analysis"
-    assert bound_dataset_followup.parameters == {
-        "query": "按仓库展开一下",
-        "path": "Data/inventory.xlsx",
-    }
-    assert bound_dataset_followup.direct_route_reason == "bound_dataset_followup"
-
-    no_shortage_warehouse_followup = analyze_task_understanding(
-        "再补一句：是否存在完全没有缺口的仓库？如果没有，直接说没有。",
-        active_bindings={"active_dataset": "Data/inventory.xlsx"},
-    )
-    assert no_shortage_warehouse_followup.source_kind == "dataset"
-    assert no_shortage_warehouse_followup.task_kind == "dataset_query"
-    assert no_shortage_warehouse_followup.route_hint == "structured_data"
-    assert no_shortage_warehouse_followup.parameters["path"] == "Data/inventory.xlsx"
-    assert no_shortage_warehouse_followup.direct_route_reason == "bound_dataset_followup"
+    assert deictic_dataset_followup.source_kind == "conversation"
+    assert deictic_dataset_followup.route_hint == "agent"
+    assert deictic_dataset_followup.should_skip_rag is True
+    assert "path" not in deictic_dataset_followup.parameters
 
     active_subset_followup = analyze_task_understanding(
         "只基于刚才这前五名员工，按部门做一个归类总结，不要回到全表重算。",
-        active_bindings={"active_dataset": "Data/employees.xlsx"},
     )
     assert active_subset_followup.source_kind == "dataset"
     assert active_subset_followup.task_kind == "dataset_query"
     assert active_subset_followup.route_hint == "structured_data"
-    assert active_subset_followup.parameters["path"] == "Data/employees.xlsx"
-    assert active_subset_followup.parameters["followup_scope"] == "active_subset"
-    assert active_subset_followup.direct_route_reason == "active_subset_followup"
+    assert "path" not in active_subset_followup.parameters
+    assert active_subset_followup.direct_route_reason == "business_dataset_intent"
 
     bundle_ordinal_followup = analyze_task_understanding(
         "把第一个和第三个子任务各压成一句话，不要再提第二个。",
-        active_bindings={"active_dataset": "Data/inventory.xlsx"},
     )
     assert bundle_ordinal_followup.source_kind == "bundle_result"
     assert bundle_ordinal_followup.task_kind == "bundle_followup"
@@ -124,15 +105,13 @@ def main() -> None:
     )
     assert pdf_explicit.parameters["path"] == "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"
 
-    bound_pdf_followup = analyze_task_understanding(
+    deictic_pdf_followup = analyze_task_understanding(
         "把这份 PDF 的核心结论压成三条行动建议。",
-        active_bindings={"committed_pdf": "knowledge/AI Knowledge/report.pdf"},
     )
-    assert bound_pdf_followup.source_kind == "document"
-    assert bound_pdf_followup.route_hint == "pdf"
-    assert bound_pdf_followup.preferred_skill == "pdf-analysis"
-    assert bound_pdf_followup.parameters["path"] == "knowledge/AI Knowledge/report.pdf"
-    assert bound_pdf_followup.direct_route_reason == "bound_pdf_followup"
+    assert deictic_pdf_followup.source_kind == "conversation"
+    assert deictic_pdf_followup.route_hint == "agent"
+    assert "path" not in deictic_pdf_followup.parameters
+    assert "bound_pdf_followup" not in deictic_pdf_followup.reasons
 
     skill_create = analyze_task_understanding("帮我创建一个用于章节审核的 skill")
     assert skill_create.source_kind == "capability_system"

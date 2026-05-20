@@ -23,6 +23,11 @@ import {
   type TaskGraphPublishStateV2,
 } from "@/components/workspace/views/task-system/taskGraphDraftV2";
 import { buildTaskGraphUpsertPayload } from "@/components/workspace/views/task-system/taskGraphSaveMapper";
+import {
+  MODULAR_NOVEL_DOMAIN_ID,
+  recommendedTaskGraphId,
+  sortTaskGraphsForWorkbench,
+} from "@/components/workspace/views/task-system/taskGraphSelection";
 import { buildTaskGraphTemplateDraft, type TaskGraphTemplateId } from "@/components/workspace/views/task-system/taskGraphTemplates";
 import {
   graphEdgeId,
@@ -763,17 +768,18 @@ export function TaskSystemView() {
   const applyOverview = useCallback((overview: TaskSystemOverview) => {
     setConsolePayload(overview);
     const nextDomains = buildDomains(overview);
+    const modularNovelDomain = nextDomains.find((item) => item.domain_id === MODULAR_NOVEL_DOMAIN_ID) ?? null;
     const firstDomainWithTasks = nextDomains.find((item) => item.tasks.length > 0) ?? null;
     const fallbackDomain = firstDomainWithTasks ?? nextDomains[0] ?? null;
     const preferredDomain = nextDomains.find((item) => item.domain_id === selectedDomainIdRef.current) ?? null;
     const selectedDomain = preferredDomain && (preferredDomain.tasks.length > 0 || !firstDomainWithTasks)
       ? preferredDomain
-      : fallbackDomain;
-    const taskGraphs = overview.task_graph_management?.task_graphs ?? [];
+      : modularNovelDomain ?? fallbackDomain;
+    const taskGraphs = sortTaskGraphsForWorkbench(overview.task_graph_management?.task_graphs ?? []);
     setSelectedDomainId(selectedDomain?.domain_id ?? "");
     setSelectedTaskId((current) => current || selectedDomain?.tasks[0]?.task_id || overview.task_management.specific_task_records[0]?.task_id || "");
     setEditorDomainId((current) => current || selectedDomain?.domain_id || "");
-    setSelectedTaskGraphId((current) => current || taskGraphs[0]?.graph_id || "");
+    setSelectedTaskGraphId((current) => recommendedTaskGraphId(taskGraphs, current));
     setEditorTaskGraphId((current) => current && taskGraphs.some((graph) => graph.graph_id === current) ? current : "");
   }, []);
 
@@ -888,7 +894,10 @@ export function TaskSystemView() {
   const flowBinding = (consolePayload?.task_management.flow_contract_bindings ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const executionPolicy = (consolePayload?.task_management.execution_policies ?? []).find((item) => item.task_id === selectedTask?.task_id);
   const selectedWorkflow = workflows.find((item) => item.workflow_id === selectedTask?.default_workflow_id);
-  const allTaskGraphs = useMemo(() => consolePayload?.task_graph_management?.task_graphs ?? [], [consolePayload]);
+  const allTaskGraphs = useMemo(
+    () => sortTaskGraphsForWorkbench(consolePayload?.task_graph_management?.task_graphs ?? []),
+    [consolePayload],
+  );
   const a2aCatalog = useMemo(() => {
     const protocol = consolePayload?.task_graph_management?.a2a;
     if (!protocol) return null;
@@ -901,7 +910,7 @@ export function TaskSystemView() {
   }, [consolePayload, orchestrationAgentCatalog]);
   const activeDomainId = selectedDomain?.domain_id || "";
   const taskGraphs = useMemo(
-    () => activeDomainId ? allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === activeDomainId) : [],
+    () => activeDomainId ? sortTaskGraphsForWorkbench(allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === activeDomainId)) : [],
     [activeDomainId, allTaskGraphs],
   );
   const selectedTaskGraph = taskGraphs.find((item) => item.graph_id === selectedTaskGraphId) ?? taskGraphs[0] ?? null;
@@ -910,11 +919,11 @@ export function TaskSystemView() {
   const editorDomainFilterId = editorDomain?.domain_id || "";
   const editorContractSpecs = useMemo(() => scopedContractSpecs(contractSpecs, editorDomain), [contractSpecs, editorDomain]);
   const editorTaskGraphs = useMemo(
-    () => editorDomainFilterId ? allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === editorDomainFilterId) : [],
+    () => editorDomainFilterId ? sortTaskGraphsForWorkbench(allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === editorDomainFilterId)) : [],
     [allTaskGraphs, editorDomainFilterId],
   );
   const editorGraphSelectOptions = useMemo(() => {
-    const options = editorTaskGraphs.map((task) => ({ value: task.graph_id, label: task.title }));
+    const options = editorTaskGraphs.map((task) => ({ value: task.graph_id, label: `${task.title} · ${task.graph_id}` }));
     const draftGraphId = String(taskGraphDraftV2.graph_id || "").trim();
     const draftInEditorDomain = draftGraphId
       && String(taskGraphDraftV2.domain_id || "").trim() === editorDomainFilterId;
@@ -1145,7 +1154,7 @@ export function TaskSystemView() {
 
   useEffect(() => {
     if (!taskGraphs.some((item) => item.graph_id === selectedTaskGraphId)) {
-      setSelectedTaskGraphId(taskGraphs[0]?.graph_id || "");
+      setSelectedTaskGraphId(recommendedTaskGraphId(taskGraphs));
     }
   }, [taskGraphs, selectedTaskGraphId]);
 
@@ -1154,7 +1163,7 @@ export function TaskSystemView() {
       if (editorTaskGraphId && editorTaskGraphId === taskGraphDraftV2.graph_id) {
         return;
       }
-      setEditorTaskGraphId(editorTaskGraphs[0]?.graph_id || "");
+      setEditorTaskGraphId(recommendedTaskGraphId(editorTaskGraphs));
     }
   }, [editorTaskGraphId, editorTaskGraphs, taskGraphDraftV2.graph_id]);
 
@@ -2174,8 +2183,8 @@ export function TaskSystemView() {
             setSelectedDomainId(domainId);
             setEditorDomainId(domainId);
             setSelectedTaskId(domain?.tasks[0]?.task_id || "");
-            const nextGraph = (consolePayload?.task_graph_management?.task_graphs ?? []).find((item) => String(item.domain_id ?? "").trim() === domainId);
-            setSelectedTaskGraphId(nextGraph?.graph_id || "");
+            const nextGraphs = sortTaskGraphsForWorkbench((consolePayload?.task_graph_management?.task_graphs ?? []).filter((item) => String(item.domain_id ?? "").trim() === domainId));
+            setSelectedTaskGraphId(recommendedTaskGraphId(nextGraphs));
             setEditingDomainName(false);
           }}
           options={visibleDomains.map((domain) => ({ value: domain.domain_id, label: domain.title }))}
@@ -2230,8 +2239,9 @@ export function TaskSystemView() {
   function openTaskGraphEditor(graphId = selectedTaskGraph?.graph_id || "") {
     const nextDomain = selectedDomain ?? editorDomain;
     const nextDomainId = nextDomain?.domain_id || "";
+    const domainGraphs = sortTaskGraphsForWorkbench(allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === nextDomainId));
     const nextGraph = allTaskGraphs.find((item) => String(item.graph_id ?? "") === graphId)
-      ?? allTaskGraphs.find((item) => String(item.domain_id ?? "").trim() === nextDomainId)
+      ?? domainGraphs.find((item) => item.graph_id === recommendedTaskGraphId(domainGraphs))
       ?? null;
     setEditorDomainId(nextDomain?.domain_id || "");
     setEditorTaskGraphId(nextGraph?.graph_id || "");
@@ -2258,7 +2268,8 @@ export function TaskSystemView() {
   function selectEditorDomain(domainId: string) {
     const nextDomain = visibleDomains.find((domain) => domain.domain_id === domainId) ?? null;
     const nextDomainId = nextDomain?.domain_id || "";
-    const nextGraph = allTaskGraphs.find((item) => String(item.domain_id ?? "").trim() === nextDomainId);
+    const domainGraphs = sortTaskGraphsForWorkbench(allTaskGraphs.filter((item) => String(item.domain_id ?? "").trim() === nextDomainId));
+    const nextGraph = domainGraphs.find((item) => item.graph_id === recommendedTaskGraphId(domainGraphs)) ?? null;
     setEditorDomainId(nextDomain?.domain_id || "");
     setEditorTaskGraphId(nextGraph?.graph_id || "");
     setSelectedGraphNodeId("");

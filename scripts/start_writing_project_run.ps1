@@ -1,12 +1,14 @@
 param(
     [string]$BaseUrl = "http://127.0.0.1:8002/api",
-    [string]$GraphId = "graph.writing.simple_novel",
-    [string]$TaskId = "task.writing.simple_novel.formal_million_word_run",
+    [string]$GraphId = "graph.writing.modular_novel.master",
+    [string]$TaskId = "task.writing.modular_novel.master",
     [string]$SessionId = "",
     [string]$ProjectId = "project:honghuang-times",
     [string]$ProjectTitle = "洪荒时代",
     [string]$ProjectBriefFile = "output/novel_artifacts/simple_novel/project_brief.md",
-    [int]$TargetWords = 1000000,
+    [int]$TargetVolumes = 1,
+    [int]$ChaptersPerVolume = 50,
+    [int]$TargetWords = 100000,
     [int]$ChapterTargetWords = 2000,
     [int]$ChaptersPerRound = 10,
     [string]$ArtifactRoot = ""
@@ -44,6 +46,9 @@ $Payload = @{
         project_title = $ProjectTitle
         title = $ProjectTitle
         project_brief = $ProjectBrief
+        target_volumes = $TargetVolumes
+        chapters_per_volume = $ChaptersPerVolume
+        target_chapters = ($TargetVolumes * $ChaptersPerVolume)
         target_words = $TargetWords
         target_length = [string]$TargetWords
         chapter_target_words = $ChapterTargetWords

@@ -23,6 +23,19 @@
       }
     },
     {
+      "domain_id": "domain.writing.modular_novel",
+      "task_family": "writing_modular_novel",
+      "title": "模块化长篇写作",
+      "description": "以任务图为一等对象组织设计初始化、章节批次创作与收尾交付的长篇写作任务域。",
+      "enabled": true,
+      "sort_order": 88,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "source_graph_id": "graph.writing.simple_novel",
+        "architecture": "graph_unit_composition"
+      }
+    },
+    {
       "domain_id": "domain.custom_4",
       "task_family": "custom_4",
       "title": "开发任务",

@@ -16704,6 +16704,25 @@ html[data-soul="xuannv"] .soul-portrait__label {
   overflow-wrap: anywhere;
 }
 
+.task-graph-library-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.24rem;
+  margin-top: 0.12rem;
+}
+
+.task-graph-library-badges em {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 22%, var(--color-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-soul) 7%, transparent);
+  color: var(--color-text-soft);
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 850;
+  line-height: 1;
+  padding: 0.18rem 0.34rem;
+}
+
 .boundary-list-row {
   display: grid;
   gap: 0.18rem;

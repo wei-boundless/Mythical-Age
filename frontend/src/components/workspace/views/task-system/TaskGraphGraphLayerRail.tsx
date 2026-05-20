@@ -64,6 +64,7 @@ export function TaskGraphGraphLayerRail({
   graphDraft,
   issues,
   nestedRuntime,
+  onOpenGraph,
   onFacetChange,
   onSelectSubject,
   portEdges,
@@ -76,6 +77,7 @@ export function TaskGraphGraphLayerRail({
   graphDraft: TaskGraphDraftV2;
   issues: TaskGraphPreflightIssue[];
   nestedRuntime: NestedRuntimePlanSpec[];
+  onOpenGraph?: (graphId: string) => void;
   onFacetChange: (facet: TaskGraphModuleFacet) => void;
   onSelectSubject: (subject: TaskGraphComposableSubject) => void;
   portEdges: UnitPortEdgeSpec[];
@@ -250,11 +252,22 @@ export function TaskGraphGraphLayerRail({
             const active = subjectKey === taskGraphComposableSubjectKey(subject);
             const linkedGraphId = String(asRecord(unit.ref).graph_id ?? "").trim();
             return (
-              <button className={active ? "active" : ""} key={unit.unit_id} onClick={() => onSelectSubject(subject)} type="button">
+              <button
+                className={active ? "active" : ""}
+                key={unit.unit_id}
+                onClick={() => {
+                  if (active && linkedGraphId && onOpenGraph) {
+                    onOpenGraph(linkedGraphId);
+                    return;
+                  }
+                  onSelectSubject(subject);
+                }}
+                type="button"
+              >
                 <Network aria-hidden="true" size={14} />
                 <span>
                   <strong>{unit.title || unit.unit_id}</strong>
-                  <small>{linkedGraphId || "未绑定 linked_graph_id"}</small>
+                  <small>{linkedGraphId ? `${linkedGraphId} · 再点进入` : "未绑定 linked_graph_id"}</small>
                 </span>
               </button>
             );

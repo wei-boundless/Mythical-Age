@@ -22,7 +22,6 @@ def test_context_resolver_builds_bundle_items_for_compound_request() -> None:
             "confidence": 0.9,
             "structural_signals": {
                 "explicit_dataset_path": "knowledge/E-commerce Data/inventory.xlsx",
-                "bound_pdf_path": "knowledge/AI Knowledge/report.pdf",
             },
         },
     )
@@ -87,7 +86,6 @@ def test_context_resolver_does_not_split_priority_word_as_sequence_marker() -> N
             "capability_requests": ["dataset_analysis"],
             "structural_signals": {
                 "explicit_dataset_path": "inventory.xlsx",
-                "bound_dataset_path": "knowledge/E-commerce Data/employees.xlsx",
             },
             "tool_input": {
                 "query": message,
@@ -99,10 +97,10 @@ def test_context_resolver_does_not_split_priority_word_as_sequence_marker() -> N
     assert context.execution_mode == "single"
     assert context.bundle_items == ()
     assert context.explicit_inputs["explicit_dataset_path"] == "inventory.xlsx"
-    assert "bound_dataset_path" not in context.explicit_inputs
+    assert context.explicit_inputs["explicit_dataset_path"] == "inventory.xlsx"
 
 
-def test_context_resolver_keeps_bound_pdf_alongside_explicit_dataset() -> None:
+def test_context_resolver_keeps_state_pdf_as_recall_candidate_not_binding() -> None:
     resolver = ContextResolver()
     context = resolver.resolve(
         session_id="session-2b",
@@ -120,11 +118,10 @@ def test_context_resolver_keeps_bound_pdf_alongside_explicit_dataset() -> None:
             "intent": "multi_capability_request",
             "confidence": 0.93,
             "structural_signals": {
-                "explicit_dataset_path": "knowledge/E-commerce Data/employees.xlsx",
-                "bound_pdf_path": "knowledge/AI Knowledge/report.pdf",
-                "document_reference": True,
-                "page_reference": True,
-                "mixed_direct_capabilities": True,
+                    "explicit_dataset_path": "knowledge/E-commerce Data/employees.xlsx",
+                    "document_reference": True,
+                    "page_reference": True,
+                    "mixed_direct_capabilities": True,
             },
         },
     )
@@ -133,9 +130,10 @@ def test_context_resolver_keeps_bound_pdf_alongside_explicit_dataset() -> None:
         (binding.file_kind, binding.metadata.get("path"))
         for binding in context.resolved_bindings
     }
-    assert "bound_pdf_path" not in context.explicit_inputs
+    assert "explicit_pdf_path" not in context.explicit_inputs
     assert ("dataset", "knowledge/E-commerce Data/employees.xlsx") in paths
-    assert ("pdf", "knowledge/AI Knowledge/report.pdf") in paths
+    assert ("pdf", "knowledge/AI Knowledge/report.pdf") not in paths
+    assert context.context_recall_candidates == ()
 
 
 def test_context_resolver_binds_ordinal_followup_to_previous_bundle_item() -> None:
@@ -174,7 +172,6 @@ def test_context_resolver_binds_ordinal_followup_to_previous_bundle_item() -> No
             "intent": "structured_dataset_query",
             "confidence": 0.91,
             "structural_signals": {
-                "bound_dataset_path": "knowledge/E-commerce Data/inventory.xlsx",
             },
         },
     )

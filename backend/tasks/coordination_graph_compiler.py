@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from bootstrap.settings import AppSettingsService
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration.model_profile_resolver import ModelProfileResolver
+from orchestration.runtime_loop.length_budget_compiler import compile_length_budget, compiled_length_budget_preview
 from .coordination_graph_models import (
     TaskGraphNestedRuntimePlan,
     TaskGraphRuntimeEdge,
@@ -31,6 +33,12 @@ def compile_task_graph_definition_runtime_spec(
     runtime_policy = dict(graph.runtime_policy or {})
     context_policy = dict(graph.context_policy or {})
     graph_metadata = dict(graph.metadata or {})
+    length_budget = compile_length_budget(
+        explicit=dict(dict(graph.contract_bindings or {}).get("runtime") or {}).get("length_budget"),
+        inherited=dict(graph_metadata.get("length_budget") or {}),
+        source_chain=("graph.contract_bindings.runtime.length_budget", "graph.metadata.length_budget"),
+        source_ref=graph.graph_id,
+    )
     coordinator_agent_id = str(runtime_policy.get("coordinator_agent_id") or "agent:0").strip() or "agent:0"
     agent_group_id = str(runtime_policy.get("agent_group_id") or "").strip()
     default_execution_mode = str(runtime_policy.get("default_execution_mode") or "sync").strip() or "sync"
@@ -59,7 +67,10 @@ def compile_task_graph_definition_runtime_spec(
         )
         for node in graph.nodes
     ]
-    nodes.extend(_runtime_nodes_from_nested_runtime_plans(nested_runtime_plans))
+    nodes = _merge_nested_runtime_nodes(
+        explicit_nodes=nodes,
+        nested_nodes=_runtime_nodes_from_nested_runtime_plans(nested_runtime_plans),
+    )
     if not nodes:
         nodes = [
             TaskGraphRuntimeNode(
@@ -149,6 +160,7 @@ def compile_task_graph_definition_runtime_spec(
     validation_issues.extend(_runtime_issues_from_nested_runtime_plans(nested_runtime_plans))
     split_merge_issues = split_merge_runtime_issues(split_plans)
     validation_issues.extend(_runtime_issues_from_split_merge_issues(split_merge_issues))
+    validation_issues.extend(_runtime_issues_from_length_budget(length_budget))
     return TaskGraphRuntimeSpec(
         graph_id=graph.graph_id,
         graph_ref=graph.graph_id,
@@ -175,6 +187,8 @@ def compile_task_graph_definition_runtime_spec(
             "source": "task_system.task_graph_definition_runtime_compiler",
             "graph_contract_id": graph.graph_contract_id,
             "contract_bindings": dict(graph.contract_bindings or {}),
+            "length_budget": length_budget.to_dict(),
+            "length_budget_preview": compiled_length_budget_preview(length_budget),
             "default_protocol_id": graph.default_protocol_id,
             "communication_protocol_id": str(getattr(communication_protocol, "protocol_id", "") or ""),
             "runtime_policy": runtime_policy,
@@ -272,6 +286,14 @@ def _runtime_node_from_task_graph_node(
         monitor_policy=dict(node_metadata.get("monitor_policy") or {}),
         metadata={
             **node_metadata,
+            "loop_kind": str(getattr(raw_node, "loop_kind", "") or node_metadata.get("loop_kind") or "").strip(),
+            "loop_scope_id": str(getattr(raw_node, "loop_scope_id", "") or node_metadata.get("loop_scope_id") or "").strip(),
+            "title_template": str(getattr(raw_node, "title_template", "") or node_metadata.get("title_template") or "").strip(),
+            "loop_route_policy": dict(getattr(raw_node, "loop_route_policy", {}) or node_metadata.get("loop_route_policy") or {}),
+            "artifact_context_policy": dict(getattr(raw_node, "artifact_context_policy", {}) or node_metadata.get("artifact_context_policy") or {}),
+            "revision_context_policy": dict(getattr(raw_node, "revision_context_policy", {}) or node_metadata.get("revision_context_policy") or {}),
+            "quality_retry_policy": dict(getattr(raw_node, "quality_retry_policy", {}) or node_metadata.get("quality_retry_policy") or {}),
+            "progress_commit_policy": dict(getattr(raw_node, "progress_commit_policy", {}) or node_metadata.get("progress_commit_policy") or {}),
             "agent_group_id": node_agent_group_id,
             "node_contract_id": str(raw_node.node_contract_id or "").strip(),
             "input_contract_id": str(raw_node.input_contract_id or "").strip(),
@@ -458,6 +480,77 @@ def _runtime_nodes_from_nested_runtime_plans(plans: list[TaskGraphNestedRuntimeP
     ]
 
 
+def _merge_nested_runtime_nodes(
+    *,
+    explicit_nodes: list[TaskGraphRuntimeNode],
+    nested_nodes: list[TaskGraphRuntimeNode],
+) -> list[TaskGraphRuntimeNode]:
+    """Merge timeline-derived GraphUnit runtime data into explicit graph_unit nodes.
+
+    A parent graph may store GraphUnit as a normal editable node while also using
+    timeline_blocks as the nested-runtime authority. Both representations resolve
+    to the same runtime node id, so the compiler must produce one executable
+    node with both the editor-side node configuration and the nested run handle.
+    """
+    nested_by_id = {node.node_id: node for node in nested_nodes if node.node_id}
+    merged: list[TaskGraphRuntimeNode] = []
+    for explicit in explicit_nodes:
+        nested = nested_by_id.pop(explicit.node_id, None)
+        if nested is None:
+            merged.append(explicit)
+            continue
+        merged.append(_merge_explicit_graph_unit_node(explicit=explicit, nested=nested))
+    merged.extend(nested_by_id.values())
+    return merged
+
+
+def _merge_explicit_graph_unit_node(
+    *,
+    explicit: TaskGraphRuntimeNode,
+    nested: TaskGraphRuntimeNode,
+) -> TaskGraphRuntimeNode:
+    explicit_metadata = dict(explicit.metadata or {})
+    nested_metadata = dict(nested.metadata or {})
+    return replace(
+        explicit,
+        title=explicit.title or nested.title,
+        node_type="graph_unit",
+        role=explicit.role or nested.role,
+        task_id=explicit.task_id or nested.task_id,
+        task_family=explicit.task_family or nested.task_family,
+        executor_policy={
+            **dict(explicit.executor_policy or {}),
+            **dict(nested.executor_policy or {}),
+        },
+        execution_mode=explicit.execution_mode or nested.execution_mode,
+        wait_policy=explicit.wait_policy or nested.wait_policy,
+        join_policy=explicit.join_policy or nested.join_policy,
+        phase_id=explicit.phase_id or nested.phase_id,
+        sequence_index=explicit.sequence_index or nested.sequence_index,
+        timeline_group_id=explicit.timeline_group_id or nested.timeline_group_id,
+        blocks_phase_exit=explicit.blocks_phase_exit or nested.blocks_phase_exit,
+        context_visibility_policy={
+            **dict(explicit.context_visibility_policy or {}),
+            **dict(nested.context_visibility_policy or {}),
+        },
+        artifact_policy={
+            **dict(explicit.artifact_policy or {}),
+            **dict(nested.artifact_policy or {}),
+        },
+        metadata={
+            **explicit_metadata,
+            **nested_metadata,
+            "explicit_graph_unit_node": True,
+            "definition_node_metadata": explicit_metadata,
+            "effective_policy_sources": {
+                **dict(explicit_metadata.get("effective_policy_sources") or {}),
+                **dict(nested_metadata.get("effective_policy_sources") or {}),
+                "graph_unit_merge": "graph.nodes[] + graph.metadata.timeline_blocks[]",
+            },
+        },
+    )
+
+
 def _runtime_issues_from_nested_runtime_plans(plans: list[TaskGraphNestedRuntimePlan]) -> list[TaskGraphRuntimeValidationIssue]:
     issues: list[TaskGraphRuntimeValidationIssue] = []
     for plan in plans:
@@ -492,6 +585,20 @@ def _runtime_issues_from_split_merge_issues(issues: tuple[SplitMergeIssue, ...])
         )
         for issue in issues
     ]
+
+
+def _runtime_issues_from_length_budget(length_budget: Any) -> list[TaskGraphRuntimeValidationIssue]:
+    diagnostics = dict(getattr(length_budget, "diagnostics", {}) or {})
+    issues: list[TaskGraphRuntimeValidationIssue] = []
+    for issue_code in list(diagnostics.get("issues") or []):
+        issues.append(
+            TaskGraphRuntimeValidationIssue(
+                code=str(issue_code),
+                message=f"长度预算校验失败：{issue_code}",
+                severity="warning",
+            )
+        )
+    return issues
 
 
 def _safe_runtime_identifier(value: str) -> str:

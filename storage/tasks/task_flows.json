@@ -12,8 +12,8 @@
       "default_memory_scope": "issue_local_readonly",
       "enabled": true,
       "metadata": {
-        "managed_by": "task_system",
-        "task_resource": "task.health.issue_triage"
+        "task_resource": "task.health.issue_triage",
+        "managed_by": "task_system"
       }
     },
     {
@@ -28,8 +28,8 @@
       "default_memory_scope": "health_trace_readonly",
       "enabled": true,
       "metadata": {
-        "managed_by": "task_system",
-        "task_resource": "task.health.trace_analysis"
+        "task_resource": "task.health.trace_analysis",
+        "managed_by": "task_system"
       }
     },
     {
@@ -44,8 +44,8 @@
       "default_memory_scope": "issue_local_readonly",
       "enabled": true,
       "metadata": {
-        "managed_by": "task_system",
-        "task_resource": "task.health.case_draft"
+        "task_resource": "task.health.case_draft",
+        "managed_by": "task_system"
       }
     },
     {
@@ -60,8 +60,8 @@
       "default_memory_scope": "issue_local_readonly",
       "enabled": true,
       "metadata": {
-        "managed_by": "task_system",
-        "task_resource": "task.health.fix_verification"
+        "task_resource": "task.health.fix_verification",
+        "managed_by": "task_system"
       }
     },
     {
@@ -1088,6 +1088,590 @@
         "domain_id": "domain.writing.simple_novel",
         "task_id": "task.writing.simple_novel.fail_closed",
         "projection_id": "projection.writing.simple_novel.memory_steward"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.master",
+      "task_family": "writing_modular_novel",
+      "title": "模块化长篇写作总任务",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.graph",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.master",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "task_id": "task.writing.modular_novel.master"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.design_init",
+      "task_family": "writing_modular_novel",
+      "title": "设计初始化任务图单元",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.design_commit",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.design_init",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "task_id": "task.writing.modular_novel.design_init"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.chapter_cycle",
+      "task_family": "writing_modular_novel",
+      "title": "章节批次创作任务图单元",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.chapter_batch_commit",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.chapter_cycle",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "task_id": "task.writing.modular_novel.chapter_cycle"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.finalize",
+      "task_family": "writing_modular_novel",
+      "title": "收尾交付任务图单元",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.final_delivery",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.finalize",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "task_id": "task.writing.modular_novel.finalize"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.project_brief",
+      "task_family": "writing_modular_novel",
+      "title": "模块化项目启动包",
+      "input_contract_id": "contract.writing.simple_novel.user_goal",
+      "output_contract_id": "contract.writing.simple_novel.project_brief",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.project_brief",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.project_brief",
+        "projection_id": "projection.writing.simple_novel.project_brief",
+        "source_task_id": "task.writing.simple_novel.project_brief",
+        "source_flow_id": "flow.writing.simple_novel.project_brief"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.world_design",
+      "task_family": "writing_modular_novel",
+      "title": "模块化世界观设定候选",
+      "input_contract_id": "contract.writing.simple_novel.project_brief",
+      "output_contract_id": "contract.writing.simple_novel.world_candidate",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.world_design",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.world_design",
+        "projection_id": "projection.writing.simple_novel.world_designer",
+        "source_task_id": "task.writing.simple_novel.world_design",
+        "source_flow_id": "flow.writing.simple_novel.world_design"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.world_review",
+      "task_family": "writing_modular_novel",
+      "title": "模块化世界观审核",
+      "input_contract_id": "contract.writing.simple_novel.world_candidate",
+      "output_contract_id": "contract.writing.simple_novel.world_review",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.world_review",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.world_review",
+        "projection_id": "projection.writing.simple_novel.world_reviewer",
+        "source_task_id": "task.writing.simple_novel.world_review",
+        "source_flow_id": "flow.writing.simple_novel.world_review"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.memory_commit_world",
+      "task_family": "writing_modular_novel",
+      "title": "模块化世界观写入",
+      "input_contract_id": "contract.writing.simple_novel.world_review",
+      "output_contract_id": "contract.writing.simple_novel.memory_commit_world",
+      "default_agent_id": "agent:writing_memory_steward",
+      "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_world",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.memory_commit_world",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_task_id": "task.writing.simple_novel.memory_commit_world",
+        "source_flow_id": "flow.writing.simple_novel.memory_commit_world"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.character_design",
+      "task_family": "writing_modular_novel",
+      "title": "模块化人设与关系设计",
+      "input_contract_id": "contract.writing.simple_novel.memory_commit_world",
+      "output_contract_id": "contract.writing.simple_novel.character_design",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.character_design",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.character_design",
+        "projection_id": "projection.writing.simple_novel.character_designer",
+        "source_task_id": "task.writing.simple_novel.character_design",
+        "source_flow_id": "flow.writing.simple_novel.character_design"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.plot_design",
+      "task_family": "writing_modular_novel",
+      "title": "模块化剧情与伏笔设计",
+      "input_contract_id": "contract.writing.simple_novel.character_design",
+      "output_contract_id": "contract.writing.simple_novel.plot_design",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.plot_design",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.plot_design",
+        "projection_id": "projection.writing.simple_novel.plot_designer",
+        "source_task_id": "task.writing.simple_novel.plot_design",
+        "source_flow_id": "flow.writing.simple_novel.plot_design"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.design_sync",
+      "task_family": "writing_modular_novel",
+      "title": "模块化设计对齐讨论",
+      "input_contract_id": "contract.writing.simple_novel.design_sync_input",
+      "output_contract_id": "contract.writing.simple_novel.design_sync",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.design_sync",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.design_sync",
+        "projection_id": "projection.writing.simple_novel.design_synchronizer",
+        "source_task_id": "task.writing.simple_novel.design_sync",
+        "source_flow_id": "flow.writing.simple_novel.design_sync"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.outline_design",
+      "task_family": "writing_modular_novel",
+      "title": "模块化全书大纲设计",
+      "input_contract_id": "contract.writing.simple_novel.design_sync",
+      "output_contract_id": "contract.writing.simple_novel.outline_design",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.outline_design",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.outline_design",
+        "projection_id": "projection.writing.simple_novel.outline_designer",
+        "source_task_id": "task.writing.simple_novel.outline_design",
+        "source_flow_id": "flow.writing.simple_novel.outline_design"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.outline_review",
+      "task_family": "writing_modular_novel",
+      "title": "模块化全书大纲审核",
+      "input_contract_id": "contract.writing.simple_novel.outline_design",
+      "output_contract_id": "contract.writing.simple_novel.outline_review",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.outline_review",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.outline_review",
+        "projection_id": "projection.writing.simple_novel.outline_reviewer",
+        "source_task_id": "task.writing.simple_novel.outline_review",
+        "source_flow_id": "flow.writing.simple_novel.outline_review"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.baseline_memory_seed",
+      "task_family": "writing_modular_novel",
+      "title": "模块化基准记忆库初始化",
+      "input_contract_id": "contract.writing.simple_novel.outline_review",
+      "output_contract_id": "contract.writing.simple_novel.baseline_memory_commit",
+      "default_agent_id": "agent:writing_memory_steward",
+      "default_workflow_id": "workflow.writing.modular_novel.node.baseline_memory_seed",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.baseline_memory_seed",
+        "projection_id": "projection.writing.simple_novel.baseline_memory_steward",
+        "source_task_id": "task.writing.simple_novel.baseline_memory_seed",
+        "source_flow_id": "flow.writing.simple_novel.baseline_memory_seed"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.volume_plan",
+      "task_family": "writing_modular_novel",
+      "title": "模块化分卷规划",
+      "input_contract_id": "contract.writing.simple_novel.baseline_memory_commit",
+      "output_contract_id": "contract.writing.simple_novel.volume_plan_commit",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.volume_plan",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.volume_plan",
+        "projection_id": "projection.writing.simple_novel.volume_planner",
+        "source_task_id": "task.writing.simple_novel.volume_plan",
+        "source_flow_id": "flow.writing.simple_novel.volume_plan"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.chapter_outline",
+      "task_family": "writing_modular_novel",
+      "title": "模块化当前批次细纲",
+      "input_contract_id": "contract.writing.simple_novel.chapter_outline_input",
+      "output_contract_id": "contract.writing.simple_novel.chapter_outline",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.chapter_outline",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.chapter_outline",
+        "projection_id": "projection.writing.simple_novel.chapter_outliner",
+        "source_task_id": "task.writing.simple_novel.chapter_outline",
+        "source_flow_id": "flow.writing.simple_novel.chapter_outline"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.chapter_draft",
+      "task_family": "writing_modular_novel",
+      "title": "模块化当前批次正文候选",
+      "input_contract_id": "contract.writing.simple_novel.chapter_draft_input",
+      "output_contract_id": "contract.writing.simple_novel.chapter_draft",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.chapter_draft",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.chapter_draft",
+        "projection_id": "projection.writing.simple_novel.chapter_writer",
+        "source_task_id": "task.writing.simple_novel.chapter_draft",
+        "source_flow_id": "flow.writing.simple_novel.chapter_draft"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.chapter_review",
+      "task_family": "writing_modular_novel",
+      "title": "模块化当前批次轻量审核",
+      "input_contract_id": "contract.writing.simple_novel.chapter_review_input",
+      "output_contract_id": "contract.writing.simple_novel.chapter_review",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.chapter_review",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.chapter_review",
+        "projection_id": "projection.writing.simple_novel.chapter_reviewer",
+        "source_task_id": "task.writing.simple_novel.chapter_review",
+        "source_flow_id": "flow.writing.simple_novel.chapter_review"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.memory_commit_chapter",
+      "task_family": "writing_modular_novel",
+      "title": "模块化章节批次写入",
+      "input_contract_id": "contract.writing.simple_novel.chapter_review",
+      "output_contract_id": "contract.writing.simple_novel.chapter_commit",
+      "default_agent_id": "agent:writing_memory_steward",
+      "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_chapter",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.memory_commit_chapter",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_task_id": "task.writing.simple_novel.memory_commit_chapter",
+        "source_flow_id": "flow.writing.simple_novel.memory_commit_chapter"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.chapter_progress_router",
+      "task_family": "writing_modular_novel",
+      "title": "模块化章节批次推进判断",
+      "input_contract_id": "contract.writing.simple_novel.chapter_commit",
+      "output_contract_id": "contract.writing.simple_novel.chapter_progress_decision",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.chapter_progress_router",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.chapter_progress_router",
+        "projection_id": "projection.writing.simple_novel.chapter_progress_router",
+        "source_task_id": "task.writing.simple_novel.chapter_progress_router",
+        "source_flow_id": "flow.writing.simple_novel.chapter_progress_router"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.volume_review",
+      "task_family": "writing_modular_novel",
+      "title": "模块化卷级总审核",
+      "input_contract_id": "contract.writing.simple_novel.volume_review_input",
+      "output_contract_id": "contract.writing.simple_novel.volume_review",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.volume_review",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.volume_review",
+        "projection_id": "projection.writing.simple_novel.volume_reviewer",
+        "source_task_id": "task.writing.simple_novel.volume_review",
+        "source_flow_id": "flow.writing.simple_novel.volume_review"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.volume_commit",
+      "task_family": "writing_modular_novel",
+      "title": "模块化卷级写入",
+      "input_contract_id": "contract.writing.simple_novel.volume_review",
+      "output_contract_id": "contract.writing.simple_novel.volume_commit",
+      "default_agent_id": "agent:writing_memory_steward",
+      "default_workflow_id": "workflow.writing.modular_novel.node.volume_commit",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.volume_commit",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_task_id": "task.writing.simple_novel.volume_commit",
+        "source_flow_id": "flow.writing.simple_novel.volume_commit"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.volume_postmortem",
+      "task_family": "writing_modular_novel",
+      "title": "模块化卷后复盘",
+      "input_contract_id": "contract.writing.simple_novel.volume_commit",
+      "output_contract_id": "contract.writing.simple_novel.volume_postmortem",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.volume_postmortem",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.volume_postmortem",
+        "projection_id": "projection.writing.simple_novel.volume_postmortem",
+        "source_task_id": "task.writing.simple_novel.volume_postmortem",
+        "source_flow_id": "flow.writing.simple_novel.volume_postmortem"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.world_outline_extension_proposal",
+      "task_family": "writing_modular_novel",
+      "title": "模块化可改动库更新提案",
+      "input_contract_id": "contract.writing.simple_novel.volume_postmortem",
+      "output_contract_id": "contract.writing.simple_novel.world_outline_extension_proposal",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.world_outline_extension_proposal",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.world_outline_extension_proposal",
+        "projection_id": "projection.writing.simple_novel.world_outline_extension_proposer",
+        "source_task_id": "task.writing.simple_novel.world_outline_extension_proposal",
+        "source_flow_id": "flow.writing.simple_novel.world_outline_extension_proposal"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.extension_review",
+      "task_family": "writing_modular_novel",
+      "title": "模块化可改动库更新审核",
+      "input_contract_id": "contract.writing.simple_novel.world_outline_extension_proposal",
+      "output_contract_id": "contract.writing.simple_novel.extension_review",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.extension_review",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.extension_review",
+        "projection_id": "projection.writing.simple_novel.extension_reviewer",
+        "source_task_id": "task.writing.simple_novel.extension_review",
+        "source_flow_id": "flow.writing.simple_novel.extension_review"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.extension_commit",
+      "task_family": "writing_modular_novel",
+      "title": "模块化可改动记忆库更新",
+      "input_contract_id": "contract.writing.simple_novel.extension_review",
+      "output_contract_id": "contract.writing.simple_novel.extension_commit",
+      "default_agent_id": "agent:writing_memory_steward",
+      "default_workflow_id": "workflow.writing.modular_novel.node.extension_commit",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.extension_commit",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_task_id": "task.writing.simple_novel.extension_commit",
+        "source_flow_id": "flow.writing.simple_novel.extension_commit"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.next_volume_router",
+      "task_family": "writing_modular_novel",
+      "title": "模块化下一卷推进判断",
+      "input_contract_id": "contract.writing.simple_novel.extension_commit",
+      "output_contract_id": "contract.writing.simple_novel.next_volume_decision",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.next_volume_router",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.next_volume_router",
+        "projection_id": "projection.writing.simple_novel.next_volume_router",
+        "source_task_id": "task.writing.simple_novel.next_volume_router",
+        "source_flow_id": "flow.writing.simple_novel.next_volume_router"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.final_assemble",
+      "task_family": "writing_modular_novel",
+      "title": "模块化交付包整编",
+      "input_contract_id": "contract.writing.simple_novel.next_volume_decision",
+      "output_contract_id": "contract.writing.simple_novel.final_manuscript",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.final_assemble",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.final_assemble",
+        "projection_id": "projection.writing.simple_novel.final_assembler",
+        "source_task_id": "task.writing.simple_novel.final_assemble",
+        "source_flow_id": "flow.writing.simple_novel.final_assemble"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.final_review",
+      "task_family": "writing_modular_novel",
+      "title": "模块化最终交付审核",
+      "input_contract_id": "contract.writing.simple_novel.final_review_input",
+      "output_contract_id": "contract.writing.simple_novel.final_review",
+      "default_agent_id": "agent:writing_simple_worker",
+      "default_workflow_id": "workflow.writing.modular_novel.node.final_review",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.final_review",
+        "projection_id": "projection.writing.simple_novel.final_reviewer",
+        "source_task_id": "task.writing.simple_novel.final_review",
+        "source_flow_id": "flow.writing.simple_novel.final_review"
+      }
+    },
+    {
+      "flow_id": "flow.writing.modular_novel.node.memory_finalize",
+      "task_family": "writing_modular_novel",
+      "title": "模块化任务收尾归档",
+      "input_contract_id": "contract.writing.simple_novel.final_review",
+      "output_contract_id": "contract.writing.simple_novel.delivery_package",
+      "default_agent_id": "agent:writing_memory_steward",
+      "default_workflow_id": "workflow.writing.modular_novel.node.memory_finalize",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260520",
+        "domain_id": "domain.writing.modular_novel",
+        "task_id": "task.writing.modular_novel.node.memory_finalize",
+        "projection_id": "projection.writing.simple_novel.memory_steward",
+        "source_task_id": "task.writing.simple_novel.memory_finalize",
+        "source_flow_id": "flow.writing.simple_novel.memory_finalize"
       }
     }
   ]

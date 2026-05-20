@@ -31,7 +31,10 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
     memory_edges = [_memory_edge_payload(edge) for edge in edges if _is_memory_edge(edge)]
     artifact_context_edges = [_artifact_context_edge_payload(edge) for edge in edges if _is_artifact_context_edge(edge)]
     revision_edges = [_revision_edge_payload(edge) for edge in edges if _is_revision_edge(edge)]
-    loop_frames = [_loop_frame_payload(node) for node in nodes if _is_loop_frame(node)]
+    loop_frames = [
+        *_graph_runtime_loop_frames(graph),
+        *[_loop_frame_payload(node) for node in nodes if _is_loop_frame(node)],
+    ]
     timeline_blocks = _timeline_blocks(graph=graph, nodes=nodes)
     matrix = _memory_matrix(nodes=nodes, resource_nodes=resource_nodes, memory_edges=memory_edges)
     issues = _layer_issues(
@@ -81,7 +84,37 @@ def _is_resource_node(node: TaskGraphNodeDefinition) -> bool:
 
 
 def _is_loop_frame(node: TaskGraphNodeDefinition) -> bool:
-    return str(node.node_type or "").strip() == "loop_frame" or bool(node.loop_policy)
+    return str(node.node_type or "").strip() == "loop_frame"
+
+
+def _graph_runtime_loop_frames(graph: TaskGraphDefinition) -> list[dict[str, Any]]:
+    metadata = dict(graph.metadata or {})
+    policy = dict(metadata.get("runtime_loop_policy") or {})
+    frames = list(policy.get("frames") or [])
+    normalized: list[dict[str, Any]] = []
+    for index, raw_frame in enumerate(frames, start=1):
+        if not isinstance(raw_frame, dict):
+            continue
+        frame = dict(raw_frame)
+        frame_id = str(frame.get("frame_id") or frame.get("loop_frame_id") or f"runtime_loop_frame_{index}").strip()
+        if not frame_id:
+            continue
+        normalized.append(
+            {
+                **frame,
+                "frame_id": frame_id,
+                "loop_frame_id": frame_id,
+                "loop_kind": str(frame.get("loop_kind") or frame.get("kind") or "runtime_loop_policy_frame").strip(),
+                "entry_stage_id": str(frame.get("entry_stage_id") or "").strip(),
+                "router_stage_id": str(frame.get("router_stage_id") or "").strip(),
+                "exit_stage_id": str(frame.get("exit_stage_id") or "").strip(),
+                "initial_inputs": dict(policy.get("initial_inputs") or {}),
+                "derived_fields": list(policy.get("derived_fields") or []),
+                "policy": policy,
+                "authority": "task_system.runtime_loop_policy",
+            }
+        )
+    return normalized
 
 
 def _resource_node_payload(node: TaskGraphNodeDefinition) -> dict[str, Any]:

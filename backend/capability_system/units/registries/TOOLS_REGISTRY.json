@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 19,
+  "tool_count": 20,
   "tools": [
     {
       "name": "web_search",
@@ -545,6 +545,72 @@
       ],
       "safe_for_auto_route": false,
       "schema_identity": "local.tools/read_structured_file",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
+      "name": "text_metric",
+      "display_name": "文本计量",
+      "operation_id": "op.text_metric",
+      "module": "tools.text_metric_tool",
+      "contract": {
+        "required_inputs": [],
+        "required_bindings": [],
+        "optional_inputs": [
+          "text",
+          "path",
+          "measurement_mode"
+        ],
+        "owner_scope": "explicit_text_or_path",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "path",
+        "path_kind": "workspace",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "text",
+        "metric",
+        "length_budget",
+        "word_count",
+        "content_quality"
+      ],
+      "supported_modalities": [
+        "text",
+        "document",
+        "workspace"
+      ],
+      "safety_tags": [
+        "read"
+      ],
+      "route_hints": [
+        "tool",
+        "text_metric",
+        "word_count",
+        "length_budget"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/text_metric",
       "runtime_visibility": "main_runtime",
       "prompt_exposure_policy": "schema_only",
       "resource_exposure_policy": "explicit_resource",

@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 ExecutionMode = Literal["single", "bundle"]
 BindingKind = Literal["source_file", "result", "subset", "task_ref"]
-BindingSource = Literal["explicit_user_input", "session_state", "task_summary", "restore_candidate", "continuation_decision"]
+BindingSource = Literal["explicit_user_input", "task_ref"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,7 +20,7 @@ class ResolvedBinding:
     subset_handle_id: str = ""
     owner_task_id: str = ""
     confidence: float = 0.0
-    source: BindingSource = "session_state"
+    source: BindingSource = "explicit_user_input"
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -71,6 +71,7 @@ class CurrentTurnContext:
     runtime_assembly_hint: dict[str, Any] = field(default_factory=dict)
     continuation_candidates: tuple[dict[str, Any], ...] = ()
     continuation_decision: dict[str, Any] = field(default_factory=dict)
+    context_recall_candidates: tuple[dict[str, Any], ...] = ()
     structural_signals: dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.0
     authority: str = "context.current_turn"
@@ -91,4 +92,5 @@ class CurrentTurnContext:
         payload["restore_candidates_used"] = list(self.restore_candidates_used)
         payload["unresolved_ambiguities"] = list(self.unresolved_ambiguities)
         payload["continuation_candidates"] = [dict(item) for item in self.continuation_candidates]
+        payload["context_recall_candidates"] = [dict(item) for item in self.context_recall_candidates]
         return payload

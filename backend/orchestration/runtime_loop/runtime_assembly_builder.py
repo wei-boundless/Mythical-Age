@@ -162,6 +162,7 @@ def build_node_runtime_assembly(
         node.memory_bindings.get("dynamic_memory_read_policy") or getattr(node, "dynamic_memory_read_policy", {}) or node.metadata.get("dynamic_memory_read_policy") or {}
     )
     node_artifact_policy = dict(node.artifact_bindings.get("artifact_policy") or getattr(node, "artifact_policy", {}) or node.metadata.get("artifact_policy") or {})
+    node_length_budget = dict(node.runtime_bindings.get("length_budget") or {})
     return NodeRuntimeAssembly(
         assembly_id=_stable_assembly_id("node", manifest.manifest_id, node_id, explicit_inputs or {}),
         manifest_ref=manifest.manifest_id,
@@ -190,6 +191,7 @@ def build_node_runtime_assembly(
             "memory_writeback_policy": node_memory_writeback_policy,
             "dynamic_memory_read_policy": node_dynamic_memory_read_policy,
             "artifact_policy": node_artifact_policy,
+            "length_budget": node_length_budget,
             "contract_bindings": {
                 "schema": dict(node.schema_bindings),
                 "execution": dict(node.execution_bindings),
@@ -230,6 +232,7 @@ def build_node_runtime_assembly(
             "manifest_valid": manifest.valid,
             "manifest_issue_count": len(manifest.issues),
             "stream_policy": node_stream_policy,
+            "length_budget": node_length_budget,
             "full_main_session_history_included": False,
             "handoff_packet_count": len(handoff_packets),
             "node_agent_id": node.agent_id,

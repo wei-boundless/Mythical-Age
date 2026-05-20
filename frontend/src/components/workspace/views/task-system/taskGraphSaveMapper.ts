@@ -122,10 +122,12 @@ function mergeSection(bindings: Record<string, unknown>, section: string, patch:
 
 function normalizeGraphContractBindings(taskGraphDraft: TaskGraphDraftV2): Record<string, unknown> {
   let bindings = asRecord(taskGraphDraft.contract_bindings);
+  const currentRuntime = asRecord(bindings.runtime);
   bindings = mergeSection(bindings, "schema", {
     graph_contract_id: taskGraphDraft.graph_contract_id || undefined,
   });
   bindings = mergeSection(bindings, "runtime", {
+    length_budget: asRecord(currentRuntime.length_budget),
     runtime_policy: asRecord(taskGraphDraft.runtime_policy),
     working_memory_policy_profile_id: taskGraphDraft.working_memory_policy_profile_id || undefined,
   });
@@ -140,6 +142,7 @@ function normalizeGraphContractBindings(taskGraphDraft: TaskGraphDraftV2): Recor
 
 function normalizeNodeContractBindings(node: TaskGraphNodeRecord): TaskGraphNodeRecord {
   let bindings = asRecord(node.contract_bindings);
+  const currentRuntime = asRecord(bindings.runtime);
   bindings = mergeSection(bindings, "schema", {
     input_contract_id: String(node.input_contract_id ?? "").trim() || undefined,
     output_contract_id: String(node.output_contract_id ?? "").trim() || undefined,
@@ -162,6 +165,7 @@ function normalizeNodeContractBindings(node: TaskGraphNodeRecord): TaskGraphNode
     human_gate_policy: asRecord(node.human_gate_policy),
   });
   bindings = mergeSection(bindings, "runtime", {
+    length_budget: asRecord(currentRuntime.length_budget),
     runtime_lane: String(node.runtime_lane ?? "").trim() || undefined,
     execution_mode: String(node.execution_mode ?? "").trim() || undefined,
     wait_policy: String(node.wait_policy ?? "").trim() || undefined,

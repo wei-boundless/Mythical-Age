@@ -222,7 +222,6 @@ def test_delegate_preferred_templates_mount_delegate_operation_for_main_agent() 
         ("请帮我检索知识库里和向量召回有关的结论。", {"route": "rag", "execution_posture": "direct_rag"}, "op.mcp_retrieval", "agent:rag_analyst"),
         ("请读取这个 PDF 文档并总结前三页要点。", {"route": "pdf"}, "op.mcp_pdf", "agent:pdf_reader"),
         ("请分析这份表格数据并给我趋势结论。", {"route": "structured_data"}, "op.mcp_structured_data", "agent:table_analyst"),
-        ("帮我联网查 OpenAI API 最新更新，并说明来源。", {"route": "realtime_network"}, "op.web_search", "agent:web_researcher"),
     ]
     for user_goal, understanding, fallback_operation, target_agent_id in scenarios:
         task_bundle = build_task_execution_assembly_bundle(
@@ -241,6 +240,27 @@ def test_delegate_preferred_templates_mount_delegate_operation_for_main_agent() 
         assert fallback_operation not in set(requirement["required_operations"])
         assert resolution.get("execution_mode") == "delegate"
         assert resolution.get("delegate_target_agent_id") == target_agent_id
+
+
+def test_information_search_template_mounts_direct_web_search_for_main_agent() -> None:
+    profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:0")
+    assert profile is not None
+
+    task_bundle = build_task_execution_assembly_bundle(
+        base_dir=BACKEND_DIR,
+        session_id="session-direct-web",
+        task_id="taskinst:direct:web",
+        user_goal="帮我联网查 OpenAI API 最新更新，并说明来源。",
+        source="test",
+        query_understanding={"route": "realtime_network"},
+        agent_runtime_profile=profile,
+    )
+    requirement = task_bundle["operation_requirement"]
+    resolution = dict(requirement.get("metadata") or {}).get("runtime_operation_resolution") or {}
+
+    assert "op.web_search" in set(requirement["required_operations"])
+    assert "op.delegate_to_agent" not in set(requirement["required_operations"])
+    assert resolution.get("strategy") == "direct"
 
 
 def test_delegate_preferred_templates_fall_back_to_direct_operation_for_specialist_agent() -> None:

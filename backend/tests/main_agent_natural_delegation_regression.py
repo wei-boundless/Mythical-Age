@@ -36,60 +36,59 @@ def test_main_agent_natural_scenarios_select_expected_child_agents() -> None:
     scenarios = [
         (
             "查一下知识库里关于向量召回准确率的结论，给我证据来源。",
-            {},
             "agent:rag_analyst",
             "op.mcp_retrieval",
         ),
         (
-            "请阅读这份 PDF 的结论部分，并说明哪些页是真正结论页。",
-            {"committed_pdf": "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf"},
+            "请阅读 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf 的结论部分，并说明哪些页是真正结论页。",
             "agent:pdf_reader",
             "op.mcp_pdf",
         ),
         (
             "分析 inventory.xlsx，按仓库汇总缺口最高的前三名。",
-            {},
             "agent:table_analyst",
             "op.mcp_structured_data",
         ),
         (
-            "帮我联网查 OpenAI API 最新更新，优先看官方来源。",
-            {},
-            "agent:web_researcher",
-            "op.web_search",
-        ),
-        (
-            "查一下 Anthropic 官方最近的模型公告，给我来源和时间。",
-            {},
-            "agent:web_researcher",
-            "op.web_search",
-        ),
-        (
-            "北京今天天气怎么样，直接给温度范围和时间口径。",
-            {},
-            "agent:web_researcher",
-            "op.web_search",
-        ),
-        (
             "打开 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf，总结第二部分。",
-            {},
             "agent:pdf_reader",
             "op.mcp_pdf",
         ),
         (
             "帮我看 employees.xlsx 里薪资最高的前五名，带上部门。",
-            {},
             "agent:table_analyst",
             "op.mcp_structured_data",
         ),
     ]
 
-    for user_goal, active_bindings, expected_agent, fallback_operation in scenarios:
-        understanding = asdict(analyze_task_understanding(user_goal, active_bindings=active_bindings))
+    for user_goal, expected_agent, fallback_operation in scenarios:
+        understanding = asdict(analyze_task_understanding(user_goal))
         resolution = _delegate_resolution(user_goal=user_goal, understanding=understanding)
         assert resolution["execution_mode"] == "delegate"
         assert resolution["delegate_target_agent_id"] == expected_agent
         assert resolution["fallback_operation"] == fallback_operation
+
+
+def test_realtime_information_uses_direct_web_search_not_child_delegation() -> None:
+    profile = AgentRuntimeRegistry(BACKEND_DIR).get_profile("agent:0")
+    assert profile is not None
+    bundle = build_task_execution_assembly_bundle(
+        base_dir=BACKEND_DIR,
+        session_id="session-realtime-direct",
+        task_id="taskinst:realtime:direct",
+        user_goal="北京今天天气怎么样，直接给温度范围和时间口径。",
+        source="test",
+        query_understanding=asdict(analyze_task_understanding("北京今天天气怎么样，直接给温度范围和时间口径。")),
+        agent_runtime_profile=profile,
+    )
+    requirement = bundle["operation_requirement"]
+    resolution = dict(dict(requirement.get("metadata") or {}).get("runtime_operation_resolution") or {})
+    task_inputs = dict(dict(bundle["task_spec"]).get("inputs") or {})
+
+    assert resolution["strategy"] == "direct"
+    assert "op.web_search" in set(requirement["required_operations"])
+    assert "op.delegate_to_agent" not in set(requirement["required_operations"])
+    assert "agent_communication_protocol" not in task_inputs
 
 
 def test_general_conversation_does_not_mount_delegate_operation() -> None:

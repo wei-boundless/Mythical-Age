@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from orchestration import RuntimeActionRequest, RuntimeDirective, build_tool_result_observation
@@ -26,17 +27,19 @@ class ToolRuntimeExecutor:
         execution_record: OperationExecutionRecord,
         execution_store: RuntimeExecutionStore | None = None,
         max_result_size_chars: int = 0,
+        sandbox_policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         tool_name = str(action_request.payload.get("tool_name") or "").strip()
         tool_call = dict(action_request.payload.get("tool_call") or {})
         tool_args = dict(tool_call.get("args") or {})
         tool_call_id = str(tool_call.get("id") or action_request.request_id)
+        sandbox_context = _sandbox_context_for_tool(tool_name, sandbox_policy)
         current_record = execution_record
         if execution_store is not None:
-            current_record = execution_store.mark_dispatched(
-                current_record,
-                diagnostics={"tool_name": tool_name, "directive_ref": directive.directive_id},
-            )
+            dispatch_diagnostics = {"tool_name": tool_name, "directive_ref": directive.directive_id}
+            if sandbox_context:
+                dispatch_diagnostics["sandbox"] = dict(sandbox_context)
+            current_record = execution_store.mark_dispatched(current_record, diagnostics=dispatch_diagnostics)
         definition = self.tool_runtime.get_definition(tool_name)
         if definition is None:
             error = f"Tool execution failed: unknown tool {tool_name}."
@@ -56,7 +59,11 @@ class ToolRuntimeExecutor:
                 "execution_record": current_record,
                 "error": error,
             }
-        tool = self.tool_runtime.get_instance(tool_name)
+        tool = (
+            definition.build(Path(str(sandbox_context["sandbox_root"])).resolve())
+            if sandbox_context
+            else self.tool_runtime.get_instance(tool_name)
+        )
         if tool is None:
             error = f"Tool execution failed: {tool_name} is unavailable."
             if execution_store is not None:
@@ -106,17 +113,20 @@ class ToolRuntimeExecutor:
             text = text[:limit]
         result_ref = f"execution-result:{current_record.execution_id}"
         if execution_store is not None:
+            result_payload = {
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "tool_args": tool_args,
+                "result": text,
+                "result_chars": len(text),
+                "truncated": truncated,
+            }
+            if sandbox_context:
+                result_payload["sandbox"] = dict(sandbox_context)
             current_record = execution_store.mark_completed(
                 current_record,
                 result_ref=result_ref,
-                result_payload={
-                    "tool_name": tool_name,
-                    "tool_call_id": tool_call_id,
-                    "tool_args": tool_args,
-                    "result": text,
-                    "result_chars": len(text),
-                    "truncated": truncated,
-                },
+                result_payload=result_payload,
             )
         observation = build_tool_result_observation(
             task_run_id=task_run_id,
@@ -134,4 +144,32 @@ class ToolRuntimeExecutor:
             "observation": observation,
             "execution_record": current_record,
             "error": "",
+            "sandbox": dict(sandbox_context),
         }
+
+
+DEFAULT_SIDE_EFFECT_TOOL_NAMES = {"write_file", "edit_file", "terminal", "python_repl"}
+
+
+def _sandbox_context_for_tool(tool_name: str, sandbox_policy: dict[str, Any] | None) -> dict[str, Any]:
+    policy = dict(sandbox_policy or {})
+    if policy.get("enabled") is not True:
+        return {}
+    side_effect_tools = {
+        str(item or "").strip()
+        for item in list(policy.get("side_effect_tools") or DEFAULT_SIDE_EFFECT_TOOL_NAMES)
+        if str(item or "").strip()
+    }
+    if str(tool_name or "").strip() not in side_effect_tools:
+        return {}
+    sandbox_root = Path(str(policy.get("sandbox_root") or "")).resolve() if policy.get("sandbox_root") else None
+    if sandbox_root is None:
+        return {}
+    sandbox_root.mkdir(parents=True, exist_ok=True)
+    return {
+        "enabled": True,
+        "mode": str(policy.get("mode") or "workspace_overlay"),
+        "sandbox_root": str(sandbox_root),
+        "tool_name": str(tool_name or ""),
+        "real_workspace_access": str(policy.get("real_workspace_access") or "read_only"),
+    }

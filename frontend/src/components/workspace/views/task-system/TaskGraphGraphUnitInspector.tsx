@@ -126,7 +126,7 @@ export function TaskGraphGraphUnitInspector({
           contractOptions={contractOptions}
           fieldKeysBySection={{
             handoff: ["handoff_contract_id", "wait_policy", "failure_propagation_policy", "result_delivery_policy"],
-            runtime: ["model_requirement.profile_ref", "model_requirement.provider_family"],
+            runtime: ["model_requirement.profile_ref", "model_requirement.provider_family", "length_budget.enabled", "length_budget.budget_scope", "length_budget.measurement_mode", "length_budget.target_units", "length_budget.min_units", "length_budget.max_units", "length_budget.batch_unit_count"],
             governance: ["context_boundary_policy_ref"],
             temporal: ["trigger_timing", "visibility_timing", "propagation_timing"],
           }}
@@ -178,7 +178,7 @@ export function TaskGraphTimelineBlockInspector({
         contractOptions={contractOptions}
         fieldKeysBySection={{
           handoff: ["handoff_contract_id", "wait_policy", "failure_propagation_policy", "result_delivery_policy"],
-          runtime: ["model_requirement.profile_ref", "model_requirement.provider_family"],
+          runtime: ["model_requirement.profile_ref", "model_requirement.provider_family", "length_budget.enabled", "length_budget.budget_scope", "length_budget.measurement_mode", "length_budget.target_units", "length_budget.min_units", "length_budget.max_units", "length_budget.batch_unit_count"],
           governance: ["context_boundary_policy_ref"],
           temporal: ["trigger_timing", "visibility_timing", "propagation_timing"],
         }}

@@ -293,6 +293,18 @@ async def get_health_task_run_monitor(task_run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/health-system/maintenance/test-system/task-graph/task-runs/{task_run_id}/health")
+async def get_health_task_graph_run_health(task_run_id: str) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        return test_system_service.get_task_graph_health(
+            task_run_id,
+            runtime_loop=runtime.query_runtime.task_run_loop,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/health-system/maintenance/experiments/profiles")
 async def list_health_experiment_profiles() -> list[dict[str, object]]:
     return experiment_runner.profiles()

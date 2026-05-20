@@ -285,22 +285,36 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
         memory_class="work",
     )
 
-    view = facade.build_memory_runtime_view(
+    default_view = facade.build_memory_runtime_view(
         session_id=session_id,
         query="记忆系统原则是什么？",
         relevant_notes=[note],
     )
+    requested_view = facade.build_memory_runtime_view(
+        session_id=session_id,
+        query="记忆系统原则是什么？",
+        relevant_notes=[note],
+        memory_request_profile={
+            "requested_memory_layers": ["state", "long_term"],
+            "allow_long_term_memory": True,
+        },
+    )
 
-    assert isinstance(view, MemoryRuntimeView)
-    assert view.read_only is True
-    assert view.memory_write_allowed is False
-    assert {candidate.memory_layer for candidate in view.context_candidates} == {"state", "long_term"}
-    assert view.restore_candidates
-    assert view.state_snapshot is not None
-    assert view.state_snapshot.context_slots["active_constraints"]["subset_filter_column"] == "name"
-    assert view.state_snapshot.context_slots["active_constraints"]["subset_labels"] == ["Alice", "Bob"]
-    assert all(candidate.authority == "candidate_only" for candidate in view.restore_candidates)
-    assert view.diagnostics["memory_write_allowed"] is False
+    assert isinstance(default_view, MemoryRuntimeView)
+    assert default_view.read_only is True
+    assert default_view.memory_write_allowed is False
+    assert default_view.context_candidates == ()
+    assert default_view.restore_candidates == ()
+    assert default_view.state_snapshot is None
+    assert default_view.diagnostics["state_read_requested"] is False
+    assert default_view.diagnostics["memory_write_allowed"] is False
+    assert {candidate.memory_layer for candidate in requested_view.context_candidates} == {"state", "long_term"}
+    assert requested_view.restore_candidates
+    assert requested_view.state_snapshot is not None
+    assert requested_view.state_snapshot.context_slots["active_constraints"]["subset_filter_column"] == "name"
+    assert requested_view.state_snapshot.context_slots["active_constraints"]["subset_labels"] == ["Alice", "Bob"]
+    assert all(candidate.authority == "candidate_only" for candidate in requested_view.restore_candidates)
+    assert requested_view.diagnostics["state_read_requested"] is True
 
 
 def test_memory_runtime_view_collects_conversation_only_when_requested(tmp_path) -> None:

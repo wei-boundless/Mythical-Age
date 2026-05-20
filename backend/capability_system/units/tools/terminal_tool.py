@@ -25,6 +25,18 @@ BLOCKED_PATTERNS = (
     "format ",
     ":(){:|:&};:",
 )
+BLOCKED_PATH_PATTERNS = (
+    "../",
+    "..\\",
+    "c:\\",
+    "c:/",
+    "d:\\",
+    "d:/",
+    "\\windows",
+    "/etc/",
+    "/var/",
+    "/usr/",
+)
 
 
 class TerminalToolInput(BaseModel):
@@ -63,6 +75,8 @@ class TerminalTool(BaseTool):
         lowered = command.lower()
         if any(pattern in lowered for pattern in BLOCKED_PATTERNS):
             return "Blocked: command matches the terminal blacklist."
+        if any(pattern in lowered for pattern in BLOCKED_PATH_PATTERNS):
+            return "Blocked: command references a path outside the sandbox workspace."
 
         settings = get_settings()
         shell_command = (

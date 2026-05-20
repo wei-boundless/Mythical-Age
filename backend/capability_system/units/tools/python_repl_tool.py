@@ -33,6 +33,9 @@ class PythonReplTool(BaseTool):
         code: str,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
+        lowered = str(code or "").lower()
+        if any(pattern in lowered for pattern in ("../", "..\\", "c:\\", "c:/", "d:\\", "d:/", "/etc/", "/var/", "/usr/")):
+            return "Blocked: code references a path outside the sandbox workspace."
         try:
             completed = subprocess.run(
                 [sys.executable, "-c", code],

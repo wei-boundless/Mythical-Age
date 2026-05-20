@@ -26,6 +26,7 @@ def test_tool_operation_resolution_does_not_use_operation_alias_collision() -> N
 
     assert resolve_tool_operation_id("read_file", definitions_by_name=index.definitions_by_name) == "op.read_file"
     assert resolve_tool_operation_id("web_search", definitions_by_name=index.definitions_by_name) == "op.web_search"
+    assert resolve_tool_operation_id("text_metric", definitions_by_name=index.definitions_by_name) == "op.text_metric"
     assert resolve_tool_operation_id("list_dir", definitions_by_name=index.definitions_by_name) == "op.list_dir"
     assert resolve_tool_operation_id("git_status", definitions_by_name=index.definitions_by_name) == "op.git_status"
     assert resolve_tool_operation_id("index_multimodal_file", definitions_by_name=index.definitions_by_name) == ""
@@ -65,6 +66,15 @@ def test_task_run_loop_tool_filter_uses_tool_definition_operation_id() -> None:
     visible = loop._tool_instances_for_resource_policy(instances, policy)
 
     assert visible == []
+
+
+def test_text_metric_tool_is_schema_visible_as_read_only_operation() -> None:
+    definitions = {definition.name: definition for definition in get_tool_definitions()}
+
+    assert definitions["text_metric"].operation_id == "op.text_metric"
+    assert definitions["text_metric"].is_read_only is True
+    assert definitions["text_metric"].is_destructive is False
+    assert definitions["text_metric"].safe_for_auto_route is True
 
 
 def test_write_and_edit_tools_are_registered_as_main_runtime_schema_tools() -> None:

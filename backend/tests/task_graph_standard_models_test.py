@@ -266,6 +266,59 @@ def test_runtime_spec_promotes_linked_timeline_block_to_graph_unit(tmp_path: Pat
     assert graph_unit_nodes[0]["metadata"]["execution_mode"] == "nested_graph_run"
 
 
+def test_runtime_spec_merges_explicit_graph_unit_node_with_timeline_runtime(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    registry.upsert_task_graph(
+        graph_id="graph.test.explicit_graph_unit",
+        title="显式图单元父图",
+        graph_kind="coordination",
+        entry_node_id="graph_unit.child",
+        output_node_id="graph_unit.child",
+        nodes=(
+            {
+                "node_id": "graph_unit.child",
+                "node_type": "graph_unit",
+                "title": "显式子图节点",
+                "task_id": "task.test.graph_unit_child",
+                "agent_id": "agent:0",
+                "phase_id": "phase.child",
+                "sequence_index": 10,
+                "metadata": {"editor_node": True},
+            },
+        ),
+        metadata={
+            "timeline_blocks": [
+                {
+                    "block_id": "child",
+                    "block_type": "graph_unit",
+                    "title": "子图运行块",
+                    "phase_id": "phase.child",
+                    "linked_graph_id": "graph.test.child",
+                    "version_ref": "published",
+                    "contract_bindings": {
+                        "handoff": {"handoff_contract_id": "contract.agent_output.markdown"}
+                    },
+                }
+            ],
+        },
+        publish_state="published",
+        enabled=True,
+    )
+    graph = registry.get_task_graph("graph.test.explicit_graph_unit")
+    assert graph is not None
+
+    spec = build_task_graph_standard_view(graph=graph).diagnostics["runtime_spec"]
+    graph_unit_nodes = [node for node in spec["nodes"] if node["node_id"] == "graph_unit.child"]
+
+    assert len(graph_unit_nodes) == 1
+    assert len(spec["nested_runtime_plans"]) == 1
+    assert graph_unit_nodes[0]["task_id"] == "task.test.graph_unit_child"
+    assert graph_unit_nodes[0]["metadata"]["editor_node"] is True
+    assert graph_unit_nodes[0]["metadata"]["explicit_graph_unit_node"] is True
+    assert graph_unit_nodes[0]["metadata"]["nested_runtime_plan_id"] == "nested.child"
+    assert graph_unit_nodes[0]["executor_policy"]["subgraph_id"] == "graph.test.child"
+
+
 def test_graph_unit_handoff_contract_binding_overrides_legacy_timeline_field(tmp_path: Path) -> None:
     _seed_graph(tmp_path)
     registry = TaskFlowRegistry(tmp_path)

@@ -330,14 +330,15 @@ def _task_summary_from_current_result_ref(
             for item in list(context_slots.get("active_subset_labels") or [])
             if _clean(item)
         ]
-        if subset_labels:
-            key_points.append(f"subset={','.join(subset_labels[:8])}")
         return {
             "task_id": task_id,
             "summary": summary,
             "answer": summary,
             "task_kind": "structured_data",
             "key_points": key_points,
+            "active_result_handle_id": task_id,
+            "active_object_handle_id": _clean(context_slots.get("active_object_handle_id")),
+            "active_subset_handle_id": _clean(context_slots.get("active_subset_handle_id")),
             **({"subset_labels": subset_labels} if subset_labels else {}),
             **(
                 {"subset_filter_column": _clean(context_slots.get("active_subset_filter_column"))}

@@ -301,6 +301,110 @@ TASK_SYSTEM_SHORT_STORY_COORDINATION_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, .
 )
 
 
+SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
+    operator(
+        "main",
+        "check_files",
+        paths=[
+            "tests/fixtures/sandbox_file_ops/source_brief.md",
+        ],
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "请用自主任务模式读取 backend/tests/fixtures/sandbox_file_ops/source_brief.md，"
+            "只提取项目代号、负责人、验证 marker 和安全规则。"
+        ),
+        checks=(
+            "response.contains_all=Atlas Finch|Operations Research|SANDBOX-FILE-OPS-READY",
+            "task_run.nonempty",
+            "trace.coordination_runs=0",
+            "response.nonempty",
+        ),
+        params={
+            "task_selection": {
+                "autonomy_mode": "standard",
+                "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+                "runtime_assembly_hint": {
+                    "execution_strategy": "autonomous_task_run",
+                    "autonomy_mode": "standard",
+                },
+            }
+        },
+        force_memory_sync=False,
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "继续用自主任务模式，在隔离环境中写入 output/sandbox_file_ops/atlas-finch-report.md。"
+            "文件内容必须包含 Atlas Finch、Operations Research、SANDBOX-FILE-OPS-READY，"
+            "并说明自主任务的写入只能落在 sandbox overlay，不要写真实工程目录。"
+        ),
+        checks=(
+            "event.tool=write_file",
+            "event=runtime_sandbox_prepared",
+            "event=tool_result_received",
+            "sandbox.enabled",
+            "sandbox.root.contains=output/sandbox_runs",
+            "sandbox.real_workspace_access=read_only",
+            "task_run.nonempty",
+            "trace.coordination_runs=0",
+            "response.nonempty",
+        ),
+        params={
+            "task_selection": {
+                "autonomy_mode": "standard",
+                "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+                "runtime_assembly_hint": {
+                    "execution_strategy": "autonomous_task_run",
+                    "autonomy_mode": "standard",
+                },
+            }
+        },
+        force_memory_sync=False,
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "再用自主任务模式运行一个 PowerShell 命令确认当前工作目录，"
+            "只需要返回它是否位于 output/sandbox_runs 下的 workspace。"
+        ),
+        checks=(
+            "event.tool=terminal",
+            "event=runtime_sandbox_prepared",
+            "event=tool_result_received",
+            "sandbox.enabled",
+            "sandbox.root.contains=output/sandbox_runs",
+            "sandbox.real_workspace_access=read_only",
+            "response.contains_any=sandbox|沙箱|output/sandbox_runs|workspace",
+            "task_run.nonempty",
+            "trace.coordination_runs=0",
+            "response.nonempty",
+        ),
+        params={
+            "task_selection": {
+                "autonomy_mode": "standard",
+                "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+                "runtime_assembly_hint": {
+                    "execution_strategy": "autonomous_task_run",
+                    "autonomy_mode": "standard",
+                },
+            }
+        },
+        force_memory_sync=False,
+    ),
+    operator(
+        "main",
+        "assert_file_contains",
+        path="tests/fixtures/sandbox_file_ops/source_brief.md",
+        text="Verification marker: SANDBOX-FILE-OPS-READY",
+    ),
+)
+
+
 PERMISSION_BOUNDARY_TURNS: tuple[LongScenarioTurn, ...] = (
     operator("main", "set_permission_mode", mode="default"),
     user(
@@ -768,6 +872,13 @@ SCENARIOS: tuple[LongScenario, ...] = (
         turns=TASK_SYSTEM_SHORT_STORY_COORDINATION_ACCEPTANCE_TURNS,
     ),
     LongScenario(
+        id="sandbox-file-ops-acceptance",
+        title="自主任务文件操作沙箱验收",
+        goal="验证主 Agent 在无图自主任务中能读取 fixture、写入文件并通过 sandbox overlay 隔离副作用。",
+        coverage=("tasks", "tool_route", "permissions", "sse"),
+        turns=SANDBOX_FILE_OPS_ACCEPTANCE_TURNS,
+    ),
+    LongScenario(
         id="permission-boundary-and-safe-fallback",
         title="权限边界与安全回退",
         goal="模拟用户先要求高风险操作，再退回到安全说明和只读分析。",
@@ -820,6 +931,7 @@ SCENARIO_SETS: dict[str, tuple[str, ...]] = {
         "memory-preference-and-cross-session-recall",
         "compound-task-decomposition-and-focus-return",
         "task-system-light-web-game-acceptance",
+        "sandbox-file-ops-acceptance",
         "permission-boundary-and-safe-fallback",
         "multi-session-workbench-isolation",
     ),
@@ -827,6 +939,7 @@ SCENARIO_SETS: dict[str, tuple[str, ...]] = {
         "task-system-light-web-game-acceptance",
         "task-system-short-story-coordination-acceptance",
     ),
+    "sandbox": ("sandbox-file-ops-acceptance",),
     "mega": ("sixty-turn-real-user-marathon",),
     "extended": tuple(scenario.id for scenario in SCENARIOS),
 }

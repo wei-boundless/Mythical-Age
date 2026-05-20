@@ -55,7 +55,6 @@ from understanding.capability_resolution_view import capability_resolution_view
 
 from context_management.projection import (
     ContextProjection,
-    projection_from_bound_answer,
     projection_from_bundle_answer,
     projection_from_file_work,
 )
@@ -106,6 +105,7 @@ from .task_graph_monitoring import (
     evaluate_task_graph_monitor_snapshot,
 )
 from .timeline_ledger import TimelineLedgerStore
+from text_metric import count_text_units
 from .model_adoption import build_model_response_runtime_adoption, build_runtime_capability_state
 from .models import (
     AgentDispatchPlan,
@@ -1089,12 +1089,34 @@ class TaskRunLoop:
             },
         )
         state = start.loop_state
+        sandbox_policy = _prepare_runtime_sandbox_policy(
+            root_dir=self.root_dir,
+            task_run_id=state.task_run_id,
+            selected_recipe_payload=selected_recipe_payload,
+            task_selection=dict(task_selection or {}),
+        )
+        if sandbox_policy.get("enabled") is True:
+            sandbox_event = self.event_log.append(
+                state.task_run_id,
+                "runtime_sandbox_prepared",
+                payload={
+                    "sandbox_policy": sandbox_policy,
+                    "scope": "tool_layer_side_effect_isolation",
+                    "real_workspace_access": str(sandbox_policy.get("real_workspace_access") or "read_only"),
+                },
+                refs={
+                    "sandbox_root_ref": str(sandbox_policy.get("sandbox_root") or ""),
+                    "task_contract_ref": str(task_contract.get("task_id") or task_id),
+                },
+            )
+            yield {"type": "runtime_loop_event", "event": sandbox_event.to_dict()}
         search_policy_event = self.event_log.append(
             state.task_run_id,
             "search_policy_resolved",
             payload={
                 "search_policy": list(search_policy) if search_policy is not None else None,
                 "allowed_sources": sorted(allowed_search_sources),
+                "sandbox_policy": sandbox_policy,
             },
         )
         yield {"type": "runtime_loop_event", "event": search_policy_event.to_dict()}
@@ -1144,6 +1166,7 @@ class TaskRunLoop:
                 "task_body_orchestration": task_body_orchestration_payload,
                 "agent_runtime_spec": agent_runtime_spec_payload,
                 "task_run_ledger": runtime_task_ledger.to_dict() if runtime_task_ledger is not None else {},
+                "sandbox_policy": sandbox_policy,
                 "source": source,
             },
             refs={
@@ -1353,6 +1376,7 @@ class TaskRunLoop:
             task_operation,
             operation_registry=self.operation_gate.registry,
             agent_runtime_profile=effective_agent_runtime_profile,
+            sandbox_policy=sandbox_policy,
         )
         resolved_model_spec = None
         model_resolution: dict[str, Any] = {}
@@ -1384,11 +1408,13 @@ class TaskRunLoop:
         task_safety_validators = build_task_safety_validators(
             root_dir=self.root_dir,
             safety_envelope=task_safety_envelope,
+            sandbox_policy=sandbox_policy,
         )
         runtime_tool_instances = self._tool_instances_for_resource_policy(
             tool_instances,
             resource_policy,
             allowed_search_sources=allowed_search_sources,
+            sandbox_policy=sandbox_policy,
         )
         runtime_capability_state = build_runtime_capability_state(
             task_operation,
@@ -1399,6 +1425,7 @@ class TaskRunLoop:
                 for tool in list(runtime_tool_instances)
                 if str(getattr(tool, "name", "") or "")
             ],
+            sandbox_policy=sandbox_policy,
         )
         effective_runtime_execution_facts = {
             **dict(runtime_execution_facts or {}),
@@ -1623,6 +1650,7 @@ class TaskRunLoop:
                 "search_policy": list(search_policy) if search_policy is not None else None,
                 "allowed_search_sources": sorted(allowed_search_sources),
                 "runtime_capability_state": runtime_capability_state,
+                "sandbox_policy": sandbox_policy,
                 "effective_tool_names": [
                     str(getattr(tool, "name", "") or "")
                     for tool in list(runtime_tool_instances)
@@ -1642,6 +1670,7 @@ class TaskRunLoop:
             "search_policy": list(search_policy) if search_policy is not None else None,
             "allowed_search_sources": sorted(allowed_search_sources),
             "runtime_capability_state": runtime_capability_state,
+            "sandbox_policy": sandbox_policy,
             "effective_tool_names": [
                 str(getattr(tool, "name", "") or "")
                 for tool in list(runtime_tool_instances)
@@ -1812,7 +1841,7 @@ class TaskRunLoop:
             autonomy_mode = _autonomous_task_run_mode(selected_recipe_payload)
             run_autonomous_stream = (
                 driver.run_standard_stream
-                if autonomy_mode == "standard"
+                if autonomy_mode in {"standard", "managed"}
                 else driver.run_simple_stream
             )
             async for event in run_autonomous_stream(
@@ -1832,6 +1861,7 @@ class TaskRunLoop:
                 tool_runtime_executor=tool_runtime_executor,
                 runtime_tool_instances=runtime_tool_instances,
                 allowed_search_sources=allowed_search_sources,
+                sandbox_policy=sandbox_policy,
             ):
                 yield event
             runtime_task_ledger = outcome.ledger
@@ -2861,33 +2891,6 @@ class TaskRunLoop:
             terminal_reason=terminal_reason,
             diagnostics={"final_content_chars": len(final_content), "artifact_validation": artifact_validation},
         )
-        if final_content and not (final_main_context or final_task_summary_refs):
-            bound_projection = projection_from_bound_answer(
-                content=final_content,
-                current_turn_context=current_turn_context,
-                existing_task_summary_refs=final_task_summary_refs,
-                existing_main_context=final_main_context,
-            )
-            if bound_projection.main_context or bound_projection.task_summary_refs:
-                aggregation = observation_aggregator.add_projection(bound_projection, tool_name="bound_answer")
-                (
-                    final_main_context,
-                    final_task_summary_refs,
-                    final_bundle_summary_refs,
-                ) = self._apply_observation_aggregation(aggregation)
-        binding_projection = projection_from_bound_answer(
-            content=final_content or user_message,
-            current_turn_context=current_turn_context,
-            existing_task_summary_refs=final_task_summary_refs,
-            existing_main_context=final_main_context,
-        )
-        if binding_projection.main_context or binding_projection.task_summary_refs:
-            aggregation = observation_aggregator.add_projection(binding_projection, tool_name="current_turn_binding")
-            (
-                final_main_context,
-                final_task_summary_refs,
-                final_bundle_summary_refs,
-            ) = self._apply_observation_aggregation(aggregation)
         if current_bundle_items and final_content:
             bundle_projection = projection_from_bundle_answer(
                 content=final_content,
@@ -5066,6 +5069,7 @@ class TaskRunLoop:
         resource_policy: Any,
         *,
         allowed_search_sources: set[str] | None = None,
+        sandbox_policy: dict[str, Any] | None = None,
     ) -> list[Any]:
         from capability_system.tool_authorization import build_authorized_tool_set
 
@@ -5082,6 +5086,7 @@ class TaskRunLoop:
             definitions_by_name=self.tool_authorization_index.definitions_by_name,
             allowed_operations=allowed_operations,
             runtime_lane="main_runtime",
+            include_hidden=bool(dict(sandbox_policy or {}).get("enabled") is True),
         )
         filtered: list[Any] = []
         for tool in list(authorized.instances):
@@ -5359,14 +5364,17 @@ class TaskRunLoop:
         parameters = dict(query_understanding.get("tool_input") or query_understanding.get("parameters") or {})
         bindings: dict[str, Any] = {}
         constraints: dict[str, Any] = {}
-        followup_contract = _followup_contract_from_task_spec(task_spec_payload)
         if unit is not None:
             path_key = str(unit.request_path_parameter or "").strip()
             binding_key = str(unit.followup_binding_key or "").strip()
             if path_key and binding_key and binding_key != "current_turn_context":
                 path = str(
                     parameters.get(path_key)
-                    or _followup_contract_source_path(followup_contract, binding_key=binding_key)
+                    or _path_from_context_recall(
+                        current_turn_context,
+                        source_kind=str(unit.source_kind or source_kind or ""),
+                        binding_key=binding_key,
+                    )
                     or ""
                 ).strip()
                 bindings = {binding_key: path} if path else {}
@@ -5378,7 +5386,6 @@ class TaskRunLoop:
                     constraints[mode_key] = mode
             if binding_key == "current_turn_context":
                 bindings = {"current_turn_context": dict(current_turn_context or {})}
-            constraints = _merge_followup_contract_into_payload(constraints, followup_contract=followup_contract)
             return unit.route, unit.operation_id, bindings, constraints, unit.answer_source
         bindings = {"current_turn_context": dict(current_turn_context or {})}
         retrieval_unit = get_local_mcp_unit("retrieval")
@@ -5441,13 +5448,10 @@ class TaskRunLoop:
         agent_communication_protocol = dict(task_spec_inputs.get("agent_communication_protocol") or {})
         if agent_communication_protocol:
             input_payload.setdefault("agent_communication_protocol", agent_communication_protocol)
-        input_payload = _merge_followup_contract_into_payload(
-            input_payload,
-            followup_contract=_followup_contract_from_task_spec(task_spec_payload),
-        )
         input_payload = _merge_task_spec_binding_into_delegation_payload(
             input_payload,
             task_spec_payload=task_spec_payload,
+            current_turn_context=dict(dict(task_operation or {}).get("current_turn_context") or {}),
             user_message=user_message,
         )
         recipe_metadata = dict(dict(dict(task_operation or {}).get("selected_recipe") or {}).get("metadata") or {})
@@ -5501,6 +5505,7 @@ class TaskRunLoop:
         tool_runtime_executor: Any | None,
         event: dict[str, Any],
         allowed_search_sources: set[str] | None = None,
+        sandbox_policy: dict[str, Any] | None = None,
     ):
         event_type = str(event.get("type") or "")
         if event_type == "runtime_directive":
@@ -5592,6 +5597,7 @@ class TaskRunLoop:
             from capability_system.tool_authorization import resolve_tool_operation_id
 
             action_request = build_tool_action_request(task_run_id, event, step_id=current_step_id)
+            action_step_ref = str(current_step_id or action_request.step_id or "")
             requested_event = self.event_log.append(
                 task_run_id,
                 "tool_call_requested",
@@ -5600,6 +5606,7 @@ class TaskRunLoop:
                     "action_request_ref": action_request.request_id,
                     "directive_ref": action_request.directive_ref,
                     "operation_id": action_request.operation_id,
+                    "task_step_ref": action_step_ref,
                 },
             )
             operation_id = self.operation_gate.registry.normalize_id(
@@ -5639,6 +5646,7 @@ class TaskRunLoop:
                             "action_request_ref": action_request.request_id,
                             "operation_id": operation_id,
                             "observation_ref": blocked_observation.observation_id,
+                            "task_step_ref": action_step_ref,
                         },
                     ),
                     self.event_log.append(
@@ -5653,6 +5661,7 @@ class TaskRunLoop:
                         refs={
                             "action_request_ref": action_request.request_id,
                             "observation_ref": blocked_observation.observation_id,
+                            "task_step_ref": action_step_ref,
                         },
                     ),
                 ]
@@ -5677,6 +5686,7 @@ class TaskRunLoop:
                     "action_request_ref": action_request.request_id,
                     "directive_ref": tool_directive.directive_id,
                     "resource_policy_ref": tool_policy.policy_id,
+                    "task_step_ref": action_step_ref,
                 },
             )
             gate_result = self.operation_gate.check(
@@ -5693,6 +5703,7 @@ class TaskRunLoop:
                         safety_envelope=dict(
                             dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}
                         ).get("safety_envelope", {}),
+                        sandbox_policy=dict(sandbox_policy or {}),
                     ),
                 ),
             )
@@ -5703,16 +5714,18 @@ class TaskRunLoop:
                     "gate": gate_result.to_dict(),
                     "dispatch_enabled": bool(gate_result.allowed and tool_runtime_executor is not None),
                     "tool_preflight_only": False,
+                    "sandbox_policy": dict(sandbox_policy or {}),
                 },
                 refs={
                     "action_request_ref": action_request.request_id,
                     "operation_id": gate_result.operation_id,
                     "directive_ref": tool_directive.directive_id,
+                    "task_step_ref": action_step_ref,
                 },
             )
             events = [requested_event, directive_event, gate_event]
             if gate_result.allowed and tool_runtime_executor is not None:
-                step_id = str(current_step_id or action_request.step_id or "")
+                step_id = action_step_ref
                 tool_name = str(action_request.payload.get("tool_name") or "")
                 if tool_name == "delegate_to_agent":
                     parent_agent_runs = self.state_index.list_task_agent_runs(task_run_id)
@@ -5744,6 +5757,7 @@ class TaskRunLoop:
                                     "action_request_ref": action_request.request_id,
                                     "directive_ref": tool_directive.directive_id,
                                     "observation_ref": error_observation.observation_id,
+                                    "task_step_ref": action_step_ref,
                                 },
                             )
                         )
@@ -5789,6 +5803,7 @@ class TaskRunLoop:
                                 "directive_ref": tool_directive.directive_id,
                                 "observation_ref": result_observation.observation_id,
                                 "delegation_request_ref": delegation_request.request_id,
+                                "task_step_ref": action_step_ref,
                             },
                         )
                     )
@@ -5807,6 +5822,7 @@ class TaskRunLoop:
                                 "directive_ref": tool_directive.directive_id,
                                 "observation_ref": result_observation.observation_id,
                                 "delegation_request_ref": delegation_request.request_id,
+                                "task_step_ref": action_step_ref,
                             },
                         )
                     )
@@ -5855,6 +5871,7 @@ class TaskRunLoop:
                             "directive_ref": tool_directive.directive_id,
                             "observation_ref": reused_observation.observation_id,
                             "execution_ref": execution_record.execution_id,
+                            "task_step_ref": action_step_ref,
                         },
                     )
                     observation_event = self.event_log.append(
@@ -5871,6 +5888,7 @@ class TaskRunLoop:
                             "directive_ref": tool_directive.directive_id,
                             "observation_ref": reused_observation.observation_id,
                             "execution_ref": execution_record.execution_id,
+                            "task_step_ref": action_step_ref,
                         },
                     )
                     events.extend([tool_result_event, observation_event])
@@ -5890,6 +5908,7 @@ class TaskRunLoop:
                             "directive_ref": tool_directive.directive_id,
                             "execution_ref": execution_record.execution_id,
                             "operation_id": operation_id,
+                            "task_step_ref": action_step_ref,
                         },
                     )
                     events.append(error_event)
@@ -5909,6 +5928,7 @@ class TaskRunLoop:
                     execution_record=execution_record,
                     execution_store=self.execution_store,
                     max_result_size_chars=max_chars,
+                    sandbox_policy=dict(sandbox_policy or {}),
                 )
                 final_record = execution_outcome.get("execution_record")
                 if isinstance(final_record, OperationExecutionRecord):
@@ -5936,6 +5956,7 @@ class TaskRunLoop:
                                 "directive_ref": tool_directive.directive_id,
                                 "observation_ref": observation.observation_id,
                                 "execution_ref": str(getattr(final_record, "execution_id", "") or ""),
+                                "task_step_ref": action_step_ref,
                             },
                         )
                         events.append(tool_result_event)
@@ -5953,6 +5974,7 @@ class TaskRunLoop:
                             "directive_ref": tool_directive.directive_id,
                             "observation_ref": observation.observation_id,
                             "execution_ref": str(getattr(final_record, "execution_id", "") or ""),
+                            "task_step_ref": action_step_ref,
                         },
                     )
                     events.append(observation_event)
@@ -6204,7 +6226,7 @@ def _autonomous_task_run_mode(selected_recipe_payload: dict[str, Any]) -> str:
         or "simple"
     ).strip().lower()
     if mode in {"standard", "managed"}:
-        return "standard"
+        return mode
     return "simple"
 
 
@@ -7072,14 +7094,9 @@ def _project_structured_data_tool_context(
         str(item or "").strip()
         for item in list(context_writeback_hints.get("subset_labels") or [])
         if str(item or "").strip()
-    ] or _extract_ranked_labels(result_text)
+    ]
     subset_filter_column = _clean_text(context_writeback_hints.get("subset_filter_column"))
-    subset_handle_id = (
-        _clean_text(context_writeback_hints.get("active_subset_handle_id"))
-        or _stable_file_work_id("subset:structured_selection", f"{path}:{'|'.join(subset_labels)}")
-        if subset_labels
-        else ""
-    )
+    subset_handle_id = _clean_text(context_writeback_hints.get("active_subset_handle_id"))
     active_constraints: dict[str, Any] = {
         "active_dataset": path,
         "source_kind": "dataset",
@@ -7109,9 +7126,13 @@ def _project_structured_data_tool_context(
         "query": query,
         "summary": summary,
         "task_kind": "structured_data",
+        "active_object_handle_id": object_handle_id,
+        "active_result_handle_id": result_handle_id,
+        "active_subset_handle_id": subset_handle_id,
+        **({"subset_labels": subset_labels} if subset_labels else {}),
+        **({"subset_filter_column": subset_filter_column} if subset_filter_column else {}),
         "key_points": [
             f"dataset={path}",
-            *([f"subset={','.join(subset_labels[:8])}"] if subset_labels else []),
             f"artifact={path}#analysis",
         ],
     }
@@ -7128,7 +7149,11 @@ def _project_delegated_file_work_context(
         return {}, []
     input_payload = dict(tool_args.get("input_payload") or {})
     context_writeback_hints = dict(result_payload.get("context_writeback_hints") or {})
-    kind = _clean_text(tool_args.get("delegation_kind"))
+    kind = _infer_delegated_file_work_kind(
+        tool_args=tool_args,
+        result_payload=result_payload,
+        context_writeback_hints=context_writeback_hints,
+    )
     path = _clean_text(
         input_payload.get("file_path")
         or input_payload.get("path")
@@ -7190,6 +7215,40 @@ def _project_delegated_file_work_context(
     return {}, []
 
 
+def _infer_delegated_file_work_kind(
+    *,
+    tool_args: dict[str, Any],
+    result_payload: dict[str, Any],
+    context_writeback_hints: dict[str, Any],
+) -> str:
+    explicit_kind = _clean_text(tool_args.get("delegation_kind"))
+    if explicit_kind:
+        return explicit_kind
+
+    result_metadata = dict(result_payload.get("metadata") or {})
+    source_kind = _clean_text(
+        context_writeback_hints.get("source_kind")
+        or result_payload.get("source_kind")
+        or result_metadata.get("source_kind")
+    ).lower()
+    if source_kind in {"dataset", "structured_data", "table", "spreadsheet", "csv", "xlsx"}:
+        return "table_analysis"
+    if source_kind in {"pdf", "document"}:
+        return "pdf_reading"
+    if source_kind in {"retrieval", "knowledge", "knowledge_base", "rag"}:
+        return "evidence_lookup"
+
+    target_agent_id = _clean_text(result_payload.get("target_agent_id")).lower()
+    if any(token in target_agent_id for token in ("table", "structured", "data_analyst", "dataset")):
+        return "table_analysis"
+    if any(token in target_agent_id for token in ("pdf", "document")):
+        return "pdf_reading"
+    if any(token in target_agent_id for token in ("rag", "retrieval", "search", "knowledge")):
+        return "evidence_lookup"
+
+    return ""
+
+
 def _stable_file_work_id(prefix: str, value: str) -> str:
     import hashlib
 
@@ -7236,18 +7295,11 @@ def _clean_text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def _followup_contract_from_task_spec(task_spec_payload: dict[str, Any] | None) -> dict[str, Any]:
-    inputs = dict(dict(task_spec_payload or {}).get("inputs") or {})
-    contract = dict(inputs.get("followup_execution_contract") or {})
-    if not contract:
-        return {}
-    return contract if str(contract.get("authority") or "") == "task_system.followup_execution_contract" else {}
-
-
 def _merge_task_spec_binding_into_delegation_payload(
     payload: dict[str, Any],
     *,
     task_spec_payload: dict[str, Any] | None,
+    current_turn_context: dict[str, Any] | None = None,
     user_message: str,
 ) -> dict[str, Any]:
     merged = dict(payload or {})
@@ -7260,18 +7312,18 @@ def _merge_task_spec_binding_into_delegation_payload(
         if value not in ("", [], {}, None):
             merged.setdefault(key, value)
     explicit_dataset = _clean_text(
-        inputs.get("active_dataset")
-        or inputs.get("explicit_dataset_path")
+        inputs.get("explicit_dataset_path")
         or tool_input.get("active_dataset")
         or tool_input.get("path")
         or tool_input.get("file_path")
+        or _path_from_context_recall(current_turn_context, source_kind="dataset", binding_key="active_dataset")
     )
     explicit_pdf = _clean_text(
-        inputs.get("active_pdf")
-        or inputs.get("explicit_pdf_path")
+        inputs.get("explicit_pdf_path")
         or tool_input.get("active_pdf")
         or tool_input.get("path")
         or tool_input.get("file_path")
+        or _path_from_context_recall(current_turn_context, source_kind="pdf", binding_key="active_pdf")
     )
     source_kind = _task_spec_source_kind(task_spec_payload or {})
     if source_kind == "dataset" and explicit_dataset:
@@ -7299,11 +7351,6 @@ def _task_spec_source_kind(task_spec_payload: dict[str, Any]) -> str:
         return "dataset"
     if "pdf" in recipe_id:
         return "pdf"
-    inputs = dict(task_spec_payload.get("inputs") or {})
-    followup_contract = dict(inputs.get("followup_execution_contract") or {})
-    source_kind = str(followup_contract.get("source_kind") or "").strip()
-    if source_kind:
-        return source_kind
     bindings = dict(task_spec_payload.get("bindings") or {})
     for item in list(bindings.get("resolved_bindings") or []):
         if not isinstance(item, dict):
@@ -7316,91 +7363,26 @@ def _task_spec_source_kind(task_spec_payload: dict[str, Any]) -> str:
     return ""
 
 
-def _followup_contract_source_path(followup_contract: dict[str, Any], *, binding_key: str) -> str:
-    if not followup_contract:
-        return ""
-    binding = str(binding_key or "").strip()
-    source_kind = str(followup_contract.get("source_kind") or "").strip()
-    if binding == "active_dataset" and source_kind == "dataset":
-        return _clean_text(followup_contract.get("source_path"))
-    if binding == "active_pdf" and source_kind == "pdf":
-        return _clean_text(followup_contract.get("source_path"))
-    return ""
-
-
-def _merge_followup_contract_into_payload(
-    payload: dict[str, Any],
+def _path_from_context_recall(
+    current_turn_context: dict[str, Any] | None,
     *,
-    followup_contract: dict[str, Any],
-) -> dict[str, Any]:
-    if not followup_contract:
-        return dict(payload or {})
-    merged = dict(payload or {})
-    for key in (
-        "followup_scope",
-        "followup_target_kind",
-        "followup_target_refs",
-        "active_subset_handle_id",
-        "active_result_handle_id",
-        "active_object_handle_id",
-        "subset_labels",
-        "subset_filter_column",
-    ):
-        value = followup_contract.get(key)
-        if value not in ("", [], {}, None):
-            merged.setdefault(key, value)
-    constraint_policy = str(followup_contract.get("constraint_policy") or "").strip()
-    if constraint_policy:
-        merged.setdefault("followup_constraint_policy", constraint_policy)
-    source_path = _clean_text(followup_contract.get("source_path"))
-    source_kind = _clean_text(followup_contract.get("source_kind"))
-    current_tool_input = _compact_followup_tool_input(dict(followup_contract.get("tool_input") or {}))
-    if source_path:
-        if source_kind == "dataset":
-            merged.setdefault("active_dataset", source_path)
-            merged.setdefault("path", source_path)
-        elif source_kind == "pdf":
-            merged.setdefault("active_pdf", source_path)
-            merged.setdefault("path", source_path)
-    if current_tool_input:
-        for key in ("query", "mode", "extract_mode", "section", "page", "pages", "max_chunks"):
-            value = current_tool_input.get(key)
-            if value not in ("", [], {}, None):
-                merged[key] = value
-        for key in ("path", "file_path", "active_pdf", "active_dataset"):
-            value = current_tool_input.get(key)
-            if value not in ("", [], {}, None):
-                merged.setdefault(key, value)
-    if followup_contract.get("subset_labels") or followup_contract.get("subset_filter_column"):
-        semantic_hints = dict(merged.get("semantic_hints") or {})
-        if followup_contract.get("subset_labels"):
-            semantic_hints.setdefault("subset_allowed_values", list(followup_contract.get("subset_labels") or []))
-        if followup_contract.get("subset_filter_column"):
-            semantic_hints.setdefault("subset_filter_column", followup_contract.get("subset_filter_column"))
-        merged["semantic_hints"] = semantic_hints
-    return merged
-
-
-def _compact_followup_tool_input(tool_input: dict[str, Any]) -> dict[str, Any]:
-    compact: dict[str, Any] = {}
-    for key in (
-        "query",
-        "mode",
-        "extract_mode",
-        "path",
-        "file_path",
-        "active_pdf",
-        "active_dataset",
-        "section",
-        "page",
-        "pages",
-        "max_chunks",
-    ):
-        value = tool_input.get(key)
-        if value in ("", [], {}, None):
+    source_kind: str,
+    binding_key: str,
+) -> str:
+    target_source = str(source_kind or "").strip()
+    target_binding = str(binding_key or "").strip()
+    for candidate in list(dict(current_turn_context or {}).get("context_recall_candidates") or []):
+        if not isinstance(candidate, dict):
             continue
-        compact[key] = value
-    return compact
+        if str(candidate.get("source_kind") or "").strip() != target_source:
+            continue
+        payload = dict(candidate.get("recall_payload") or {})
+        constraints = dict(payload.get("active_constraints") or {})
+        for key in (target_binding, "path", "file_path"):
+            value = str(payload.get(key) or constraints.get(key) or "").strip()
+            if value:
+                return value
+    return ""
 
 
 def _safe_positive_int(value: Any) -> int | None:
@@ -7654,6 +7636,57 @@ def _stage_execution_request_diagnostics(selection: dict[str, Any]) -> dict[str,
     }
 
 
+def _prepare_runtime_sandbox_policy(
+    *,
+    root_dir: Path,
+    task_run_id: str,
+    selected_recipe_payload: dict[str, Any],
+    task_selection: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    recipe_metadata = dict(dict(selected_recipe_payload or {}).get("metadata") or {})
+    base_policy = dict(recipe_metadata.get("sandbox_policy") or {})
+    selection_policy = dict(dict(task_selection or {}).get("sandbox_policy") or {})
+    policy = {**base_policy, **selection_policy}
+    if not policy:
+        return {}
+    if policy.get("enabled") is False:
+        return {"enabled": False, "mode": str(policy.get("mode") or "disabled")}
+    policy["enabled"] = True
+    policy.setdefault("mode", "workspace_overlay")
+    policy.setdefault("side_effect_root", "output/sandbox_runs")
+    policy.setdefault("workspace_dir_name", "workspace")
+    policy.setdefault("real_workspace_access", "read_only")
+    policy.setdefault("approval_policy", "sandboxed_side_effects")
+    policy.setdefault("side_effect_tools", ["write_file", "edit_file", "terminal", "python_repl"])
+    policy.setdefault("side_effect_operations", ["op.write_file", "op.edit_file", "op.shell", "op.python_repl"])
+    workspace_root = _workspace_root_for_runtime(root_dir)
+    side_effect_root = Path(str(policy.get("side_effect_root") or "output/sandbox_runs"))
+    if not side_effect_root.is_absolute():
+        side_effect_root = workspace_root / side_effect_root
+    sandbox_root = side_effect_root / _safe_path_component(task_run_id) / str(policy.get("workspace_dir_name") or "workspace")
+    sandbox_root.mkdir(parents=True, exist_ok=True)
+    policy["sandbox_root"] = str(sandbox_root.resolve())
+    policy["side_effect_root"] = str(side_effect_root.resolve())
+    policy["workspace_root"] = str(workspace_root)
+    return policy
+
+
+def _workspace_root_for_runtime(root_dir: Path) -> Path:
+    root = Path(root_dir).resolve()
+    if root.name == "backend" and root.parent.exists():
+        return root.parent.resolve()
+    if root.name == "runtime_state" and root.parent.name == "storage":
+        return root.parent.parent.resolve()
+    if root.name == "storage":
+        return root.parent.resolve()
+    return root
+
+
+def _safe_path_component(value: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or "sandbox"))
+    return safe.strip("._") or "sandbox"
+
+
 def _extract_task_search_policy(selection: dict[str, Any]) -> list[str] | tuple[str, ...] | set[str] | None:
     for key in ("search_policy", "allowed_search_sources"):
         value = selection.get(key)
@@ -7711,55 +7744,6 @@ def _agent_profile_id_for_runtime_spec(registry: Any, runtime_spec_payload: dict
         return ""
     profile = getter(agent_id)
     return str(getattr(profile, "agent_profile_id", "") or "").strip()
-
-
-def _extract_ranked_labels(value: str) -> list[str]:
-    import re
-
-    labels: list[str] = []
-    lines = [line.strip() for line in str(value or "").splitlines() if line.strip()]
-    for line in lines:
-        if "|" in line:
-            cells = [cell.strip() for cell in line.strip("|").split("|")]
-            if not cells or set("".join(cells)) <= {"-", " "}:
-                continue
-            for cell in cells[:3]:
-                if _looks_like_label(cell) and cell not in labels:
-                    labels.append(cell)
-                    break
-        else:
-            match = re.match(r"^\s*(?:\d+[\.、)]\s*)?([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z0-9_\-]{1,24})", line)
-            if match:
-                label = match.group(1).strip()
-                if _looks_like_label(label) and label not in labels:
-                    labels.append(label)
-        if len(labels) >= 12:
-            break
-    return labels
-
-
-def _looks_like_label(value: str) -> bool:
-    text = str(value or "").strip()
-    if not text or len(text) > 32:
-        return False
-    blocked = {
-        "排名",
-        "姓名",
-        "部门",
-        "职位",
-        "城市",
-        "薪资",
-        "仓库",
-        "商品",
-        "库存",
-        "结果",
-        "排名姓名",
-    }
-    if text in blocked:
-        return False
-    if set(text) <= {"-", " "}:
-        return False
-    return True
 
 
 def _extract_tool_output_field(value: str, labels: tuple[str, ...]) -> str:
@@ -8256,12 +8240,7 @@ def _safe_int(value: Any) -> int:
 
 
 def _count_text_units(content: str) -> int:
-    text = str(content or "").strip()
-    if not text:
-        return 0
-    cjk_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
-    latin_words = len(re.findall(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?", text))
-    return cjk_chars + latin_words
+    return count_text_units(content)
 
 
 def _quality_gate_metric_text(content: str, policy: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -8340,8 +8319,25 @@ def _stage_business_acceptance(
 ) -> dict[str, Any]:
     artifact_ok = bool(output_refs) if requires_file_artifact_refs else True
     base_accepted = str(terminal_status or "") == "completed" and artifact_ok
+    length_budget = dict(contract.get("length_budget") or {})
     quality_policy = dict(contract.get("quality_retry_policy") or {})
     accepted_policies = {str(item) for item in list(quality_policy.get("acceptance_policies") or []) if str(item)}
+    if length_budget and length_budget.get("configured") is True:
+        content_quality = _length_budget_quality_gate(
+            final_content,
+            explicit_inputs=dict(explicit_inputs or {}),
+            length_budget=length_budget,
+        )
+        return {
+            "accepted": bool(base_accepted and content_quality["accepted"]),
+            "base_accepted": base_accepted,
+            "business_accepted": bool(content_quality["accepted"]),
+            "artifact_ok": artifact_ok,
+            "stage_id": stage_id,
+            "policy": "length_budget",
+            **content_quality,
+            "authority": "orchestration.stage_business_acceptance",
+        }
     if "sectioned_text_batch_quality" in accepted_policies:
         content_quality = _sectioned_text_batch_quality_gate(
             final_content,
@@ -8400,6 +8396,56 @@ def _stage_business_acceptance(
         "verdict": verdict,
         "allowed_to_commit": allowed_to_commit,
         "authority": "orchestration.stage_business_acceptance",
+    }
+
+
+def _length_budget_quality_gate(
+    content: str,
+    *,
+    explicit_inputs: dict[str, Any],
+    length_budget: dict[str, Any],
+) -> dict[str, Any]:
+    text = str(content or "").strip()
+    metric_text, metric_text_diagnostics = _quality_gate_metric_text(text, length_budget)
+    measurement_mode = str(length_budget.get("measurement_mode") or "text_units").strip() or "text_units"
+    raw_content_metric_total = _count_text_units(text)
+    content_metric_total = _count_text_units(metric_text)
+    measurement_diagnostics: dict[str, Any] = {"measurement_mode": measurement_mode}
+    if measurement_mode in {"tokens", "hybrid"}:
+        measurement_diagnostics["measurement_fallback"] = (
+            "text_units_counter_used_for_length_budget_until_token_meter_is_bound"
+        )
+    target_units = _safe_int(length_budget.get("target_units"))
+    min_units = _safe_int(length_budget.get("min_units"))
+    max_units = _safe_int(length_budget.get("max_units"))
+    batch_unit_count = _safe_int(length_budget.get("batch_unit_count"))
+    if batch_unit_count <= 0:
+        batch_unit_count = max(_safe_int(explicit_inputs.get("chapters_per_round")), 1)
+    if target_units <= 0 and min_units > 0:
+        target_units = min_units
+    if max_units > 0 and target_units > max_units:
+        target_units = max_units
+    issues: list[str] = []
+    if not text:
+        issues.append("empty_content")
+    if min_units > 0 and content_metric_total < min_units:
+        issues.append(f"insufficient_metric:{content_metric_total}<{min_units}")
+    if max_units > 0 and content_metric_total > max_units:
+        issues.append(f"exceeds_metric:{content_metric_total}>{max_units}")
+    if target_units > 0 and content_metric_total < target_units:
+        issues.append(f"below_target:{content_metric_total}<{target_units}")
+    accepted = not issues
+    return {
+        "accepted": accepted,
+        "content_metric_total": content_metric_total,
+        "raw_content_metric_total": raw_content_metric_total,
+        "target_units": target_units,
+        "min_required_metric_total": min_units,
+        "max_allowed_metric_total": max_units,
+        "batch_unit_count": batch_unit_count,
+        "issues": issues,
+        **measurement_diagnostics,
+        **metric_text_diagnostics,
     }
 
 

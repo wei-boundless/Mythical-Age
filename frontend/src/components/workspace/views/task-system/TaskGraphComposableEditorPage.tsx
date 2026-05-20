@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import type { ContractSpec, OrchestrationAgentRuntimeCatalog, TaskGraphRecord, TaskGraphStandardView } from "@/lib/api";
+import type { ComposableUnitSpec, ContractSpec, OrchestrationAgentRuntimeCatalog, TaskGraphRecord, TaskGraphStandardView, UnitPortEdgeSpec } from "@/lib/api";
 
 import { TaskGraphComposableCanvas } from "./TaskGraphComposableCanvas";
 import { TaskGraphDiagnosticsDock } from "./TaskGraphDiagnosticsDock";
@@ -24,6 +24,36 @@ function subjectFromFocus(editorFocus: TaskGraphEditorFocus | undefined, graphId
   }
   if (editorFocus?.node_id) return { kind: "unit", unit_id: editorFocus.node_id.startsWith("unit.") ? editorFocus.node_id : `unit.node.${editorFocus.node_id.replace(/[:/\\]+/g, ".")}` };
   return { kind: "graph", graph_id: graphId };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function graphUnitShadowUnitIds(units: ComposableUnitSpec[]) {
+  const shadowIds = new Set<string>();
+  units.filter((unit) => unit.unit_type === "graph").forEach((unit) => {
+    const graphUnitSuffix = unit.unit_id.replace(/^unit\.graph\./, "").trim();
+    if (graphUnitSuffix && graphUnitSuffix !== unit.unit_id) {
+      shadowIds.add(`unit.node.graph_unit.${graphUnitSuffix}`);
+    }
+    const timelineBlockId = String(asRecord(unit.ref).timeline_block_id ?? "").trim();
+    const blockSuffix = timelineBlockId.replace(/^block\./, "").trim();
+    if (blockSuffix) {
+      shadowIds.add(`unit.node.graph_unit.${blockSuffix}`);
+    }
+  });
+  return shadowIds;
+}
+
+function graphUnitDisplayUnits(units: ComposableUnitSpec[]) {
+  const shadowUnitIds = graphUnitShadowUnitIds(units);
+  return units.filter((unit) => !shadowUnitIds.has(unit.unit_id));
+}
+
+function graphUnitDisplayPortEdges(edges: UnitPortEdgeSpec[], units: ComposableUnitSpec[]) {
+  const visibleUnitIds = new Set(graphUnitDisplayUnits(units).map((unit) => unit.unit_id));
+  return edges.filter((edge) => visibleUnitIds.has(edge.source_unit_id) && visibleUnitIds.has(edge.target_unit_id));
 }
 
 export function TaskGraphComposableEditorPage({
@@ -80,6 +110,8 @@ export function TaskGraphComposableEditorPage({
   const [facet, setFacet] = useState<TaskGraphModuleFacet>(() => taskGraphModuleFacetFromEditorFocus(editorFocus?.facet));
   const [selectedSubject, setSelectedSubject] = useState<TaskGraphComposableSubject>(() => subjectFromFocus(editorFocus, taskGraphDraft.graph_id));
   const composableModel = buildTaskGraphComposableStandardModel(standardView);
+  const displayUnits = useMemo(() => graphUnitDisplayUnits(composableModel.units), [composableModel.units]);
+  const displayPortEdges = useMemo(() => graphUnitDisplayPortEdges(composableModel.portEdges, composableModel.units), [composableModel.portEdges, composableModel.units]);
   const preflightReport = useMemo(
     () => buildTaskGraphPreflightReport({
       nodes: activeGraphNodes,
@@ -150,22 +182,23 @@ export function TaskGraphComposableEditorPage({
           graphDraft={taskGraphDraft}
           issues={preflightReport.issues.filter((issue) => issue.source.includes("composable_graph") || issue.source.includes("timeline") || issue.scope === "unit" || issue.scope === "port_edge")}
           nestedRuntime={composableModel.nestedRuntime}
+          onOpenGraph={onOpenGraph}
           onFacetChange={applyFacet}
           onSelectSubject={applySubject}
-          portEdges={composableModel.portEdges}
+          portEdges={displayPortEdges}
           selectedSubject={selectedSubject}
           standardView={standardView}
           standardViewLoading={standardViewLoading}
-          units={composableModel.units}
+          units={displayUnits}
         />
         <TaskGraphComposableCanvas
           activeFacet={facet}
           graphDraft={taskGraphDraft}
           onFacetChange={applyFacet}
           onSelectSubject={applySubject}
-          portEdges={composableModel.portEdges}
+          portEdges={displayPortEdges}
           selectedSubject={selectedSubject}
-          units={composableModel.units}
+          units={displayUnits}
         />
         <TaskGraphObjectInspector
           activeGraphEdges={activeGraphEdges}
@@ -179,11 +212,11 @@ export function TaskGraphComposableEditorPage({
           onOpenGraph={onOpenGraph}
           onSelectSubject={applySubject}
           orchestrationAgentCatalog={orchestrationAgentCatalog}
-          portEdges={composableModel.portEdges}
+          portEdges={displayPortEdges}
           projectionCards={projectionCards}
           selectedSubject={selectedSubject}
           taskGraphs={taskGraphs}
-          units={composableModel.units}
+          units={displayUnits}
           updateTaskGraphDraft={updateTaskGraphDraft}
           updateTaskGraphEdge={updateTaskGraphEdge}
           updateTaskGraphMetadata={updateTaskGraphMetadata}

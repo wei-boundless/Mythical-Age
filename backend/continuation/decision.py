@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from intent.models import IntentDecision
 
 from .models import ContinuationCandidate, ContinuationDecision
@@ -28,8 +26,7 @@ def decide_continuation(
     selected = max(compatible, key=lambda candidate: candidate.score)
     followup_target_kind = _followup_target_kind(selected)
     followup_scope = "active_subset" if followup_target_kind == "active_subset" else "active_object"
-    bindings = _active_bindings(selected, intent_decision=intent_decision)
-    target_refs = _target_refs(selected, bindings)
+    target_refs = _target_refs(selected)
     return ContinuationDecision(
         decision_kind="selected",
         selected_candidate_id=selected.candidate_id,
@@ -43,7 +40,6 @@ def decide_continuation(
             if followup_target_kind == "active_subset"
             else "active_object_followup"
         ),
-        active_bindings=bindings,
         confidence=min(max(float(selected.score or 0.0) / 100.0, 0.45), 0.96),
         reason=f"选择 {selected.source_kind} 候选 {selected.identity or selected.candidate_id}，因为它与当前动作 {intent_decision.primary_action} 兼容。",
         rejected_candidate_ids=tuple(rejected),
@@ -66,76 +62,12 @@ def _followup_target_kind(candidate: ContinuationCandidate) -> str:
     return candidate.source_kind
 
 
-def _active_bindings(candidate: ContinuationCandidate, *, intent_decision: IntentDecision) -> dict[str, Any]:
-    payload = dict(candidate.binding_payload or {})
-    profile = profile_by_domain().get(str(candidate.metadata.get("profile_id") or candidate.source_kind))
-    binding_key = str(getattr(profile, "binding_key", "") or f"active_{candidate.source_kind}").strip()
-    if binding_key:
-        path = str(payload.get(binding_key) or payload.get("path") or candidate.identity or "").strip()
-        if path and candidate.target_kind == "source_object":
-            payload[binding_key] = path
-            payload.setdefault("path", path)
-    payload["selected_candidate_id"] = candidate.candidate_id
-    payload["selected_candidate_source"] = candidate.source
-    payload["selected_target_kind"] = candidate.target_kind
-    if profile is not None:
-        if profile.delegation_kind:
-            payload.setdefault("delegation_kind", profile.delegation_kind)
-        if profile.target_agent_id:
-            payload.setdefault("target_agent_id", profile.target_agent_id)
-        if profile.return_contract:
-            payload.setdefault("return_contract", dict(profile.return_contract))
-    payload = _align_constraints_to_requested_scope(
-        payload,
-        candidate=candidate,
-        intent_decision=intent_decision,
-    )
-    return {key: value for key, value in payload.items() if value not in ("", None, [], {})}
-
-
-def _align_constraints_to_requested_scope(
-    payload: dict[str, Any],
-    *,
-    candidate: ContinuationCandidate,
-    intent_decision: IntentDecision,
-) -> dict[str, Any]:
-    result = dict(payload)
-    if candidate.source_kind != "pdf" or candidate.target_kind != "source_object":
-        return result
-    if _pdf_request_is_document_scope(intent_decision):
-        constraints = dict(result.get("active_constraints") or {})
-        constraints["active_pdf_mode"] = "document"
-        constraints.pop("active_pdf_pages", None)
-        constraints.pop("active_pdf_section", None)
-        constraints.pop("pdf_pages", None)
-        constraints.pop("pdf_section", None)
-        result["active_constraints"] = constraints
-        result["active_pdf_mode"] = "document"
-        result.pop("active_pdf_pages", None)
-        result.pop("active_pdf_section", None)
-        result.pop("active_subset_handle_id", None)
-    return result
-
-
-def _pdf_request_is_document_scope(intent_decision: IntentDecision) -> bool:
-    diagnostics = dict(getattr(intent_decision, "diagnostics", {}) or {})
-    lowered = str(diagnostics.get("user_message") or "").lower()
-    if not lowered:
-        return "refine_scope" not in tuple(intent_decision.actions or ())
-    page_markers = ("这一页", "那一页", "这几页", "第几页", "第三页", "第四页", "第二部分", "page")
-    if any(marker in lowered for marker in page_markers):
-        return False
-    return any(
-        marker in lowered
-        for marker in ("这份 pdf", "这个 pdf", "这份报告", "这个报告", "整份", "全文", "整体", "核心结论", "结论", "行动建议")
-    )
-
-
-def _target_refs(candidate: ContinuationCandidate, bindings: dict[str, Any]) -> list[str]:
+def _target_refs(candidate: ContinuationCandidate) -> list[str]:
+    payload = dict(candidate.recall_payload or {})
     refs = [
-        str(bindings.get("active_subset_handle_id") or "").strip(),
-        str(bindings.get("active_result_handle_id") or bindings.get("result_handle_id") or "").strip(),
-        str(bindings.get("active_object_handle_id") or "").strip(),
+        str(payload.get("active_subset_handle_id") or "").strip(),
+        str(payload.get("active_result_handle_id") or payload.get("result_handle_id") or "").strip(),
+        str(payload.get("active_object_handle_id") or "").strip(),
     ]
     if candidate.target_kind in {"task_result", "bundle_result"}:
         refs.append(str(candidate.identity or "").strip())

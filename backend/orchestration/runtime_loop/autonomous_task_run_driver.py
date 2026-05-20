@@ -86,6 +86,7 @@ class AutonomousTaskRunDriver:
         tool_runtime_executor: Any | None = None,
         runtime_tool_instances: list[Any] | None = None,
         allowed_search_sources: set[str] | None = None,
+        sandbox_policy: dict[str, Any] | None = None,
     ):
         _ = runtime_tool_instances
         task_run_id = outcome.state.task_run_id
@@ -198,6 +199,7 @@ class AutonomousTaskRunDriver:
                 tool_runtime_executor=tool_runtime_executor,
                 event=event,
                 allowed_search_sources=allowed_search_sources,
+                sandbox_policy=sandbox_policy,
             )
             for runtime_event in runtime_events:
                 _adopt_runtime_event_ref(outcome, runtime_event)
@@ -269,8 +271,10 @@ class AutonomousTaskRunDriver:
         tool_runtime_executor: Any | None = None,
         runtime_tool_instances: list[Any] | None = None,
         allowed_search_sources: set[str] | None = None,
+        sandbox_policy: dict[str, Any] | None = None,
     ):
         task_run_id = outcome.state.task_run_id
+        autonomy_mode = _standard_execution_mode(selected_recipe_payload)
         policy = _autonomous_policy(selected_recipe_payload)
         tool_policy = dict(policy.get("tool_execution_policy") or {})
         delegation_policy = dict(policy.get("delegation_policy") or {})
@@ -299,7 +303,7 @@ class AutonomousTaskRunDriver:
             task_run_id,
             "autonomous_task_started",
             payload={
-                "mode": "standard",
+                "mode": autonomy_mode,
                 "runtime_driver": "autonomous_task_run",
                 "goal": user_message,
                 "plan_item_count": len(plan),
@@ -311,7 +315,7 @@ class AutonomousTaskRunDriver:
         state_event = self.event_log.append(
             task_run_id,
             "autonomous_task_state_changed",
-            payload={"from_state": "initialized", "to_state": "goal_locked", "mode": "standard"},
+            payload={"from_state": "initialized", "to_state": "goal_locked", "mode": autonomy_mode},
             refs={"task_contract_ref": task_contract_ref},
         )
         yield {"type": "runtime_loop_event", "event": state_event.to_dict()}
@@ -321,7 +325,7 @@ class AutonomousTaskRunDriver:
             ledger=outcome.ledger,
             reason="autonomous_task_goal_locked",
             refs={"task_contract_ref": task_contract_ref},
-            diagnostics={"autonomous_state": "goal_locked", "autonomy_mode": "standard"},
+            diagnostics={"autonomous_state": "goal_locked", "autonomy_mode": autonomy_mode},
         )
         for event in self._ledger_transition_events:
             yield {"type": "runtime_loop_event", "event": event.to_dict()}
@@ -336,7 +340,7 @@ class AutonomousTaskRunDriver:
                     before_step_id=final_step_id,
                     diagnostics={
                         "transition_reason": "autonomous_task_plan_drafted",
-                        "autonomy_mode": "standard",
+                        "autonomy_mode": autonomy_mode,
                     },
                 )
             added_steps = [
@@ -350,7 +354,7 @@ class AutonomousTaskRunDriver:
                     ledger=outcome.ledger,
                     reason="autonomous_task_plan_drafted",
                     refs={"task_contract_ref": task_contract_ref},
-                    diagnostics={"autonomy_mode": "standard"},
+                    diagnostics={"autonomy_mode": autonomy_mode},
                 )
                 yield {"type": "runtime_loop_event", "event": step_event.to_dict()}
             ledger_event = self.record_task_run_ledger_updated(
@@ -358,7 +362,7 @@ class AutonomousTaskRunDriver:
                 ledger=outcome.ledger,
                 reason="autonomous_task_plan_drafted",
                 refs={"task_contract_ref": task_contract_ref},
-                diagnostics={"autonomy_mode": "standard", "dynamic_plan_step_count": len(added_steps)},
+                diagnostics={"autonomy_mode": autonomy_mode, "dynamic_plan_step_count": len(added_steps)},
             )
             yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
             outcome.state = self.state_with_task_run_ledger(
@@ -366,7 +370,7 @@ class AutonomousTaskRunDriver:
                 outcome.ledger,
                 diagnostics={
                     "last_step_transition": "autonomous_task_plan_drafted",
-                    "autonomy_mode": "standard",
+                    "autonomy_mode": autonomy_mode,
                 },
             )
             checkpoint_event = self.write_checkpoint_event(outcome.state, event_offset=ledger_event.offset)
@@ -376,7 +380,7 @@ class AutonomousTaskRunDriver:
             task_run_id,
             "autonomous_task_plan_drafted",
             payload={
-                "mode": "standard",
+                "mode": autonomy_mode,
                 "plan_items": plan,
                 "delegation_enabled": delegation_enabled,
                 "max_delegate_calls_per_task_run": max_delegate_calls,
@@ -391,24 +395,32 @@ class AutonomousTaskRunDriver:
         state_event = self.event_log.append(
             task_run_id,
             "autonomous_task_state_changed",
-            payload={"from_state": "goal_locked", "to_state": "plan_drafted", "mode": "standard"},
+            payload={"from_state": "goal_locked", "to_state": "plan_drafted", "mode": autonomy_mode},
             refs={"task_contract_ref": task_contract_ref},
         )
         yield {"type": "runtime_loop_event", "event": state_event.to_dict()}
 
-        outcome.state, outcome.ledger = self._run_standard_planned_steps(
+        outcome.state, outcome.ledger = self._prepare_standard_action_step(
             state=outcome.state,
             ledger=outcome.ledger,
             plan=plan,
             task_contract_ref=task_contract_ref,
+            autonomy_mode=autonomy_mode,
         )
         for event in self._ledger_transition_events:
             yield {"type": "runtime_loop_event", "event": event.to_dict()}
+        step_selected_event = self.event_log.append(
+            task_run_id,
+            "autonomous_task_state_changed",
+            payload={"from_state": "plan_drafted", "to_state": "step_selected", "mode": autonomy_mode},
+            refs={"task_contract_ref": task_contract_ref},
+        )
+        yield {"type": "runtime_loop_event", "event": step_selected_event.to_dict()}
 
         finalizing_event = self.event_log.append(
             task_run_id,
             "autonomous_task_state_changed",
-            payload={"from_state": "step_evaluated", "to_state": "finalizing", "mode": "standard"},
+            payload={"from_state": "step_selected", "to_state": "action_dispatched", "mode": autonomy_mode},
             refs={"task_contract_ref": task_contract_ref},
         )
         yield {"type": "runtime_loop_event", "event": finalizing_event.to_dict()}
@@ -418,11 +430,16 @@ class AutonomousTaskRunDriver:
             payload={
                 "executor_type": "model",
                 "runtime_channel": "autonomous_task_run",
-                "autonomy_mode": "standard",
+                "autonomy_mode": autonomy_mode,
                 "tool_execution_enabled": tool_execution_enabled,
                 "allowed_tool_names": allowed_tool_names,
                 "delegation_enabled": delegation_enabled,
                 "max_delegate_calls_per_task_run": max_delegate_calls,
+                "autonomous_mode_scope": (
+                    "ledger_backed_plan_one_round_tool_or_delegation_observation"
+                    if tool_execution_enabled
+                    else "ledger_backed_plan_and_model_closeout"
+                ),
                 "standard_mode_scope": (
                     "ledger_backed_plan_one_round_tool_or_delegation_observation"
                     if tool_execution_enabled
@@ -435,14 +452,14 @@ class AutonomousTaskRunDriver:
 
         safe_directive = _autonomous_task_directive(
             directive,
-            mode="standard",
+            mode=autonomy_mode,
             tool_execution_enabled=tool_execution_enabled,
             delegation_enabled=delegation_enabled,
             allowed_tool_operation_refs=list(tool_policy.get("allowed_operation_refs") or ()),
         )
         model_messages = _with_autonomous_task_instruction(
             list(getattr(context_snapshot, "model_messages", ()) or ()),
-            mode="standard",
+            mode=autonomy_mode,
             plan_items=plan,
             tool_execution_enabled=tool_execution_enabled,
             delegation_enabled=delegation_enabled,
@@ -458,6 +475,7 @@ class AutonomousTaskRunDriver:
         tool_observation_count = 0
         delegation_observation_count = 0
         tool_call_budget_exceeded = False
+        action_observation_refs: list[str] = []
         async for event in model_response_executor.stream(
             user_message=user_message,
             model_messages=model_messages,
@@ -520,12 +538,16 @@ class AutonomousTaskRunDriver:
                 tool_runtime_executor=tool_runtime_executor,
                 event=event,
                 allowed_search_sources=allowed_search_sources,
+                sandbox_policy=sandbox_policy,
             )
             for runtime_event in runtime_events:
                 _adopt_runtime_event_ref(outcome, runtime_event)
                 observation_payload = _tool_observation_payload(runtime_event)
                 if observation_payload:
                     tool_observation_count += 1
+                    observation_ref = _runtime_event_observation_ref(runtime_event)
+                    if observation_ref:
+                        action_observation_refs.append(observation_ref)
                     if str(observation_payload.get("tool_name") or "") == "delegate_to_agent":
                         delegation_observation_count += 1
                     tool_messages.append(
@@ -554,6 +576,42 @@ class AutonomousTaskRunDriver:
                 yield event
             else:
                 yield event
+
+        if tool_observation_count > 0 and outcome.terminal_reason == "completed":
+            observation_state_event = self.event_log.append(
+                task_run_id,
+                "autonomous_task_state_changed",
+                payload={
+                    "from_state": "action_dispatched",
+                    "to_state": "observation_received",
+                    "mode": autonomy_mode,
+                    "tool_observation_count": tool_observation_count,
+                    "delegation_observation_count": delegation_observation_count,
+                },
+                refs={"task_contract_ref": task_contract_ref},
+            )
+            yield {"type": "runtime_loop_event", "event": observation_state_event.to_dict()}
+            outcome.state, outcome.ledger = self._complete_standard_action_step_after_observation(
+                state=outcome.state,
+                ledger=outcome.ledger,
+                plan=plan,
+                task_contract_ref=task_contract_ref,
+                observation_refs=tuple(action_observation_refs),
+                autonomy_mode=autonomy_mode,
+            )
+            for runtime_event in self._ledger_transition_events:
+                yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+            evaluated_state_event = self.event_log.append(
+                task_run_id,
+                "autonomous_task_state_changed",
+                payload={
+                    "from_state": "observation_received",
+                    "to_state": "step_evaluated",
+                    "mode": autonomy_mode,
+                },
+                refs={"task_contract_ref": task_contract_ref},
+            )
+            yield {"type": "runtime_loop_event", "event": evaluated_state_event.to_dict()}
 
         if (
             tool_execution_enabled
@@ -593,7 +651,7 @@ class AutonomousTaskRunDriver:
                     ),
                 },
             ]
-            followup_directive = _model_only_directive(directive, mode="standard_tool_followup")
+            followup_directive = _model_only_directive(directive, mode=f"{autonomy_mode}_tool_followup")
             async for event in model_response_executor.stream(
                 user_message=user_message,
                 model_messages=followup_messages,
@@ -614,6 +672,7 @@ class AutonomousTaskRunDriver:
                     tool_runtime_executor=tool_runtime_executor,
                     event=event,
                     allowed_search_sources=allowed_search_sources,
+                    sandbox_policy=sandbox_policy,
                 )
                 for runtime_event in runtime_events:
                     _adopt_runtime_event_ref(outcome, runtime_event)
@@ -650,8 +709,15 @@ class AutonomousTaskRunDriver:
         elif tool_call_budget_exceeded and outcome.terminal_reason == "completed":
             outcome.terminal_reason = "tool_loop_budget_exceeded"
 
+        verification_ready_event = self.event_log.append(
+            task_run_id,
+            "autonomous_task_state_changed",
+            payload={"from_state": "step_evaluated", "to_state": "verification_ready", "mode": autonomy_mode},
+            refs={"task_contract_ref": task_contract_ref},
+        )
+        yield {"type": "runtime_loop_event", "event": verification_ready_event.to_dict()}
         verification = {
-            "mode": "standard",
+            "mode": autonomy_mode,
             "passed": bool(outcome.final_content and outcome.terminal_reason == "completed"),
             "checks": {
                 "has_final_content": bool(outcome.final_content),
@@ -670,16 +736,36 @@ class AutonomousTaskRunDriver:
             task_run_id,
             "autonomous_task_verification_checked",
             payload={"verification": verification},
-            refs={"task_contract_ref": task_contract_ref},
+            refs={"task_contract_ref": task_contract_ref, "task_step_ref": "autonomous.final_check"},
         )
         yield {"type": "runtime_loop_event", "event": verify_event.to_dict()}
+        outcome.state, outcome.ledger = self._complete_standard_final_check_after_verification(
+            state=outcome.state,
+            ledger=outcome.ledger,
+            task_contract_ref=task_contract_ref,
+            verification_event_ref=f"runtime_event:{verify_event.event_id}",
+            observation_refs=tuple(action_observation_refs),
+            result_refs=tuple(outcome.result_refs),
+            final_content=outcome.final_content,
+            verification_passed=bool(verification.get("passed") is True),
+            autonomy_mode=autonomy_mode,
+        )
+        for runtime_event in self._ledger_transition_events:
+            yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+        finalizing_event = self.event_log.append(
+            task_run_id,
+            "autonomous_task_state_changed",
+            payload={"from_state": "verification_ready", "to_state": "finalizing", "mode": autonomy_mode},
+            refs={"task_contract_ref": task_contract_ref},
+        )
+        yield {"type": "runtime_loop_event", "event": finalizing_event.to_dict()}
         committed_state_event = self.event_log.append(
             task_run_id,
             "autonomous_task_state_changed",
             payload={
                 "from_state": "finalizing",
                 "to_state": "ready_for_commit",
-                "mode": "standard",
+                "mode": autonomy_mode,
                 "terminal_reason": outcome.terminal_reason,
             },
             refs={"task_contract_ref": task_contract_ref},
@@ -776,57 +862,31 @@ class AutonomousTaskRunDriver:
         self._ledger_transition_events.append(checkpoint_event)
         return state, ledger
 
-    def _run_standard_planned_steps(
+    def _prepare_standard_action_step(
         self,
         *,
         state: RuntimeLoopState,
         ledger: TaskRunLedger | None,
         plan: list[dict[str, Any]],
         task_contract_ref: str,
+        autonomy_mode: str = "standard",
     ) -> tuple[RuntimeLoopState, TaskRunLedger | None]:
         self._ledger_transition_events = []
         if ledger is None:
             return state, ledger
-        plan_ids = {
-            str(item.get("plan_item_id") or item.get("step_id") or "").strip()
-            for item in plan
-            if str(item.get("plan_item_id") or item.get("step_id") or "").strip()
-        }
-        while True:
-            current = current_task_step_run(ledger)
-            if current is None:
-                current = next_pending_step_run(ledger)
-                if current is None:
-                    break
-                ledger = start_task_run_step(
-                    ledger,
-                    step_id=current.step_id,
-                    started_at=time.time(),
-                    executor_ref="autonomous_task_run",
-                    diagnostics={"transition_reason": "autonomous_task_step_selected", "autonomy_mode": "standard"},
-                )
-                current = current_task_step_run(ledger)
-                if current is not None:
-                    self._ledger_transition_events.append(
-                        self.record_task_run_step_event(
-                            state.task_run_id,
-                            event_type="step_entered",
-                            step_run=current,
-                            ledger=ledger,
-                            reason="autonomous_task_step_selected",
-                            refs={"task_contract_ref": task_contract_ref},
-                            diagnostics={"autonomy_mode": "standard"},
-                        )
-                    )
-            if current is None or current.step_id not in plan_ids:
-                break
+        action_step_id = _standard_action_step_id(plan)
+        if not action_step_id:
+            return state, ledger
+
+        current = current_task_step_run(ledger)
+        if current is not None and current.step_id != action_step_id:
             if current.status == "pending":
                 ledger = start_task_run_step(
                     ledger,
                     step_id=current.step_id,
                     started_at=time.time(),
                     executor_ref="autonomous_task_run",
-                    diagnostics={"transition_reason": "autonomous_task_step_selected", "autonomy_mode": "standard"},
+                    diagnostics={"transition_reason": "autonomous_task_action_step_selected", "autonomy_mode": autonomy_mode},
                 )
                 current = current_task_step_run(ledger)
                 if current is not None:
@@ -836,21 +896,76 @@ class AutonomousTaskRunDriver:
                             event_type="step_entered",
                             step_run=current,
                             ledger=ledger,
-                            reason="autonomous_task_step_selected",
+                            reason="autonomous_task_action_step_selected",
                             refs={"task_contract_ref": task_contract_ref},
-                            diagnostics={"autonomy_mode": "standard"},
+                            diagnostics={"autonomy_mode": autonomy_mode},
                         )
                     )
-            if current is None or current.status != "running":
+            if current is not None and current.status == "running":
+                ledger = complete_task_run_step(
+                    ledger,
+                    step_id=current.step_id,
+                    completed_at=time.time(),
+                    output_refs=(f"autonomous_control_step:{current.step_id}",),
+                    executor_ref=current.executor_ref or "autonomous_task_run",
+                    diagnostics={
+                        "transition_reason": "autonomous_task_action_step_selected",
+                        "autonomy_mode": autonomy_mode,
+                    },
+                )
+                completed = find_task_step_run(ledger, current.step_id)
+                if completed is not None:
+                    self._ledger_transition_events.append(
+                        self.record_task_run_step_event(
+                            state.task_run_id,
+                            event_type="step_completed",
+                            step_run=completed,
+                            ledger=ledger,
+                            reason="autonomous_task_action_step_selected",
+                            refs={"task_contract_ref": task_contract_ref},
+                            diagnostics={"autonomy_mode": autonomy_mode},
+                        )
+                    )
+
+        for item in plan:
+            step_id = str(item.get("plan_item_id") or item.get("step_id") or "").strip()
+            if not step_id or step_id == action_step_id:
                 break
+            step = find_task_step_run(ledger, step_id)
+            if step is None or step.status in {"completed", "failed", "skipped"}:
+                continue
+            if step.status == "pending":
+                ledger = start_task_run_step(
+                    ledger,
+                    step_id=step.step_id,
+                    started_at=time.time(),
+                    executor_ref="autonomous_task_run",
+                    diagnostics={"transition_reason": "autonomous_task_prerequisite_step_completed", "autonomy_mode": autonomy_mode},
+                )
+                entered = current_task_step_run(ledger)
+                if entered is not None:
+                    self._ledger_transition_events.append(
+                        self.record_task_run_step_event(
+                            state.task_run_id,
+                            event_type="step_entered",
+                            step_run=entered,
+                            ledger=ledger,
+                            reason="autonomous_task_prerequisite_step_completed",
+                            refs={"task_contract_ref": task_contract_ref},
+                            diagnostics={"autonomy_mode": autonomy_mode},
+                        )
+                    )
+            current = current_task_step_run(ledger)
+            if current is None or current.status != "running":
+                continue
             ledger = update_task_run_step_diagnostics(
                 ledger,
                 step_id=current.step_id,
                 diagnostics={
                     "autonomous_state": "step_evaluated",
-                    "transition_reason": "autonomous_task_step_evaluated",
-                    "autonomy_mode": "standard",
-                    "execution_scope": "model_closeout_pending",
+                    "transition_reason": "autonomous_task_prerequisite_step_completed",
+                    "autonomy_mode": autonomy_mode,
+                    "execution_scope": "goal_and_scope_locked",
                 },
             )
             current = current_task_step_run(ledger)
@@ -861,9 +976,9 @@ class AutonomousTaskRunDriver:
                 output_refs=(f"autonomous_plan_item:{current.step_id}",) if current is not None else (),
                 executor_ref="autonomous_task_run",
                 diagnostics={
-                    "transition_reason": "autonomous_task_step_evaluated",
-                    "autonomy_mode": "standard",
-                    "execution_scope": "model_closeout_pending",
+                    "transition_reason": "autonomous_task_prerequisite_step_completed",
+                    "autonomy_mode": autonomy_mode,
+                    "execution_scope": "goal_and_scope_locked",
                 },
             )
             completed = find_task_step_run(ledger, current.step_id if current is not None else "")
@@ -874,28 +989,348 @@ class AutonomousTaskRunDriver:
                         event_type="step_completed",
                         step_run=completed,
                         ledger=ledger,
-                        reason="autonomous_task_step_evaluated",
+                        reason="autonomous_task_prerequisite_step_completed",
                         refs={"task_contract_ref": task_contract_ref},
-                        diagnostics={"autonomy_mode": "standard"},
+                        diagnostics={"autonomy_mode": autonomy_mode},
                     )
                 )
-            next_step = next_pending_step_run(ledger)
-            if next_step is None or next_step.step_id not in plan_ids:
-                break
+
+        action_step = find_task_step_run(ledger, action_step_id)
+        if action_step is not None and action_step.status == "pending":
+            ledger = start_task_run_step(
+                ledger,
+                step_id=action_step.step_id,
+                started_at=time.time(),
+                executor_ref="autonomous_task_run",
+                diagnostics={
+                    "transition_reason": "autonomous_task_action_step_selected",
+                    "autonomous_state": "step_selected",
+                    "autonomy_mode": autonomy_mode,
+                    "execution_scope": "controlled_tool_or_delegation_observation",
+                },
+            )
+            entered = current_task_step_run(ledger)
+            if entered is not None:
+                self._ledger_transition_events.append(
+                    self.record_task_run_step_event(
+                        state.task_run_id,
+                        event_type="step_entered",
+                        step_run=entered,
+                        ledger=ledger,
+                        reason="autonomous_task_action_step_selected",
+                        refs={"task_contract_ref": task_contract_ref},
+                        diagnostics={"autonomy_mode": autonomy_mode},
+                    )
+                )
         ledger_event = self.record_task_run_ledger_updated(
             state.task_run_id,
             ledger=ledger,
-            reason="autonomous_task_plan_steps_evaluated",
+            reason="autonomous_task_action_step_selected",
             refs={"task_contract_ref": task_contract_ref},
-            diagnostics={"autonomy_mode": "standard"},
+            diagnostics={"autonomy_mode": autonomy_mode},
         )
         self._ledger_transition_events.append(ledger_event)
         state = self.state_with_task_run_ledger(
             state,
             ledger,
             diagnostics={
-                "last_step_transition": "autonomous_task_plan_steps_evaluated",
-                "autonomy_mode": "standard",
+                "last_step_transition": "autonomous_task_action_step_selected",
+                "autonomous_state": "step_selected",
+                "autonomy_mode": autonomy_mode,
+            },
+        )
+        checkpoint_event = self.write_checkpoint_event(state, event_offset=ledger_event.offset)
+        self._ledger_transition_events.append(checkpoint_event)
+        return state, ledger
+
+    def _complete_standard_action_step_after_observation(
+        self,
+        *,
+        state: RuntimeLoopState,
+        ledger: TaskRunLedger | None,
+        plan: list[dict[str, Any]],
+        task_contract_ref: str,
+        observation_refs: tuple[str, ...],
+        autonomy_mode: str = "standard",
+    ) -> tuple[RuntimeLoopState, TaskRunLedger | None]:
+        self._ledger_transition_events = []
+        if ledger is None:
+            return state, ledger
+        action_step_id = _standard_action_step_id(plan)
+        current = current_task_step_run(ledger)
+        if current is None or current.step_id != action_step_id:
+            action_step = find_task_step_run(ledger, action_step_id)
+            if action_step is None:
+                return state, ledger
+            if action_step.status == "pending":
+                ledger = start_task_run_step(
+                    ledger,
+                    step_id=action_step.step_id,
+                    started_at=time.time(),
+                    executor_ref="autonomous_task_run",
+                    diagnostics={
+                        "transition_reason": "autonomous_task_observation_received",
+                        "autonomy_mode": autonomy_mode,
+                    },
+                )
+                current = current_task_step_run(ledger)
+            else:
+                current = action_step
+        if current is not None and current.status == "running":
+            deduped_observation_refs = tuple(_dedupe_strings(observation_refs))
+            ledger = complete_task_run_step(
+                ledger,
+                step_id=current.step_id,
+                completed_at=time.time(),
+                observation_refs=deduped_observation_refs,
+                output_refs=tuple(f"autonomous_observation:{ref}" for ref in deduped_observation_refs),
+                executor_ref=current.executor_ref or "autonomous_task_run",
+                diagnostics={
+                    "transition_reason": "autonomous_task_observation_received",
+                    "autonomous_state": "step_evaluated",
+                    "autonomy_mode": autonomy_mode,
+                    "execution_scope": "controlled_observation_completed",
+                },
+            )
+            completed = find_task_step_run(ledger, current.step_id)
+            if completed is not None:
+                self._ledger_transition_events.append(
+                    self.record_task_run_step_event(
+                        state.task_run_id,
+                        event_type="step_completed",
+                        step_run=completed,
+                        ledger=ledger,
+                        reason="autonomous_task_observation_received",
+                        refs={"task_contract_ref": task_contract_ref},
+                        diagnostics={"autonomy_mode": autonomy_mode},
+                    )
+                )
+        ledger = advance_task_run_ledger(
+            ledger,
+            started_at=time.time(),
+            executor_ref="autonomous_task_run",
+            diagnostics={
+                "transition_reason": "autonomous_task_step_evaluated",
+                "autonomous_state": "step_evaluated",
+                "autonomy_mode": autonomy_mode,
+            },
+        )
+        entered = current_task_step_run(ledger)
+        if entered is not None and entered.status == "running":
+            self._ledger_transition_events.append(
+                self.record_task_run_step_event(
+                    state.task_run_id,
+                    event_type="step_entered",
+                    step_run=entered,
+                    ledger=ledger,
+                    reason="autonomous_task_step_evaluated",
+                    refs={"task_contract_ref": task_contract_ref},
+                    diagnostics={"autonomy_mode": autonomy_mode},
+                )
+            )
+        ledger_event = self.record_task_run_ledger_updated(
+            state.task_run_id,
+            ledger=ledger,
+            reason="autonomous_task_step_evaluated",
+            refs={"task_contract_ref": task_contract_ref},
+            diagnostics={"autonomy_mode": autonomy_mode, "observation_ref_count": len(observation_refs)},
+        )
+        self._ledger_transition_events.append(ledger_event)
+        state = self.state_with_task_run_ledger(
+            state,
+            ledger,
+            diagnostics={
+                "last_step_transition": "autonomous_task_step_evaluated",
+                "autonomous_state": "step_evaluated",
+                "autonomy_mode": autonomy_mode,
+            },
+        )
+        checkpoint_event = self.write_checkpoint_event(state, event_offset=ledger_event.offset)
+        self._ledger_transition_events.append(checkpoint_event)
+        return state, ledger
+
+    def _complete_standard_final_check_after_verification(
+        self,
+        *,
+        state: RuntimeLoopState,
+        ledger: TaskRunLedger | None,
+        task_contract_ref: str,
+        verification_event_ref: str,
+        observation_refs: tuple[str, ...],
+        result_refs: tuple[str, ...],
+        final_content: str,
+        verification_passed: bool,
+        autonomy_mode: str = "standard",
+    ) -> tuple[RuntimeLoopState, TaskRunLedger | None]:
+        self._ledger_transition_events = []
+        if ledger is None:
+            return state, ledger
+        final_step_id = "autonomous.final_check"
+        if find_task_step_run(ledger, final_step_id) is None:
+            return state, ledger
+
+        evidence_refs = tuple(_dedupe_strings([*observation_refs, verification_event_ref]))
+        final_output_refs = tuple(_dedupe_strings([verification_event_ref, *result_refs]))
+        refs = {
+            "task_contract_ref": task_contract_ref,
+            "verification_ref": verification_event_ref,
+        }
+        now = time.time()
+
+        while True:
+            current = current_task_step_run(ledger)
+            if current is None or current.step_id == final_step_id:
+                break
+            if current.status == "pending":
+                ledger = start_task_run_step(
+                    ledger,
+                    step_id=current.step_id,
+                    started_at=now,
+                    executor_ref="autonomous_task_run",
+                    diagnostics={
+                        "transition_reason": "autonomous_task_pre_verification_step_completed",
+                        "autonomous_state": "verification_ready",
+                        "autonomy_mode": autonomy_mode,
+                    },
+                )
+                entered = current_task_step_run(ledger)
+                if entered is not None:
+                    self._ledger_transition_events.append(
+                        self.record_task_run_step_event(
+                            state.task_run_id,
+                            event_type="step_entered",
+                            step_run=entered,
+                            ledger=ledger,
+                            reason="autonomous_task_pre_verification_step_completed",
+                            refs=refs,
+                            diagnostics={"autonomy_mode": autonomy_mode},
+                        )
+                    )
+                current = current_task_step_run(ledger)
+            if current is None or current.step_id == final_step_id:
+                break
+            if current.status != "running":
+                break
+            current_observation_refs = tuple(_dedupe_strings(observation_refs))
+            current_output_refs = tuple(
+                _dedupe_strings(
+                    [
+                        f"autonomous_plan_item:{current.step_id}",
+                        *current_observation_refs,
+                    ]
+                )
+            )
+            ledger = complete_task_run_step(
+                ledger,
+                step_id=current.step_id,
+                completed_at=time.time(),
+                observation_refs=current_observation_refs,
+                output_refs=current_output_refs,
+                executor_ref=current.executor_ref or "autonomous_task_run",
+                diagnostics={
+                    "transition_reason": "autonomous_task_pre_verification_step_completed",
+                    "autonomous_state": "verification_ready",
+                    "autonomy_mode": autonomy_mode,
+                    "execution_scope": "model_observation_ready_for_final_check",
+                },
+            )
+            completed = find_task_step_run(ledger, current.step_id)
+            if completed is not None:
+                self._ledger_transition_events.append(
+                    self.record_task_run_step_event(
+                        state.task_run_id,
+                        event_type="step_completed",
+                        step_run=completed,
+                        ledger=ledger,
+                        reason="autonomous_task_pre_verification_step_completed",
+                        refs=refs,
+                        diagnostics={"autonomy_mode": autonomy_mode},
+                    )
+                )
+
+        final_step = find_task_step_run(ledger, final_step_id)
+        if final_step is not None and final_step.status == "pending":
+            ledger = start_task_run_step(
+                ledger,
+                step_id=final_step.step_id,
+                started_at=time.time(),
+                executor_ref="autonomous_task_run",
+                diagnostics={
+                    "transition_reason": "autonomous_task_verification_started",
+                    "autonomous_state": "verification_ready",
+                    "autonomy_mode": autonomy_mode,
+                    "verification_ref": verification_event_ref,
+                },
+            )
+            entered = current_task_step_run(ledger)
+            if entered is not None:
+                self._ledger_transition_events.append(
+                    self.record_task_run_step_event(
+                        state.task_run_id,
+                        event_type="step_entered",
+                        step_run=entered,
+                        ledger=ledger,
+                        reason="autonomous_task_verification_started",
+                        refs=refs,
+                        diagnostics={"autonomy_mode": autonomy_mode},
+                    )
+                )
+            final_step = current_task_step_run(ledger)
+
+        if final_step is not None and final_step.status == "running":
+            ledger = complete_task_run_step(
+                ledger,
+                step_id=final_step.step_id,
+                completed_at=time.time(),
+                observation_refs=evidence_refs,
+                output_refs=final_output_refs or evidence_refs,
+                step_result_ref=verification_event_ref,
+                executor_ref=final_step.executor_ref or "autonomous_task_run",
+                diagnostics={
+                    "transition_reason": "autonomous_task_verification_completed",
+                    "autonomous_state": "verification_ready",
+                    "autonomy_mode": autonomy_mode,
+                    "verification_ref": verification_event_ref,
+                    "verification_passed": bool(verification_passed),
+                    "final_content_chars": len(str(final_content or "")),
+                    "observation_ref_count": len(evidence_refs),
+                },
+            )
+            completed = find_task_step_run(ledger, final_step.step_id)
+            if completed is not None:
+                self._ledger_transition_events.append(
+                    self.record_task_run_step_event(
+                        state.task_run_id,
+                        event_type="step_completed",
+                        step_run=completed,
+                        ledger=ledger,
+                        reason="autonomous_task_verification_completed",
+                        refs=refs,
+                        diagnostics={"autonomy_mode": autonomy_mode, "verification_passed": bool(verification_passed)},
+                    )
+                )
+
+        ledger_event = self.record_task_run_ledger_updated(
+            state.task_run_id,
+            ledger=ledger,
+            reason="autonomous_task_verification_completed",
+            refs={**refs, "task_step_ref": final_step_id},
+            diagnostics={
+                "autonomy_mode": autonomy_mode,
+                "verification_ref": verification_event_ref,
+                "verification_passed": bool(verification_passed),
+            },
+        )
+        self._ledger_transition_events.append(ledger_event)
+        state = self.state_with_task_run_ledger(
+            state,
+            ledger,
+            diagnostics={
+                "last_step_transition": "autonomous_task_verification_completed",
+                "autonomous_state": "verification_ready",
+                "autonomy_mode": autonomy_mode,
+                "verification_ref": verification_event_ref,
+                "verification_passed": bool(verification_passed),
             },
         )
         checkpoint_event = self.write_checkpoint_event(state, event_offset=ledger_event.offset)
@@ -1103,6 +1538,12 @@ def _autonomous_policy(selected_recipe_payload: dict[str, Any]) -> dict[str, Any
     }
 
 
+def _standard_execution_mode(selected_recipe_payload: dict[str, Any]) -> str:
+    metadata = dict(dict(selected_recipe_payload or {}).get("metadata") or {})
+    mode = str(metadata.get("autonomy_mode") or metadata.get("default_autonomy_mode") or "standard").strip().lower()
+    return mode if mode in {"standard", "managed"} else "standard"
+
+
 def _first_finalize_step_id(ledger: TaskRunLedger | None) -> str:
     if ledger is None:
         return ""
@@ -1110,6 +1551,19 @@ def _first_finalize_step_id(ledger: TaskRunLedger | None) -> str:
         if str(step.step_kind or "") == "finalize":
             return step.step_id
     return ""
+
+
+def _standard_action_step_id(plan: list[dict[str, Any]]) -> str:
+    items = [dict(item) for item in list(plan or []) if isinstance(item, dict)]
+    for item in items:
+        step_id = str(item.get("plan_item_id") or item.get("step_id") or "").strip()
+        if step_id and any(token in step_id for token in ("context_review", "execute", "inspect", "analysis")):
+            return step_id
+    for item in items:
+        step_id = str(item.get("plan_item_id") or item.get("step_id") or "").strip()
+        if step_id and "goal" not in step_id:
+            return step_id
+    return str(dict(items[0]).get("plan_item_id") or dict(items[0]).get("step_id") or "").strip() if items else ""
 
 
 def _answer_metadata_from_done_event(event: dict[str, Any]) -> dict[str, Any]:
@@ -1181,6 +1635,18 @@ def _tool_observation_payload(runtime_event: Any) -> dict[str, Any]:
         return {}
     observation_payload = dict(observation.get("payload") or {})
     return observation_payload if observation_payload else {}
+
+
+def _runtime_event_observation_ref(runtime_event: Any) -> str:
+    refs = dict(getattr(runtime_event, "refs", {}) or {})
+    payload = dict(getattr(runtime_event, "payload", {}) or {})
+    observation = dict(payload.get("observation") or {})
+    return str(
+        refs.get("observation_ref")
+        or observation.get("observation_id")
+        or getattr(runtime_event, "event_id", "")
+        or ""
+    ).strip()
 
 
 def _adopt_runtime_event_ref(outcome: AutonomousTaskRunOutcome, runtime_event: Any) -> None:

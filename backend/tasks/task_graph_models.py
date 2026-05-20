@@ -103,7 +103,15 @@ class TaskGraphNodeDefinition:
     main_chain: bool = True
     blocks_phase_exit: bool = True
     loop_policy: dict[str, Any] = field(default_factory=dict)
+    loop_kind: str = ""
+    loop_scope_id: str = ""
+    title_template: str = ""
+    loop_route_policy: dict[str, Any] = field(default_factory=dict)
     review_gate_policy: dict[str, Any] = field(default_factory=dict)
+    artifact_context_policy: dict[str, Any] = field(default_factory=dict)
+    revision_context_policy: dict[str, Any] = field(default_factory=dict)
+    quality_retry_policy: dict[str, Any] = field(default_factory=dict)
+    progress_commit_policy: dict[str, Any] = field(default_factory=dict)
     artifact_policy: dict[str, Any] = field(default_factory=dict)
     stream_policy: dict[str, Any] = field(default_factory=dict)
     artifact_target: str = ""
@@ -234,6 +242,14 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
     background_policy = dict(payload.get("background_policy") or {})
     notification_policy = dict(payload.get("notification_policy") or {})
     resource_lifecycle_policy = dict(payload.get("resource_lifecycle_policy") or {})
+    loop_kind = str(payload.get("loop_kind") or "").strip()
+    loop_scope_id = str(payload.get("loop_scope_id") or "").strip()
+    title_template = str(payload.get("title_template") or "").strip()
+    loop_route_policy = dict(payload.get("loop_route_policy") or {})
+    artifact_context_policy = dict(payload.get("artifact_context_policy") or {})
+    revision_context_policy = dict(payload.get("revision_context_policy") or {})
+    quality_retry_policy = dict(payload.get("quality_retry_policy") or {})
+    progress_commit_policy = dict(payload.get("progress_commit_policy") or {})
     execution_mode = str(payload.get("execution_mode") or "sync").strip() or "sync"
     wait_policy = str(payload.get("wait_policy") or "wait_all_upstream_completed").strip() or "wait_all_upstream_completed"
     join_policy = str(payload.get("join_policy") or "all_success").strip() or "all_success"
@@ -296,7 +312,15 @@ def task_graph_node_from_dict(payload: dict[str, Any]) -> TaskGraphNodeDefinitio
         main_chain=bool(payload.get("main_chain", True)),
         blocks_phase_exit=bool(payload.get("blocks_phase_exit", True)),
         loop_policy=dict(payload.get("loop_policy") or {}),
+        loop_kind=loop_kind,
+        loop_scope_id=loop_scope_id,
+        title_template=title_template,
+        loop_route_policy=loop_route_policy,
         review_gate_policy=review_gate_policy,
+        artifact_context_policy=artifact_context_policy,
+        revision_context_policy=revision_context_policy,
+        quality_retry_policy=quality_retry_policy,
+        progress_commit_policy=progress_commit_policy,
         artifact_policy=artifact_policy,
         stream_policy=stream_policy,
         artifact_target=str(payload.get("artifact_target") or "").strip(),
@@ -550,6 +574,9 @@ def normalize_graph_contract_bindings(
         value = metadata.get(f"{section}_contract") or metadata.get(f"{section}_policy")
         if isinstance(value, dict):
             derived.setdefault(section, {}).update(dict(value))
+    length_budget = metadata.get("length_budget_contract") or metadata.get("length_budget_policy")
+    if isinstance(length_budget, dict):
+        derived.setdefault("runtime", {})["length_budget"] = _normalize_length_budget_payload(length_budget)
     return _merge_contract_bindings(derived, explicit)
 
 
@@ -626,6 +653,8 @@ def normalize_node_contract_bindings(
     explicit_runtime = explicit_payload.get("runtime")
     if isinstance(explicit_runtime, dict) and isinstance(explicit_runtime.get("model_requirement"), dict):
         runtime["model_requirement"] = _normalize_model_requirement_payload(explicit_runtime.get("model_requirement"))
+    if isinstance(explicit_runtime, dict) and isinstance(explicit_runtime.get("length_budget"), dict):
+        runtime["length_budget"] = _normalize_length_budget_payload(explicit_runtime.get("length_budget"))
     if runtime:
         derived["runtime"] = runtime
     metadata = dict(metadata or {})
@@ -633,6 +662,9 @@ def normalize_node_contract_bindings(
         value = metadata.get(f"{section}_contract") or metadata.get(f"{section}_policy")
         if isinstance(value, dict):
             derived.setdefault(section, {}).update(dict(value))
+    length_budget = metadata.get("length_budget_contract") or metadata.get("length_budget_policy")
+    if isinstance(length_budget, dict):
+        derived.setdefault("runtime", {})["length_budget"] = _normalize_length_budget_payload(length_budget)
     return _merge_contract_bindings(derived, explicit)
 
 
@@ -714,11 +746,13 @@ def _contract_bindings_payload(value: Any) -> dict[str, Any]:
         return {}
     payload = {str(key).strip(): value for key, value in value.items() if str(key).strip()}
     runtime = payload.get("runtime")
+    runtime_payload = dict(runtime) if isinstance(runtime, dict) else {}
     if isinstance(runtime, dict) and isinstance(runtime.get("model_requirement"), dict):
-        payload["runtime"] = {
-            **dict(runtime),
-            "model_requirement": _normalize_model_requirement_payload(runtime.get("model_requirement")),
-        }
+        runtime_payload["model_requirement"] = _normalize_model_requirement_payload(runtime.get("model_requirement"))
+    if isinstance(runtime, dict) and isinstance(runtime.get("length_budget"), dict):
+        runtime_payload["length_budget"] = _normalize_length_budget_payload(runtime.get("length_budget"))
+    if runtime_payload:
+        payload["runtime"] = runtime_payload
     return payload
 
 
@@ -740,6 +774,26 @@ def _normalize_model_requirement_payload(value: Any) -> dict[str, Any]:
         "metadata",
     }
     return {key: item for key, item in payload.items() if key in allowed}
+
+
+def _normalize_length_budget_payload(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    payload: dict[str, Any] = {}
+    for key, item in value.items():
+        normalized_key = str(key or "").strip()
+        if not normalized_key:
+            continue
+        if isinstance(item, dict):
+            payload[normalized_key] = _normalize_length_budget_payload(item)
+        elif isinstance(item, list):
+            payload[normalized_key] = [
+                _normalize_length_budget_payload(child) if isinstance(child, dict) else child
+                for child in item
+            ]
+        else:
+            payload[normalized_key] = item
+    return payload
 
 
 def _legacy_contract_metadata(metadata: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
