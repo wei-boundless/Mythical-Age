@@ -48,10 +48,10 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
         "graph.writing.modular_novel.chapter_cycle",
         "graph.writing.modular_novel.finalize",
     ]
-    assert result["requested_chapters"] == 50
+    assert result["requested_chapters"] == 500
     assert result["chapter_batch_size"] == 10
-    assert result["target_volumes"] == 1
-    assert result["chapters_per_volume"] == 50
+    assert result["target_volumes"] == 5
+    assert result["chapters_per_volume"] == 100
 
     registry = TaskFlowRegistry(base_dir)
     graphs = {graph.graph_id: graph for graph in registry.list_task_graphs()}
@@ -82,10 +82,13 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
 
     runtime_loop_policy = chapter_graph.metadata["runtime_loop_policy"]
     assert runtime_loop_policy["enabled"] is True
-    assert runtime_loop_policy["initial_inputs"]["target_volumes"] == 1
-    assert runtime_loop_policy["initial_inputs"]["chapters_per_volume"] == 50
+    assert runtime_loop_policy["initial_inputs"]["target_volumes"] == 5
+    assert runtime_loop_policy["initial_inputs"]["chapters_per_volume"] == 100
     assert runtime_loop_policy["initial_inputs"]["chapters_per_round"] == 10
     assert runtime_loop_policy["initial_inputs"]["chapter_batch_size"] == 10
+    assert runtime_loop_policy["initial_inputs"]["target_chapters"] == 500
+    assert runtime_loop_policy["initial_inputs"]["target_words"] == 1_000_000
+    assert runtime_loop_policy["initial_inputs"]["volume_target_words"] == 200_000
     assert [frame["frame_id"] for frame in runtime_loop_policy["frames"]] == ["loop.chapter_batch", "loop.volume"]
 
     chapter_draft = next(node for node in chapter_graph.nodes if node.node_id == "chapter_draft")
@@ -99,9 +102,11 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
         if node.task_id
     )
     assert chapter_draft.contract_bindings["unit_batch"]["unit_kind"] == "chapter"
-    assert chapter_draft.contract_bindings["unit_batch"]["requested_count"] == 50
+    assert chapter_draft.contract_bindings["unit_batch"]["requested_count"] == 500
     assert chapter_draft.contract_bindings["unit_batch"]["range_start"] == 1
     assert chapter_draft.contract_bindings["runtime"]["split_policy"]["batch_size"] == 10
+    assert chapter_draft.contract_bindings["runtime"]["length_budget"]["target_units"] == 20_000
+    assert chapter_draft.contract_bindings["runtime"]["length_budget"]["batch_unit_count"] == 10
     assert chapter_draft.contract_bindings["runtime"]["batch_acceptance_policy"]["mode"] == "review_then_commit"
     assert chapter_draft.contract_bindings["runtime"]["merge_policy"]["mode"] == "wait_all_committed"
     assert chapter_draft.loop_scope_id == "loop.chapter_batch"
@@ -131,11 +136,11 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
     assert len(split_plans) == 1
     assert split_plans[0]["node_id"] == "chapter_draft"
     assert split_plans[0]["metadata"]["source_path"] == "graph.nodes[chapter_draft].contract_bindings"
-    assert len(split_plans[0]["batches"]) == 5
+    assert len(split_plans[0]["batches"]) == 50
     assert split_plans[0]["batches"][0]["range"] == {"start": 1, "end": 10, "label": "chapter_1_10"}
-    assert split_plans[0]["batches"][-1]["range"] == {"start": 41, "end": 50, "label": "chapter_41_50"}
+    assert split_plans[0]["batches"][-1]["range"] == {"start": 491, "end": 500, "label": "chapter_491_500"}
     assert split_plans[0]["merge_readiness_plan"]["ready_condition"] == "all_batches_committed"
-    assert len(split_plans[0]["batch_lifecycle_plans"]) == 5
+    assert len(split_plans[0]["batch_lifecycle_plans"]) == 50
     assert [step["step_type"] for step in split_plans[0]["batch_lifecycle_plans"][0]["steps"]] == [
         "execute",
         "review",
@@ -185,7 +190,7 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
     ]
     assert chapter_package["valid"] is True
     assert chapter_package["summary"]["split_plan_count"] == 1
-    assert chapter_package["summary"]["split_batch_count"] == 5
-    assert chapter_package["summary"]["split_batch_lifecycle_plan_count"] == 5
-    assert chapter_package["summary"]["split_batch_lifecycle_step_count"] == 20
+    assert chapter_package["summary"]["split_batch_count"] == 50
+    assert chapter_package["summary"]["split_batch_lifecycle_plan_count"] == 50
+    assert chapter_package["summary"]["split_batch_lifecycle_step_count"] == 200
     assert chapter_package["summary"]["split_merge_readiness_plan_count"] == 1

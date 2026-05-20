@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import copy
+import json
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -12,12 +13,14 @@ BACKEND_DIR = REPO_ROOT / "backend"
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from tasks.contract_definition_models import AcceptanceRule, ContractField, ContractSpec
+from orchestration.agent_registry import AgentRegistry
+from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from tasks.contract_definition_models import AcceptanceRule, ArtifactRequirement, ContractField, ContractSpec
 from tasks.contract_registry import TaskContractRegistry
 from tasks.flow_registry import TaskFlowRegistry
 
 
-MANAGED_BY = "codex_writing_modular_novel_graph_20260520"
+MANAGED_BY = "codex_writing_modular_novel_graph_20260521_native"
 DOMAIN_ID = "domain.writing.modular_novel"
 TASK_FAMILY = "writing_modular_novel"
 PROTOCOL_ID = "protocol.writing.modular_novel"
@@ -27,110 +30,945 @@ MASTER_GRAPH_ID = "graph.writing.modular_novel.master"
 DESIGN_GRAPH_ID = "graph.writing.modular_novel.design_init"
 CHAPTER_GRAPH_ID = "graph.writing.modular_novel.chapter_cycle"
 FINALIZE_GRAPH_ID = "graph.writing.modular_novel.finalize"
+LEGACY_GRAPH_ID = "graph.writing.simple_novel"
+LEGACY_MANAGED_BY = "codex_writing_simple_novel_config_20260519_design_layer"
+LEGACY_SIMPLE_MARKERS = (
+    LEGACY_MANAGED_BY,
+    "writing_simple_novel",
+    "graph.writing.simple_novel",
+    "domain.writing.simple_novel",
+    "protocol.writing.simple_novel",
+    "topology.writing.simple_novel",
+    "task.writing.simple_novel.",
+    "flow.writing.simple_novel.",
+    "workflow.writing.simple_novel.",
+    "contract.writing.simple_novel.",
+    "projection.writing.simple_novel.",
+    "writing_team_long_novel",
+    "graph.writing_team.long_novel",
+    "domain.writing_team.long_novel",
+    "protocol.writing_team.long_novel",
+    "topology.writing_team.long_novel",
+    "task.writing_team.long_novel.",
+    "flow.writing_team.long_novel.",
+    "workflow.writing_team.long_novel.",
+    "contract.writing_team.long_novel.",
+    "projection.writing_team.long_novel.",
+    "wmprofile.writing_team.long_novel",
+    "group.writing_team.long_novel",
+    "task_graph.writing_team.long_novel",
+    "agent:writing_team_worker",
+)
+LEGACY_SIMPLE_AGENT_IDS = {
+    "agent:writing_simple_worker",
+    "agent:writing_memory_steward",
+    "agent:writing_runtime_monitor",
+    "agent:writing_team_worker",
+}
 
-SOURCE_GRAPH_ID = "graph.writing.simple_novel"
-SOURCE_TASK_PREFIX = "task.writing.simple_novel."
-SOURCE_CONTRACT_PREFIX = "contract.writing.simple_novel."
-SOURCE_FLOW_PREFIX = "flow.writing.simple_novel."
-SOURCE_WORKFLOW_PREFIX = "workflow.writing.simple_novel."
-SOURCE_PROJECTION_PREFIX = "projection.writing.simple_novel."
+WORKER_AGENT_ID = "agent:writing_modular_worker"
+MEMORY_AGENT_ID = "agent:writing_modular_memory_steward"
+MONITOR_AGENT_ID = "agent:writing_modular_runtime_monitor"
+AGENT_GROUP_ID = "group.writing.modular_novel"
 
-TARGET_VOLUMES = 1
-CHAPTERS_PER_VOLUME = 50
+TARGET_VOLUMES = 5
+CHAPTERS_PER_VOLUME = 100
 CHAPTER_BATCH_SIZE = 10
 CHAPTER_TARGET_WORDS = 2000
+CHAPTER_MIN_WORDS = 1200
+CHAPTER_MAX_WORDS = 2600
+BATCH_TARGET_WORDS = CHAPTER_BATCH_SIZE * CHAPTER_TARGET_WORDS
+BATCH_MIN_WORDS = CHAPTER_BATCH_SIZE * CHAPTER_MIN_WORDS
+BATCH_MAX_WORDS = CHAPTER_BATCH_SIZE * CHAPTER_MAX_WORDS
 VOLUME_TARGET_WORDS = CHAPTERS_PER_VOLUME * CHAPTER_TARGET_WORDS
+VOLUME_MIN_WORDS = CHAPTERS_PER_VOLUME * CHAPTER_MIN_WORDS
+VOLUME_MAX_WORDS = CHAPTERS_PER_VOLUME * CHAPTER_MAX_WORDS
 TARGET_WORDS = TARGET_VOLUMES * VOLUME_TARGET_WORDS
 CHAPTER_REQUESTED_COUNT = TARGET_VOLUMES * CHAPTERS_PER_VOLUME
 
-PHASE_TASKS: dict[str, tuple[str, ...]] = {
-    DESIGN_GRAPH_ID: (
-        "project_brief",
-        "world_design",
-        "world_review",
-        "memory_commit_world",
-        "character_design",
-        "plot_design",
-        "design_sync",
-        "outline_design",
-        "outline_review",
-        "baseline_memory_seed",
-    ),
-    CHAPTER_GRAPH_ID: (
-        "volume_plan",
-        "chapter_outline",
-        "chapter_draft",
-        "chapter_review",
-        "memory_commit_chapter",
-        "chapter_progress_router",
-        "volume_review",
-        "volume_commit",
-        "volume_postmortem",
-        "world_outline_extension_proposal",
-        "extension_review",
-        "extension_commit",
-        "next_volume_router",
-    ),
-    FINALIZE_GRAPH_ID: (
-        "final_assemble",
-        "final_review",
-        "memory_finalize",
-    ),
-}
+ARTIFACT_ROOT = "output/novel_artifacts/modular_novel/runs"
 
-GRAPH_TITLES = {
-    MASTER_GRAPH_ID: "模块化长篇写作总任务图",
-    DESIGN_GRAPH_ID: "设计初始化任务图",
-    CHAPTER_GRAPH_ID: "章节批次创作任务图",
-    FINALIZE_GRAPH_ID: "收尾交付任务图",
-}
+REPOSITORY_NODES = (
+    {
+        "node_id": "memory.writing.baseline",
+        "node_type": "memory_repository",
+        "title": "基准记忆库",
+        "repository_id": "writing_modular_baseline",
+        "collections": ("world_commits", "outline_commits", "character_commits", "frozen_facts"),
+        "mutable": False,
+        "write_owner_node_ids": ("memory_commit_world", "baseline_memory_seed"),
+        "readable_by": ("volume_plan", "chapter_outline", "chapter_draft", "chapter_review", "volume_review", "final_assemble", "final_review"),
+        "library_role": "read_only_canon_baseline",
+    },
+    {
+        "node_id": "memory.writing.mutable",
+        "node_type": "memory_repository",
+        "title": "动态记忆库",
+        "repository_id": "writing_modular_mutable",
+        "collections": ("chapter_commits", "volume_commits", "extension_commits", "continuity_notes"),
+        "mutable": True,
+        "write_owner_node_ids": ("memory_commit_chapter", "volume_commit", "extension_commit", "memory_finalize"),
+        "readable_by": ("chapter_outline", "chapter_draft", "chapter_review", "volume_review", "final_assemble"),
+        "library_role": "post_batch_and_post_volume_update_layer",
+    },
+    {
+        "node_id": "memory.writing.artifact_index",
+        "node_type": "artifact_repository",
+        "title": "产物索引库",
+        "repository_id": "writing_modular_artifact_index",
+        "collections": ("draft_refs", "review_refs", "commit_refs", "debug_refs"),
+        "mutable": True,
+        "write_owner_node_ids": ("*",),
+        "readable_by": ("*"),
+        "library_role": "artifact_ref_index",
+    },
+    {
+        "node_id": "memory.writing.issue_ledger",
+        "node_type": "issue_ledger",
+        "title": "问题台账",
+        "repository_id": "writing_modular_issue_ledger",
+        "collections": ("review_issues", "continuity_issues", "runtime_issues"),
+        "mutable": True,
+        "write_owner_node_ids": ("world_review", "outline_review", "chapter_review", "volume_review", "final_review"),
+        "readable_by": ("*"),
+        "library_role": "risk_and_issue_ledger",
+    },
+)
+
+
+def _chapter_loop_derived_fields() -> list[dict[str, Any]]:
+    return [
+        {"key": "volume_index_padded", "op": "format", "template": "{volume_index:03d}"},
+        {"key": "volume_label", "op": "format", "template": "第{volume_index}卷"},
+        {"key": "chapter_index_padded", "op": "format", "template": "{chapter_index:03d}"},
+        {"key": "chapter_label", "op": "format", "template": "第{chapter_index}章"},
+        {"key": "chapter_file_prefix", "op": "format", "template": "chapter_{chapter_index:03d}"},
+        {"key": "batch_start_index", "op": "copy", "from_key": "chapter_index"},
+        {"key": "batch_end_index", "op": "add", "from_key": "chapter_index", "value_key": "chapters_per_round", "value": CHAPTER_BATCH_SIZE - 1, "offset": -1},
+        {"key": "batch_index", "op": "ordinal_group", "from_key": "chapter_index", "size_key": "chapters_per_round", "size": CHAPTER_BATCH_SIZE},
+        {"key": "batch_index_padded", "op": "format", "template": "{batch_index:03d}"},
+        {"key": "batch_start_index_padded", "op": "format", "template": "{batch_start_index:03d}"},
+        {"key": "batch_end_index_padded", "op": "format", "template": "{batch_end_index:03d}"},
+        {"key": "batch_chapter_range", "op": "format", "template": "{batch_start_index:03d}-{batch_end_index:03d}"},
+        {"key": "batch_label", "op": "format", "template": "第{batch_start_index}章至第{batch_end_index}章"},
+        {"key": "batch_chapter_numbers", "op": "range", "start_key": "batch_start_index", "end_key": "batch_end_index"},
+        {"key": "batch_chapter_list", "op": "join", "from_key": "batch_chapter_numbers", "prefix": "第", "suffix": "章", "separator": "、"},
+        {"key": "batch_target_words", "op": "multiply", "from_key": "chapter_target_words", "value_key": "chapters_per_round", "value": CHAPTER_BATCH_SIZE},
+        {"key": "runtime_loop_summary", "op": "format", "template": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；本次目标 {target_volumes} 卷；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。"},
+    ]
+
+
+def _chapter_progress_route_policy_static() -> dict[str, Any]:
+    return {
+        "mode": "metric_target",
+        "loop_scope_id": "loop.chapter_batch",
+        "continue_stage_id": "chapter_outline",
+        "exit_stage_id": "volume_review",
+        "metric_key": "chapter_words",
+        "diagnostic_metric_key": "chapter_words",
+        "fallback_increment_key": "batch_target_words",
+        "default_increment": BATCH_TARGET_WORDS,
+        "current_key": "volume_current_words",
+        "target_key": "volume_target_words",
+        "last_metric_key": "last_batch_words",
+        "secondary_counters": [{"current_key": "current_words", "target_key": "target_words"}],
+        "counter_updates": [{"key": "chapter_index", "mode": "increment", "step_key": "chapters_per_round", "step": CHAPTER_BATCH_SIZE}],
+        "derived_fields": _chapter_loop_derived_fields(),
+    }
+
+
+def _next_volume_route_policy_static() -> dict[str, Any]:
+    return {
+        "mode": "metric_target",
+        "loop_scope_id": "loop.volume",
+        "continue_stage_id": "volume_plan",
+        "exit_stage_id": "__graph_unit_complete__",
+        "metric_key": "volume_router_metric",
+        "default_increment": 1,
+        "current_key": "completed_volumes",
+        "target_key": "target_volumes",
+        "counter_updates": [
+            {"key": "volume_index", "mode": "increment", "step": 1},
+            {"key": "volume_current_words", "mode": "reset", "value": 0},
+        ],
+        "derived_fields": _chapter_loop_derived_fields(),
+    }
+
+
+def _length_budget_contract_static(scope: str, target_units: int, min_units: int, max_units: int, batch_unit_count: int) -> dict[str, Any]:
+    return _length_budget_contract(scope, target_units, min_units, max_units, batch_unit_count, f"node.contract_bindings.runtime.length_budget.{scope}")
+
+
+def _length_budget_contract(scope: str, target_units: int, min_units: int, max_units: int, batch_unit_count: int, source: str) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "budget_scope": scope,
+        "measurement_mode": "text_units",
+        "unit_kind": "chapter" if scope == "batch" else "volume",
+        "unit_label_zh": "章节" if scope == "batch" else "卷",
+        "target_units": target_units,
+        "min_units": min_units,
+        "max_units": max_units,
+        "batch_unit_count": batch_unit_count,
+        "metric_section_keys": ["章节正文候选"],
+        "metric_stop_section_keys": ["承接说明", "本章目标完成说明", "人物与冲突推进", "商业钩子与爽点兑现", "后续伏笔或待承接事项", "自检风险", "公开摘要"],
+        "repair_policy": {"mode": "expand_or_split", "max_repair_rounds": 3, "repair_instruction": "扩写正文场景、行动、选择、冲突、代价和人物反应；不得用摘要、提纲或自检补量。"},
+        "acceptance_policy": {"require_continuity": True, "require_formal_headings": True, "require_artifact_ref": True, "metric_tool_operation": "op.text_metric"},
+        "source": source,
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class NodeSpec:
+    node_id: str
+    title: str
+    node_type: str
+    role: str
+    prompt: str
+    output_contract_id: str
+    input_contract_id: str = "contract.user_request.basic"
+    agent_id: str = WORKER_AGENT_ID
+    projection_id: str = ""
+    phase_id: str = ""
+    sequence_index: int = 0
+    required_inputs: tuple[str, ...] = ()
+    memory_topics: tuple[str, ...] = ()
+    required_memory_topics: tuple[str, ...] = ()
+    forbidden_topics: tuple[str, ...] = ("raw_conversation_history",)
+    readable_repositories: tuple[str, ...] = ()
+    write_mode: str = "candidate_archive_only"
+    artifact_paths: tuple[str, ...] = ()
+    artifact_context_keys: tuple[str, ...] = ("上游交接包",)
+    artifact_context_max_chars: int = 30000
+    review_revision_stage_id: str = ""
+    loop_scope_id: str = ""
+    title_template: str = ""
+    loop_route_policy: dict[str, Any] = field(default_factory=dict)
+    length_budget: dict[str, Any] = field(default_factory=dict)
+    extra_runtime: dict[str, Any] = field(default_factory=dict)
+
+
+DESIGN_NODES: tuple[NodeSpec, ...] = (
+    NodeSpec(
+        node_id="project_brief",
+        title="项目启动包",
+        node_type="agent_role",
+        role="creator",
+        projection_id="projection.writing.modular_novel.project_brief",
+        phase_id="phase.modular.design_init.start",
+        sequence_index=10,
+        output_contract_id="contract.writing.modular_novel.project_brief",
+        memory_topics=("user_goal", "delivery_requirements", "source_refs"),
+        forbidden_topics=("raw_conversation_history", "baseline_memory", "mutable_memory"),
+        artifact_context_keys=(),
+        artifact_paths=("project_brief.md",),
+        prompt=(
+            "你是一名长篇小说项目启动整理员。你只负责把用户给出的题材、世界背景、主角、字数、章节规模和硬性要求整理成可交接的项目启动包。"
+            "你不能扩写世界观正文，也不能替后续节点创作剧情。输出必须明确哪些内容是用户硬设定，哪些是待设计问题。"
+        ),
+    ),
+    NodeSpec(
+        node_id="world_design",
+        title="世界观设定候选",
+        node_type="agent_role",
+        role="creator",
+        projection_id="projection.writing.modular_novel.world_designer",
+        phase_id="phase.modular.design_init.world",
+        sequence_index=20,
+        output_contract_id="contract.writing.modular_novel.world_candidate",
+        required_inputs=("上游交接包",),
+        memory_topics=("project_brief", "user_goal", "source_refs"),
+        artifact_paths=("world/world_candidate.md",),
+        prompt=(
+            "你是一名世界观规划师。你只负责基于项目启动包设计可支撑百万字长篇的世界规则、历史阶段、势力结构、修炼体系、神灵与万族关系。"
+            "你必须保留用户硬设定，不得把未设计的剧情细节伪装成既定事实。输出是候选世界观，不是基准库。"
+        ),
+    ),
+    NodeSpec(
+        node_id="world_review",
+        title="世界观审核",
+        node_type="review_gate",
+        role="reviewer",
+        projection_id="projection.writing.modular_novel.world_reviewer",
+        phase_id="phase.modular.design_init.world",
+        sequence_index=30,
+        output_contract_id="contract.writing.modular_novel.world_review",
+        required_inputs=("上游交接包",),
+        memory_topics=("project_brief", "world_candidate_ref"),
+        artifact_paths=("world/world_review.md",),
+        review_revision_stage_id="world_design",
+        write_mode="review_and_issue_ledger",
+        prompt=(
+            "你是一名世界观审核员。你只负责评审当前世界观设定是否完整、一致、可支撑后续写作。"
+            "你不负责替创作者扩写设定。你需要指出问题、给出裁决、说明是否允许进入下一阶段。"
+        ),
+    ),
+    NodeSpec(
+        node_id="memory_commit_world",
+        title="世界观提交",
+        node_type="memory_commit",
+        role="memory_steward",
+        agent_id=MEMORY_AGENT_ID,
+        projection_id="projection.writing.modular_novel.memory_steward",
+        phase_id="phase.modular.design_init.world",
+        sequence_index=40,
+        output_contract_id="contract.writing.modular_novel.world_commit",
+        required_inputs=("上游交接包",),
+        memory_topics=("world_review", "world_candidate_ref", "project_brief"),
+        artifact_paths=("memory/world/world_commit.md",),
+        write_mode="baseline_commit",
+        prompt=(
+            "你是一名基准记忆库管理员。你只负责把已经通过审核的世界观候选整理为可长期引用的世界观基准记录。"
+            "你必须保留足够完整的规则、历史、势力、修炼体系和创作边界；摘要只能作为索引，不能替代正式内容。"
+        ),
+    ),
+    NodeSpec(
+        node_id="character_design",
+        title="人设与关系设计",
+        node_type="agent_role",
+        role="creator",
+        projection_id="projection.writing.modular_novel.character_designer",
+        phase_id="phase.modular.design_init.design",
+        sequence_index=50,
+        output_contract_id="contract.writing.modular_novel.character_design",
+        required_inputs=("上游交接包",),
+        memory_topics=("project_brief", "world_commit_ref", "approved_world_spine"),
+        artifact_paths=("design/character_design.md",),
+        prompt=(
+            "你是一名人设与关系设计师。你只负责在已提交世界观边界内设计主角、关键角色、守护者背景、神灵派系、万族关系和角色动机网络。"
+            "你必须读取项目启动包和世界观提交内容；不得改写世界观基准事实。输出仍是设计候选，不是最终基准库。"
+        ),
+    ),
+    NodeSpec(
+        node_id="plot_design",
+        title="剧情与伏笔设计",
+        node_type="agent_role",
+        role="creator",
+        projection_id="projection.writing.modular_novel.plot_designer",
+        phase_id="phase.modular.design_init.design",
+        sequence_index=60,
+        output_contract_id="contract.writing.modular_novel.plot_design",
+        required_inputs=("上游交接包",),
+        memory_topics=("project_brief", "world_commit_ref", "character_design_ref"),
+        artifact_paths=("design/plot_design.md",),
+        prompt=(
+            "你是一名剧情与伏笔设计师。你只负责根据世界观提交和人设候选设计主线推进、阶段冲突、伏笔链、秘密揭示节奏和长期悬念。"
+            "你不得把角色稳定事实改掉，也不得把未审核设定写成基准事实。伏笔可以并入大纲，但这里必须给出可追踪结构。"
+        ),
+    ),
+    NodeSpec(
+        node_id="design_sync",
+        title="创作架构对齐",
+        node_type="agent_role",
+        role="reviewer",
+        projection_id="projection.writing.modular_novel.design_sync",
+        phase_id="phase.modular.design_init.design",
+        sequence_index=70,
+        output_contract_id="contract.writing.modular_novel.design_alignment",
+        required_inputs=("上游交接包",),
+        memory_topics=("world_commit_ref", "character_design_ref", "plot_design_ref", "conflict_ledger"),
+        artifact_paths=("design/design_alignment.md",),
+        write_mode="review_and_issue_ledger",
+        prompt=(
+            "你是一名创作架构对齐审核员。你只负责检查人设、关系、剧情、伏笔与世界观是否互相支撑。"
+            "你需要给出冲突清单、取舍建议和可交给大纲设计师的对齐包；你不能代替大纲设计师写全书大纲。"
+        ),
+    ),
+    NodeSpec(
+        node_id="outline_design",
+        title="全书细纲设计",
+        node_type="agent_role",
+        role="creator",
+        projection_id="projection.writing.modular_novel.outline_designer",
+        phase_id="phase.modular.design_init.core",
+        sequence_index=80,
+        output_contract_id="contract.writing.modular_novel.outline_design",
+        required_inputs=("上游交接包",),
+        memory_topics=("world_commit_ref", "character_design_ref", "plot_design_ref", "design_sync_ref", "project_brief"),
+        artifact_paths=("outline/outline_design.md",),
+        prompt=(
+            "你是一名全书细纲设计师。你只负责把世界观、人设、剧情与对齐包汇总成可执行的长篇细纲。"
+            "你必须细化到分卷目标、阶段矛盾、伏笔布设与回收、角色成长节点和前后文承接规则。不能从零另造一套设定。"
+        ),
+    ),
+    NodeSpec(
+        node_id="outline_review",
+        title="细纲审核",
+        node_type="review_gate",
+        role="reviewer",
+        projection_id="projection.writing.modular_novel.outline_reviewer",
+        phase_id="phase.modular.design_init.core",
+        sequence_index=90,
+        output_contract_id="contract.writing.modular_novel.outline_review",
+        required_inputs=("上游交接包",),
+        memory_topics=("world_commit_ref", "character_design_ref", "plot_design_ref", "design_sync_ref", "outline_design_ref"),
+        artifact_paths=("outline/outline_review.md",),
+        review_revision_stage_id="outline_design",
+        write_mode="review_and_issue_ledger",
+        prompt=(
+            "你是一名全书细纲审核员。你只负责判断大纲是否能支撑百万字、五卷结构、章节连续创作和伏笔闭环。"
+            "你需要给出通过、带备注通过或返修裁决；未通过时必须指明返修范围。"
+        ),
+    ),
+    NodeSpec(
+        node_id="baseline_memory_seed",
+        title="基准库初始化",
+        node_type="memory_commit",
+        role="memory_steward",
+        agent_id=MEMORY_AGENT_ID,
+        projection_id="projection.writing.modular_novel.baseline_memory_steward",
+        phase_id="phase.modular.design_init.core",
+        sequence_index=100,
+        output_contract_id="contract.writing.modular_novel.baseline_commit",
+        required_inputs=("上游交接包",),
+        memory_topics=("project_brief", "world_commit_ref", "outline_review_ref", "outline_design_ref", "character_design_ref", "plot_design_ref", "design_sync_ref"),
+        artifact_paths=("memory/baseline/baseline_commit.md",),
+        write_mode="baseline_commit",
+        prompt=(
+            "你是一名基准库初始化管理员。你只负责固化已经通过审核的世界观、人设、关系、剧情结构、细纲和冻结事实。"
+            "候选分歧、未审核补充、过程讨论不能进入冻结区；动态调整事项只能进入动态记忆库的候选说明。"
+        ),
+    ),
+)
+
+CHAPTER_NODES: tuple[NodeSpec, ...] = (
+    NodeSpec(
+        node_id="volume_plan",
+        title="分卷计划",
+        node_type="agent_role",
+        role="creator",
+        projection_id="projection.writing.modular_novel.volume_planner",
+        phase_id="phase.modular.chapter_cycle.volume_plan",
+        sequence_index=10,
+        output_contract_id="contract.writing.modular_novel.volume_plan",
+        memory_topics=("baseline_world", "baseline_outline", "baseline_characters", "previous_volume_commit", "dynamic_memory"),
+        required_memory_topics=("baseline_world", "baseline_outline", "baseline_characters"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        artifact_paths=("volume_{volume_index_padded}/volume_plan.md",),
+        loop_scope_id="loop.volume",
+        title_template="{volume_label}分卷计划",
+        prompt=(
+            "你是一名分卷规划师。你必须读取基准库的完整世界观、角色、关系和全书细纲，以及动态记忆库里上一卷后的调整。"
+            "你只负责当前卷的目标、主题、冲突升级、伏笔安排、十章批次边界和承接要求。"
+        ),
+    ),
+    NodeSpec(
+        node_id="chapter_outline",
+        title="章节批次细纲",
+        node_type="agent_role",
+        role="creator",
+        projection_id="projection.writing.modular_novel.chapter_outliner",
+        phase_id="phase.modular.chapter_cycle.chapter_loop",
+        sequence_index=20,
+        output_contract_id="contract.writing.modular_novel.chapter_outline",
+        required_inputs=("上游交接包",),
+        memory_topics=("baseline_world", "baseline_outline", "baseline_characters", "volume_plan_ref", "previous_chapter_commit", "continuity_notes"),
+        required_memory_topics=("baseline_world", "baseline_outline", "baseline_characters"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/outline_round_{round_index:03d}.md",),
+        loop_scope_id="loop.chapter_batch",
+        title_template="{batch_label}章节批次细纲",
+        prompt=(
+            "你是一名章节批次细纲师。你只负责当前运行时批次允许的十章。"
+            "你必须读取基准库、当前卷计划、上一批提交摘要和动态连续性记录，为写手给出逐章目标、场景推进、角色变化、伏笔布设与承接点。"
+        ),
+    ),
+    NodeSpec(
+        node_id="chapter_draft",
+        title="章节正文草稿",
+        node_type="agent_role",
+        role="creator",
+        projection_id="projection.writing.modular_novel.chapter_writer",
+        phase_id="phase.modular.chapter_cycle.chapter_loop",
+        sequence_index=30,
+        output_contract_id="contract.writing.modular_novel.chapter_draft",
+        required_inputs=("上游交接包",),
+        memory_topics=("baseline_world", "baseline_outline", "baseline_characters", "volume_plan_ref", "chapter_outline_ref", "previous_chapter_commit"),
+        required_memory_topics=("baseline_world", "baseline_outline", "baseline_characters", "chapter_outline_ref"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/draft_round_{round_index:03d}.md",),
+        loop_scope_id="loop.chapter_batch",
+        title_template="{batch_label}章节正文草稿",
+        length_budget=_length_budget_contract_static("batch", BATCH_TARGET_WORDS, BATCH_MIN_WORDS, BATCH_MAX_WORDS, CHAPTER_BATCH_SIZE),
+        extra_runtime={
+            "split_policy": {
+                "mode": "static_batch",
+                "batch_size": CHAPTER_BATCH_SIZE,
+                "range_label_template": "chapter_{start}_{end}",
+                "child_execution_mode": "sequential",
+                "source": "contract_bindings.runtime.split_policy",
+            },
+            "batch_acceptance_policy": {
+                "mode": "review_then_commit",
+                "review_node_id": "chapter_review",
+                "commit_visibility": "next_batch_after_acceptance",
+            },
+            "merge_policy": {
+                "mode": "wait_all_committed",
+                "result_order": "batch_sequence",
+                "allow_partial": False,
+                "final_review_required": True,
+            },
+        },
+        prompt=(
+            "你是一名长篇小说写手。你只负责当前运行时批次允许的十章正文。"
+            "你必须读取基准库完整设定、动态记忆库承接信息、当前卷计划和当前批次细纲；如果旧产物或提示中出现其他章号，以运行时批次边界为准。"
+            "正文要连续成文，不得用提纲、摘要、自检或解释补字数。"
+        ),
+    ),
+    NodeSpec(
+        node_id="chapter_review",
+        title="章节批次审核",
+        node_type="review_gate",
+        role="reviewer",
+        projection_id="projection.writing.modular_novel.chapter_reviewer",
+        phase_id="phase.modular.chapter_cycle.chapter_loop",
+        sequence_index=40,
+        output_contract_id="contract.writing.modular_novel.chapter_review",
+        required_inputs=("上游交接包",),
+        memory_topics=("chapter_draft_ref", "chapter_outline_ref", "baseline_world", "baseline_outline", "continuity_notes"),
+        required_memory_topics=("chapter_draft_ref", "chapter_outline_ref"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/review_round_{round_index:03d}.md",),
+        review_revision_stage_id="chapter_draft",
+        loop_scope_id="loop.chapter_batch",
+        title_template="{batch_label}章节批次审核",
+        length_budget=_length_budget_contract_static("batch", BATCH_TARGET_WORDS, BATCH_MIN_WORDS, BATCH_MAX_WORDS, CHAPTER_BATCH_SIZE),
+        write_mode="review_and_issue_ledger",
+        prompt=(
+            "你是一名章节批次审核员。你只负责审核当前十章是否满足批次细纲、基准设定、连续性、正文量和伏笔推进要求。"
+            "你不能替写手补写正文。你必须给出通过或返修裁决，并把连续性问题登记清楚。"
+        ),
+    ),
+    NodeSpec(
+        node_id="memory_commit_chapter",
+        title="章节批次提交",
+        node_type="memory_commit",
+        role="memory_steward",
+        agent_id=MEMORY_AGENT_ID,
+        projection_id="projection.writing.modular_novel.memory_steward",
+        phase_id="phase.modular.chapter_cycle.chapter_loop",
+        sequence_index=50,
+        output_contract_id="contract.writing.modular_novel.chapter_batch_commit",
+        required_inputs=("上游交接包",),
+        memory_topics=("chapter_draft_ref", "chapter_review_ref", "chapter_outline_ref", "continuity_notes"),
+        required_memory_topics=("chapter_draft_ref", "chapter_review_ref"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/chapter_commit.md",),
+        loop_scope_id="loop.chapter_batch",
+        title_template="{batch_label}章节批次提交",
+        write_mode="chapter_commit",
+        prompt=(
+            "你是一名章节记忆提交员。你只负责在审核通过后登记当前批次正文引用、章节摘要、角色状态变化、伏笔状态和下一批承接事项。"
+            "你不能改写正文，也不能把未通过审核的草稿写入已提交记忆。"
+        ),
+    ),
+    NodeSpec(
+        node_id="chapter_progress_router",
+        title="章节进度路由",
+        node_type="agent_role",
+        role="router",
+        projection_id="projection.writing.modular_novel.chapter_progress_router",
+        phase_id="phase.modular.chapter_cycle.chapter_loop",
+        sequence_index=60,
+        output_contract_id="contract.writing.modular_novel.progress_route",
+        required_inputs=("上游交接包",),
+        memory_topics=("chapter_commit_ref", "volume_progress"),
+        artifact_context_keys=("上游交接包",),
+        artifact_paths=("volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/progress_route.md",),
+        loop_scope_id="loop.chapter_batch",
+        title_template="{batch_label}章节进度路由",
+        loop_route_policy=_chapter_progress_route_policy_static(),
+        prompt=(
+            "你是一名章节进度路由员。你只负责读取已提交批次的度量结果和当前卷目标，判断继续下一批还是进入本卷审核。"
+            "你不能创作正文，也不能把未提交草稿当作完成进度。"
+        ),
+    ),
+    NodeSpec(
+        node_id="volume_review",
+        title="卷级审核",
+        node_type="review_gate",
+        role="reviewer",
+        projection_id="projection.writing.modular_novel.volume_reviewer",
+        phase_id="phase.modular.chapter_cycle.volume_review",
+        sequence_index=70,
+        output_contract_id="contract.writing.modular_novel.volume_review",
+        required_inputs=("上游交接包",),
+        memory_topics=("volume_chapter_commits", "baseline_outline", "volume_plan_ref", "continuity_notes"),
+        required_memory_topics=("volume_chapter_commits", "volume_plan_ref"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        artifact_paths=("volume_{volume_index_padded}/volume_review.md",),
+        review_revision_stage_id="chapter_outline",
+        loop_scope_id="loop.volume",
+        title_template="{volume_label}卷级审核",
+        write_mode="review_and_issue_ledger",
+        prompt=(
+            "你是一名卷级审核员。你只负责审核当前卷是否完成二十万字左右的阶段目标、人物变化、伏笔推进和连续性闭环。"
+            "你需要指出是否允许提交本卷，或要求回到章节批次返修。"
+        ),
+    ),
+    NodeSpec(
+        node_id="volume_commit",
+        title="卷级提交",
+        node_type="memory_commit",
+        role="memory_steward",
+        agent_id=MEMORY_AGENT_ID,
+        projection_id="projection.writing.modular_novel.memory_steward",
+        phase_id="phase.modular.chapter_cycle.volume_review",
+        sequence_index=80,
+        output_contract_id="contract.writing.modular_novel.volume_commit",
+        required_inputs=("上游交接包",),
+        memory_topics=("volume_review_ref", "volume_chapter_commits", "continuity_notes"),
+        required_memory_topics=("volume_review_ref", "volume_chapter_commits"),
+        readable_repositories=("memory.writing.mutable",),
+        artifact_context_keys=("上游交接包", "动态记忆库"),
+        artifact_paths=("volume_{volume_index_padded}/volume_commit.md",),
+        loop_scope_id="loop.volume",
+        title_template="{volume_label}卷级提交",
+        write_mode="volume_commit",
+        prompt=(
+            "你是一名卷级记忆提交员。你只负责在卷级审核通过后登记本卷正文引用、卷摘要、角色状态、伏笔变更和下一卷承接事项。"
+            "你不能修改基准库冻结事实。"
+        ),
+    ),
+    NodeSpec(
+        node_id="volume_postmortem",
+        title="卷后复盘",
+        node_type="agent_role",
+        role="reviewer",
+        projection_id="projection.writing.modular_novel.volume_postmortem",
+        phase_id="phase.modular.chapter_cycle.volume_extension",
+        sequence_index=90,
+        output_contract_id="contract.writing.modular_novel.volume_postmortem",
+        required_inputs=("上游交接包",),
+        memory_topics=("volume_commit_ref", "baseline_outline", "dynamic_memory"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        artifact_paths=("volume_{volume_index_padded}/volume_postmortem.md",),
+        loop_scope_id="loop.volume",
+        title_template="{volume_label}卷后复盘",
+        prompt=(
+            "你是一名卷后复盘员。你只负责总结本卷完成情况、节奏偏差、伏笔状态、下一卷风险和需要补充的设定候选。"
+            "你不能直接修改基准库，只能提出候选建议。"
+        ),
+    ),
+    NodeSpec(
+        node_id="world_outline_extension_proposal",
+        title="设定与大纲补充提案",
+        node_type="agent_role",
+        role="creator",
+        projection_id="projection.writing.modular_novel.extension_proposer",
+        phase_id="phase.modular.chapter_cycle.volume_extension",
+        sequence_index=100,
+        output_contract_id="contract.writing.modular_novel.extension_proposal",
+        required_inputs=("上游交接包",),
+        memory_topics=("volume_postmortem_ref", "baseline_world", "baseline_outline", "dynamic_memory"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        artifact_paths=("volume_{volume_index_padded}/extension_proposal.md",),
+        loop_scope_id="loop.volume",
+        title_template="{volume_label}设定与大纲补充提案",
+        prompt=(
+            "你是一名设定与大纲补充提案员。你只负责把卷后复盘中需要补充的内容整理成候选提案。"
+            "提案必须区分动态调整、下一卷重点和可能触碰冻结事实的风险。"
+        ),
+    ),
+    NodeSpec(
+        node_id="extension_review",
+        title="补充提案审核",
+        node_type="review_gate",
+        role="reviewer",
+        projection_id="projection.writing.modular_novel.extension_reviewer",
+        phase_id="phase.modular.chapter_cycle.volume_extension",
+        sequence_index=110,
+        output_contract_id="contract.writing.modular_novel.extension_review",
+        required_inputs=("上游交接包",),
+        memory_topics=("extension_proposal_ref", "baseline_world", "baseline_outline"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        artifact_paths=("volume_{volume_index_padded}/extension_review.md",),
+        review_revision_stage_id="world_outline_extension_proposal",
+        loop_scope_id="loop.volume",
+        title_template="{volume_label}补充提案审核",
+        write_mode="review_and_issue_ledger",
+        prompt=(
+            "你是一名补充提案审核员。你只负责判断提案能否进入动态记忆库，是否触碰基准库冻结事实，是否会污染后续创作。"
+            "你需要给出通过、拒绝或返修裁决。"
+        ),
+    ),
+    NodeSpec(
+        node_id="extension_commit",
+        title="动态记忆提交",
+        node_type="memory_commit",
+        role="memory_steward",
+        agent_id=MEMORY_AGENT_ID,
+        projection_id="projection.writing.modular_novel.memory_steward",
+        phase_id="phase.modular.chapter_cycle.volume_extension",
+        sequence_index=120,
+        output_contract_id="contract.writing.modular_novel.extension_commit",
+        required_inputs=("上游交接包",),
+        memory_topics=("extension_review_ref", "extension_proposal_ref", "volume_commit_ref"),
+        readable_repositories=("memory.writing.mutable",),
+        artifact_context_keys=("上游交接包", "动态记忆库"),
+        artifact_paths=("volume_{volume_index_padded}/extension_commit.md",),
+        loop_scope_id="loop.volume",
+        title_template="{volume_label}动态记忆提交",
+        write_mode="dynamic_memory_commit",
+        prompt=(
+            "你是一名动态记忆提交员。你只负责把审核通过的补充提案写入动态记忆库，作为下一卷读取层。"
+            "你不能改写基准库冻结事实。"
+        ),
+    ),
+    NodeSpec(
+        node_id="next_volume_router",
+        title="下一卷路由",
+        node_type="agent_role",
+        role="router",
+        projection_id="projection.writing.modular_novel.next_volume_router",
+        phase_id="phase.modular.chapter_cycle.volume_extension",
+        sequence_index=130,
+        output_contract_id="contract.writing.modular_novel.volume_route",
+        required_inputs=("上游交接包",),
+        memory_topics=("volume_commit_ref", "extension_commit_ref", "target_volumes"),
+        artifact_context_keys=("上游交接包",),
+        artifact_paths=("volume_{volume_index_padded}/next_volume_route.md",),
+        loop_scope_id="loop.volume",
+        title_template="{volume_label}下一卷路由",
+        loop_route_policy=_next_volume_route_policy_static(),
+        prompt=(
+            "你是一名分卷路由员。你只负责判断目标卷数是否完成，完成则结束章节图，未完成则进入下一卷计划。"
+            "你不能创作正文，也不能跳过卷级提交。"
+        ),
+    ),
+)
+
+FINALIZE_NODES: tuple[NodeSpec, ...] = (
+    NodeSpec(
+        node_id="final_assemble",
+        title="全书汇编",
+        node_type="agent_role",
+        role="creator",
+        projection_id="projection.writing.modular_novel.final_assembler",
+        phase_id="phase.modular.finalize.final",
+        sequence_index=10,
+        output_contract_id="contract.writing.modular_novel.final_manuscript",
+        memory_topics=("all_chapter_commits", "baseline_memory", "dynamic_memory", "volume_commits"),
+        required_memory_topics=("all_chapter_commits",),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        artifact_paths=("final/final_manuscript.md", "final/delivery_manifest.md"),
+        prompt=(
+            "你是一名全书汇编员。你只负责按已提交章节和卷级提交汇编最终稿与交付清单。"
+            "你不能补写缺失章节，也不能把未提交草稿混入最终稿。"
+        ),
+    ),
+    NodeSpec(
+        node_id="final_review",
+        title="最终审查",
+        node_type="review_gate",
+        role="reviewer",
+        projection_id="projection.writing.modular_novel.final_reviewer",
+        phase_id="phase.modular.finalize.final",
+        sequence_index=20,
+        output_contract_id="contract.writing.modular_novel.final_review",
+        required_inputs=("上游交接包",),
+        memory_topics=("final_manuscript_ref", "delivery_manifest_ref", "target_words", "target_chapters"),
+        readable_repositories=("memory.writing.baseline", "memory.writing.mutable"),
+        artifact_context_keys=("上游交接包", "基准库", "动态记忆库"),
+        artifact_paths=("final/final_review.md",),
+        review_revision_stage_id="final_assemble",
+        write_mode="review_and_issue_ledger",
+        prompt=(
+            "你是一名最终审查员。你只负责检查最终稿是否来自已提交章节、章节顺序是否完整、卷结构是否齐全、交付清单是否可追踪。"
+            "你不能替汇编员补内容。"
+        ),
+    ),
+    NodeSpec(
+        node_id="memory_finalize",
+        title="最终记忆封存",
+        node_type="memory_finalize",
+        role="memory_steward",
+        agent_id=MEMORY_AGENT_ID,
+        projection_id="projection.writing.modular_novel.memory_steward",
+        phase_id="phase.modular.finalize.final",
+        sequence_index=30,
+        output_contract_id="contract.writing.modular_novel.final_memory_seal",
+        required_inputs=("上游交接包",),
+        memory_topics=("final_review_ref", "final_manuscript_ref", "delivery_manifest_ref"),
+        readable_repositories=("memory.writing.mutable",),
+        artifact_context_keys=("上游交接包", "动态记忆库"),
+        artifact_paths=("final/memory_finalize.md",),
+        write_mode="finalize_commit",
+        prompt=(
+            "你是一名最终记忆封存员。你只负责在最终审查通过后登记最终稿、交付清单、最终审查和封存说明。"
+            "你不能修改正文或基准事实。"
+        ),
+    ),
+)
+
+
+DESIGN_BUSINESS_EDGES = (
+    ("edge.project.world", "project_brief", "world_design", "contract.writing.modular_novel.project_brief", "把项目启动包交给世界观规划师。"),
+    ("edge.world.review", "world_design", "world_review", "contract.writing.modular_novel.world_candidate", "把世界观候选交给世界观审核员。"),
+    ("edge.world_review.commit", "world_review", "memory_commit_world", "contract.writing.modular_novel.world_review", "把世界观审核结果交给基准记忆管理员。"),
+    ("edge.world_commit.character_design", "memory_commit_world", "character_design", "contract.writing.modular_novel.world_commit", "把已提交世界观交给人设与关系设计师。"),
+    ("edge.world_commit.plot_design", "memory_commit_world", "plot_design", "contract.writing.modular_novel.world_commit", "把已提交世界观交给剧情与伏笔设计师。"),
+    ("edge.character.plot", "character_design", "plot_design", "contract.writing.modular_novel.character_design", "把角色和关系候选交给剧情设计师。"),
+    ("edge.character.sync", "character_design", "design_sync", "contract.writing.modular_novel.character_design", "把人设候选交给创作架构对齐节点。"),
+    ("edge.plot.sync", "plot_design", "design_sync", "contract.writing.modular_novel.plot_design", "把剧情与伏笔候选交给创作架构对齐节点。"),
+    ("edge.sync.outline", "design_sync", "outline_design", "contract.writing.modular_novel.design_alignment", "把对齐包交给全书细纲设计师。"),
+    ("edge.outline.review", "outline_design", "outline_review", "contract.writing.modular_novel.outline_design", "把全书细纲交给细纲审核员。"),
+    ("edge.outline_review.baseline", "outline_review", "baseline_memory_seed", "contract.writing.modular_novel.outline_review", "把通过审核的细纲和设计资产交给基准库初始化。"),
+)
+
+CHAPTER_BUSINESS_EDGES = (
+    ("edge.volume_plan.outline", "volume_plan", "chapter_outline", "contract.writing.modular_novel.volume_plan", "把当前卷计划交给章节批次细纲节点。"),
+    ("edge.outline.draft", "chapter_outline", "chapter_draft", "contract.writing.modular_novel.chapter_outline", "把当前十章细纲交给写手。"),
+    ("edge.draft.review", "chapter_draft", "chapter_review", "contract.writing.modular_novel.chapter_draft", "把当前十章正文草稿交给审核员。"),
+    ("edge.review.commit", "chapter_review", "memory_commit_chapter", "contract.writing.modular_novel.chapter_review", "把章节审核结果交给章节记忆提交员。"),
+    ("edge.commit.progress", "memory_commit_chapter", "chapter_progress_router", "contract.writing.modular_novel.chapter_batch_commit", "把章节提交结果交给进度路由。"),
+    ("edge.progress.volume_review", "chapter_progress_router", "volume_review", "contract.writing.modular_novel.progress_route", "当本卷目标达到时进入卷级审核。"),
+    ("edge.volume_review.commit", "volume_review", "volume_commit", "contract.writing.modular_novel.volume_review", "把卷级审核结果交给卷级提交员。"),
+    ("edge.volume_commit.postmortem", "volume_commit", "volume_postmortem", "contract.writing.modular_novel.volume_commit", "把卷级提交结果交给卷后复盘。"),
+    ("edge.postmortem.extension", "volume_postmortem", "world_outline_extension_proposal", "contract.writing.modular_novel.volume_postmortem", "把卷后复盘交给补充提案节点。"),
+    ("edge.extension.review", "world_outline_extension_proposal", "extension_review", "contract.writing.modular_novel.extension_proposal", "把补充提案交给审核员。"),
+    ("edge.extension.commit", "extension_review", "extension_commit", "contract.writing.modular_novel.extension_review", "把审核通过的补充提案交给动态记忆提交员。"),
+    ("edge.extension.next_volume", "extension_commit", "next_volume_router", "contract.writing.modular_novel.extension_commit", "把动态记忆提交结果交给下一卷路由。"),
+)
+
+FINALIZE_BUSINESS_EDGES = (
+    ("edge.final_assemble.review", "final_assemble", "final_review", "contract.writing.modular_novel.final_manuscript", "把全书汇编稿交给最终审查员。"),
+    ("edge.final_review.memory", "final_review", "memory_finalize", "contract.writing.modular_novel.final_review", "把最终审查结果交给最终记忆封存员。"),
+)
 
 
 def configure(base_dir: Path | str | None = None) -> dict[str, Any]:
     backend_dir = Path(base_dir or BACKEND_DIR).resolve()
     registry = TaskFlowRegistry(backend_dir)
     contract_registry = TaskContractRegistry(backend_dir)
-    source_graph = registry.get_task_graph(SOURCE_GRAPH_ID)
-    if source_graph is None:
-        raise RuntimeError(f"source writing graph not found: {SOURCE_GRAPH_ID}")
 
+    _remove_legacy_simple_assets(backend_dir, registry)
     _upsert_domain(registry)
+    _upsert_agents(backend_dir)
     _upsert_contracts(contract_registry)
     _upsert_protocol(registry)
-    _upsert_modular_task_assets(registry)
-    _upsert_modular_node_task_assets(registry)
-
-    source_nodes = {node.node_id: node.to_dict() for node in source_graph.nodes}
-    source_edges = [edge.to_dict() for edge in source_graph.edges]
-    for graph_id, node_ids in PHASE_TASKS.items():
-        _upsert_child_graph(
-            registry=registry,
-            source_graph=source_graph.to_dict(),
-            source_nodes=source_nodes,
-            source_edges=source_edges,
-            graph_id=graph_id,
-            node_ids=node_ids,
-        )
-    _upsert_master_graph(registry=registry)
+    _upsert_task_assets(registry)
+    _upsert_child_graph(registry, graph_id=DESIGN_GRAPH_ID, nodes=DESIGN_NODES, business_edges=DESIGN_BUSINESS_EDGES)
+    _upsert_child_graph(registry, graph_id=CHAPTER_GRAPH_ID, nodes=CHAPTER_NODES, business_edges=CHAPTER_BUSINESS_EDGES)
+    _upsert_child_graph(registry, graph_id=FINALIZE_GRAPH_ID, nodes=FINALIZE_NODES, business_edges=FINALIZE_BUSINESS_EDGES)
+    _upsert_master_graph(registry)
 
     configured = {
         "domain_id": DOMAIN_ID,
         "protocol_id": PROTOCOL_ID,
         "graph_ids": [MASTER_GRAPH_ID, DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID],
         "requested_chapters": CHAPTER_REQUESTED_COUNT,
-        "chapter_batch_size": CHAPTER_BATCH_SIZE,
         "target_volumes": TARGET_VOLUMES,
         "chapters_per_volume": CHAPTERS_PER_VOLUME,
-            "chapter_batch_count": (CHAPTERS_PER_VOLUME + CHAPTER_BATCH_SIZE - 1) // CHAPTER_BATCH_SIZE,
+        "chapter_batch_size": CHAPTER_BATCH_SIZE,
+        "batch_target_words": BATCH_TARGET_WORDS,
+        "volume_target_words": VOLUME_TARGET_WORDS,
+        "target_words": TARGET_WORDS,
         "managed_by": MANAGED_BY,
     }
     print(
-        "configured modular writing graphs: "
+        "configured native modular writing graphs: "
         f"{', '.join(configured['graph_ids'])}; "
+        "cleaned legacy writing assets; "
         f"{TARGET_VOLUMES} volume(s), {CHAPTERS_PER_VOLUME} chapters per volume, "
         f"{CHAPTER_BATCH_SIZE} chapters per batch"
     )
     return configured
+
+
+def _remove_legacy_simple_assets(backend_dir: Path, registry: TaskFlowRegistry) -> None:
+    tasks_root = _storage_dir(registry.base_dir, "tasks")
+    orchestration_root = _storage_dir(backend_dir, "orchestration")
+    _filter_json_array_items(tasks_root / "task_graphs.json", "task_graphs", _is_legacy_simple_asset)
+    _filter_json_array_items(tasks_root / "specific_task_records.json", "specific_task_records", _is_legacy_simple_asset)
+    _filter_json_array_items(tasks_root / "task_flows.json", "flows", _is_legacy_simple_asset)
+    _filter_json_array_items(tasks_root / "task_workflows.json", "workflows", _is_legacy_simple_asset)
+    _filter_json_array_items(tasks_root / "contract_specs.json", "contract_specs", _is_legacy_simple_asset)
+    _filter_json_array_items(tasks_root / "task_projection_bindings.json", "projection_bindings", _is_legacy_simple_asset)
+    _filter_json_array_items(tasks_root / "task_flow_contract_bindings.json", "flow_contract_bindings", _is_legacy_simple_asset)
+    _filter_json_array_items(tasks_root / "task_agent_adoption_plans.json", "adoption_plans", _is_legacy_simple_asset)
+    _filter_json_array_items(tasks_root / "task_memory_request_profiles.json", "memory_request_profiles", _is_legacy_simple_asset)
+    _filter_json_array_items(tasks_root / "task_communication_protocols.json", "communication_protocols", _is_legacy_simple_asset)
+    _filter_json_array_items(tasks_root / "task_domains.json", "task_domains", _is_legacy_simple_asset)
+    _filter_json_array_items(tasks_root / "topology_templates.json", "topology_templates", _is_legacy_simple_asset)
+    _filter_json_array_items(tasks_root / "task_assignments.json", "assignments", _is_legacy_simple_asset)
+    _filter_json_array_items(orchestration_root / "agents.json", "agents", _is_legacy_simple_agent)
+    _filter_json_array_items(orchestration_root / "agent_runtime_profiles.json", "profiles", _is_legacy_simple_agent)
+    _filter_json_array_items(orchestration_root / "agent_groups.json", "agent_groups", _is_legacy_simple_asset)
+    _filter_json_array_items(orchestration_root / "agent_groups.json", "groups", _is_legacy_simple_asset)
+    _filter_projection_catalog(backend_dir)
+    registry._invalidate_cache()
+
+
+def _filter_json_array_items(path: Path, key: str, predicate: Any) -> None:
+    payload = _read_json(path, {key: []})
+    items = [dict(item) for item in list(payload.get(key) or []) if isinstance(item, dict)]
+    retained = [item for item in items if not predicate(item)]
+    if retained == items:
+        return
+    updated = dict(payload)
+    updated[key] = retained
+    _write_json(path, updated)
+
+
+def _filter_projection_catalog(backend_dir: Path) -> None:
+    project_root = _project_root(backend_dir)
+    path = project_root / "backend" / "soul" / "projections" / "catalog.json"
+    payload = _read_json(path, {"cards": []})
+    cards = [dict(item) for item in list(payload.get("cards") or []) if isinstance(item, dict)]
+    retained = [item for item in cards if not _is_legacy_simple_asset(item)]
+    if retained == cards:
+        return
+    updated = dict(payload)
+    selected = str(updated.get("selected_projection_id") or "")
+    if selected.startswith("projection.writing.simple_novel.") or selected.startswith("projection.writing_team.long_novel."):
+        updated["selected_projection_id"] = ""
+    updated["cards"] = retained
+    _write_json(path, updated)
+
+
+def _is_legacy_simple_agent(item: dict[str, Any]) -> bool:
+    agent_id = str(item.get("agent_id") or "").strip()
+    return agent_id in LEGACY_SIMPLE_AGENT_IDS or _is_legacy_simple_asset(item)
+
+
+def _is_legacy_simple_asset(item: dict[str, Any]) -> bool:
+    return any(marker in json.dumps(item, ensure_ascii=False) for marker in LEGACY_SIMPLE_MARKERS)
+
+
+def _storage_dir(base_dir: Path, section: str) -> Path:
+    return _project_root(base_dir) / "storage" / section
+
+
+def _project_root(base_dir: Path) -> Path:
+    backend = Path(base_dir).resolve()
+    return backend.parent if backend.name == "backend" else backend
+
+
+def _read_json(path: Path, fallback: dict[str, Any]) -> dict[str, Any]:
+    if not path.exists():
+        return fallback
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return fallback
+    return value if isinstance(value, dict) else fallback
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _upsert_domain(registry: TaskFlowRegistry) -> None:
@@ -143,23 +981,96 @@ def _upsert_domain(registry: TaskFlowRegistry) -> None:
         sort_order=88,
         metadata={
             "managed_by": MANAGED_BY,
-            "source_graph_id": SOURCE_GRAPH_ID,
-            "architecture": "graph_unit_composition",
+            "architecture": "native_graph_unit_composition",
         },
     )
 
 
-def _upsert_contracts(contract_registry: TaskContractRegistry) -> None:
-    specs = [
-        _contract_spec(
-            "contract.writing.modular_novel.graph",
-            "模块化长篇写作图契约",
-            "global_task",
-            output_fields=("project_id", "project_title", "chapter_target", "artifact_refs", "run_summary"),
+def _upsert_agents(backend_dir: Path) -> None:
+    agent_registry = AgentRegistry(backend_dir)
+    for agent_id, name, projection in (
+        (WORKER_AGENT_ID, "模块化写作执行员", "projection.writing.modular_novel.worker"),
+        (MEMORY_AGENT_ID, "模块化写作记忆管家", "projection.writing.modular_novel.memory_steward"),
+        (MONITOR_AGENT_ID, "模块化写作运行监控员", "projection.writing.modular_novel.runtime_monitor"),
+    ):
+        agent_registry.upsert_agent(
+            agent_id=agent_id,
+            display_name=name,
+            agent_category="custom_agent",
+            description=f"{name}。用于通用任务图运行，不拥有写作专用后端私门。",
+            enabled=True,
+            default_projection_id=projection,
+            metadata={
+                "managed_by": MANAGED_BY,
+                "task_family": TASK_FAMILY,
+                "agent_template_id": f"task_graph.{TASK_FAMILY}.node_agent",
+            },
+        )
+
+    runtime_registry = AgentRuntimeRegistry(backend_dir)
+    for agent_id, template_id, lanes, contexts, extra_ops in (
+        (
+            WORKER_AGENT_ID,
+            "task_graph.writing.modular_novel.worker",
+            ("coordination_task",),
+            ("task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
+            ("op.text_metric",),
         ),
+        (
+            MEMORY_AGENT_ID,
+            "task_graph.writing.modular_novel.memory_steward",
+            ("coordination_task", "system_memory"),
+            ("task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
+            (),
+        ),
+        (
+            MONITOR_AGENT_ID,
+            "task_graph.writing.modular_novel.runtime_monitor",
+            ("task_graph_monitor",),
+            ("task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view", "task_graph_monitor"),
+            (),
+        ),
+    ):
+        current = runtime_registry.get_profile(agent_id)
+        runtime_registry.upsert_profile(
+            agent_id=agent_id,
+            agent_profile_id=str(getattr(current, "agent_profile_id", "") or f"{agent_id.removeprefix('agent:')}_runtime"),
+            allowed_runtime_lanes=lanes,
+            allowed_operations=tuple(dict.fromkeys(("op.model_response", "op.memory_read", *extra_ops))),
+            blocked_operations=("op.write_file", "op.edit_file", "op.shell", "op.python_repl", "op.delegate_to_agent", "op.web_search"),
+            allowed_memory_scopes=("writing_modular_novel", "state_readonly"),
+            allowed_context_sections=contexts,
+            use_shared_contract=True,
+            can_delegate_to_agents=False,
+            allowed_delegate_agent_ids=(),
+            max_delegate_calls_per_turn=0,
+            delegate_context_policy="summary_and_refs_only",
+            approval_policy="read_only_first",
+            trace_policy="runtime_event_log",
+            lifecycle_policy="task_graph_managed",
+            model_profile=(getattr(current, "model_profile", None).to_dict() if current is not None else {}),
+            metadata={
+                "managed_by": MANAGED_BY,
+                "task_family": TASK_FAMILY,
+                "source_task_graph_refs": [MASTER_GRAPH_ID, DESIGN_GRAPH_ID, CHAPTER_GRAPH_ID, FINALIZE_GRAPH_ID],
+                "runtime_template_id": template_id,
+                "generic_length_metric_tool_enabled": bool(extra_ops),
+                "allow_unregistered_runtime_lanes": True,
+            },
+        )
+
+
+def _upsert_contracts(registry: TaskContractRegistry) -> None:
+    for spec in _contract_specs():
+        registry.upsert_contract_spec(spec)
+
+
+def _contract_specs() -> list[ContractSpec]:
+    specs = [
+        _contract_spec("contract.writing.modular_novel.graph", "模块化长篇写作图契约", "global_task", output_fields=("artifact_refs", "run_summary")),
         _contract_spec(
             "contract.writing.modular_novel.graph_unit_handoff",
-            "父子任务图交接契约",
+            "任务图单元交接契约",
             "edge_handoff",
             input_fields=("parent_graph_id", "source_graph_unit_id", "upstream_commit_refs"),
             output_fields=("child_graph_id", "child_run_ref", "committed_output_refs", "handoff_summary"),
@@ -168,32 +1079,43 @@ def _upsert_contracts(contract_registry: TaskContractRegistry) -> None:
             "contract.writing.modular_novel.design_commit",
             "设计初始化提交契约",
             "final_output",
-            output_fields=("project_brief_ref", "world_commit_ref", "character_design_ref", "plot_design_ref", "outline_commit_ref", "baseline_memory_ref"),
+            output_fields=("project_brief_ref", "world_commit_ref", "character_design_ref", "plot_design_ref", "outline_commit_ref", "baseline_memory_ref", "artifact_refs"),
         ),
         _contract_spec(
-            "contract.writing.modular_novel.chapter_batch_request",
-            "章节批次请求契约",
-            "global_task",
-            input_fields=("project_id", "batch_start_index", "batch_end_index", "unit_batch_id", "baseline_memory_ref"),
-            output_fields=("batch_plan_ref", "batch_boundary", "required_memory_refs"),
+            "contract.writing.modular_novel.chapter_cycle_commit",
+            "章节循环图提交契约",
+            "final_output",
+            input_fields=("baseline_memory_ref", "target_volumes", "chapters_per_volume"),
+            output_fields=("volume_commit_refs", "chapter_commit_refs", "dynamic_memory_ref", "artifact_refs"),
         ),
         _contract_spec(
             "contract.writing.modular_novel.chapter_batch_commit",
             "章节批次提交契约",
             "final_output",
             input_fields=("chapter_draft_ref", "chapter_review_ref", "unit_batch_id"),
-            output_fields=("chapter_commit_refs", "chapter_summary_refs", "batch_receipt_ref", "unit_batch_id"),
+            output_fields=("chapter_commit_refs", "chapter_summary_refs", "batch_receipt_ref", "artifact_refs"),
         ),
         _contract_spec(
             "contract.writing.modular_novel.final_delivery",
             "最终交付契约",
             "final_output",
             input_fields=("chapter_commit_refs", "baseline_memory_ref", "delivery_requirements"),
-            output_fields=("final_manuscript_ref", "final_review_ref", "delivery_manifest_ref", "memory_finalize_receipt_ref"),
+            output_fields=("final_manuscript_ref", "final_review_ref", "delivery_manifest_ref", "memory_finalize_receipt_ref", "artifact_refs"),
         ),
+        _contract_spec("contract.writing.modular_novel.memory_packet", "记忆库读写包契约", "edge_handoff", input_fields=("repository_node_id", "collection", "topics", "operation"), output_fields=("memory_refs", "canonical_text_refs", "artifact_refs", "memory_receipt_ref")),
     ]
-    for spec in specs:
-        contract_registry.upsert_contract_spec(spec)
+    for node in (*DESIGN_NODES, *CHAPTER_NODES, *FINALIZE_NODES):
+        specs.append(
+            _contract_spec(
+                node.output_contract_id,
+                node.title + "输出契约",
+                "final_output" if node.node_type in {"memory_commit", "memory_finalize"} else "node_execution",
+                input_fields=tuple(node.required_inputs),
+                output_fields=("artifact_refs", f"{node.node_id}_ref"),
+                artifact_paths=node.artifact_paths,
+            )
+        )
+    return specs
 
 
 def _contract_spec(
@@ -203,39 +1125,50 @@ def _contract_spec(
     *,
     input_fields: tuple[str, ...] = (),
     output_fields: tuple[str, ...] = (),
+    artifact_paths: tuple[str, ...] = (),
 ) -> ContractSpec:
     return ContractSpec(
         contract_id=contract_id,
         title_zh=title_zh,
         title_en=contract_id.rsplit(".", 1)[-1],
         contract_kind=contract_kind,
-        description=f"{title_zh}。用于模块化长篇写作任务图，不承载任何写作专用后端权限。",
-        input_fields=tuple(_field(name, source_hint="upstream_output") for name in input_fields),
-        output_fields=tuple(_field(name, required=name.endswith("_ref") or name in {"project_id", "child_graph_id"}) for name in output_fields),
+        description=f"{title_zh}。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+        input_fields=tuple(_field(name, source_hint="upstream_output", required=True) for name in input_fields),
+        output_fields=tuple(_field(name, source_hint="artifact", required=name.endswith("_ref") or name == "artifact_refs") for name in output_fields),
+        artifact_requirements=tuple(
+            ArtifactRequirement(
+                requirement_id=f"artifact.{_safe_id(path)}",
+                title_zh=path,
+                artifact_type="markdown",
+                required=True,
+                naming_rule=path,
+                storage_policy="artifact_ref",
+            )
+            for path in artifact_paths
+        ),
         acceptance_rules=(
             AcceptanceRule(
-                rule_id=f"{_safe_id(contract_id)}.structured_refs",
-                title_zh="必须使用结构化引用交接",
-                rule_type="required_field_present",
+                rule_id=f"{_safe_id(contract_id)}.artifact_refs",
+                title_zh="必须产出可追踪产物引用",
+                rule_type="artifact_exists",
                 severity="error",
                 target_field="artifact_refs",
-                criteria="长文本、章节正文、设计文档与最终稿必须以 artifact/result ref 交接，不把全文塞入普通上下文。",
+                criteria="长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
             ),
         ),
         version="1.0.0",
         enabled=True,
-        metadata={
-            "managed_by": MANAGED_BY,
-            "domain_id": DOMAIN_ID,
-            "task_family": TASK_FAMILY,
-        },
+        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "task_family": TASK_FAMILY},
     )
 
 
-def _field(name: str, *, source_hint: str = "runtime_context", required: bool = False) -> ContractField:
-    field_type = "array" if name.endswith("_refs") or name in {"artifact_refs", "committed_output_refs"} else "string"
-    if name.endswith("_ref") or name.endswith("_id"):
-        field_type = "result_ref" if name.endswith("_ref") else "string"
+def _field(name: str, *, source_hint: str, required: bool = False) -> ContractField:
+    if name.endswith("_refs") or name == "artifact_refs" or name == "committed_output_refs":
+        field_type = "array"
+    elif name.endswith("_ref"):
+        field_type = "artifact_ref"
+    else:
+        field_type = "string"
     return ContractField(
         field_id=name,
         title_zh=name,
@@ -265,11 +1198,8 @@ def _upsert_protocol(registry: TaskFlowRegistry) -> None:
             "contract.writing.modular_novel.graph",
             "contract.writing.modular_novel.graph_unit_handoff",
             "contract.writing.modular_novel.design_commit",
-            "contract.writing.modular_novel.chapter_batch_request",
             "contract.writing.modular_novel.chapter_batch_commit",
             "contract.writing.modular_novel.final_delivery",
-            "contract.writing.simple_novel.memory_pack",
-            "contract.writing.simple_novel.memory_write_receipt",
         ),
         signal_rules=(
             "graph_unit_commits_before_next_graph_unit",
@@ -291,680 +1221,632 @@ def _upsert_protocol(registry: TaskFlowRegistry) -> None:
     )
 
 
-def _upsert_modular_task_assets(registry: TaskFlowRegistry) -> None:
-    for suffix, title, projection_id, output_contract in (
-        ("master", "模块化长篇写作总任务", "projection.writing.simple_novel.project_brief", "contract.writing.modular_novel.graph"),
-        ("design_init", "设计初始化任务图单元", "projection.writing.simple_novel.outline_designer", "contract.writing.modular_novel.design_commit"),
-        ("chapter_cycle", "章节批次创作任务图单元", "projection.writing.simple_novel.chapter_writer", "contract.writing.modular_novel.chapter_batch_commit"),
-        ("finalize", "收尾交付任务图单元", "projection.writing.simple_novel.final_assembler", "contract.writing.modular_novel.final_delivery"),
+def _upsert_task_assets(registry: TaskFlowRegistry) -> None:
+    for suffix, title, output_contract, prompt, projection_id in (
+        ("master", "模块化长篇写作总任务", "contract.writing.modular_novel.graph", "你负责按任务图顺序启动设计初始化、章节批次创作和收尾交付三个图单元。", "projection.writing.modular_novel.worker"),
+        ("design_init", "设计初始化任务图单元", "contract.writing.modular_novel.design_commit", "你负责运行设计初始化子图并提交基准设计产物。", "projection.writing.modular_novel.worker"),
+        ("chapter_cycle", "章节批次创作任务图单元", "contract.writing.modular_novel.chapter_batch_commit", "你负责运行章节批次创作子图，按一卷二十万字、十章一批推进。", "projection.writing.modular_novel.worker"),
+        ("finalize", "收尾交付任务图单元", "contract.writing.modular_novel.final_delivery", "你负责运行收尾交付子图并封存最终产物。", "projection.writing.modular_novel.worker"),
     ):
-        task_id = f"task.writing.modular_novel.{suffix}"
-        flow_id = f"flow.writing.modular_novel.{suffix}"
-        workflow_id = f"workflow.writing.modular_novel.{suffix}"
-        registry.workflow_registry.upsert_workflow(
-            workflow_id=workflow_id,
-            title=title,
-            compatible_projection_ids=(projection_id,),
-            steps=(
-                {"step_id": "read_contract_packet", "title": "读取契约化输入包"},
-                {"step_id": "execute_graph_unit", "title": "按任务图时序执行"},
-                {"step_id": "commit_refs", "title": "提交结构化引用"},
-            ),
-            input_boundary="contract_payload_and_refs",
-            output_boundary="artifact_refs_and_commit_receipt",
-            output_contract_id=output_contract,
-            enabled=True,
-            metadata={"managed_by": MANAGED_BY, "task_family": TASK_FAMILY},
-        )
-        registry.upsert_flow(
-            flow_id=flow_id,
-            task_family=TASK_FAMILY,
+        _upsert_task_asset(
+            registry,
+            task_id=f"task.writing.modular_novel.{suffix}",
             title=title,
             input_contract_id="contract.user_request.basic",
             output_contract_id=output_contract,
-            default_agent_id="agent:writing_simple_worker",
-            default_workflow_id=workflow_id,
-            default_runtime_lane="coordination_task",
-            default_memory_scope="writing_modular_novel",
-            enabled=True,
-            metadata={"managed_by": MANAGED_BY, "task_id": task_id},
+            prompt=prompt,
+            agent_id=WORKER_AGENT_ID,
+            projection_id=projection_id,
+            graph_unit_task=True,
         )
-        registry.upsert_specific_task_record(
-            task_id=task_id,
-            task_title=title,
-            task_family=TASK_FAMILY,
-            description=f"{title}。任务图单元通过通用 GraphUnit / contract_bindings 执行。",
-            enabled=True,
-            runtime_lane="coordination_task",
-            input_contract_id="contract.user_request.basic",
-            output_contract_id=output_contract,
-            default_flow_contract_id=flow_id,
-            default_workflow_id=workflow_id,
-            default_projection_policy="fixed_projection",
-            task_policy={
-                "safety_policy": {"verification_mode": "artifact_or_trace", "write_mode": "scoped", "safety_class": "S2_bounded"},
-                "task_structure": {
-                    "execution_chain_type": "coordination_node",
-                    "memory_scope_hint": "writing_modular_novel",
-                    "projection_id": projection_id,
-                    "graph_unit_task": True,
-                },
-            },
-            metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "projection_id": projection_id},
-        )
-        registry.upsert_projection_binding(
-            task_id=task_id,
-            projection_selection_mode="fixed_projection",
-            allowed_projection_ids=(projection_id,),
-            default_projection_id=projection_id,
-            projection_required=True,
-            notes="模块化写作任务图配置生成。",
-            metadata={"managed_by": MANAGED_BY},
-        )
-        registry.upsert_flow_contract_binding(
-            task_id=task_id,
-            flow_contract_id=flow_id,
-            override_policy="task_default",
-            fallback_policy="fail_closed",
-            metadata={"managed_by": MANAGED_BY},
-        )
-        registry.upsert_task_memory_request_profile(
-            task_id=task_id,
-            requested_memory_layers=("state", "task_durable", "artifact_refs"),
-            requested_topics=("writing_modular_novel", "baseline_memory", "dynamic_memory", "chapter_commits"),
-            memory_priority="high",
-            writeback_policy="task_graph_commit_edges",
-            allow_long_term_memory=True,
-            memory_scope_hint="writing_modular_novel",
-            metadata={"managed_by": MANAGED_BY},
-        )
-        registry.upsert_task_agent_adoption_plan(
-            task_id=task_id,
-            adoption_mode="adopt_with_projection",
-            default_agent_id="agent:writing_simple_worker",
-            allow_worker_agent_spawn=False,
-            notes="模块化写作图单元使用既有写作执行员，不额外开私门。",
-            metadata={"managed_by": MANAGED_BY, "execution_chain_type": "coordination_chain"},
+    for node in (*DESIGN_NODES, *CHAPTER_NODES, *FINALIZE_NODES):
+        _upsert_task_asset(
+            registry,
+            task_id=_node_task_id(node.node_id),
+            title=node.title,
+            input_contract_id=node.input_contract_id,
+            output_contract_id=node.output_contract_id,
+            prompt=node.prompt,
+            agent_id=node.agent_id,
+            projection_id=node.projection_id,
+            graph_unit_task=False,
+            node_id=node.node_id,
         )
 
 
-def _upsert_modular_node_task_assets(registry: TaskFlowRegistry) -> None:
-    for node_id in _all_phase_node_ids():
-        source_task_id = f"{SOURCE_TASK_PREFIX}{node_id}"
-        target_task_id = _modular_node_task_id(node_id)
-        source_record = registry.get_specific_task_record(source_task_id)
-        if source_record is None:
-            raise RuntimeError(f"source writing node task not found: {source_task_id}")
-        source_workflow = registry.workflow_registry.get_workflow(source_record.default_workflow_id)
-        source_flow = registry.get_flow(source_record.default_flow_contract_id)
-        projection_binding = registry.get_projection_binding(source_task_id)
-        memory_profile = registry.get_task_memory_request_profile(source_task_id)
-        adoption_plan = registry.get_task_agent_adoption_plan(source_task_id)
-
-        target_workflow_id = _modular_workflow_id(node_id)
-        target_flow_id = _modular_flow_id(node_id)
-        projection_id = (
-            str(getattr(projection_binding, "default_projection_id", "") or "")
-            or str(dict(source_record.metadata or {}).get("projection_id") or "")
-        )
-        default_agent_id = str(getattr(source_flow, "default_agent_id", "") or "").strip() or "agent:writing_simple_worker"
-        output_contract_id = str(source_record.output_contract_id or getattr(source_flow, "output_contract_id", "") or "").strip()
-        input_contract_id = str(source_record.input_contract_id or getattr(source_flow, "input_contract_id", "") or "contract.user_request.basic").strip()
-
-        registry.workflow_registry.upsert_workflow(
-            workflow_id=target_workflow_id,
-            title=f"模块化{source_record.task_title}工作流",
-            compatible_projection_ids=(
-                tuple(source_workflow.compatible_projection_ids)
-                if source_workflow is not None and source_workflow.compatible_projection_ids
-                else ((projection_id,) if projection_id else ())
-            ),
-            visible_skill_ids=tuple(source_workflow.visible_skill_ids) if source_workflow is not None else (),
-            steps=(
-                tuple(dict(item) for item in source_workflow.steps)
-                if source_workflow is not None and source_workflow.steps
-                else (
-                    {"step_id": "read_contract_packet", "title": "读取契约化输入包"},
-                    {"step_id": "execute_node", "title": "执行节点职责"},
-                    {"step_id": "commit_artifact_refs", "title": "提交结构化产物引用"},
-                )
-            ),
-            input_boundary=str(getattr(source_workflow, "input_boundary", "") or input_contract_id),
-            output_boundary=str(getattr(source_workflow, "output_boundary", "") or output_contract_id),
-            stop_conditions=tuple(source_workflow.stop_conditions) if source_workflow is not None else ("contract_output_ready", "blocking_issue_reported"),
-            required_evidence_refs=tuple(source_workflow.required_evidence_refs) if source_workflow is not None else ("artifact_refs", "contract_payload"),
-            output_contract_id=output_contract_id,
-            prompt=str(getattr(source_workflow, "prompt", "") or "你需要按当前任务契约完成输出，只使用输入包中明确授权的上下文。"),
-            enabled=True,
-            metadata={
-                **(dict(source_workflow.metadata or {}) if source_workflow is not None else {}),
-                "managed_by": MANAGED_BY,
-                "domain_id": DOMAIN_ID,
-                "task_family": TASK_FAMILY,
-                "task_id": target_task_id,
-                "source_task_id": source_task_id,
-                "source_workflow_id": str(source_record.default_workflow_id or ""),
-            },
-        )
-        registry.upsert_flow(
-            flow_id=target_flow_id,
-            task_family=TASK_FAMILY,
-            title=f"模块化{source_record.task_title}",
-            input_contract_id=input_contract_id,
-            output_contract_id=output_contract_id,
-            default_agent_id=default_agent_id,
-            default_workflow_id=target_workflow_id,
-            default_runtime_lane=str(getattr(source_flow, "default_runtime_lane", "") or source_record.runtime_lane or "coordination_task"),
-            default_memory_scope="writing_modular_novel",
-            enabled=True,
-            metadata={
-                **(dict(source_flow.metadata or {}) if source_flow is not None else {}),
-                "managed_by": MANAGED_BY,
-                "domain_id": DOMAIN_ID,
-                "task_id": target_task_id,
-                "source_task_id": source_task_id,
-                "source_flow_id": str(source_record.default_flow_contract_id or ""),
-            },
-        )
-        task_policy = copy.deepcopy(source_record.task_policy or {})
-        task_structure = dict(task_policy.get("task_structure") or {})
-        task_structure.update(
-            {
+def _upsert_task_asset(
+    registry: TaskFlowRegistry,
+    *,
+    task_id: str,
+    title: str,
+    input_contract_id: str,
+    output_contract_id: str,
+    prompt: str,
+    agent_id: str,
+    projection_id: str,
+    graph_unit_task: bool,
+    node_id: str = "",
+) -> None:
+    flow_id = task_id.replace("task.", "flow.", 1)
+    workflow_id = task_id.replace("task.", "workflow.", 1)
+    registry.workflow_registry.upsert_workflow(
+        workflow_id=workflow_id,
+        title=title,
+        compatible_projection_ids=(projection_id,) if projection_id else (),
+        steps=(
+            {"step_id": "read_contract_packet", "title": "读取契约化输入包"},
+            {"step_id": "execute_node", "title": "执行节点职责"},
+            {"step_id": "commit_artifact_refs", "title": "提交结构化产物引用"},
+        ),
+        input_boundary=input_contract_id,
+        output_boundary=output_contract_id,
+        stop_conditions=("contract_output_ready", "blocking_issue_reported"),
+        required_evidence_refs=("artifact_refs", "contract_payload"),
+        output_contract_id=output_contract_id,
+        prompt=prompt,
+        enabled=True,
+        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "task_family": TASK_FAMILY, "node_id": node_id},
+    )
+    registry.upsert_flow(
+        flow_id=flow_id,
+        task_family=TASK_FAMILY,
+        title=title,
+        input_contract_id=input_contract_id,
+        output_contract_id=output_contract_id,
+        default_agent_id=agent_id,
+        default_workflow_id=workflow_id,
+        default_runtime_lane="coordination_task",
+        default_memory_scope="writing_modular_novel",
+        enabled=True,
+        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "task_id": task_id, "node_id": node_id},
+    )
+    registry.upsert_specific_task_record(
+        task_id=task_id,
+        task_title=title,
+        task_family=TASK_FAMILY,
+        description=f"{title}。由模块化写作任务图原生配置生成。",
+        enabled=True,
+        runtime_lane="coordination_task",
+        input_contract_id=input_contract_id,
+        output_contract_id=output_contract_id,
+        default_flow_contract_id=flow_id,
+        default_workflow_id=workflow_id,
+        default_projection_policy="fixed_projection" if projection_id else "workflow_compatible_or_task_default",
+        task_policy={
+            "safety_policy": {"verification_mode": "artifact_or_trace", "write_mode": "scoped", "safety_class": "S2_bounded"},
+            "task_structure": {
+                "execution_chain_type": "coordination_node",
                 "memory_scope_hint": "writing_modular_novel",
-                "task_resource_kind": target_task_id,
-                "source_task_id": source_task_id,
-                "modular_task_graph_node": True,
-                "projection_id": projection_id or task_structure.get("projection_id", ""),
-            }
-        )
-        task_policy["task_structure"] = task_structure
-        registry.upsert_specific_task_record(
-            task_id=target_task_id,
-            task_title=f"模块化{source_record.task_title}",
-            task_family=TASK_FAMILY,
-            description=f"模块化长篇写作节点任务：{source_record.task_title}。职责继承原节点语义，但任务身份归属模块化任务图。",
-            enabled=True,
-            runtime_lane=str(source_record.runtime_lane or getattr(source_flow, "default_runtime_lane", "") or "coordination_task"),
-            input_contract_id=input_contract_id,
-            output_contract_id=output_contract_id,
-            acceptance_profile_id=str(source_record.acceptance_profile_id or ""),
-            default_flow_contract_id=target_flow_id,
-            default_workflow_id=target_workflow_id,
-            default_projection_policy=str(source_record.default_projection_policy or "task_default_required"),
-            task_policy=task_policy,
-            metadata={
-                **dict(source_record.metadata or {}),
-                "managed_by": MANAGED_BY,
-                "domain_id": DOMAIN_ID,
-                "task_id": target_task_id,
-                "source_task_id": source_task_id,
-                "source_task_family": str(source_record.task_family or ""),
                 "projection_id": projection_id,
-                "package_template": TASK_FAMILY,
+                "graph_unit_task": graph_unit_task,
+                "node_id": node_id,
             },
-        )
-        if projection_binding is not None:
-            registry.upsert_projection_binding(
-                task_id=target_task_id,
-                projection_selection_mode=str(projection_binding.projection_selection_mode or "task_default_required"),
-                allowed_projection_ids=tuple(projection_binding.allowed_projection_ids),
-                default_projection_id=projection_id,
-                projection_required=bool(projection_binding.projection_required),
-                notes="模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
-                metadata={**dict(projection_binding.metadata or {}), "managed_by": MANAGED_BY, "source_task_id": source_task_id},
-            )
-        registry.upsert_flow_contract_binding(
-            task_id=target_task_id,
-            flow_contract_id=target_flow_id,
-            override_policy="task_default",
-            verification_gate_profile="",
-            fallback_policy="fail_closed",
-            metadata={"managed_by": MANAGED_BY, "source_task_id": source_task_id},
-        )
-        if memory_profile is not None:
-            registry.upsert_task_memory_request_profile(
-                task_id=target_task_id,
-                requested_memory_layers=tuple(memory_profile.requested_memory_layers),
-                requested_topics=tuple(
-                    dict.fromkeys(
-                        [
-                            "writing_modular_novel",
-                            *[str(item).strip() for item in memory_profile.requested_topics if str(item).strip()],
-                        ]
-                    )
-                ),
-                memory_priority=str(memory_profile.memory_priority or "normal"),
-                writeback_policy=str(memory_profile.writeback_policy or "task_default"),
-                allow_long_term_memory=bool(memory_profile.allow_long_term_memory),
-                memory_scope_hint="writing_modular_novel",
-                metadata={**dict(memory_profile.metadata or {}), "managed_by": MANAGED_BY, "source_task_id": source_task_id},
-            )
-        registry.upsert_task_agent_adoption_plan(
-            task_id=target_task_id,
-            adoption_mode=str(getattr(adoption_plan, "adoption_mode", "") or "adopt_with_projection"),
-            default_agent_id=str(getattr(adoption_plan, "default_agent_id", "") or default_agent_id),
-            allow_worker_agent_spawn=bool(getattr(adoption_plan, "allow_worker_agent_spawn", False)),
-            worker_agent_blueprint_id=str(getattr(adoption_plan, "worker_agent_blueprint_id", "") or ""),
-            worker_agent_naming_rule=str(getattr(adoption_plan, "worker_agent_naming_rule", "") or ""),
-            notes="模块化写作节点复用既有写作 Agent 能力，不新增写作专用后端入口。",
-            metadata={"managed_by": MANAGED_BY, "source_task_id": source_task_id, "execution_chain_type": "coordination_node"},
-        )
+            "operation_policy": _node_operation_policy(node_id=node_id),
+        },
+        metadata={"managed_by": MANAGED_BY, "domain_id": DOMAIN_ID, "projection_id": projection_id, "node_id": node_id, "package_template": TASK_FAMILY},
+    )
+    registry.upsert_projection_binding(
+        task_id=task_id,
+        projection_selection_mode="fixed_projection" if projection_id else "workflow_compatible_or_task_default",
+        allowed_projection_ids=(projection_id,) if projection_id else (),
+        default_projection_id=projection_id,
+        projection_required=bool(projection_id),
+        notes="模块化写作任务图原生配置生成。",
+        metadata={"managed_by": MANAGED_BY, "node_id": node_id},
+    )
+    registry.upsert_flow_contract_binding(
+        task_id=task_id,
+        flow_contract_id=flow_id,
+        override_policy="task_default",
+        fallback_policy="fail_closed",
+        metadata={"managed_by": MANAGED_BY, "node_id": node_id},
+    )
+    registry.upsert_task_memory_request_profile(
+        task_id=task_id,
+        requested_memory_layers=("state", "task_durable", "artifact_refs"),
+        requested_topics=("writing_modular_novel", "baseline_memory", "dynamic_memory", "chapter_commits"),
+        memory_priority="high",
+        writeback_policy="task_graph_commit_edges",
+        allow_long_term_memory=True,
+        memory_scope_hint="writing_modular_novel",
+        metadata={"managed_by": MANAGED_BY, "node_id": node_id},
+    )
+    registry.upsert_task_agent_adoption_plan(
+        task_id=task_id,
+        adoption_mode="adopt_with_projection",
+        default_agent_id=agent_id,
+        allow_worker_agent_spawn=False,
+        notes="模块化写作任务图使用通用任务图执行能力，不新增写作专用后端入口。",
+        metadata={"managed_by": MANAGED_BY, "execution_chain_type": "coordination_node", "node_id": node_id},
+    )
 
 
 def _upsert_child_graph(
-    *,
     registry: TaskFlowRegistry,
-    source_graph: dict[str, Any],
-    source_nodes: dict[str, dict[str, Any]],
-    source_edges: list[dict[str, Any]],
+    *,
     graph_id: str,
-    node_ids: tuple[str, ...],
+    nodes: tuple[NodeSpec, ...],
+    business_edges: tuple[tuple[str, str, str, str, str], ...],
 ) -> None:
-    selected = set(node_ids)
-    retained_edges = _phase_edges_with_resource_access(source_edges=source_edges, selected=selected)
-    resource_node_ids = tuple(
-        node_id
-        for node_id in _resource_node_ids_for_edges(retained_edges=retained_edges, selected=selected)
-        if node_id in source_nodes
-    )
-    graph_node_ids = tuple(dict.fromkeys([*node_ids, *resource_node_ids]))
-    nodes = [_node_for_child_graph(source_nodes[node_id], graph_id=graph_id, graph_node_ids=graph_node_ids) for node_id in graph_node_ids]
-    edges = [_edge_for_child_graph(edge) for edge in retained_edges]
+    graph_nodes = [_node_payload(node) for node in nodes]
+    graph_nodes.extend(_repository_node_payload(item) for item in REPOSITORY_NODES if _repository_needed(item, nodes))
+    graph_edges = [_business_edge(*edge) for edge in business_edges]
+    graph_edges.extend(_memory_edges_for_nodes(nodes))
+    graph_edges.extend(_revision_edges_for_nodes(nodes))
     if graph_id == CHAPTER_GRAPH_ID:
-        nodes = [_with_chapter_runtime_contracts(node) for node in nodes]
-
-    metadata = {
-        "managed_by": MANAGED_BY,
-        "source_graph_id": SOURCE_GRAPH_ID,
-        "source_node_ids": list(graph_node_ids),
-        "architecture": "modular_task_graph_child",
-        "business_communication_modes": ["structured_handoff", "memory_read", "memory_commit", "revision_request"],
-        "phase_definitions": _phase_definitions_for_nodes(nodes),
-        "subtask_refs": [str(node.get("task_id") or "") for node in nodes if str(node.get("task_id") or "").startswith("task.")],
-        "editor_publish_state": "published",
-        "graph_unit_role": graph_id.rsplit(".", 1)[-1],
-    }
-    if graph_id == CHAPTER_GRAPH_ID:
-        metadata["unit_batch_contract"] = {
-            "unit_kind": "chapter",
-            "requested_count": CHAPTER_REQUESTED_COUNT,
-            "batch_size": CHAPTER_BATCH_SIZE,
-            "target_volumes": TARGET_VOLUMES,
-            "chapters_per_volume": CHAPTERS_PER_VOLUME,
-            "source_path": "graph.metadata.runtime_loop_policy.initial_inputs",
+        metadata_extra = {
+            "unit_batch_contract": _chapter_unit_batch_contract(),
+            "length_budget_contract": _length_budget_contract("volume", VOLUME_TARGET_WORDS, VOLUME_MIN_WORDS, VOLUME_MAX_WORDS, CHAPTERS_PER_VOLUME, "graph.metadata.length_budget_contract"),
+            "runtime_loop_policy": _chapter_runtime_loop_policy(),
+            "loop_frames": list(_chapter_runtime_loop_policy()["frames"]),
         }
-        metadata["runtime_loop_policy"] = _chapter_runtime_loop_policy()
-        metadata["loop_frames"] = list(_chapter_runtime_loop_policy()["frames"])
-
+    else:
+        metadata_extra = {}
     registry.upsert_task_graph(
         graph_id=graph_id,
-        title=GRAPH_TITLES[graph_id],
+        title=_graph_title(graph_id),
         domain_id=DOMAIN_ID,
         task_family=TASK_FAMILY,
         graph_kind="coordination",
-        entry_node_id=node_ids[0],
-        output_node_id=node_ids[-1],
-        nodes=tuple(nodes),
-        edges=tuple(edges),
+        entry_node_id=nodes[0].node_id,
+        output_node_id=nodes[-1].node_id,
+        nodes=tuple(graph_nodes),
+        edges=tuple(graph_edges),
         graph_contract_id=_graph_contract_id(graph_id),
         contract_bindings=_graph_contract_bindings(graph_id),
         default_protocol_id=PROTOCOL_ID,
         working_memory_policy_profile_id="wmprofile.writing.modular_novel",
-        working_memory_policy=_working_memory_policy(source_graph),
-        runtime_policy={
-            "execution_mode": "coordinator_driven",
-            "coordinator_agent_id": "agent:0",
-            "agent_group_id": "group.writing.simple_novel",
-            "default_execution_mode": "sync",
-            "default_wait_policy": "wait_all_upstream_completed",
-            "default_join_policy": "all_success",
-            "human_gate_mode": "auto_continue",
-            "task_run_scope_policy": "isolated_per_task_run",
-            "failure_policy": "fail_closed",
-        },
-        context_policy={"handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_and_summary_only"},
+        working_memory_policy=_working_memory_policy(),
+        runtime_policy=_runtime_policy(),
+        context_policy={"handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_with_authorized_expansion"},
         publish_state="published",
         enabled=True,
-        metadata=metadata,
+        metadata={
+            "managed_by": MANAGED_BY,
+            "architecture": "native_modular_task_graph_child",
+            "business_communication_modes": ["structured_handoff", "memory_read", "memory_commit", "revision_request"],
+            "phase_definitions": _phase_definitions_for_nodes(nodes),
+            "subtask_refs": [_node_task_id(node.node_id) for node in nodes],
+            "editor_publish_state": "published",
+            "graph_unit_role": graph_id.rsplit(".", 1)[-1],
+            **metadata_extra,
+        },
     )
 
 
-def _node_for_child_graph(node: dict[str, Any], *, graph_id: str, graph_node_ids: tuple[str, ...]) -> dict[str, Any]:
-    result = copy.deepcopy(node)
-    node_id = str(result.get("node_id") or "")
-    source_task_id = str(result.get("task_id") or "")
-    if source_task_id.startswith(SOURCE_TASK_PREFIX):
-        result["task_id"] = _modular_node_task_id(node_id)
-    result["metadata"] = {
-        **dict(result.get("metadata") or {}),
-        "managed_by": MANAGED_BY,
-        "source_graph_id": SOURCE_GRAPH_ID,
-        "source_node_id": result.get("node_id"),
-        "source_task_id": source_task_id,
-        "modular_graph_id": graph_id,
-        "model_profile_ref": MODEL_PROFILE_REF,
-    }
-    result["contract_bindings"] = _with_model_requirement(dict(result.get("contract_bindings") or {}), node_id=node_id)
-    result["phase_id"] = _modular_phase_id(graph_id, str(result.get("phase_id") or ""))
-    result["sequence_index"] = _sequence_index(graph_node_ids, node_id)
-    return result
-
-
-def _edge_for_child_graph(edge: dict[str, Any]) -> dict[str, Any]:
-    result = copy.deepcopy(edge)
-    result["metadata"] = {
-        **dict(result.get("metadata") or {}),
-        "managed_by": MANAGED_BY,
-        "source_graph_id": SOURCE_GRAPH_ID,
-        "source_edge_id": result.get("edge_id"),
-    }
-    result["contract_bindings"] = dict(result.get("contract_bindings") or {})
-    return result
-
-
-def _phase_edges_with_resource_access(*, source_edges: list[dict[str, Any]], selected: set[str]) -> list[dict[str, Any]]:
-    retained: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for edge in source_edges:
-        source = str(edge.get("source_node_id") or "")
-        target = str(edge.get("target_node_id") or "")
-        edge_type = str(edge.get("edge_type") or edge.get("mode") or "")
-        direct_business_edge = source in selected and target in selected
-        resource_edge = edge_type in {"memory_read", "memory_write_candidate", "memory_commit"} and (
-            source in selected or target in selected
-        )
-        if not direct_business_edge and not resource_edge:
-            continue
-        edge_id = str(edge.get("edge_id") or f"{source}->{target}:{len(retained)}")
-        if edge_id in seen:
-            continue
-        retained.append(edge)
-        seen.add(edge_id)
-    return retained
-
-
-def _resource_node_ids_for_edges(*, retained_edges: list[dict[str, Any]], selected: set[str]) -> list[str]:
-    resource_ids: list[str] = []
-    for edge in retained_edges:
-        edge_type = str(edge.get("edge_type") or edge.get("mode") or "")
-        if edge_type not in {"memory_read", "memory_write_candidate", "memory_commit"}:
-            continue
-        for key in ("source_node_id", "target_node_id"):
-            node_id = str(edge.get(key) or "")
-            if node_id and node_id not in selected and node_id not in resource_ids:
-                resource_ids.append(node_id)
-    return resource_ids
-
-
-def _with_chapter_runtime_contracts(node: dict[str, Any]) -> dict[str, Any]:
-    result = copy.deepcopy(node)
-    node_id = str(result.get("node_id") or "")
-    if node_id == "chapter_draft":
-        result = _with_chapter_batch_contract(result)
-    if node_id in {"chapter_outline", "chapter_draft", "chapter_review", "memory_commit_chapter", "chapter_progress_router"}:
-        result = _with_loop_node_policy(
-            result,
-            loop_scope_id="loop.chapter_batch",
-            title_template="{batch_label}批次" + str(result.get("title") or node_id),
-        )
-    if node_id in {
-        "volume_review",
-        "volume_commit",
-        "volume_postmortem",
-        "world_outline_extension_proposal",
-        "extension_review",
-        "extension_commit",
-        "next_volume_router",
-    }:
-        result = _with_loop_node_policy(
-            result,
-            loop_scope_id="loop.volume",
-            title_template="{volume_label}" + str(result.get("title") or node_id),
-        )
-    if node_id == "chapter_progress_router":
-        result["loop_route_policy"] = _chapter_progress_route_policy()
-        result["metadata"] = {
-            **dict(result.get("metadata") or {}),
-            "loop_route_policy": _chapter_progress_route_policy(),
-            "loop_scope_id": "loop.chapter_batch",
-            "title_template": result.get("title_template"),
-        }
-    if node_id == "next_volume_router":
-        result["loop_route_policy"] = _next_volume_route_policy()
-        result["metadata"] = {
-            **dict(result.get("metadata") or {}),
-            "loop_route_policy": _next_volume_route_policy(),
-            "loop_scope_id": "loop.volume",
-            "title_template": result.get("title_template"),
-        }
-    return result
-
-
-def _with_loop_node_policy(node: dict[str, Any], *, loop_scope_id: str, title_template: str) -> dict[str, Any]:
-    result = copy.deepcopy(node)
-    result["loop_policy"] = {
-        "loop_kind": "bounded_metric_iteration",
-        "loop_variable": "batch_start_index" if loop_scope_id == "loop.chapter_batch" else "volume_index",
-        "iteration_size_key": "chapters_per_round" if loop_scope_id == "loop.chapter_batch" else "target_volumes",
-        "iteration_size": CHAPTER_BATCH_SIZE if loop_scope_id == "loop.chapter_batch" else TARGET_VOLUMES,
-        "exit_decision": "volume_target_reached" if loop_scope_id == "loop.chapter_batch" else "target_volumes_reached",
-    }
-    result["loop_kind"] = result["loop_policy"]["loop_kind"]
-    result["loop_scope_id"] = loop_scope_id
-    result["title_template"] = title_template
-    result["metadata"] = {
-        **dict(result.get("metadata") or {}),
-        "loop_policy": dict(result["loop_policy"]),
-        "loop_kind": result["loop_kind"],
-        "loop_scope_id": loop_scope_id,
-        "title_template": title_template,
-    }
-    return result
-
-
-def _with_chapter_batch_contract(node: dict[str, Any]) -> dict[str, Any]:
-    result = copy.deepcopy(node)
-    bindings = dict(result.get("contract_bindings") or {})
-    runtime = dict(bindings.get("runtime") or {})
-    runtime["split_policy"] = {
-        "mode": "static_batch",
-        "batch_size": CHAPTER_BATCH_SIZE,
-        "range_label_template": "chapter_{start}_{end}",
-        "child_execution_mode": "sequential",
-        "max_batches": 200,
-        "source": "contract_bindings.runtime.split_policy",
-    }
-    runtime["batch_acceptance_policy"] = {
-        "mode": "review_then_commit",
-        "review_graph_id": CHAPTER_GRAPH_ID,
-        "review_node_id": "chapter_review",
-        "repair_policy": "repair_until_pass_or_manual_gate",
-        "max_repair_rounds": 3,
-        "commit_visibility": "next_batch_after_acceptance",
-    }
-    runtime["merge_policy"] = {
-        "mode": "wait_all_committed",
-        "result_order": "batch_sequence",
-        "allow_partial": False,
-        "final_review_required": True,
-    }
-    bindings["runtime"] = runtime
-    bindings["unit_batch"] = {
-        "unit_kind": "chapter",
-        "requested_count": CHAPTER_REQUESTED_COUNT,
-        "range_start": 1,
-        "input_contract_id": "contract.writing.modular_novel.chapter_batch_request",
-        "output_contract_id": "contract.writing.modular_novel.chapter_batch_commit",
+def _node_payload(node: NodeSpec) -> dict[str, Any]:
+    artifact_policy = _artifact_policy(node)
+    runtime_bindings = {"model_requirement": _model_requirement(node.node_id), **dict(node.extra_runtime)}
+    if node.length_budget:
+        runtime_bindings["length_budget"] = dict(node.length_budget)
+    unit_batch_bindings = _node_unit_batch_contract(node)
+    payload = {
+        "node_id": node.node_id,
+        "node_type": node.node_type,
+        "title": node.title,
+        "task_id": _node_task_id(node.node_id),
+        "agent_id": node.agent_id,
+        "agent_group_id": AGENT_GROUP_ID,
+        "work_posture": node.role,
+        "projection_id": node.projection_id,
+        "projection_overlay_id": node.projection_id,
+        "runtime_lane": "coordination_task",
+        "phase_id": node.phase_id,
+        "sequence_index": node.sequence_index,
+        "timeline_group_id": node.phase_id,
+        "execution_mode": "sync",
+        "wait_policy": "wait_all_upstream_completed",
+        "join_policy": "all_success",
+        "blocks_phase_exit": True,
+        "context_visibility_policy": {
+            "shared_context_policy": "explicit_refs_only",
+            "memory_sharing_policy": "memory_pack_only",
+            "conversation_memory": "hidden",
+            "suppress_conversation_memory": True,
+        },
+        "input_contract_id": node.input_contract_id,
+        "output_contract_id": node.output_contract_id,
+        "contract_bindings": {
+            "schema": {"input_contract_id": node.input_contract_id, "output_contract_id": node.output_contract_id},
+            "execution": {"node_contract_id": node.output_contract_id},
+            "artifact": {"artifact_policy": artifact_policy, "artifact_context_policy": _artifact_context_policy(node)},
+            "memory": {
+                "memory_read_policy": _memory_read_policy(node),
+                "memory_writeback_policy": _memory_write_policy(node),
+                "dynamic_memory_read_policy": _dynamic_memory_read_policy(node),
+            },
+            "acceptance": {"review_gate_policy": _review_gate_policy(node)} if node.node_type == "review_gate" else {},
+            "runtime": runtime_bindings,
+            "unit_batch": unit_batch_bindings,
+            "governance": {"no_writing_specific_backend_shortcut": True, "prompt_is_role_natural_language": True},
+        },
+        "memory_read_policy": _memory_read_policy(node),
+        "memory_writeback_policy": _memory_write_policy(node),
+        "dynamic_memory_read_policy": _dynamic_memory_read_policy(node),
+        "artifact_context_policy": _artifact_context_policy(node),
+        "artifact_policy": artifact_policy,
+        "artifact_targets": [{"path": path, "required": True, "source": "node_spec"} for path in node.artifact_paths],
+        "review_gate_policy": _review_gate_policy(node),
+        "loop_policy": _loop_policy(node),
+        "loop_kind": "bounded_metric_iteration" if node.loop_scope_id else "",
+        "loop_scope_id": node.loop_scope_id,
+        "title_template": node.title_template,
+        "loop_route_policy": dict(node.loop_route_policy),
         "metadata": {
-            "unit_label_zh": "章节",
-            "requested_by": "user_requirement",
-            "scope": "target_volume_batch_preview",
-            "batch_review_required": True,
-            "flow_control_owner": "graph.metadata.runtime_loop_policy",
+            "managed_by": MANAGED_BY,
+            "node_spec_source": "native_modular_writing_graph",
+            "role_prompt": node.prompt,
+            "model_profile_ref": MODEL_PROFILE_REF,
+            "artifact_context_policy": _artifact_context_policy(node),
+            "loop_route_policy": dict(node.loop_route_policy),
+            "loop_scope_id": node.loop_scope_id,
+            "title_template": node.title_template,
         },
     }
-    result["contract_bindings"] = bindings
-    result["metadata"] = {
-        **dict(result.get("metadata") or {}),
-        "unit_batch_source": "contract_bindings",
-        "unit_batch_role": "split_preview_not_flow_controller",
-        "requested_chapters": CHAPTER_REQUESTED_COUNT,
-        "chapter_batch_size": CHAPTER_BATCH_SIZE,
-    }
-    return result
+    return payload
 
 
-def _chapter_runtime_loop_policy() -> dict[str, Any]:
+def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:
     return {
-        "enabled": True,
-        "loop_owner": "graph",
-        "flow_control": "chapter_batch_and_volume_frames",
-        "initial_inputs": _chapter_initial_runtime_loop_inputs(),
-        "derived_fields": _chapter_loop_derived_fields(),
-        "summary": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；本次目标 {target_volumes} 卷；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。",
-        "frames": [
-            {
-                "frame_id": "loop.chapter_batch",
-                "title": "章节批次循环",
-                "entry_stage_id": "chapter_outline",
-                "router_stage_id": "chapter_progress_router",
-                "continue_stage_id": "chapter_outline",
-                "exit_stage_id": "volume_review",
-                "unit_kind": "chapter",
-                "iteration_size_key": "chapters_per_round",
+        "node_id": spec["node_id"],
+        "node_type": spec["node_type"],
+        "title": spec["title"],
+        "runtime_lane": "coordination_task",
+        "execution_mode": "sync",
+        "wait_policy": "wait_all_upstream_completed",
+        "join_policy": "all_success",
+        "resource_lifecycle_policy": {
+            "versioning": "append_version",
+            "mutable": bool(spec["mutable"]),
+            "write_owner_node_ids": list(spec["write_owner_node_ids"]),
+            "readable_by": list(spec["readable_by"]),
+        },
+        "contract_bindings": {
+            "memory": {
+                "repository_id": spec["repository_id"],
+                "collections": list(spec["collections"]),
+                "mutable": bool(spec["mutable"]),
+                "library_role": spec["library_role"],
+            }
+        },
+        "metadata": {
+            "managed_by": MANAGED_BY,
+            "repository_id": spec["repository_id"],
+            "collections": list(spec["collections"]),
+            "mutable": bool(spec["mutable"]),
+            "library_role": spec["library_role"],
+        },
+    }
+
+
+def _repository_needed(spec: dict[str, Any], nodes: tuple[NodeSpec, ...]) -> bool:
+    repo_id = str(spec["node_id"])
+    return any(repo_id in node.readable_repositories or node.write_mode in {"baseline_commit", "chapter_commit", "volume_commit", "dynamic_memory_commit", "finalize_commit", "review_and_issue_ledger"} for node in nodes)
+
+
+def _business_edge(edge_id: str, source: str, target: str, contract_id: str, summary: str) -> dict[str, Any]:
+    return {
+        "edge_id": edge_id,
+        "source_node_id": source,
+        "target_node_id": target,
+        "edge_type": "structured_handoff",
+        "payload_contract_id": contract_id,
+        "ack_required": True,
+        "ack_policy": "explicit_ack",
+        "failure_propagation_policy": "fail_downstream",
+        "result_delivery_policy": "contract_payload_and_refs",
+        "context_filter_policy": {"mode": "explicit_refs_only", "raw_dialogue_handoff": "forbidden"},
+        "artifact_ref_policy": {
+            "required_for_long_outputs": True,
+            "prefer_refs_over_text": False,
+            "context_mode": "refs_and_authorized_text",
+            "source_output_key": f"{contract_id}:artifact_refs",
+            "target_input_key": "上游交接包",
+            "usage_instruction": summary,
+            "max_chars": 30000,
+        },
+        "contract_bindings": {
+            "schema": {"payload_contract_id": contract_id},
+            "handoff": {
+                "ack_required": True,
+                "ack_policy": "explicit_ack",
+                "timeout_policy": "fail_closed",
+                "failure_propagation_policy": "fail_downstream",
+                "result_delivery_policy": "contract_payload_and_refs",
+                "context_filter_policy": {"mode": "explicit_refs_only", "raw_dialogue_handoff": "forbidden"},
             },
-            {
-                "frame_id": "loop.volume",
-                "title": "分卷大循环",
-                "entry_stage_id": "volume_plan",
-                "router_stage_id": "next_volume_router",
-                "continue_stage_id": "volume_plan",
-                "exit_stage_id": "__graph_unit_complete__",
-                "unit_kind": "volume",
-                "iteration_size_key": "target_volumes",
+            "artifact": {
+                "artifact_ref_policy": {
+                    "required_for_long_outputs": True,
+                    "context_mode": "refs_and_authorized_text",
+                    "target_input_key": "上游交接包",
+                    "max_chars": 30000,
+                }
             },
+        },
+        "metadata": {
+            "managed_by": MANAGED_BY,
+            "handoff_summary": summary,
+            "packet_kind": "HandoffPacket",
+            "input_alias": "上游交接包",
+            "model_visible_label": "上游交接包",
+            "must_use": True,
+            "on_missing": "block",
+            "expand_strategy": "refs_and_authorized_text",
+        },
+    }
+
+
+def _memory_edges_for_nodes(nodes: tuple[NodeSpec, ...]) -> list[dict[str, Any]]:
+    edges: list[dict[str, Any]] = []
+    node_by_id = {node.node_id: node for node in nodes}
+    for node in nodes:
+        for repo_id in node.readable_repositories:
+            edges.append(
+                _memory_edge(
+                    edge_id=f"edge.memory_read.{repo_id}.{node.node_id}",
+                    source=repo_id,
+                    target=node.node_id,
+                    operation="read",
+                    collection="baseline" if repo_id.endswith("baseline") else "mutable",
+                    topics=node.memory_topics,
+                    label="基准库" if repo_id.endswith("baseline") else "动态记忆库",
+                )
+            )
+        if node.write_mode in {"baseline_commit"}:
+            edges.append(_memory_edge(f"edge.memory_commit.{node.node_id}.baseline", node.node_id, "memory.writing.baseline", "commit", "baseline", node.memory_topics, "基准库提交"))
+        elif node.write_mode in {"chapter_commit", "volume_commit", "dynamic_memory_commit", "finalize_commit"}:
+            edges.append(_memory_edge(f"edge.memory_commit.{node.node_id}.mutable", node.node_id, "memory.writing.mutable", "commit", "mutable", node.memory_topics, "动态记忆提交"))
+        elif node.write_mode == "review_and_issue_ledger":
+            edges.append(_memory_edge(f"edge.issue_commit.{node.node_id}", node.node_id, "memory.writing.issue_ledger", "commit", "issues", node.memory_topics, "问题台账"))
+        if node.artifact_paths:
+            edges.append(_memory_edge(f"edge.artifact_index.{node.node_id}", node.node_id, "memory.writing.artifact_index", "commit", "artifact_refs", node.memory_topics, "产物索引"))
+    return [edge for edge in edges if edge["source_node_id"] in node_by_id or edge["target_node_id"] in node_by_id or edge["source_node_id"].startswith("memory.") or edge["target_node_id"].startswith("memory.")]
+
+
+def _memory_edge(edge_id: str, source: str, target: str, operation: str, collection: str, topics: tuple[str, ...], label: str) -> dict[str, Any]:
+    edge_type = "memory_read" if operation == "read" else "memory_commit"
+    repository = source if operation == "read" else target
+    return {
+        "edge_id": edge_id,
+        "source_node_id": source,
+        "target_node_id": target,
+        "edge_type": edge_type,
+        "payload_contract_id": "contract.writing.modular_novel.memory_packet",
+        "ack_required": operation != "read",
+        "ack_policy": "explicit_ack",
+        "result_delivery_policy": "refs_only" if operation == "read" else "contract_payload_and_refs",
+        "working_memory_handoff_policy": {
+            "operation": operation,
+            "repository_node_id": repository,
+            "collection": collection,
+            "topics": list(topics),
+            "model_visible_label": label,
+        },
+        "contract_bindings": {
+            "schema": {"payload_contract_id": "contract.writing.modular_novel.memory_packet"},
+            "memory": {
+                "operation": operation,
+                "repository_node_id": repository,
+                "collection": collection,
+                "topics": list(topics),
+                "model_visible_label": label,
+            },
+        },
+        "metadata": {
+            "managed_by": MANAGED_BY,
+            "memory_edge_type": operation,
+            "repository": repository,
+            "collection": collection,
+            "record_kinds": list(topics),
+            "model_visible_label": label,
+            "usage_instruction": f"读取或提交{label}，必须按节点契约使用。",
+            "on_missing": "block" if operation == "read" else "warn",
+        },
+    }
+
+
+def _revision_edges_for_nodes(nodes: tuple[NodeSpec, ...]) -> list[dict[str, Any]]:
+    edges: list[dict[str, Any]] = []
+    node_ids = {node.node_id for node in nodes}
+    for node in nodes:
+        if not node.review_revision_stage_id or node.review_revision_stage_id not in node_ids:
+            continue
+        edges.append(
+            {
+                "edge_id": f"edge.revision.{node.node_id}.{node.review_revision_stage_id}",
+                "source_node_id": node.node_id,
+                "target_node_id": node.review_revision_stage_id,
+                "edge_type": "revision_request",
+                "payload_contract_id": node.output_contract_id,
+                "ack_required": True,
+                "ack_policy": "explicit_ack",
+                "failure_propagation_policy": "fail_downstream",
+                "result_delivery_policy": "contract_payload_and_refs",
+                "artifact_ref_policy": {
+                    "required_for_long_outputs": True,
+                    "context_mode": "refs_and_authorized_text",
+                    "target_input_key": "返修交接包",
+                    "max_chars": 30000,
+                },
+                "metadata": {
+                    "managed_by": MANAGED_BY,
+                    "dependency_role": "repair_feedback",
+                    "trigger": {"verdict": "revise"},
+                    "carry": [
+                        {"input_key": "返修交接包", "source": "current_review"},
+                        {"input_key": "previous_candidate_ref", "source": "inherited_input", "from_key": "上游交接包"},
+                    ],
+                    "clear_input_keys": [],
+                    "model_visible_label": "返修交接包",
+                },
+            }
+        )
+    return edges
+
+
+def _artifact_policy(node: NodeSpec) -> dict[str, Any]:
+    return {
+        "enabled": bool(node.artifact_paths),
+        "required": bool(node.artifact_paths),
+        "default_artifact_root": ARTIFACT_ROOT,
+        "subdir_template": "{task_run_id}",
+        "source": "native_modular_writing_graph.node_spec",
+        "artifacts": [
+            {
+                "path": path,
+                "required": True,
+                "content_source": "final_content",
+                "fallback_to_full_content": True,
+            }
+            for path in node.artifact_paths
         ],
     }
 
 
-def _chapter_initial_runtime_loop_inputs() -> dict[str, Any]:
+def _artifact_context_policy(node: NodeSpec, *, include_revision: bool = True) -> dict[str, Any]:
+    keys = list(node.artifact_context_keys)
+    if include_revision and _is_revision_target(node.node_id) and "返修交接包" not in keys:
+        keys.append("返修交接包")
     return {
+        "mode": "explicit_model_visible_inputs",
+        "default_max_chars": node.artifact_context_max_chars,
+        "max_items": max(len(keys), 1),
+        "items": [
+            {
+                "input_key": key,
+                "label": key,
+                "source": "input_key",
+                "max_refs": 8,
+                "max_chars": node.artifact_context_max_chars,
+                "required": key in node.required_inputs,
+            }
+            for key in keys
+        ],
+    }
+
+
+def _is_revision_target(node_id: str) -> bool:
+    return any(node.review_revision_stage_id == node_id for node in (*DESIGN_NODES, *CHAPTER_NODES, *FINALIZE_NODES))
+
+
+def _node_unit_batch_contract(node: NodeSpec) -> dict[str, Any]:
+    if node.node_id != "chapter_draft":
+        return {}
+    return {
+        "unit_kind": "chapter",
+        "requested_count": CHAPTER_REQUESTED_COUNT,
+        "batch_size": CHAPTER_BATCH_SIZE,
+        "range_start": 1,
+        "input_contract_id": node.input_contract_id,
+        "output_contract_id": node.output_contract_id,
         "target_volumes": TARGET_VOLUMES,
-        "volume_index": 1,
-        "volume_current_words": 0,
-        "volume_target_words": VOLUME_TARGET_WORDS,
         "chapters_per_volume": CHAPTERS_PER_VOLUME,
-        "chapter_index": 1,
-        "chapters_per_round": CHAPTER_BATCH_SIZE,
-        "chapter_batch_size": CHAPTER_BATCH_SIZE,
-        "target_chapters": CHAPTER_REQUESTED_COUNT,
-        "metric_label": "words",
-        "target_metric_total": TARGET_WORDS,
-        "target_words": TARGET_WORDS,
-        "current_words": 0,
         "chapter_target_words": CHAPTER_TARGET_WORDS,
+        "batch_target_words": BATCH_TARGET_WORDS,
+        "volume_target_words": VOLUME_TARGET_WORDS,
+        "metadata": {
+            "source": "node.contract_bindings.unit_batch",
+            "loop_scope_id": node.loop_scope_id,
+            "review_node_id": "chapter_review",
+            "commit_node_id": "memory_commit_chapter",
+        },
     }
 
 
-def _chapter_loop_derived_fields() -> list[dict[str, Any]]:
-    return [
-        {"key": "volume_index_padded", "op": "format", "template": "{volume_index:03d}"},
-        {"key": "volume_label", "op": "format", "template": "第{volume_index}卷"},
-        {"key": "chapter_index_padded", "op": "format", "template": "{chapter_index:03d}"},
-        {"key": "chapter_label", "op": "format", "template": "第{chapter_index}章"},
-        {"key": "chapter_file_prefix", "op": "format", "template": "chapter_{chapter_index:03d}"},
-        {"key": "batch_start_index", "op": "copy", "from_key": "chapter_index"},
-        {"key": "batch_end_index", "op": "add", "from_key": "chapter_index", "value_key": "chapters_per_round", "value": CHAPTER_BATCH_SIZE - 1, "offset": -1},
-        {"key": "batch_index", "op": "ordinal_group", "from_key": "chapter_index", "size_key": "chapters_per_round", "size": CHAPTER_BATCH_SIZE},
-        {"key": "batch_index_padded", "op": "format", "template": "{batch_index:03d}"},
-        {"key": "batch_start_index_padded", "op": "format", "template": "{batch_start_index:03d}"},
-        {"key": "batch_end_index_padded", "op": "format", "template": "{batch_end_index:03d}"},
-        {"key": "batch_chapter_range", "op": "format", "template": "{batch_start_index:03d}-{batch_end_index:03d}"},
-        {"key": "batch_label", "op": "format", "template": "第{batch_start_index}章至第{batch_end_index}章"},
-        {"key": "batch_chapter_numbers", "op": "range", "start_key": "batch_start_index", "end_key": "batch_end_index"},
-        {"key": "batch_chapter_list", "op": "join", "from_key": "batch_chapter_numbers", "prefix": "第", "suffix": "章", "separator": "、"},
-        {"key": "batch_target_words", "op": "multiply", "from_key": "chapter_target_words", "value_key": "chapters_per_round", "value": CHAPTER_BATCH_SIZE},
-        {"key": "runtime_loop_summary", "op": "format", "template": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；本次目标 {target_volumes} 卷；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。"},
-    ]
-
-
-def _chapter_progress_route_policy() -> dict[str, Any]:
+def _memory_read_policy(node: NodeSpec) -> dict[str, Any]:
     return {
-        "mode": "metric_target",
-        "loop_scope_id": "loop.chapter_batch",
-        "continue_stage_id": "chapter_outline",
-        "exit_stage_id": "volume_review",
-        "metric_key": "chapter_words",
-        "diagnostic_metric_key": "chapter_words",
-        "fallback_increment_key": "batch_target_words",
-        "default_increment": CHAPTER_TARGET_WORDS * CHAPTER_BATCH_SIZE,
-        "current_key": "volume_current_words",
-        "target_key": "volume_target_words",
-        "last_metric_key": "last_batch_words",
-        "secondary_counters": [{"current_key": "current_words", "target_key": "target_words"}],
-        "counter_updates": [{"key": "chapter_index", "mode": "increment", "step_key": "chapters_per_round", "step": CHAPTER_BATCH_SIZE}],
-        "derived_fields": _chapter_loop_derived_fields(),
+        "mode": "memory_pack_required",
+        "access_model": "edge_based_repository_read",
+        "memory_scope": "writing_modular_novel",
+        "topics": list(node.memory_topics),
+        "required_topics": list(node.required_memory_topics),
+        "forbidden_topics": list(node.forbidden_topics),
+        "readable_repositories": list(node.readable_repositories),
+        "readable_scopes": ["writing_modular_novel", "project_state", "node_scope"],
+        "summary_only": False,
+        "prefer_canonical_text": True,
+        "allow_artifact_text_expansion": True,
+        "enabled": bool(node.memory_topics or node.readable_repositories),
+        "token_budget": 40000 if node.node_id in {"chapter_draft", "chapter_review", "volume_review", "final_assemble"} else 20000,
     }
 
 
-def _next_volume_route_policy() -> dict[str, Any]:
+def _dynamic_memory_read_policy(node: NodeSpec) -> dict[str, Any]:
     return {
-        "mode": "metric_target",
-        "loop_scope_id": "loop.volume",
-        "continue_stage_id": "volume_plan",
-        "exit_stage_id": "__graph_unit_complete__",
-        "metric_key": "volume_router_metric",
-        "default_increment": 1,
-        "current_key": "completed_volumes",
-        "target_key": "target_volumes",
-        "counter_updates": [
-            {"key": "volume_index", "mode": "increment", "step": 1},
-            {"key": "volume_current_words", "mode": "reset", "value": 0},
-        ],
-        "derived_fields": _chapter_loop_derived_fields(),
+        "enabled": "memory.writing.mutable" in node.readable_repositories,
+        "memory_scope": "writing_modular_novel",
+        "repository_node_id": "memory.writing.mutable",
+        "version_selector": "latest_committed_before_stage_start",
+        "summary_only": False,
+        "prefer_canonical_text": True,
+        "allow_artifact_text_expansion": True,
     }
 
 
-def _upsert_master_graph(*, registry: TaskFlowRegistry) -> None:
+def _memory_write_policy(node: NodeSpec) -> dict[str, Any]:
+    return {
+        "mode": node.write_mode,
+        "access_model": "edge_based_repository_write",
+        "memory_scope": "writing_modular_novel",
+        "capture_artifact_refs": True,
+        "writable_scopes": ["writing_modular_novel", "project_state", "node_scope"],
+        "write_scope_guard": {
+            "baseline_memory_mutable": node.write_mode == "baseline_commit",
+            "mutable_memory_mutable": node.write_mode in {"chapter_commit", "volume_commit", "dynamic_memory_commit", "finalize_commit"},
+            "forbid_frozen_character_rewrite": True,
+            "forbid_frozen_relationship_rewrite": True,
+            "requires_outline_review_before_baseline": node.node_id == "baseline_memory_seed",
+        },
+    }
+
+
+def _review_gate_policy(node: NodeSpec) -> dict[str, Any]:
+    if node.node_type != "review_gate":
+        return {}
+    return {
+        "allowed_verdicts": ["pass", "pass_with_notes", "revise", "blocker_found", "reject", "fail_closed"],
+        "revision_stage_id": node.review_revision_stage_id,
+        "result_delivery_policy": "contract_payload_and_refs",
+    }
+
+
+def _loop_policy(node: NodeSpec) -> dict[str, Any]:
+    if not node.loop_scope_id:
+        return {}
+    return {
+        "loop_kind": "bounded_metric_iteration",
+        "loop_variable": "batch_start_index" if node.loop_scope_id == "loop.chapter_batch" else "volume_index",
+        "iteration_size_key": "chapters_per_round" if node.loop_scope_id == "loop.chapter_batch" else "target_volumes",
+        "iteration_size": CHAPTER_BATCH_SIZE if node.loop_scope_id == "loop.chapter_batch" else TARGET_VOLUMES,
+        "exit_decision": "volume_target_reached" if node.loop_scope_id == "loop.chapter_batch" else "target_volumes_reached",
+    }
+
+
+def _node_operation_policy(*, node_id: str) -> dict[str, Any]:
+    allowed = ["op.model_response", "op.memory_read"]
+    optional: list[str] = []
+    if node_id in {"chapter_draft", "chapter_review", "volume_review", "final_review", "chapter_progress_router"}:
+        allowed.append("op.text_metric")
+        optional.append("op.text_metric")
+    return {
+        "authority": "task_graph.contract_bound_operation_policy",
+        "allowed_operations": allowed,
+        "required_operations": [],
+        "optional_operations": optional,
+        "denied_operations": ["op.shell", "op.python_repl", "op.delegate_to_agent", "op.web_search", "op.write_file", "op.edit_file"],
+    }
+
+
+def _upsert_master_graph(registry: TaskFlowRegistry) -> None:
     nodes = (
-        _graph_unit_node(
-            node_id="graph_unit.design_init",
-            title="设计初始化图",
-            task_id="task.writing.modular_novel.design_init",
-            linked_graph_id=DESIGN_GRAPH_ID,
-            phase_id="phase.master.design_init",
-            sequence_index=10,
-        ),
-        _graph_unit_node(
-            node_id="graph_unit.chapter_cycle",
-            title="章节批次创作图",
-            task_id="task.writing.modular_novel.chapter_cycle",
-            linked_graph_id=CHAPTER_GRAPH_ID,
-            phase_id="phase.master.chapter_cycle",
-            sequence_index=20,
-        ),
-        _graph_unit_node(
-            node_id="graph_unit.finalize",
-            title="收尾交付图",
-            task_id="task.writing.modular_novel.finalize",
-            linked_graph_id=FINALIZE_GRAPH_ID,
-            phase_id="phase.master.finalize",
-            sequence_index=30,
-        ),
+        _graph_unit_node("graph_unit.design_init", "设计初始化图", "task.writing.modular_novel.design_init", DESIGN_GRAPH_ID, "phase.master.design_init", 10),
+        _graph_unit_node("graph_unit.chapter_cycle", "章节批次创作图", "task.writing.modular_novel.chapter_cycle", CHAPTER_GRAPH_ID, "phase.master.chapter_cycle", 20),
+        _graph_unit_node("graph_unit.finalize", "收尾交付图", "task.writing.modular_novel.finalize", FINALIZE_GRAPH_ID, "phase.master.finalize", 30),
     )
     edges = (
-        _master_edge(
-            "edge.design_init.chapter_cycle",
-            "graph_unit.design_init",
-            "graph_unit.chapter_cycle",
-            "设计初始化提交后进入章节批次创作。",
-        ),
-        _master_edge(
-            "edge.chapter_cycle.finalize",
-            "graph_unit.chapter_cycle",
-            "graph_unit.finalize",
-            "目标卷数完成并形成卷级提交后进入收尾交付。",
-        ),
+        _master_edge("edge.design_init.chapter_cycle", "graph_unit.design_init", "graph_unit.chapter_cycle", "设计初始化提交后进入章节批次创作。"),
+        _master_edge("edge.chapter_cycle.finalize", "graph_unit.chapter_cycle", "graph_unit.finalize", "目标卷数完成并形成卷级提交后进入收尾交付。"),
     )
     timeline_blocks = (
         _timeline_block("design_init", "设计初始化图", DESIGN_GRAPH_ID, "phase.master.design_init", 10),
@@ -973,7 +1855,7 @@ def _upsert_master_graph(*, registry: TaskFlowRegistry) -> None:
     )
     registry.upsert_task_graph(
         graph_id=MASTER_GRAPH_ID,
-        title=GRAPH_TITLES[MASTER_GRAPH_ID],
+        title="模块化长篇写作总任务图",
         domain_id=DOMAIN_ID,
         task_family=TASK_FAMILY,
         graph_kind="coordination",
@@ -986,13 +1868,9 @@ def _upsert_master_graph(*, registry: TaskFlowRegistry) -> None:
             "schema": {"graph_contract_id": "contract.writing.modular_novel.graph"},
             "runtime": {
                 "model_requirement": _model_requirement("master"),
-                "graph_unit_composition": {
-                    "mode": "sequential_nested_runtime",
-                    "graph_unit_count": 3,
-                    "child_run_scope": "isolated_per_nested_run",
-                },
+                "graph_unit_composition": {"mode": "sequential_nested_runtime", "graph_unit_count": 3, "child_run_scope": "isolated_per_nested_run"},
             },
-            "governance": {"no_writing_specific_backend_shortcut": True},
+            "governance": {"no_writing_specific_backend_shortcut": True, "contract_source": "contract_bindings"},
         },
         default_protocol_id=PROTOCOL_ID,
         working_memory_policy_profile_id="wmprofile.writing.modular_novel",
@@ -1002,18 +1880,8 @@ def _upsert_master_graph(*, registry: TaskFlowRegistry) -> None:
             "conversation_memory": "suppressed_for_creator_and_reviewer",
             "raw_full_text_global_context": "forbidden",
         },
-        runtime_policy={
-            "execution_mode": "coordinator_driven",
-            "coordinator_agent_id": "agent:0",
-            "agent_group_id": "group.writing.simple_novel",
-            "default_execution_mode": "sync",
-            "default_wait_policy": "wait_all_upstream_completed",
-            "default_join_policy": "all_success",
-            "human_gate_mode": "auto_continue",
-            "task_run_scope_policy": "isolated_per_task_run",
-            "failure_policy": "fail_closed",
-        },
-        context_policy={"handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_and_summary_only"},
+        runtime_policy=_runtime_policy(),
+        context_policy={"handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_with_authorized_expansion"},
         publish_state="published",
         enabled=True,
         metadata={
@@ -1029,100 +1897,42 @@ def _upsert_master_graph(*, registry: TaskFlowRegistry) -> None:
             "runtime_loop_policy": {
                 "enabled": True,
                 "flow_control": "graph_unit_sequence",
-                "initial_inputs": {
-                    "target_volumes": TARGET_VOLUMES,
-                    "chapters_per_volume": CHAPTERS_PER_VOLUME,
-                    "chapters_per_round": CHAPTER_BATCH_SIZE,
-                    "chapter_batch_size": CHAPTER_BATCH_SIZE,
-                    "chapter_target_words": CHAPTER_TARGET_WORDS,
-                    "target_chapters": CHAPTER_REQUESTED_COUNT,
-                    "target_words": TARGET_WORDS,
-                },
+                "initial_inputs": _chapter_initial_runtime_loop_inputs(),
                 "frames": [
                     {"frame_id": "graph_unit.design_init", "entry_stage_id": "graph_unit.design_init", "exit_stage_id": "graph_unit.chapter_cycle"},
                     {"frame_id": "graph_unit.chapter_cycle", "entry_stage_id": "graph_unit.chapter_cycle", "exit_stage_id": "graph_unit.finalize"},
                 ],
             },
-            "composable_graph": {
-                "version": "v1",
-                "port_edges": [
-                    {
-                        "edge_id": "port_edge.design_init.chapter_cycle",
-                        "source_unit_id": "unit.graph.design_init",
-                        "source_port_id": "output.default",
-                        "target_unit_id": "unit.graph.chapter_cycle",
-                        "target_port_id": "input.default",
-                        "payload_contract_id": "contract.writing.modular_novel.graph_unit_handoff",
-                        "temporal_semantics": {"trigger_timing": "after_source_commit", "visibility_timing": "committed_only"},
-                    },
-                    {
-                        "edge_id": "port_edge.chapter_cycle.finalize",
-                        "source_unit_id": "unit.graph.chapter_cycle",
-                        "source_port_id": "output.default",
-                        "target_unit_id": "unit.graph.finalize",
-                        "target_port_id": "input.default",
-                        "payload_contract_id": "contract.writing.modular_novel.graph_unit_handoff",
-                        "temporal_semantics": {"trigger_timing": "after_source_commit", "visibility_timing": "committed_only"},
-                    },
-                ],
-            },
-            "subtask_refs": [
-                "task.writing.modular_novel.design_init",
-                "task.writing.modular_novel.chapter_cycle",
-                "task.writing.modular_novel.finalize",
-            ],
+            "subtask_refs": ["task.writing.modular_novel.design_init", "task.writing.modular_novel.chapter_cycle", "task.writing.modular_novel.finalize"],
             "editor_publish_state": "published",
         },
     )
 
 
-def _graph_unit_node(*, node_id: str, title: str, task_id: str, linked_graph_id: str, phase_id: str, sequence_index: int) -> dict[str, Any]:
+def _graph_unit_node(node_id: str, title: str, task_id: str, linked_graph_id: str, phase_id: str, sequence_index: int) -> dict[str, Any]:
     block_id = node_id.removeprefix("graph_unit.")
     return {
         "node_id": node_id,
         "node_type": "graph_unit",
         "title": title,
         "task_id": task_id,
-        "agent_id": "agent:writing_simple_worker",
+        "agent_id": WORKER_AGENT_ID,
+        "agent_group_id": AGENT_GROUP_ID,
         "work_posture": "graph_unit_runner",
-        "projection_id": "projection.writing.simple_novel.project_brief",
+        "projection_id": "projection.writing.modular_novel.worker",
         "phase_id": phase_id,
         "sequence_index": sequence_index,
         "execution_mode": "async",
         "wait_policy": "wait_all_upstream_completed",
         "join_policy": "all_success",
         "blocks_phase_exit": True,
-        "executor_policy": {
-            "default_executor": "graph_unit",
-            "allowed_executors": ["graph_unit"],
-            "subgraph_id": linked_graph_id,
-            "auto_start_child_initial_stage": True,
-        },
-        "context_visibility_policy": {
-            "shared_context_policy": "explicit_refs_only",
-            "nested_runtime_visibility": "committed_only",
-            "parent_visible_scope": "run_handle_and_committed_output",
-        },
+        "executor_policy": {"default_executor": "graph_unit", "allowed_executors": ["graph_unit"], "subgraph_id": linked_graph_id, "auto_start_child_initial_stage": True},
+        "context_visibility_policy": {"shared_context_policy": "explicit_refs_only", "nested_runtime_visibility": "committed_only", "parent_visible_scope": "run_handle_and_committed_output"},
         "contract_bindings": {
-            "schema": {
-                "input_contract_id": "contract.user_request.basic",
-                "output_contract_id": _graph_contract_id(linked_graph_id),
-            },
-            "execution": {
-                "node_contract_id": "contract.writing.modular_novel.graph_unit_handoff",
-            },
-            "handoff": {
-                "handoff_contract_id": "contract.writing.modular_novel.graph_unit_handoff",
-                "visibility_policy": "committed_only",
-            },
-            "runtime": {
-                "model_requirement": _model_requirement(block_id),
-                "nested_runtime": {
-                    "linked_graph_id": linked_graph_id,
-                    "version_ref": "published",
-                    "isolation_policy": "isolated_per_nested_run",
-                },
-            },
+            "schema": {"input_contract_id": "contract.user_request.basic", "output_contract_id": _graph_contract_id(linked_graph_id)},
+            "execution": {"node_contract_id": "contract.writing.modular_novel.graph_unit_handoff"},
+            "handoff": {"handoff_contract_id": "contract.writing.modular_novel.graph_unit_handoff", "visibility_policy": "committed_only"},
+            "runtime": {"model_requirement": _model_requirement(block_id), "nested_runtime": {"linked_graph_id": linked_graph_id, "version_ref": "published", "isolation_policy": "isolated_per_nested_run"}},
         },
         "metadata": {
             "managed_by": MANAGED_BY,
@@ -1154,24 +1964,10 @@ def _master_edge(edge_id: str, source: str, target: str, summary: str) -> dict[s
         "result_delivery_policy": "contract_payload_and_refs",
         "contract_bindings": {
             "schema": {"payload_contract_id": "contract.writing.modular_novel.graph_unit_handoff"},
-            "handoff": {
-                "handoff_contract_id": "contract.writing.modular_novel.graph_unit_handoff",
-                "trigger_timing": "after_source_commit",
-                "visibility_policy": "committed_only",
-            },
-            "temporal": {
-                "trigger_timing": "after_source_commit",
-                "visibility_timing": "committed_only",
-                "propagation_timing": "next_graph_unit",
-            },
+            "handoff": {"handoff_contract_id": "contract.writing.modular_novel.graph_unit_handoff", "trigger_timing": "after_source_commit", "visibility_policy": "committed_only"},
+            "temporal": {"trigger_timing": "after_source_commit", "visibility_timing": "committed_only", "propagation_timing": "next_graph_unit"},
         },
-        "metadata": {
-            "managed_by": MANAGED_BY,
-            "handoff_summary": summary,
-            "required_refs": ["committed_output_refs", "child_run_ref"],
-            "dependency_role": "graph_unit_sequence",
-            "temporal_semantics": {"trigger_timing": "after_source_commit", "visibility_timing": "committed_only"},
-        },
+        "metadata": {"managed_by": MANAGED_BY, "handoff_summary": summary, "required_refs": ["committed_output_refs", "child_run_ref"], "dependency_role": "graph_unit_sequence", "temporal_semantics": {"trigger_timing": "after_source_commit", "visibility_timing": "committed_only"}},
     }
 
 
@@ -1183,27 +1979,127 @@ def _timeline_block(block_id: str, title: str, linked_graph_id: str, phase_id: s
         "phase_id": phase_id,
         "linked_graph_id": linked_graph_id,
         "version_ref": "published",
-        "entry_node_id": "",
-        "exit_node_id": "",
         "input_port_id": "input.default",
         "output_port_id": "output.default",
         "isolation_policy": "isolated_per_nested_run",
         "visibility_policy": "committed_only",
         "detach_policy": "preserve_version_anchor",
-        "contract_bindings": {
-            "handoff": {"handoff_contract_id": "contract.writing.modular_novel.graph_unit_handoff"},
-            "runtime": {"sequence_index": sequence_index},
-        },
+        "contract_bindings": {"handoff": {"handoff_contract_id": "contract.writing.modular_novel.graph_unit_handoff"}, "runtime": {"sequence_index": sequence_index}},
         "metadata": {"managed_by": MANAGED_BY, "sequence_index": sequence_index},
     }
 
 
-def _with_model_requirement(bindings: dict[str, Any], *, node_id: str) -> dict[str, Any]:
-    result = copy.deepcopy(bindings)
-    runtime = dict(result.get("runtime") or {})
-    runtime["model_requirement"] = _model_requirement(node_id)
-    result["runtime"] = runtime
-    return result
+def _runtime_policy() -> dict[str, Any]:
+    return {
+        "execution_mode": "coordinator_driven",
+        "coordinator_agent_id": "agent:0",
+        "agent_group_id": AGENT_GROUP_ID,
+        "default_execution_mode": "sync",
+        "default_wait_policy": "wait_all_upstream_completed",
+        "default_join_policy": "all_success",
+        "human_gate_mode": "auto_continue",
+        "task_run_scope_policy": "isolated_per_task_run",
+        "failure_policy": "fail_closed",
+        "working_memory_profile_id": "wmprofile.writing.modular_novel",
+    }
+
+
+def _working_memory_policy() -> dict[str, Any]:
+    return {
+        "memory_scope": "writing_modular_novel",
+        "access_model": "edge_based_repository_access",
+        "repository_node_ids": [item["node_id"] for item in REPOSITORY_NODES],
+        "conversation_memory": "suppressed_for_creator_and_reviewer",
+        "raw_full_text_global_context": "forbidden",
+        "scheduler_binding": "memory_edges_are_context_edges_not_business_steps",
+        "graph_unit_boundary": "committed_refs_only",
+        "libraries": {
+            "baseline_memory": {
+                "repository_node_id": "memory.writing.baseline",
+                "write_authority": "memory_commit_edges_only",
+                "read_authority": "memory_read_edges_only",
+                "mutable": False,
+                "library_role": "read_only_canon_baseline",
+            },
+            "mutable_memory": {
+                "repository_node_id": "memory.writing.mutable",
+                "write_authority": "extension_commit_memory_commit_edges",
+                "read_authority": "memory_read_edges_only",
+                "mutable": True,
+                "library_role": "post_volume_adjustment_layer",
+            },
+        },
+    }
+
+
+def _graph_contract_bindings(graph_id: str) -> dict[str, Any]:
+    bindings: dict[str, Any] = {
+        "schema": {"graph_contract_id": _graph_contract_id(graph_id)},
+        "runtime": {"model_requirement": _model_requirement(graph_id.rsplit(".", 1)[-1])},
+        "memory": {"working_memory_policy": _working_memory_policy()},
+        "handoff": {"context_policy": {"handoff": "contract_payload_and_refs", "raw_dialogue_handoff": "forbidden", "long_text_policy": "artifact_ref_with_authorized_expansion"}},
+        "governance": {"no_writing_specific_backend_shortcut": True, "contract_source": "contract_bindings"},
+    }
+    if graph_id == CHAPTER_GRAPH_ID:
+        bindings["unit_batch"] = _chapter_unit_batch_contract()
+        bindings["runtime"] = {
+            **dict(bindings["runtime"]),
+            "loop_policy_ref": "metadata.runtime_loop_policy",
+            "split_policy": {"mode": "static_batch", "batch_size": CHAPTER_BATCH_SIZE, "range_label_template": "chapter_{start}_{end}", "source": "graph.contract_bindings.runtime.split_policy"},
+            "length_budget": _length_budget_contract("volume", VOLUME_TARGET_WORDS, VOLUME_MIN_WORDS, VOLUME_MAX_WORDS, CHAPTERS_PER_VOLUME, "graph.contract_bindings.runtime.length_budget"),
+        }
+    return bindings
+
+
+def _chapter_unit_batch_contract() -> dict[str, Any]:
+    return {
+        "unit_kind": "chapter",
+        "requested_count": CHAPTER_REQUESTED_COUNT,
+        "batch_size": CHAPTER_BATCH_SIZE,
+        "range_start": 1,
+        "target_volumes": TARGET_VOLUMES,
+        "chapters_per_volume": CHAPTERS_PER_VOLUME,
+        "chapter_target_words": CHAPTER_TARGET_WORDS,
+        "batch_target_words": BATCH_TARGET_WORDS,
+        "volume_target_words": VOLUME_TARGET_WORDS,
+        "unit_label_zh": "章节",
+        "source": "metadata.runtime_loop_policy.initial_inputs",
+    }
+
+
+def _chapter_runtime_loop_policy() -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "loop_owner": "graph",
+        "flow_control": "chapter_batch_and_volume_frames",
+        "initial_inputs": _chapter_initial_runtime_loop_inputs(),
+        "derived_fields": _chapter_loop_derived_fields(),
+        "summary": "当前卷：{volume_label}；当前批次：{batch_label}；本批允许范围：{batch_chapter_list}；本次目标 {target_volumes} 卷；全书累计约 {current_words}/{target_words} 字；本卷累计约 {volume_current_words}/{volume_target_words} 字。",
+        "frames": [
+            {"frame_id": "loop.chapter_batch", "title": "章节批次循环", "entry_stage_id": "chapter_outline", "router_stage_id": "chapter_progress_router", "continue_stage_id": "chapter_outline", "exit_stage_id": "volume_review", "unit_kind": "chapter", "iteration_size_key": "chapters_per_round"},
+            {"frame_id": "loop.volume", "title": "分卷大循环", "entry_stage_id": "volume_plan", "router_stage_id": "next_volume_router", "continue_stage_id": "volume_plan", "exit_stage_id": "__graph_unit_complete__", "unit_kind": "volume", "iteration_size_key": "target_volumes"},
+        ],
+    }
+
+
+def _chapter_initial_runtime_loop_inputs() -> dict[str, Any]:
+    return {
+        "target_volumes": TARGET_VOLUMES,
+        "volume_index": 1,
+        "completed_volumes": 0,
+        "volume_current_words": 0,
+        "volume_target_words": VOLUME_TARGET_WORDS,
+        "chapters_per_volume": CHAPTERS_PER_VOLUME,
+        "chapter_index": 1,
+        "chapters_per_round": CHAPTER_BATCH_SIZE,
+        "chapter_batch_size": CHAPTER_BATCH_SIZE,
+        "target_chapters": CHAPTER_REQUESTED_COUNT,
+        "metric_label": "words",
+        "target_metric_total": TARGET_WORDS,
+        "target_words": TARGET_WORDS,
+        "current_words": 0,
+        "chapter_target_words": CHAPTER_TARGET_WORDS,
+    }
 
 
 def _model_requirement(node_id: str) -> dict[str, Any]:
@@ -1226,98 +2122,30 @@ def _graph_contract_id(graph_id: str) -> str:
     if graph_id == DESIGN_GRAPH_ID:
         return "contract.writing.modular_novel.design_commit"
     if graph_id == CHAPTER_GRAPH_ID:
-        return "contract.writing.modular_novel.chapter_batch_commit"
+        return "contract.writing.modular_novel.chapter_cycle_commit"
     if graph_id == FINALIZE_GRAPH_ID:
         return "contract.writing.modular_novel.final_delivery"
     return "contract.writing.modular_novel.graph"
 
 
-def _graph_contract_bindings(graph_id: str) -> dict[str, Any]:
-    bindings: dict[str, Any] = {
-        "schema": {"graph_contract_id": _graph_contract_id(graph_id)},
-        "runtime": {"model_requirement": _model_requirement(graph_id.rsplit(".", 1)[-1])},
-        "governance": {"no_writing_specific_backend_shortcut": True, "contract_source": "contract_bindings"},
-    }
-    if graph_id == CHAPTER_GRAPH_ID:
-        bindings["unit_batch"] = {
-            "unit_kind": "chapter",
-            "requested_count": CHAPTER_REQUESTED_COUNT,
-            "batch_size": CHAPTER_BATCH_SIZE,
-            "range_start": 1,
-            "target_volumes": TARGET_VOLUMES,
-            "chapters_per_volume": CHAPTERS_PER_VOLUME,
-            "chapter_target_words": CHAPTER_TARGET_WORDS,
-            "volume_target_words": VOLUME_TARGET_WORDS,
-            "unit_label_zh": "章节",
-            "source": "metadata.runtime_loop_policy.initial_inputs",
-            "source_node_id": "chapter_cycle_graph",
-        }
-        runtime = dict(bindings.get("runtime") or {})
-        runtime["loop_policy_ref"] = "metadata.runtime_loop_policy"
-        runtime["split_policy"] = {
-            "mode": "static_batch",
-            "batch_size": CHAPTER_BATCH_SIZE,
-            "range_label_template": "chapter_{start}_{end}",
-            "child_execution_mode": "sequential",
-            "source": "graph.contract_bindings.runtime.split_policy",
-            "flow_control_owner": "metadata.runtime_loop_policy.frames",
-        }
-        bindings["runtime"] = runtime
-    return bindings
+def _graph_title(graph_id: str) -> str:
+    return {
+        DESIGN_GRAPH_ID: "设计初始化任务图",
+        CHAPTER_GRAPH_ID: "章节批次创作任务图",
+        FINALIZE_GRAPH_ID: "收尾交付任务图",
+        MASTER_GRAPH_ID: "模块化长篇写作总任务图",
+    }[graph_id]
 
 
-def _all_phase_node_ids() -> tuple[str, ...]:
-    return tuple(dict.fromkeys(node_id for node_ids in PHASE_TASKS.values() for node_id in node_ids))
-
-
-def _modular_node_task_id(node_id: str) -> str:
-    return f"task.writing.modular_novel.node.{_safe_id(node_id)}"
-
-
-def _modular_flow_id(node_id: str) -> str:
-    return f"flow.writing.modular_novel.node.{_safe_id(node_id)}"
-
-
-def _modular_workflow_id(node_id: str) -> str:
-    return f"workflow.writing.modular_novel.node.{_safe_id(node_id)}"
-
-
-def _working_memory_policy(source_graph: dict[str, Any]) -> dict[str, Any]:
-    policy = copy.deepcopy(source_graph.get("working_memory_policy") or {})
-    policy["memory_scope"] = "writing_modular_novel"
-    policy["source_memory_scope"] = policy.get("memory_scope") or "writing_simple_novel"
-    policy["raw_full_text_global_context"] = "forbidden"
-    policy["access_model"] = "edge_based_repository_access"
-    policy["graph_unit_boundary"] = "committed_refs_only"
-    return policy
-
-
-def _phase_definitions_for_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _phase_definitions_for_nodes(nodes: tuple[NodeSpec, ...]) -> list[dict[str, Any]]:
     phases: dict[str, dict[str, Any]] = {}
     for node in nodes:
-        phase_id = str(node.get("phase_id") or "phase.unassigned")
-        phases.setdefault(
-            phase_id,
-            {
-                "phase_id": phase_id,
-                "title": phase_id.removeprefix("phase.modular."),
-                "sequence_index": int(node.get("sequence_index") or 0),
-            },
-        )
+        phases.setdefault(node.phase_id, {"phase_id": node.phase_id, "title": node.phase_id.removeprefix("phase.modular."), "sequence_index": node.sequence_index})
     return list(phases.values())
 
 
-def _modular_phase_id(graph_id: str, old_phase_id: str) -> str:
-    suffix = graph_id.rsplit(".", 1)[-1]
-    clean = str(old_phase_id or "phase").removeprefix("phase.")
-    return f"phase.modular.{suffix}.{clean}"
-
-
-def _sequence_index(node_ids: tuple[str, ...], node_id: str) -> int:
-    try:
-        return (node_ids.index(node_id) + 1) * 10
-    except ValueError:
-        return 999
+def _node_task_id(node_id: str) -> str:
+    return f"task.writing.modular_novel.node.{_safe_id(node_id)}"
 
 
 def _safe_id(value: str) -> str:
@@ -1325,7 +2153,7 @@ def _safe_id(value: str) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Configure modular writing task graphs.")
+    parser = argparse.ArgumentParser(description="Configure native modular writing task graphs.")
     parser.add_argument("--base-dir", default=str(BACKEND_DIR), help="Backend dir or project root. Defaults to repo backend.")
     args = parser.parse_args()
     configure(Path(args.base_dir))

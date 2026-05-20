@@ -102,7 +102,7 @@ describe("buildTaskGraphMonitorViewModel", () => {
     monitor.supervision = {
       project_runtime_status: "watching",
       active_run_status: "running",
-      latest_artifact_root: "output/novel_artifacts/simple_novel/runs/demo",
+      latest_artifact_root: "output/novel_artifacts/modular_novel/runs/demo",
       latest_event_at: 100,
       last_effective_output_at: 98,
       latest_record: { repair_action: "none" },

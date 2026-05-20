@@ -125,13 +125,20 @@ class _ToolRuntimeWithSideEffectsStub:
     def __init__(self, root_dir: Path) -> None:
         self._definition_map = get_tool_definition_map()
         self._instances = [
+            self._definition_map["read_file"].build(root_dir),
             self._definition_map["write_file"].build(root_dir),
+            self._definition_map["edit_file"].build(root_dir),
             self._definition_map["terminal"].build(root_dir),
         ]
 
     @property
     def definitions(self):
-        return [self._definition_map["write_file"], self._definition_map["terminal"]]
+        return [
+            self._definition_map["read_file"],
+            self._definition_map["write_file"],
+            self._definition_map["edit_file"],
+            self._definition_map["terminal"],
+        ]
 
     @property
     def instances(self):
@@ -187,9 +194,19 @@ class _ToolCallingModelRuntimeStub:
         )
         return SimpleNamespace(content=content)
 
-    async def invoke_messages_with_tools(self, _messages, tools, **_kwargs):
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
         self.tool_enabled_calls += 1
         assert any(getattr(tool, "name", "") == "search_text" for tool in list(tools or []))
+        self.seen_tool_result = self.seen_tool_result or any(
+            item.__class__.__name__ == "ToolMessage" for item in list(messages or [])
+        )
+        if self.seen_tool_result:
+            return SimpleNamespace(
+                content=(
+                    "已基于真实 search_text 工具结果完成收口：定位到 autonomous_task_run_driver.py，"
+                    "标准自主任务可以在预算受控的真实工具观察后回答。"
+                )
+            )
         return AIMessage(
             content="我需要先搜索运行时驱动实现。",
             tool_calls=[
@@ -229,9 +246,24 @@ class _DelegatingModelRuntimeStub:
             )
         )
 
-    async def invoke_messages_with_tools(self, _messages, tools, **_kwargs):
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
         self.tool_enabled_calls += 1
         assert any(getattr(tool, "name", "") == "delegate_to_agent" for tool in list(tools or []))
+        tool_text = "\n".join(
+            str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+            if item.__class__.__name__ == "ToolMessage"
+        )
+        self.seen_delegation_result = self.seen_delegation_result or (
+            "agent_delegation_result" in tool_text and "agent:rag_analyst" in tool_text
+        )
+        if self.seen_delegation_result:
+            return SimpleNamespace(
+                content=(
+                    "已基于真实子 Agent 回传完成收口：rag_analyst 提供了证据摘要，"
+                    "主 Agent 已综合其限制并给出结论。"
+                )
+            )
         return AIMessage(
             content="这部分需要交给知识库分析子 Agent 收集证据。",
             tool_calls=[
@@ -270,11 +302,19 @@ class _SandboxWriteModelRuntimeStub:
             if item.__class__.__name__ == "ToolMessage"
         )
         self.seen_tool_result = "Write succeeded" in tool_text
-        return SimpleNamespace(content="已在隔离沙箱中完成写入实验，真实工程未直接修改。")
+        return SimpleNamespace(content="已在隔离沙箱中完成写入验证，真实工程未直接修改。")
 
-    async def invoke_messages_with_tools(self, _messages, tools, **_kwargs):
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
         self.tool_enabled_calls += 1
         assert any(getattr(tool, "name", "") == "write_file" for tool in list(tools or []))
+        tool_text = "\n".join(
+            str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+            if item.__class__.__name__ == "ToolMessage"
+        )
+        self.seen_tool_result = self.seen_tool_result or "Write succeeded" in tool_text
+        if self.seen_tool_result:
+            return SimpleNamespace(content="已在隔离沙箱中完成写入验证，真实工程未直接修改。")
         return AIMessage(
             content="我先在沙箱里写一个探针文件验证隔离边界。",
             tool_calls=[
@@ -308,9 +348,20 @@ class _SandboxTerminalModelRuntimeStub:
         self.seen_sandbox_cwd = "/output/sandbox_runs/" in normalized and normalized.endswith("/workspace")
         return SimpleNamespace(content="已验证 terminal 在 sandbox workspace 内运行。")
 
-    async def invoke_messages_with_tools(self, _messages, tools, **_kwargs):
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
         self.tool_enabled_calls += 1
         assert any(getattr(tool, "name", "") == "terminal" for tool in list(tools or []))
+        tool_text = "\n".join(
+            str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+            if item.__class__.__name__ == "ToolMessage"
+        )
+        normalized = tool_text.replace("\\", "/")
+        self.seen_sandbox_cwd = self.seen_sandbox_cwd or (
+            "/output/sandbox_runs/" in normalized and normalized.endswith("/workspace")
+        )
+        if self.seen_sandbox_cwd:
+            return SimpleNamespace(content="已验证 terminal 在 sandbox workspace 内运行。")
         return AIMessage(
             content="我需要确认命令运行目录是否被隔离。",
             tool_calls=[
@@ -321,6 +372,236 @@ class _SandboxTerminalModelRuntimeStub:
                     "type": "tool_call",
                 }
             ],
+        )
+
+
+class _MultiStepCodeFixModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.seen_read_result = False
+        self.seen_edit_result = False
+        self.seen_terminal_result = False
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [])
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        available_tool_names = {str(getattr(tool, "name", "") or "") for tool in list(tools or [])}
+        tool_text = "\n".join(
+            str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+            if item.__class__.__name__ == "ToolMessage"
+        )
+        self.seen_read_result = self.seen_read_result or "ready += 0" in tool_text
+        self.seen_edit_result = self.seen_edit_result or "Edit succeeded" in tool_text
+        self.seen_terminal_result = self.seen_terminal_result or "CODE-FIX-PASSED" in tool_text
+        if not self.seen_read_result:
+            assert "read_file" in available_tool_names
+            return AIMessage(
+                content="我先读取目标文件确认错误位置。",
+                tool_calls=[
+                    {
+                        "id": "call-read-counter",
+                        "name": "read_file",
+                        "args": {"path": "backend/buggy_counter.py"},
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if not self.seen_edit_result:
+            assert "edit_file" in available_tool_names
+            return AIMessage(
+                content="我已确认 ready 分支没有递增，现在在沙箱里修复。",
+                tool_calls=[
+                    {
+                        "id": "call-edit-counter",
+                        "name": "edit_file",
+                        "args": {
+                            "path": "backend/buggy_counter.py",
+                            "old_text": "            ready += 0",
+                            "new_text": "            ready += 1",
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if not self.seen_terminal_result:
+            assert "terminal" in available_tool_names
+            return AIMessage(
+                content="我运行只读验证命令确认修复结果。",
+                tool_calls=[
+                    {
+                        "id": "call-verify-counter",
+                        "name": "terminal",
+                        "args": {
+                            "command": (
+                                "$code = Get-Content -Raw backend/buggy_counter.py; "
+                                "if ($code -match 'ready \\+= 1') { 'CODE-FIX-PASSED' } else { 'CODE-FIX-FAILED' }"
+                            )
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        return SimpleNamespace(content="已完成修复并通过验证：CODE-FIX-PASSED。")
+
+
+class _BudgetCloseoutModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.plain_calls = 0
+
+    async def invoke_messages(self, messages, **_kwargs):
+        self.plain_calls += 1
+        tool_text = "\n".join(
+            str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+            if item.__class__.__name__ == "ToolMessage"
+        )
+        assert "fixture-60-turn-autonomous-analysis" in tool_text
+        return SimpleNamespace(
+            content=(
+                "已基于现有观察强制收口：结构性根因是工具观察后的最终答案没有稳定提交，"
+                "需要补回归测试覆盖 memory/context/artifact 写回链路。"
+            )
+        )
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        assert any(getattr(tool, "name", "") == "read_file" for tool in list(tools or []))
+        return AIMessage(
+            content="继续补充证据。",
+            tool_calls=[
+                {
+                    "id": f"call-read-budget-{self.tool_enabled_calls}",
+                    "name": "read_file",
+                    "args": {"path": "backend/tests/fixtures/autonomous_task_suite/failing_sixty_turn_summary.json"},
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _WriteDraftAfterReadModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.plain_calls = 0
+        self.seen_contract = False
+        self.seen_write = False
+
+    async def invoke_messages(self, messages, **_kwargs):
+        self.plain_calls += 1
+        return SimpleNamespace(content="已写入草案文件，覆盖后端、前端和测试，并在沙箱中完成验证。")
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        available_tool_names = {str(getattr(tool, "name", "") or "") for tool in list(tools or [])}
+        tool_text = "\n".join(
+            str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+            if item.__class__.__name__ == "ToolMessage"
+        )
+        self.seen_contract = self.seen_contract or "task graph node status filter" in tool_text
+        self.seen_write = self.seen_write or "Write succeeded" in tool_text
+        if not self.seen_contract:
+            assert "read_file" in available_tool_names
+            return AIMessage(
+                content="我先读取功能契约。",
+                tool_calls=[
+                    {
+                        "id": "call-read-node-status-contract",
+                        "name": "read_file",
+                        "args": {"path": "backend/tests/fixtures/autonomous_task_suite/node_status_filter_contract.json"},
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if not self.seen_write:
+            assert "write_file" in available_tool_names
+            return AIMessage(
+                content="契约已足够，现在写入 sandbox 草案文件。",
+                tool_calls=[
+                    {
+                        "id": "call-write-node-status-draft",
+                        "name": "write_file",
+                        "args": {
+                            "path": "output/autonomous_task_drafts/node_status_filter.md",
+                            "content": (
+                                "# Node Status Filter Draft\n\n"
+                                "- 后端: GET /api/task-graphs/{graph_id}/nodes?status=running。\n"
+                                "- 前端: TaskGraphTopologyPage filter rail 状态 chip。\n"
+                                "- 测试: 后端精确状态过滤；前端清空筛选恢复全部节点。\n"
+                            ),
+                        },
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        return SimpleNamespace(content="已写入草案文件，覆盖后端、前端和测试，并在沙箱中完成验证。")
+
+
+class _RepeatedSearchInsteadOfWriteModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [])
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        tool_text = "\n".join(
+            str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+            if item.__class__.__name__ == "ToolMessage"
+        )
+        if "task graph node status filter" not in tool_text:
+            return AIMessage(
+                content="先读取契约。",
+                tool_calls=[
+                    {
+                        "id": "call-read-contract-before-bad-search",
+                        "name": "read_file",
+                        "args": {"path": "backend/tests/fixtures/autonomous_task_suite/node_status_filter_contract.json"},
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        return AIMessage(
+            content="我继续搜索而不是写文件。",
+            tool_calls=[
+                {
+                    "id": "call-search-instead-of-write",
+                    "name": "search_text",
+                    "args": {"query": "node status filter implementation", "roots": ["backend"], "max_results": 5},
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class _ToolMarkupLeakModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.plain_calls = 0
+
+    async def invoke_messages(self, _messages, **_kwargs):
+        self.plain_calls += 1
+        return SimpleNamespace(
+            content=(
+                "我需要读取文件。\n"
+                "name=\"read_file\">\n"
+                "<｜｜DSML｜｜parameter name=\"path\">backend/tests/fixtures/autonomous_task_suite/failing_sixty_turn_summary.json"
+            )
+        )
+
+    async def invoke_messages_with_tools(self, _messages, _tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        return SimpleNamespace(
+            content=(
+                "name=\"read_file\">\n"
+                "<｜｜DSML｜｜parameter name=\"path\">backend/tests/fixtures/autonomous_task_suite/failing_sixty_turn_summary.json"
+            )
         )
 
 
@@ -361,6 +642,7 @@ def _assert_final_check_bound_to_verification(
     verify_event: dict[str, object],
     *,
     expected_mode: str = "standard",
+    expected_passed: bool = True,
 ) -> None:
     verification_ref = f"runtime_event:{verify_event.get('event_id')}"
     final_check_step = _step_by_id(ledger, "autonomous.final_check")
@@ -373,7 +655,7 @@ def _assert_final_check_bound_to_verification(
     assert verification_ref in list(final_check_step.get("output_refs") or [])
     assert diagnostics["transition_reason"] == "autonomous_task_verification_completed"
     assert diagnostics["verification_ref"] == verification_ref
-    assert diagnostics["verification_passed"] is True
+    assert diagnostics["verification_passed"] is expected_passed
     assert diagnostics["autonomy_mode"] == expected_mode
 
 
@@ -432,7 +714,7 @@ def test_autonomous_task_run_managed_mode_is_preserved_in_recipe_policy() -> Non
     assert metadata["delegation_policy"]["max_delegate_calls_per_task_run"] == 4
 
 
-def test_specialist_routes_still_outrank_autonomous_task_run() -> None:
+def test_explicit_autonomous_task_run_owns_specialist_material_routes() -> None:
     current_turn_context = {
         "intent_decision": {"execution_strategy": "autonomous_task_run"},
         "runtime_assembly_hint": {"execution_strategy": "autonomous_task_run"},
@@ -461,8 +743,47 @@ def test_specialist_routes_still_outrank_autonomous_task_run() -> None:
         current_turn_context=current_turn_context,
     )
 
-    assert shape.recipe_id == "runtime.recipe.knowledge_retrieval"
-    assert shape.execution_kind == "retrieval"
+    assert shape.recipe_id == "runtime.recipe.autonomous_task_run"
+    assert shape.execution_kind == "autonomous_task_run"
+    assert shape.resolution_source == "intent_runtime_assembly"
+    assert "autonomous_task_run_owns_material_routes" in shape.resolution_reasons
+
+
+def test_explicit_autonomous_task_run_is_not_swallowed_by_dataset_path() -> None:
+    current_turn_context = {
+        "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+        "runtime_assembly_hint": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+    }
+    contract = build_runtime_task_intent_contract(
+        session_id="session-autonomous-dataset-material",
+        task_id="taskinst:autonomous-dataset-material",
+        user_goal=(
+            "请用自主任务模式分析 backend/tests/fixtures/autonomous_task_suite/"
+            "failing_sixty_turn_summary.json，找结构性根因并补回归测试。"
+        ),
+        query_understanding={
+            "source_kind": "dataset",
+            "structural_signals": {
+                "explicit_dataset_path": "backend/tests/fixtures/autonomous_task_suite/failing_sixty_turn_summary.json"
+            },
+        },
+        current_turn_context=current_turn_context,
+    )
+
+    shape = resolve_execution_shape(
+        task_intent_contract=contract,
+        query_understanding={
+            "source_kind": "dataset",
+            "structural_signals": {
+                "explicit_dataset_path": "backend/tests/fixtures/autonomous_task_suite/failing_sixty_turn_summary.json"
+            },
+        },
+        current_turn_context=current_turn_context,
+    )
+
+    assert shape.recipe_id == "runtime.recipe.autonomous_task_run"
+    assert shape.execution_kind == "autonomous_task_run"
+    assert "autonomous_task_run_owns_material_routes" in shape.resolution_reasons
 
 
 def test_autonomous_task_lane_is_registered_for_main_agent() -> None:
@@ -574,16 +895,21 @@ def test_query_runtime_standard_autonomy_adds_dynamic_plan_steps() -> None:
     ]
 
     assert "autonomous_task_started" in event_types
-    assert dict(plan_event.get("payload") or {})["mode"] == "standard"
+    plan_payload = dict(plan_event.get("payload") or {})
+    goal_contract = dict(plan_payload.get("goal_contract") or {})
+    assert plan_payload["mode"] == "standard"
+    assert plan_payload["plan_source"] == "goal_contract_runtime_policy"
+    assert goal_contract["authority"] == "orchestration.autonomous_task_goal_contract"
     assert len(step_added_events) >= 3
     assert "autonomous.goal_lock" in step_ids
     assert "autonomous.context_review" in step_ids
+    assert "autonomous.synthesize_answer" in step_ids
     assert "autonomous.final_check" in step_ids
     _assert_final_check_bound_to_verification(ledger, verify_event)
     assert done["terminal_reason"] == "completed"
 
 
-def test_query_runtime_standard_autonomy_runs_one_controlled_tool_observation() -> None:
+def test_query_runtime_standard_autonomy_runs_budgeted_tool_observation() -> None:
     model_runtime = _ToolCallingModelRuntimeStub()
     runtime = QueryRuntime(
         base_dir=_isolated_backend_root(),
@@ -659,8 +985,8 @@ def test_query_runtime_standard_autonomy_runs_one_controlled_tool_observation() 
     assert checks["tool_observation_count"] == 1
     assert done["terminal_reason"] == "completed"
     assert "真实 search_text 工具结果" in str(done.get("content") or "")
-    assert model_runtime.tool_enabled_calls == 1
-    assert model_runtime.plain_calls == 1
+    assert model_runtime.tool_enabled_calls == 2
+    assert model_runtime.plain_calls == 0
     assert model_runtime.seen_tool_result is True
     assert trace is not None
     assert trace["coordination_runs"] == []
@@ -684,7 +1010,7 @@ def test_query_runtime_standard_autonomy_runs_one_controlled_tool_observation() 
     assert autonomous_summary["latest_checkpoint"] is not None
 
 
-def test_query_runtime_standard_autonomy_runs_one_controlled_agent_delegation() -> None:
+def test_query_runtime_standard_autonomy_runs_budgeted_agent_delegation() -> None:
     model_runtime = _DelegatingModelRuntimeStub()
     runtime = QueryRuntime(
         base_dir=_isolated_backend_root(),
@@ -748,8 +1074,8 @@ def test_query_runtime_standard_autonomy_runs_one_controlled_agent_delegation() 
     assert checks["delegation_observation_count"] == 1
     assert done["terminal_reason"] == "completed"
     assert "真实子 Agent 回传" in str(done.get("content") or "")
-    assert model_runtime.tool_enabled_calls == 1
-    assert model_runtime.plain_calls == 1
+    assert model_runtime.tool_enabled_calls == 2
+    assert model_runtime.plain_calls == 0
     assert model_runtime.seen_delegation_result is True
     assert trace is not None
     assert trace["coordination_runs"] == []
@@ -823,11 +1149,465 @@ def test_autonomous_task_run_sandbox_redirects_write_file_side_effects() -> None
     assert real_probe.exists() is False
     assert sandbox_probe.read_text(encoding="utf-8") == "sandbox-only"
     assert dict(result_payload.get("sandbox") or {})["sandbox_root"] == str(sandbox_root)
-    assert model_runtime.tool_enabled_calls == 1
-    assert model_runtime.plain_calls == 1
+    assert model_runtime.tool_enabled_calls == 2
+    assert model_runtime.plain_calls == 0
     assert model_runtime.seen_tool_result is True
     assert done["terminal_reason"] == "completed"
     assert runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)["coordination_runs"] == []
+
+
+def test_autonomous_task_run_standard_mode_executes_multistep_code_fix_in_sandbox() -> None:
+    backend_root = _isolated_backend_root()
+    project_root = backend_root.parent
+    source_file = project_root / "backend" / "buggy_counter.py"
+    source_file.write_text(
+        "\n".join(
+            [
+                "def count_ready(items):",
+                "    ready = 0",
+                "    for item in items:",
+                "        if item == 'ready':",
+                "            ready += 0",
+                "    return ready",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    model_runtime = _MultiStepCodeFixModelRuntimeStub()
+    runtime = QueryRuntime(
+        base_dir=backend_root,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=model_runtime,
+    )
+
+    async def _collect() -> tuple[list[dict[str, object]], str]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-autonomous-multistep-code-fix",
+                message="请在隔离环境中读取 buggy_counter.py，修复 ready 计数错误，并运行命令验证。",
+                history=[],
+                task_selection={
+                    "autonomy_mode": "standard",
+                    "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+                    "runtime_assembly_hint": {
+                        "execution_strategy": "autonomous_task_run",
+                        "autonomy_mode": "standard",
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        started = next(event for event in events if event["type"] == "runtime_loop_started")
+        return events, str(dict(started["task_run"]).get("task_run_id") or "")
+
+    events, task_run_id = asyncio.run(_collect())
+    runtime_events = [
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    event_types = [str(event.get("event_type") or "") for event in runtime_events]
+    tool_names = [
+        str(
+            dict(
+                dict(dict(event.get("payload") or {}).get("action_request") or {}).get("payload") or {}
+            ).get("tool_name")
+            or ""
+        )
+        for event in runtime_events
+        if event.get("event_type") == "tool_call_requested"
+    ]
+    sandbox_event = next(event for event in runtime_events if event.get("event_type") == "runtime_sandbox_prepared")
+    sandbox_root = Path(str(dict(dict(sandbox_event.get("payload") or {}).get("sandbox_policy") or {}).get("sandbox_root") or ""))
+    done = next(event for event in events if event.get("type") == "done")
+    verify_event = next(
+        event for event in runtime_events if event.get("event_type") == "autonomous_task_verification_checked"
+    )
+    checks = dict(dict(dict(verify_event.get("payload") or {}).get("verification") or {}).get("checks") or {})
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+
+    assert tool_names == ["read_file", "edit_file", "terminal"]
+    assert event_types.count("tool_result_received") == 3
+    assert (sandbox_root / "backend" / "buggy_counter.py").read_text(encoding="utf-8").count("ready += 1") == 1
+    assert source_file.read_text(encoding="utf-8").count("ready += 0") == 1
+    assert checks["tool_call_count"] == 3
+    assert checks["tool_observation_count"] == 3
+    assert checks["verification_command_count"] == 1
+    assert checks["contract_passed"] is True
+    assert verification["contract_passed"] is True
+    assert model_runtime.tool_enabled_calls == 4
+    assert model_runtime.seen_read_result is True
+    assert model_runtime.seen_edit_result is True
+    assert model_runtime.seen_terminal_result is True
+    assert "CODE-FIX-PASSED" in str(done.get("content") or "")
+    assert done["terminal_reason"] == "completed"
+    assert runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)["coordination_runs"] == []
+
+
+def test_explicit_autonomous_task_run_skips_recipe_mcp_pre_execution_for_material_inputs() -> None:
+    runtime = QueryRuntime(
+        base_dir=_isolated_backend_root(),
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(retrieve=lambda *_args, **_kwargs: []),
+        tool_runtime=_ToolRuntimeStub(),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=_ModelRuntimeStub(),
+    )
+
+    async def _collect() -> tuple[list[dict[str, object]], str]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-autonomous-material-no-mcp-prephase",
+                message=(
+                    "请用自主任务模式分析 backend/tests/fixtures/autonomous_task_suite/"
+                    "failing_sixty_turn_summary.json，找结构性根因并补回归测试。"
+                ),
+                history=[],
+                task_selection={
+                    "autonomy_mode": "standard",
+                    "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+                    "runtime_assembly_hint": {
+                        "execution_strategy": "autonomous_task_run",
+                        "autonomy_mode": "standard",
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        started = next(event for event in events if event["type"] == "runtime_loop_started")
+        return events, str(dict(started["task_run"]).get("task_run_id") or "")
+
+    events, task_run_id = asyncio.run(_collect())
+    runtime_events = [
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    executor_events = [event for event in runtime_events if event.get("event_type") == "executor_started"]
+    task_event = next(event for event in runtime_events if event.get("event_type") == "task_contract_built")
+    selected_recipe = dict(dict(task_event.get("payload") or {}).get("selected_recipe") or {})
+    verify_event = next(
+        event for event in runtime_events if event.get("event_type") == "autonomous_task_verification_checked"
+    )
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+    done = next(event for event in events if event.get("type") == "done")
+
+    assert selected_recipe["recipe_id"] == "runtime.recipe.autonomous_task_run"
+    assert all(dict(event.get("payload") or {}).get("executor_type") != "mcp" for event in executor_events)
+    assert any(
+        dict(event.get("payload") or {}).get("runtime_channel") == "autonomous_task_run"
+        for event in executor_events
+    )
+    assert not any(event.get("type") in {"mcp_start", "mcp_end", "mcp_evidence"} for event in events)
+    assert "read_material" in verification["missing_required_actions"]
+    assert verification["passed"] is False
+    assert done["terminal_reason"] == "partial_contract_failed"
+    assert runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)["coordination_runs"] == []
+
+
+def test_autonomous_task_run_budget_exhaustion_forces_model_closeout_instead_of_empty_answer() -> None:
+    backend_root = _isolated_backend_root()
+    fixture = backend_root / "tests" / "fixtures" / "autonomous_task_suite" / "failing_sixty_turn_summary.json"
+    fixture.parent.mkdir(parents=True, exist_ok=True)
+    fixture.write_text(
+        '{"run_id":"fixture-60-turn-autonomous-analysis","failures":[{"symptom":"final_content_chars=0"}]}',
+        encoding="utf-8",
+    )
+    model_runtime = _BudgetCloseoutModelRuntimeStub()
+    runtime = QueryRuntime(
+        base_dir=backend_root,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=model_runtime,
+    )
+
+    async def _collect() -> tuple[list[dict[str, object]], str]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-autonomous-budget-closeout",
+                message="请用自主任务模式分析 failing_sixty_turn_summary.json，找结构性根因并给回归测试。",
+                history=[],
+                task_selection={
+                    "autonomy_mode": "standard",
+                    "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+                    "runtime_assembly_hint": {
+                        "execution_strategy": "autonomous_task_run",
+                        "autonomy_mode": "standard",
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        started = next(event for event in events if event["type"] == "runtime_loop_started")
+        return events, str(dict(started["task_run"]).get("task_run_id") or "")
+
+    events, task_run_id = asyncio.run(_collect())
+    runtime_events = [
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    event_types = [str(event.get("event_type") or "") for event in runtime_events]
+    verify_event = next(
+        event for event in runtime_events if event.get("event_type") == "autonomous_task_verification_checked"
+    )
+    done = next(event for event in events if event.get("type") == "done")
+    checks = dict(dict(dict(verify_event.get("payload") or {}).get("verification") or {}).get("checks") or {})
+
+    assert "autonomous_task_budget_closeout_started" in event_types
+    assert checks["tool_budget_exhausted"] is True
+    assert done["terminal_reason"] == "completed"
+    assert "结构性根因" in str(done.get("content") or "")
+    assert "回归测试" in str(done.get("content") or "")
+    assert model_runtime.plain_calls == 1
+    assert runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)["coordination_runs"] == []
+
+
+def test_autonomous_task_run_write_required_goal_prioritizes_sandbox_draft_file() -> None:
+    backend_root = _isolated_backend_root()
+    project_root = backend_root.parent
+    fixture = backend_root / "tests" / "fixtures" / "autonomous_task_suite" / "node_status_filter_contract.json"
+    fixture.parent.mkdir(parents=True, exist_ok=True)
+    fixture.write_text(
+        (
+            '{"feature":"task graph node status filter","backend":{"endpoint":"GET /api/task-graphs/{graph_id}/nodes?status=running"},'
+            '"frontend":{"location":"TaskGraphTopologyPage filter rail"},'
+            '"tests":["backend filters nodes by exact status","frontend clears filter"]}'
+        ),
+        encoding="utf-8",
+    )
+    model_runtime = _WriteDraftAfterReadModelRuntimeStub()
+    runtime = QueryRuntime(
+        base_dir=backend_root,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=model_runtime,
+    )
+
+    async def _collect() -> tuple[list[dict[str, object]], str]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-autonomous-write-draft",
+                message="请根据 node_status_filter_contract.json 在 sandbox overlay 中写入一份后端、前端、测试草案文件。",
+                history=[],
+                task_selection={
+                    "autonomy_mode": "standard",
+                    "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+                    "runtime_assembly_hint": {
+                        "execution_strategy": "autonomous_task_run",
+                        "autonomy_mode": "standard",
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        started = next(event for event in events if event["type"] == "runtime_loop_started")
+        return events, str(dict(started["task_run"]).get("task_run_id") or "")
+
+    events, task_run_id = asyncio.run(_collect())
+    runtime_events = [
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    tool_names = [
+        str(
+            dict(
+                dict(dict(event.get("payload") or {}).get("action_request") or {}).get("payload") or {}
+            ).get("tool_name")
+            or ""
+        )
+        for event in runtime_events
+        if event.get("event_type") == "tool_call_requested"
+    ]
+    sandbox_event = next(event for event in runtime_events if event.get("event_type") == "runtime_sandbox_prepared")
+    sandbox_root = Path(str(dict(dict(sandbox_event.get("payload") or {}).get("sandbox_policy") or {}).get("sandbox_root") or ""))
+    verify_event = next(
+        event for event in runtime_events if event.get("event_type") == "autonomous_task_verification_checked"
+    )
+    checks = dict(dict(dict(verify_event.get("payload") or {}).get("verification") or {}).get("checks") or {})
+    plan_event = next(
+        event for event in runtime_events if event.get("event_type") == "autonomous_task_plan_drafted"
+    )
+    plan_payload = dict(plan_event.get("payload") or {})
+    plan_items = list(plan_payload.get("plan_items") or [])
+    goal_contract = dict(plan_payload.get("goal_contract") or {})
+    done = next(event for event in events if event.get("type") == "done")
+    real_draft = project_root / "output" / "autonomous_task_drafts" / "node_status_filter.md"
+    sandbox_draft = sandbox_root / "output" / "autonomous_task_drafts" / "node_status_filter.md"
+
+    assert tool_names == ["read_file", "write_file"]
+    assert goal_contract["requires_write_output"] is True
+    assert any(dict(item).get("plan_item_id") == "autonomous.produce_output" for item in plan_items)
+    assert real_draft.exists() is False
+    assert "后端" in sandbox_draft.read_text(encoding="utf-8")
+    assert "前端" in sandbox_draft.read_text(encoding="utf-8")
+    assert "测试" in sandbox_draft.read_text(encoding="utf-8")
+    assert checks["write_output_required"] is True
+    assert checks["write_observation_count"] == 1
+    assert checks["contract_passed"] is True
+    assert "后端、前端和测试" in str(done.get("content") or "")
+    assert done["terminal_reason"] == "completed"
+    assert runtime.task_run_loop.get_trace(task_run_id, include_payloads=True)["coordination_runs"] == []
+
+
+def test_autonomous_task_run_goal_contract_blocks_repeated_search_when_write_is_required() -> None:
+    backend_root = _isolated_backend_root()
+    fixture = backend_root / "tests" / "fixtures" / "autonomous_task_suite" / "node_status_filter_contract.json"
+    fixture.parent.mkdir(parents=True, exist_ok=True)
+    fixture.write_text(
+        '{"feature":"task graph node status filter","tests":["backend","frontend"]}',
+        encoding="utf-8",
+    )
+    model_runtime = _RepeatedSearchInsteadOfWriteModelRuntimeStub()
+    runtime = QueryRuntime(
+        base_dir=backend_root,
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=model_runtime,
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-autonomous-write-contract-blocks-search",
+                message=(
+                    "请根据 backend/tests/fixtures/autonomous_task_suite/node_status_filter_contract.json "
+                    "在 sandbox overlay 中写入一份后端、前端、测试草案文件。"
+                ),
+                history=[],
+                task_selection={
+                    "autonomy_mode": "standard",
+                    "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+                    "runtime_assembly_hint": {
+                        "execution_strategy": "autonomous_task_run",
+                        "autonomy_mode": "standard",
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    runtime_events = [
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    loop_errors = [dict(event.get("payload") or {}) for event in runtime_events if event.get("event_type") == "loop_error"]
+    verify_event = next(
+        event for event in runtime_events if event.get("event_type") == "autonomous_task_verification_checked"
+    )
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+    checks = dict(verification.get("checks") or {})
+    done = next(event for event in events if event.get("type") == "done")
+
+    assert any(payload.get("error") == "autonomous_task_goal_contract_requires_write" for payload in loop_errors)
+    assert "write_output" in verification["missing_required_actions"]
+    assert checks["contract_gate_blocked"] is True
+    assert checks["write_observation_count"] == 0
+    assert verification["passed"] is False
+    assert done["terminal_reason"] == "partial_contract_failed"
+
+
+def test_autonomous_task_run_tool_markup_leak_cannot_pass_contract_verification() -> None:
+    model_runtime = _ToolMarkupLeakModelRuntimeStub()
+    runtime = QueryRuntime(
+        base_dir=_isolated_backend_root(),
+        settings_service=_SettingsStub(),
+        session_manager=_SessionManagerStub(),
+        memory_facade=_MemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=_ToolRuntimeStub(),
+        skill_registry=_SkillRegistryStub(),
+        permission_service=_PermissionStub(),
+        model_runtime=model_runtime,
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        from query.models import QueryRequest
+
+        events: list[dict[str, object]] = []
+        async for event in runtime.astream(
+            QueryRequest(
+                session_id="session-autonomous-tool-markup-leak",
+                message=(
+                    "请用自主任务模式分析 backend/tests/fixtures/autonomous_task_suite/"
+                    "failing_sixty_turn_summary.json，找结构性根因并给出回归测试。"
+                ),
+                history=[],
+                task_selection={
+                    "autonomy_mode": "standard",
+                    "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+                    "runtime_assembly_hint": {
+                        "execution_strategy": "autonomous_task_run",
+                        "autonomy_mode": "standard",
+                    },
+                },
+            )
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    runtime_events = [
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+    ]
+    verify_event = next(
+        event for event in runtime_events if event.get("event_type") == "autonomous_task_verification_checked"
+    )
+    verification = dict(dict(verify_event.get("payload") or {}).get("verification") or {})
+    done = next(event for event in events if event.get("type") == "done")
+    content = str(done.get("content") or "")
+
+    assert verification["protocol_leak_detected"] is True or "read_material" in verification["missing_required_actions"]
+    assert verification["passed"] is False
+    assert "name=\"read_file\"" not in content
+    assert "<｜｜DSML" not in content
+    assert done["terminal_reason"] in {"tool_call_markup_leaked", "partial_contract_failed"}
 
 
 def test_autonomous_task_run_sandbox_runs_terminal_inside_overlay_workspace() -> None:
@@ -882,8 +1662,8 @@ def test_autonomous_task_run_sandbox_runs_terminal_inside_overlay_workspace() ->
     assert sandbox_root
     assert str(observation_payload.get("tool_name") or "") == "terminal"
     assert str(observation_payload.get("result") or "").strip() == sandbox_root
-    assert model_runtime.tool_enabled_calls == 1
-    assert model_runtime.plain_calls == 1
+    assert model_runtime.tool_enabled_calls == 2
+    assert model_runtime.plain_calls == 0
     assert model_runtime.seen_sandbox_cwd is True
 
 

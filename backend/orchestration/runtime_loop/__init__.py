@@ -77,11 +77,28 @@ from .models import (
 )
 from .stage_projection import StageProjectionCycle, StageProjectionSnapshot
 from .state_index import RuntimeStateIndex
-from .task_run_loop import TaskRunLoop, TaskRunLoopStartResult
 from .trace_reader import RuntimeLoopTraceReader
 from .tool_adoption import build_tool_request_runtime_adoption
 from .tool_repetition_guard import ToolRepetitionGuard
 from ..worker_agent_blueprints import WorkerAgentBlueprint, WorkerAgentSpawnRequest, WorkerAgentSpawnResult
+
+_LAZY_EXPORTS = {
+    "TaskRunLoop": (".task_run_loop", "TaskRunLoop"),
+    "TaskRunLoopStartResult": (".task_run_loop", "TaskRunLoopStartResult"),
+}
+
+
+def __getattr__(name: str):
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module 'orchestration.runtime_loop' has no attribute {name!r}")
+    module_name, attr_name = target
+    from importlib import import_module
+
+    value = getattr(import_module(module_name, __name__), attr_name)
+    globals()[name] = value
+    return value
+
 
 __all__ = [
     "RuntimeCheckpoint",

@@ -5,10 +5,10 @@ param(
     [string]$SessionId = "",
     [string]$ProjectId = "project:honghuang-times",
     [string]$ProjectTitle = "洪荒时代",
-    [string]$ProjectBriefFile = "output/novel_artifacts/simple_novel/project_brief.md",
-    [int]$TargetVolumes = 1,
-    [int]$ChaptersPerVolume = 50,
-    [int]$TargetWords = 100000,
+    [string]$ProjectBriefFile = "output/novel_artifacts/modular_novel/project_brief.md",
+    [int]$TargetVolumes = 5,
+    [int]$ChaptersPerVolume = 100,
+    [int]$TargetWords = 1000000,
     [int]$ChapterTargetWords = 2000,
     [int]$ChaptersPerRound = 10,
     [string]$ArtifactRoot = ""
@@ -18,7 +18,7 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 if ([string]::IsNullOrWhiteSpace($SessionId)) {
-    $SessionId = "writing-simple-novel-honghuang-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")
+    $SessionId = "writing-modular-novel-honghuang-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss")
 }
 
 $BriefPath = Join-Path $RepoRoot $ProjectBriefFile
@@ -32,7 +32,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectBrief)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) {
-    $ArtifactRoot = "output/novel_artifacts/simple_novel/runs/$SessionId"
+    $ArtifactRoot = "output/novel_artifacts/modular_novel/runs/$SessionId"
 }
 
 $Payload = @{

@@ -9,8 +9,8 @@ import {
 } from "./TaskGraphInspectorPrimitives";
 import {
   buildTaskGraphRuntimeLoopInputPatch,
+  resolvedTaskGraphRuntimeLoopInitialInputs,
   taskGraphRuntimeLoopFrames,
-  taskGraphRuntimeLoopInitialInputs,
   taskGraphRuntimeLoopNumber,
   taskGraphRuntimeLoopRecord,
 } from "./taskGraphRuntimeLoopConfig";
@@ -59,11 +59,11 @@ export function TaskGraphRootInspector({
 }) {
   const nodeOptions = activeGraphNodes.map((node) => stringValue(node.node_id)).filter(Boolean);
   const formatNode = (value: string) => nodeTitle(activeGraphNodes.find((node) => stringValue(node.node_id) === value) ?? null, value);
-  const loopInputs = taskGraphRuntimeLoopInitialInputs(graphDraft);
+  const loopInputs = resolvedTaskGraphRuntimeLoopInitialInputs(graphDraft);
   const loopFrames = taskGraphRuntimeLoopFrames(graphDraft);
   const chaptersPerRound = taskGraphRuntimeLoopNumber(loopInputs.chapters_per_round ?? loopInputs.chapter_batch_size, 10);
-  const chaptersPerVolume = taskGraphRuntimeLoopNumber(loopInputs.chapters_per_volume, 50);
-  const targetVolumes = taskGraphRuntimeLoopNumber(loopInputs.target_volumes, 1);
+  const chaptersPerVolume = taskGraphRuntimeLoopNumber(loopInputs.chapters_per_volume, 100);
+  const targetVolumes = taskGraphRuntimeLoopNumber(loopInputs.target_volumes, 5);
   const chapterTargetWords = taskGraphRuntimeLoopNumber(loopInputs.chapter_target_words, 2000);
   const volumeTargetWords = taskGraphRuntimeLoopNumber(loopInputs.volume_target_words, chaptersPerVolume * chapterTargetWords);
   const targetWords = taskGraphRuntimeLoopNumber(loopInputs.target_words, targetVolumes * volumeTargetWords);

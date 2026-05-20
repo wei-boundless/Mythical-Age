@@ -405,6 +405,166 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
 )
 
 
+AUTONOMOUS_TASK_SELECTION: dict[str, Any] = {
+    "autonomy_mode": "standard",
+    "intent_decision": {"execution_strategy": "autonomous_task_run", "autonomy_mode": "standard"},
+    "runtime_assembly_hint": {
+        "execution_strategy": "autonomous_task_run",
+        "autonomy_mode": "standard",
+    },
+}
+
+
+AUTONOMOUS_CODE_FIX_TURNS: tuple[LongScenarioTurn, ...] = (
+    operator(
+        "main",
+        "check_files",
+        paths=["tests/fixtures/autonomous_task_suite/buggy_counter.py"],
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "请用自主任务模式追踪 backend/tests/fixtures/autonomous_task_suite/buggy_counter.py "
+            "里的计数错误，在 sandbox overlay 中修复它，并运行一个命令验证修复后的测试会通过。"
+        ),
+        checks=(
+            "event=runtime_sandbox_prepared",
+            "event.tool=terminal",
+            "sandbox.enabled",
+            "sandbox.root.contains=output/sandbox_runs",
+            "sandbox.real_workspace_access=read_only",
+            "trace.coordination_runs=0",
+            "task_run.nonempty",
+            "response.contains_any=通过|passed|修复|ready",
+            "response.nonempty",
+        ),
+        params={"task_selection": AUTONOMOUS_TASK_SELECTION},
+        force_memory_sync=False,
+    ),
+)
+
+
+AUTONOMOUS_TEST_REPORT_TRIAGE_TURNS: tuple[LongScenarioTurn, ...] = (
+    operator(
+        "main",
+        "check_files",
+        paths=["tests/fixtures/autonomous_task_suite/failing_sixty_turn_summary.json"],
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "请用自主任务模式分析 backend/tests/fixtures/autonomous_task_suite/failing_sixty_turn_summary.json，"
+            "把失败归类，找出结构性根因，并给出应该补的回归测试。不要只复述表面失败项。"
+        ),
+        checks=(
+            "task_run.nonempty",
+            "trace.available",
+            "trace.agent_run_results.nonempty",
+            "trace.coordination_runs=0",
+            "response.contains_all=结构|回归|根因",
+            "response.contains_any=memory|context|artifact|writeback|写回|审批",
+            "response.nonempty",
+        ),
+        params={"task_selection": AUTONOMOUS_TASK_SELECTION},
+        force_memory_sync=False,
+    ),
+)
+
+
+AUTONOMOUS_DOC_DATA_ANALYSIS_TURNS: tuple[LongScenarioTurn, ...] = (
+    operator(
+        "main",
+        "check_files",
+        paths=[
+            "knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf",
+            "knowledge/E-commerce Data/inventory.xlsx",
+        ],
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "请用自主任务模式结合 knowledge/AI Knowledge/2025年AI治理报告：回归现实主义.pdf "
+            "和 knowledge/E-commerce Data/inventory.xlsx，写一份给运营负责人的风险与行动建议。"
+            "需要分别说明治理风险、库存风险和优先行动。"
+        ),
+        checks=(
+            "task_run.nonempty",
+            "trace.available",
+            "trace.agent_run_results.nonempty",
+            "trace.coordination_runs=0",
+            "response.contains_all=治理|库存|行动",
+            "response.nonempty",
+        ),
+        params={"task_selection": AUTONOMOUS_TASK_SELECTION},
+        force_memory_sync=False,
+    ),
+)
+
+
+AUTONOMOUS_FEATURE_SLICE_TURNS: tuple[LongScenarioTurn, ...] = (
+    operator(
+        "main",
+        "check_files",
+        paths=["tests/fixtures/autonomous_task_suite/node_status_filter_contract.json"],
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "请用自主任务模式根据 backend/tests/fixtures/autonomous_task_suite/node_status_filter_contract.json，"
+            "在 sandbox overlay 中完成一个最小端到端功能草案：后端筛选接口说明、前端状态筛选交互、"
+            "以及至少两个测试点。需要写入一份实施草案文件并说明验证结果。"
+        ),
+        checks=(
+            "event=runtime_sandbox_prepared",
+            "event.tool=write_file",
+            "sandbox.enabled",
+            "sandbox.root.contains=output/sandbox_runs",
+            "sandbox.real_workspace_access=read_only",
+            "trace.coordination_runs=0",
+            "task_run.nonempty",
+            "response.contains_all=后端|前端|测试",
+            "response.nonempty",
+        ),
+        params={"task_selection": AUTONOMOUS_TASK_SELECTION},
+        force_memory_sync=False,
+    ),
+)
+
+
+AUTONOMOUS_OPS_TROUBLESHOOTING_TURNS: tuple[LongScenarioTurn, ...] = (
+    operator(
+        "main",
+        "check_files",
+        paths=["tests/fixtures/autonomous_task_suite/ops_incident_snapshot.json"],
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "请用自主任务模式排查 backend/tests/fixtures/autonomous_task_suite/ops_incident_snapshot.json "
+            "里的本地服务超时问题。你需要运行一个只读命令确认当前工作目录，再给出原因、修复建议和验证步骤。"
+        ),
+        checks=(
+            "event=runtime_sandbox_prepared",
+            "event.tool=terminal",
+            "sandbox.enabled",
+            "sandbox.root.contains=output/sandbox_runs",
+            "sandbox.real_workspace_access=read_only",
+            "trace.coordination_runs=0",
+            "task_run.nonempty",
+            "response.contains_all=超时|原因|验证",
+            "response.nonempty",
+        ),
+        params={"task_selection": AUTONOMOUS_TASK_SELECTION},
+        force_memory_sync=False,
+    ),
+)
+
+
 PERMISSION_BOUNDARY_TURNS: tuple[LongScenarioTurn, ...] = (
     operator("main", "set_permission_mode", mode="default"),
     user(
@@ -879,6 +1039,41 @@ SCENARIOS: tuple[LongScenario, ...] = (
         turns=SANDBOX_FILE_OPS_ACCEPTANCE_TURNS,
     ),
     LongScenario(
+        id="autonomous-code-fix-acceptance",
+        title="自主任务代码问题追踪与修复",
+        goal="验证主 Agent 能在无图自主任务中追踪小代码问题、沙箱修复并运行验证命令。",
+        coverage=("autonomous_task", "code_fix", "tool_route", "permissions", "sse"),
+        turns=AUTONOMOUS_CODE_FIX_TURNS,
+    ),
+    LongScenario(
+        id="autonomous-test-report-triage",
+        title="自主任务测试报告分析与回归修复",
+        goal="验证主 Agent 能读取测试产物、归类失败、定位结构性根因并提出回归测试。",
+        coverage=("autonomous_task", "test_report", "trace", "sse"),
+        turns=AUTONOMOUS_TEST_REPORT_TRIAGE_TURNS,
+    ),
+    LongScenario(
+        id="autonomous-doc-data-analysis",
+        title="自主任务文档与数据混合分析",
+        goal="验证主 Agent 能在无图自主任务中结合 PDF 和表格材料输出业务建议。",
+        coverage=("autonomous_task", "pdf_followup", "structured_followup", "tool_route", "sse"),
+        turns=AUTONOMOUS_DOC_DATA_ANALYSIS_TURNS,
+    ),
+    LongScenario(
+        id="autonomous-feature-slice-acceptance",
+        title="自主任务小型功能端到端实现",
+        goal="验证主 Agent 能根据功能契约在沙箱中产出后端、前端和测试草案。",
+        coverage=("autonomous_task", "feature_slice", "permissions", "tool_route", "sse"),
+        turns=AUTONOMOUS_FEATURE_SLICE_TURNS,
+    ),
+    LongScenario(
+        id="autonomous-ops-troubleshooting",
+        title="自主任务运维式排障",
+        goal="验证主 Agent 能读取运维快照、执行只读命令并输出排障结论和验证步骤。",
+        coverage=("autonomous_task", "ops", "permissions", "tool_route", "sse"),
+        turns=AUTONOMOUS_OPS_TROUBLESHOOTING_TURNS,
+    ),
+    LongScenario(
         id="permission-boundary-and-safe-fallback",
         title="权限边界与安全回退",
         goal="模拟用户先要求高风险操作，再退回到安全说明和只读分析。",
@@ -940,6 +1135,13 @@ SCENARIO_SETS: dict[str, tuple[str, ...]] = {
         "task-system-short-story-coordination-acceptance",
     ),
     "sandbox": ("sandbox-file-ops-acceptance",),
+    "autonomous_tasks": (
+        "autonomous-code-fix-acceptance",
+        "autonomous-test-report-triage",
+        "autonomous-doc-data-analysis",
+        "autonomous-feature-slice-acceptance",
+        "autonomous-ops-troubleshooting",
+    ),
     "mega": ("sixty-turn-real-user-marathon",),
     "extended": tuple(scenario.id for scenario in SCENARIOS),
 }

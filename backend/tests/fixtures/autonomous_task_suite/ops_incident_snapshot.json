@@ -1,0 +1,17 @@
+{
+  "service": "local-workbench-api",
+  "symptom": "GET /api/workbench/tasks times out after startup",
+  "ports": [
+    {"port": 3000, "status": "listening", "owner": "frontend"},
+    {"port": 8000, "status": "listening", "owner": "backend"}
+  ],
+  "recent_logs": [
+    "2026-05-20T20:01:12Z INFO server started on :8000",
+    "2026-05-20T20:01:19Z WARN request /api/workbench/tasks exceeded 30s",
+    "2026-05-20T20:01:19Z ERROR task cache rebuild running in foreground"
+  ],
+  "config": {
+    "task_cache_rebuild": "foreground",
+    "memory_maintenance": "background"
+  }
+}

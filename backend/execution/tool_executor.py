@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,12 @@ class ToolRuntimeExecutor:
         tool_args = dict(tool_call.get("args") or {})
         tool_call_id = str(tool_call.get("id") or action_request.request_id)
         sandbox_context = _sandbox_context_for_tool(tool_name, sandbox_policy)
+        if sandbox_context:
+            _prepare_sandbox_overlay_for_tool(
+                tool_name=tool_name,
+                tool_args=tool_args,
+                sandbox_context=sandbox_context,
+            )
         current_record = execution_record
         if execution_store is not None:
             dispatch_diagnostics = {"tool_name": tool_name, "directive_ref": directive.directive_id}
@@ -149,6 +156,7 @@ class ToolRuntimeExecutor:
 
 
 DEFAULT_SIDE_EFFECT_TOOL_NAMES = {"write_file", "edit_file", "terminal", "python_repl"}
+OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"edit_file"}
 
 
 def _sandbox_context_for_tool(tool_name: str, sandbox_policy: dict[str, Any] | None) -> dict[str, Any]:
@@ -170,6 +178,46 @@ def _sandbox_context_for_tool(tool_name: str, sandbox_policy: dict[str, Any] | N
         "enabled": True,
         "mode": str(policy.get("mode") or "workspace_overlay"),
         "sandbox_root": str(sandbox_root),
+        "workspace_root": str(Path(str(policy.get("workspace_root") or "")).resolve()) if policy.get("workspace_root") else "",
         "tool_name": str(tool_name or ""),
         "real_workspace_access": str(policy.get("real_workspace_access") or "read_only"),
+        "overlay_copy_on_write": bool(policy.get("overlay_copy_on_write") is not False),
     }
+
+
+def _prepare_sandbox_overlay_for_tool(
+    *,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    sandbox_context: dict[str, Any],
+) -> None:
+    if not bool(sandbox_context.get("overlay_copy_on_write") is True):
+        return
+    if str(tool_name or "").strip() not in OVERLAY_COPY_ON_WRITE_TOOL_NAMES:
+        return
+    relative_path = _normalize_relative_path(tool_args.get("path"))
+    if not relative_path:
+        return
+    workspace_root = Path(str(sandbox_context.get("workspace_root") or "")).resolve()
+    sandbox_root = Path(str(sandbox_context.get("sandbox_root") or "")).resolve()
+    if not str(workspace_root) or not str(sandbox_root):
+        return
+    source = (workspace_root / relative_path).resolve()
+    target = (sandbox_root / relative_path).resolve()
+    if workspace_root not in source.parents and source != workspace_root:
+        return
+    if sandbox_root not in target.parents and target != sandbox_root:
+        return
+    if target.exists() or not source.exists() or not source.is_file():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+
+
+def _normalize_relative_path(value: Any) -> str:
+    text = str(value or "").replace("\\", "/").strip().strip("/")
+    while "//" in text:
+        text = text.replace("//", "/")
+    if not text or text.startswith("../") or "/../" in f"/{text}/":
+        return ""
+    return text

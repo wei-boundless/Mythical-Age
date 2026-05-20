@@ -31,6 +31,9 @@ RETIRED_WRITING_AGENT_IDS = {
     "agent:writing_simple_creator",
     "agent:writing_simple_reviewer",
     "agent:writing_final_assembler",
+    "agent:writing_memory_steward",
+    "agent:writing_runtime_monitor",
+    "agent:writing_team_worker",
 }
 
 
@@ -292,22 +295,6 @@ def _infer_runtime_template_id(agent_id: str, payload: dict[str, Any]) -> str:
         return explicit
     task_family = str(metadata.get("task_family") or "").strip()
     source_refs = [str(item).strip() for item in list(metadata.get("source_task_graph_refs") or []) if str(item).strip()]
-    if task_family == "writing_team_long_novel":
-        return "task_graph.writing_team.long_novel.readonly_worker"
-    if task_family == "writing_simple_novel":
-        if agent_id == "agent:writing_memory_steward":
-            return "task_graph.writing.simple_novel.memory_steward"
-        if agent_id == "agent:writing_runtime_monitor":
-            return "task_graph.writing.simple_novel.runtime_monitor"
-        return "task_graph.writing.simple_novel.readonly_worker"
-    if any(ref == "graph.writing_team.long_novel" for ref in source_refs):
-        return "task_graph.writing_team.long_novel.readonly_worker"
-    if any(ref == "graph.writing.simple_novel" for ref in source_refs):
-        if agent_id == "agent:writing_memory_steward":
-            return "task_graph.writing.simple_novel.memory_steward"
-        if agent_id == "agent:writing_runtime_monitor":
-            return "task_graph.writing.simple_novel.runtime_monitor"
-        return "task_graph.writing.simple_novel.readonly_worker"
     return ""
 
 

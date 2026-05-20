@@ -1780,7 +1780,7 @@ class TaskRunLoop:
             selected_recipe_payload=selected_recipe_payload,
             retrieval_results=retrieval_results,
         ):
-            final_content = self._select_final_answer_from_context(final_main_context)
+            final_content = _select_final_answer_from_context(final_main_context)
             if not final_content:
                 final_content = str(
                     final_main_context.get("resolved_answer")
@@ -1788,7 +1788,7 @@ class TaskRunLoop:
                     or ""
                 )
             if not final_content and final_task_summary_refs:
-                final_content = self._select_final_answer_from_task_summary_refs(final_task_summary_refs)
+                final_content = _select_final_answer_from_task_summary_refs(final_task_summary_refs)
             if final_content:
                 final_answer_metadata = {
                     "answer_channel": "answer_candidate",
@@ -1832,7 +1832,7 @@ class TaskRunLoop:
                 final_content=final_content,
                 final_answer_metadata=dict(final_answer_metadata),
                 terminal_reason=terminal_reason,
-                turn_count=1,
+                turn_count=0,
                 model_call_count=0,
                 main_context=dict(final_main_context),
                 task_summary_refs=[dict(item) for item in final_task_summary_refs],
@@ -5109,6 +5109,8 @@ class TaskRunLoop:
         resolution = dict(dict(operation_requirement.get("metadata") or {}).get("runtime_operation_resolution") or {})
         if str(resolution.get("execution_mode") or "").strip() == "delegate":
             return False
+        if _is_autonomous_task_run_recipe(selected_recipe_payload):
+            return False
         source_kind = str(
             selected_recipe_payload.get("source_kind")
             or dict(selected_recipe_payload.get("metadata") or {}).get("source_kind")
@@ -7659,6 +7661,7 @@ def _prepare_runtime_sandbox_policy(
     policy.setdefault("approval_policy", "sandboxed_side_effects")
     policy.setdefault("side_effect_tools", ["write_file", "edit_file", "terminal", "python_repl"])
     policy.setdefault("side_effect_operations", ["op.write_file", "op.edit_file", "op.shell", "op.python_repl"])
+    policy.setdefault("overlay_copy_on_write", True)
     workspace_root = _workspace_root_for_runtime(root_dir)
     side_effect_root = Path(str(policy.get("side_effect_root") or "output/sandbox_runs"))
     if not side_effect_root.is_absolute():

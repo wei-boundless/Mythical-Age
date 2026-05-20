@@ -1,0 +1,38 @@
+{
+  "task_id": "task:memory_maintenance_after_commit:a41e50cbffac48be88a5288d2c68fb69",
+  "task_kind": "memory_maintenance_after_commit",
+  "status": "running",
+  "payload": {
+    "session_id": "32b61f7ad53d4762bfa19f297e9f4dd2",
+    "messages": [
+      {
+        "role": "user",
+        "content": "请用自主任务模式分析 backend/tests/fixtures/autonomous_task_suite/failing_sixty_turn_summary.json，把失败归类，找出结构性根因，并给出应该补的回归测试。不要只复述表面失败项。"
+      },
+      {
+        "role": "assistant",
+        "content": "现在需要看长场景测试中具体怎么定义这些检查项，以及 turn 17、18、31、42 的上下文。\n\nname=\"read_file\">\n<｜｜DSML｜｜parameter name=\"path\" string=\"true\">backend/tests/system_eval/long_scenarios.py</｜｜DSML｜｜parameter>\n</｜｜DSML｜｜invoke>\n</｜｜DSML｜｜tool_calls>",
+        "answer_channel": "answer_candidate",
+        "answer_source": "runtime_directive:model_response",
+        "answer_canonical_state": "stable_answer",
+        "answer_persist_policy": "persist_canonical",
+        "answer_finalization_policy": "none"
+      }
+    ],
+    "turn_id": "turn:32b61f7ad53d4762bfa19f297e9f4dd2:1",
+    "main_context": {},
+    "task_summary_refs": [],
+    "bundle_summary_refs": [],
+    "durable_lane_enabled": true
+  },
+  "result": {},
+  "error": "",
+  "source": "memory_system.facade",
+  "session_id": "32b61f7ad53d4762bfa19f297e9f4dd2",
+  "lane_id": "session_memory_maintenance",
+  "attempts": 1,
+  "queued_at": "2026-05-20T15:31:09+00:00",
+  "started_at": "2026-05-20T15:31:09+00:00",
+  "completed_at": "",
+  "receipt_path": "D:\\AI应用\\langchain-agent\\backend\\runtime_state\\background_tasks\\memory_maintenance_after_commit\\task_memory_maintenance_after_commit_a41e50cbffac48be88a5288d2c68fb69.json"
+}

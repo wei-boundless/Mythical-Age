@@ -517,465 +517,18 @@
       "authority": "task_system.task_projection_binding"
     },
     {
-      "binding_id": "taskprojbind:task.writing.simple_novel.project_brief",
-      "task_id": "task.writing.simple_novel.project_brief",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.project_brief"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.project_brief",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.world_design",
-      "task_id": "task.writing.simple_novel.world_design",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.world_designer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.world_designer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.world_review",
-      "task_id": "task.writing.simple_novel.world_review",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.world_reviewer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.world_reviewer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "reviewer"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.memory_commit_world",
-      "task_id": "task.writing.simple_novel.memory_commit_world",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "memory_steward"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.character_design",
-      "task_id": "task.writing.simple_novel.character_design",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.character_designer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.character_designer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.plot_design",
-      "task_id": "task.writing.simple_novel.plot_design",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.plot_designer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.plot_designer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.design_sync",
-      "task_id": "task.writing.simple_novel.design_sync",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.design_synchronizer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.design_synchronizer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.outline_design",
-      "task_id": "task.writing.simple_novel.outline_design",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.outline_designer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.outline_designer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.outline_review",
-      "task_id": "task.writing.simple_novel.outline_review",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.outline_reviewer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.outline_reviewer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "reviewer"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.baseline_memory_seed",
-      "task_id": "task.writing.simple_novel.baseline_memory_seed",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.baseline_memory_steward"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.baseline_memory_steward",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "memory_steward"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.volume_plan",
-      "task_id": "task.writing.simple_novel.volume_plan",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.volume_planner"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.volume_planner",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.chapter_outline",
-      "task_id": "task.writing.simple_novel.chapter_outline",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.chapter_outliner"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.chapter_outliner",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.chapter_draft",
-      "task_id": "task.writing.simple_novel.chapter_draft",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.chapter_writer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.chapter_writer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.chapter_review",
-      "task_id": "task.writing.simple_novel.chapter_review",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.chapter_reviewer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.chapter_reviewer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "reviewer"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.memory_commit_chapter",
-      "task_id": "task.writing.simple_novel.memory_commit_chapter",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "memory_steward"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.chapter_progress_router",
-      "task_id": "task.writing.simple_novel.chapter_progress_router",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.chapter_progress_router"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.chapter_progress_router",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "router"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.volume_review",
-      "task_id": "task.writing.simple_novel.volume_review",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.volume_reviewer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.volume_reviewer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "reviewer"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.volume_commit",
-      "task_id": "task.writing.simple_novel.volume_commit",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "memory_steward"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.volume_postmortem",
-      "task_id": "task.writing.simple_novel.volume_postmortem",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.volume_postmortem"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.volume_postmortem",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "reviewer"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.world_outline_extension_proposal",
-      "task_id": "task.writing.simple_novel.world_outline_extension_proposal",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.world_outline_extension_proposer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.world_outline_extension_proposer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "creator"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.extension_review",
-      "task_id": "task.writing.simple_novel.extension_review",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.extension_reviewer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.extension_reviewer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "reviewer"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.extension_commit",
-      "task_id": "task.writing.simple_novel.extension_commit",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "memory_steward"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.next_volume_router",
-      "task_id": "task.writing.simple_novel.next_volume_router",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.next_volume_router"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.next_volume_router",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "router"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.final_assemble",
-      "task_id": "task.writing.simple_novel.final_assemble",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.final_assembler"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.final_assembler",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "final_assembler"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.final_review",
-      "task_id": "task.writing.simple_novel.final_review",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.final_reviewer"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.final_reviewer",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "reviewer"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.memory_finalize",
-      "task_id": "task.writing.simple_novel.memory_finalize",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "memory_steward"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.runtime_monitor",
-      "task_id": "task.writing.simple_novel.runtime_monitor",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.runtime_monitor"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.runtime_monitor",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "monitor"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
-      "binding_id": "taskprojbind:task.writing.simple_novel.fail_closed",
-      "task_id": "task.writing.simple_novel.fail_closed",
-      "projection_selection_mode": "task_default_required",
-      "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
-      ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
-      "projection_required": true,
-      "notes": "写作组简易长篇小说节点投影绑定。",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "role": "memory_steward"
-      },
-      "authority": "task_system.task_projection_binding"
-    },
-    {
       "binding_id": "taskprojbind:task.writing.modular_novel.master",
       "task_id": "task.writing.modular_novel.master",
       "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.project_brief"
+        "projection.writing.modular_novel.worker"
       ],
-      "default_projection_id": "projection.writing.simple_novel.project_brief",
+      "default_projection_id": "projection.writing.modular_novel.worker",
       "projection_required": true,
-      "notes": "模块化写作任务图配置生成。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": ""
       },
       "authority": "task_system.task_projection_binding"
     },
@@ -984,13 +537,14 @@
       "task_id": "task.writing.modular_novel.design_init",
       "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.outline_designer"
+        "projection.writing.modular_novel.worker"
       ],
-      "default_projection_id": "projection.writing.simple_novel.outline_designer",
+      "default_projection_id": "projection.writing.modular_novel.worker",
       "projection_required": true,
-      "notes": "模块化写作任务图配置生成。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": ""
       },
       "authority": "task_system.task_projection_binding"
     },
@@ -999,13 +553,14 @@
       "task_id": "task.writing.modular_novel.chapter_cycle",
       "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.chapter_writer"
+        "projection.writing.modular_novel.worker"
       ],
-      "default_projection_id": "projection.writing.simple_novel.chapter_writer",
+      "default_projection_id": "projection.writing.modular_novel.worker",
       "projection_required": true,
-      "notes": "模块化写作任务图配置生成。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": ""
       },
       "authority": "task_system.task_projection_binding"
     },
@@ -1014,455 +569,430 @@
       "task_id": "task.writing.modular_novel.finalize",
       "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.final_assembler"
+        "projection.writing.modular_novel.worker"
       ],
-      "default_projection_id": "projection.writing.simple_novel.final_assembler",
+      "default_projection_id": "projection.writing.modular_novel.worker",
       "projection_required": true,
-      "notes": "模块化写作任务图配置生成。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": ""
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.project_brief",
       "task_id": "task.writing.modular_novel.node.project_brief",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.project_brief"
+        "projection.writing.modular_novel.project_brief"
       ],
-      "default_projection_id": "projection.writing.simple_novel.project_brief",
+      "default_projection_id": "projection.writing.modular_novel.project_brief",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "creator",
-        "source_task_id": "task.writing.simple_novel.project_brief"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "project_brief"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.world_design",
       "task_id": "task.writing.modular_novel.node.world_design",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.world_designer"
+        "projection.writing.modular_novel.world_designer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.world_designer",
+      "default_projection_id": "projection.writing.modular_novel.world_designer",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "creator",
-        "source_task_id": "task.writing.simple_novel.world_design"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "world_design"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.world_review",
       "task_id": "task.writing.modular_novel.node.world_review",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.world_reviewer"
+        "projection.writing.modular_novel.world_reviewer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.world_reviewer",
+      "default_projection_id": "projection.writing.modular_novel.world_reviewer",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "reviewer",
-        "source_task_id": "task.writing.simple_novel.world_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "world_review"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.memory_commit_world",
       "task_id": "task.writing.modular_novel.node.memory_commit_world",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
+        "projection.writing.modular_novel.memory_steward"
       ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
+      "default_projection_id": "projection.writing.modular_novel.memory_steward",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "memory_steward",
-        "source_task_id": "task.writing.simple_novel.memory_commit_world"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "memory_commit_world"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.character_design",
       "task_id": "task.writing.modular_novel.node.character_design",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.character_designer"
+        "projection.writing.modular_novel.character_designer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.character_designer",
+      "default_projection_id": "projection.writing.modular_novel.character_designer",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "creator",
-        "source_task_id": "task.writing.simple_novel.character_design"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "character_design"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.plot_design",
       "task_id": "task.writing.modular_novel.node.plot_design",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.plot_designer"
+        "projection.writing.modular_novel.plot_designer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.plot_designer",
+      "default_projection_id": "projection.writing.modular_novel.plot_designer",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "creator",
-        "source_task_id": "task.writing.simple_novel.plot_design"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "plot_design"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.design_sync",
       "task_id": "task.writing.modular_novel.node.design_sync",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.design_synchronizer"
+        "projection.writing.modular_novel.design_sync"
       ],
-      "default_projection_id": "projection.writing.simple_novel.design_synchronizer",
+      "default_projection_id": "projection.writing.modular_novel.design_sync",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "creator",
-        "source_task_id": "task.writing.simple_novel.design_sync"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "design_sync"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.outline_design",
       "task_id": "task.writing.modular_novel.node.outline_design",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.outline_designer"
+        "projection.writing.modular_novel.outline_designer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.outline_designer",
+      "default_projection_id": "projection.writing.modular_novel.outline_designer",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "creator",
-        "source_task_id": "task.writing.simple_novel.outline_design"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "outline_design"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.outline_review",
       "task_id": "task.writing.modular_novel.node.outline_review",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.outline_reviewer"
+        "projection.writing.modular_novel.outline_reviewer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.outline_reviewer",
+      "default_projection_id": "projection.writing.modular_novel.outline_reviewer",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "reviewer",
-        "source_task_id": "task.writing.simple_novel.outline_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "outline_review"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.baseline_memory_seed",
       "task_id": "task.writing.modular_novel.node.baseline_memory_seed",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.baseline_memory_steward"
+        "projection.writing.modular_novel.baseline_memory_steward"
       ],
-      "default_projection_id": "projection.writing.simple_novel.baseline_memory_steward",
+      "default_projection_id": "projection.writing.modular_novel.baseline_memory_steward",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "memory_steward",
-        "source_task_id": "task.writing.simple_novel.baseline_memory_seed"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "baseline_memory_seed"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.volume_plan",
       "task_id": "task.writing.modular_novel.node.volume_plan",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.volume_planner"
+        "projection.writing.modular_novel.volume_planner"
       ],
-      "default_projection_id": "projection.writing.simple_novel.volume_planner",
+      "default_projection_id": "projection.writing.modular_novel.volume_planner",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "creator",
-        "source_task_id": "task.writing.simple_novel.volume_plan"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "volume_plan"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.chapter_outline",
       "task_id": "task.writing.modular_novel.node.chapter_outline",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.chapter_outliner"
+        "projection.writing.modular_novel.chapter_outliner"
       ],
-      "default_projection_id": "projection.writing.simple_novel.chapter_outliner",
+      "default_projection_id": "projection.writing.modular_novel.chapter_outliner",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "creator",
-        "source_task_id": "task.writing.simple_novel.chapter_outline"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "chapter_outline"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.chapter_draft",
       "task_id": "task.writing.modular_novel.node.chapter_draft",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.chapter_writer"
+        "projection.writing.modular_novel.chapter_writer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.chapter_writer",
+      "default_projection_id": "projection.writing.modular_novel.chapter_writer",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "creator",
-        "source_task_id": "task.writing.simple_novel.chapter_draft"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "chapter_draft"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.chapter_review",
       "task_id": "task.writing.modular_novel.node.chapter_review",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.chapter_reviewer"
+        "projection.writing.modular_novel.chapter_reviewer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.chapter_reviewer",
+      "default_projection_id": "projection.writing.modular_novel.chapter_reviewer",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "reviewer",
-        "source_task_id": "task.writing.simple_novel.chapter_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "chapter_review"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.memory_commit_chapter",
       "task_id": "task.writing.modular_novel.node.memory_commit_chapter",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
+        "projection.writing.modular_novel.memory_steward"
       ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
+      "default_projection_id": "projection.writing.modular_novel.memory_steward",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "memory_steward",
-        "source_task_id": "task.writing.simple_novel.memory_commit_chapter"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "memory_commit_chapter"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.chapter_progress_router",
       "task_id": "task.writing.modular_novel.node.chapter_progress_router",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.chapter_progress_router"
+        "projection.writing.modular_novel.chapter_progress_router"
       ],
-      "default_projection_id": "projection.writing.simple_novel.chapter_progress_router",
+      "default_projection_id": "projection.writing.modular_novel.chapter_progress_router",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "router",
-        "source_task_id": "task.writing.simple_novel.chapter_progress_router"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "chapter_progress_router"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.volume_review",
       "task_id": "task.writing.modular_novel.node.volume_review",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.volume_reviewer"
+        "projection.writing.modular_novel.volume_reviewer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.volume_reviewer",
+      "default_projection_id": "projection.writing.modular_novel.volume_reviewer",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "reviewer",
-        "source_task_id": "task.writing.simple_novel.volume_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "volume_review"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.volume_commit",
       "task_id": "task.writing.modular_novel.node.volume_commit",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
+        "projection.writing.modular_novel.memory_steward"
       ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
+      "default_projection_id": "projection.writing.modular_novel.memory_steward",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "memory_steward",
-        "source_task_id": "task.writing.simple_novel.volume_commit"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "volume_commit"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.volume_postmortem",
       "task_id": "task.writing.modular_novel.node.volume_postmortem",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.volume_postmortem"
+        "projection.writing.modular_novel.volume_postmortem"
       ],
-      "default_projection_id": "projection.writing.simple_novel.volume_postmortem",
+      "default_projection_id": "projection.writing.modular_novel.volume_postmortem",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "reviewer",
-        "source_task_id": "task.writing.simple_novel.volume_postmortem"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "volume_postmortem"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.world_outline_extension_proposal",
       "task_id": "task.writing.modular_novel.node.world_outline_extension_proposal",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.world_outline_extension_proposer"
+        "projection.writing.modular_novel.extension_proposer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.world_outline_extension_proposer",
+      "default_projection_id": "projection.writing.modular_novel.extension_proposer",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "creator",
-        "source_task_id": "task.writing.simple_novel.world_outline_extension_proposal"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "world_outline_extension_proposal"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.extension_review",
       "task_id": "task.writing.modular_novel.node.extension_review",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.extension_reviewer"
+        "projection.writing.modular_novel.extension_reviewer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.extension_reviewer",
+      "default_projection_id": "projection.writing.modular_novel.extension_reviewer",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "reviewer",
-        "source_task_id": "task.writing.simple_novel.extension_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "extension_review"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.extension_commit",
       "task_id": "task.writing.modular_novel.node.extension_commit",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
+        "projection.writing.modular_novel.memory_steward"
       ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
+      "default_projection_id": "projection.writing.modular_novel.memory_steward",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "memory_steward",
-        "source_task_id": "task.writing.simple_novel.extension_commit"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "extension_commit"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.next_volume_router",
       "task_id": "task.writing.modular_novel.node.next_volume_router",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.next_volume_router"
+        "projection.writing.modular_novel.next_volume_router"
       ],
-      "default_projection_id": "projection.writing.simple_novel.next_volume_router",
+      "default_projection_id": "projection.writing.modular_novel.next_volume_router",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "router",
-        "source_task_id": "task.writing.simple_novel.next_volume_router"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "next_volume_router"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.final_assemble",
       "task_id": "task.writing.modular_novel.node.final_assemble",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.final_assembler"
+        "projection.writing.modular_novel.final_assembler"
       ],
-      "default_projection_id": "projection.writing.simple_novel.final_assembler",
+      "default_projection_id": "projection.writing.modular_novel.final_assembler",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "final_assembler",
-        "source_task_id": "task.writing.simple_novel.final_assemble"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "final_assemble"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.final_review",
       "task_id": "task.writing.modular_novel.node.final_review",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.final_reviewer"
+        "projection.writing.modular_novel.final_reviewer"
       ],
-      "default_projection_id": "projection.writing.simple_novel.final_reviewer",
+      "default_projection_id": "projection.writing.modular_novel.final_reviewer",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "reviewer",
-        "source_task_id": "task.writing.simple_novel.final_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "final_review"
       },
       "authority": "task_system.task_projection_binding"
     },
     {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.memory_finalize",
       "task_id": "task.writing.modular_novel.node.memory_finalize",
-      "projection_selection_mode": "task_default_required",
+      "projection_selection_mode": "fixed_projection",
       "allowed_projection_ids": [
-        "projection.writing.simple_novel.memory_steward"
+        "projection.writing.modular_novel.memory_steward"
       ],
-      "default_projection_id": "projection.writing.simple_novel.memory_steward",
+      "default_projection_id": "projection.writing.modular_novel.memory_steward",
       "projection_required": true,
-      "notes": "模块化长篇写作节点复用原写作投影，不改变 Agent 职责提示。",
+      "notes": "模块化写作任务图原生配置生成。",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "role": "memory_steward",
-        "source_task_id": "task.writing.simple_novel.memory_finalize"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "memory_finalize"
       },
       "authority": "task_system.task_projection_binding"
     },

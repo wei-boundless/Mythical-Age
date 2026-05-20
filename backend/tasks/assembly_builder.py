@@ -144,11 +144,14 @@ def build_task_execution_assembly_bundle(
             *list(operation_policy.get("denied_operations") or []),
         ]
     )
+    policy_required_operations = _dedupe(list(operation_policy.get("required_operations") or []))
+    policy_optional_operations = _dedupe(list(operation_policy.get("optional_operations") or []))
     default_operations = _dedupe(
         [
             "op.model_response",
             *runtime_operations,
             *list(resolved_runtime_operations.get("required_operations") or ()),
+            *policy_required_operations,
             *[
                 operation
                 for definition in definitions
@@ -159,6 +162,7 @@ def build_task_execution_assembly_bundle(
     skill_operations = _dedupe(
         [
             *list(resolved_runtime_operations.get("optional_operations") or ()),
+            *policy_optional_operations,
             *[operation for skill in skill_views for operation in skill.required_operations],
         ]
     )
@@ -643,12 +647,16 @@ def _resolve_task_operation_policy(
     merged = {**recipe_policy, **task_operation_policy, **context_policy}
     allowed = _dedupe(list(merged.get("allowed_operations") or []))
     denied = _dedupe(list(merged.get("denied_operations") or []))
-    if not allowed and not denied:
+    required = _dedupe(list(merged.get("required_operations") or []))
+    optional = _dedupe(list(merged.get("optional_operations") or []))
+    if not allowed and not denied and not required and not optional:
         return {}
     return {
         "authority": str(merged.get("authority") or "task_system.operation_policy"),
         "allowed_operations": allowed,
         "denied_operations": denied,
+        "required_operations": required,
+        "optional_operations": optional,
     }
 
 

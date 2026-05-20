@@ -279,6 +279,7 @@ class ModelResponseRuntimeExecutor:
             }
             return
         output_boundary = AssistantOutputBoundary()
+        _seed_boundary_with_prior_tool_receipts(output_boundary, model_messages)
         output_boundary.ingest_ai_update(raw_content, has_tool_calls=False)
         output_boundary.finalize_segment(fallback_content=raw_content)
         output_response = output_boundary.build_response(
@@ -288,6 +289,14 @@ class ModelResponseRuntimeExecutor:
             tool_name="",
             retrieval_results=None,
         )
+        if output_response.selected_channel == "progress_text" and _model_only_finalization(directive):
+            output_response = output_boundary.build_response(
+                route="",
+                execution_posture="tool_closeout",
+                user_message=user_message,
+                tool_name="",
+                retrieval_results=None,
+            )
         content = sanitize_visible_assistant_content(output_response.canonical_answer).strip()
         if not content:
             content = "我已接入新的单 agent 主链，但这轮模型没有返回可展示内容。"
@@ -347,6 +356,61 @@ class ModelResponseRuntimeExecutor:
             if operation_id:
                 return operation_id
         return str(tool_name or "").strip()
+
+
+def _model_only_finalization(directive: RuntimeDirective) -> bool:
+    diagnostics = dict(getattr(directive, "diagnostics", {}) or {})
+    return (
+        bool(diagnostics.get("model_only") is True)
+        and str(diagnostics.get("autonomous_task_mode") or "").strip() in {"simple", "standard", "managed"}
+    )
+
+
+def _seed_boundary_with_prior_tool_receipts(
+    output_boundary: AssistantOutputBoundary,
+    model_messages: list[Any],
+) -> None:
+    tool_name_by_call_id: dict[str, str] = {}
+    for message in list(model_messages or []):
+        for tool_call in _message_tool_calls(message):
+            call_id = str(tool_call.get("id") or "").strip()
+            name = str(tool_call.get("name") or "").strip()
+            if call_id and name:
+                tool_name_by_call_id[call_id] = name
+        if not _is_tool_message(message):
+            continue
+        content = stringify_content(getattr(message, "content", ""))
+        if not content.strip():
+            continue
+        call_id = str(getattr(message, "tool_call_id", "") or "").strip()
+        tool_name = (
+            str(getattr(message, "name", "") or "").strip()
+            or tool_name_by_call_id.get(call_id, "")
+            or "tool"
+        )
+        output_boundary.ingest_tool_result(tool_name, content)
+
+
+def _message_tool_calls(message: Any) -> list[dict[str, Any]]:
+    raw_tool_calls = getattr(message, "tool_calls", None)
+    if raw_tool_calls is None and isinstance(message, dict):
+        raw_tool_calls = message.get("tool_calls")
+    result: list[dict[str, Any]] = []
+    for item in list(raw_tool_calls or []):
+        if isinstance(item, dict):
+            result.append(dict(item))
+    return result
+
+
+def _is_tool_message(message: Any) -> bool:
+    if message.__class__.__name__ == "ToolMessage":
+        return True
+    message_type = str(getattr(message, "type", "") or getattr(message, "role", "") or "").strip().lower()
+    if message_type == "tool":
+        return True
+    if isinstance(message, dict):
+        return str(message.get("role") or message.get("type") or "").strip().lower() == "tool"
+    return False
 
 
 def _should_auto_delegate_model_answer(*, directive: RuntimeDirective, model_messages: list[Any]) -> bool:

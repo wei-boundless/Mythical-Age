@@ -758,787 +758,6 @@
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.writing.simple_novel.project_brief",
-      "task_id": "task.writing.simple_novel.project_brief",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "user_goal",
-        "delivery_requirements",
-        "source_refs"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.world_design",
-      "task_id": "task.writing.simple_novel.world_design",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "project_brief",
-        "user_goal",
-        "source_refs"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.world_review",
-      "task_id": "task.writing.simple_novel.world_review",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "project_brief",
-        "world_candidate_ref"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.memory_commit_world",
-      "task_id": "task.writing.simple_novel.memory_commit_world",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "world_review",
-        "world_candidate_ref",
-        "project_brief"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "world_commit_manifest_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.character_design",
-      "task_id": "task.writing.simple_novel.character_design",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "project_brief",
-        "world_commit_ref",
-        "approved_world_spine"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.plot_design",
-      "task_id": "task.writing.simple_novel.plot_design",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "project_brief",
-        "world_commit_ref",
-        "approved_world_spine",
-        "character_design_ref"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.design_sync",
-      "task_id": "task.writing.simple_novel.design_sync",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "world_commit_ref",
-        "character_design_ref",
-        "plot_design_ref",
-        "conflict_ledger"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.outline_design",
-      "task_id": "task.writing.simple_novel.outline_design",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "world_commit_ref",
-        "character_design_ref",
-        "plot_design_ref",
-        "design_sync_ref",
-        "project_brief"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.outline_review",
-      "task_id": "task.writing.simple_novel.outline_review",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "world_commit_ref",
-        "character_design_ref",
-        "plot_design_ref",
-        "design_sync_ref",
-        "outline_design_ref",
-        "project_brief"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.baseline_memory_seed",
-      "task_id": "task.writing.simple_novel.baseline_memory_seed",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "project_brief",
-        "world_commit_ref",
-        "outline_review_ref",
-        "outline_design_ref",
-        "character_design_ref",
-        "plot_design_ref",
-        "design_sync_ref",
-        "source_refs"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "baseline_memory_seed",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.volume_plan",
-      "task_id": "task.writing.simple_novel.volume_plan",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "project_brief",
-        "baseline_memory",
-        "baseline_outline_spine",
-        "baseline_plot_spine",
-        "foreshadow_spine",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "outline_review_ref",
-        "delivery_requirements"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.chapter_outline",
-      "task_id": "task.writing.simple_novel.chapter_outline",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_plan",
-        "previous_chapter_summary",
-        "previous_chapter_review",
-        "chapter_revision_requirements",
-        "current_batch_inputs"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.chapter_draft",
-      "task_id": "task.writing.simple_novel.chapter_draft",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_plan",
-        "chapter_outline_ref",
-        "previous_chapter_summary",
-        "previous_chapter_review",
-        "chapter_revision_requirements",
-        "current_batch_inputs"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.chapter_review",
-      "task_id": "task.writing.simple_novel.chapter_review",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_plan",
-        "chapter_outline_ref",
-        "chapter_draft_ref",
-        "previous_chapter_summary",
-        "chapter_issue_ledger"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.memory_commit_chapter",
-      "task_id": "task.writing.simple_novel.memory_commit_chapter",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "chapter_review",
-        "chapter_outline_ref",
-        "chapter_draft_ref",
-        "chapter_file_refs",
-        "previous_chapter_summary",
-        "baseline_memory",
-        "mutable_memory"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "chapter_commit_manifest_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.chapter_progress_router",
-      "task_id": "task.writing.simple_novel.chapter_progress_router",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "chapter_commit",
-        "completed_chapter_refs",
-        "volume_current_words",
-        "volume_target_words",
-        "chapter_issue_ledger"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "routing_decision_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.volume_review",
-      "task_id": "task.writing.simple_novel.volume_review",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_plan",
-        "chapter_commit_refs",
-        "chapter_summary_refs",
-        "volume_issue_ledger"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.volume_commit",
-      "task_id": "task.writing.simple_novel.volume_commit",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "volume_review",
-        "chapter_commit_refs",
-        "chapter_summary_refs",
-        "baseline_memory",
-        "mutable_memory"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "volume_commit_manifest_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.volume_postmortem",
-      "task_id": "task.writing.simple_novel.volume_postmortem",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "volume_commit",
-        "chapter_summary_refs",
-        "volume_review",
-        "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.world_outline_extension_proposal",
-      "task_id": "task.writing.simple_novel.world_outline_extension_proposal",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "volume_postmortem",
-        "volume_commit",
-        "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.extension_review",
-      "task_id": "task.writing.simple_novel.extension_review",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "world_outline_extension_proposal",
-        "volume_postmortem",
-        "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.extension_commit",
-      "task_id": "task.writing.simple_novel.extension_commit",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "extension_review",
-        "world_outline_extension_proposal",
-        "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "mutable_memory_update",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.next_volume_router",
-      "task_id": "task.writing.simple_novel.next_volume_router",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "extension_commit",
-        "volume_commit",
-        "completed_volume_refs",
-        "current_words",
-        "target_words",
-        "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_plan"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "routing_decision_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.final_assemble",
-      "task_id": "task.writing.simple_novel.final_assemble",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_commit_manifest",
-        "chapter_file_refs",
-        "chapter_summary_refs",
-        "delivery_requirements",
-        "open_issue_refs"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "delivery_manifest_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.final_review",
-      "task_id": "task.writing.simple_novel.final_review",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "final_manuscript_ref",
-        "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_commit_manifest",
-        "open_issue_refs"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.memory_finalize",
-      "task_id": "task.writing.simple_novel.memory_finalize",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "final_review",
-        "final_manuscript_ref",
-        "delivery_manifest_id",
-        "volume_commit_manifest"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "delivery_manifest_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.runtime_monitor",
-      "task_id": "task.writing.simple_novel.runtime_monitor",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "runtime_status",
-        "task_graph_monitor",
-        "project_runtime_status",
-        "supervision_records"
-      ],
-      "memory_priority": "normal",
-      "writeback_policy": "system_receipt",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.simple_novel.fail_closed",
-      "task_id": "task.writing.simple_novel.fail_closed",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "safe_state_refs",
-        "last_successful_commit_refs",
-        "failure_reason"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "memory_write",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_simple_novel",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
       "profile_id": "taskmem:task.writing.modular_novel.master",
       "task_id": "task.writing.modular_novel.master",
       "requested_memory_layers": [
@@ -1557,7 +776,8 @@
       "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": ""
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1580,7 +800,8 @@
       "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": ""
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1603,7 +824,8 @@
       "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": ""
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1626,7 +848,8 @@
       "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": ""
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1634,26 +857,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.project_brief",
       "task_id": "task.writing.modular_novel.node.project_brief",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "user_goal",
-        "delivery_requirements",
-        "source_refs"
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.project_brief"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "project_brief"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1661,26 +881,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.world_design",
       "task_id": "task.writing.modular_novel.node.world_design",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "project_brief",
-        "user_goal",
-        "source_refs"
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.world_design"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "world_design"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1688,25 +905,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.world_review",
       "task_id": "task.writing.modular_novel.node.world_review",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "project_brief",
-        "world_candidate_ref"
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
       ],
       "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.world_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "world_review"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1714,26 +929,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.memory_commit_world",
       "task_id": "task.writing.modular_novel.node.memory_commit_world",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "world_review",
-        "world_candidate_ref",
-        "project_brief"
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
       ],
       "memory_priority": "high",
-      "writeback_policy": "world_commit_manifest_only",
-      "allow_long_term_memory": false,
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.memory_commit_world"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "memory_commit_world"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1741,26 +953,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.character_design",
       "task_id": "task.writing.modular_novel.node.character_design",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "project_brief",
-        "world_commit_ref",
-        "approved_world_spine"
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.character_design"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "character_design"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1768,27 +977,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.plot_design",
       "task_id": "task.writing.modular_novel.node.plot_design",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "project_brief",
-        "world_commit_ref",
-        "approved_world_spine",
-        "character_design_ref"
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.plot_design"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "plot_design"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1796,27 +1001,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.design_sync",
       "task_id": "task.writing.modular_novel.node.design_sync",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "world_commit_ref",
-        "character_design_ref",
-        "plot_design_ref",
-        "conflict_ledger"
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.design_sync"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "design_sync"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1824,28 +1025,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.outline_design",
       "task_id": "task.writing.modular_novel.node.outline_design",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "world_commit_ref",
-        "character_design_ref",
-        "plot_design_ref",
-        "design_sync_ref",
-        "project_brief"
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.outline_design"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "outline_design"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1853,29 +1049,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.outline_review",
       "task_id": "task.writing.modular_novel.node.outline_review",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "world_commit_ref",
-        "character_design_ref",
-        "plot_design_ref",
-        "design_sync_ref",
-        "outline_design_ref",
-        "project_brief"
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
       ],
       "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.outline_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "outline_review"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1883,31 +1073,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.baseline_memory_seed",
       "task_id": "task.writing.modular_novel.node.baseline_memory_seed",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "project_brief",
-        "world_commit_ref",
-        "outline_review_ref",
-        "outline_design_ref",
-        "character_design_ref",
-        "plot_design_ref",
-        "design_sync_ref",
-        "source_refs"
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
       ],
       "memory_priority": "high",
-      "writeback_policy": "baseline_memory_seed",
-      "allow_long_term_memory": false,
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.baseline_memory_seed"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "baseline_memory_seed"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1915,32 +1097,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.volume_plan",
       "task_id": "task.writing.modular_novel.node.volume_plan",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "project_brief",
         "baseline_memory",
-        "baseline_outline_spine",
-        "baseline_plot_spine",
-        "foreshadow_spine",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "outline_review_ref",
-        "delivery_requirements"
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.volume_plan"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "volume_plan"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1948,32 +1121,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.chapter_outline",
       "task_id": "task.writing.modular_novel.node.chapter_outline",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
         "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_plan",
-        "previous_chapter_summary",
-        "previous_chapter_review",
-        "chapter_revision_requirements",
-        "current_batch_inputs"
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.chapter_outline"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "chapter_outline"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -1981,33 +1145,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.chapter_draft",
       "task_id": "task.writing.modular_novel.node.chapter_draft",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
         "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_plan",
-        "chapter_outline_ref",
-        "previous_chapter_summary",
-        "previous_chapter_review",
-        "chapter_revision_requirements",
-        "current_batch_inputs"
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.chapter_draft"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "chapter_draft"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2015,32 +1169,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.chapter_review",
       "task_id": "task.writing.modular_novel.node.chapter_review",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
         "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_plan",
-        "chapter_outline_ref",
-        "chapter_draft_ref",
-        "previous_chapter_summary",
-        "chapter_issue_ledger"
+        "dynamic_memory",
+        "chapter_commits"
       ],
       "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.chapter_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "chapter_review"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2048,30 +1193,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.memory_commit_chapter",
       "task_id": "task.writing.modular_novel.node.memory_commit_chapter",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "chapter_review",
-        "chapter_outline_ref",
-        "chapter_draft_ref",
-        "chapter_file_refs",
-        "previous_chapter_summary",
         "baseline_memory",
-        "mutable_memory"
+        "dynamic_memory",
+        "chapter_commits"
       ],
       "memory_priority": "high",
-      "writeback_policy": "chapter_commit_manifest_only",
-      "allow_long_term_memory": false,
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.memory_commit_chapter"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "memory_commit_chapter"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2079,28 +1217,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.chapter_progress_router",
       "task_id": "task.writing.modular_novel.node.chapter_progress_router",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "chapter_commit",
-        "completed_chapter_refs",
-        "volume_current_words",
-        "volume_target_words",
-        "chapter_issue_ledger"
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "routing_decision_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.chapter_progress_router"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "chapter_progress_router"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2108,31 +1241,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.volume_review",
       "task_id": "task.writing.modular_novel.node.volume_review",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
         "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_plan",
-        "chapter_commit_refs",
-        "chapter_summary_refs",
-        "volume_issue_ledger"
+        "dynamic_memory",
+        "chapter_commits"
       ],
       "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.volume_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "volume_review"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2140,28 +1265,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.volume_commit",
       "task_id": "task.writing.modular_novel.node.volume_commit",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "volume_review",
-        "chapter_commit_refs",
-        "chapter_summary_refs",
         "baseline_memory",
-        "mutable_memory"
+        "dynamic_memory",
+        "chapter_commits"
       ],
       "memory_priority": "high",
-      "writeback_policy": "volume_commit_manifest_only",
-      "allow_long_term_memory": false,
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.volume_commit"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "volume_commit"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2169,30 +1289,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.volume_postmortem",
       "task_id": "task.writing.modular_novel.node.volume_postmortem",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "volume_commit",
-        "chapter_summary_refs",
-        "volume_review",
         "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory"
+        "dynamic_memory",
+        "chapter_commits"
       ],
       "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.volume_postmortem"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "volume_postmortem"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2200,29 +1313,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.world_outline_extension_proposal",
       "task_id": "task.writing.modular_novel.node.world_outline_extension_proposal",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "volume_postmortem",
-        "volume_commit",
         "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory"
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "candidate_archive_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.world_outline_extension_proposal"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "world_outline_extension_proposal"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2230,29 +1337,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.extension_review",
       "task_id": "task.writing.modular_novel.node.extension_review",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "world_outline_extension_proposal",
-        "volume_postmortem",
         "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory"
+        "dynamic_memory",
+        "chapter_commits"
       ],
       "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.extension_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "extension_review"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2260,29 +1361,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.extension_commit",
       "task_id": "task.writing.modular_novel.node.extension_commit",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "extension_review",
-        "world_outline_extension_proposal",
         "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory"
+        "dynamic_memory",
+        "chapter_commits"
       ],
       "memory_priority": "high",
-      "writeback_policy": "mutable_memory_update",
-      "allow_long_term_memory": false,
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.extension_commit"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "extension_commit"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2290,33 +1385,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.next_volume_router",
       "task_id": "task.writing.modular_novel.node.next_volume_router",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "extension_commit",
-        "volume_commit",
-        "completed_volume_refs",
-        "current_words",
-        "target_words",
         "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_plan"
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "routing_decision_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.next_volume_router"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "next_volume_router"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2324,32 +1409,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.final_assemble",
       "task_id": "task.writing.modular_novel.node.final_assemble",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
         "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_commit_manifest",
-        "chapter_file_refs",
-        "chapter_summary_refs",
-        "delivery_requirements",
-        "open_issue_refs"
+        "dynamic_memory",
+        "chapter_commits"
       ],
-      "memory_priority": "normal",
-      "writeback_policy": "delivery_manifest_only",
-      "allow_long_term_memory": false,
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.final_assemble"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "final_assemble"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2357,58 +1433,23 @@
       "profile_id": "taskmem:task.writing.modular_novel.node.final_review",
       "task_id": "task.writing.modular_novel.node.final_review",
       "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
+        "state",
+        "task_durable",
+        "artifact_refs"
       ],
       "requested_topics": [
         "writing_modular_novel",
-        "final_manuscript_ref",
         "baseline_memory",
-        "frozen_character_facts",
-        "frozen_relationship_facts",
-        "mutable_memory",
-        "volume_commit_manifest",
-        "open_issue_refs"
+        "dynamic_memory",
+        "chapter_commits"
       ],
       "memory_priority": "high",
-      "writeback_policy": "review_and_issue_ledger",
-      "allow_long_term_memory": false,
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
       "memory_scope_hint": "writing_modular_novel",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "suppressed_by_assembly",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.final_review"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
-      "profile_id": "taskmem:task.writing.modular_novel.node.memory_finalize",
-      "task_id": "task.writing.modular_novel.node.memory_finalize",
-      "requested_memory_layers": [
-        "task_state",
-        "artifact_index",
-        "issue_ledger"
-      ],
-      "requested_topics": [
-        "writing_modular_novel",
-        "final_review",
-        "final_manuscript_ref",
-        "delivery_manifest_id",
-        "volume_commit_manifest"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "delivery_manifest_only",
-      "allow_long_term_memory": false,
-      "memory_scope_hint": "writing_modular_novel",
-      "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "conversation_memory": "restricted",
-        "memory_contract": "memory_pack_required",
-        "memory_access_model": "edge_based_repository_access",
-        "source_task_id": "task.writing.simple_novel.memory_finalize"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "final_review"
       },
       "authority": "task_system.task_memory_request_profile"
     },
@@ -2427,6 +1468,30 @@
       "memory_scope_hint": "",
       "metadata": {
         "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing.modular_novel.node.memory_finalize",
+      "task_id": "task.writing.modular_novel.node.memory_finalize",
+      "requested_memory_layers": [
+        "state",
+        "task_durable",
+        "artifact_refs"
+      ],
+      "requested_topics": [
+        "writing_modular_novel",
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "writing_modular_novel",
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "memory_finalize"
       },
       "authority": "task_system.task_memory_request_profile"
     }

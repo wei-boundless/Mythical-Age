@@ -1,0 +1,34 @@
+{
+  "run_id": "fixture-60-turn-autonomous-analysis",
+  "summary": {
+    "total_turns": 60,
+    "passed_turns": 56,
+    "failed_turns": 4
+  },
+  "failures": [
+    {
+      "turn": 17,
+      "check": "response.nonempty",
+      "symptom": "answer was cut after a tool observation",
+      "evidence": ["tool_result_received", "final_content_chars=0"]
+    },
+    {
+      "turn": 18,
+      "check": "runtime.timeout",
+      "symptom": "memory maintenance blocked foreground response",
+      "evidence": ["memory_maintenance_attempted=true", "duration_ms=1800000"]
+    },
+    {
+      "turn": 31,
+      "check": "main.active_dataset.nonempty",
+      "symptom": "delegated table result did not write active_dataset",
+      "evidence": ["context_writeback_hints.source_kind=dataset", "final_outputs.main_context={}"]
+    },
+    {
+      "turn": 42,
+      "check": "trace.artifact.contains",
+      "symptom": "write_file requested but no artifact ref was committed",
+      "evidence": ["tool_requires_approval=true", "artifact_refs=[]"]
+    }
+  ]
+}

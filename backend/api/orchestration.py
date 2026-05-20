@@ -604,7 +604,9 @@ def _sanitize_writing_chapter_revision_inputs(explicit_inputs: dict[str, Any]) -
     inputs["revision_required"] = True
     inputs["force_replay"] = True
     inputs["force_replay_after"] = time.time()
-    inputs.pop("contract.writing.simple_novel.chapter_draft:artifact_refs", None)
+    for key in list(inputs):
+        if str(key).endswith(":artifact_refs") and "chapter_draft" in str(key):
+            inputs.pop(key, None)
     inputs.pop("previous_quality_failure_stage_id", None)
     return inputs
 

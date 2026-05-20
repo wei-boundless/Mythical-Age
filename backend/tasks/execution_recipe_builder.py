@@ -143,8 +143,11 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "tool_execution_policy": {
                     "enabled": standard_or_managed,
                     "max_tool_calls_per_round": 1,
+                    "max_tool_calls_per_task_run": 12 if managed else (6 if autonomy_mode == "standard" else 1),
+                    "max_tool_rounds_per_task_run": 8 if managed else (6 if autonomy_mode == "standard" else 1),
                     "allowed_operation_refs": [
                         "op.read_file",
+                        "op.read_structured_file",
                         "op.search_text",
                         "op.search_files",
                         "op.git_status",
@@ -156,6 +159,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                     ],
                     "allowed_tool_names": [
                         "read_file",
+                        "read_structured_file",
                         "search_text",
                         "search_files",
                         "git_status",
@@ -186,6 +190,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                         "op.shell",
                         "op.python_repl",
                     ],
+                    "overlay_copy_on_write": True,
                     "exposure_note": "python_repl remains controlled by agent profile and is not exposed when blocked.",
                 },
                 "background_policy": {

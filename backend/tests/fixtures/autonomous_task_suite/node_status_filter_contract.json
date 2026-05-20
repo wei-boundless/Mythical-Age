@@ -1,0 +1,16 @@
+{
+  "feature": "task graph node status filter",
+  "backend": {
+    "endpoint": "GET /api/task-graphs/{graph_id}/nodes?status=running",
+    "allowed_statuses": ["pending", "running", "completed", "failed", "blocked"],
+    "invalid_status_behavior": "400 with validation message"
+  },
+  "frontend": {
+    "location": "TaskGraphTopologyPage filter rail",
+    "interaction": "clicking a status chip filters visible nodes without changing graph data"
+  },
+  "tests": [
+    "backend filters nodes by exact status",
+    "frontend keeps all nodes visible when filter is cleared"
+  ]
+}

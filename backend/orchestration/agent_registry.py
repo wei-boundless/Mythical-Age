@@ -32,13 +32,12 @@ RETIRED_WRITING_AGENT_IDS = {
     "agent:writing_simple_creator",
     "agent:writing_simple_reviewer",
     "agent:writing_final_assembler",
+    "agent:writing_memory_steward",
+    "agent:writing_runtime_monitor",
+    "agent:writing_team_worker",
 }
 
 WRITING_AGENT_TEMPLATE_OVERRIDES = {
-    "agent:writing_team_worker": "task_graph.writing_team.long_novel.runtime_worker",
-    "agent:writing_simple_worker": "task_graph.writing.simple_novel.runtime_worker",
-    "agent:writing_memory_steward": "task_graph.writing.memory_steward",
-    "agent:writing_runtime_monitor": "task_graph.writing.runtime_monitor",
 }
 
 

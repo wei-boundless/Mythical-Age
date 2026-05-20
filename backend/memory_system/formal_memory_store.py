@@ -323,7 +323,7 @@ class FormalMemoryStore:
         effective_repository_id = repository_id
         logical_repository_id = logical_repository_id or repository_id
         scope_id = scope_id or task_run_id or repository_id
-        idempotency_key = idempotency_key or _stable_id(
+        raw_idempotency_key = idempotency_key or _stable_id(
             "fmidem",
             repository_id,
             collection_id,
@@ -332,10 +332,28 @@ class FormalMemoryStore:
             source_edge_id,
             _content_hash(payload or {}, canonical_text, summary, artifact_refs),
         )
+        idempotency_key = _stable_id(
+            "fmidem",
+            "formal_memory_write",
+            effective_repository_id,
+            collection_id,
+            record_key,
+            scope_kind,
+            scope_id,
+            raw_idempotency_key,
+        )
         existing_transaction = self.get_transaction_by_idempotency(idempotency_key)
         if existing_transaction and existing_transaction.candidate_version_id:
             existing_version = self.get_version(existing_transaction.candidate_version_id)
-            if existing_version is not None:
+            if existing_version is not None and _transaction_matches_scope(
+                existing_transaction,
+                repository_id=effective_repository_id,
+                collection_id=collection_id,
+                record_key=record_key,
+                scope_kind=scope_kind,
+                scope_id=scope_id,
+                task_run_id=task_run_id,
+            ):
                 return existing_version, existing_transaction
         now = utc_now_iso()
         content_hash = _content_hash(payload or {}, canonical_text, summary, artifact_refs)
@@ -1178,6 +1196,27 @@ def _transaction_from_row(row: sqlite3.Row) -> FormalMemoryTransaction:
         idempotency_key=str(row["idempotency_key"]),
         created_at=str(row["created_at"]),
         authority=str(row["authority"]),
+    )
+
+
+def _transaction_matches_scope(
+    transaction: FormalMemoryTransaction,
+    *,
+    repository_id: str,
+    collection_id: str,
+    record_key: str,
+    scope_kind: str,
+    scope_id: str,
+    task_run_id: str,
+) -> bool:
+    return (
+        transaction.repository_id == repository_id
+        and transaction.effective_repository_id == repository_id
+        and transaction.collection_id == collection_id
+        and transaction.record_key == record_key
+        and transaction.scope_kind == scope_kind
+        and transaction.scope_id == scope_id
+        and (scope_kind != "run_scoped" or transaction.task_run_id == task_run_id)
     )
 
 

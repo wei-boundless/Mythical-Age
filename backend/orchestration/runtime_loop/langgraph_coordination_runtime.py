@@ -4912,14 +4912,11 @@ def _stage_commit_identity(*, stage_id: str, explicit_inputs: dict[str, Any], ar
     batch_start = _safe_int(explicit_inputs.get("batch_start_index") or explicit_inputs.get("chapter_index"), 0)
     batch_end = _safe_int(explicit_inputs.get("batch_end_index"), batch_start)
     source_refs = []
-    for key in (
-        "contract.writing.simple_novel.chapter_draft:artifact_refs",
-        "contract.writing.simple_novel.chapter_review:artifact_refs",
-        "chapter_draft_ref",
-        "chapter_review_ref",
-        "previous_candidate_ref",
-        "previous_review_ref",
-    ):
+    for key, value in explicit_inputs.items():
+        key_text = str(key or "")
+        if key_text.endswith(":artifact_refs") and any(token in key_text for token in ("chapter_draft", "chapter_review")):
+            source_refs.extend(_artifact_refs_from_value(value))
+    for key in ("chapter_draft_ref", "chapter_review_ref", "previous_candidate_ref", "previous_review_ref"):
         source_refs.extend(_artifact_refs_from_value(explicit_inputs.get(key)))
     if not source_refs:
         source_refs.extend(str(item) for item in list(artifact_refs or []) if str(item))

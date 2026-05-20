@@ -15,25 +15,6 @@
         "managed_by": "orchestration_console"
       },
       "authority": "orchestration.agent_group"
-    },
-    {
-      "group_id": "group.writing.simple_novel",
-      "title": "写作组",
-      "group_kind": "coordination_team",
-      "coordinator_agent_id": "agent:0",
-      "member_agent_ids": [
-        "agent:writing_simple_worker",
-        "agent:writing_memory_steward",
-        "agent:writing_runtime_monitor"
-      ],
-      "description": "执行简易版长篇小说完整生产流程。",
-      "lifecycle_state": "enabled",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "design_doc": "docs/系统规划/174-写作任务新版配置实施计划-20260519.md",
-        "monitor_node_id": "runtime_monitor"
-      },
-      "authority": "orchestration.agent_group"
     }
   ]
 }

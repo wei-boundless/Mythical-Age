@@ -12,17 +12,6 @@
       }
     },
     {
-      "domain_id": "domain.writing.simple_novel",
-      "task_family": "writing_simple_novel",
-      "title": "写作组简易长篇小说",
-      "description": "写作组简易长篇小说完整任务图配置域。",
-      "enabled": true,
-      "sort_order": 80,
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer"
-      }
-    },
-    {
       "domain_id": "domain.writing.modular_novel",
       "task_family": "writing_modular_novel",
       "title": "模块化长篇写作",
@@ -30,9 +19,8 @@
       "enabled": true,
       "sort_order": 88,
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_graph_id": "graph.writing.simple_novel",
-        "architecture": "graph_unit_composition"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "architecture": "native_graph_unit_composition"
       }
     },
     {
@@ -66,6 +54,17 @@
       "description": "",
       "enabled": true,
       "sort_order": 270,
+      "metadata": {
+        "derived": true
+      }
+    },
+    {
+      "domain_id": "domain.writing_modular_novel",
+      "task_family": "writing_modular_novel",
+      "title": "writing_modular_novel任务域",
+      "description": "",
+      "enabled": true,
+      "sort_order": 280,
       "metadata": {
         "derived": true
       }

@@ -17,6 +17,17 @@ INTERNAL_PROTOCOL_MARKERS = (
     "</think>",
     "<tool_call",
     "</tool_call>",
+    "<｜｜DSML｜｜tool_calls>",
+    "<｜｜DSML｜｜invoke",
+    "<｜｜DSML｜｜parameter",
+    "</｜｜DSML｜｜tool_calls>",
+    "</｜｜DSML｜｜parameter",
+    "tool_calls",
+    "invoke name=",
+    'name="read_file"',
+    'name="search_text"',
+    'name="search_files"',
+    'name="delegate_to_agent"',
     "**工具调用:**",
     "**工具输出:**",
     "此工具调用为系统自动补全示例",
@@ -25,6 +36,13 @@ INTERNAL_PROTOCOL_MARKERS = (
 )
 
 _TOOL_CALL_XML_RE = re.compile(r"<tool_call[^>]*>.*?(?:</tool_call>)?", re.IGNORECASE | re.DOTALL)
+_DSML_TOOL_CALL_BLOCK_RE = re.compile(r"<｜｜DSML｜｜tool_calls>.*?(?:</｜｜DSML｜｜tool_calls>)?", re.IGNORECASE | re.DOTALL)
+_DSML_INVOKE_BLOCK_RE = re.compile(r"<｜｜DSML｜｜invoke\b.*?(?:</｜｜DSML｜｜invoke>)?", re.IGNORECASE | re.DOTALL)
+_DSML_PARAMETER_BLOCK_RE = re.compile(r"<｜｜DSML｜｜parameter\b.*?(?:</｜｜DSML｜｜parameter>)?", re.IGNORECASE | re.DOTALL)
+_HALF_DSML_TOOL_LINE_RE = re.compile(
+    r"^\s*(?:name\s*=\s*[\"'][A-Za-z_][\w-]*[\"']\s*>?|<｜｜DSML｜｜/?parameter\b.*|</?｜｜DSML｜｜[^>]*>?)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
 _THINK_CLOSE_RE = re.compile(r"</think>", re.IGNORECASE)
 _NO_NEWLINE_MARKER_RE = re.compile(r"\\ No newline at end of file", re.IGNORECASE)
 _TOOL_CALL_BLOCK_RE = re.compile(
@@ -134,6 +152,10 @@ def _sanitize_visible_assistant_content(
 
     cleaned = normalized
     cleaned = _TOOL_CALL_XML_RE.sub("", cleaned)
+    cleaned = _DSML_TOOL_CALL_BLOCK_RE.sub("", cleaned)
+    cleaned = _DSML_INVOKE_BLOCK_RE.sub("", cleaned)
+    cleaned = _DSML_PARAMETER_BLOCK_RE.sub("", cleaned)
+    cleaned = _HALF_DSML_TOOL_LINE_RE.sub("", cleaned)
     cleaned = _THINK_CLOSE_RE.sub("", cleaned)
     cleaned = _NO_NEWLINE_MARKER_RE.sub("", cleaned)
     cleaned = _TOOL_CALL_BLOCK_RE.sub("", cleaned)

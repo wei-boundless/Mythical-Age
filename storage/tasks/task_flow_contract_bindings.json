@@ -397,370 +397,6 @@
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.writing.simple_novel.project_brief",
-      "task_id": "task.writing.simple_novel.project_brief",
-      "flow_contract_id": "contract.writing.simple_novel.project_brief",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.world_design",
-      "task_id": "task.writing.simple_novel.world_design",
-      "flow_contract_id": "contract.writing.simple_novel.world_candidate",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.world_review",
-      "task_id": "task.writing.simple_novel.world_review",
-      "flow_contract_id": "contract.writing.simple_novel.world_review",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.memory_commit_world",
-      "task_id": "task.writing.simple_novel.memory_commit_world",
-      "flow_contract_id": "contract.writing.simple_novel.memory_commit_world",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.character_design",
-      "task_id": "task.writing.simple_novel.character_design",
-      "flow_contract_id": "contract.writing.simple_novel.character_design",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.plot_design",
-      "task_id": "task.writing.simple_novel.plot_design",
-      "flow_contract_id": "contract.writing.simple_novel.plot_design",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.design_sync",
-      "task_id": "task.writing.simple_novel.design_sync",
-      "flow_contract_id": "contract.writing.simple_novel.design_sync",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.outline_design",
-      "task_id": "task.writing.simple_novel.outline_design",
-      "flow_contract_id": "contract.writing.simple_novel.outline_design",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.outline_review",
-      "task_id": "task.writing.simple_novel.outline_review",
-      "flow_contract_id": "contract.writing.simple_novel.outline_review",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.baseline_memory_seed",
-      "task_id": "task.writing.simple_novel.baseline_memory_seed",
-      "flow_contract_id": "contract.writing.simple_novel.baseline_memory_commit",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.volume_plan",
-      "task_id": "task.writing.simple_novel.volume_plan",
-      "flow_contract_id": "contract.writing.simple_novel.volume_plan_commit",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.chapter_outline",
-      "task_id": "task.writing.simple_novel.chapter_outline",
-      "flow_contract_id": "contract.writing.simple_novel.chapter_outline",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.chapter_draft",
-      "task_id": "task.writing.simple_novel.chapter_draft",
-      "flow_contract_id": "contract.writing.simple_novel.chapter_draft",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.chapter_review",
-      "task_id": "task.writing.simple_novel.chapter_review",
-      "flow_contract_id": "contract.writing.simple_novel.chapter_review",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.memory_commit_chapter",
-      "task_id": "task.writing.simple_novel.memory_commit_chapter",
-      "flow_contract_id": "contract.writing.simple_novel.chapter_commit",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.chapter_progress_router",
-      "task_id": "task.writing.simple_novel.chapter_progress_router",
-      "flow_contract_id": "contract.writing.simple_novel.chapter_progress_decision",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.volume_review",
-      "task_id": "task.writing.simple_novel.volume_review",
-      "flow_contract_id": "contract.writing.simple_novel.volume_review",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.volume_commit",
-      "task_id": "task.writing.simple_novel.volume_commit",
-      "flow_contract_id": "contract.writing.simple_novel.volume_commit",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.volume_postmortem",
-      "task_id": "task.writing.simple_novel.volume_postmortem",
-      "flow_contract_id": "contract.writing.simple_novel.volume_postmortem",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.world_outline_extension_proposal",
-      "task_id": "task.writing.simple_novel.world_outline_extension_proposal",
-      "flow_contract_id": "contract.writing.simple_novel.world_outline_extension_proposal",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.extension_review",
-      "task_id": "task.writing.simple_novel.extension_review",
-      "flow_contract_id": "contract.writing.simple_novel.extension_review",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.extension_commit",
-      "task_id": "task.writing.simple_novel.extension_commit",
-      "flow_contract_id": "contract.writing.simple_novel.extension_commit",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.next_volume_router",
-      "task_id": "task.writing.simple_novel.next_volume_router",
-      "flow_contract_id": "contract.writing.simple_novel.next_volume_decision",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.final_assemble",
-      "task_id": "task.writing.simple_novel.final_assemble",
-      "flow_contract_id": "contract.writing.simple_novel.final_manuscript",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.final_review",
-      "task_id": "task.writing.simple_novel.final_review",
-      "flow_contract_id": "contract.writing.simple_novel.final_review",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.memory_finalize",
-      "task_id": "task.writing.simple_novel.memory_finalize",
-      "flow_contract_id": "contract.writing.simple_novel.delivery_package",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.runtime_monitor",
-      "task_id": "task.writing.simple_novel.runtime_monitor",
-      "flow_contract_id": "contract.taskgraph.monitor.decision",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.simple_novel.fail_closed",
-      "task_id": "task.writing.simple_novel.fail_closed",
-      "flow_contract_id": "contract.writing.simple_novel.failure_report",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_simple_novel_config_20260519_design_layer",
-        "derived_from": "writing_simple_novel_config"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
       "binding_id": "taskflowbind:task.writing.modular_novel.master",
       "task_id": "task.writing.modular_novel.master",
       "flow_contract_id": "flow.writing.modular_novel.master",
@@ -768,7 +404,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": ""
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -780,7 +417,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": ""
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -792,7 +430,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": ""
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -804,7 +443,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": ""
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -816,8 +456,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.project_brief"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "project_brief"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -829,8 +469,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.world_design"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "world_design"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -842,8 +482,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.world_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "world_review"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -855,8 +495,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.memory_commit_world"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "memory_commit_world"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -868,8 +508,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.character_design"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "character_design"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -881,8 +521,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.plot_design"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "plot_design"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -894,8 +534,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.design_sync"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "design_sync"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -907,8 +547,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.outline_design"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "outline_design"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -920,8 +560,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.outline_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "outline_review"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -933,8 +573,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.baseline_memory_seed"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "baseline_memory_seed"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -946,8 +586,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.volume_plan"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "volume_plan"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -959,8 +599,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.chapter_outline"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "chapter_outline"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -972,8 +612,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.chapter_draft"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "chapter_draft"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -985,8 +625,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.chapter_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "chapter_review"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -998,8 +638,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.memory_commit_chapter"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "memory_commit_chapter"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -1011,8 +651,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.chapter_progress_router"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "chapter_progress_router"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -1024,8 +664,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.volume_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "volume_review"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -1037,8 +677,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.volume_commit"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "volume_commit"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -1050,8 +690,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.volume_postmortem"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "volume_postmortem"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -1063,8 +703,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.world_outline_extension_proposal"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "world_outline_extension_proposal"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -1076,8 +716,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.extension_review"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "extension_review"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -1089,8 +729,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.extension_commit"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "extension_commit"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -1102,8 +742,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.next_volume_router"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "next_volume_router"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -1115,8 +755,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.final_assemble"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "final_assemble"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -1128,21 +768,8 @@
       "verification_gate_profile": "",
       "fallback_policy": "fail_closed",
       "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.final_review"
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.modular_novel.node.memory_finalize",
-      "task_id": "task.writing.modular_novel.node.memory_finalize",
-      "flow_contract_id": "flow.writing.modular_novel.node.memory_finalize",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260520",
-        "source_task_id": "task.writing.simple_novel.memory_finalize"
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "final_review"
       },
       "authority": "task_system.task_flow_contract_binding"
     },
@@ -1155,6 +782,19 @@
       "fallback_policy": "fail_closed",
       "metadata": {
         "derived_from": "specific_task_record"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
+      "binding_id": "taskflowbind:task.writing.modular_novel.node.memory_finalize",
+      "task_id": "task.writing.modular_novel.node.memory_finalize",
+      "flow_contract_id": "flow.writing.modular_novel.node.memory_finalize",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "memory_finalize"
       },
       "authority": "task_system.task_flow_contract_binding"
     }
