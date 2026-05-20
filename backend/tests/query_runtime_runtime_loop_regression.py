@@ -73,6 +73,43 @@ def test_astream_specific_light_web_game_task_can_write_new_file(tmp_path: Path)
     )
 
 
+def test_astream_selected_health_task_adopts_configured_health_agent() -> None:
+    runtime = _build_stream_runtime()
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.task_run_loop.run_single_agent_stream(
+            session_id="session-health-task-config",
+            task_id="taskinst:session-health-task-config:health",
+            user_message="请分诊这个健康问题。",
+            history=[],
+            source="regression",
+            agent_runtime_chain=runtime.agent_runtime_chain,
+            model_response_executor=runtime.model_response_executor,
+            runtime_context_manager=runtime.runtime_context_manager,
+            task_selection={"selected_task_id": "task.health.issue_triage"},
+            tool_runtime_executor=runtime.tool_runtime_executor,
+            tool_instances=runtime._all_tool_instances(),
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    started = next(event for event in events if event.get("type") == "runtime_loop_started")
+    task_run = dict(started["task_run"])
+    task_contract_event = next(
+        dict(event.get("event") or {})
+        for event in events
+        if event.get("type") == "runtime_loop_event"
+        and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
+    )
+
+    assert task_run["agent_id"] == "agent:3"
+    assert task_run["agent_profile_id"] == "health_maintainer_agent"
+    assert task_run["runtime_lane"] == "health_issue_read"
+    assert dict(task_contract_event["payload"])["agent_runtime_spec"]["agent_id"] == "agent:3"
+
+
 def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: Path) -> None:
     base_dir = _isolated_backend_root()
     registry = TaskFlowRegistry(base_dir)

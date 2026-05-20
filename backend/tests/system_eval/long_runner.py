@@ -23,6 +23,9 @@ if str(BACKEND_DIR) not in sys.path:
 from app import app
 from config import get_settings
 from health_system.maintenance.harness.contracts import (
+    HarnessPartialResult,
+    HarnessProgressEvent,
+    HarnessRunState,
     IssueEntry,
     RunContext,
     RunResult,
@@ -30,11 +33,39 @@ from health_system.maintenance.harness.contracts import (
     TimingSnapshot,
     TraceSpan,
 )
-from health_system.maintenance.harness.persistence import render_and_persist_run_result
+from health_system.maintenance.harness.persistence import (
+    append_harness_progress_event,
+    render_and_persist_run_result,
+    write_harness_artifact_manifest,
+    write_harness_heartbeat,
+    write_harness_partial_result,
+    write_harness_run_state,
+)
 from observability import current_trace_backend, is_langsmith_tracing_enabled, is_trace_capture_enabled
 from bootstrap.app_runtime import app_runtime
 from tests.system_eval.execution_core import collect_sse_events, extract_langsmith_trace_reference, final_text, iso_now
 from tests.system_eval.long_scenarios import LongScenario, LongScenarioTurn, SCENARIO_SETS, scenario_map
+
+
+def _normalize_turn_ref(value: str) -> int:
+    text = str(value or "").strip().lower()
+    if not text:
+        return 0
+    if text.startswith("turn-"):
+        text = text.split("-", 1)[1]
+    try:
+        index = int(text)
+    except ValueError:
+        return 0
+    return index if index > 0 else 0
+
+
+def _turn_filter_from_args(args) -> set[int]:
+    return {
+        index
+        for index in (_normalize_turn_ref(item) for item in list(getattr(args, "turn", []) or []))
+        if index > 0
+    }
 
 
 @dataclass(slots=True)
@@ -622,6 +653,84 @@ def _resolve_positive_float_env(name: str, default: float) -> float:
     return value if value > 0 else default
 
 
+def _latest_artifact_mtime(output_dir: Path) -> float:
+    latest = 0.0
+    if not output_dir.exists():
+        return latest
+    for path in output_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            latest = max(latest, path.stat().st_mtime)
+        except OSError:
+            continue
+    return latest
+
+
+def _progress_event_id(run_id: str, event_type: str, *, scenario_id: str = "", turn_ref: str = "") -> str:
+    raw = ":".join(item for item in (run_id, event_type, scenario_id, turn_ref, str(int(time.time() * 1000))) if item)
+    return f"harness-progress:{_slug(raw)}"
+
+
+def _write_long_progress(
+    *,
+    output_dir: Path,
+    event_type: str,
+    status: str,
+    scenario_ref: str = "",
+    turn_ref: str = "",
+    artifact_ref: str = "",
+    message: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> HarnessProgressEvent:
+    run_id = output_dir.name
+    event = HarnessProgressEvent(
+        event_id=_progress_event_id(run_id, event_type, scenario_id=scenario_ref, turn_ref=turn_ref),
+        event_type=event_type,
+        run_id=run_id,
+        status=status,
+        created_at=time.time(),
+        scenario_ref=scenario_ref,
+        turn_ref=turn_ref,
+        artifact_ref=artifact_ref,
+        message=message,
+        metadata=dict(metadata or {}),
+    )
+    append_harness_progress_event(output_dir=output_dir, event=event)
+    state = HarnessRunState(
+        run_id=run_id,
+        profile="long",
+        status=status if status in {"running", "passed", "failed"} else "running",
+        pid=os.getpid(),
+        process_token=f"long-runner:{run_id}",
+        output_dir=str(output_dir),
+        updated_at=event.created_at,
+        heartbeat_at=event.created_at,
+        last_progress_at=event.created_at,
+        last_progress_event_id=event.event_id,
+        last_artifact_mtime=_latest_artifact_mtime(output_dir),
+        summary=dict(metadata.get("summary") or {}) if isinstance(metadata, dict) else {},
+    )
+    write_harness_run_state(output_dir=output_dir, state=state)
+    write_harness_heartbeat(output_dir=output_dir, state=state)
+    write_harness_partial_result(
+        output_dir=output_dir,
+        partial=HarnessPartialResult(
+            run_id=run_id,
+            profile="long",
+            status=state.status,
+            summary=dict(state.summary),
+            completed_scenarios=int(dict(metadata or {}).get("completed_scenarios") or 0),
+            failed_scenarios=int(dict(metadata or {}).get("failed_scenarios") or 0),
+            latest_artifact_ref=artifact_ref,
+            latest_progress_event_id=event.event_id,
+            updated_at=event.created_at,
+        ),
+    )
+    write_harness_artifact_manifest(output_dir=output_dir, run_id=run_id)
+    return event
+
+
 def _resolve_nonnegative_int_env(name: str, default: int) -> int:
     raw = os.getenv(name)
     if not raw or not raw.strip():
@@ -964,11 +1073,20 @@ def _execute_scenario(
     runtime,
     scenario: LongScenario,
     output_dir: Path,
+    target_turns: set[int] | None = None,
 ) -> ScenarioResult:
     started_at = iso_now()
     started = time.perf_counter()
     scenario_dir = output_dir / "artifacts" / _slug(scenario.id)
     scenario_dir.mkdir(parents=True, exist_ok=True)
+    _write_long_progress(
+        output_dir=output_dir,
+        event_type="scenario_started",
+        status="running",
+        scenario_ref=scenario.id,
+        message=f"Scenario started: {scenario.id}",
+        metadata={"goal": scenario.goal, "turn_count": len(scenario.turns)},
+    )
 
     session_ids: dict[str, str] = {}
     operator_results: list[dict[str, Any]] = []
@@ -976,8 +1094,15 @@ def _execute_scenario(
     cleanup: dict[str, bool] = {}
     artifact_paths: list[str] = []
 
+    selected_turns = set(target_turns or set())
+    max_selected_turn = max(selected_turns) if selected_turns else 0
+    skipped_turns: list[int] = []
+
     try:
         for index, turn in enumerate(scenario.turns, start=1):
+            if selected_turns and index > max_selected_turn:
+                skipped_turns.append(index)
+                continue
             if turn.speaker == "operator":
                 result = _execute_operator_turn(
                     client=client,
@@ -996,8 +1121,39 @@ def _execute_scenario(
                 turn=turn,
                 session_ids=session_ids,
             )
+            if selected_turns and index not in selected_turns:
+                turn_result.passed = True
+                turn_result.failed_checks = []
+                turn_result.quality_warnings = [
+                    *turn_result.quality_warnings,
+                    "rerun.prefix_context_replay=true",
+                ]
             turn_results.append(turn_result)
-            artifact_paths.append(str(scenario_dir / f"turn-{index:02d}-{_slug(turn.session)}.json"))
+            artifact_path = scenario_dir / f"turn-{index:02d}-{_slug(turn.session)}.json"
+            artifact_paths.append(str(artifact_path))
+            _write_long_progress(
+                output_dir=output_dir,
+                event_type="turn_completed",
+                status="running" if turn_result.passed else "failed",
+                scenario_ref=scenario.id,
+                turn_ref=f"turn-{index:02d}",
+                artifact_ref=str(artifact_path),
+                message=f"Turn {index} completed for {scenario.id}.",
+                metadata={
+                    "turn_index": index,
+                    "session_alias": turn_result.session_alias,
+                    "passed": turn_result.passed,
+                    "task_run_id": turn_result.task_run_id,
+                    "failed_checks": list(turn_result.failed_checks),
+                    "quality_warnings": list(turn_result.quality_warnings),
+                    "summary": {
+                        "total": len(turn_results),
+                        "passed": sum(1 for item in turn_results if item.passed),
+                        "failed": sum(1 for item in turn_results if not item.passed),
+                        "first_failure": str(next((item.index for item in turn_results if not item.passed), "")),
+                    },
+                },
+            )
     finally:
         time.sleep(1.0)
         for alias, session_id in session_ids.items():
@@ -1087,10 +1243,14 @@ def _execute_scenario(
         summary += f"; warnings={len(warning_turns)} turns"
     if runtime_blocked_turns:
         summary += f"; runtime_blocked={len(runtime_blocked_turns)} turns"
+    scenario_status = "passed" if not failed_turns else "failed"
 
     details = {
         "goal": scenario.goal,
         "coverage": list(scenario.coverage),
+        "rerun_target_turns": sorted(selected_turns),
+        "rerun_skipped_turns": skipped_turns,
+        "rerun_mode": "target_turn_with_prefix_replay" if selected_turns else "",
         "operator_results": operator_results,
         "turn_results": [turn.to_dict() for turn in turn_results],
         "quality_warning_count": sum(len(turn.quality_warnings) for turn in warning_turns),
@@ -1147,11 +1307,11 @@ def _execute_scenario(
             "other_overhead_ms": round(max(duration_ms - request_ms - memory_sync_ms, 0.0), 2),
         },
     }
-    return ScenarioResult(
+    result = ScenarioResult(
         name=scenario.title,
         category="long_scenario",
         passed=not failed_turns,
-        status="passed" if not failed_turns else "failed",
+        status=scenario_status,
         summary=summary,
         timing=TimingSnapshot(
             started_at=started_at,
@@ -1164,6 +1324,22 @@ def _execute_scenario(
         details=details,
         artifact_paths=artifact_paths,
     )
+    _write_long_progress(
+        output_dir=output_dir,
+        event_type="scenario_finished",
+        status=scenario_status,
+        scenario_ref=scenario.id,
+        message=f"Scenario finished: {scenario.id}",
+        metadata={
+            "summary": {
+                "total": len(turn_results),
+                "passed": len(turn_results) - len(failed_turns),
+                "failed": len(failed_turns),
+                "first_failure": str(failed_turns[0].index if failed_turns else ""),
+            }
+        },
+    )
+    return result
 
 
 def _build_context(output_dir: Path) -> RunContext:
@@ -1288,6 +1464,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run executable long conversation scenarios.")
     parser.add_argument("--scenario-set", choices=tuple(SCENARIO_SETS), default=None)
     parser.add_argument("--scenario", action="append", default=[])
+    parser.add_argument(
+        "--turn",
+        action="append",
+        default=[],
+        help="Target turn to verify. Prefix turns are replayed to rebuild context, later turns are skipped.",
+    )
     parser.add_argument("--output-dir", default="")
     return parser
 
@@ -1316,6 +1498,7 @@ def main(argv: list[str] | None = None) -> int:
 
     run_result = RunResult(context=_build_context(output_dir))
     selected = _resolve_scenarios(args)
+    target_turns = _turn_filter_from_args(args)
 
     client = _open_inprocess_client()
     try:
@@ -1335,6 +1518,7 @@ def main(argv: list[str] | None = None) -> int:
                         runtime=runtime,
                         scenario=scenario,
                         output_dir=output_dir,
+                        target_turns=target_turns,
                     )
                 )
         finally:
@@ -1363,6 +1547,31 @@ def main(argv: list[str] | None = None) -> int:
         "llm_timeout_seconds": min(original_timeout, _resolve_positive_float_env("SYSTEM_EVAL_LLM_TIMEOUT_SECONDS", 60.0)),
         "llm_long_output_timeout_seconds": min(original_long_timeout, _resolve_positive_float_env("SYSTEM_EVAL_LLM_TIMEOUT_SECONDS", 60.0)),
         "llm_max_retries": min(original_retries, _resolve_nonnegative_int_env("SYSTEM_EVAL_LLM_MAX_RETRIES", 0)),
+        "rerun_target_turns": sorted(target_turns),
+    }
+    final_status = "passed" if int(run_result.metadata["failed"]) == 0 else "failed"
+    final_event = _write_long_progress(
+        output_dir=output_dir,
+        event_type="run_finished",
+        status=final_status,
+        message="Long runner finished.",
+        metadata={
+            "summary": {
+                "total": int(run_result.metadata["total"]),
+                "passed": int(run_result.metadata["passed"]),
+                "failed": int(run_result.metadata["failed"]),
+                "first_failure": next((result.name for result in run_result.results if not result.passed), ""),
+            },
+            "completed_scenarios": len(run_result.results),
+            "failed_scenarios": int(run_result.metadata["failed"]),
+        },
+    )
+    run_result.metadata["harness_state"] = {
+        "status": final_status,
+        "last_progress_event_id": final_event.event_id,
+        "last_progress_at": final_event.created_at,
+        "heartbeat_at": final_event.created_at,
+        "last_artifact_mtime": _latest_artifact_mtime(output_dir),
     }
 
     render_and_persist_run_result(output_dir=output_dir, run_result=run_result)

@@ -3,6 +3,7 @@ import { GitBranch } from "lucide-react";
 import type { ComposableUnitSpec, UnitInterfaceSpec, UnitPortEdgeSpec } from "@/lib/api";
 
 import { TaskGraphContractBindingInspector } from "./TaskGraphContractBindingInspector";
+import { TaskGraphNodeBatchContractInspector } from "./TaskGraphNodeBatchContractInspector";
 import {
   TaskGraphInspectorSection,
   TaskGraphInspectorSummary,
@@ -139,6 +140,11 @@ export function TaskGraphNodeUnitInspector({
         onChange={(patch) => updateTaskGraphNode(nodeId, patch)}
         sections={["schema", "execution", "memory", "artifact", "acceptance", "runtime", "governance"]}
         target={node}
+      />
+
+      <TaskGraphNodeBatchContractInspector
+        node={node}
+        onChange={(patch) => updateTaskGraphNode(nodeId, patch)}
       />
 
       <TaskGraphInspectorSection icon={<GitBranch aria-hidden="true" size={15} />} title="时序与运行">

@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from project_layout import ProjectLayout
 
+from .contracts import RegressionSample, TestScenarioContract, VerificationVerdict
+
 
 IssueOrigin = Literal["conversation", "development", "skill", "runtime", "manual", "test_agent"]
 IssueStatus = Literal["open", "triaged", "converted", "resolved", "archived"]
@@ -123,6 +125,7 @@ class HarnessRecordBook:
     issues: tuple[TestHarnessIssue, ...] = ()
     case_drafts: tuple[TestCaseDraft, ...] = ()
     managed_cases: tuple[ManagedTestCase, ...] = ()
+    regression_samples: tuple[RegressionSample, ...] = ()
     authority: str = "test_system.harness_records"
 
     def to_dict(self) -> dict[str, Any]:
@@ -130,11 +133,13 @@ class HarnessRecordBook:
             "issues": [item.to_dict() for item in self.issues],
             "case_drafts": [item.to_dict() for item in self.case_drafts],
             "managed_cases": [item.to_dict() for item in self.managed_cases],
+            "regression_samples": [item.to_dict() for item in self.regression_samples],
             "summary": {
                 "issue_count": len(self.issues),
                 "open_issue_count": sum(1 for item in self.issues if item.status == "open"),
                 "case_draft_count": len(self.case_drafts),
                 "managed_case_count": len(self.managed_cases),
+                "regression_sample_count": len(self.regression_samples),
             },
             "authority": self.authority,
         }
@@ -157,7 +162,13 @@ class HarnessRecordStore:
         issues = tuple(self._issue_from_dict(item) for item in list(payload.get("issues") or []))
         drafts = tuple(self._draft_from_dict(item) for item in list(payload.get("case_drafts") or []))
         managed_cases = tuple(self._managed_case_from_dict(item) for item in list(payload.get("managed_cases") or []))
-        return HarnessRecordBook(issues=issues, case_drafts=drafts, managed_cases=managed_cases)
+        regression_samples = tuple(self._regression_sample_from_dict(item) for item in list(payload.get("regression_samples") or []))
+        return HarnessRecordBook(
+            issues=issues,
+            case_drafts=drafts,
+            managed_cases=managed_cases,
+            regression_samples=regression_samples,
+        )
 
     def templates(self) -> tuple[TestCaseTemplate, ...]:
         return DEFAULT_CASE_TEMPLATES
@@ -186,7 +197,14 @@ class HarnessRecordStore:
             created_at=now,
             updated_at=now,
         )
-        self._write(HarnessRecordBook(issues=(issue, *book.issues), case_drafts=book.case_drafts, managed_cases=book.managed_cases))
+        self._write(
+            HarnessRecordBook(
+                issues=(issue, *book.issues),
+                case_drafts=book.case_drafts,
+                managed_cases=book.managed_cases,
+                regression_samples=book.regression_samples,
+            )
+        )
         return issue
 
     def create_case_draft(self, payload: dict[str, Any]) -> TestCaseDraft:
@@ -209,7 +227,14 @@ class HarnessRecordStore:
             created_at=now,
             updated_at=now,
         )
-        self._write(HarnessRecordBook(issues=book.issues, case_drafts=(draft, *book.case_drafts), managed_cases=book.managed_cases))
+        self._write(
+            HarnessRecordBook(
+                issues=book.issues,
+                case_drafts=(draft, *book.case_drafts),
+                managed_cases=book.managed_cases,
+                regression_samples=book.regression_samples,
+            )
+        )
         return draft
 
     def create_managed_case(self, payload: dict[str, Any]) -> ManagedTestCase:
@@ -239,8 +264,102 @@ class HarnessRecordStore:
             updated_at=now,
         )
         remaining = tuple(item for item in book.managed_cases if item.case_id != managed.case_id)
-        self._write(HarnessRecordBook(issues=book.issues, case_drafts=book.case_drafts, managed_cases=(managed, *remaining)))
+        self._write(
+            HarnessRecordBook(
+                issues=book.issues,
+                case_drafts=book.case_drafts,
+                managed_cases=(managed, *remaining),
+                regression_samples=book.regression_samples,
+            )
+        )
         return managed
+
+    def create_regression_sample(self, payload: dict[str, Any]) -> RegressionSample:
+        book = self.load()
+        now = time.time()
+        scenario_id = str(payload.get("scenario_id") or "").strip()
+        source_turn_id = str(payload.get("source_turn_id") or payload.get("turn_id") or "").strip()
+        sample = RegressionSample(
+            sample_id=str(payload.get("sample_id") or f"regression.{_slug(scenario_id or 'scenario')}.{_slug(source_turn_id or 'turn')}.{uuid4().hex[:6]}"),
+            title=_required_text(payload, "title", "未命名回归样本"),
+            source_run_id=str(payload.get("source_run_id") or ""),
+            source_turn_id=source_turn_id,
+            source_artifact_path=str(payload.get("source_artifact_path") or ""),
+            scenario_id=scenario_id,
+            session_alias=str(payload.get("session_alias") or ""),
+            status=_choice(payload.get("status"), {"candidate", "active", "quarantined", "archived"}, "candidate"),
+            failure_summary=str(payload.get("failure_summary") or ""),
+            observed=str(payload.get("observed") or ""),
+            expected=str(payload.get("expected") or ""),
+            task_run_id=str(payload.get("task_run_id") or ""),
+            problem_node_id=str(payload.get("problem_node_id") or ""),
+            problem_node_label=str(payload.get("problem_node_label") or ""),
+            contract=_contract_from_dict(payload.get("contract")),
+            assertion_summary=_dict_tuple(payload.get("assertion_summary")),
+            evidence_packet=dict(payload.get("evidence_packet") or {}),
+            rerun_command=_string_tuple(payload.get("rerun_command")),
+            verification=_verdict_from_dict(payload.get("verification")),
+            tags=_string_tuple(payload.get("tags")),
+            created_at=now,
+            updated_at=now,
+        )
+        remaining = tuple(item for item in book.regression_samples if item.sample_id != sample.sample_id)
+        self._write(
+            HarnessRecordBook(
+                issues=book.issues,
+                case_drafts=book.case_drafts,
+                managed_cases=book.managed_cases,
+                regression_samples=(sample, *remaining),
+            )
+        )
+        return sample
+
+    def update_regression_sample_verdict(self, sample_id: str, verdict: VerificationVerdict) -> RegressionSample:
+        book = self.load()
+        target = str(sample_id or "").strip()
+        now = time.time()
+        updated: RegressionSample | None = None
+        samples: list[RegressionSample] = []
+        for sample in book.regression_samples:
+            if sample.sample_id != target:
+                samples.append(sample)
+                continue
+            updated = RegressionSample(
+                sample_id=sample.sample_id,
+                title=sample.title,
+                source_run_id=sample.source_run_id,
+                source_turn_id=sample.source_turn_id,
+                source_artifact_path=sample.source_artifact_path,
+                scenario_id=sample.scenario_id,
+                session_alias=sample.session_alias,
+                status=sample.status,
+                failure_summary=sample.failure_summary,
+                observed=sample.observed,
+                expected=sample.expected,
+                task_run_id=sample.task_run_id,
+                problem_node_id=sample.problem_node_id,
+                problem_node_label=sample.problem_node_label,
+                contract=sample.contract,
+                assertion_summary=sample.assertion_summary,
+                evidence_packet=sample.evidence_packet,
+                rerun_command=sample.rerun_command,
+                verification=verdict,
+                tags=sample.tags,
+                created_at=sample.created_at,
+                updated_at=now,
+            )
+            samples.append(updated)
+        if updated is None:
+            raise KeyError("Regression sample not found")
+        self._write(
+            HarnessRecordBook(
+                issues=book.issues,
+                case_drafts=book.case_drafts,
+                managed_cases=book.managed_cases,
+                regression_samples=tuple(samples),
+            )
+        )
+        return updated
 
     def delete_managed_case(self, case_id: str) -> bool:
         book = self.load()
@@ -248,17 +367,24 @@ class HarnessRecordStore:
         remaining = tuple(item for item in book.managed_cases if item.case_id != target)
         if len(remaining) == len(book.managed_cases):
             return False
-        self._write(HarnessRecordBook(issues=book.issues, case_drafts=book.case_drafts, managed_cases=remaining))
+        self._write(
+            HarnessRecordBook(
+                issues=book.issues,
+                case_drafts=book.case_drafts,
+                managed_cases=remaining,
+                regression_samples=book.regression_samples,
+            )
+        )
         return True
 
     def _read(self) -> dict[str, Any]:
         if not self.path.exists():
-            return {"issues": [], "case_drafts": [], "managed_cases": []}
+            return {"issues": [], "case_drafts": [], "managed_cases": [], "regression_samples": []}
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            return {"issues": [], "case_drafts": [], "managed_cases": []}
-        return payload if isinstance(payload, dict) else {"issues": [], "case_drafts": [], "managed_cases": []}
+            return {"issues": [], "case_drafts": [], "managed_cases": [], "regression_samples": []}
+        return payload if isinstance(payload, dict) else {"issues": [], "case_drafts": [], "managed_cases": [], "regression_samples": []}
 
     def _write(self, book: HarnessRecordBook) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -335,6 +461,34 @@ class HarnessRecordStore:
             updated_at=float(payload.get("updated_at") or 0.0),
         )
 
+    def _regression_sample_from_dict(self, payload: Any) -> RegressionSample:
+        if not isinstance(payload, dict):
+            payload = {}
+        return RegressionSample(
+            sample_id=str(payload.get("sample_id") or f"regression.{uuid4().hex[:10]}"),
+            title=str(payload.get("title") or "未命名回归样本"),
+            source_run_id=str(payload.get("source_run_id") or ""),
+            source_turn_id=str(payload.get("source_turn_id") or ""),
+            source_artifact_path=str(payload.get("source_artifact_path") or ""),
+            scenario_id=str(payload.get("scenario_id") or ""),
+            session_alias=str(payload.get("session_alias") or ""),
+            status=_choice(payload.get("status"), {"candidate", "active", "quarantined", "archived"}, "candidate"),
+            failure_summary=str(payload.get("failure_summary") or ""),
+            observed=str(payload.get("observed") or ""),
+            expected=str(payload.get("expected") or ""),
+            task_run_id=str(payload.get("task_run_id") or ""),
+            problem_node_id=str(payload.get("problem_node_id") or ""),
+            problem_node_label=str(payload.get("problem_node_label") or ""),
+            contract=_contract_from_dict(payload.get("contract")),
+            assertion_summary=_dict_tuple(payload.get("assertion_summary")),
+            evidence_packet=dict(payload.get("evidence_packet") or {}),
+            rerun_command=_string_tuple(payload.get("rerun_command")),
+            verification=_verdict_from_dict(payload.get("verification")),
+            tags=_string_tuple(payload.get("tags")),
+            created_at=float(payload.get("created_at") or 0.0),
+            updated_at=float(payload.get("updated_at") or 0.0),
+        )
+
     def _template(self, template_id: str) -> TestCaseTemplate | None:
         target = str(template_id or "").strip()
         return next((item for item in DEFAULT_CASE_TEMPLATES if item.template_id == target), None)
@@ -379,6 +533,50 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
     if isinstance(value, list | tuple):
         return tuple(str(item).strip() for item in value if str(item).strip())
     return ()
+
+
+def _dict_tuple(value: Any) -> tuple[dict[str, Any], ...]:
+    if not isinstance(value, list | tuple):
+        return ()
+    return tuple(dict(item) for item in value if isinstance(item, dict))
+
+
+def _contract_from_dict(payload: Any) -> TestScenarioContract | None:
+    if not isinstance(payload, dict):
+        return None
+    return TestScenarioContract(
+        contract_id=str(payload.get("contract_id") or f"contract.{uuid4().hex[:10]}"),
+        title=str(payload.get("title") or "未命名场景契约"),
+        scenario_id=str(payload.get("scenario_id") or ""),
+        turn_id=str(payload.get("turn_id") or ""),
+        session_alias=str(payload.get("session_alias") or ""),
+        user_input=str(payload.get("user_input") or ""),
+        objective=str(payload.get("objective") or ""),
+        source_kind=str(payload.get("source_kind") or "long_scenario_turn"),
+        source_ref=str(payload.get("source_ref") or ""),
+        profile=str(payload.get("profile") or "long"),
+        preconditions=_string_tuple(payload.get("preconditions")),
+        assertions=_string_tuple(payload.get("assertions")),
+        expected_tools=_string_tuple(payload.get("expected_tools")),
+        expected_events=_string_tuple(payload.get("expected_events")),
+        evidence_policy=dict(payload.get("evidence_policy") or {}),
+        rerun_args=_string_tuple(payload.get("rerun_args")),
+        schema_version=str(payload.get("schema_version") or "2026-05-20"),
+        authority=str(payload.get("authority") or "test_system.scenario_contract"),
+    )
+
+
+def _verdict_from_dict(payload: Any) -> VerificationVerdict:
+    if not isinstance(payload, dict):
+        payload = {}
+    return VerificationVerdict(
+        status=_choice(payload.get("status"), {"not_run", "planned", "running", "passed", "failed", "unsupported"}, "not_run"),
+        reason=str(payload.get("reason") or ""),
+        run_id=str(payload.get("run_id") or ""),
+        artifact_refs=_string_tuple(payload.get("artifact_refs")),
+        checked_at=float(payload.get("checked_at") or 0.0),
+        authority=str(payload.get("authority") or "test_system.verification_verdict"),
+    )
 
 
 def _slug(value: str) -> str:

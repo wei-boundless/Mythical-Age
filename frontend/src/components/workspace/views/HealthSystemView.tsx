@@ -47,6 +47,9 @@ import {
   listLongScenarios,
   listTestProfiles,
   listTestRuns,
+  promoteFailedTurnsToRegressionSamples,
+  refreshRegressionSampleVerdict,
+  rerunRegressionSample,
   startTestRun,
   type HarnessMap,
   type HarnessMapCase,
@@ -55,8 +58,11 @@ import {
   type HealthIssue,
   type HealthSystemOverview,
   type HealthTraceReport,
+  type HealthWorkbenchDiagnosisItem,
+  type HealthWorkbenchFailureChain,
   type HealthWorkbenchInboxItem,
   type HealthWorkbenchOverview,
+  type HealthWorkbenchRecoveryItem,
   type LongScenarioCatalog,
   type LongScenarioDefinition,
   type TestAgentReport,
@@ -64,6 +70,7 @@ import {
   type TestCaseRegistry,
   type TestProfile,
   type TestRun,
+  type RegressionSample,
   type VerificationRun,
 } from "@/lib/api";
 
@@ -378,6 +385,14 @@ function statusTone(value: string) {
   return "";
 }
 
+function priorityTone(value: string) {
+  const normalized = value.toLowerCase();
+  if (["critical", "high"].includes(normalized)) return "health-pill--danger";
+  if (["medium", "warning"].includes(normalized)) return "health-pill--warning";
+  if (["low", "safe"].includes(normalized)) return "health-pill--success";
+  return statusTone(value);
+}
+
 function riskLabel(value: string) {
   if (value === "needs_governance") return "需治理";
   if (value === "has_open_issue") return "有开放问题";
@@ -447,6 +462,28 @@ function ownerLabel(owner: string) {
   return ownerLabels[owner] || owner || "未归属";
 }
 
+function evidenceStateLabel(value: string) {
+  if (value === "packet") return "证据包";
+  if (value === "linked") return "已绑定";
+  if (value === "missing") return "缺证据";
+  return value || "未知";
+}
+
+function recoveryKindLabel(value: string) {
+  if (value === "checkpoint") return "Runtime checkpoint";
+  if (value === "coordination_checkpoint") return "Coordination checkpoint";
+  if (value === "task_graph_node_resume_candidate") return "节点恢复候选";
+  if (value === "tool_result_boundary") return "工具副作用边界";
+  return value || "恢复候选";
+}
+
+function riskCopy(value: string) {
+  if (value === "low") return "低风险";
+  if (value === "medium") return "中风险";
+  if (value === "high") return "高风险";
+  return value || "未知风险";
+}
+
 function issueProblemKind(issue: HealthIssue): ProblemKind {
   const metadataKind = String(issue.metadata?.problem_kind || "");
   if (metadataKind === "system" || metadataKind === "test") return metadataKind;
@@ -509,6 +546,23 @@ function issueSummary(issue: Record<string, unknown>) {
   return String(issue.summary || issue.reason || issue.message || issue.recommendation || "");
 }
 
+function sampleVerificationStatus(sample: RegressionSample | Record<string, unknown>) {
+  const verification = (sample as RegressionSample).verification as RegressionSample["verification"] | undefined;
+  return verification?.status || String((sample as Record<string, unknown>).verification_status || "not_run");
+}
+
+function sampleRerunCommand(sample: RegressionSample | Record<string, unknown>) {
+  const direct = (sample as RegressionSample).rerun_command;
+  if (Array.isArray(direct) && direct.length) {
+    return direct.join(" ");
+  }
+  const contract = (sample as RegressionSample).contract;
+  if (contract?.rerun_args?.length) {
+    return contract.rerun_args.join(" ");
+  }
+  return "";
+}
+
 export function HealthSystemView() {
   const [activePage, setActivePage] = useState<HealthPage>("overview");
   const [problemReportTab, setProblemReportTab] = useState<ProblemReportTab>("analysis");
@@ -555,6 +609,7 @@ export function HealthSystemView() {
   const [loading, setLoading] = useState(false);
   const [runningIssueId, setRunningIssueId] = useState("");
   const [error, setError] = useState("");
+  const [sampleActionMessage, setSampleActionMessage] = useState("");
   const [notice, setNotice] = useState("");
 
   const selectedTestRun = activeTestRun ?? testRuns[0] ?? null;
@@ -740,6 +795,74 @@ export function HealthSystemView() {
       setNotice("验证运行已启动；如果失败，会进入问题报告复盘。");
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : "启动测试失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function rerunSample(sampleId: string) {
+    if (!sampleId) return;
+    setLoading(true);
+    setError("");
+    setSampleActionMessage("");
+    try {
+      const payload = await rerunRegressionSample(sampleId);
+      setSampleActionMessage(`已启动样本复跑：${payload.run.run_id || sampleId}`);
+      const [nextWorkbench, nextRuns, nextMap] = await Promise.all([
+        getHealthWorkbenchOverview(),
+        listTestRuns(20),
+        getHarnessMap(),
+      ]);
+      setWorkbench(nextWorkbench);
+      setTestRuns(nextRuns);
+      setHarnessMap(nextMap);
+      if (payload.run?.run_id) {
+        await selectTestRun(payload.run, false);
+      }
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "样本复跑启动失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refreshSampleVerdict(sampleId: string) {
+    if (!sampleId) return;
+    setLoading(true);
+    setError("");
+    setSampleActionMessage("");
+    try {
+      const payload = await refreshRegressionSampleVerdict(sampleId);
+      setSampleActionMessage(`样本裁决已刷新：${statusLabel(String(payload.verdict.status || ""))}`);
+      const [nextWorkbench, nextMap] = await Promise.all([
+        getHealthWorkbenchOverview(),
+        getHarnessMap(),
+      ]);
+      setWorkbench(nextWorkbench);
+      setHarnessMap(nextMap);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "样本裁决刷新失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function promoteActiveRunFailures() {
+    if (!activeTestRunId) return;
+    setLoading(true);
+    setError("");
+    setSampleActionMessage("");
+    try {
+      const payload = await promoteFailedTurnsToRegressionSamples(activeTestRunId);
+      setSampleActionMessage(`已沉淀失败样本 ${payload.summary.promoted_count || 0} 个`);
+      const [nextWorkbench, nextMap] = await Promise.all([
+        getHealthWorkbenchOverview(),
+        getHarnessMap(),
+      ]);
+      setWorkbench(nextWorkbench);
+      setHarnessMap(nextMap);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "失败样本沉淀失败");
     } finally {
       setLoading(false);
     }
@@ -1278,6 +1401,17 @@ export function HealthSystemView() {
   const failedRunCount = numberValue(workbenchSummary.failed_run_count);
   const slowRunCount = numberValue(workbenchSummary.slow_run_count);
   const evidenceGapCount = numberValue(workbenchSummary.evidence_gap_count);
+  const diagnosisInbox = (workbench?.diagnosis_inbox ?? []) as HealthWorkbenchDiagnosisItem[];
+  const recoveryInbox = (workbench?.recovery_inbox ?? []) as HealthWorkbenchRecoveryItem[];
+  const failureChains = (workbench?.failure_chains ?? []) as HealthWorkbenchFailureChain[];
+  const evidencePackets = workbench?.evidence_packets ?? [];
+  const regressionSamples = (workbench?.test_governance?.regression_samples ?? harnessMap?.regression_samples ?? []) as RegressionSample[];
+  const regressionSampleInbox = (workbench?.regression_sample_inbox ?? []) as Array<Record<string, unknown>>;
+  const scenarioContracts = workbench?.test_governance?.scenario_contracts ?? harnessMap?.scenario_contracts ?? [];
+  const primaryRegressionSample = regressionSamples[0] ?? null;
+  const primaryDiagnosis = diagnosisInbox[0] ?? null;
+  const primaryRecovery = recoveryInbox[0] ?? null;
+  const primaryFailureChain = failureChains[0] ?? null;
   const healthScore = Math.max(0, Math.min(100, 100 - openIssues * 14 - highRiskIssues * 20 - failedRunCount * 16 - slowRunCount * 8 - evidenceGapCount * 6));
   const healthState = healthScore >= 85 ? "健康" : healthScore >= 65 ? "需关注" : "需处理";
   const healthTone = healthScore >= 85 ? "success" : healthScore >= 65 ? "warning" : "danger";
@@ -1429,6 +1563,184 @@ export function HealthSystemView() {
                 查看问题报告
               </button>
             </article>
+          </section>
+          <section className="health-workbench-runtime">
+            <article className="health-workbench-runtime__panel">
+              <div className="health-panel-head">
+                <div>
+                  <span>诊断 inbox</span>
+                  <h3>健康 Agent 应先回答什么</h3>
+                </div>
+                <Stethoscope size={16} />
+              </div>
+              <div className="health-diagnosis-stack">
+                {diagnosisInbox.slice(0, 4).map((item) => (
+                  <section className="health-diagnosis-card" key={item.diagnosis_id}>
+                    <div>
+                      <span className={`health-pill ${priorityTone(item.priority)}`}>{evidenceStateLabel(item.evidence_state)}</span>
+                      <strong>{item.title}</strong>
+                    </div>
+                    <p>{item.question}</p>
+                    <em>{item.recommended_agent_role} · {compactId(item.subject_id)}</em>
+                  </section>
+                ))}
+                {!diagnosisInbox.length ? (
+                  <div className="health-empty-state">
+                    <CheckCircle2 size={18} />
+                    <span>当前没有待诊断对象。</span>
+                  </div>
+                ) : null}
+              </div>
+            </article>
+
+            <article className="health-workbench-runtime__panel health-workbench-runtime__panel--chain">
+              <div className="health-panel-head">
+                <div>
+                  <span>失败链路</span>
+                  <h3>{primaryFailureChain?.title || "最近失败的关键路径"}</h3>
+                </div>
+                <Route size={16} />
+              </div>
+              {primaryFailureChain ? (
+                <div className="health-failure-chain">
+                  <p>{primaryFailureChain.root_cause_candidate || "已定位到失败链路，等待健康 Agent 形成根因裁决。"}</p>
+                  <div className="health-failure-chain__refs">
+                    <span>task {compactId(primaryFailureChain.last_task_run_id)}</span>
+                    <span>runtime {compactId(primaryFailureChain.last_checkpoint_ref)}</span>
+                    <span>coord {compactId(primaryFailureChain.last_coordination_checkpoint_ref)}</span>
+                  </div>
+                  <ol>
+                    {primaryFailureChain.steps.slice(0, 5).map((step) => (
+                      <li key={step.step_id || `${step.step_type}-${step.source_ref}`}>
+                        <strong>{step.title || step.step_type}</strong>
+                        <p>{step.summary || step.source_ref || "该步骤只有引用，等待展开证据。"}</p>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ) : (
+                <div className="health-empty-state">
+                  <CheckCircle2 size={18} />
+                  <span>没有失败链路需要复盘。</span>
+                </div>
+              )}
+            </article>
+
+            <article className="health-workbench-runtime__panel">
+              <div className="health-panel-head">
+                <div>
+                  <span>恢复候选</span>
+                  <h3>只给 runtime control 的安全入口</h3>
+                </div>
+                <ShieldCheck size={16} />
+              </div>
+              <div className="health-recovery-stack">
+                {recoveryInbox.slice(0, 4).map((item) => (
+                  <section className="health-recovery-card" key={item.recovery_id}>
+                    <span className={`health-pill ${item.safe_to_resume ? "health-pill--success" : priorityTone(item.side_effect_replay_risk)}`}>
+                      {item.safe_to_resume ? "可候选恢复" : riskCopy(item.side_effect_replay_risk)}
+                    </span>
+                    <strong>{recoveryKindLabel(item.handle_kind)}</strong>
+                    <p>{compactId(item.handle_ref)}</p>
+                    <em>{item.recommended_action}</em>
+                  </section>
+                ))}
+                {!recoveryInbox.length ? (
+                  <div className="health-empty-state">
+                    <CheckCircle2 size={18} />
+                    <span>当前没有恢复候选。</span>
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          </section>
+          <section className="health-evidence-packet-strip">
+            <article>
+              <span>Evidence Packet</span>
+              <strong>{evidencePackets.length}</strong>
+              <p>{evidencePackets[0]?.summary || "健康系统默认展示有用证据包，不再让用户先读整包 raw trace。"}</p>
+            </article>
+            <article>
+              <span>诊断队列</span>
+              <strong>{diagnosisInbox.length}</strong>
+              <p>{primaryDiagnosis ? `${primaryDiagnosis.recommended_agent_role} · ${primaryDiagnosis.question}` : "没有待处理诊断。"}</p>
+            </article>
+            <article>
+              <span>恢复队列</span>
+              <strong>{recoveryInbox.length}</strong>
+              <p>{primaryRecovery ? `${recoveryKindLabel(primaryRecovery.handle_kind)} · ${riskCopy(primaryRecovery.side_effect_replay_risk)}` : "恢复动作仍由 RuntimeLoop / TaskGraph runtime 执行。"}</p>
+            </article>
+          </section>
+          <section className="health-regression-sample-board">
+            <article className="health-regression-sample-board__hero">
+              <div>
+                <span>失败样本库</span>
+                <strong>{regressionSamples.length}</strong>
+                <p>{primaryRegressionSample?.failure_summary || "真实失败 turn 会沉淀为 RegressionSample，再进入契约复跑，而不是靠人工翻 raw artifact。"}</p>
+              </div>
+              <div className="health-regression-sample-board__stats">
+                <span>{scenarioContracts.length} 个场景契约</span>
+                <span>{numberValue(workbenchSummary.pending_regression_verification_count)} 个待复跑</span>
+              </div>
+              <div className="health-regression-sample-board__actions">
+                <button
+                  className="action-button action-button--ghost"
+                  disabled={loading || !activeTestRunId || selectedTestRun?.status === "running"}
+                  onClick={() => void promoteActiveRunFailures()}
+                  type="button"
+                >
+                  <FilePlus2 size={14} />
+                  沉淀当前失败
+                </button>
+                {sampleActionMessage ? <em>{sampleActionMessage}</em> : null}
+              </div>
+            </article>
+            <div className="health-regression-sample-list">
+              {(regressionSampleInbox.length ? regressionSampleInbox : regressionSamples).slice(0, 4).map((item) => {
+                const sample = item as RegressionSample & Record<string, unknown>;
+                const sampleId = String(sample.sample_id || "");
+                const verificationStatus = sampleVerificationStatus(sample);
+                return (
+                  <article className="health-regression-sample-card" key={sampleId || `${sample.scenario_id}-${sample.source_turn_id}`}>
+                    <div>
+                      <span className={`health-pill ${statusTone(verificationStatus)}`}>{statusLabel(verificationStatus)}</span>
+                      <strong>{String(sample.title || sample.failure_summary || "未命名失败样本")}</strong>
+                    </div>
+                    <p>{String(sample.failure_summary || sample.recommended_action || "等待从真实失败中提取断言和证据。")}</p>
+                    <em>{compactId(String(sample.scenario_id || ""))} · {compactId(String(sample.source_turn_id || sample.turn_id || ""))}</em>
+                    {sampleRerunCommand(sample) ? (
+                      <code>{sampleRerunCommand(sample)}</code>
+                    ) : null}
+                    <div className="health-regression-sample-card__actions">
+                      <button
+                        className="action-button action-button--primary"
+                        disabled={loading || !sampleId}
+                        onClick={() => void rerunSample(sampleId)}
+                        type="button"
+                      >
+                        <Play size={13} />
+                        复跑
+                      </button>
+                      <button
+                        className="action-button action-button--ghost"
+                        disabled={loading || !sampleId}
+                        onClick={() => void refreshSampleVerdict(sampleId)}
+                        type="button"
+                      >
+                        <RefreshCw size={13} />
+                        刷新裁决
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+              {!regressionSamples.length && !regressionSampleInbox.length ? (
+                <div className="health-empty-state">
+                  <CheckCircle2 size={18} />
+                  <span>还没有失败样本，失败 turn 可从验证运行中沉淀。</span>
+                </div>
+              ) : null}
+            </div>
           </section>
         </div>
       ) : null}

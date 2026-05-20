@@ -62,6 +62,18 @@ function contractBindingValue(target: Record<string, unknown>, section: string, 
   return stringValue(recordValue(recordValue(target.contract_bindings)[section])[key]);
 }
 
+function contractBindingSection(target: Record<string, unknown>, section: string) {
+  return recordValue(recordValue(target.contract_bindings)[section]);
+}
+
+function contractBindingPath(target: Record<string, unknown>, section: string, path: string[]) {
+  let current: unknown = contractBindingSection(target, section);
+  for (const segment of path) {
+    current = recordValue(current)[segment];
+  }
+  return current;
+}
+
 function edgePayloadContractId(edge: Record<string, unknown>) {
   return contractBindingValue(edge, "schema", "payload_contract_id") || stringValue(edge.payload_contract_id ?? edge.contract_id);
 }
@@ -71,6 +83,11 @@ function stringArrayValue(value: unknown): string[] {
     return value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
   }
   return Array.isArray(value) ? value.map((item) => stringValue(item)).filter(Boolean) : [];
+}
+
+function numberValue(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function nodeIdValue(node: Record<string, unknown>, index = 0) {
@@ -310,6 +327,100 @@ export function buildTaskGraphPreflightReport({
         detail: "审核门应明确 verdict contract 或输出契约，让运行时和下游节点能区分通过、驳回、返修和阻断。",
         source: "frontend.preflight.review_gate_contract",
       });
+    }
+
+    const unitBatch = contractBindingSection(node, "unit_batch");
+    const splitPolicy = recordValue(contractBindingPath(node, "runtime", ["split_policy"]));
+    const acceptancePolicy = recordValue(contractBindingPath(node, "runtime", ["batch_acceptance_policy"]));
+    const mergePolicy = recordValue(contractBindingPath(node, "runtime", ["merge_policy"]));
+    const hasBatchContract = Boolean(Object.keys(unitBatch).length || Object.keys(splitPolicy).length);
+    if (hasBatchContract) {
+      const requestedCount = numberValue(unitBatch.requested_count);
+      const batchSize = numberValue(splitPolicy.batch_size);
+      const childExecutionMode = stringValue(splitPolicy.child_execution_mode || "sequential");
+      const maxParallelBatches = numberValue(splitPolicy.max_parallel_batches);
+      if (requestedCount <= 0) {
+        pushIssue(issues, {
+          severity: "error",
+          scope: "node",
+          target_id: nodeId,
+          title: "批次契约缺少总数量",
+          detail: "unit_batch.requested_count 必须大于 0，编译器才能把任务范围拆成稳定批次。",
+          source: "frontend.preflight.batch_contract",
+        });
+      }
+      if (batchSize <= 0) {
+        pushIssue(issues, {
+          severity: "error",
+          scope: "node",
+          target_id: nodeId,
+          title: "批次契约缺少每批数量",
+          detail: "runtime.split_policy.batch_size 必须大于 0，平台才能确定每个批次覆盖哪些工作单元。",
+          source: "frontend.preflight.batch_contract",
+        });
+      }
+      if (requestedCount > 0 && batchSize > requestedCount) {
+        pushIssue(issues, {
+          severity: "info",
+          scope: "node",
+          target_id: nodeId,
+          title: "每批数量大于总数量",
+          detail: "该配置会生成一个批次，可以发布；若希望分批 review，请调小 batch_size。",
+          source: "frontend.preflight.batch_contract",
+        });
+      }
+      if (childExecutionMode && !["sequential", "parallel"].includes(childExecutionMode)) {
+        pushIssue(issues, {
+          severity: "error",
+          scope: "node",
+          target_id: nodeId,
+          title: "批次执行模式不可识别",
+          detail: "runtime.split_policy.child_execution_mode 只支持 sequential 或 parallel。",
+          source: "frontend.preflight.batch_contract",
+        });
+      }
+      if (childExecutionMode === "parallel" && maxParallelBatches < 0) {
+        pushIssue(issues, {
+          severity: "error",
+          scope: "node",
+          target_id: nodeId,
+          title: "并行上限不能小于 0",
+          detail: "runtime.split_policy.max_parallel_batches 必须为空或大于等于 1。",
+          source: "frontend.preflight.batch_contract",
+        });
+      }
+      if (childExecutionMode === "parallel" && maxParallelBatches === 0) {
+        pushIssue(issues, {
+          severity: "info",
+          scope: "node",
+          target_id: nodeId,
+          title: "并行批次使用默认上限",
+          detail: "未配置 max_parallel_batches 时，运行时会使用默认并行上限；需要稳定吞吐时建议明确配置。",
+          source: "frontend.preflight.batch_contract",
+        });
+      }
+      if (stringValue(acceptancePolicy.mode) === "auto_commit_without_review") {
+        pushIssue(issues, {
+          severity: childExecutionMode === "parallel" ? "error" : "warning",
+          scope: "node",
+          target_id: nodeId,
+          title: childExecutionMode === "parallel" ? "并行批次不能无审核提交" : "批次配置为无审核提交",
+          detail: childExecutionMode === "parallel"
+            ? "并行批次同时产生多个候选结果，必须通过审核或人工确认后再进入 merge，避免批次污染合并结果。"
+            : "平台会允许编译，但该批次不会形成 review / repair loop，长任务容易把候选结果直接暴露给 merge。",
+          source: "frontend.preflight.batch_contract",
+        });
+      }
+      if (mergePolicy.final_review_required === false) {
+        pushIssue(issues, {
+          severity: "warning",
+          scope: "node",
+          target_id: nodeId,
+          title: "批次合并关闭最终审核",
+          detail: "merge 仍只消费 committed batch，但最终合并结果不会再经过图级审核确认。",
+          source: "frontend.preflight.batch_contract",
+        });
+      }
     }
   });
 

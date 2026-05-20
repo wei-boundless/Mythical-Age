@@ -2,7 +2,6 @@ from __future__ import annotations
 
 
 HEALTH_AGENT_ID = "agent:3"
-HEALTH_AGENT_PROFILE_ID = "health_maintainer_agent"
 HEALTH_SESSION_ID = "health-system"
 
 

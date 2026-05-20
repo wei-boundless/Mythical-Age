@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 
 import type { TaskGraphMonitorBinding } from "@/lib/store/types";
 import type { TaskGraphMonitorDecision, TaskGraphRunMonitorView } from "@/lib/api";
+import { buildTaskGraphBatchLifecycleSummary } from "./taskGraphRuntimeView";
 
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -118,6 +119,7 @@ export function TaskGraphRunInteractionDock({
   const streamPreview = String(monitor?.streaming?.preview_text || "");
   const latestAt = latestMonitorTime(monitor);
   const lastUpdatedLabel = formatClock(latestAt);
+  const batchLifecycle = buildTaskGraphBatchLifecycleSummary(monitor?.batch_lifecycle);
 
   function getBoxSize(isOpen = open) {
     return {
@@ -273,6 +275,7 @@ export function TaskGraphRunInteractionDock({
         <strong>{activeNodeId || boundLabel}</strong>
         <span>{runtimeStatus} · {lastUpdatedLabel}</span>
         {streamEnabled ? <small>{streamChunks} 片 / {streamChars} 字</small> : null}
+        {batchLifecycle.available ? <small>批次 {batchLifecycle.summary.committed_batch_count ?? 0}/{batchLifecycle.summary.batch_count ?? 0}</small> : null}
       </div>
       <GripHorizontal size={15} />
     </aside>
@@ -319,6 +322,18 @@ export function TaskGraphRunInteractionDock({
           <span>实时正文</span>
           <strong>{streamEnabled ? `${streamChunks} / ${streamChars}` : "未启用"}</strong>
         </div>
+        {batchLifecycle.available ? (
+          <div>
+            <span>批次进度</span>
+            <strong>{batchLifecycle.summary.committed_batch_count ?? 0}/{batchLifecycle.summary.batch_count ?? 0}</strong>
+          </div>
+        ) : null}
+        {batchLifecycle.available ? (
+          <div>
+            <span>执行实例</span>
+            <strong>{batchLifecycle.summary.execution_instance_count ?? batchLifecycle.execution_instances.length}</strong>
+          </div>
+        ) : null}
       </section>
 
       <div className="health-agent-dock__messages">
@@ -389,6 +404,29 @@ export function TaskGraphRunInteractionDock({
             <strong><MessageSquare size={14} /> 实时正文流</strong>
             <small>最近更新 {lastUpdatedLabel}</small>
             <pre>{streamPreview}</pre>
+          </article>
+        ) : null}
+        {batchLifecycle.available ? (
+          <article className="health-agent-message task-graph-run-interaction-batches">
+            <strong>批次生命周期</strong>
+            <span>Ready {batchLifecycle.summary.ready_batch_count ?? 0} / Running {batchLifecycle.summary.running_batch_count ?? 0} / Committed {batchLifecycle.summary.committed_batch_count ?? 0} / Failed {batchLifecycle.summary.failed_batch_count ?? 0} / Instance {batchLifecycle.summary.execution_instance_count ?? batchLifecycle.execution_instances.length}</span>
+            <div className="task-graph-batch-runtime-list">
+              {batchLifecycle.batches.slice(0, 5).map((batch, index) => {
+                const range = recordValue(batch.range);
+                return (
+                  <section className="task-graph-batch-runtime-row" key={`${String(batch.batch_id ?? "batch")}_${index}_dock`}>
+                    <span className={`task-graph-batch-runtime-row__status task-graph-batch-runtime-row__status--${String(batch.status ?? "planned")}`}>
+                      {String(batch.status ?? "planned")}
+                    </span>
+                    <div>
+                      <strong>{String(batch.batch_id ?? `batch_${index + 1}`)}</strong>
+                      <small>{String(batch.unit_kind ?? "unit")} · {String(range.start ?? "-")}-{String(range.end ?? "-")}</small>
+                    </div>
+                    <em>#{String(batch.sequence_index ?? index + 1)}</em>
+                  </section>
+                );
+              })}
+            </div>
           </article>
         ) : null}
       </div>

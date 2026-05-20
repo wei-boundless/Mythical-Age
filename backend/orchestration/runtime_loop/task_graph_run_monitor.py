@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .task_graph_batch_runtime import batch_dispatcher_view
+
 
 def build_task_graph_run_monitor_view(
     *,
@@ -37,6 +39,12 @@ def build_task_graph_run_monitor_view(
         state.get("task_graph_scheduler_state")
         or diagnostics.get("task_graph_scheduler_state")
         or dict(coord.get("diagnostics") or {}).get("task_graph_scheduler_state")
+        or {}
+    )
+    batch_lifecycle = dict(
+        state.get("batch_lifecycle_runtime_state")
+        or diagnostics.get("batch_lifecycle_runtime_state")
+        or dict(coord.get("diagnostics") or {}).get("batch_lifecycle_runtime_state")
         or {}
     )
     node_statuses = _node_statuses_from_state(state=state, scheduler_state=scheduler_state)
@@ -211,6 +219,8 @@ def build_task_graph_run_monitor_view(
             "blocked_node_ids": _string_list(state.get("blocked_nodes") or scheduler_state.get("blocked_nodes")),
             "waiting_node_ids": _string_list(state.get("waiting_nodes") or scheduler_state.get("waiting_nodes")),
         },
+        "batch_lifecycle": _batch_lifecycle_view(batch_lifecycle),
+        "batch_dispatcher": batch_dispatcher_view(batch_lifecycle),
         "artifacts": artifacts,
         "memory_operations": memory_operations,
         "stage_results": stage_results,
@@ -306,6 +316,60 @@ def _edge_status(source_status: str, target_status: str) -> str:
     if source_status == "ready" or target_status == "ready":
         return "ready"
     return "idle"
+
+
+def _batch_lifecycle_view(raw: dict[str, Any]) -> dict[str, Any]:
+    if str(raw.get("authority") or "") != "task_system.batch_lifecycle_runtime_state":
+        return {
+            "available": False,
+            "summary": {
+                "plan_count": 0,
+                "batch_count": 0,
+                "ready_batch_count": 0,
+                "running_batch_count": 0,
+                "committed_batch_count": 0,
+                "failed_batch_count": 0,
+                "merge_ready_count": 0,
+            },
+            "plans": [],
+            "batches": [],
+            "merge_states": [],
+        }
+    batches = [dict(item) for item in list(raw.get("batch_states") or []) if isinstance(item, dict)]
+    plans = [dict(item) for item in list(raw.get("plan_states") or []) if isinstance(item, dict)]
+    instances = [dict(item) for item in list(raw.get("batch_execution_instances") or []) if isinstance(item, dict)]
+    return {
+        "available": True,
+        "authority": str(raw.get("authority") or ""),
+        "mode": str(raw.get("mode") or ""),
+        "graph_id": str(raw.get("graph_id") or ""),
+        "summary": dict(raw.get("summary") or {}),
+        "plans": plans,
+        "batches": sorted(
+            batches,
+            key=lambda item: (
+                str(item.get("plan_id") or ""),
+                int(item.get("sequence_index") or 0),
+            ),
+        ),
+        "merge_states": [dict(item) for item in list(raw.get("merge_states") or []) if isinstance(item, dict)],
+        "execution_instances": sorted(
+            instances,
+            key=lambda item: (
+                str(item.get("plan_id") or ""),
+                str(item.get("batch_id") or ""),
+                int(item.get("attempt_index") or 0),
+            ),
+        ),
+        "active_batch_by_node": dict(raw.get("active_batch_by_node") or {}),
+        "active_execution_by_node": dict(raw.get("active_execution_by_node") or {}),
+        "active_execution_by_batch": dict(raw.get("active_execution_by_batch") or {}),
+        "execution_mode_by_plan": dict(raw.get("execution_mode_by_plan") or {}),
+        "ready_batch_ids": _string_list(raw.get("ready_batch_ids")),
+        "running_batch_ids": _string_list(raw.get("running_batch_ids")),
+        "committed_batch_ids": _string_list(raw.get("committed_batch_ids")),
+        "failed_batch_ids": _string_list(raw.get("failed_batch_ids")),
+    }
 
 
 def _stage_results(results: dict[str, Any]) -> list[dict[str, Any]]:

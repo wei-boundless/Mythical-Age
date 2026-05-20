@@ -49,11 +49,26 @@ def runtime_loop_summary_from_turn_artifact(path: str | Path) -> dict[str, Any]:
 
 def runtime_loop_evidence_packet_from_turn_payload(payload: dict[str, Any], *, question: str) -> dict[str, Any]:
     events = runtime_events_from_turn_payload(payload)
+    runtime_trace = dict(payload.get("runtime_trace") or {})
+    coordination_runs = list(payload.get("coordination_runs") or runtime_trace.get("coordination_runs") or [])
+    if not coordination_runs and int(runtime_trace.get("coordination_run_count") or 0) > 0:
+        coordination_runs = [
+            {
+                "coordination_run_id": str(runtime_trace.get("coordination_run_id") or ""),
+                "status": str(runtime_trace.get("coordination_status") or ""),
+                "graph_ref": str(runtime_trace.get("graph_ref") or ""),
+                "latest_checkpoint_ref": str(runtime_trace.get("coordination_checkpoint_ref") or ""),
+                "diagnostics": {
+                    "coordination_flow": dict(runtime_trace.get("coordination_flow") or {}),
+                    "task_graph_scheduler_state": dict(runtime_trace.get("task_graph_scheduler_state") or {}),
+                },
+            }
+        ]
     trace = {
         "task_run": {"task_run_id": _task_run_id_from_events(events)},
         "events": events,
-        "latest_checkpoint": dict(payload.get("latest_checkpoint") or {}),
-        "coordination_runs": list(payload.get("coordination_runs") or []),
+        "latest_checkpoint": dict(payload.get("latest_checkpoint") or payload.get("checkpoint") or {}),
+        "coordination_runs": coordination_runs,
     }
     return build_runtime_trace_evidence_packet(trace, question=question)
 

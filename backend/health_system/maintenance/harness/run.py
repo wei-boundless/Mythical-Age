@@ -1,16 +1,30 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import platform
 import subprocess
 import sys
 import time
 from pathlib import Path
 from uuid import uuid4
 
-from .contracts import HarnessPartialResult, HarnessProgressEvent, HarnessRunContract, HarnessRunState
+from .contracts import (
+    HarnessPartialResult,
+    HarnessProgressEvent,
+    HarnessRunContract,
+    HarnessRunState,
+    IssueEntry,
+    RunContext,
+    RunResult,
+    ScenarioResult,
+    TimingSnapshot,
+    TraceSpan,
+)
 from .persistence import (
     append_harness_progress_event,
+    render_and_persist_run_result,
     write_harness_artifact_manifest,
     write_harness_heartbeat,
     write_harness_partial_result,
@@ -209,6 +223,14 @@ def _write_finish_artifacts(
 ) -> None:
     run_id = output_dir.name
     now = time.time()
+    if not (output_dir / "run_result.json").exists():
+        _persist_fallback_run_result(
+            profile=profile,
+            command=command,
+            output_dir=output_dir,
+            returncode=returncode,
+            finished_at=now,
+        )
     summary = _summary_from_run_result(output_dir)
     status = "passed" if returncode == 0 and int(summary.get("failed") or 0) == 0 else "failed"
     event = _event(
@@ -260,7 +282,7 @@ def _summary_from_run_result(output_dir: Path) -> dict[str, object]:
     if not run_result_path.exists():
         return {"total": 0, "passed": 0, "failed": 1, "first_failure": "run_result.json missing"}
     try:
-        payload = __import__("json").loads(run_result_path.read_text(encoding="utf-8"))
+        payload = json.loads(run_result_path.read_text(encoding="utf-8"))
     except Exception:
         return {"total": 0, "passed": 0, "failed": 1, "first_failure": "run_result.json invalid"}
     metadata = dict(payload.get("metadata") or {}) if isinstance(payload, dict) else {}
@@ -278,7 +300,7 @@ def _summary_from_run_result(output_dir: Path) -> dict[str, object]:
 
 def _started_at_from_existing_state(output_dir: Path) -> float:
     try:
-        payload = __import__("json").loads((output_dir / "harness_state.json").read_text(encoding="utf-8"))
+        payload = json.loads((output_dir / "harness_state.json").read_text(encoding="utf-8"))
     except Exception:
         return 0.0
     return float(dict(payload or {}).get("started_at") or 0.0)
@@ -313,6 +335,90 @@ def _latest_artifact_ref(output_dir: Path) -> str:
         return str(latest_path.resolve().relative_to(output_dir.resolve())).replace("\\", "/")
     except Exception:
         return str(latest_path)
+
+
+def _persist_fallback_run_result(
+    *,
+    profile: str,
+    command: list[str],
+    output_dir: Path,
+    returncode: int,
+    finished_at: float,
+) -> None:
+    started_at = _started_at_from_existing_state(output_dir) or finished_at
+    passed = returncode == 0
+    started_text = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(started_at))
+    ended_text = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(finished_at))
+    log_tail = _read_tail(output_dir / "runner.log", limit=2000)
+    summary = "底层 runner 未生成 run_result.json，harness wrapper 按子进程退出码记录最小结果。"
+    if log_tail:
+        summary = f"{summary} runner.log tail: {log_tail[-500:]}"
+    context = RunContext(
+        run_id=output_dir.name,
+        profile=profile,
+        mode="subprocess-wrapper",
+        repo_root=str(Path(__file__).resolve().parents[4]),
+        backend_root=str(Path(__file__).resolve().parents[3]),
+        frontend_root=str(Path(__file__).resolve().parents[4] / "frontend"),
+        output_dir=str(output_dir),
+        generated_at=ended_text,
+        python_version=platform.python_version(),
+    )
+    result = ScenarioResult(
+        name="harness-subprocess",
+        category=f"harness/{profile}",
+        passed=passed,
+        status="passed" if passed else "failed",
+        summary=summary,
+        timing=TimingSnapshot(
+            started_at=started_text,
+            ended_at=ended_text,
+            duration_ms=round(max(finished_at - started_at, 0.0) * 1000.0, 2),
+            terminal_event="process_exit",
+        ),
+        command=" ".join(command),
+        details={"returncode": returncode, "fallback_result": True},
+        artifact_paths=[str(output_dir / "runner.log")] if (output_dir / "runner.log").exists() else [],
+    )
+    run_result = RunResult(
+        context=context,
+        results=[result],
+        issues=[],
+        traces=[
+            TraceSpan(
+                trace_id=f"harness-{profile}",
+                stage="harness-subprocess",
+                status=result.status,
+                started_at=started_text,
+                ended_at=ended_text,
+                latency_ms=result.timing.duration_ms,
+                metadata={"returncode": returncode},
+            )
+        ],
+        metadata={"total": 1, "passed": 1 if passed else 0, "failed": 0 if passed else 1},
+    )
+    if not passed:
+        run_result.issues = [
+            IssueEntry(
+                id="ISSUE-001",
+                title="harness subprocess did not produce run_result",
+                severity="high",
+                category=f"harness/{profile}",
+                summary=summary,
+                command=" ".join(command),
+                artifact_paths=result.artifact_paths,
+            )
+        ]
+    render_and_persist_run_result(output_dir=output_dir, run_result=run_result)
+
+
+def _read_tail(path: Path, *, limit: int = 12000) -> str:
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")[-limit:]
+    except OSError:
+        return ""
 
 
 if __name__ == "__main__":

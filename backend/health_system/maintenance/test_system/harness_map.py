@@ -59,6 +59,7 @@ def build_harness_map(
     governance_findings = [dict(item) for item in list(agent_report.get("findings") or []) if isinstance(item, dict)]
     issues = [item.to_dict() for item in records.issues]
     drafts = [item.to_dict() for item in records.case_drafts]
+    regression_samples = [item.to_dict() for item in records.regression_samples]
 
     issue_by_owner = _group_by(issues, "owner_system")
     findings_by_case = _group_by(governance_findings, "case_id")
@@ -174,6 +175,7 @@ def build_harness_map(
             "open_issue_count": sum(1 for item in issues if item.get("status") not in {"resolved", "archived"}),
             "case_draft_count": len(drafts),
             "managed_case_count": len(records.managed_cases),
+            "regression_sample_count": len(records.regression_samples),
             "governance_finding_count": len(governance_findings),
             "unregistered_file_count": int(dict(agent_report.get("summary") or {}).get("unregistered_file_count") or 0),
         },
@@ -182,6 +184,12 @@ def build_harness_map(
         "issues": issues,
         "case_drafts": drafts,
         "managed_cases": [item.to_dict() for item in records.managed_cases],
+        "regression_samples": regression_samples,
+        "scenario_contracts": [
+            dict(sample.get("contract") or {})
+            for sample in regression_samples
+            if isinstance(sample.get("contract"), dict)
+        ],
         "governance_findings": governance_findings,
         "profile_matrix": profile_matrix,
         "link_contract": {
@@ -189,6 +197,7 @@ def build_harness_map(
             "case_to_file": "path -> backend test file",
             "case_to_problem": "owner_system / case_id / path -> harness issue or governance finding",
             "case_to_pass": "assertions + runner return code + profile membership",
+            "failure_turn_to_sample": "turn artifact + evidence packet -> RegressionSample -> scenario contract rerun",
         },
     }
 

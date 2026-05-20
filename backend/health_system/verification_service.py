@@ -162,6 +162,12 @@ class HealthVerificationService:
         }
 
     def _build_artifact_manifest(self, *, verification_run_id: str, output_dir: Path) -> VerificationArtifactManifest:
+        harness_manifest = self._manifest_from_harness_artifact_manifest(
+            verification_run_id=verification_run_id,
+            output_dir=output_dir,
+        )
+        if harness_manifest is not None:
+            return harness_manifest
         artifacts: list[VerificationArtifact] = []
         required_files = {
             "run_result.json": "run_result",
@@ -192,6 +198,52 @@ class HealthVerificationService:
             artifacts=tuple(artifacts),
             created_at=max((path.stat().st_mtime for path in output_dir.glob("*") if path.exists()), default=0.0),
             metadata={"output_dir": str(output_dir)},
+        )
+
+    def _manifest_from_harness_artifact_manifest(
+        self,
+        *,
+        verification_run_id: str,
+        output_dir: Path,
+    ) -> VerificationArtifactManifest | None:
+        path = output_dir / "artifact_manifest.json"
+        if not path.exists():
+            return None
+        try:
+            import json
+
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        records = []
+        for item in list(payload.get("artifacts") or []):
+            if not isinstance(item, dict):
+                continue
+            records.append(
+                VerificationArtifact(
+                    name=str(item.get("name") or ""),
+                    artifact_type=str(item.get("artifact_type") or ""),
+                    path=str(item.get("path") or ""),
+                    relative_ref=_relative_ref(Path(str(item.get("path") or "")), self.base_dir),
+                    producer=str(item.get("producer") or "health_system.maintenance.harness"),
+                    required=bool(item.get("required") is True),
+                    present=bool(item.get("present") is True),
+                    checksum=str(item.get("checksum") or ""),
+                    size_bytes=int(item.get("size_bytes") or 0),
+                )
+            )
+        return VerificationArtifactManifest(
+            manifest_id=f"health-artifact-manifest:{verification_run_id}",
+            verification_run_id=verification_run_id,
+            artifacts=tuple(records),
+            created_at=float(payload.get("created_at") or path.stat().st_mtime),
+            metadata={
+                "output_dir": str(output_dir),
+                "source_manifest": str(path),
+                "source_authority": str(payload.get("authority") or ""),
+            },
         )
 
 

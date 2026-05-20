@@ -16,6 +16,8 @@ from .coordination_graph_models import (
 from .flow_models import SpecificTaskRecord, TaskCommunicationProtocol
 from .layered_graph_normalizer import normalize_task_graph_layers
 from .task_graph_models import TaskGraphDefinition, TaskGraphValidationIssue, validate_task_graph
+from .task_split_plan_builder import build_static_split_plans_for_graph, split_merge_runtime_issues
+from .task_split_merge_models import SplitMergeIssue
 
 
 def compile_task_graph_definition_runtime_spec(
@@ -36,6 +38,7 @@ def compile_task_graph_definition_runtime_spec(
     default_join_policy = str(runtime_policy.get("default_join_policy") or "all_success").strip() or "all_success"
     layered_graph = normalize_task_graph_layers(graph)
     nested_runtime_plans = _nested_runtime_plans_from_layered_graph(graph=graph, layered_graph=layered_graph)
+    split_plans = build_static_split_plans_for_graph(graph=graph)
     backend_dir = Path(__file__).resolve().parents[1]
     model_resolver = ModelProfileResolver(AppSettingsService(backend_dir))
     runtime_registry = AgentRuntimeRegistry(backend_dir)
@@ -144,6 +147,8 @@ def compile_task_graph_definition_runtime_spec(
     validation_issues.extend(_runtime_issues_from_scheduler_support(scheduler_support))
     validation_issues.extend(_runtime_issues_from_layered_graph(layered_graph))
     validation_issues.extend(_runtime_issues_from_nested_runtime_plans(nested_runtime_plans))
+    split_merge_issues = split_merge_runtime_issues(split_plans)
+    validation_issues.extend(_runtime_issues_from_split_merge_issues(split_merge_issues))
     return TaskGraphRuntimeSpec(
         graph_id=graph.graph_id,
         graph_ref=graph.graph_id,
@@ -183,6 +188,8 @@ def compile_task_graph_definition_runtime_spec(
             "working_memory_resource_steps": working_memory_resource_steps,
             "layered_graph": layered_graph,
             "nested_runtime_plans": [item.to_dict() for item in nested_runtime_plans],
+            "split_plans": [item.to_dict() for item in split_plans],
+            "split_merge_issues": [item.to_dict() for item in split_merge_issues],
         },
     )
 
@@ -473,6 +480,18 @@ def _runtime_issues_from_nested_runtime_plans(plans: list[TaskGraphNestedRuntime
                 )
             )
     return issues
+
+
+def _runtime_issues_from_split_merge_issues(issues: tuple[SplitMergeIssue, ...]) -> list[TaskGraphRuntimeValidationIssue]:
+    return [
+        TaskGraphRuntimeValidationIssue(
+            code=issue.code,
+            message=issue.message,
+            severity=issue.severity,
+            node_id=issue.node_id,
+        )
+        for issue in issues
+    ]
 
 
 def _safe_runtime_identifier(value: str) -> str:

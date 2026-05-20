@@ -671,6 +671,7 @@ def _compiled_task_graph_execution_parts(graph_id: str) -> dict[str, object]:
         runtime_spec=runtime_spec,
         specific_tasks=specific_tasks,
     )
+    runtime_diagnostics = dict(getattr(runtime_spec, "diagnostics", {}) or {})
     return {
         "graph": graph,
         "standard_view": standard_view,
@@ -682,6 +683,8 @@ def _compiled_task_graph_execution_parts(graph_id: str) -> dict[str, object]:
         "graph_unit_node_ids": sorted(graph_unit_node_ids),
         "graph_unit_execution_plans": graph_unit_execution_plans,
         "graph_unit_plan_issues": graph_unit_plan_issues,
+        "split_plans": [dict(item) for item in list(runtime_diagnostics.get("split_plans") or []) if isinstance(item, dict)],
+        "split_merge_issues": [dict(item) for item in list(runtime_diagnostics.get("split_merge_issues") or []) if isinstance(item, dict)],
     }
 
 
@@ -968,6 +971,7 @@ def _task_graph_execution_object_trace_index(
     scheduler_state: object,
     node_runtime_assemblies: list[dict[str, object]],
     graph_unit_execution_plans: list[dict[str, object]],
+    split_plans: list[dict[str, object]],
 ) -> list[dict[str, object]]:
     runtime_nodes_by_id = {node.node_id: node for node in runtime_spec.nodes}
     runtime_edges_by_id = {edge.edge_id: edge for edge in runtime_spec.edges}
@@ -998,6 +1002,11 @@ def _task_graph_execution_object_trace_index(
         for item in graph_unit_execution_plans
         if isinstance(item, dict) and str(item.get("plan_id") or "")
     }
+    split_plans_by_node_id: dict[str, list[dict[str, object]]] = {}
+    for item in split_plans:
+        node_id = str(item.get("node_id") or "").strip()
+        if node_id:
+            split_plans_by_node_id.setdefault(node_id, []).append(dict(item))
     traces: list[dict[str, object]] = [
         {
             "object_type": "graph",
@@ -1028,6 +1037,7 @@ def _task_graph_execution_object_trace_index(
         node_contract = node_contracts_by_id.get(node_id)
         assembly = assemblies_by_node_id.get(node_id)
         scheduler_node = scheduler_nodes_by_id.get(node_id, {})
+        node_split_plans = split_plans_by_node_id.get(node_id, [])
         traces.append(
             {
                 "object_type": "node",
@@ -1048,7 +1058,11 @@ def _task_graph_execution_object_trace_index(
                     "context_section_count": len(list(assembly.get("context_sections") or [])) if assembly else 0,
                 },
                 "scheduler_ref": _scheduler_node_trace(scheduler_node),
-                "child_plan_ref": {},
+                "child_plan_ref": {
+                    "split_plan_count": len(node_split_plans),
+                    "split_plan_ids": [str(item.get("plan_id") or "") for item in node_split_plans],
+                    "batch_count": sum(len(list(item.get("batches") or [])) for item in node_split_plans),
+                },
                 "status": str(scheduler_node.get("status") or ("ready" if runtime_node is not None else "uncompiled")),
             }
         )
@@ -1117,6 +1131,107 @@ def _task_graph_execution_object_trace_index(
                 "status": str(scheduler_node.get("status") or ("ready" if runtime_node is not None else "uncompiled")),
             }
         )
+    for plan in split_plans:
+        plan_id = str(plan.get("plan_id") or "").strip()
+        node_id = str(plan.get("node_id") or "").strip()
+        batch_lifecycle_plans = [
+            dict(item)
+            for item in list(plan.get("batch_lifecycle_plans") or [])
+            if isinstance(item, dict)
+        ]
+        merge_readiness_plan = dict(plan.get("merge_readiness_plan") or {})
+        plan_issues = [dict(item) for item in list(plan.get("issues") or []) if isinstance(item, dict)]
+        traces.append(
+            {
+                "object_type": "split_plan",
+                "object_id": plan_id,
+                "title": f"{str(plan.get('unit_kind') or 'unit')} x {len(list(plan.get('batches') or []))}",
+                "source_path": f"graph.nodes[{node_id}].contract_bindings.unit_batch",
+                "runtime_ref": {
+                    "plan_id": plan_id,
+                    "node_id": node_id,
+                    "unit_kind": str(plan.get("unit_kind") or ""),
+                    "batch_count": len(list(plan.get("batches") or [])),
+                    "batch_lifecycle_plan_count": len(batch_lifecycle_plans),
+                    "batch_lifecycle_step_count": sum(len(list(item.get("steps") or [])) for item in batch_lifecycle_plans),
+                    "requested_count": int(plan.get("requested_count") or 0),
+                    "batch_size": int(plan.get("batch_size") or 0),
+                },
+                "manifest_ref": {
+                    "acceptance_mode": str(dict(plan.get("acceptance_policy") or {}).get("mode") or ""),
+                    "merge_mode": str(dict(plan.get("merge_policy") or {}).get("mode") or ""),
+                },
+                "assembly_ref": {},
+                "scheduler_ref": _scheduler_node_trace(scheduler_nodes_by_id.get(node_id, {})),
+                "child_plan_ref": {},
+                "status": "blocked" if any(str(issue.get("severity") or "error") == "error" for issue in plan_issues) else "ready",
+            }
+        )
+        for lifecycle_plan in batch_lifecycle_plans:
+            lifecycle_steps = [
+                dict(item)
+                for item in list(lifecycle_plan.get("steps") or [])
+                if isinstance(item, dict)
+            ]
+            traces.append(
+                {
+                    "object_type": "batch_lifecycle_plan",
+                    "object_id": str(lifecycle_plan.get("plan_id") or ""),
+                    "title": f"{str(lifecycle_plan.get('batch_id') or 'batch')} · {len(lifecycle_steps)} steps",
+                    "source_path": f"graph.nodes[{node_id}].contract_bindings.runtime.batch_acceptance_policy",
+                    "runtime_ref": {
+                        "plan_id": str(lifecycle_plan.get("plan_id") or ""),
+                        "split_plan_id": plan_id,
+                        "node_id": node_id,
+                        "batch_id": str(lifecycle_plan.get("batch_id") or ""),
+                        "step_count": len(lifecycle_steps),
+                        "step_types": [str(item.get("step_type") or "") for item in lifecycle_steps],
+                    },
+                    "manifest_ref": {
+                        "acceptance_mode": str(dict(plan.get("acceptance_policy") or {}).get("mode") or ""),
+                        "merge_mode": str(dict(plan.get("merge_policy") or {}).get("mode") or ""),
+                    },
+                    "assembly_ref": {},
+                    "scheduler_ref": {
+                        "status": "planned",
+                        "note": "compile_only_preview",
+                    },
+                    "child_plan_ref": {
+                        "split_plan_id": plan_id,
+                    },
+                    "status": "planned",
+                }
+            )
+        if merge_readiness_plan:
+            traces.append(
+                {
+                    "object_type": "batch_merge_readiness_plan",
+                    "object_id": str(merge_readiness_plan.get("plan_id") or ""),
+                    "title": f"{str(merge_readiness_plan.get('mode') or 'merge')} · {len(list(merge_readiness_plan.get('depends_on_batch_ids') or []))} batches",
+                    "source_path": f"graph.nodes[{node_id}].contract_bindings.runtime.merge_policy",
+                    "runtime_ref": {
+                        "plan_id": str(merge_readiness_plan.get("plan_id") or ""),
+                        "split_plan_id": plan_id,
+                        "node_id": node_id,
+                        "merge_id": str(merge_readiness_plan.get("merge_id") or ""),
+                        "ready_condition": str(merge_readiness_plan.get("ready_condition") or ""),
+                    },
+                    "manifest_ref": {
+                        "merge_mode": str(merge_readiness_plan.get("mode") or ""),
+                        "result_order": str(merge_readiness_plan.get("result_order") or ""),
+                        "final_review_required": bool(merge_readiness_plan.get("final_review_required", True)),
+                    },
+                    "assembly_ref": {},
+                    "scheduler_ref": {
+                        "status": "planned",
+                        "note": "compile_only_preview",
+                    },
+                    "child_plan_ref": {
+                        "split_plan_id": plan_id,
+                    },
+                    "status": "planned",
+                }
+            )
     return traces
 
 
@@ -1199,6 +1314,25 @@ async def build_task_system_task_graph_execution_package(graph_id: str) -> dict[
     assembly_errors = list(parts["assembly_errors"])
     graph_unit_execution_plans = list(parts["graph_unit_execution_plans"])
     graph_unit_plan_issues = list(parts["graph_unit_plan_issues"])
+    split_plans = list(parts["split_plans"])
+    split_merge_issues = list(parts["split_merge_issues"])
+    split_batch_lifecycle_plan_count = sum(
+        len(list(item.get("batch_lifecycle_plans") or []))
+        for item in split_plans
+        if isinstance(item, dict)
+    )
+    split_batch_lifecycle_step_count = sum(
+        len(list(lifecycle_plan.get("steps") or []))
+        for item in split_plans
+        if isinstance(item, dict)
+        for lifecycle_plan in list(item.get("batch_lifecycle_plans") or [])
+        if isinstance(lifecycle_plan, dict)
+    )
+    split_merge_readiness_plan_count = sum(
+        1
+        for item in split_plans
+        if isinstance(item, dict) and isinstance(item.get("merge_readiness_plan"), dict)
+    )
     object_trace_index = _task_graph_execution_object_trace_index(
         graph=graph,  # type: ignore[arg-type]
         runtime_spec=runtime_spec,  # type: ignore[arg-type]
@@ -1206,6 +1340,7 @@ async def build_task_system_task_graph_execution_package(graph_id: str) -> dict[
         scheduler_state=scheduler_state,  # type: ignore[arg-type]
         node_runtime_assemblies=node_runtime_assemblies,
         graph_unit_execution_plans=graph_unit_execution_plans,
+        split_plans=split_plans,
     )
     runtime_issues = [item.to_dict() for item in runtime_spec.issues]  # type: ignore[attr-defined]
     manifest_issues = [item.to_dict() for item in manifest.issues]  # type: ignore[attr-defined]
@@ -1223,6 +1358,8 @@ async def build_task_system_task_graph_execution_package(graph_id: str) -> dict[
         "scheduler_state": scheduler_state.to_dict(),  # type: ignore[attr-defined]
         "graph_units": [item.to_dict() for item in getattr(runtime_spec, "nested_runtime_plans", ()) or ()],  # type: ignore[attr-defined]
         "graph_unit_execution_plans": graph_unit_execution_plans,
+        "split_plans": split_plans,
+        "split_merge_issues": split_merge_issues,
         "object_trace_index": object_trace_index,
         "issues": [
             *manifest_issues,
@@ -1241,6 +1378,12 @@ async def build_task_system_task_graph_execution_package(graph_id: str) -> dict[
             "graph_unit_handoff_contract_count": len(getattr(manifest, "graph_unit_handoff_contracts", ()) or ()),
             "graph_unit_execution_plan_count": len(graph_unit_execution_plans),
             "graph_unit_execution_plan_issue_count": len(graph_unit_plan_issues),
+            "split_plan_count": len(split_plans),
+            "split_batch_count": sum(len(list(item.get("batches") or [])) for item in split_plans if isinstance(item, dict)),
+            "split_batch_lifecycle_plan_count": split_batch_lifecycle_plan_count,
+            "split_batch_lifecycle_step_count": split_batch_lifecycle_step_count,
+            "split_merge_readiness_plan_count": split_merge_readiness_plan_count,
+            "split_merge_issue_count": len(split_merge_issues),
             "object_trace_count": len(object_trace_index),
             "scheduler_ready_count": len(getattr(scheduler_state, "ready_node_ids", ()) or ()),
             "scheduler_blocked_count": len(getattr(scheduler_state, "blocked_node_ids", ()) or ()),

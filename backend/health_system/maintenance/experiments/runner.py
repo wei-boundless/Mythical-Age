@@ -17,7 +17,7 @@ from health_system.maintenance.experiments.prompt_manifest import get_turn_promp
 from health_system.maintenance.experiments.trace_graph import build_run_overlay, build_turn_overlay, list_turns
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 BACKEND_DIR = REPO_ROOT / "backend"
 OUTPUT_ROOT = REPO_ROOT / "output" / "test_runs"
 
@@ -68,7 +68,13 @@ class ExperimentRunner:
     def profiles(self) -> list[dict[str, object]]:
         return [profile.to_dict() for profile in list_profiles()]
 
-    def start(self, profile_id: str, *, scenario_ids: list[str] | None = None) -> dict[str, Any]:
+    def start(
+        self,
+        profile_id: str,
+        *,
+        scenario_ids: list[str] | None = None,
+        turn_refs: list[str] | None = None,
+    ) -> dict[str, Any]:
         profile = get_profile(profile_id)
         if profile is None:
             raise ValueError(f"Unsupported experiment profile: {profile_id}")
@@ -90,10 +96,18 @@ class ExperimentRunner:
             extra_args = _without_scenario_set(extra_args)
             for scenario_id in selected_scenarios:
                 extra_args.extend(["--scenario", scenario_id])
+        selected_turn_refs = [
+            str(turn_ref).strip()
+            for turn_ref in (turn_refs or [])
+            if str(turn_ref).strip()
+        ]
+        if selected_turn_refs and (profile.harness_profile or profile.id) == "long":
+            for turn_ref in selected_turn_refs:
+                extra_args.extend(["--turn", turn_ref])
         command = [
             sys.executable,
             "-m",
-            "harness.run",
+            "health_system.maintenance.harness.run",
             "--profile",
             profile.harness_profile or profile.id,
             *extra_args,
@@ -199,9 +213,12 @@ class ExperimentRunner:
     def _refresh_run_state(self, state: dict[str, Any]) -> dict[str, Any]:
         run_id = str(state.get("run_id") or "")
         process = self._processes.get(run_id)
+        output_dir = Path(str(state.get("output_dir") or ""))
+        harness_state = self._load_harness_state(output_dir)
+        if harness_state:
+            state = self._merge_harness_state(state, harness_state)
         if process is None:
             if str(state.get("status") or "") == "running":
-                output_dir = Path(str(state.get("output_dir") or ""))
                 run_result_path = output_dir / "run_result.json"
                 if run_result_path.exists():
                     artifacts = read_json_file(run_result_path, {})
@@ -227,13 +244,16 @@ class ExperimentRunner:
                         "failed": 1,
                         "first_failure": reason,
                     }
+                    state["stale_reason"] = reason
                     state["duration_ms"] = self._duration_ms_from_state(state)
                     self._write_state_dict(state)
             return state
         returncode = process.poll()
         if returncode is None:
+            state["heartbeat_at"] = float(dict(self._load_harness_heartbeat(output_dir)).get("heartbeat_at") or state.get("heartbeat_at") or 0.0)
+            state["last_artifact_mtime"] = self._latest_mtime(output_dir)
+            self._write_state_dict(state)
             return state
-        output_dir = Path(str(state.get("output_dir") or ""))
         artifacts = read_json_file(output_dir / "run_result.json", {})
         summary = summarize_run_result(artifacts if isinstance(artifacts, dict) else {})
         state["status"] = "passed" if returncode == 0 else "failed"
@@ -272,6 +292,11 @@ class ExperimentRunner:
         return False
 
     def _stale_running_reason(self, output_dir: Path) -> str:
+        heartbeat = self._load_harness_heartbeat(output_dir)
+        heartbeat_at = float(dict(heartbeat).get("heartbeat_at") or 0.0)
+        if heartbeat_at > 0:
+            age_seconds = max(time.time() - heartbeat_at, 0.0)
+            return f"harness heartbeat stale: last heartbeat {round(age_seconds, 1)} seconds ago."
         log_tail = read_text_tail(output_dir / "runner.log", limit=4000)
         if "KeyboardInterrupt" in log_tail:
             return "测试进程被 KeyboardInterrupt 中断，未生成 run_result.json。"
@@ -302,6 +327,35 @@ class ExperimentRunner:
 
     def _state_path(self, output_dir: Path) -> Path:
         return output_dir / "run_state.json"
+
+    def _load_harness_state(self, output_dir: Path) -> dict[str, Any]:
+        payload = read_json_file(output_dir / "harness_state.json", {})
+        return payload if isinstance(payload, dict) else {}
+
+    def _load_harness_heartbeat(self, output_dir: Path) -> dict[str, Any]:
+        payload = read_json_file(output_dir / "heartbeat.json", {})
+        return payload if isinstance(payload, dict) else {}
+
+    def _merge_harness_state(self, state: dict[str, Any], harness_state: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(state)
+        for key in (
+            "status",
+            "pid",
+            "returncode",
+            "heartbeat_at",
+            "last_progress_at",
+            "last_progress_event_id",
+            "last_artifact_mtime",
+            "stale_reason",
+        ):
+            value = harness_state.get(key)
+            if value not in (None, "", 0, 0.0):
+                merged[key] = value
+        if harness_state.get("summary"):
+            merged["summary"] = dict(harness_state.get("summary") or {})
+        if float(harness_state.get("ended_at") or 0.0) > 0:
+            merged["ended_at"] = float(harness_state.get("ended_at") or 0.0)
+        return merged
 
     def _load_state(self, output_dir: Path) -> dict[str, Any] | None:
         payload = read_json_file(self._state_path(output_dir), None)

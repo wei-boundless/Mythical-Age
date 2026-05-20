@@ -40,7 +40,11 @@ export function TaskGraphExecutionPackagePanel({
   runtimeSpecError?: string;
 }) {
   const graphUnitExecutionPlans = executionPackage?.graph_unit_execution_plans ?? [];
+  const splitPlans = executionPackage?.split_plans ?? [];
+  const splitMergeIssues = executionPackage?.split_merge_issues ?? [];
   const objectTraceIndex = executionPackage?.object_trace_index ?? [];
+  const splitLifecycleCount = Number(executionPackage?.summary.split_batch_lifecycle_plan_count ?? 0);
+  const splitLifecycleStepCount = Number(executionPackage?.summary.split_batch_lifecycle_step_count ?? 0);
 
   return (
     <section className="boundary-card">
@@ -53,6 +57,10 @@ export function TaskGraphExecutionPackagePanel({
             <p><span>GraphUnit</span><strong>{executionPackage.graph_units.length}</strong></p>
             <p><span>图节点契约</span><strong>{String(executionPackage.summary.graph_unit_handoff_contract_count ?? 0)}</strong></p>
             <p><span>子图计划</span><strong>{graphUnitExecutionPlans.length}</strong></p>
+            <p><span>批次计划</span><strong>{String(executionPackage.summary.split_plan_count ?? splitPlans.length)}</strong></p>
+            <p><span>批次数</span><strong>{String(executionPackage.summary.split_batch_count ?? 0)}</strong></p>
+            <p><span>批次生命周期</span><strong>{String(splitLifecycleCount)}</strong></p>
+            <p><span>生命周期步骤</span><strong>{String(splitLifecycleStepCount)}</strong></p>
             <p><span>对象追溯</span><strong>{String(executionPackage.summary.object_trace_count ?? objectTraceIndex.length)}</strong></p>
             <p><span>Scheduler Ready</span><strong>{String(executionPackage.summary.scheduler_ready_count ?? 0)}</strong></p>
             <p><span>Scheduler Blocked</span><strong>{String(executionPackage.summary.scheduler_blocked_count ?? 0)}</strong></p>
@@ -62,6 +70,91 @@ export function TaskGraphExecutionPackagePanel({
             <strong>{executionPackage.package_id}</strong>
             <span>这是一份发布前真实执行包：标准对象视图、契约清单、运行规格、调度影子态与节点装配来自同一份后端编译结果。</span>
           </div>
+          {splitPlans.length ? (
+            <section className="task-graph-runtime-spec-panel">
+              <header><strong>批次拆分计划</strong><span>contract_bindings.unit_batch / runtime.split_policy</span></header>
+              <div className="task-graph-preflight-list">
+                {splitPlans.map((plan, index) => {
+                  const batches = recordArrayValue(plan, "batches");
+                  const lifecyclePlans = recordArrayValue(plan, "batch_lifecycle_plans");
+                  const mergeReadinessPlan = recordValue(plan, "merge_readiness_plan") as Record<string, unknown> | null | undefined;
+                  const acceptance = recordValue(plan, "acceptance_policy") as Record<string, unknown> | null | undefined;
+                  const merge = recordValue(plan, "merge_policy") as Record<string, unknown> | null | undefined;
+                  const issues = recordArrayValue(plan, "issues");
+                  const valid = recordValue(plan, "valid") !== false && !issues.some((issue) => String((issue as Record<string, unknown>).severity ?? "error") === "error");
+                  const firstBatch = batches[0] as Record<string, unknown> | undefined;
+                  const lastBatch = batches[batches.length - 1] as Record<string, unknown> | undefined;
+                  const firstRange = recordValue(firstBatch, "range") as Record<string, unknown> | null | undefined;
+                  const lastRange = recordValue(lastBatch, "range") as Record<string, unknown> | null | undefined;
+                  return (
+                    <article className="task-graph-preflight-row task-graph-preflight-row--stacked" key={`${String(recordValue(plan, "plan_id") ?? index)}_split_plan`}>
+                      <span className={`task-graph-preflight-row__severity task-graph-preflight-row__severity--${valid ? "info" : "error"}`}>
+                        {valid ? "split_plan" : "blocked"}
+                      </span>
+                      <div>
+                        <strong>{String(recordValue(plan, "unit_kind") ?? "unit")} · {batches.length} 批</strong>
+                        <span>
+                          节点 {String(recordValue(plan, "node_id") ?? "-")} / 总量 {String(recordValue(plan, "requested_count") ?? 0)} / 每批 {String(recordValue(plan, "batch_size") ?? 0)}
+                        </span>
+                        <small>
+                          范围 {String(recordValue(firstRange, "label") ?? "-")} 至 {String(recordValue(lastRange, "label") ?? "-")}；
+                          验收 {String(recordValue(acceptance, "mode") ?? "-")} / 合并 {String(recordValue(merge, "mode") ?? "-")}
+                        </small>
+                        {lifecyclePlans.length ? (
+                          <div className="task-graph-batch-lifecycle-preview">
+                            {lifecyclePlans.slice(0, 4).map((lifecyclePlan, lifecycleIndex) => {
+                              const lifecycleRecord = lifecyclePlan as Record<string, unknown>;
+                              const steps = recordArrayValue(lifecycleRecord, "steps");
+                              return (
+                                <p key={`${String(recordValue(lifecycleRecord, "plan_id") ?? lifecycleIndex)}_lifecycle`}>
+                                  <span>{String(recordValue(lifecycleRecord, "batch_id") ?? `batch_${lifecycleIndex + 1}`)}</span>
+                                  <strong>
+                                    {steps.map((step) => String(recordValue(step as Record<string, unknown>, "step_type") ?? "step")).join(" -> ")}
+                                  </strong>
+                                </p>
+                              );
+                            })}
+                            {lifecyclePlans.length > 4 ? <em>另有 {lifecyclePlans.length - 4} 个批次生命周期</em> : null}
+                          </div>
+                        ) : null}
+                        {mergeReadinessPlan ? (
+                          <small>
+                            Merge {String(recordValue(mergeReadinessPlan, "ready_condition") ?? "-")}；
+                            只消费 {String(recordValue(recordValue(mergeReadinessPlan, "metadata") as Record<string, unknown> | null | undefined, "merge_consumes") ?? "committed packet")}
+                          </small>
+                        ) : null}
+                        {issues.length ? (
+                          <small>{issues.map((issue) => String((issue as Record<string, unknown>).code ?? "split_issue")).join(" / ")}</small>
+                        ) : null}
+                      </div>
+                      <em>{String(recordValue(plan, "plan_id") ?? "")}</em>
+                      <small>{String(recordValue(recordValue(plan, "metadata") as Record<string, unknown> | null | undefined, "source_path") ?? "contract_bindings")}</small>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+          {splitMergeIssues.length ? (
+            <section className="task-graph-runtime-spec-panel">
+              <header><strong>批次契约问题</strong><span>Split / Review / Merge diagnostics</span></header>
+              <div className="task-graph-preflight-list">
+                {splitMergeIssues.slice(0, 8).map((issue, index) => (
+                  <article className="task-graph-preflight-row" key={`${String(recordValue(issue, "code") ?? "split_issue")}_${index}`}>
+                    <span className={`task-graph-preflight-row__severity task-graph-preflight-row__severity--${String(recordValue(issue, "severity") ?? "error")}`}>
+                      {String(recordValue(issue, "severity") ?? "error")}
+                    </span>
+                    <div>
+                      <strong>{String(recordValue(issue, "code") ?? "split_issue")}</strong>
+                      <span>{String(recordValue(issue, "message") ?? "批次契约问题")}</span>
+                    </div>
+                    <em>{String(recordValue(issue, "node_id") ?? "")}</em>
+                    <small>{String(recordValue(issue, "plan_id") ?? "")}</small>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
           {executionPackage.node_runtime_assemblies.length ? (
             <div className="task-graph-preflight-list">
               {executionPackage.node_runtime_assemblies.slice(0, 6).map((assembly) => (

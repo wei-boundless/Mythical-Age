@@ -26,7 +26,12 @@ import { isTaskGraphPublishedState, taskGraphPublishStateLabel, type TaskGraphPu
 import { focusForPreflightIssue, focusTargetLabel } from "./taskGraphEditorFocus";
 import { buildTaskGraphPreflightReport } from "./taskGraphPreflight";
 import type { TaskGraphPreflightIssue } from "./taskGraphPreflight";
-import { buildTaskGraphSchedulerSummary, schedulerStateFromTrace } from "./taskGraphRuntimeView";
+import {
+  batchLifecycleFromTrace,
+  buildTaskGraphBatchLifecycleSummary,
+  buildTaskGraphSchedulerSummary,
+  schedulerStateFromTrace,
+} from "./taskGraphRuntimeView";
 
 function repairActionLabel(issue: TaskGraphPreflightIssue) {
   if (issue.source === "frontend.preflight.prompt_semantics") return "补全职责字段";
@@ -137,6 +142,7 @@ export function TaskGraphPublishRunPage({
   const taskGraphRuns = taskGraphRunsFromTrace(runTrace);
   const runStatusLabel = latestRunStatus || (publishState === "run_bound" ? "bound" : published ? "ready" : "draft");
   const schedulerSummary = buildTaskGraphSchedulerSummary(schedulerStateFromTrace(runTrace));
+  const batchLifecycleSummary = buildTaskGraphBatchLifecycleSummary(batchLifecycleFromTrace(runTrace));
   const preflightReport = buildTaskGraphPreflightReport({
     dirty,
     editorIssueCount,
@@ -156,6 +162,7 @@ export function TaskGraphPublishRunPage({
   );
   const boundTemporal = taskGraphBoundRunMonitor?.temporal;
   const boundTemporalViolations = boundTemporal?.violations ?? [];
+  const boundBatchLifecycleSummary = buildTaskGraphBatchLifecycleSummary(taskGraphBoundRunMonitor?.batch_lifecycle);
   async function compileRuntimeSpec() {
     if (!graphId) return;
     setRuntimeSpecLoading(true);
@@ -437,6 +444,39 @@ export function TaskGraphPublishRunPage({
                 <span>新运行会在任务图运行 diagnostics 中写入 shadow scheduler state，用于观察 phase、node 和 edge 的调度判断。</span>
               </div>
             )}
+            {batchLifecycleSummary.available ? (
+              <section className="task-graph-runtime-spec-panel">
+                <header><strong>批次生命周期</strong><span>{batchLifecycleSummary.mode || "active"}</span></header>
+                <div className="task-graph-mini-kv">
+                  <p><span>Plan</span><strong>{batchLifecycleSummary.summary.plan_count ?? batchLifecycleSummary.plans.length}</strong></p>
+                  <p><span>Batch</span><strong>{batchLifecycleSummary.summary.batch_count ?? batchLifecycleSummary.batches.length}</strong></p>
+                  <p><span>Ready</span><strong>{batchLifecycleSummary.summary.ready_batch_count ?? batchLifecycleSummary.ready_batch_ids.length}</strong></p>
+                  <p><span>Running</span><strong>{batchLifecycleSummary.summary.running_batch_count ?? batchLifecycleSummary.running_batch_ids.length}</strong></p>
+                  <p><span>Committed</span><strong>{batchLifecycleSummary.summary.committed_batch_count ?? batchLifecycleSummary.committed_batch_ids.length}</strong></p>
+                  <p><span>Failed</span><strong>{batchLifecycleSummary.summary.failed_batch_count ?? batchLifecycleSummary.failed_batch_ids.length}</strong></p>
+                  <p><span>Merge Ready</span><strong>{batchLifecycleSummary.summary.merge_ready_count ?? 0}</strong></p>
+                  <p><span>Instance</span><strong>{batchLifecycleSummary.summary.execution_instance_count ?? batchLifecycleSummary.execution_instances.length}</strong></p>
+                  <p><span>Active Exec</span><strong>{Object.values(batchLifecycleSummary.active_execution_by_node).filter(Boolean).length}</strong></p>
+                </div>
+                <div className="task-graph-batch-runtime-list">
+                  {batchLifecycleSummary.batches.slice(0, 8).map((batch, index) => {
+                    const range = typeof batch.range === "object" && batch.range !== null ? batch.range as Record<string, unknown> : {};
+                    return (
+                      <article className="task-graph-batch-runtime-row" key={`${String(batch.batch_id ?? "batch")}_${index}`}>
+                        <span className={`task-graph-batch-runtime-row__status task-graph-batch-runtime-row__status--${String(batch.status ?? "planned")}`}>
+                          {String(batch.status ?? "planned")}
+                        </span>
+                        <div>
+                          <strong>{String(batch.batch_id ?? `batch_${index + 1}`)}</strong>
+                          <small>{String(batch.node_id ?? "-")} · {String(batch.unit_kind ?? "unit")} · {String(range.start ?? "-")}-{String(range.end ?? "-")}</small>
+                        </div>
+                        <em>#{String(batch.sequence_index ?? index + 1)}</em>
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
             <details className="task-graph-runtime-spec-details">
               <summary>Trace JSON</summary>
               <pre>{JSON.stringify({
@@ -489,7 +529,30 @@ export function TaskGraphPublishRunPage({
               <p><span>时序违规</span><strong>{boundTemporalViolations.length}</strong></p>
               <p><span>事件</span><strong>{taskGraphBoundRunMonitor.runtime?.event_count ?? 0}</strong></p>
               <p><span>流式</span><strong>{taskGraphBoundRunMonitor.streaming?.enabled ? `${taskGraphBoundRunMonitor.streaming.chunk_count} 片 / ${taskGraphBoundRunMonitor.streaming.accumulated_chars} 字` : "未启用"}</strong></p>
+              <p><span>批次</span><strong>{boundBatchLifecycleSummary.available ? `${boundBatchLifecycleSummary.summary.committed_batch_count ?? 0}/${boundBatchLifecycleSummary.summary.batch_count ?? 0}` : "未配置"}</strong></p>
+              <p><span>Merge</span><strong>{boundBatchLifecycleSummary.available ? String(boundBatchLifecycleSummary.summary.merge_ready_count ?? 0) : "-"}</strong></p>
+              <p><span>实例</span><strong>{boundBatchLifecycleSummary.available ? String(boundBatchLifecycleSummary.summary.execution_instance_count ?? boundBatchLifecycleSummary.execution_instances.length) : "-"}</strong></p>
+              <p><span>活跃实例</span><strong>{boundBatchLifecycleSummary.available ? String(Object.values(boundBatchLifecycleSummary.active_execution_by_node).filter(Boolean).length) : "-"}</strong></p>
             </div>
+            {boundBatchLifecycleSummary.available ? (
+              <div className="task-graph-batch-runtime-list">
+                {boundBatchLifecycleSummary.batches.slice(0, 6).map((batch, index) => {
+                  const range = typeof batch.range === "object" && batch.range !== null ? batch.range as Record<string, unknown> : {};
+                  return (
+                    <article className="task-graph-batch-runtime-row" key={`${String(batch.batch_id ?? "batch")}_${index}_bound`}>
+                      <span className={`task-graph-batch-runtime-row__status task-graph-batch-runtime-row__status--${String(batch.status ?? "planned")}`}>
+                        {String(batch.status ?? "planned")}
+                      </span>
+                      <div>
+                        <strong>{String(batch.batch_id ?? `batch_${index + 1}`)}</strong>
+                        <small>{String(batch.unit_kind ?? "unit")} · {String(range.start ?? "-")}-{String(range.end ?? "-")}</small>
+                      </div>
+                      <em>#{String(batch.sequence_index ?? index + 1)}</em>
+                    </article>
+                  );
+                })}
+              </div>
+            ) : null}
             {boundTemporalViolations.length ? (
               <div className="task-graph-preflight-list">
                 {boundTemporalViolations.slice(0, 4).map((issue, index) => (

@@ -43,6 +43,12 @@ class AgentRuntimeChainAssembler:
         task_selection_payload = dict(task_selection or {})
         effective_agent_runtime_profile = agent_runtime_profile
         selected_agent_id = normalize_agent_id(str(task_selection_payload.get("agent_id") or "").strip())
+        task_default_agent_id = _resolve_task_selection_default_agent_id(
+            self.base_dir,
+            task_selection=task_selection_payload,
+        )
+        if not selected_agent_id and task_default_agent_id:
+            selected_agent_id = task_default_agent_id
         if selected_agent_id:
             task_selection_payload["agent_id"] = selected_agent_id
         if effective_agent_runtime_profile is None:
@@ -479,6 +485,39 @@ def _align_understanding_with_explicit_task_selection(
     )
     query_understanding.structural_signals = signals
     return query_understanding
+
+
+def _resolve_task_selection_default_agent_id(
+    base_dir: Path,
+    *,
+    task_selection: dict[str, Any],
+) -> str:
+    selected_task_id = str(
+        task_selection.get("selected_task_id")
+        or task_selection.get("task_id")
+        or task_selection.get("specific_task_id")
+        or task_selection.get("task_assignment_id")
+        or ""
+    ).strip()
+    if not selected_task_id:
+        return ""
+    registry = TaskFlowRegistry(base_dir)
+    adoption_plan = registry.get_task_agent_adoption_plan(selected_task_id)
+    if adoption_plan is not None:
+        agent_id = normalize_agent_id(str(adoption_plan.default_agent_id or "").strip())
+        if agent_id:
+            return agent_id
+    record = registry.get_specific_task_record(selected_task_id)
+    if record is not None:
+        flow_id = str(record.default_flow_contract_id or f"flow.{selected_task_id.removeprefix('task.')}").strip()
+        flow = registry.get_flow(flow_id)
+        agent_id = normalize_agent_id(str(getattr(flow, "default_agent_id", "") or "").strip())
+        if agent_id:
+            return agent_id
+    general_profile = registry.get_general_task_profile(selected_task_id)
+    if general_profile is not None:
+        return normalize_agent_id(str(general_profile.default_agent_id or "").strip())
+    return ""
 
 
 def _resolve_skill_frame(skill_registry: Any | None, task_frame: Any) -> Any | None:

@@ -21241,6 +21241,13 @@ html[data-soul="xuannv"] .soul-portrait__label {
   .coordination-mechanism-console__tabs {
     grid-template-columns: minmax(0, 1fr);
   }
+
+  .health-workbench-runtime,
+  .health-evidence-packet-strip,
+  .health-regression-sample-board,
+  .health-regression-sample-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .health-command-strip,
@@ -21257,6 +21264,248 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .health-command-strip--overview {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.health-workbench-runtime {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(320px, 1.25fr) minmax(240px, 0.9fr);
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.health-workbench-runtime__panel,
+.health-evidence-packet-strip article {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: var(--radius-block);
+  background:
+    radial-gradient(circle at top left, color-mix(in srgb, var(--color-soul) 12%, transparent), transparent 36%),
+    color-mix(in srgb, var(--color-panel-strong) 94%, transparent);
+  padding: 1rem;
+}
+
+.health-workbench-runtime__panel {
+  display: grid;
+  align-content: start;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.health-workbench-runtime__panel--chain {
+  border-color: color-mix(in srgb, var(--color-soul) 34%, var(--color-border));
+}
+
+.health-diagnosis-stack,
+.health-recovery-stack {
+  display: grid;
+  gap: 0.62rem;
+}
+
+.health-diagnosis-card,
+.health-recovery-card {
+  display: grid;
+  gap: 0.36rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  border-radius: var(--radius-inner);
+  background: rgba(255, 255, 255, 0.026);
+  padding: 0.78rem;
+}
+
+.health-diagnosis-card > div {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.health-diagnosis-card strong,
+.health-recovery-card strong,
+.health-failure-chain strong,
+.health-evidence-packet-strip strong {
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.health-diagnosis-card p,
+.health-recovery-card p,
+.health-failure-chain p,
+.health-evidence-packet-strip p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.health-diagnosis-card em,
+.health-recovery-card em,
+.health-failure-chain__refs span {
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  font-style: normal;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.health-failure-chain {
+  display: grid;
+  gap: 0.78rem;
+}
+
+.health-failure-chain__refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.health-failure-chain__refs span {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.24rem 0.52rem;
+}
+
+.health-failure-chain ol {
+  display: grid;
+  gap: 0.52rem;
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.health-failure-chain li {
+  padding-left: 0.2rem;
+}
+
+.health-evidence-packet-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.health-evidence-packet-strip article {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.health-evidence-packet-strip span {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.health-regression-sample-board {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.health-regression-sample-board__hero,
+.health-regression-sample-card {
+  border: 1px solid color-mix(in srgb, var(--color-warning) 22%, var(--color-border));
+  border-radius: var(--radius-block);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-warning) 10%, transparent), transparent 42%),
+    color-mix(in srgb, var(--color-panel-strong) 94%, transparent);
+  padding: 1rem;
+}
+
+.health-regression-sample-board__hero {
+  display: grid;
+  gap: 0.8rem;
+  align-content: space-between;
+}
+
+.health-regression-sample-board__hero span,
+.health-regression-sample-card em {
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  font-style: normal;
+}
+
+.health-regression-sample-board__hero > div:first-child span {
+  color: var(--color-warning);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.health-regression-sample-board__hero strong {
+  color: var(--color-text);
+  font-size: clamp(2rem, 5vw, 3.8rem);
+  line-height: 0.92;
+}
+
+.health-regression-sample-board__hero p,
+.health-regression-sample-card p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.health-regression-sample-board__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.health-regression-sample-board__actions,
+.health-regression-sample-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.health-regression-sample-board__actions em {
+  color: var(--color-text-muted);
+  font-size: 0.74rem;
+  font-style: normal;
+}
+
+.health-regression-sample-board__stats span {
+  border: 1px solid color-mix(in srgb, var(--color-warning) 20%, var(--color-border));
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0.24rem 0.55rem;
+}
+
+.health-regression-sample-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.72rem;
+}
+
+.health-regression-sample-card {
+  display: grid;
+  gap: 0.46rem;
+  min-width: 0;
+  border-radius: var(--radius-inner);
+}
+
+.health-regression-sample-card > div {
+  display: flex;
+  gap: 0.46rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.health-regression-sample-card strong {
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.health-regression-sample-card code {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 0.7rem;
+  background: rgba(0, 0, 0, 0.18);
+  color: color-mix(in srgb, var(--color-warning) 75%, var(--color-text));
+  font-size: 0.72rem;
+  padding: 0.45rem 0.55rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .health-status-panel {
@@ -26690,6 +26939,135 @@ html[data-soul="xuannv"] .soul-portrait__label {
   font-weight: 850;
   padding: 0.12rem 0.32rem;
   white-space: nowrap;
+}
+
+.task-graph-batch-contract {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.task-graph-batch-lifecycle-preview {
+  display: grid;
+  gap: 0.26rem;
+  margin-top: 0.32rem;
+  min-width: 0;
+}
+
+.task-graph-batch-lifecycle-preview p {
+  display: grid;
+  grid-template-columns: minmax(6rem, 0.35fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 0.42rem;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.018);
+  padding: 0.3rem 0.4rem;
+}
+
+.task-graph-batch-lifecycle-preview span {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 0.58rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-batch-lifecycle-preview strong {
+  overflow: hidden;
+  color: var(--color-text-soft);
+  font-size: 0.6rem;
+  font-weight: 760;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-batch-lifecycle-preview em {
+  color: var(--color-text-muted);
+  font-size: 0.56rem;
+  font-style: normal;
+}
+
+.task-graph-batch-runtime-list {
+  display: grid;
+  gap: 0.36rem;
+  margin-top: 0.55rem;
+  min-width: 0;
+}
+
+.task-graph-batch-runtime-row {
+  display: grid;
+  grid-template-columns: minmax(5.6rem, max-content) minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.018);
+  padding: 0.38rem 0.46rem;
+  min-width: 0;
+}
+
+.task-graph-batch-runtime-row > div {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.task-graph-batch-runtime-row strong,
+.task-graph-batch-runtime-row small,
+.task-graph-batch-runtime-row em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-graph-batch-runtime-row strong {
+  color: var(--color-text);
+  font-size: 0.66rem;
+  font-weight: 850;
+}
+
+.task-graph-batch-runtime-row small,
+.task-graph-batch-runtime-row em {
+  color: var(--color-text-muted);
+  font-size: 0.58rem;
+  font-style: normal;
+}
+
+.task-graph-batch-runtime-row__status {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-text-soft);
+  font-size: 0.56rem;
+  font-weight: 850;
+  padding: 0.16rem 0.42rem;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.task-graph-batch-runtime-row__status--committed {
+  border-color: color-mix(in srgb, var(--color-success) 36%, var(--color-border));
+  color: var(--color-success);
+}
+
+.task-graph-batch-runtime-row__status--running,
+.task-graph-batch-runtime-row__status--repairing {
+  border-color: color-mix(in srgb, var(--color-accent) 38%, var(--color-border));
+  color: var(--color-accent);
+}
+
+.task-graph-batch-runtime-row__status--ready,
+.task-graph-batch-runtime-row__status--repair_ready {
+  border-color: color-mix(in srgb, var(--color-warning) 36%, var(--color-border));
+  color: var(--color-warning);
+}
+
+.task-graph-batch-runtime-row__status--failed {
+  border-color: color-mix(in srgb, var(--color-danger) 42%, var(--color-border));
+  color: var(--color-danger);
 }
 
 .task-graph-composer-dock {

@@ -810,6 +810,14 @@ class CoordinationRunContinueRequest(BaseModel):
     current_turn_context: dict[str, Any] = Field(default_factory=dict)
 
 
+class CoordinationRunDispatchReadyBatchesRequest(BaseModel):
+    source: str = Field(default="orchestration.coordination_run_dispatch_ready_batches_api", max_length=180)
+    current_turn_context: dict[str, Any] = Field(default_factory=dict)
+    max_requests: int = Field(default=4, ge=1, le=32)
+    include_current_request: bool = True
+    execute_background: bool = False
+
+
 class CoordinationRunRewindRequest(BaseModel):
     stage_id: str = Field(..., min_length=1, max_length=180)
     reason: str = Field(default="stage_output_invalid", max_length=180)
@@ -1642,6 +1650,70 @@ async def get_coordination_run_task_graph_monitor(coordination_run_id: str) -> d
     if monitor is None:
         raise HTTPException(status_code=404, detail="CoordinationRun task graph monitor not found")
     return monitor
+
+
+@router.post("/orchestration/coordination-runs/{coordination_run_id}/dispatch-ready-batches")
+async def dispatch_coordination_ready_batches(
+    coordination_run_id: str,
+    payload: CoordinationRunDispatchReadyBatchesRequest,
+) -> dict[str, Any]:
+    from orchestration.runtime_loop.node_execution_request import NodeExecutionRequest
+
+    runtime = require_runtime()
+    task_run_loop = runtime.query_runtime.task_run_loop
+    coordination_run = task_run_loop.state_index.get_coordination_run(coordination_run_id)
+    if coordination_run is None:
+        raise HTTPException(status_code=404, detail="CoordinationRun not found")
+    task_run = task_run_loop.state_index.get_task_run(coordination_run.task_run_id)
+    session_id = str(getattr(task_run, "session_id", "") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=409, detail="CoordinationRun root TaskRun has no session_id")
+    result = task_run_loop.langgraph_coordination_runtime.dispatch_ready_batch_requests(
+        coordination_run=coordination_run,
+        max_requests=payload.max_requests,
+        include_current_request=payload.include_current_request,
+        checkpoint_reason="dispatch_ready_batches_api",
+    )
+    if result.diagnostics.get("reason") == "missing_checkpoint":
+        raise HTTPException(status_code=409, detail="CoordinationRun has no LangGraph checkpoint")
+    requests = [dict(item) for item in list(result.diagnostics.get("stage_execution_requests") or []) if isinstance(item, dict)]
+    schedule_results: list[dict[str, Any]] = []
+    if payload.execute_background:
+        for request_payload in requests:
+            request = NodeExecutionRequest.from_dict(request_payload)
+            schedule_results.append(
+                _schedule_stage_execution_background(
+                    runtime=runtime,
+                    session_id=session_id,
+                    source=payload.source,
+                    stage_execution_request=request,
+                    current_turn_context={
+                        "authority": "context.coordination_run_dispatch_ready_batches",
+                        "coordination_run_id": coordination_run_id,
+                        "task_graph_id": coordination_run.graph_ref,
+                        "selected_graph_id": coordination_run.graph_ref,
+                        "explicit_inputs": dict(request_payload.get("explicit_inputs") or {}),
+                        **dict(payload.current_turn_context or {}),
+                    },
+                )
+            )
+    return {
+        "authority": "orchestration.coordination_run_dispatch_ready_batches",
+        "coordination_run_id": coordination_run_id,
+        "task_run_id": coordination_run.task_run_id,
+        "session_id": session_id,
+        "checkpoint_ref": result.checkpoint_ref,
+        "stage_execution_requests": requests,
+        "request_count": len(requests),
+        "execute_background": payload.execute_background,
+        "background_started_count": sum(1 for item in schedule_results if bool(item.get("background_started"))),
+        "stage_execution_schedules": schedule_results,
+        "batch_dispatcher": dict(result.diagnostics.get("batch_dispatcher") or {}),
+        "events": [
+            event.to_dict() if hasattr(event, "to_dict") else dict(event)
+            for event in result.events
+        ],
+    }
 
 
 @router.post("/orchestration/coordination-runs/{coordination_run_id}/resume")

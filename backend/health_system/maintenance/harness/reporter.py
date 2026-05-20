@@ -131,6 +131,19 @@ def render_markdown(run_result: RunResult) -> str:
             trace_url = str(result.details.get("trace_url", "") or "")
             if trace_url:
                 lines.append(f"  trace: {trace_url}")
+            evidence_refs = [
+                str(item)
+                for item in list(result.details.get("evidence_refs") or result.details.get("evidence_packet_refs") or [])
+                if str(item).strip()
+            ]
+            if evidence_refs:
+                lines.append(f"  evidence: {', '.join(f'`{item}`' for item in evidence_refs[:5])}")
+            rerun = str(result.details.get("rerun_command") or result.command or "").strip()
+            if rerun:
+                lines.append(f"  rerun: `{rerun}`")
+            recovery = str(result.details.get("recovery_suggestion") or "").strip()
+            if recovery:
+                lines.append(f"  recovery: {recovery}")
 
     if run_result.issues:
         lines.extend(["", "## Issues", ""])
@@ -138,6 +151,28 @@ def render_markdown(run_result: RunResult) -> str:
             lines.append(f"- `{issue.severity}` `{issue.category}` `{issue.id}`: {issue.summary}")
             if issue.trace_url:
                 lines.append(f"  trace: {issue.trace_url}")
+
+    harness_state = dict(run_result.metadata.get("harness_state") or {})
+    if harness_state:
+        lines.extend(["", "## Harness State", ""])
+        lines.append(f"- status: `{harness_state.get('status') or 'unknown'}`")
+        lines.append(f"- heartbeat_at: `{harness_state.get('heartbeat_at') or 0}`")
+        lines.append(f"- last_progress_event_id: `{harness_state.get('last_progress_event_id') or ''}`")
+        if harness_state.get("stale_reason"):
+            lines.append(f"- stale_reason: {harness_state.get('stale_reason')}")
+
+    evidence_packets = [
+        dict(item)
+        for item in list(run_result.metadata.get("evidence_packets") or [])
+        if isinstance(item, dict)
+    ]
+    if evidence_packets:
+        lines.extend(["", "## Useful Evidence", ""])
+        for packet in evidence_packets[:5]:
+            lines.append(
+                f"- `{packet.get('packet_id') or 'evidence'}`: "
+                f"{packet.get('summary') or packet.get('verdict') or ''}"
+            )
 
     lines.extend(["", "## Artifacts", ""])
     for name, path in sorted(run_result.artifacts.items()):

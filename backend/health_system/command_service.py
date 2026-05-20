@@ -19,6 +19,10 @@ class HealthCommandService:
         *,
         task_run_loop: Any | None = None,
         model_response_executor: Any | None = None,
+        agent_runtime_chain: Any | None = None,
+        runtime_context_manager: Any | None = None,
+        tool_runtime_executor: Any | None = None,
+        tool_instances: list[Any] | None = None,
         test_system_service: Any | None = None,
     ) -> dict[str, Any]:
         command = self.registry.command_builder.build_command(payload)
@@ -28,6 +32,10 @@ class HealthCommandService:
                 command,
                 task_run_loop=task_run_loop,
                 model_response_executor=model_response_executor,
+                agent_runtime_chain=agent_runtime_chain,
+                runtime_context_manager=runtime_context_manager,
+                tool_runtime_executor=tool_runtime_executor,
+                tool_instances=tool_instances,
                 test_system_service=test_system_service,
             )
         except Exception as exc:
@@ -55,6 +63,10 @@ class HealthCommandService:
         *,
         task_run_loop: Any | None,
         model_response_executor: Any | None,
+        agent_runtime_chain: Any | None,
+        runtime_context_manager: Any | None,
+        tool_runtime_executor: Any | None,
+        tool_instances: list[Any] | None,
         test_system_service: Any | None,
     ) -> dict[str, Any]:
         if command.command_type == "report_issue":
@@ -114,7 +126,12 @@ class HealthCommandService:
                     diagnostics={"admission": admission.to_dict()},
                 )
                 return self.registry._complete_command(command, receipt=receipt)
-            if task_run_loop is None or model_response_executor is None:
+            if (
+                task_run_loop is None
+                or model_response_executor is None
+                or agent_runtime_chain is None
+                or runtime_context_manager is None
+            ):
                 receipt = self.registry.command_builder.build_receipt(
                     command=command,
                     accepted=False,
@@ -144,6 +161,10 @@ class HealthCommandService:
                 source=command.source or "health_management_command",
                 task_run_loop=task_run_loop,
                 model_response_executor=model_response_executor,
+                agent_runtime_chain=agent_runtime_chain,
+                runtime_context_manager=runtime_context_manager,
+                tool_runtime_executor=tool_runtime_executor,
+                tool_instances=tool_instances,
             )
             health_run = dict(run_result.get("health_agent_run") or {})
             report = self.registry.command_builder.build_report(

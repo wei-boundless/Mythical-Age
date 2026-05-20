@@ -34,6 +34,48 @@ def evaluate_turn_assertion(payload: dict[str, Any], assertion: str) -> Assertio
     if expression.startswith("response.not_contains_any="):
         variants = [item for item in expression.split("=", 1)[1].split("|") if item]
         return _pass(expression, not any(item in response_text for item in variants), actual=response_text[:160])
+    if expression.startswith("plan.route="):
+        expected = expression.split("=", 1)[1]
+        actual = str(result.get("plan_route") or dict(payload.get("plan") or {}).get("route") or "")
+        return _pass(expression, actual == expected, actual=actual)
+    if expression.startswith("plan.tool="):
+        expected = expression.split("=", 1)[1]
+        actual = str(result.get("plan_tool") or dict(payload.get("plan") or {}).get("tool") or "")
+        return _pass(expression, actual == expected, actual=actual)
+    if expression.startswith("plan.mcp="):
+        expected = expression.split("=", 1)[1]
+        actual = str(result.get("plan_mcp") or dict(payload.get("plan") or {}).get("mcp") or "")
+        return _pass(expression, actual == expected, actual=actual)
+    if expression.startswith("plan.skill="):
+        expected = expression.split("=", 1)[1]
+        actual = str(result.get("plan_skill") or dict(payload.get("plan") or {}).get("skill") or "")
+        return _pass(expression, actual == expected, actual=actual)
+    if expression.startswith("plan.execution_mode="):
+        expected = expression.split("=", 1)[1]
+        actual = str(result.get("execution_mode") or dict(payload.get("plan") or {}).get("execution_mode") or "")
+        return _pass(expression, actual == expected, actual=actual)
+    if expression.startswith("plan.bundle_items="):
+        expected = _safe_int(expression.split("=", 1)[1])
+        actual = int(result.get("bundle_item_count") or dict(payload.get("plan") or {}).get("bundle_item_count") or 0)
+        return _pass(expression, actual == expected, actual=actual)
+    if expression.startswith("event.tool="):
+        expected = expression.split("=", 1)[1]
+        tool_names = _tool_names_from_payload(payload)
+        return _pass(expression, expected in tool_names, actual=tool_names)
+    if expression.startswith("event="):
+        expected = expression.split("=", 1)[1]
+        event_names = _event_names_from_payload(payload)
+        runtime_event_names = [str(item.get("event_type") or "") for item in events]
+        return _pass(expression, expected in event_names or expected in runtime_event_names, actual={"events": event_names, "runtime_events": runtime_event_names})
+    if expression.startswith("negative.absent_event="):
+        expected = expression.split("=", 1)[1]
+        event_names = _event_names_from_payload(payload)
+        runtime_event_names = [str(item.get("event_type") or "") for item in events]
+        return _pass(expression, expected not in event_names and expected not in runtime_event_names, actual={"events": event_names, "runtime_events": runtime_event_names})
+    if expression == "evidence.selected.nonempty":
+        packet = dict(payload.get("evidence_packet") or {})
+        actual = list(packet.get("selected_evidence") or [])
+        return _pass(expression, bool(actual), actual=actual[:3])
     if expression.startswith("loop.event="):
         expected = expression.split("=", 1)[1]
         actual = [str(item.get("event_type") or "") for item in events]
@@ -102,3 +144,39 @@ def _done_content(payload: dict[str, Any]) -> str:
             continue
         return str(dict(item.get("data") or {}).get("content") or "")
     return ""
+
+
+def _event_names_from_payload(payload: dict[str, Any]) -> list[str]:
+    names = [
+        str(item.get("event") or "")
+        for item in list(payload.get("events") or [])
+        if isinstance(item, dict) and str(item.get("event") or "")
+    ]
+    return names
+
+
+def _tool_names_from_payload(payload: dict[str, Any]) -> list[str]:
+    result = dict(payload.get("result") or {})
+    names = [str(item) for item in list(result.get("tool_names") or []) if str(item).strip()]
+    for event in list(payload.get("events") or []):
+        if not isinstance(event, dict):
+            continue
+        data = dict(event.get("data") or {})
+        tool = str(data.get("tool") or "")
+        if tool and tool not in names:
+            names.append(tool)
+    for event in runtime_events_from_turn_payload(payload):
+        if str(event.get("event_type") or "") != "tool_call_requested":
+            continue
+        action_request = dict(dict(event.get("payload") or {}).get("action_request") or {})
+        tool = str(dict(action_request.get("payload") or {}).get("tool_name") or "")
+        if tool and tool not in names:
+            names.append(tool)
+    return names
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0

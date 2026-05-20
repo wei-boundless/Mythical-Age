@@ -32,8 +32,16 @@ class FakeTestSystemService:
         }
 
 
-async def _fake_health_executor_stream(*, user_message, model_messages, directive, tool_instances):
-    del model_messages, directive, tool_instances
+async def _fake_health_executor_stream(
+    *,
+    user_message,
+    model_messages,
+    directive,
+    tool_instances,
+    model_stream_policy=None,
+    model_spec=None,
+):
+    del model_messages, directive, tool_instances, model_stream_policy, model_spec
     yield {"type": "answer_candidate", "content": f"健康分析已收到：{user_message}"}
     yield {"type": "done", "content": f"健康分析已收到：{user_message}"}
 
@@ -165,6 +173,34 @@ def test_default_health_management_agent_configuration_is_bound_and_guarded(tmp_
     assert connection.default_runtime_lane_hint == "health_issue_read"
 
 
+def test_health_conversation_session_uses_orchestration_config_not_payload_overrides(tmp_path) -> None:
+    registry = HealthRegistry(tmp_path)
+    issue = registry.create_issue(
+        {
+            "title": "健康会话配置边界",
+            "owner_system": "health_system",
+            "severity": "medium",
+            "runtime_trace_refs": ["runtime-loop:test-session-config"],
+        }
+    )
+
+    session = registry.create_conversation_session(
+        {
+            "active_issue_ref": issue.issue_id,
+            "health_action": "issue_triage",
+            "agent_id": "agent:0",
+            "agent_profile_id": "main_interactive_agent",
+            "workflow_id": "workflow.fake.override",
+            "runtime_lane": "full_interactive",
+        }
+    )
+
+    assert session.agent_id == "agent:3"
+    assert session.agent_profile_id == "health_maintainer_agent"
+    assert session.workflow_id == "workflow.health.issue_triage"
+    assert session.runtime_lane == "health_issue_read"
+
+
 def test_health_conversation_message_returns_real_assistant_reply() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()
@@ -199,6 +235,25 @@ def test_health_conversation_message_returns_real_assistant_reply() -> None:
             assert payload["message"]["role"] == "user"
             assert payload["assistant_message"]["role"] == "assistant"
             assert "请分析这个问题" in payload["assistant_message"]["content"]
+            runs = [
+                item
+                for item in HealthRegistry(runtime.base_dir).list_agent_runs()
+                if item.issue_id == issue_id and item.metadata.get("runtime_execution_owner")
+            ]
+            assert runs
+            run = runs[-1]
+            assert run.agent_id == "agent:3"
+            assert run.agent_profile_id == "health_maintainer_agent"
+            assert run.metadata["runtime_execution_owner"] == "TaskRunLoop.run_single_agent_stream"
+            trace = runtime.query_runtime.task_run_loop.get_trace(run.task_run_id, include_payloads=True)
+            assert trace is not None
+            events = trace["events"]
+            assert any(item["event_type"] == "task_contract_built" for item in events)
+            assert any(item["event_type"] == "stage_projection_built" for item in events)
+            assert not any(
+                str(dict(item.get("payload") or {}).get("source") or "").startswith("health_system.agent_run")
+                for item in events
+            )
         finally:
             runtime.query_runtime.model_response_executor.stream = original_stream  # type: ignore[method-assign]
 

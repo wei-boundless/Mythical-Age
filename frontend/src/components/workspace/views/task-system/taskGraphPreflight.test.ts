@@ -395,4 +395,112 @@ describe("TaskGraph preflight", () => {
 
     expect(report.issues.filter((issue) => issue.source === "frontend.preflight.revision_packet")).toHaveLength(2);
   });
+
+  it("blocks invalid batch contract ranges before publishing", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [
+        {
+          node_id: "batch.worker",
+          agent_id: "agent.worker",
+          contract_bindings: {
+            unit_batch: { unit_kind: "record", requested_count: 0 },
+            runtime: { split_policy: { mode: "static_batch", batch_size: 0 } },
+          },
+        },
+      ],
+      edges: [],
+    });
+
+    expect(report.valid).toBe(false);
+    expect(report.issues.filter((issue) => issue.source === "frontend.preflight.batch_contract" && issue.severity === "error")).toHaveLength(2);
+  });
+
+  it("warns for risky batch acceptance and merge policies without blocking", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [
+        {
+          node_id: "batch.worker",
+          agent_id: "agent.worker",
+          contract_bindings: {
+            unit_batch: { unit_kind: "file", requested_count: 4 },
+            runtime: {
+              split_policy: { mode: "static_batch", batch_size: 10 },
+              batch_acceptance_policy: { mode: "auto_commit_without_review" },
+              merge_policy: { mode: "wait_all_committed", final_review_required: false },
+            },
+          },
+        },
+      ],
+      edges: [],
+    });
+
+    expect(report.valid).toBe(true);
+    expect(report.issues.some((issue) => issue.title === "每批数量大于总数量" && issue.severity === "info")).toBe(true);
+    expect(report.issues.some((issue) => issue.title === "批次配置为无审核提交" && issue.severity === "warning")).toBe(true);
+    expect(report.issues.some((issue) => issue.title === "批次合并关闭最终审核" && issue.severity === "warning")).toBe(true);
+  });
+
+  it("validates parallel batch execution policy before publishing", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [
+        {
+          node_id: "batch.worker",
+          agent_id: "agent.worker",
+          contract_bindings: {
+            unit_batch: { unit_kind: "record", requested_count: 8 },
+            runtime: {
+              split_policy: {
+                mode: "static_batch",
+                batch_size: 2,
+                child_execution_mode: "parallel",
+                max_parallel_batches: 3,
+              },
+              batch_acceptance_policy: { mode: "review_then_commit" },
+              merge_policy: { mode: "wait_all_committed" },
+            },
+          },
+        },
+      ],
+      edges: [],
+    });
+
+    expect(report.valid).toBe(true);
+    expect(report.issues.filter((issue) => issue.source === "frontend.preflight.batch_contract" && issue.severity === "error")).toHaveLength(0);
+  });
+
+  it("blocks parallel batch auto commit because it bypasses review before merge", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [
+        {
+          node_id: "batch.worker",
+          agent_id: "agent.worker",
+          contract_bindings: {
+            unit_batch: { unit_kind: "record", requested_count: 8 },
+            runtime: {
+              split_policy: { mode: "static_batch", batch_size: 2, child_execution_mode: "parallel" },
+              batch_acceptance_policy: { mode: "auto_commit_without_review" },
+              merge_policy: { mode: "wait_all_committed" },
+            },
+          },
+        },
+      ],
+      edges: [],
+    });
+
+    expect(report.valid).toBe(false);
+    expect(report.issues.some((issue) => issue.title === "并行批次不能无审核提交" && issue.severity === "error")).toBe(true);
+    expect(report.issues.some((issue) => issue.title === "并行批次使用默认上限" && issue.severity === "info")).toBe(true);
+  });
 });

@@ -1,24 +1,14 @@
 from __future__ import annotations
 
-import json
 import time
-from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from orchestration import (
-    ResourceDecision,
-    ResourcePolicy,
-    RuntimeDirective,
-    RuntimeLoopState,
-    build_task_run_final_commit_decision,
-)
 from project_layout import ProjectLayout
-from tasks.workflow_registry import TaskWorkflowRegistry
 
 from .command_builder import HealthCommandBuilder
 from .command_service import HealthCommandService
-from .constants import HEALTH_AGENT_ID, HEALTH_SESSION_ID
+from .constants import HEALTH_AGENT_ID, HEALTH_SESSION_ID, health_specific_task_id
 from .execution_planner import (
     build_health_agent_execution_plan,
     build_health_agent_run_preview,
@@ -197,7 +187,9 @@ class HealthRegistry:
 
     def create_conversation_session(self, payload: dict[str, Any]) -> HealthAgentConversationSession:
         now = time.time()
-        session_id = str(payload.get("session_id") or "").strip() or f"health-agent-session:{int(now * 1000)}"
+        session_id = _safe_health_runtime_id(
+            str(payload.get("session_id") or "").strip() or f"health-agent-session-{int(now * 1000)}"
+        )
         active_issue_ref = str(payload.get("active_issue_ref") or "").strip()
         active_run_ref = str(payload.get("active_run_ref") or "").strip()
         defaults = self._resolve_conversation_defaults(
@@ -207,10 +199,10 @@ class HealthRegistry:
         )
         session = HealthAgentConversationSession(
             session_id=session_id,
-            agent_id=str(payload.get("agent_id") or defaults["agent_id"] or HEALTH_AGENT_ID).strip(),
-            agent_profile_id=str(payload.get("agent_profile_id") or defaults["agent_profile_id"] or ""),
-            workflow_id=str(payload.get("workflow_id") or payload.get("skill_workflow_id") or defaults["workflow_id"] or ""),
-            runtime_lane=str(payload.get("runtime_lane") or defaults["runtime_lane"] or ""),
+            agent_id=str(defaults["agent_id"] or HEALTH_AGENT_ID).strip(),
+            agent_profile_id=str(defaults["agent_profile_id"] or ""),
+            workflow_id=str(defaults["workflow_id"] or ""),
+            runtime_lane=str(defaults["runtime_lane"] or ""),
             active_issue_ref=active_issue_ref,
             active_run_ref=active_run_ref,
             command_refs=tuple(str(item) for item in list(payload.get("command_refs") or [])),
@@ -230,7 +222,7 @@ class HealthRegistry:
         if not content:
             raise ValueError("HealthAgentConversationMessage requires content")
         message = HealthAgentConversationMessage(
-            message_id=str(payload.get("message_id") or "").strip() or f"health-agent-message:{int(now * 1000)}",
+            message_id=str(payload.get("message_id") or "").strip() or f"health-agent-message-{int(now * 1000)}",
             session_id=session.session_id,
             role=str(payload.get("role") or "user"),
             content=content,
@@ -249,6 +241,10 @@ class HealthRegistry:
         *,
         task_run_loop: Any,
         model_response_executor: Any,
+        agent_runtime_chain: Any,
+        runtime_context_manager: Any,
+        tool_runtime_executor: Any | None = None,
+        tool_instances: list[Any] | None = None,
     ) -> dict[str, Any]:
         session = self.get_conversation_session(session_id)
         if session is None:
@@ -262,6 +258,10 @@ class HealthRegistry:
             user_message=user_message,
             task_run_loop=task_run_loop,
             model_response_executor=model_response_executor,
+            agent_runtime_chain=agent_runtime_chain,
+            runtime_context_manager=runtime_context_manager,
+            tool_runtime_executor=tool_runtime_executor,
+            tool_instances=tool_instances,
         )
         self.store.append_conversation_message(assistant_message)
         return {"message": user_message, "assistant_message": assistant_message}
@@ -272,12 +272,20 @@ class HealthRegistry:
         *,
         task_run_loop: Any | None = None,
         model_response_executor: Any | None = None,
+        agent_runtime_chain: Any | None = None,
+        runtime_context_manager: Any | None = None,
+        tool_runtime_executor: Any | None = None,
+        tool_instances: list[Any] | None = None,
         test_system_service: Any | None = None,
     ) -> dict[str, Any]:
         return await self.command_service.submit_command(
             payload,
             task_run_loop=task_run_loop,
             model_response_executor=model_response_executor,
+            agent_runtime_chain=agent_runtime_chain,
+            runtime_context_manager=runtime_context_manager,
+            tool_runtime_executor=tool_runtime_executor,
+            tool_instances=tool_instances,
             test_system_service=test_system_service,
         )
 
@@ -360,145 +368,6 @@ class HealthRegistry:
         """Backward-compatible shim for older tests and callers."""
         return self._route_conversation_health_action(user_message=user_message, session=session)
 
-    def start_agent_run(
-        self,
-        *,
-        issue_id: str,
-        health_action: str = "issue_triage",
-        session_id: str = "health-system",
-        source: str = "health_system.manual",
-        task_run_loop: Any,
-    ) -> dict[str, Any]:
-        preview = self.preview_agent_run(issue_id=issue_id, health_action=health_action)
-        if preview["status"] != "ready":
-            return {
-                "authority": "health_system.agent_run_start",
-                "status": "blocked",
-                "reason": preview.get("reason") or "health agent run preview is not ready",
-                "preview": preview,
-            }
-
-        issue = dict(preview["issue"])
-        flow = dict(preview["flow"])
-        binding = dict(preview["binding"])
-        task_execution_assembly = dict(preview.get("task_execution_assembly") or {})
-        task_body_orchestration = dict(preview.get("task_body_orchestration") or {})
-        agent_runtime_spec = dict(preview.get("agent_runtime_spec") or {})
-        task_id = str(agent_runtime_spec.get("task_id") or f"task.health.{health_action}:{issue_id}")
-        task_contract_ref = str(task_execution_assembly.get("assembly_id") or task_id)
-        task_request = HealthTaskRequest(
-            request_id=f"health-task-request:{health_action}:{issue_id}",
-            issue_id=issue_id,
-            task_kind=health_action,
-            task_id=task_id,
-            flow_id=str(flow.get("flow_id") or ""),
-            required_evidence_refs=tuple(
-                item
-                for item in (
-                    str(issue.get("conversation_ref") or ""),
-                    *[str(item) for item in list(issue.get("runtime_trace_refs") or []) if str(item)],
-                    *[str(item) for item in list(issue.get("prompt_manifest_refs") or []) if str(item)],
-                )
-                if item
-            ),
-            requested_by=source,
-            created_at=time.time(),
-            metadata={"session_id": session_id or HEALTH_SESSION_ID},
-        )
-        self.store.upsert_task_request(task_request)
-        start = task_run_loop.start(
-            session_id=session_id or HEALTH_SESSION_ID,
-            task_id=task_id,
-            task_contract_ref=task_contract_ref,
-            agent_id=str(agent_runtime_spec.get("agent_id") or binding.get("agent_id") or "").strip(),
-            agent_profile_id=str(binding.get("agent_profile_id") or ""),
-            runtime_lane=str(agent_runtime_spec.get("runtime_lane") or binding.get("runtime_lane") or ""),
-            task_agent_binding_ref=str(binding.get("binding_id") or ""),
-            skill_workflow_ref=str(binding.get("workflow_id") or ""),
-            health_issue_ref=issue_id,
-            diagnostics={
-                "health_system_agent_run": True,
-                "health_issue_title": str(issue.get("title") or ""),
-                "health_issue_source": str(issue.get("source") or ""),
-                "health_run_source": source,
-                "health_action": health_action,
-                "flow_id": str(flow.get("flow_id") or ""),
-                "output_contract_id": str(binding.get("output_contract_id") or ""),
-                "memory_scope": str(binding.get("memory_scope") or ""),
-                "task_execution_assembly_ref": str(task_execution_assembly.get("assembly_id") or ""),
-                "task_body_orchestration_ref": str(task_body_orchestration.get("orchestration_id") or ""),
-                "runtime_spec_ref": str(agent_runtime_spec.get("runtime_spec_id") or ""),
-            },
-        )
-        task_run = start.task_run
-        events = tuple(start.events)
-        health_run = HealthAgentRun(
-            run_id=f"health-run:{task_run.task_run_id}",
-            request_id=task_request.request_id,
-            issue_id=issue_id,
-            task_run_id=task_run.task_run_id,
-            agent_id=task_run.agent_id,
-            agent_profile_id=task_run.agent_profile_id,
-            runtime_lane=task_run.runtime_lane,
-            health_action=health_action,
-            workflow_id=str(binding.get("workflow_id") or ""),
-            admission_status="accepted",
-            projection_id=str(task_body_orchestration.get("projection_ref") or ""),
-            prompt_manifest_id=str(task_body_orchestration.get("prompt_manifest_ref") or ""),
-            status=task_run.status,
-            terminal_reason=task_run.terminal_reason,
-            blocked_reasons=(),
-            report_refs=(),
-            trace_refs=(task_run.task_run_id,),
-            artifact_refs=(str(task_execution_assembly.get("assembly_id") or ""), str(task_body_orchestration.get("orchestration_id") or "")),
-            result_ref="",
-            created_at=task_run.created_at,
-            metadata={
-                "source": source,
-                "flow_id": str(flow.get("flow_id") or ""),
-                "task_contract_ref": task_contract_ref,
-                "task_agent_binding_ref": str(binding.get("binding_id") or ""),
-                "task_execution_assembly_ref": str(task_execution_assembly.get("assembly_id") or ""),
-                "task_body_orchestration_ref": str(task_body_orchestration.get("orchestration_id") or ""),
-                "runtime_spec_ref": str(agent_runtime_spec.get("runtime_spec_id") or ""),
-                "checkpoint_ref": task_run.latest_checkpoint_ref,
-                "latest_event_offset": task_run.latest_event_offset,
-                "event_count": len(events),
-                "real_runtime_loop_started": True,
-            },
-        )
-        self._upsert_agent_run(health_run)
-        trace = task_run_loop.get_trace(task_run.task_run_id, include_payloads=True, include_model_messages=False)
-        return {
-            "authority": "health_system.agent_run_start",
-            "status": "running",
-            "task_request": task_request.to_dict(),
-            "health_agent_run": health_run.to_dict(),
-            "task_run": task_run.to_dict(),
-            "loop_state": start.loop_state.to_dict(),
-            "checkpoint": start.checkpoint.to_dict(),
-            "events": [dict(item) for item in events],
-            "trace": trace,
-            "issue": issue,
-            "flow": flow,
-            "binding": binding,
-            "task_execution_assembly": task_execution_assembly,
-            "task_body_orchestration": task_body_orchestration,
-            "agent_runtime_spec": agent_runtime_spec,
-            "runtime_directive_lane": {
-                "lane_id": f"lane:{task_run.runtime_lane}:{issue_id}",
-                "lane_type": task_run.runtime_lane,
-                "agent_id": task_run.agent_id,
-                "agent_profile_id": task_run.agent_profile_id,
-                "task_id": task_id,
-                "task_execution_assembly_ref": str(task_execution_assembly.get("assembly_id") or ""),
-                "task_body_orchestration_ref": str(task_body_orchestration.get("orchestration_id") or ""),
-                "runtime_spec_ref": str(agent_runtime_spec.get("runtime_spec_id") or ""),
-                "memory_scope": str(binding.get("memory_scope") or ""),
-                "output_contract_id": str(binding.get("output_contract_id") or ""),
-            },
-        }
-
     async def execute_agent_run(
         self,
         *,
@@ -508,217 +377,100 @@ class HealthRegistry:
         source: str = "health_system.manual",
         task_run_loop: Any,
         model_response_executor: Any,
+        agent_runtime_chain: Any,
+        runtime_context_manager: Any,
+        tool_runtime_executor: Any | None = None,
+        tool_instances: list[Any] | None = None,
         user_message: str = "",
     ) -> dict[str, Any]:
-        started = self.start_agent_run(
-            issue_id=issue_id,
-            health_action=health_action,
-            session_id=session_id,
-            source=source,
-            task_run_loop=task_run_loop,
-        )
-        if started["status"] != "running":
-            return started
+        preview = self.preview_agent_run(issue_id=issue_id, health_action=health_action)
+        if preview["status"] != "ready":
+            return {
+                "authority": "health_system.agent_run_projection",
+                "status": "blocked",
+                "reason": preview.get("reason") or "health agent run preview is not ready",
+                "preview": preview,
+            }
 
-        task_run = dict(started["task_run"])
-        issue = dict(started["issue"])
-        flow = dict(started["flow"])
-        binding = dict(started["binding"])
-        task_run_id = str(task_run.get("task_run_id") or "")
-        task_id = str(task_run.get("task_id") or "")
-        workflow = TaskWorkflowRegistry(self.base_dir).get_workflow(str(binding.get("workflow_id") or ""))
-        workflow_payload = workflow.to_dict() if workflow is not None else {}
-        model_messages = self._build_health_model_messages(
-            issue=issue,
-            flow=flow,
-            binding=binding,
-            workflow=workflow_payload,
+        issue = self.get_issue(issue_id)
+        if issue is None:
+            raise KeyError(issue_id)
+        flow = dict(preview.get("flow") or {})
+        binding = dict(preview.get("binding") or {})
+        task_selection = _build_health_runtime_task_selection(
+            issue=issue.to_dict(),
+            health_action=health_action,
             user_message=user_message,
+            source=source,
         )
-        task_contract_ref = str(task_run.get("task_contract_ref") or f"health-task-contract:{task_id}")
-        task_contract_event = task_run_loop.event_log.append(
-            task_run_id,
-            "task_contract_built",
-            payload={
-                "task_contract": {
-                    "task_id": task_id,
-                    "session_id": str(task_run.get("session_id") or ""),
-                    "health_action": health_action,
-                    "input_contract_id": str(flow.get("input_contract_id") or ""),
-                    "output_contract_id": str(flow.get("output_contract_id") or ""),
-                    "user_goal": f"对健康问题执行 {health_action}：{issue.get('title') or issue_id}",
-                },
-                "source": source,
-            },
-            refs={"task_contract_ref": task_contract_ref, "health_issue_ref": issue_id},
-        )
-        memory_event = task_run_loop.event_log.append(
-            task_run_id,
-            "memory_runtime_view_built",
-            payload={
-                "memory_runtime_view_ref": f"health-memory-view:{issue_id}:{health_action}",
-                "memory_scope": str(binding.get("memory_scope") or ""),
-                "conversation_candidate_count": 1 if issue.get("conversation_ref") else 0,
-                "state_candidate_count": len(list(issue.get("runtime_trace_refs") or [])),
-                "long_term_candidate_count": 0,
-            },
-            refs={"memory_runtime_view_ref": f"health-memory-view:{issue_id}:{health_action}"},
-        )
-        context_event = task_run_loop.event_log.append(
-            task_run_id,
-            "context_snapshot_built",
-            payload={
-                "context_snapshot": {
-                    "snapshot_id": f"ctx:{task_run_id}",
-                    "task_run_id": task_run_id,
-                    "model_messages": model_messages,
-                    "history_message_count": 0,
-                    "pending_user_message_chars": len(model_messages[-1]["content"]),
-                    "system_prompt_chars": len(model_messages[0]["content"]),
-                    "memory_runtime_view_ref": f"health-memory-view:{issue_id}:{health_action}",
-                    "projection_ref": "",
-                    "prompt_manifest_ref": "",
-                    "token_pressure": {"level": "unknown", "source": "health_system"},
-                },
-                "context_policy_result": {
-                    "memory_scope": str(binding.get("memory_scope") or ""),
-                    "allowed_context_sections": ["health_issue", "runtime_trace", "prompt_manifest", "assertions"],
-                },
-            },
-            refs={
-                "memory_runtime_view_ref": f"health-memory-view:{issue_id}:{health_action}",
-                "context_snapshot_ref": f"ctx:{task_run_id}",
-            },
-        )
-        resource_policy = self._build_health_resource_policy(task_id=task_id, binding=binding)
-        directive = RuntimeDirective(
-            directive_id=f"runtime-directive:{task_id}:health-model-response",
+        task_id = f"task.health.{health_action}:{issue_id}:{int(time.time() * 1000)}"
+        task_request = HealthTaskRequest(
+            request_id=f"health-task-request:{health_action}:{issue_id}:{int(time.time() * 1000)}",
+            issue_id=issue_id,
+            task_kind=health_action,
             task_id=task_id,
-            plan_ref=f"orchplan:{task_id}:runtime",
-            stage_ref=f"orchstage:{task_id}:health-model:runtime",
-            executor_type="model",
-            adopted_resource_policy_ref=resource_policy.policy_id,
-            operation_refs=("op.model_response",),
-            input_contract_ref=str(flow.get("input_contract_id") or ""),
-            output_contract_ref=str(flow.get("output_contract_id") or ""),
-            execution_graph_ref=f"execgraph:{task_id}:runtime",
-            diagnostics={
-                "agent_id": str(binding.get("agent_id") or ""),
-                "agent_profile_id": str(binding.get("agent_profile_id") or ""),
-                "runtime_lane": str(binding.get("runtime_lane") or ""),
-                "health_issue_ref": issue_id,
-                "workflow_id": str(binding.get("workflow_id") or ""),
+            flow_id=str(flow.get("flow_id") or ""),
+            required_evidence_refs=tuple(
+                item
+                for item in (
+                    issue.conversation_ref,
+                    *issue.runtime_trace_refs,
+                    *issue.prompt_manifest_refs,
+                    *issue.memory_refs,
+                    *issue.assertion_refs,
+                )
+                if str(item or "").strip()
+            ),
+            requested_by=source,
+            created_at=time.time(),
+            metadata={
+                "session_id": session_id or HEALTH_SESSION_ID,
+                "selected_task_id": task_selection["selected_task_id"],
+                "execution_owner": "TaskRunLoop.run_single_agent_stream",
             },
         )
-        directive_event = task_run_loop.event_log.append(
-            task_run_id,
-            "runtime_directive_issued",
-            payload={"directive": directive.to_dict(), "resource_policy": resource_policy.to_dict()},
-            refs={"directive_ref": directive.directive_id, "resource_policy_ref": resource_policy.policy_id},
-        )
-        gate_result = task_run_loop.operation_gate.check(
-            "op.model_response",
-            resource_policy=resource_policy,
-            directive_ref=directive.directive_id,
-        )
-        gate_event = task_run_loop.event_log.append(
-            task_run_id,
-            "operation_gate_checked",
-            payload={"gate": gate_result.to_dict()},
-            refs={"operation_id": gate_result.operation_id, "directive_ref": directive.directive_id},
-        )
-        final_content = ""
-        result_refs = [
-            f"health_issue:{issue_id}",
-        ]
-        terminal_reason = "completed"
-        executor_events: list[dict[str, Any]] = []
-        if not gate_result.allowed:
-            terminal_reason = "blocked_by_gate"
-            final_content = gate_result.reason
-        else:
-            executor_started_event = task_run_loop.event_log.append(
-                task_run_id,
-                "executor_started",
-                payload={
-                    "executor_type": "model",
-                    "directive_ref": directive.directive_id,
-                    "model_message_count": len(model_messages),
-                    "agent_id": str(binding.get("agent_id") or ""),
-                },
-                refs={"directive_ref": directive.directive_id},
-            )
-            executor_events.append(executor_started_event.to_dict())
-            try:
-                async for event in model_response_executor.stream(
-                    user_message=model_messages[-1]["content"],
-                    model_messages=model_messages,
-                    directive=directive,
-                    tool_instances=[],
-                ):
-                    event_type = str(event.get("type") or "")
-                    if event_type == "answer_candidate":
-                        final_content = str(event.get("content") or final_content)
-                        runtime_event = task_run_loop.event_log.append(
-                            task_run_id,
-                            "executor_observation_received",
-                            payload={
-                                "source": str(event.get("source") or "runtime_directive:model_response"),
-                                "content": final_content,
-                                "content_chars": len(final_content),
-                                "directive_ref": directive.directive_id,
-                                "health_issue_ref": issue_id,
-                            },
-                            refs={"directive_ref": directive.directive_id, "health_issue_ref": issue_id},
-                        )
-                        executor_events.append(runtime_event.to_dict())
-                    elif event_type == "output_boundary":
-                        runtime_event = task_run_loop.event_log.append(
-                            task_run_id,
-                            "output_boundary_applied",
-                            payload={"output": dict(event.get("output") or {}), "health_issue_ref": issue_id},
-                            refs={"directive_ref": directive.directive_id, "health_issue_ref": issue_id},
-                        )
-                        executor_events.append(runtime_event.to_dict())
-                    elif event_type == "runtime_commit_gate":
-                        runtime_event = task_run_loop.event_log.append(
-                            task_run_id,
-                            "commit_gate_checked",
-                            payload={"commit_gate": dict(event.get("commit_gate") or {})},
-                            refs={
-                                "commit_gate_ref": str(dict(event.get("commit_gate") or {}).get("gate_id") or ""),
-                                "commit_type": str(dict(event.get("commit_gate") or {}).get("commit_type") or ""),
-                            },
-                        )
-                        executor_events.append(runtime_event.to_dict())
-                    elif event_type == "done":
-                        final_content = str(event.get("content") or final_content)
-                    elif event_type == "error":
-                        terminal_reason = "executor_failed"
-                        final_content = str(event.get("content") or event.get("error") or "健康子 Agent 执行失败")
-                        runtime_event = task_run_loop.event_log.append(
-                            task_run_id,
-                            "loop_error",
-                            payload={"error": str(event.get("error") or ""), "content": final_content},
-                            refs={"directive_ref": directive.directive_id, "health_issue_ref": issue_id},
-                        )
-                        executor_events.append(runtime_event.to_dict())
-                        break
-            except Exception as exc:
-                terminal_reason = "executor_failed"
-                final_content = str(getattr(exc, "user_message", "") or exc or "健康子 Agent 执行异常")
-                runtime_event = task_run_loop.event_log.append(
-                    task_run_id,
-                    "loop_error",
-                    payload={
-                        "error": exc.__class__.__name__,
-                        "content": final_content,
-                        "provider_error_code": str(getattr(exc, "code", "") or ""),
-                    },
-                    refs={"directive_ref": directive.directive_id, "health_issue_ref": issue_id},
-                )
-                executor_events.append(runtime_event.to_dict())
+        self.store.upsert_task_request(task_request)
+
+        final_event: dict[str, Any] = {}
+        runtime_events: list[dict[str, Any]] = []
+        started_task_run: dict[str, Any] = {}
+        async for event in task_run_loop.run_single_agent_stream(
+            session_id=session_id or HEALTH_SESSION_ID,
+            task_id=task_id,
+            user_message=_build_health_runtime_user_message(
+                issue=issue.to_dict(),
+                health_action=health_action,
+                user_message=user_message,
+            ),
+            history=[],
+            source=source,
+            agent_runtime_chain=agent_runtime_chain,
+            model_response_executor=model_response_executor,
+            runtime_context_manager=runtime_context_manager,
+            task_selection=task_selection,
+            tool_runtime_executor=tool_runtime_executor,
+            tool_instances=list(tool_instances or []),
+        ):
+            item = dict(event or {})
+            if item.get("type") == "runtime_loop_started":
+                started_task_run = dict(item.get("task_run") or {})
+            if item.get("type") == "runtime_loop_event":
+                runtime_events.append(dict(item.get("event") or {}))
+            if item.get("type") in {"done", "error"}:
+                final_event = item
+
+        task_run_id = str(started_task_run.get("task_run_id") or "")
+        if not task_run_id:
+            raise RuntimeError("Health agent runtime did not emit runtime_loop_started")
+        finished_task_run = task_run_loop.state_index.get_task_run(task_run_id)
+        if finished_task_run is None:
+            raise RuntimeError(f"TaskRun missing from RuntimeStateIndex: {task_run_id}")
+
+        final_content = str(final_event.get("content") or final_event.get("error") or "").strip()
+        status = str(finished_task_run.status or ("failed" if final_event.get("type") == "error" else "completed"))
+        terminal_reason = str(finished_task_run.terminal_reason or final_event.get("terminal_reason") or "")
         result_ref = f"health-result:{task_run_id}"
+        task_result = dict(final_event.get("task_result") or {})
         result_payload = {
             "result_ref": result_ref,
             "issue_id": issue_id,
@@ -726,155 +478,59 @@ class HealthRegistry:
             "health_action": health_action,
             "output_contract_id": str(flow.get("output_contract_id") or ""),
             "content": final_content,
-            "workflow": workflow_payload,
+            "task_result": task_result,
             "created_at": time.time(),
             "authority": "health_system.agent_result",
         }
         self._append_agent_result(result_payload)
-        result_refs.append(result_ref)
-        final_commit = build_task_run_final_commit_decision(
-            task_run_id=task_run_id,
-            task_id=task_id,
-            terminal_reason=terminal_reason,
-            final_content_chars=len(final_content),
-        )
-        commit_event = task_run_loop.event_log.append(
-            task_run_id,
-            "commit_gate_checked",
-            payload={"commit_decision": final_commit.to_dict()},
-            refs={"commit_gate_ref": final_commit.gate_id, "commit_type": final_commit.commit_type},
-        )
-        terminal_status = "completed" if terminal_reason == "completed" else "blocked" if terminal_reason == "blocked_by_gate" else "failed"
-        terminal_state = RuntimeLoopState(
-            task_run_id=task_run_id,
-            status=terminal_status,
-            turn_count=1,
-            step_count=1,
-            agent_id=str(task_run.get("agent_id") or ""),
-            agent_profile_id=str(task_run.get("agent_profile_id") or ""),
-            runtime_lane=str(task_run.get("runtime_lane") or ""),
-            task_agent_binding_ref=str(binding.get("binding_id") or ""),
-            skill_workflow_ref=str(binding.get("workflow_id") or ""),
-            health_issue_ref=issue_id,
-            transition="stop_after_final_output",
-            terminal_reason=terminal_reason,
-            context_snapshot_ref=f"ctx:{task_run_id}",
-            memory_state_ref=f"health-memory-view:{issue_id}:{health_action}",
-            result_refs=tuple(result_refs),
-            commit_state={"task_result_final": final_commit.to_dict(), "health_result_recorded": True},
-            diagnostics={
-                **dict(task_run.get("diagnostics") or {}),
-                "health_agent_model_executed": gate_result.allowed,
-                "final_content_chars": len(final_content),
-                "output_contract_id": str(flow.get("output_contract_id") or ""),
-            },
-        )
-        terminal_event = task_run_loop.event_log.append(
-            task_run_id,
-            "loop_terminal",
-            payload={
-                "terminal_reason": terminal_reason,
-                "status": terminal_status,
-                "final_content_chars": len(final_content),
-                "result_ref": result_ref,
-            },
-            refs={"result_ref": result_ref, "health_issue_ref": issue_id},
-        )
-        checkpoint = task_run_loop.checkpoints.write(terminal_state, event_offset=terminal_event.offset)
-        checkpoint_event = task_run_loop.event_log.append(
-            task_run_id,
-            "checkpoint_written",
-            payload={
-                "checkpoint_id": checkpoint.checkpoint_id,
-                "event_offset": checkpoint.event_offset,
-                "checksum": checkpoint.checksum,
-                "source": "health_system.agent_run_execute",
-            },
-            refs={"checkpoint_ref": checkpoint.checkpoint_id},
-        )
-        start_task_run = task_run_loop.state_index.get_task_run(task_run_id)
-        if start_task_run is None:
-            raise RuntimeError(f"TaskRun missing from RuntimeStateIndex: {task_run_id}")
-        finished_task_run = replace(
-            start_task_run,
-            status=terminal_status,
-            updated_at=time.time(),
-            latest_event_offset=checkpoint_event.offset,
-            latest_checkpoint_ref=checkpoint.checkpoint_id,
-            terminal_reason=terminal_reason,
-            diagnostics={
-                **dict(task_run.get("diagnostics") or {}),
-                "health_agent_model_executed": gate_result.allowed,
-                "result_ref": result_ref,
-                "final_content_chars": len(final_content),
-            },
-        )
-        task_run_loop.state_index.upsert_task_run(finished_task_run)
+        trace = task_run_loop.get_trace(task_run_id, include_payloads=True, include_model_messages=False)
+        checkpoint_ref = str(finished_task_run.latest_checkpoint_ref or "")
         health_run = HealthAgentRun(
-            run_id=str(started["health_agent_run"]["run_id"]),
-            request_id=str(started["health_agent_run"].get("request_id") or ""),
+            run_id=f"health-run:{task_run_id}",
+            request_id=task_request.request_id,
             issue_id=issue_id,
             task_run_id=task_run_id,
-            agent_id=str(task_run.get("agent_id") or ""),
-            agent_profile_id=str(task_run.get("agent_profile_id") or ""),
-            runtime_lane=str(task_run.get("runtime_lane") or ""),
+            agent_id=str(finished_task_run.agent_id or ""),
+            agent_profile_id=str(finished_task_run.agent_profile_id or ""),
+            runtime_lane=str(finished_task_run.runtime_lane or ""),
             health_action=health_action,
             workflow_id=str(binding.get("workflow_id") or ""),
             admission_status="accepted",
-            projection_id=str(terminal_state.projection_ref or ""),
-            prompt_manifest_id=str(terminal_state.prompt_manifest_ref or ""),
-            status=terminal_status,
+            projection_id=str(dict(finished_task_run.diagnostics or {}).get("projection_ref") or ""),
+            prompt_manifest_id=str(dict(finished_task_run.diagnostics or {}).get("prompt_manifest_ref") or ""),
+            status=status,
             terminal_reason=terminal_reason,
-            blocked_reasons=((terminal_reason,) if terminal_status == "blocked" else ()),
+            blocked_reasons=((terminal_reason,) if status == "blocked" and terminal_reason else ()),
             report_refs=(),
             trace_refs=(task_run_id,),
-            artifact_refs=(result_ref, checkpoint.checkpoint_id),
+            artifact_refs=tuple(item for item in (result_ref, checkpoint_ref) if item),
             result_ref=result_ref,
-            created_at=float(task_run.get("created_at") or time.time()),
+            created_at=float(finished_task_run.created_at or time.time()),
             metadata={
-                **dict(started["health_agent_run"].get("metadata") or {}),
-                "model_executed": gate_result.allowed,
-                "operation_gate_allowed": gate_result.allowed,
-                "checkpoint_ref": checkpoint.checkpoint_id,
-                "latest_event_offset": checkpoint_event.offset,
+                "source": source,
+                "flow_id": str(flow.get("flow_id") or ""),
+                "selected_task_id": task_selection["selected_task_id"],
+                "task_agent_binding_ref": str(binding.get("binding_id") or ""),
+                "runtime_execution_owner": "TaskRunLoop.run_single_agent_stream",
+                "configuration_source": "task_system_orchestration_config",
+                "checkpoint_ref": checkpoint_ref,
+                "latest_event_offset": finished_task_run.latest_event_offset,
                 "event_count": len(task_run_loop.event_log.list_events(task_run_id)),
                 "final_content_chars": len(final_content),
             },
         )
         self._upsert_agent_run(health_run)
-        trace = task_run_loop.get_trace(task_run_id, include_payloads=True, include_model_messages=False)
         return {
-            "authority": "health_system.agent_run_execute",
-            "status": terminal_status,
+            "authority": "health_system.agent_run_projection",
+            "status": status,
             "health_agent_run": health_run.to_dict(),
+            "task_request": task_request.to_dict(),
             "task_run": finished_task_run.to_dict(),
-            "loop_state": terminal_state.to_dict(),
-            "checkpoint": checkpoint.to_dict(),
-            "events": [
-                *list(started["events"]),
-                task_contract_event.to_dict(),
-                memory_event.to_dict(),
-                context_event.to_dict(),
-                directive_event.to_dict(),
-                gate_event.to_dict(),
-                *executor_events,
-                commit_event.to_dict(),
-                terminal_event.to_dict(),
-                checkpoint_event.to_dict(),
-            ],
+            "events": runtime_events,
             "trace": trace,
-            "issue": issue,
+            "issue": issue.to_dict(),
             "flow": flow,
             "binding": binding,
-            "runtime_directive_lane": {
-                "lane_id": f"lane:{task_run.get('runtime_lane') or ''}:{issue_id}",
-                "lane_type": str(task_run.get("runtime_lane") or ""),
-                "agent_id": str(task_run.get("agent_id") or ""),
-                "agent_profile_id": str(task_run.get("agent_profile_id") or ""),
-                "task_id": task_id,
-                "memory_scope": str(binding.get("memory_scope") or ""),
-                "output_contract_id": str(binding.get("output_contract_id") or ""),
-            },
             "result": result_payload,
         }
 
@@ -910,83 +566,6 @@ class HealthRegistry:
     def _append_agent_result(self, payload: dict[str, Any]) -> None:
         self.store.append_agent_result(payload)
 
-    def _build_health_resource_policy(self, *, task_id: str, binding: dict[str, Any]) -> ResourcePolicy:
-        from orchestration import AgentRuntimeRegistry
-
-        profile = AgentRuntimeRegistry(self.base_dir).get_profile(str(binding.get("agent_id") or ""))
-        allowed = tuple(item for item in (profile.allowed_operations if profile is not None else ("op.model_response",)) if item)
-        denied = tuple(profile.blocked_operations if profile is not None else ())
-        decision = ResourceDecision(
-            operation_id="op.model_response",
-            decision="allow" if "op.model_response" in allowed else "deny",
-            reason="health agent model response lane adopted by RuntimeLoop",
-            risk_tags=("health_agent", "read_only", str(binding.get("runtime_lane") or "")),
-            diagnostics={
-                "agent_id": str(binding.get("agent_id") or ""),
-                "agent_profile_id": str(binding.get("agent_profile_id") or ""),
-                "runtime_lane": str(binding.get("runtime_lane") or ""),
-            },
-        )
-        return ResourcePolicy(
-            policy_id=str(binding.get("resource_policy_ref") or f"resource-policy:{task_id}:health"),
-            task_id=task_id,
-            allowed_operations=allowed,
-            denied_operations=denied,
-            memory_read_scope=str(binding.get("memory_scope") or "issue_local_readonly"),
-            memory_write_scope="none",
-            approval_policy="read_only_first",
-            runtime_view_only=False,
-            adopted=True,
-            runtime_executable=True,
-            decisions=(decision,),
-            diagnostics={
-                "agent_runtime_profile_enforced": profile is not None,
-                "task_agent_binding_ref": str(binding.get("binding_id") or ""),
-                "workflow_ref": str(binding.get("workflow_id") or ""),
-                "output_contract_id": str(binding.get("output_contract_id") or ""),
-            },
-        )
-
-    def _build_health_model_messages(
-        self,
-        *,
-        issue: dict[str, Any],
-        flow: dict[str, Any],
-        binding: dict[str, Any],
-        workflow: dict[str, Any],
-        user_message: str = "",
-    ) -> list[dict[str, str]]:
-        system_prompt = "\n".join(
-            [
-                "你是玄女健康管家，是一个受限健康维护子 Agent。",
-                "你的任务是维护系统健康：阅读问题、证据引用、运行链路和工作流，然后给出候选分析。",
-                "你不能声称已经修改代码、写入长期记忆、执行 shell、调用其它子 Agent 或扩大权限。",
-                "你必须基于输入中的 evidence refs 回答；证据不足时明确标记 needs_evidence。",
-                "输出请使用中文，结构包括：结论、归属系统、证据引用、问题节点、风险、下一步建议。",
-                f"输出合同：{flow.get('output_contract_id') or binding.get('output_contract_id') or 'HealthTriageResult'}",
-                f"RuntimeLane：{binding.get('runtime_lane') or ''}",
-                f"MemoryScope：{binding.get('memory_scope') or ''}",
-            ]
-        )
-        user_payload = {
-            "issue": issue,
-            "flow": flow,
-            "binding": binding,
-            "workflow": workflow,
-        }
-        return [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": (
-                    "请执行本次健康维护任务，并基于用户当前提问给出候选结果。"
-                    + (f"\n用户提问：{user_message}\n" if user_message else "\n")
-                    + "输入如下：\n"
-                    + json.dumps(user_payload, ensure_ascii=False, indent=2)
-                ),
-            },
-        ]
-
     async def _build_conversation_reply(
         self,
         *,
@@ -994,6 +573,10 @@ class HealthRegistry:
         user_message: HealthAgentConversationMessage,
         task_run_loop: Any,
         model_response_executor: Any,
+        agent_runtime_chain: Any,
+        runtime_context_manager: Any,
+        tool_runtime_executor: Any | None = None,
+        tool_instances: list[Any] | None = None,
     ) -> HealthAgentConversationMessage:
         now = time.time()
         issue_id = str(session.active_issue_ref or "").strip()
@@ -1003,7 +586,7 @@ class HealthRegistry:
                 issue_id = str(run.issue_id)
         if not issue_id:
             return HealthAgentConversationMessage(
-                message_id=f"health-agent-message:{int(now * 1000)}",
+                message_id=f"health-agent-message-{int(now * 1000)}",
                 session_id=session.session_id,
                 role="assistant",
                 content="当前会话还没有绑定健康问题，所以我没法做真实分析。请先绑定一个问题，或从已关联问题的运行进入对话。",
@@ -1026,6 +609,10 @@ class HealthRegistry:
             source="health_system.conversation",
             task_run_loop=task_run_loop,
             model_response_executor=model_response_executor,
+            agent_runtime_chain=agent_runtime_chain,
+            runtime_context_manager=runtime_context_manager,
+            tool_runtime_executor=tool_runtime_executor,
+            tool_instances=tool_instances,
             user_message=user_message.content,
         )
         result = dict(run_result.get("result") or {})
@@ -1040,7 +627,7 @@ class HealthRegistry:
             else:
                 content = "本次健康分析没有产出正文结果。"
         return HealthAgentConversationMessage(
-            message_id=f"health-agent-message:{int(time.time() * 1000)}",
+            message_id=f"health-agent-message-{int(time.time() * 1000)}",
             session_id=session.session_id,
             role="assistant",
             content=content,
@@ -1144,3 +731,85 @@ def _verdict_from_status(status: str) -> str:
     if normalized in {"running", "queued"}:
         return "pending"
     return "unknown"
+
+
+def _build_health_runtime_task_selection(
+    *,
+    issue: dict[str, Any],
+    health_action: str,
+    user_message: str,
+    source: str,
+) -> dict[str, Any]:
+    selected_task_id = health_specific_task_id(health_action)
+    return {
+        "selected_task_id": selected_task_id,
+        "specific_task_id": selected_task_id,
+        "health_action": health_action,
+        "health_issue_ref": str(issue.get("issue_id") or ""),
+        "health_issue": issue,
+        "runtime_trace_refs": list(issue.get("runtime_trace_refs") or []),
+        "prompt_manifest_refs": list(issue.get("prompt_manifest_refs") or []),
+        "memory_refs": list(issue.get("memory_refs") or []),
+        "assertion_refs": list(issue.get("assertion_refs") or []),
+        "conversation_ref": str(issue.get("conversation_ref") or ""),
+        "source": source,
+        "explicit_inputs": {
+            "health_issue_ref": str(issue.get("issue_id") or ""),
+            "health_action": health_action,
+            "user_question": str(user_message or ""),
+            "evidence_refs": [
+                item
+                for item in (
+                    str(issue.get("conversation_ref") or ""),
+                    *[str(ref) for ref in list(issue.get("runtime_trace_refs") or [])],
+                    *[str(ref) for ref in list(issue.get("prompt_manifest_refs") or [])],
+                    *[str(ref) for ref in list(issue.get("memory_refs") or [])],
+                    *[str(ref) for ref in list(issue.get("assertion_refs") or [])],
+                )
+                if item
+            ],
+        },
+    }
+
+
+def _build_health_runtime_user_message(
+    *,
+    issue: dict[str, Any],
+    health_action: str,
+    user_message: str,
+) -> str:
+    lines = [
+        f"请执行健康系统任务：{health_action}。",
+        f"健康问题：{issue.get('title') or issue.get('issue_id') or ''}",
+        f"问题编号：{issue.get('issue_id') or ''}",
+        f"归属系统：{issue.get('owner_system') or ''}",
+        f"严重级别：{issue.get('severity') or ''}",
+    ]
+    if user_message:
+        lines.append(f"用户当前问题：{user_message}")
+    evidence_refs = [
+        item
+        for item in (
+            str(issue.get("conversation_ref") or ""),
+            *[str(ref) for ref in list(issue.get("runtime_trace_refs") or [])],
+            *[str(ref) for ref in list(issue.get("prompt_manifest_refs") or [])],
+            *[str(ref) for ref in list(issue.get("memory_refs") or [])],
+            *[str(ref) for ref in list(issue.get("assertion_refs") or [])],
+        )
+        if item
+    ]
+    if evidence_refs:
+        lines.append("可用证据引用：")
+        lines.extend(f"- {ref}" for ref in evidence_refs)
+    lines.extend(
+        [
+            "请只基于可见证据和本任务配置给出候选分析。",
+            "如果证据不足，请明确说明缺少什么证据以及它会影响哪个结论。",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _safe_health_runtime_id(value: str) -> str:
+    safe = "".join(char if char.isalnum() or char in {"-", "_", "."} else "-" for char in str(value or "").strip())
+    return safe.strip("-") or f"health-agent-session-{int(time.time() * 1000)}"

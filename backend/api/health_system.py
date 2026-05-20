@@ -149,6 +149,11 @@ async def get_health_test_harness_records() -> dict[str, Any]:
     return test_system_service.harness_records()
 
 
+@router.get("/health-system/maintenance/test-system/regression-samples")
+async def list_health_test_regression_samples() -> dict[str, Any]:
+    return test_system_service.regression_samples()
+
+
 @router.get("/health-system/maintenance/test-system/harness-map")
 async def get_health_test_harness_map() -> dict[str, Any]:
     return test_system_service.harness_map()
@@ -238,6 +243,40 @@ async def list_health_test_turns(run_id: str) -> list[dict[str, Any]]:
 async def get_health_test_turn_runtime_loop(run_id: str, turn_id: str) -> dict[str, Any]:
     try:
         return test_system_service.get_turn_runtime_loop(run_id, turn_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/health-system/maintenance/test-system/runs/{run_id}/turns/{turn_id}/regression-sample")
+async def create_health_test_regression_sample_from_turn(run_id: str, turn_id: str) -> dict[str, Any]:
+    try:
+        return test_system_service.create_regression_sample_from_turn(run_id, turn_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/health-system/maintenance/test-system/runs/{run_id}/regression-samples/promote-failed-turns")
+async def promote_health_test_failed_turns_to_regression_samples(run_id: str) -> dict[str, Any]:
+    try:
+        return test_system_service.promote_failed_turns_to_regression_samples(run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/health-system/maintenance/test-system/regression-samples/{sample_id}/rerun")
+async def rerun_health_test_regression_sample(sample_id: str) -> dict[str, Any]:
+    try:
+        return test_system_service.rerun_regression_sample(sample_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/health-system/maintenance/test-system/regression-samples/{sample_id}/refresh-verdict")
+async def refresh_health_test_regression_sample_verdict(sample_id: str) -> dict[str, Any]:
+    try:
+        return test_system_service.refresh_regression_sample_verdict(sample_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -365,6 +404,10 @@ async def health_system_submit_command(payload: HealthManagementCommandRequest) 
             payload.model_dump(),
             task_run_loop=runtime.query_runtime.task_run_loop,
             model_response_executor=runtime.query_runtime.model_response_executor,
+            agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
+            runtime_context_manager=runtime.query_runtime.runtime_context_manager,
+            tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
+            tool_instances=runtime.query_runtime._all_tool_instances(),
             test_system_service=test_system_service,
         )
     except ValueError as exc:
@@ -465,6 +508,10 @@ async def health_system_append_conversation_message(
             payload.model_dump(),
             task_run_loop=runtime.query_runtime.task_run_loop,
             model_response_executor=runtime.query_runtime.model_response_executor,
+            agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
+            runtime_context_manager=runtime.query_runtime.runtime_context_manager,
+            tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
+            tool_instances=runtime.query_runtime._all_tool_instances(),
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown health conversation session") from exc
@@ -500,6 +547,10 @@ async def health_system_create_issue(payload: HealthIssueCreateRequest) -> dict[
             },
             task_run_loop=runtime.query_runtime.task_run_loop,
             model_response_executor=runtime.query_runtime.model_response_executor,
+            agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
+            runtime_context_manager=runtime.query_runtime.runtime_context_manager,
+            tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
+            tool_instances=runtime.query_runtime._all_tool_instances(),
             test_system_service=test_system_service,
         )
     except ValueError as exc:
@@ -577,6 +628,10 @@ async def health_system_agent_run_start(issue_id: str, payload: HealthAgentRunSt
             },
             task_run_loop=runtime.query_runtime.task_run_loop,
             model_response_executor=runtime.query_runtime.model_response_executor,
+            agent_runtime_chain=runtime.query_runtime.agent_runtime_chain,
+            runtime_context_manager=runtime.query_runtime.runtime_context_manager,
+            tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
+            tool_instances=runtime.query_runtime._all_tool_instances(),
             test_system_service=test_system_service,
         )
         return dict(response.get("run_result") or response)

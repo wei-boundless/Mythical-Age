@@ -20,6 +20,26 @@ export type TaskGraphSchedulerSummary = {
   edge_states: Array<Record<string, unknown>>;
 };
 
+export type TaskGraphBatchLifecycleSummary = {
+  available: boolean;
+  authority: string;
+  graph_id: string;
+  mode: string;
+  summary: Record<string, number>;
+  ready_batch_ids: string[];
+  running_batch_ids: string[];
+  committed_batch_ids: string[];
+  failed_batch_ids: string[];
+  active_batch_by_node: Record<string, string>;
+  active_execution_by_node: Record<string, string>;
+  active_execution_by_batch: Record<string, string>;
+  execution_mode_by_plan: Record<string, string>;
+  plans: Array<Record<string, unknown>>;
+  batches: Array<Record<string, unknown>>;
+  execution_instances: Array<Record<string, unknown>>;
+  merge_states: Array<Record<string, unknown>>;
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -52,6 +72,45 @@ export function schedulerStateFromTrace(trace: RuntimeLoopTaskRunTrace | { coord
   return {
     ...asRecord(runtimeState.task_graph_scheduler_state),
     ...asRecord(diagnostics.task_graph_scheduler_state),
+  };
+}
+
+export function batchLifecycleFromTrace(trace: RuntimeLoopTaskRunTrace | { coordination_runs?: Array<Record<string, unknown>> } | null | undefined) {
+  const taskGraphRun = latestTaskGraphRunFromTrace(trace);
+  const diagnostics = asRecord(taskGraphRun?.diagnostics);
+  const runtimeState = asRecord(diagnostics.langgraph_runtime_state);
+  const runtimeBatch = asRecord(runtimeState.batch_lifecycle_runtime_state);
+  const diagnosticsBatch = asRecord(diagnostics.batch_lifecycle_runtime_state);
+  return Object.keys(diagnosticsBatch).length ? diagnosticsBatch : runtimeBatch;
+}
+
+export function buildTaskGraphBatchLifecycleSummary(rawState: unknown): TaskGraphBatchLifecycleSummary {
+  const state = asRecord(rawState);
+  const summary = asRecord(state.summary);
+  const activeBatchByNode = asRecord(state.active_batch_by_node);
+  const activeExecutionByNode = asRecord(state.active_execution_by_node);
+  const activeExecutionByBatch = asRecord(state.active_execution_by_batch);
+  const executionModeByPlan = asRecord(state.execution_mode_by_plan);
+  return {
+    available: state.available === true || String(state.authority ?? "") === "task_system.batch_lifecycle_runtime_state",
+    authority: String(state.authority ?? ""),
+    graph_id: String(state.graph_id ?? ""),
+    mode: String(state.mode ?? ""),
+    summary: Object.fromEntries(
+      Object.entries(summary).map(([key, value]) => [key, Number(value) || 0]),
+    ),
+    ready_batch_ids: asStringArray(state.ready_batch_ids),
+    running_batch_ids: asStringArray(state.running_batch_ids),
+    committed_batch_ids: asStringArray(state.committed_batch_ids),
+    failed_batch_ids: asStringArray(state.failed_batch_ids),
+    active_batch_by_node: Object.fromEntries(Object.entries(activeBatchByNode).map(([key, value]) => [key, String(value ?? "")])),
+    active_execution_by_node: Object.fromEntries(Object.entries(activeExecutionByNode).map(([key, value]) => [key, String(value ?? "")])),
+    active_execution_by_batch: Object.fromEntries(Object.entries(activeExecutionByBatch).map(([key, value]) => [key, String(value ?? "")])),
+    execution_mode_by_plan: Object.fromEntries(Object.entries(executionModeByPlan).map(([key, value]) => [key, String(value ?? "")])),
+    plans: asRecordArray(state.plans ?? state.plan_states),
+    batches: asRecordArray(state.batches ?? state.batch_states),
+    execution_instances: asRecordArray(state.execution_instances ?? state.batch_execution_instances),
+    merge_states: asRecordArray(state.merge_states),
   };
 }
 

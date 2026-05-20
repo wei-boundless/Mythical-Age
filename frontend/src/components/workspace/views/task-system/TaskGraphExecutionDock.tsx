@@ -81,6 +81,8 @@ export function TaskGraphExecutionDock({
 }) {
   const trace = findTraceForFocus(executionPackage, editorFocus);
   const graphUnitCount = executionPackage?.graph_units.length ?? 0;
+  const splitPlanCount = Number(executionPackage?.summary?.split_plan_count ?? executionPackage?.split_plans?.length ?? 0);
+  const splitLifecycleCount = Number(executionPackage?.summary?.split_batch_lifecycle_plan_count ?? 0);
   const assemblyCount = executionPackage?.node_runtime_assemblies.length ?? 0;
   const traceCount = executionPackage?.object_trace_index?.length ?? 0;
   const issueCount = executionPackage?.issues.length ?? 0;
@@ -106,6 +108,8 @@ export function TaskGraphExecutionDock({
         <span className={statusClass}>{ready ? <CheckCircle2 size={14} /> : <FileWarning size={14} />}{ready ? "执行包通过" : blocked ? "执行包待修复" : "未编译"}</span>
         <span><Boxes size={14} />Assembly {assemblyCount}</span>
         <span><Network size={14} />GraphUnit {graphUnitCount}</span>
+        <span>Split {splitPlanCount}</span>
+        <span>Lifecycle {splitLifecycleCount}</span>
         <span>Trace {traceCount}</span>
         <span>Issues {issueCount}</span>
       </div>

@@ -44,6 +44,17 @@ __all__ = [
     "apply_task_graph_standard_view_update",
     "TaskGraphRuntimeSpec",
     "compile_task_graph_definition_runtime_spec",
+    "BatchAcceptancePolicy",
+    "BatchLifecyclePlan",
+    "BatchLifecycleStep",
+    "BatchMergePolicy",
+    "BatchMergeReadinessPlan",
+    "BatchRange",
+    "BatchSpec",
+    "SplitMergeIssue",
+    "StaticSplitPlan",
+    "build_static_split_plan",
+    "build_static_split_plans_for_graph",
     "ProjectionSelectionResult",
     "TaskExecutionAssembly",
     "TaskSpec",
@@ -246,6 +257,47 @@ def __getattr__(name: str) -> Any:
         from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 
         return compile_task_graph_definition_runtime_spec
+    if name in {
+        "BatchAcceptancePolicy",
+        "BatchLifecyclePlan",
+        "BatchLifecycleStep",
+        "BatchMergePolicy",
+        "BatchMergeReadinessPlan",
+        "BatchRange",
+        "BatchSpec",
+        "SplitMergeIssue",
+        "StaticSplitPlan",
+    }:
+        from tasks.task_split_merge_models import (
+            BatchAcceptancePolicy,
+            BatchLifecyclePlan,
+            BatchLifecycleStep,
+            BatchMergePolicy,
+            BatchMergeReadinessPlan,
+            BatchRange,
+            BatchSpec,
+            SplitMergeIssue,
+            StaticSplitPlan,
+        )
+
+        return {
+            "BatchAcceptancePolicy": BatchAcceptancePolicy,
+            "BatchLifecyclePlan": BatchLifecyclePlan,
+            "BatchLifecycleStep": BatchLifecycleStep,
+            "BatchMergePolicy": BatchMergePolicy,
+            "BatchMergeReadinessPlan": BatchMergeReadinessPlan,
+            "BatchRange": BatchRange,
+            "BatchSpec": BatchSpec,
+            "SplitMergeIssue": SplitMergeIssue,
+            "StaticSplitPlan": StaticSplitPlan,
+        }[name]
+    if name in {"build_static_split_plan", "build_static_split_plans_for_graph"}:
+        from tasks.task_split_plan_builder import build_static_split_plan, build_static_split_plans_for_graph
+
+        return {
+            "build_static_split_plan": build_static_split_plan,
+            "build_static_split_plans_for_graph": build_static_split_plans_for_graph,
+        }[name]
     if name in {"TaskWorkflowBinding"}:
         from tasks.workflow_models import TaskWorkflowBinding
 

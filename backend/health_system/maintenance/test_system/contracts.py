@@ -4,9 +4,11 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 
-TestRunStatus = Literal["unknown", "running", "passed", "failed", "cancelled"]
+TestRunStatus = Literal["unknown", "running", "passed", "failed", "cancelled", "stale", "detached"]
 TestTurnStatus = Literal["unknown", "passed", "warning", "failed"]
 AssertionStatus = Literal["passed", "failed", "unsupported"]
+RegressionSampleStatus = Literal["candidate", "active", "quarantined", "archived"]
+VerificationVerdictStatus = Literal["not_run", "planned", "running", "passed", "failed", "unsupported"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +68,89 @@ class AssertionResult:
 
 
 @dataclass(frozen=True, slots=True)
+class TestScenarioContract:
+    contract_id: str
+    title: str
+    scenario_id: str
+    turn_id: str
+    session_alias: str
+    user_input: str
+    objective: str = ""
+    source_kind: str = "long_scenario_turn"
+    source_ref: str = ""
+    profile: str = "long"
+    preconditions: tuple[str, ...] = ()
+    assertions: tuple[str, ...] = ()
+    expected_tools: tuple[str, ...] = ()
+    expected_events: tuple[str, ...] = ()
+    evidence_policy: dict[str, Any] = field(default_factory=dict)
+    rerun_args: tuple[str, ...] = ()
+    schema_version: str = "2026-05-20"
+    authority: str = "test_system.scenario_contract"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["preconditions"] = list(self.preconditions)
+        payload["assertions"] = list(self.assertions)
+        payload["expected_tools"] = list(self.expected_tools)
+        payload["expected_events"] = list(self.expected_events)
+        payload["rerun_args"] = list(self.rerun_args)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationVerdict:
+    status: VerificationVerdictStatus = "not_run"
+    reason: str = ""
+    run_id: str = ""
+    artifact_refs: tuple[str, ...] = ()
+    checked_at: float = 0.0
+    authority: str = "test_system.verification_verdict"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["artifact_refs"] = list(self.artifact_refs)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class RegressionSample:
+    sample_id: str
+    title: str
+    source_run_id: str
+    source_turn_id: str
+    source_artifact_path: str
+    scenario_id: str
+    session_alias: str
+    status: RegressionSampleStatus = "candidate"
+    failure_summary: str = ""
+    observed: str = ""
+    expected: str = ""
+    task_run_id: str = ""
+    problem_node_id: str = ""
+    problem_node_label: str = ""
+    contract: TestScenarioContract | None = None
+    assertion_summary: tuple[dict[str, Any], ...] = ()
+    evidence_packet: dict[str, Any] = field(default_factory=dict)
+    rerun_command: tuple[str, ...] = ()
+    verification: VerificationVerdict = field(default_factory=VerificationVerdict)
+    tags: tuple[str, ...] = ()
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    schema_version: str = "2026-05-20"
+    authority: str = "test_system.regression_sample"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["contract"] = self.contract.to_dict() if self.contract is not None else None
+        payload["assertion_summary"] = [dict(item) for item in self.assertion_summary]
+        payload["rerun_command"] = list(self.rerun_command)
+        payload["verification"] = self.verification.to_dict()
+        payload["tags"] = list(self.tags)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
 class TestTurn:
     turn_id: str
     index: int
@@ -119,6 +204,11 @@ class TestRunState:
     pid: int | None = None
     summary: TestRunSummary = field(default_factory=TestRunSummary)
     log_tail: str = ""
+    heartbeat_at: float = 0.0
+    last_progress_at: float = 0.0
+    last_progress_event_id: str = ""
+    last_artifact_mtime: float = 0.0
+    stale_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -137,6 +227,13 @@ class TestArtifactBundle:
     run_result: dict[str, Any] = field(default_factory=dict)
     issues: list[dict[str, Any]] = field(default_factory=list)
     runtime_loop: dict[str, Any] = field(default_factory=dict)
+    harness_contract: dict[str, Any] = field(default_factory=dict)
+    harness_state: dict[str, Any] = field(default_factory=dict)
+    artifact_manifest: dict[str, Any] = field(default_factory=dict)
+    partial_result: dict[str, Any] = field(default_factory=dict)
+    progress_events: list[dict[str, Any]] = field(default_factory=list)
+    stuck_diagnosis: dict[str, Any] = field(default_factory=dict)
+    evidence_packet: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)

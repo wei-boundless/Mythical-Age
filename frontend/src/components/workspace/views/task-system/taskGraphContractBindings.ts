@@ -82,6 +82,22 @@ export function runtimeModelRequirementOf(target: Record<string, unknown>): Reco
   return asRecord(asRecord(asRecord(target.contract_bindings).runtime).model_requirement);
 }
 
+export function unitBatchContractOf(target: Record<string, unknown>): Record<string, unknown> {
+  return asRecord(asRecord(target.contract_bindings).unit_batch);
+}
+
+export function runtimeSplitPolicyOf(target: Record<string, unknown>): Record<string, unknown> {
+  return asRecord(asRecord(asRecord(target.contract_bindings).runtime).split_policy);
+}
+
+export function runtimeBatchAcceptancePolicyOf(target: Record<string, unknown>): Record<string, unknown> {
+  return asRecord(asRecord(asRecord(target.contract_bindings).runtime).batch_acceptance_policy);
+}
+
+export function runtimeMergePolicyOf(target: Record<string, unknown>): Record<string, unknown> {
+  return asRecord(asRecord(asRecord(target.contract_bindings).runtime).merge_policy);
+}
+
 export function mergeRuntimeModelRequirement(
   target: Record<string, unknown>,
   patch: Record<string, unknown>,

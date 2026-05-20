@@ -1043,6 +1043,9 @@ class TaskRunLoop:
         )
         task_body_orchestration_payload = dict(chain_runtime.get("task_body_orchestration") or task_operation.get("task_body_orchestration") or {})
         agent_runtime_spec_payload = dict(chain_runtime.get("agent_runtime_spec") or task_operation.get("agent_runtime_spec") or {})
+        effective_agent_runtime_profile = agent_runtime_profile or self.agent_runtime_registry.get_profile(
+            str(agent_runtime_spec_payload.get("agent_id") or "").strip()
+        )
         memory_view = dict(chain_runtime.get("memory_runtime_view") or {})
         context_policy = dict(chain_runtime.get("context_policy_result") or {})
         adoption_mode = str(task_agent_adoption_plan_payload.get("adoption_mode") or "adopt_existing")
@@ -1056,7 +1059,12 @@ class TaskRunLoop:
             task_contract_ref=str(task_contract.get("task_id") or task_id),
             agent_id=str(agent_runtime_spec_payload.get("agent_id") or "agent:0"),
             agent_profile_id=str(
-                getattr(agent_runtime_profile, "agent_profile_id", "") or "main_interactive_agent"
+                getattr(effective_agent_runtime_profile, "agent_profile_id", "")
+                or _agent_profile_id_for_runtime_spec(
+                    self.agent_runtime_registry,
+                    agent_runtime_spec_payload,
+                )
+                or "main_interactive_agent"
             ),
             runtime_lane=str(agent_runtime_spec_payload.get("runtime_lane") or "full_interactive"),
             task_agent_binding_ref=str(task_execution_assembly_payload.get("task_agent_binding_ref") or ""),
@@ -1344,7 +1352,7 @@ class TaskRunLoop:
         directive, resource_policy = build_model_response_runtime_adoption(
             task_operation,
             operation_registry=self.operation_gate.registry,
-            agent_runtime_profile=agent_runtime_profile,
+            agent_runtime_profile=effective_agent_runtime_profile,
         )
         resolved_model_spec = None
         model_resolution: dict[str, Any] = {}
@@ -1354,7 +1362,7 @@ class TaskRunLoop:
                 dict(task_execution_assembly_payload.get("contract_bindings") or {}).get("runtime") or {}
             ).get("model_requirement")
             resolved_model_spec = ModelProfileResolver(settings_service).resolve_model_spec(
-                agent_runtime_profile=agent_runtime_profile,
+                agent_runtime_profile=effective_agent_runtime_profile,
                 model_requirement=dict(model_requirement) if isinstance(model_requirement, dict) else {},
                 runtime_lane=str(agent_runtime_spec_payload.get("runtime_lane") or ""),
             )
@@ -1365,7 +1373,7 @@ class TaskRunLoop:
                 payload={"model_resolution": model_resolution},
                 refs={
                     "task_contract_ref": task_contract_ref,
-                    "agent_profile_ref": str(getattr(agent_runtime_profile, "agent_profile_id", "") or ""),
+                    "agent_profile_ref": str(getattr(effective_agent_runtime_profile, "agent_profile_id", "") or ""),
                 },
             )
             yield {"type": "runtime_loop_event", "event": model_resolution_event.to_dict()}
@@ -1385,7 +1393,7 @@ class TaskRunLoop:
         runtime_capability_state = build_runtime_capability_state(
             task_operation,
             resource_policy=resource_policy,
-            agent_runtime_profile=agent_runtime_profile,
+            agent_runtime_profile=effective_agent_runtime_profile,
             visible_tool_names=[
                 str(getattr(tool, "name", "") or "")
                 for tool in list(runtime_tool_instances)
@@ -7692,6 +7700,17 @@ def _task_operation_allows_context_retrieval(
         return True
     recipe = dict(task_operation.get("selected_recipe") or {})
     return str(recipe.get("source_kind") or "").strip() in {"knowledge", "retrieval", "knowledge_base"}
+
+
+def _agent_profile_id_for_runtime_spec(registry: Any, runtime_spec_payload: dict[str, Any]) -> str:
+    agent_id = str(runtime_spec_payload.get("agent_id") or "").strip()
+    if not agent_id:
+        return ""
+    getter = getattr(registry, "get_profile", None)
+    if not callable(getter):
+        return ""
+    profile = getter(agent_id)
+    return str(getattr(profile, "agent_profile_id", "") or "").strip()
 
 
 def _extract_ranked_labels(value: str) -> list[str]:

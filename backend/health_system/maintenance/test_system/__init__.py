@@ -16,6 +16,7 @@ from .harness_records import (
     TestHarnessIssue,
     harness_record_store,
 )
+from .contracts import RegressionSample, TestScenarioContract, VerificationVerdict
 from .runtime_loop_probe import (
     runtime_events_from_sse_events,
     runtime_events_from_turn_payload,
@@ -32,6 +33,9 @@ __all__ = [
     "TestCaseDraft",
     "TestCaseTemplate",
     "TestHarnessIssue",
+    "RegressionSample",
+    "TestScenarioContract",
+    "VerificationVerdict",
     "active_cases",
     "all_cases",
     "build_harness_map",

@@ -13,11 +13,46 @@ from orchestration.runtime_loop.state_index import RuntimeStateIndex
 from orchestration.runtime_loop.task_run_loop import TaskRunLoop
 from soul.facade import SoulFacade
 from tasks import TaskFlowRegistry, TaskWorkflowRegistry
+from tasks.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
 
 
 class _RuntimeStub:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
+
+
+def _parallel_batch_api_graph() -> TaskGraphDefinition:
+    return TaskGraphDefinition(
+        graph_id="graph.test.parallel_batch_dispatch_api",
+        title="并行批次派发 API 图",
+        graph_kind="multi_agent",
+        publish_state="published",
+        entry_node_id="produce",
+        output_node_id="produce",
+        runtime_policy={"coordinator_agent_id": "agent:coordinator"},
+        nodes=(
+            TaskGraphNodeDefinition(
+                node_id="produce",
+                node_type="agent",
+                title="并行批次生产",
+                task_id="task.test.produce",
+                agent_id="agent:producer",
+                contract_bindings={
+                    "unit_batch": {"unit_kind": "item", "requested_count": 6, "range_start": 1},
+                    "runtime": {
+                        "split_policy": {
+                            "mode": "static_batch",
+                            "batch_size": 2,
+                            "child_execution_mode": "parallel",
+                            "max_parallel_batches": 2,
+                        },
+                        "batch_acceptance_policy": {"mode": "review_then_commit", "max_repair_rounds": 1},
+                        "merge_policy": {"mode": "wait_all_committed"},
+                    },
+                },
+            ),
+        ),
+    )
 
 
 def test_orchestration_agents_payload_keeps_removed_legacy_groups_absent(tmp_path: Path) -> None:
@@ -78,6 +113,41 @@ def test_coordination_rewind_api_downstream_scan_ignores_feedback_edges() -> Non
         stage_id="d",
         include_downstream=True,
     ) == ["d"]
+
+
+def test_dispatch_ready_batches_api_returns_multiple_standard_requests(tmp_path: Path) -> None:
+    graph = _parallel_batch_api_graph()
+    loop = TaskRunLoop(tmp_path, backend_dir=Path("backend"))
+    runtime = SimpleNamespace(base_dir=Path("backend"), query_runtime=SimpleNamespace(task_run_loop=loop))
+    start = loop.start_task_graph_run(
+        session_id="session:test",
+        graph=graph,
+        runtime_spec=orchestration_api.compile_task_graph_definition_runtime_spec(graph=graph),
+    )
+    assert start.coordination_run is not None
+
+    original = orchestration_api.require_runtime
+    orchestration_api.require_runtime = lambda: runtime  # type: ignore[assignment]
+    try:
+        payload = asyncio.run(
+            orchestration_api.dispatch_coordination_ready_batches(
+                start.coordination_run.coordination_run_id,
+                orchestration_api.CoordinationRunDispatchReadyBatchesRequest(
+                    max_requests=2,
+                    include_current_request=True,
+                    execute_background=False,
+                    source="test",
+                ),
+            )
+        )
+    finally:
+        orchestration_api.require_runtime = original  # type: ignore[assignment]
+
+    assert payload["authority"] == "orchestration.coordination_run_dispatch_ready_batches"
+    assert payload["request_count"] == 2
+    assert [item["explicit_inputs"]["unit_batch_id"] for item in payload["stage_execution_requests"]] == ["item_1_2", "item_3_4"]
+    assert payload["stage_execution_requests"][0]["request_id"] != payload["stage_execution_requests"][1]["request_id"]
+    assert payload["batch_dispatcher"]["summary"]["active_execution_count"] == 2
 
 
 def test_coordination_rewind_invalidates_running_stage_task_runs(tmp_path: Path) -> None:

@@ -47,6 +47,24 @@ from .runtime_object_store import RuntimeObjectStore
 from .models import AgentHandoffEnvelope, CoordinationRun
 from .runtime_assembly_builder import build_node_runtime_assembly
 from .node_execution_request import NodeExecutionRequest, NodeResultReadyEvent
+from .task_graph_batch_runtime import (
+    apply_batch_to_pending_inputs,
+    attach_batch_execution_request,
+    batch_dispatcher_view,
+    batch_execution_instance_for_result,
+    batch_runtime_state_from_diagnostics,
+    bootstrap_batch_lifecycle_runtime_state,
+    node_has_batch_plan,
+    node_all_batches_committed,
+    node_has_active_batch_work,
+    node_has_dispatchable_batch_work,
+    node_committed_batch_refs,
+    node_has_failed_batch,
+    node_has_more_batch_work,
+    select_batch_for_stage,
+    summarize_batch_lifecycle_runtime_state,
+    transition_batch_after_stage_result,
+)
 from .task_graph_scheduler import bootstrap_scheduler_state
 from .timeline_ledger import TimelineEvent, TimelineLedgerStore
 from .timeline_result_record import build_timeline_result_record
@@ -104,6 +122,7 @@ class CoordinationRuntimeState(TypedDict, total=False):
     result_record_index: dict[str, dict[str, Any]]
     latest_stage_result_records: dict[str, str]
     accepted_result_records_by_scope: dict[str, dict[str, str]]
+    batch_lifecycle_runtime_state: dict[str, Any]
     timeline: dict[str, Any]
     diagnostics: dict[str, Any]
 
@@ -298,8 +317,11 @@ class LangGraphCoordinationRuntime:
             idempotency_key=f"{coordination_run.coordination_run_id}:run_started",
         )
         if not dict(state.get("stage_execution_request") or {}):
-            prepared = self._stage_execute(state)
-            state.update(prepared)
+            prepared_inputs = self._stage_prepare(state)
+            state.update(prepared_inputs)
+            if str(state.get("terminal_status") or "") not in {"blocked", "waiting_for_batch_result"}:
+                prepared = self._stage_execute(state)
+                state.update(prepared)
         state = self._attach_timeline_snapshot(state)
         kernel_result = self.kernel.checkpoint(
             thread_id=coordination_run.coordination_run_id,
@@ -701,7 +723,7 @@ class LangGraphCoordinationRuntime:
         )
         prepared_inputs = self._stage_prepare(state)
         state.update(prepared_inputs)
-        if str(state.get("terminal_status") or "") == "blocked":
+        if str(state.get("terminal_status") or "") in {"blocked", "waiting_for_batch_result"}:
             prepared = {}
         else:
             scheduler = _scheduler_node_sets(order=order, node_statuses=node_statuses, state=state, terminal_status="")
@@ -761,6 +783,95 @@ class LangGraphCoordinationRuntime:
                 "stage_id": target_stage_id,
                 "invalidated_stage_ids": invalidated_stage_ids,
                 "invalidated_result_record_ids": sorted(invalidated_result_record_ids),
+            },
+        )
+
+    def dispatch_ready_batch_requests(
+        self,
+        *,
+        coordination_run: CoordinationRun,
+        max_requests: int = 4,
+        include_current_request: bool = True,
+        checkpoint_reason: str = "dispatch_ready_batch_requests",
+    ) -> LangGraphCoordinationRuntimeResult:
+        state = self.checkpoints.get_state(thread_id=coordination_run.coordination_run_id)
+        if not state:
+            return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_checkpoint"})
+        limit = max(int(max_requests or 0), 0)
+        if limit <= 0:
+            return LangGraphCoordinationRuntimeResult(state=state, diagnostics={"supported": True, "request_count": 0})
+        requests: list[NodeExecutionRequest] = []
+        if include_current_request and dict(state.get("stage_execution_request") or {}):
+            try:
+                current_request = NodeExecutionRequest.from_dict(dict(state.get("stage_execution_request") or {}))
+                if _request_dispatch_identity(current_request.to_dict()) not in {
+                    _request_dispatch_identity(item.to_dict()) for item in requests
+                }:
+                    requests.append(current_request)
+            except ValueError:
+                pass
+        state = dict(state)
+        while len(requests) < limit:
+            active_stage_id = str(state.get("active_stage_id") or "").strip()
+            if not active_stage_id:
+                break
+            contract = dict(dict(state.get("stage_contracts") or {}).get(active_stage_id) or {})
+            node_id = str(contract.get("node_id") or active_stage_id)
+            batch_runtime_state = summarize_batch_lifecycle_runtime_state(
+                dict(state.get("batch_lifecycle_runtime_state") or {})
+            ) or batch_runtime_state_from_diagnostics(dict(state.get("diagnostics") or {}))
+            if not (
+                batch_runtime_state
+                and node_has_batch_plan(runtime_state=batch_runtime_state, stage_id=active_stage_id, node_id=node_id)
+                and node_has_dispatchable_batch_work(runtime_state=batch_runtime_state, stage_id=active_stage_id, node_id=node_id)
+            ):
+                break
+            state["stage_execution_request"] = {}
+            state["node_execution_request"] = {}
+            state["terminal_status"] = ""
+            prepared_inputs = self._stage_prepare(state)
+            state.update(prepared_inputs)
+            if str(state.get("terminal_status") or "") in {"blocked", "waiting_for_batch_result"}:
+                break
+            prepared = self._stage_execute(state)
+            state.update(prepared)
+            request_payload = dict(state.get("stage_execution_request") or {})
+            if not request_payload:
+                break
+            try:
+                request = NodeExecutionRequest.from_dict(request_payload)
+            except ValueError:
+                break
+            identities = {_request_dispatch_identity(item.to_dict()) for item in requests}
+            if _request_dispatch_identity(request_payload) in identities:
+                break
+            requests.append(request)
+        state["diagnostics"] = {
+            **dict(state.get("diagnostics") or {}),
+            "batch_dispatcher": batch_dispatcher_view(dict(state.get("batch_lifecycle_runtime_state") or {})),
+        }
+        state = self._attach_timeline_snapshot(state)
+        checkpoint = self.checkpoints.put_state(
+            thread_id=coordination_run.coordination_run_id,
+            state=state,
+            metadata={"event": checkpoint_reason, "request_count": len(requests)},
+        )
+        events = self.trace_adapter.write_state(
+            coordination_run=coordination_run,
+            state=state,
+            checkpoint_ref=checkpoint.checkpoint_id,
+            event_task_run_id=coordination_run.task_run_id,
+        )
+        return LangGraphCoordinationRuntimeResult(
+            state=state,
+            events=tuple(events),
+            stage_execution_request=requests[-1] if requests else None,
+            checkpoint_ref=checkpoint.checkpoint_id,
+            diagnostics={
+                "supported": True,
+                "request_count": len(requests),
+                "stage_execution_requests": [request.to_dict() for request in requests],
+                "batch_dispatcher": dict(state.get("diagnostics", {}).get("batch_dispatcher") or {}),
             },
         )
 
@@ -920,7 +1031,36 @@ class LangGraphCoordinationRuntime:
             return {"diagnostics": {**dict(state.get("diagnostics") or {}), "accept_warning": "missing_stage_id"}}
         contract = dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {})
         request_payload = dict(state.get("stage_execution_request") or {})
-        stale_result = _stale_result_reason(event=event, request_payload=request_payload, stage_id=stage_id)
+        node_id = str(contract.get("node_id") or stage_id)
+        batch_runtime_state_for_result = summarize_batch_lifecycle_runtime_state(
+            dict(state.get("batch_lifecycle_runtime_state") or {})
+        ) or batch_runtime_state_from_diagnostics(dict(state.get("diagnostics") or {}))
+        batch_result_execution = batch_execution_instance_for_result(
+            runtime_state=batch_runtime_state_for_result,
+            stage_id=stage_id,
+            node_id=node_id,
+            request_id=str(event.get("request_id") or ""),
+            dispatch_event_id=str(event.get("dispatch_event_id") or ""),
+            batch_execution_id=str(dict(event.get("diagnostics") or {}).get("unit_batch_execution_id") or ""),
+            event_diagnostics=dict(event.get("diagnostics") or {}),
+        ) if batch_runtime_state_for_result else {}
+        if batch_result_execution and (
+            not request_payload
+            or str(request_payload.get("request_id") or "") != str(event.get("request_id") or "")
+            or str(dict(request_payload.get("dispatch_context") or {}).get("dispatch_event_id") or "") != str(event.get("dispatch_event_id") or "")
+        ):
+            request_payload = _batch_execution_request_payload_from_state(
+                state=state,
+                stage_id=stage_id,
+                node_id=node_id,
+                batch_execution=batch_result_execution,
+            ) or request_payload
+        stale_result = _stale_result_reason(
+            event=event,
+            request_payload=request_payload,
+            stage_id=stage_id,
+            known_batch_execution=bool(batch_result_execution),
+        )
         if stale_result:
             stale_event = self._append_timeline_event(
                 state,
@@ -985,7 +1125,6 @@ class LangGraphCoordinationRuntime:
             artifact_refs,
             requires_file_artifact_refs=requires_file_artifact_refs,
         )
-        node_id = str(contract.get("node_id") or stage_id)
         stage_scope = self._stage_scope(state=state, stage_id=stage_id, contract=contract)
         result_request_payload = _stage_result_request_payload(
             state=state,
@@ -995,6 +1134,14 @@ class LangGraphCoordinationRuntime:
             node_id=node_id,
             contract=contract,
             stage_scope=stage_scope,
+        )
+        stage_scope = self._stage_scope(
+            state={
+                **dict(state),
+                "pending_inputs": dict(result_request_payload.get("explicit_inputs") or state.get("pending_inputs") or {}),
+            },
+            stage_id=stage_id,
+            contract=contract,
         )
         dispatch_context = dict(result_request_payload.get("dispatch_context") or request_payload.get("dispatch_context") or {})
         commit_identity = _stage_commit_identity(
@@ -1359,11 +1506,87 @@ class LangGraphCoordinationRuntime:
             contract=contract,
             event=event,
         )
+        batch_runtime_state = summarize_batch_lifecycle_runtime_state(
+            dict(state.get("batch_lifecycle_runtime_state") or {})
+        ) or batch_runtime_state_from_diagnostics(dict(state.get("diagnostics") or {}))
+        batch_updates: dict[str, Any] = {}
+        if batch_runtime_state and node_has_batch_plan(
+            runtime_state=batch_runtime_state,
+            stage_id=stage_id,
+            node_id=node_id,
+        ):
+            batch_runtime_state = transition_batch_after_stage_result(
+                runtime_state=batch_runtime_state,
+                stage_id=stage_id,
+                node_id=node_id,
+                accepted=accepted,
+                task_result_ref=str(event.get("task_result_ref") or ""),
+                agent_run_result_ref=str(event.get("agent_run_result_ref") or ""),
+                request_id=str(event.get("request_id") or result_request_payload.get("request_id") or ""),
+                dispatch_event_id=str(
+                    event.get("dispatch_event_id")
+                    or dict(result_request_payload.get("dispatch_context") or {}).get("dispatch_event_id")
+                    or ""
+                ),
+                batch_execution_id=str(
+                    dict(event.get("diagnostics") or {}).get("unit_batch_execution_id")
+                    or dict(result_request_payload.get("explicit_inputs") or {}).get("unit_batch_execution_id")
+                    or dict(result_request_payload.get("dispatch_context") or {}).get("batch_execution_id")
+                    or ""
+                ),
+                event_diagnostics=dict(event.get("diagnostics") or {}),
+            )
+            batch_updates["batch_lifecycle_runtime_state"] = batch_runtime_state
+            diagnostics["batch_lifecycle_runtime_state"] = batch_runtime_state
+            diagnostics["last_batch_transition"] = dict(dict(batch_runtime_state.get("diagnostics") or {}).get("last_transition") or {})
+            if node_has_failed_batch(runtime_state=batch_runtime_state, stage_id=stage_id, node_id=node_id):
+                node_statuses[stage_id] = "failed"
+                terminal_status = "failed"
+                loop_updates = {
+                    **dict(loop_updates or {}),
+                    "node_statuses": node_statuses,
+                    "terminal_status": "failed",
+                }
+            elif node_has_more_batch_work(runtime_state=batch_runtime_state, stage_id=stage_id, node_id=node_id):
+                node_statuses[stage_id] = "pending"
+                terminal_status = ""
+                diagnostics["retry_stage_id"] = stage_id
+                diagnostics["batch_node_continue"] = True
+                if (
+                    node_has_active_batch_work(runtime_state=batch_runtime_state, stage_id=stage_id, node_id=node_id)
+                    and not node_has_dispatchable_batch_work(runtime_state=batch_runtime_state, stage_id=stage_id, node_id=node_id)
+                ):
+                    diagnostics["batch_node_continue_reason"] = "waiting_for_active_batch_result"
+                loop_updates = {
+                    **dict(loop_updates or {}),
+                    "node_statuses": node_statuses,
+                    "terminal_status": "",
+                    "pending_inputs": dict(state.get("pending_inputs") or {}),
+                    "diagnostics": {
+                        **dict(loop_updates.get("diagnostics") or {}),
+                        "retry_stage_id": stage_id,
+                        "batch_node_continue": True,
+                    },
+                }
+            elif node_all_batches_committed(runtime_state=batch_runtime_state, stage_id=stage_id, node_id=node_id):
+                stage_result_payload["batch_committed_results"] = node_committed_batch_refs(
+                    runtime_state=batch_runtime_state,
+                    stage_id=stage_id,
+                    node_id=node_id,
+                )
+                stage_results[stage_id] = dict(stage_result_payload)
+                node_statuses[stage_id] = "completed"
+                loop_updates = {
+                    **dict(loop_updates or {}),
+                    "node_statuses": node_statuses,
+                    "terminal_status": "",
+                }
         artifact_payloads = [{"stage_id": stage_id, "ref": ref, "ref_kind": "artifact"} for ref in artifact_refs]
         return {
             "stage_results": stage_results,
             "stage_results_by_instance": stage_results_by_instance,
             "node_statuses": dict(loop_updates.get("node_statuses") or node_statuses),
+            **batch_updates,
             "retry_counts": retry_counts,
             "contract_status": contract_status,
             "human_gate": human_gate,
@@ -1407,12 +1630,17 @@ class LangGraphCoordinationRuntime:
             payload=payload,
             idempotency_key="",
         )
+        batch_runtime_state = summarize_batch_lifecycle_runtime_state(
+            dict(state.get("batch_lifecycle_runtime_state") or {})
+        ) or batch_runtime_state_from_diagnostics(dict(state.get("diagnostics") or {}))
         diagnostics = {
             **dict(scheduler_update.get("diagnostics") or {}),
             "latest_scheduler_event_id": str(event.event_id if event is not None else ""),
+            **({"batch_lifecycle_runtime_state": batch_runtime_state} if batch_runtime_state else {}),
         }
         return {
             **scheduler_update,
+            **({"batch_lifecycle_runtime_state": batch_runtime_state} if batch_runtime_state else {}),
             "timeline": self.timeline_ledger.snapshot(str(state.get("coordination_run_id") or ""), limit=80),
             "diagnostics": diagnostics,
         }
@@ -1600,6 +1828,14 @@ class LangGraphCoordinationRuntime:
                 terminal_status="waiting_for_human",
             )
             return self._record_scheduler_evaluation(state=state, scheduler_update=update, node_statuses=dict(state.get("node_statuses") or {}))
+        if str(state.get("terminal_status") or "") == "waiting_for_batch_result":
+            update = _scheduler_node_sets(
+                order=order,
+                node_statuses=dict(state.get("node_statuses") or {}),
+                state=state,
+                terminal_status="waiting_for_batch_result",
+            )
+            return self._record_scheduler_evaluation(state=state, scheduler_update=update, node_statuses=dict(state.get("node_statuses") or {}))
         if str(state.get("terminal_status") or "") == "failed":
             update = _scheduler_node_sets(
                 order=order,
@@ -1706,6 +1942,10 @@ class LangGraphCoordinationRuntime:
             pending_inputs=dict(binding.explicit_inputs),
             preserve_existing_batch_scope=True,
         )
+        batch_runtime_state = summarize_batch_lifecycle_runtime_state(
+            dict(state.get("batch_lifecycle_runtime_state") or {})
+        ) or batch_runtime_state_from_diagnostics(dict(state.get("diagnostics") or {}))
+        selected_batch: dict[str, Any] = {}
         if binding.blocked:
             node_statuses = dict(state.get("node_statuses") or {})
             node_statuses[stage_id] = "blocked"
@@ -1731,10 +1971,58 @@ class LangGraphCoordinationRuntime:
                 ),
                 "diagnostics": {**dict(state.get("diagnostics") or {}), "binding": dict(binding.diagnostics)},
             }
+        if batch_runtime_state and node_has_batch_plan(
+            runtime_state=batch_runtime_state,
+            stage_id=stage_id,
+            node_id=str(contract_payload.get("node_id") or stage_id),
+        ):
+            node_id = str(contract_payload.get("node_id") or stage_id)
+            batch_runtime_state, selected_batch = select_batch_for_stage(
+                runtime_state=batch_runtime_state,
+                stage_id=stage_id,
+                node_id=node_id,
+            )
+            if not selected_batch:
+                node_statuses = dict(state.get("node_statuses") or {})
+                node_statuses[stage_id] = "waiting"
+                wait_reason = (
+                    "batch_parallel_capacity_reached"
+                    if node_has_active_batch_work(runtime_state=batch_runtime_state, stage_id=stage_id, node_id=node_id)
+                    else "batch_no_dispatchable_work"
+                )
+                return {
+                    "pending_inputs": explicit_inputs,
+                    "missing_required_inputs": [],
+                    "terminal_status": "waiting_for_batch_result",
+                    "node_statuses": node_statuses,
+                    "batch_lifecycle_runtime_state": batch_runtime_state,
+                    **_scheduler_node_sets(
+                        order=[str(item) for item in list(state.get("stage_order") or []) if str(item)],
+                        node_statuses=node_statuses,
+                        state={**dict(state), "batch_lifecycle_runtime_state": batch_runtime_state},
+                        terminal_status="waiting_for_batch_result",
+                    ),
+                    "diagnostics": {
+                        **dict(state.get("diagnostics") or {}),
+                        "binding": dict(binding.diagnostics),
+                        "batch_lifecycle_runtime_state": batch_runtime_state,
+                        "batch_dispatch_wait_reason": wait_reason,
+                    },
+                }
+            explicit_inputs = apply_batch_to_pending_inputs(
+                pending_inputs=explicit_inputs,
+                batch_state=selected_batch,
+            )
         return {
             "pending_inputs": explicit_inputs,
             "missing_required_inputs": [],
-            "diagnostics": {**dict(state.get("diagnostics") or {}), "binding": dict(binding.diagnostics)},
+            "batch_lifecycle_runtime_state": batch_runtime_state or dict(state.get("batch_lifecycle_runtime_state") or {}),
+            "diagnostics": {
+                **dict(state.get("diagnostics") or {}),
+                "binding": dict(binding.diagnostics),
+                **({"batch_lifecycle_runtime_state": batch_runtime_state} if batch_runtime_state else {}),
+                **({"active_batch": selected_batch} if selected_batch else {}),
+            },
         }
 
     def _stage_execute(self, state: CoordinationRuntimeState) -> dict[str, Any]:
@@ -1825,6 +2113,12 @@ class LangGraphCoordinationRuntime:
             "coordination_run_id": str(state.get("coordination_run_id") or ""),
             "root_task_run_id": str(state.get("root_task_run_id") or ""),
         }
+        batch_execution_id = str(explicit_inputs.get("unit_batch_execution_id") or "").strip()
+        if batch_execution_id:
+            dispatch_context["batch_execution_id"] = batch_execution_id
+            dispatch_context["unit_batch_id"] = str(explicit_inputs.get("unit_batch_id") or "")
+            dispatch_context["unit_batch_plan_id"] = str(explicit_inputs.get("unit_batch_plan_id") or "")
+            dispatch_context["unit_batch_sequence_index"] = int(explicit_inputs.get("unit_batch_sequence_index") or 0)
         dispatch_identity_seed = f"{dispatch_context['coordination_run_id']}:{stage_id}:{dispatch_context['dispatch_event_id'] or dispatch_context['clock_seq']}"
         dispatch_context["activation_id"] = f"activation:{_safe_id(dispatch_identity_seed)}"
         dispatch_context["execution_permit_id"] = f"permit:{_safe_id(dispatch_identity_seed)}"
@@ -2059,6 +2353,17 @@ class LangGraphCoordinationRuntime:
                 "authority": "task_graph.timeline_result_policy",
             },
         )
+        batch_runtime_state = summarize_batch_lifecycle_runtime_state(
+            dict(state.get("batch_lifecycle_runtime_state") or {})
+        )
+        if batch_execution_id and batch_runtime_state:
+            batch_runtime_state = attach_batch_execution_request(
+                runtime_state=batch_runtime_state,
+                batch_execution_id=batch_execution_id,
+                request_id=request.request_id,
+                dispatch_event_id=str(dispatch_context.get("dispatch_event_id") or ""),
+                request_payload=request.to_dict(),
+            )
         next_handoff_packets = list(state.get("handoff_packets") or [])
         next_handoff_packets.extend(handoff_packets)
         return {
@@ -2066,11 +2371,16 @@ class LangGraphCoordinationRuntime:
             "stage_execution_request": request.to_dict(),
             "a2a_payload": a2a_payload,
             "pending_inputs": explicit_inputs,
+            **({"batch_lifecycle_runtime_state": batch_runtime_state} if batch_runtime_state else {}),
             "handoff_packets": next_handoff_packets,
             "working_memory_contexts": working_memory_contexts,
             "working_memory_operations": working_memory_operations,
             "timeline": self.timeline_ledger.snapshot(str(state.get("coordination_run_id") or ""), limit=80),
             "terminal_status": "",
+            "diagnostics": {
+                **dict(state.get("diagnostics") or {}),
+                **({"batch_lifecycle_runtime_state": batch_runtime_state} if batch_runtime_state else {}),
+            },
         }
 
     def _select_stage_working_memory_context(
@@ -2614,7 +2924,7 @@ class LangGraphCoordinationRuntime:
             return "noop"
         if terminal == "blocked":
             return "blocked"
-        if terminal == "waiting_for_human":
+        if terminal in {"waiting_for_human", "waiting_for_batch_result"}:
             return "blocked"
         if terminal == "failed":
             return "blocked"
@@ -2625,6 +2935,8 @@ class LangGraphCoordinationRuntime:
     @staticmethod
     def _route_after_prepare(state: CoordinationRuntimeState) -> str:
         if str(state.get("terminal_status") or "") == "blocked":
+            return "blocked"
+        if str(state.get("terminal_status") or "") == "waiting_for_batch_result":
             return "blocked"
         return "stage_execute"
 
@@ -2739,6 +3051,10 @@ class LangGraphCoordinationRuntime:
             edge_handoff_index={},
             mode="active",
         )
+        batch_lifecycle_runtime_state = bootstrap_batch_lifecycle_runtime_state(
+            runtime_spec_payload=graph_spec.to_dict(),
+            mode="active",
+        )
         return {
             "coordination_run_id": coordination_run.coordination_run_id,
             "root_task_run_id": coordination_run.task_run_id,
@@ -2771,6 +3087,7 @@ class LangGraphCoordinationRuntime:
             "result_record_index": {},
             "latest_stage_result_records": {},
             "accepted_result_records_by_scope": {},
+            "batch_lifecycle_runtime_state": batch_lifecycle_runtime_state,
             "timeline": self.timeline_ledger.snapshot(coordination_run.coordination_run_id, limit=80),
             "pending_inputs": dict(loop_state),
             "missing_required_inputs": [],
@@ -2798,6 +3115,7 @@ class LangGraphCoordinationRuntime:
                 "coordination_graph_spec": graph_spec.to_dict(),
                 "graph_ref": graph_spec.graph_ref or graph_spec.graph_id,
                 "task_graph_scheduler_state": scheduler_state.to_dict(),
+                "batch_lifecycle_runtime_state": batch_lifecycle_runtime_state,
                 "task_graph_runtime_source": "task_graph_definition",
                 "contract_manifest_ref": manifest.manifest_id,
                 "contract_manifest_valid": manifest.valid,
@@ -4477,9 +4795,17 @@ def _stage_execution_message(
     return "\n".join(lines)
 
 
-def _stale_result_reason(*, event: dict[str, Any], request_payload: dict[str, Any], stage_id: str) -> str:
+def _stale_result_reason(
+    *,
+    event: dict[str, Any],
+    request_payload: dict[str, Any],
+    stage_id: str,
+    known_batch_execution: bool = False,
+) -> str:
     event_request_id = str(event.get("request_id") or "").strip()
     event_dispatch_id = str(event.get("dispatch_event_id") or "").strip()
+    if known_batch_execution:
+        return ""
     if not request_payload:
         return "missing_active_stage_execution_request" if event_request_id or event_dispatch_id else ""
     active_stage_id = str(request_payload.get("stage_id") or "").strip()
@@ -4492,6 +4818,80 @@ def _stale_result_reason(*, event: dict[str, Any], request_payload: dict[str, An
     if event_dispatch_id and active_dispatch_id and event_dispatch_id != active_dispatch_id:
         return "dispatch_event_id_does_not_match_active_request"
     return ""
+
+
+def _batch_execution_request_payload_from_state(
+    *,
+    state: dict[str, Any],
+    stage_id: str,
+    node_id: str,
+    batch_execution: dict[str, Any],
+) -> dict[str, Any]:
+    stored_request = dict(batch_execution.get("request_payload") or {})
+    if stored_request:
+        return stored_request
+    coordination_run_id = str(state.get("coordination_run_id") or "")
+    request_id = str(batch_execution.get("request_id") or "")
+    dispatch_event_id = str(batch_execution.get("dispatch_event_id") or "")
+    batch_range = dict(batch_execution.get("range") or {})
+    explicit_inputs = {
+        **dict(state.get("pending_inputs") or {}),
+        "unit_kind": str(batch_execution.get("unit_kind") or "unit"),
+        "unit_batch_id": str(batch_execution.get("batch_id") or ""),
+        "unit_batch_execution_id": str(batch_execution.get("execution_id") or ""),
+        "unit_batch_plan_id": str(batch_execution.get("plan_id") or ""),
+        "unit_batch_sequence_index": _safe_int(batch_execution.get("sequence_index"), 0),
+        "unit_batch_label": str(batch_range.get("label") or ""),
+        "batch_start_index": _safe_int(batch_range.get("start"), 0),
+        "batch_end_index": _safe_int(batch_range.get("end"), _safe_int(batch_range.get("start"), 0)),
+        "batch_range": {
+            "start": _safe_int(batch_range.get("start"), 0),
+            "end": _safe_int(batch_range.get("end"), _safe_int(batch_range.get("start"), 0)),
+            "label": str(batch_range.get("label") or ""),
+        },
+    }
+    dispatch_context = {
+        "dispatch_event_id": dispatch_event_id,
+        "batch_execution_id": str(batch_execution.get("execution_id") or ""),
+        "unit_batch_id": str(batch_execution.get("batch_id") or ""),
+        "unit_batch_plan_id": str(batch_execution.get("plan_id") or ""),
+        "unit_batch_sequence_index": _safe_int(batch_execution.get("sequence_index"), 0),
+        "batch_start_index": _safe_int(batch_range.get("start"), 0),
+        "batch_end_index": _safe_int(batch_range.get("end"), _safe_int(batch_range.get("start"), 0)),
+        "node_id": node_id,
+        "stage_id": stage_id,
+        "thread_id": coordination_run_id,
+        "coordination_run_id": coordination_run_id,
+        "root_task_run_id": str(state.get("root_task_run_id") or ""),
+    }
+    contract = dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {})
+    return {
+        "request_id": request_id,
+        "coordination_run_id": coordination_run_id,
+        "thread_id": coordination_run_id,
+        "root_task_run_id": str(state.get("root_task_run_id") or ""),
+        "stage_id": stage_id,
+        "node_id": node_id,
+        "task_ref": str(contract.get("task_ref") or ""),
+        "agent_id": str(contract.get("agent_id") or ""),
+        "runtime_lane": str(contract.get("runtime_lane") or ""),
+        "explicit_inputs": explicit_inputs,
+        "dispatch_context": dispatch_context,
+    }
+
+
+def _request_dispatch_identity(request_payload: dict[str, Any]) -> str:
+    payload = dict(request_payload or {})
+    dispatch_context = dict(payload.get("dispatch_context") or {})
+    return "|".join(
+        [
+            str(payload.get("coordination_run_id") or dispatch_context.get("coordination_run_id") or ""),
+            str(payload.get("stage_id") or dispatch_context.get("stage_id") or ""),
+            str(payload.get("request_id") or ""),
+            str(dispatch_context.get("dispatch_event_id") or ""),
+            str(dispatch_context.get("batch_execution_id") or dict(payload.get("explicit_inputs") or {}).get("unit_batch_execution_id") or ""),
+        ]
+    )
 
 
 def _stage_commit_identity(*, stage_id: str, explicit_inputs: dict[str, Any], artifact_refs: list[str]) -> str:

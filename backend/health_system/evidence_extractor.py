@@ -19,11 +19,17 @@ def build_runtime_trace_evidence_packet(
     trace = dict(trace or {})
     task_run = dict(trace.get("task_run") or {})
     events = [dict(item) for item in list(trace.get("events") or []) if isinstance(item, dict)]
-    latest_checkpoint = dict(trace.get("latest_checkpoint") or {})
+    coordination_runs = [dict(item) for item in list(trace.get("coordination_runs") or []) if isinstance(item, dict)]
+    latest_checkpoint = _latest_checkpoint_from_trace(trace, events)
     candidates = _collect_event_candidates(events, task_run_id=str(task_run.get("task_run_id") or ""))
+    candidates.extend(_collect_coordination_candidates(coordination_runs, task_run_id=str(task_run.get("task_run_id") or "")))
     if not candidates and latest_checkpoint:
         candidates.append(_checkpoint_candidate(latest_checkpoint, task_run_id=str(task_run.get("task_run_id") or "")))
-    recovery_handles = _build_recovery_handles(events, latest_checkpoint=latest_checkpoint)
+    recovery_handles = _build_recovery_handles(
+        events,
+        latest_checkpoint=latest_checkpoint,
+        coordination_runs=coordination_runs,
+    )
     packet = build_evidence_packet(
         question=question,
         candidates=candidates,
@@ -52,7 +58,11 @@ def build_task_graph_recovery_candidates(trace: dict[str, Any] | None) -> list[d
             or ""
         )
         node_states = dict(scheduler_state.get("node_statuses") or {})
-        failing_nodes = [node_id for node_id, status in node_states.items() if str(dict(status or {}).get("status") or "") in {"failed", "blocked"}]
+        failing_nodes = [
+            str(node_id)
+            for node_id, status in node_states.items()
+            if _node_status_value(status) in {"failed", "blocked"}
+        ]
         node_ref = failing_nodes[0] if failing_nodes else ""
         candidates.append(
             TaskGraphRecoveryCandidate(
@@ -79,11 +89,7 @@ def build_turn_artifact_evidence_packet(
     payload = read_json_file(Path(artifact_path), {})
     if not isinstance(payload, dict):
         return build_evidence_packet(question=question, candidates=[], selected_limit=output_limit).to_dict()
-    trace = {
-        "task_run": {"task_run_id": str(dict(payload.get("result") or {}).get("task_run_id") or "")},
-        "events": runtime_events_from_turn_payload(payload),
-        "latest_checkpoint": dict(payload.get("latest_checkpoint") or {}),
-    }
+    trace = _trace_from_turn_payload(payload)
     return build_runtime_trace_evidence_packet(trace, question=question, output_limit=output_limit)
 
 
@@ -102,6 +108,38 @@ def runtime_events_from_turn_payload(payload: dict[str, Any]) -> list[dict[str, 
         if event:
             events.append(event)
     return events
+
+
+def _trace_from_turn_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    result = dict(payload.get("result") or {})
+    events = runtime_events_from_turn_payload(payload)
+    runtime_trace = dict(payload.get("runtime_trace") or {})
+    coordination_runs = list(payload.get("coordination_runs") or [])
+    if not coordination_runs:
+        coordination_runs = list(runtime_trace.get("coordination_runs") or [])
+    if not coordination_runs and int(runtime_trace.get("coordination_run_count") or 0) > 0:
+        coordination_flow = dict(runtime_trace.get("coordination_flow") or {})
+        coordination_runs = [
+            {
+                "coordination_run_id": str(runtime_trace.get("coordination_run_id") or ""),
+                "status": str(runtime_trace.get("coordination_status") or ""),
+                "graph_ref": str(runtime_trace.get("graph_ref") or ""),
+                "latest_checkpoint_ref": str(runtime_trace.get("coordination_checkpoint_ref") or ""),
+                "diagnostics": {
+                    "coordination_flow": coordination_flow,
+                    "task_graph_scheduler_state": dict(runtime_trace.get("task_graph_scheduler_state") or {}),
+                },
+            }
+        ]
+    task_run_id = str(result.get("task_run_id") or "")
+    if not task_run_id:
+        task_run_id = _task_run_id_from_events(events)
+    return {
+        "task_run": {"task_run_id": task_run_id},
+        "events": events,
+        "latest_checkpoint": _latest_checkpoint_from_turn_payload(payload, events),
+        "coordination_runs": coordination_runs,
+    }
 
 
 def _collect_event_candidates(events: list[dict[str, Any]], *, task_run_id: str) -> list[EvidenceCandidate]:
@@ -176,6 +214,58 @@ def _collect_event_candidates(events: list[dict[str, Any]], *, task_run_id: str)
     return candidates
 
 
+def _collect_coordination_candidates(coordination_runs: list[dict[str, Any]], *, task_run_id: str) -> list[EvidenceCandidate]:
+    candidates: list[EvidenceCandidate] = []
+    for index, run_payload in enumerate(coordination_runs, start=1):
+        coordination_run_id = str(run_payload.get("coordination_run_id") or "")
+        diagnostics = dict(run_payload.get("diagnostics") or {})
+        scheduler_state = _coordination_scheduler_state(run_payload)
+        coordination_flow = dict(
+            run_payload.get("coordination_flow")
+            or diagnostics.get("coordination_flow")
+            or {}
+        )
+        checkpoint_ref = _coordination_checkpoint_ref(run_payload)
+        failing_nodes = _coordination_failing_nodes(scheduler_state)
+        summary_parts = [
+            f"coordination_run={coordination_run_id}",
+            f"status={run_payload.get('status') or ''}",
+        ]
+        if checkpoint_ref:
+            summary_parts.append(f"checkpoint={checkpoint_ref}")
+        if failing_nodes:
+            summary_parts.append(f"failing_nodes={','.join(failing_nodes[:3])}")
+        current_stage = str(coordination_flow.get("current_stage_id") or "")
+        if current_stage:
+            summary_parts.append(f"stage={current_stage}")
+        candidates.append(
+            EvidenceCandidate(
+                candidate_id=f"evcand:{task_run_id or coordination_run_id}:coordination:{index}",
+                source_kind="coordination_run",
+                source_ref=coordination_run_id,
+                subject_type="task_graph",
+                subject_id=coordination_run_id or task_run_id,
+                event_type="coordination_recovery_boundary",
+                time_index=index,
+                summary="; ".join(item for item in summary_parts if item),
+                raw_ref=coordination_run_id,
+                metadata={
+                    "coordination_run_id": coordination_run_id,
+                    "checkpoint_ref": checkpoint_ref,
+                    "current_stage_id": current_stage,
+                    "failing_nodes": failing_nodes,
+                    "graph_ref": str(run_payload.get("graph_ref") or ""),
+                },
+                score=score_runtime_event(
+                    {"event_type": "scheduler_evaluated", "payload": run_payload},
+                    total_events=max(len(coordination_runs), 1),
+                    index=index,
+                ),
+            )
+        )
+    return candidates
+
+
 def _checkpoint_candidate(checkpoint: dict[str, Any], *, task_run_id: str) -> EvidenceCandidate:
     loop_state = dict(checkpoint.get("loop_state") or {})
     return EvidenceCandidate(
@@ -193,18 +283,71 @@ def _checkpoint_candidate(checkpoint: dict[str, Any], *, task_run_id: str) -> Ev
     )
 
 
-def _build_recovery_handles(events: list[dict[str, Any]], *, latest_checkpoint: dict[str, Any]) -> list[RecoveryHandle]:
+def _build_recovery_handles(
+    events: list[dict[str, Any]],
+    *,
+    latest_checkpoint: dict[str, Any],
+    coordination_runs: list[dict[str, Any]],
+) -> list[RecoveryHandle]:
     handles: list[RecoveryHandle] = []
     if latest_checkpoint.get("checkpoint_id"):
+        loop_state = dict(latest_checkpoint.get("loop_state") or {})
+        status = str(loop_state.get("status") or latest_checkpoint.get("status") or "")
         handles.append(
             RecoveryHandle(
                 kind="checkpoint",
                 ref=str(latest_checkpoint.get("checkpoint_id") or ""),
-                safe_to_resume=bool(str(dict(latest_checkpoint.get("loop_state") or {}).get("status") or "") in {"running", "blocked"}),
+                safe_to_resume=bool(status in {"running", "blocked"}),
                 side_effect_replay_risk="low",
-                metadata={"event_offset": int(latest_checkpoint.get("event_offset") or 0)},
+                metadata={
+                    "event_offset": int(latest_checkpoint.get("event_offset") or 0),
+                    "status": status,
+                    "source": str(latest_checkpoint.get("source") or "runtime_checkpoint"),
+                },
             )
         )
+    for run_payload in coordination_runs:
+        coordination_run_id = str(run_payload.get("coordination_run_id") or "")
+        checkpoint_ref = _coordination_checkpoint_ref(run_payload)
+        scheduler_state = _coordination_scheduler_state(run_payload)
+        diagnostics = dict(run_payload.get("diagnostics") or {})
+        coordination_flow = dict(run_payload.get("coordination_flow") or diagnostics.get("coordination_flow") or {})
+        failing_nodes = _coordination_failing_nodes(scheduler_state)
+        active_node_id = _first_nonempty(
+            scheduler_state.get("active_node_id"),
+            dict(run_payload.get("langgraph_runtime_state") or {}).get("active_node_id"),
+            dict(diagnostics.get("langgraph_runtime_state") or {}).get("active_node_id"),
+            coordination_flow.get("current_stage_id"),
+        )
+        if checkpoint_ref:
+            handles.append(
+                RecoveryHandle(
+                    kind="coordination_checkpoint",
+                    ref=checkpoint_ref,
+                    safe_to_resume=bool(str(run_payload.get("status") or "") in {"running", "blocked"}),
+                    side_effect_replay_risk="medium",
+                    metadata={
+                        "coordination_run_id": coordination_run_id,
+                        "graph_ref": str(run_payload.get("graph_ref") or ""),
+                        "current_stage_id": str(coordination_flow.get("current_stage_id") or ""),
+                        "active_node_id": str(active_node_id or ""),
+                    },
+                )
+            )
+        for node_id in failing_nodes[:3]:
+            handles.append(
+                RecoveryHandle(
+                    kind="task_graph_node_resume_candidate",
+                    ref=str(node_id),
+                    safe_to_resume=False,
+                    side_effect_replay_risk="high",
+                    metadata={
+                        "coordination_run_id": coordination_run_id,
+                        "checkpoint_ref": checkpoint_ref,
+                        "reason": "node_failed_or_blocked",
+                    },
+                )
+            )
     last_tool = next((item for item in reversed(events) if str(item.get("event_type") or "") == "tool_result_received"), None)
     if last_tool is not None:
         handles.append(
@@ -216,6 +359,101 @@ def _build_recovery_handles(events: list[dict[str, Any]], *, latest_checkpoint: 
             )
         )
     return handles
+
+
+def _latest_checkpoint_from_trace(trace: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
+    explicit = dict(trace.get("latest_checkpoint") or {})
+    return _latest_checkpoint_from_events(events, explicit=explicit)
+
+
+def _latest_checkpoint_from_turn_payload(payload: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
+    explicit = (
+        dict(payload.get("latest_checkpoint") or {})
+        or dict(payload.get("checkpoint") or {})
+        or dict(dict(payload.get("result") or {}).get("latest_checkpoint") or {})
+        or dict(dict(payload.get("result") or {}).get("checkpoint") or {})
+    )
+    return _latest_checkpoint_from_events(events, explicit=explicit)
+
+
+def _latest_checkpoint_from_events(events: list[dict[str, Any]], *, explicit: dict[str, Any]) -> dict[str, Any]:
+    if explicit.get("checkpoint_id"):
+        return explicit
+    for event in reversed(events):
+        if str(event.get("event_type") or "") != "checkpoint_written":
+            continue
+        payload = dict(event.get("payload") or {})
+        if not payload.get("checkpoint_id"):
+            continue
+        result = dict(payload)
+        result.setdefault("event_offset", int(event.get("offset") or payload.get("event_offset") or 0))
+        result.setdefault("source", "runtime_event.checkpoint_written")
+        return result
+    return explicit
+
+
+def _task_run_id_from_events(events: list[dict[str, Any]]) -> str:
+    for event in events:
+        task_run_id = str(event.get("task_run_id") or "")
+        if task_run_id:
+            return task_run_id
+    return ""
+
+
+def _coordination_checkpoint_ref(run_payload: dict[str, Any]) -> str:
+    diagnostics = dict(run_payload.get("diagnostics") or {})
+    checkpoint = dict(
+        run_payload.get("coordination_checkpoint")
+        or diagnostics.get("coordination_checkpoint")
+        or {}
+    )
+    return str(
+        checkpoint.get("checkpoint_id")
+        or run_payload.get("latest_checkpoint_ref")
+        or diagnostics.get("langgraph_checkpoint_ref")
+        or diagnostics.get("coordination_checkpoint_ref")
+        or ""
+    )
+
+
+def _coordination_scheduler_state(run_payload: dict[str, Any]) -> dict[str, Any]:
+    diagnostics = dict(run_payload.get("diagnostics") or {})
+    langgraph_state = dict(run_payload.get("langgraph_runtime_state") or diagnostics.get("langgraph_runtime_state") or {})
+    return dict(
+        run_payload.get("task_graph_scheduler_state")
+        or diagnostics.get("task_graph_scheduler_state")
+        or langgraph_state.get("task_graph_scheduler_state")
+        or {}
+    )
+
+
+def _coordination_failing_nodes(scheduler_state: dict[str, Any]) -> list[str]:
+    nodes: list[str] = []
+    nodes.extend(str(item) for item in list(scheduler_state.get("failed_nodes") or []) if str(item))
+    nodes.extend(str(item) for item in list(scheduler_state.get("blocked_nodes") or []) if str(item))
+    node_statuses = dict(scheduler_state.get("node_statuses") or {})
+    for node_id, status in node_statuses.items():
+        if isinstance(status, dict):
+            node_status = str(status.get("status") or "")
+        else:
+            node_status = str(status or "")
+        if node_status in {"failed", "blocked"}:
+            nodes.append(str(node_id))
+    return list(dict.fromkeys(nodes))
+
+
+def _node_status_value(status: Any) -> str:
+    if isinstance(status, dict):
+        return str(status.get("status") or "")
+    return str(status or "")
+
+
+def _first_nonempty(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
 
 
 def _test_handles_from_trace(trace: dict[str, Any]) -> list[dict[str, Any]]:

@@ -256,13 +256,67 @@ export type TestHarnessRecords = {
   issues: TestHarnessIssue[];
   case_drafts: TestCaseDraft[];
   managed_cases: HarnessMapCase[];
+  regression_samples?: RegressionSample[];
   summary: {
     issue_count: number;
     open_issue_count: number;
     case_draft_count: number;
     managed_case_count?: number;
+    regression_sample_count?: number;
   };
   authority: string;
+};
+
+export type TestScenarioContract = {
+  contract_id: string;
+  title: string;
+  scenario_id: string;
+  turn_id: string;
+  session_alias: string;
+  user_input: string;
+  objective?: string;
+  source_kind?: string;
+  source_ref?: string;
+  profile?: string;
+  preconditions?: string[];
+  assertions?: string[];
+  expected_tools?: string[];
+  expected_events?: string[];
+  evidence_policy?: Record<string, unknown>;
+  rerun_args?: string[];
+  authority?: string;
+};
+
+export type RegressionSample = {
+  sample_id: string;
+  title: string;
+  source_run_id: string;
+  source_turn_id: string;
+  source_artifact_path: string;
+  scenario_id: string;
+  session_alias: string;
+  status: string;
+  failure_summary: string;
+  observed?: string;
+  expected?: string;
+  task_run_id?: string;
+  problem_node_id?: string;
+  problem_node_label?: string;
+  contract?: TestScenarioContract | null;
+  assertion_summary?: Array<Record<string, unknown>>;
+  evidence_packet?: Record<string, unknown>;
+  rerun_command?: string[];
+  verification?: {
+    status?: string;
+    reason?: string;
+    run_id?: string;
+    artifact_refs?: string[];
+    checked_at?: number;
+  };
+  tags?: string[];
+  created_at?: number;
+  updated_at?: number;
+  authority?: string;
 };
 
 export type HarnessMapFeature = {
@@ -304,6 +358,8 @@ export type HarnessMap = {
   case_drafts: TestCaseDraft[];
   governance_findings: Array<Record<string, unknown>>;
   managed_cases: HarnessMapCase[];
+  regression_samples?: RegressionSample[];
+  scenario_contracts?: TestScenarioContract[];
   profile_matrix: Array<{
     profile: string;
     case_count: number;
@@ -686,6 +742,8 @@ export type TaskGraphExecutionPackage = {
   scheduler_state: Record<string, unknown>;
   graph_units: Array<Record<string, unknown>>;
   graph_unit_execution_plans?: Array<Record<string, unknown>>;
+  split_plans?: Array<Record<string, unknown>>;
+  split_merge_issues?: Array<Record<string, unknown>>;
   object_trace_index?: Array<Record<string, unknown>>;
   issues: Array<Record<string, unknown>>;
   summary: Record<string, number | string | boolean>;
@@ -1258,6 +1316,66 @@ export type HealthWorkbenchInboxItem = {
   metadata?: Record<string, unknown>;
 };
 
+export type HealthWorkbenchDiagnosisItem = {
+  diagnosis_id: string;
+  subject_type: string;
+  subject_id: string;
+  title: string;
+  priority: string;
+  question: string;
+  evidence_state: string;
+  recommended_agent_role: string;
+  source_item_id: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type HealthWorkbenchRecoveryItem = {
+  recovery_id: string;
+  subject_type: string;
+  subject_id: string;
+  title: string;
+  handle_kind: string;
+  handle_ref: string;
+  safe_to_resume: boolean;
+  side_effect_replay_risk: string;
+  recommended_action: string;
+  requires_runtime_control: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+export type HealthWorkbenchFailureChain = {
+  chain_id: string;
+  subject_type: string;
+  subject_id: string;
+  title: string;
+  status: string;
+  root_cause_candidate: string;
+  last_task_run_id: string;
+  last_checkpoint_ref: string;
+  last_coordination_checkpoint_ref: string;
+  evidence_packet_ref: string;
+  steps: Array<{
+    step_id: string;
+    step_type: string;
+    title: string;
+    summary: string;
+    source_ref: string;
+  }>;
+};
+
+export type HealthWorkbenchEvidencePacket = {
+  packet_id: string;
+  question: string;
+  verdict: string;
+  confidence: number;
+  summary: string;
+  selected_evidence: Array<Record<string, unknown>>;
+  recovery_handles: Array<Record<string, unknown>>;
+  test_handles: Array<Record<string, unknown>>;
+  excluded_evidence_summary: Record<string, unknown>;
+  authority: string;
+};
+
 export type HealthWorkbenchOverview = {
   authority: string;
   summary: Record<string, number>;
@@ -1266,6 +1384,18 @@ export type HealthWorkbenchOverview = {
   features: HarnessMapFeature[];
   verification_resources: HarnessMapCase[];
   recent_runs: VerificationRun[];
+  diagnosis_inbox?: HealthWorkbenchDiagnosisItem[];
+  recovery_inbox?: HealthWorkbenchRecoveryItem[];
+  failure_chains?: HealthWorkbenchFailureChain[];
+  regression_sample_inbox?: Array<Record<string, unknown>>;
+  test_governance?: {
+    authority: string;
+    record_store_ref: string;
+    regression_samples: RegressionSample[];
+    scenario_contracts: TestScenarioContract[];
+    summary: Record<string, number>;
+  };
+  evidence_packets?: HealthWorkbenchEvidencePacket[];
   evidence_gaps: Array<Record<string, unknown>>;
   efficiency: {
     authority: string;
@@ -1745,6 +1875,35 @@ export type TaskGraphRunMonitorIssue = {
   target_id: string;
 };
 
+export type TaskGraphBatchLifecycleView = {
+  available: boolean;
+  authority?: string;
+  mode?: string;
+  graph_id?: string;
+  summary: {
+    plan_count?: number;
+    batch_count?: number;
+    ready_batch_count?: number;
+    running_batch_count?: number;
+    committed_batch_count?: number;
+    failed_batch_count?: number;
+    merge_ready_count?: number;
+    [key: string]: number | undefined;
+  };
+  plans: Array<Record<string, unknown>>;
+  batches: Array<Record<string, unknown>>;
+  execution_instances?: Array<Record<string, unknown>>;
+  merge_states: Array<Record<string, unknown>>;
+  active_batch_by_node?: Record<string, string>;
+  active_execution_by_node?: Record<string, string>;
+  active_execution_by_batch?: Record<string, string>;
+  execution_mode_by_plan?: Record<string, string>;
+  ready_batch_ids?: string[];
+  running_batch_ids?: string[];
+  committed_batch_ids?: string[];
+  failed_batch_ids?: string[];
+};
+
 export type TaskGraphRunMonitorView = {
   authority: "task_graph.run_monitor" | string;
   source: string;
@@ -1818,6 +1977,8 @@ export type TaskGraphRunMonitorView = {
     blocked_node_ids: string[];
     waiting_node_ids: string[];
   };
+  batch_lifecycle?: TaskGraphBatchLifecycleView;
+  batch_dispatcher?: Record<string, unknown>;
   artifacts: Array<Record<string, unknown>>;
   memory_operations: Array<Record<string, unknown>>;
   stage_results: Array<Record<string, unknown>>;
@@ -3468,6 +3629,38 @@ export async function continueOrchestrationCurrentStage(
   );
 }
 
+export async function dispatchCoordinationReadyBatches(
+  coordinationRunId: string,
+  payload: {
+    source?: string;
+    current_turn_context?: Record<string, unknown>;
+    max_requests?: number;
+    include_current_request?: boolean;
+    execute_background?: boolean;
+  } = {}
+) {
+  return request<{
+    authority: string;
+    coordination_run_id: string;
+    task_run_id: string;
+    session_id: string;
+    checkpoint_ref: string;
+    stage_execution_requests: Array<Record<string, unknown>>;
+    request_count: number;
+    execute_background: boolean;
+    background_started_count: number;
+    stage_execution_schedules: Array<Record<string, unknown>>;
+    batch_dispatcher: Record<string, unknown>;
+    events: Array<Record<string, unknown>>;
+  }>(
+    `/orchestration/coordination-runs/${encodeURIComponent(coordinationRunId)}/dispatch-ready-batches`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
 export async function stopOrchestrationTaskRun(
   taskRunId: string,
   payload: {
@@ -3818,6 +4011,42 @@ export async function getHealthWorkbenchOverview() {
   return request<HealthWorkbenchOverview>("/health-workbench/overview");
 }
 
+export async function getHealthWorkbenchEvidencePackets() {
+  return request<{
+    authority: string;
+    evidence_packets: HealthWorkbenchEvidencePacket[];
+    failure_chains: HealthWorkbenchFailureChain[];
+    summary: Record<string, number>;
+  }>("/health-workbench/evidence-packets");
+}
+
+export async function getHealthWorkbenchDiagnosisInbox() {
+  return request<{
+    authority: string;
+    diagnosis_inbox: HealthWorkbenchDiagnosisItem[];
+    evidence_gaps: Array<Record<string, unknown>>;
+    summary: Record<string, number>;
+  }>("/health-workbench/diagnosis-inbox");
+}
+
+export async function getHealthWorkbenchRecoveryInbox() {
+  return request<{
+    authority: string;
+    recovery_inbox: HealthWorkbenchRecoveryItem[];
+    summary: Record<string, number>;
+  }>("/health-workbench/recovery-inbox");
+}
+
+export async function getHealthWorkbenchRegressionSamples() {
+  return request<{
+    authority: string;
+    regression_sample_inbox: Array<Record<string, unknown>>;
+    regression_samples: RegressionSample[];
+    scenario_contracts: TestScenarioContract[];
+    summary: Record<string, number>;
+  }>("/health-workbench/regression-samples");
+}
+
 export async function createHealthAgentConversationSession(payload: {
   active_issue_ref?: string;
   active_run_ref?: string;
@@ -3944,6 +4173,44 @@ export async function getTestAgentReport() {
 
 export async function getHarnessMap() {
   return request<HarnessMap>("/health-system/maintenance/test-system/harness-map");
+}
+
+export async function listRegressionSamples() {
+  return request<{ authority: string; samples: RegressionSample[]; summary: Record<string, number> }>("/health-system/maintenance/test-system/regression-samples");
+}
+
+export async function createRegressionSampleFromTurn(runId: string, turnId: string) {
+  return request<RegressionSample>(
+    `/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}/turns/${encodeURIComponent(turnId)}/regression-sample`,
+    { method: "POST" }
+  );
+}
+
+export async function promoteFailedTurnsToRegressionSamples(runId: string) {
+  return request<{
+    authority: string;
+    run_id: string;
+    promoted: RegressionSample[];
+    skipped: Array<Record<string, unknown>>;
+    summary: Record<string, number>;
+  }>(
+    `/health-system/maintenance/test-system/runs/${encodeURIComponent(runId)}/regression-samples/promote-failed-turns`,
+    { method: "POST" }
+  );
+}
+
+export async function rerunRegressionSample(sampleId: string) {
+  return request<{ authority: string; sample: RegressionSample; run: TestRun; verdict: Record<string, unknown> }>(
+    `/health-system/maintenance/test-system/regression-samples/${encodeURIComponent(sampleId)}/rerun`,
+    { method: "POST" }
+  );
+}
+
+export async function refreshRegressionSampleVerdict(sampleId: string) {
+  return request<{ authority: string; sample: RegressionSample; run: TestRun | Record<string, never>; summary?: Record<string, unknown>; verdict: Record<string, unknown> }>(
+    `/health-system/maintenance/test-system/regression-samples/${encodeURIComponent(sampleId)}/refresh-verdict`,
+    { method: "POST" }
+  );
 }
 
 export async function getTestCaseTemplates() {

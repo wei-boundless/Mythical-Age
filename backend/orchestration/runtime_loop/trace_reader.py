@@ -501,6 +501,13 @@ def _coordination_flow_summary(flow: dict[str, Any]) -> dict[str, Any]:
 
 def _langgraph_state_summary(state: dict[str, Any]) -> dict[str, Any]:
     stage_results = dict(state.get("stage_results") or {})
+    batch_lifecycle = _batch_lifecycle_summary(
+        dict(
+            state.get("batch_lifecycle_runtime_state")
+            or dict(state.get("diagnostics") or {}).get("batch_lifecycle_runtime_state")
+            or {}
+        )
+    )
     return {
         "active_stage_id": str(state.get("active_stage_id") or ""),
         "active_node_id": str(state.get("active_node_id") or ""),
@@ -529,6 +536,7 @@ def _langgraph_state_summary(state: dict[str, Any]) -> dict[str, Any]:
             if str(dict(item).get("ref") or dict(item).get("artifact_ref") or "").startswith("artifact:")
         ][-50:],
         "working_memory_operation_count": len(list(state.get("working_memory_operations") or [])),
+        "batch_lifecycle_runtime_state": batch_lifecycle,
     }
 
 
@@ -542,6 +550,86 @@ def _scheduler_state_summary(state: dict[str, Any]) -> dict[str, Any]:
         "failed_nodes": list(state.get("failed_nodes") or []),
         "blocked_node_count": len(list(state.get("blocked_nodes") or [])),
         "node_statuses": node_statuses,
+    }
+
+
+def _batch_lifecycle_summary(state: dict[str, Any]) -> dict[str, Any]:
+    if str(state.get("authority") or "") != "task_system.batch_lifecycle_runtime_state":
+        return {"available": False}
+    batches = [dict(item) for item in list(state.get("batch_states") or []) if isinstance(item, dict)]
+    plans = [dict(item) for item in list(state.get("plan_states") or []) if isinstance(item, dict)]
+    instances = [dict(item) for item in list(state.get("batch_execution_instances") or []) if isinstance(item, dict)]
+    return {
+        "available": True,
+        "authority": str(state.get("authority") or ""),
+        "mode": str(state.get("mode") or ""),
+        "graph_id": str(state.get("graph_id") or ""),
+        "summary": dict(state.get("summary") or {}),
+        "ready_batch_ids": list(state.get("ready_batch_ids") or []),
+        "running_batch_ids": list(state.get("running_batch_ids") or []),
+        "committed_batch_ids": list(state.get("committed_batch_ids") or []),
+        "failed_batch_ids": list(state.get("failed_batch_ids") or []),
+        "active_batch_by_node": dict(state.get("active_batch_by_node") or {}),
+        "active_execution_by_node": dict(state.get("active_execution_by_node") or {}),
+        "active_execution_by_batch": dict(state.get("active_execution_by_batch") or {}),
+        "execution_mode_by_plan": dict(state.get("execution_mode_by_plan") or {}),
+        "plans": [
+            {
+                "plan_id": str(item.get("plan_id") or ""),
+                "node_id": str(item.get("node_id") or ""),
+                "status": str(item.get("status") or ""),
+                "unit_kind": str(item.get("unit_kind") or ""),
+                "batch_count": int(item.get("batch_count") or 0),
+                "committed_batch_count": int(item.get("committed_batch_count") or 0),
+                "failed_batch_count": int(item.get("failed_batch_count") or 0),
+                "active_batch_id": str(item.get("active_batch_id") or ""),
+            }
+            for item in plans
+        ],
+        "batches": [
+            {
+                "batch_id": str(item.get("batch_id") or ""),
+                "plan_id": str(item.get("plan_id") or ""),
+                "node_id": str(item.get("node_id") or ""),
+                "sequence_index": int(item.get("sequence_index") or 0),
+                "unit_kind": str(item.get("unit_kind") or ""),
+                "range": dict(item.get("range") or {}),
+                "status": str(item.get("status") or ""),
+                "attempt_index": int(item.get("attempt_index") or 0),
+                "repair_round": int(item.get("repair_round") or 0),
+                "last_result_ref": str(item.get("last_result_ref") or ""),
+                "last_verdict": str(item.get("last_verdict") or ""),
+            }
+            for item in batches[-80:]
+        ],
+        "execution_instances": [
+            {
+                "execution_id": str(item.get("execution_id") or ""),
+                "batch_id": str(item.get("batch_id") or ""),
+                "plan_id": str(item.get("plan_id") or ""),
+                "node_id": str(item.get("node_id") or ""),
+                "status": str(item.get("status") or ""),
+                "attempt_index": int(item.get("attempt_index") or 0),
+                "repair_round": int(item.get("repair_round") or 0),
+                "request_id": str(item.get("request_id") or ""),
+                "dispatch_event_id": str(item.get("dispatch_event_id") or ""),
+                "result_ref": str(item.get("result_ref") or ""),
+                "verdict": str(item.get("verdict") or ""),
+            }
+            for item in instances[-120:]
+        ],
+        "merge_states": [
+            {
+                "merge_id": str(item.get("merge_id") or ""),
+                "plan_id": str(item.get("plan_id") or ""),
+                "node_id": str(item.get("node_id") or ""),
+                "status": str(item.get("status") or ""),
+                "mode": str(item.get("mode") or ""),
+                "ready_condition": str(item.get("ready_condition") or ""),
+            }
+            for item in list(state.get("merge_states") or [])
+            if isinstance(item, dict)
+        ],
     }
 
 
