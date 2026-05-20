@@ -7,6 +7,7 @@ from typing import Any, Awaitable, Callable, Iterable
 
 from langchain_core.messages import AIMessage, ToolMessage
 
+from execution.tool_call_policy import ToolCallBindingOptions, build_required_tool_call_options
 from orchestration.runtime_directive import RuntimeDirective
 from output_boundary.boundary import sanitize_visible_assistant_content
 from tasks.run_models import (
@@ -21,6 +22,8 @@ from tasks.run_models import (
     update_task_run_step_diagnostics,
 )
 
+from .deliverable_validator import validate_deliverable
+from .evidence_packet import build_evidence_packet
 from .models import RuntimeLoopState
 
 
@@ -30,7 +33,7 @@ StateWithLedger = Callable[..., RuntimeLoopState]
 
 
 @dataclass(slots=True)
-class AutonomousTaskRunOutcome:
+class ProfessionalTaskRunOutcome:
     ledger: TaskRunLedger | None
     state: RuntimeLoopState
     result_refs: list[str] = field(default_factory=list)
@@ -45,7 +48,7 @@ class AutonomousTaskRunOutcome:
 
 
 @dataclass(slots=True)
-class AutonomousTaskGoalContract:
+class ProfessionalTaskGoalContract:
     contract_id: str
     goal: str
     required_material_paths: list[str] = field(default_factory=list)
@@ -59,14 +62,14 @@ class AutonomousTaskGoalContract:
     requires_delegation: bool = False
     response_must_include: list[str] = field(default_factory=list)
     forbidden_visible_markers: list[str] = field(default_factory=list)
-    authority: str = "orchestration.autonomous_task_goal_contract"
+    authority: str = "orchestration.professional_task_goal_contract"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 @dataclass(slots=True)
-class AutonomousTaskActionTracker:
+class ProfessionalTaskActionTracker:
     tool_names: list[str] = field(default_factory=list)
     read_material_paths: list[str] = field(default_factory=list)
     searched_material_refs: list[str] = field(default_factory=list)
@@ -90,7 +93,7 @@ class AutonomousTaskActionTracker:
 
 
 @dataclass(frozen=True, slots=True)
-class AutonomousTaskContractGateDecision:
+class ProfessionalTaskContractGateDecision:
     allowed: bool
     error: str = ""
     message: str = ""
@@ -98,10 +101,10 @@ class AutonomousTaskContractGateDecision:
     next_required_tool_names: tuple[str, ...] = ()
 
 
-class AutonomousTaskRunDriver:
-    """Runtime driver for graphless autonomous task execution.
+class ProfessionalTaskRunDriver:
+    """Runtime driver for graphless interaction-mode task execution.
 
-    The driver owns autonomous task control states, while TaskRunLoop still owns
+    The driver owns professional task control states, while TaskRunLoop still owns
     the shared event log, checkpoints, ledger, TaskResult, and commit gates.
     """
 
@@ -123,195 +126,10 @@ class AutonomousTaskRunDriver:
         self.write_checkpoint_event = write_checkpoint_event
         self._ledger_transition_events: list[Any] = []
 
-    async def run_simple_stream(
+    async def run_stream(
         self,
         *,
-        outcome: AutonomousTaskRunOutcome,
-        user_message: str,
-        task_id: str,
-        task_operation: dict[str, Any],
-        task_contract_ref: str,
-        selected_recipe_payload: dict[str, Any],
-        context_snapshot: Any,
-        directive: RuntimeDirective,
-        resource_policy: Any,
-        model_response_executor: Any,
-        runtime_context_manager: Any,
-        model_stream_policy: dict[str, Any] | None = None,
-        resolved_model_spec: Any | None = None,
-        tool_runtime_executor: Any | None = None,
-        runtime_tool_instances: list[Any] | None = None,
-        allowed_search_sources: set[str] | None = None,
-        sandbox_policy: dict[str, Any] | None = None,
-    ):
-        _ = runtime_tool_instances
-        task_run_id = outcome.state.task_run_id
-        plan = _simple_control_plan(user_message=user_message, selected_recipe_payload=selected_recipe_payload)
-        start_event = self.event_log.append(
-            task_run_id,
-            "autonomous_task_started",
-            payload={
-                "mode": "simple",
-                "runtime_driver": "autonomous_task_run",
-                "goal": user_message,
-                "plan_item_count": len(plan),
-            },
-            refs={"task_contract_ref": task_contract_ref},
-        )
-        yield {"type": "runtime_loop_event", "event": start_event.to_dict()}
-        state_event = self.event_log.append(
-            task_run_id,
-            "autonomous_task_state_changed",
-            payload={"from_state": "initialized", "to_state": "goal_locked", "mode": "simple"},
-            refs={"task_contract_ref": task_contract_ref},
-        )
-        yield {"type": "runtime_loop_event", "event": state_event.to_dict()}
-
-        outcome.state, outcome.ledger = self._complete_current_and_advance(
-            state=outcome.state,
-            ledger=outcome.ledger,
-            reason="autonomous_task_goal_locked",
-            refs={"task_contract_ref": task_contract_ref},
-            diagnostics={"autonomous_state": "goal_locked"},
-        )
-        for event in self._ledger_transition_events:
-            yield {"type": "runtime_loop_event", "event": event.to_dict()}
-
-        plan_event = self.event_log.append(
-            task_run_id,
-            "autonomous_task_plan_drafted",
-            payload={
-                "mode": "simple",
-                "plan_items": plan,
-                "delegation_enabled": False,
-                "tool_execution_enabled": False,
-                "plan_source": "runtime_control_policy",
-            },
-            refs={"task_contract_ref": task_contract_ref},
-        )
-        yield {"type": "runtime_loop_event", "event": plan_event.to_dict()}
-        state_event = self.event_log.append(
-            task_run_id,
-            "autonomous_task_state_changed",
-            payload={"from_state": "goal_locked", "to_state": "plan_drafted", "mode": "simple"},
-            refs={"task_contract_ref": task_contract_ref},
-        )
-        yield {"type": "runtime_loop_event", "event": state_event.to_dict()}
-
-        outcome.state, outcome.ledger = self._complete_current_and_advance(
-            state=outcome.state,
-            ledger=outcome.ledger,
-            reason="autonomous_task_plan_drafted",
-            refs={"task_contract_ref": task_contract_ref},
-            diagnostics={"autonomous_state": "plan_drafted", "plan_items": plan},
-        )
-        for event in self._ledger_transition_events:
-            yield {"type": "runtime_loop_event", "event": event.to_dict()}
-
-        finalizing_event = self.event_log.append(
-            task_run_id,
-            "autonomous_task_state_changed",
-            payload={"from_state": "plan_drafted", "to_state": "finalizing", "mode": "simple"},
-            refs={"task_contract_ref": task_contract_ref},
-        )
-        yield {"type": "runtime_loop_event", "event": finalizing_event.to_dict()}
-        executor_event = self.event_log.append(
-            task_run_id,
-            "executor_started",
-            payload={
-                "executor_type": "model",
-                "runtime_channel": "autonomous_task_run",
-                "autonomy_mode": "simple",
-                "tool_execution_enabled": False,
-                "delegation_enabled": False,
-            },
-            refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
-        )
-        yield {"type": "runtime_loop_event", "event": executor_event.to_dict()}
-
-        safe_directive = _model_only_directive(directive)
-        model_messages = _with_simple_autonomous_task_instruction(
-            list(getattr(context_snapshot, "model_messages", ()) or ()),
-            plan_items=plan,
-        )
-        outcome.model_call_count = 1
-        async for event in model_response_executor.stream(
-            user_message=user_message,
-            model_messages=model_messages,
-            directive=safe_directive,
-            tool_instances=[],
-            model_stream_policy=model_stream_policy,
-            model_spec=resolved_model_spec,
-        ):
-            runtime_events = await self.events_from_executor_event(
-                task_run_id,
-                user_message=user_message,
-                task_id=task_id,
-                task_operation=task_operation,
-                adopted_resource_policy=resource_policy,
-                current_step_id=outcome.ledger.current_step_id if outcome.ledger is not None else outcome.state.current_step_id,
-                runtime_context_manager=runtime_context_manager,
-                model_response_executor=model_response_executor,
-                tool_runtime_executor=tool_runtime_executor,
-                event=event,
-                allowed_search_sources=allowed_search_sources,
-                sandbox_policy=sandbox_policy,
-            )
-            for runtime_event in runtime_events:
-                _adopt_runtime_event_ref(outcome, runtime_event)
-                yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
-            event_type = str(event.get("type") or "")
-            if event_type == "done":
-                outcome.final_content = str(event.get("content") or "")
-                outcome.final_answer_metadata = _answer_metadata_from_done_event(event)
-                outcome.main_context = dict(event.get("main_context") or {})
-                outcome.task_summary_refs = [
-                    dict(item) for item in list(event.get("task_summary_refs") or []) if isinstance(item, dict)
-                ]
-                outcome.bundle_summary_refs = [
-                    dict(item) for item in list(event.get("bundle_summary_refs") or []) if isinstance(item, dict)
-                ]
-            elif event_type == "error":
-                outcome.terminal_reason = "executor_failed"
-                yield event
-            else:
-                yield event
-
-        verification = {
-            "mode": "simple",
-            "passed": bool(outcome.final_content and outcome.terminal_reason == "completed"),
-            "checks": {
-                "has_final_content": bool(outcome.final_content),
-                "tool_claim_guard": "prompt_guarded",
-                "summary_check_required": True,
-            },
-        }
-        verify_event = self.event_log.append(
-            task_run_id,
-            "autonomous_task_verification_checked",
-            payload={"verification": verification},
-            refs={"task_contract_ref": task_contract_ref},
-        )
-        yield {"type": "runtime_loop_event", "event": verify_event.to_dict()}
-        committed_state_event = self.event_log.append(
-            task_run_id,
-            "autonomous_task_state_changed",
-            payload={
-                "from_state": "finalizing",
-                "to_state": "ready_for_commit",
-                "mode": "simple",
-                "terminal_reason": outcome.terminal_reason,
-            },
-            refs={"task_contract_ref": task_contract_ref},
-        )
-        yield {"type": "runtime_loop_event", "event": committed_state_event.to_dict()}
-        if not outcome.final_content and outcome.terminal_reason == "completed":
-            outcome.terminal_reason = "executor_failed"
-
-    async def run_standard_stream(
-        self,
-        *,
-        outcome: AutonomousTaskRunOutcome,
+        outcome: ProfessionalTaskRunOutcome,
         user_message: str,
         task_id: str,
         task_operation: dict[str, Any],
@@ -330,10 +148,17 @@ class AutonomousTaskRunDriver:
         sandbox_policy: dict[str, Any] | None = None,
     ):
         task_run_id = outcome.state.task_run_id
-        autonomy_mode = _standard_execution_mode(selected_recipe_payload)
-        policy = _autonomous_policy(selected_recipe_payload)
+        policy = _professional_runtime_policy(selected_recipe_payload)
+        mode_policy = dict(policy.get("mode_policy") or {})
+        semantic_contract = dict(policy.get("semantic_task_contract") or {})
+        interaction_mode = str(
+            mode_policy.get("interaction_mode")
+            or policy.get("interaction_mode")
+            or "professional_mode"
+        ).strip()
         tool_policy = dict(policy.get("tool_execution_policy") or {})
         delegation_policy = dict(policy.get("delegation_policy") or {})
+        verification_policy = dict(policy.get("verification_policy") or {})
         delegation_enabled = bool(delegation_policy.get("enabled") is True)
         allowed_tool_names = _allowed_tool_names_from_policy(
             tool_policy,
@@ -343,6 +168,10 @@ class AutonomousTaskRunDriver:
         tool_execution_enabled = bool(tool_policy.get("enabled") is True) and bool(
             tool_runtime_executor is not None and allowed_tool_names
         )
+        if interaction_mode == "role_mode":
+            tool_execution_enabled = False
+            delegation_enabled = False
+            allowed_tool_names = []
         model_tool_instances = (
             [
                 tool
@@ -359,23 +188,25 @@ class AutonomousTaskRunDriver:
         )
         max_tool_rounds = max(1, int(tool_policy.get("max_tool_rounds_per_task_run") or 1))
         max_delegate_calls = max(0, int(delegation_policy.get("max_delegate_calls_per_task_run") or 0))
-        goal_contract = _build_goal_contract(
+        goal_contract = _goal_contract_from_semantic_contract(
             task_run_id=task_run_id,
             user_message=user_message,
-            selected_recipe_payload=selected_recipe_payload,
+            semantic_contract=semantic_contract,
         )
-        plan = _standard_control_plan(
+        plan = _semantic_control_plan(
             user_message=user_message,
-            selected_recipe_payload=selected_recipe_payload,
+            semantic_contract=semantic_contract,
+            mode_policy=mode_policy,
             goal_contract=goal_contract,
         )
         start_event = self.event_log.append(
             task_run_id,
-            "autonomous_task_started",
+            "professional_task_started",
             payload={
-                "mode": autonomy_mode,
-                "runtime_driver": "autonomous_task_run",
+                "interaction_mode": interaction_mode,
+                "runtime_driver": "professional_task_run",
                 "goal": user_message,
+                "semantic_task_contract": semantic_contract,
                 "goal_contract": goal_contract.to_dict(),
                 "plan_item_count": len(plan),
                 "policy": policy,
@@ -385,18 +216,21 @@ class AutonomousTaskRunDriver:
         yield {"type": "runtime_loop_event", "event": start_event.to_dict()}
         state_event = self.event_log.append(
             task_run_id,
-            "autonomous_task_state_changed",
-            payload={"from_state": "initialized", "to_state": "goal_locked", "mode": autonomy_mode},
+            "professional_task_state_changed",
+            payload={"from_state": "initialized", "to_state": "mode_policy_bound", "interaction_mode": interaction_mode},
             refs={"task_contract_ref": task_contract_ref},
         )
         yield {"type": "runtime_loop_event", "event": state_event.to_dict()}
-
         outcome.state, outcome.ledger = self._complete_current_and_advance(
             state=outcome.state,
             ledger=outcome.ledger,
-            reason="autonomous_task_goal_locked",
+            reason="professional_task_mode_policy_bound",
             refs={"task_contract_ref": task_contract_ref},
-            diagnostics={"autonomous_state": "goal_locked", "autonomy_mode": autonomy_mode},
+            diagnostics={
+                "professional_state": "mode_policy_bound",
+                "interaction_mode": interaction_mode,
+                "semantic_task_type": str(semantic_contract.get("task_goal_type") or ""),
+            },
         )
         for event in self._ledger_transition_events:
             yield {"type": "runtime_loop_event", "event": event.to_dict()}
@@ -410,8 +244,8 @@ class AutonomousTaskRunDriver:
                     plan_item=item,
                     before_step_id=final_step_id,
                     diagnostics={
-                        "transition_reason": "autonomous_task_plan_drafted",
-                        "autonomy_mode": autonomy_mode,
+                        "transition_reason": "professional_task_semantic_plan_drafted",
+                        "interaction_mode": interaction_mode,
                     },
                 )
             added_steps = [
@@ -423,25 +257,25 @@ class AutonomousTaskRunDriver:
                     event_type="step_added",
                     step_run=step,
                     ledger=outcome.ledger,
-                    reason="autonomous_task_plan_drafted",
+                    reason="professional_task_semantic_plan_drafted",
                     refs={"task_contract_ref": task_contract_ref},
-                    diagnostics={"autonomy_mode": autonomy_mode},
+                    diagnostics={"interaction_mode": interaction_mode},
                 )
                 yield {"type": "runtime_loop_event", "event": step_event.to_dict()}
             ledger_event = self.record_task_run_ledger_updated(
                 outcome.state.task_run_id,
                 ledger=outcome.ledger,
-                reason="autonomous_task_plan_drafted",
+                reason="professional_task_semantic_plan_drafted",
                 refs={"task_contract_ref": task_contract_ref},
-                diagnostics={"autonomy_mode": autonomy_mode, "dynamic_plan_step_count": len(added_steps)},
+                diagnostics={"interaction_mode": interaction_mode, "dynamic_plan_step_count": len(added_steps)},
             )
             yield {"type": "runtime_loop_event", "event": ledger_event.to_dict()}
             outcome.state = self.state_with_task_run_ledger(
                 outcome.state,
                 outcome.ledger,
                 diagnostics={
-                    "last_step_transition": "autonomous_task_plan_drafted",
-                    "autonomy_mode": autonomy_mode,
+                    "last_step_transition": "professional_task_semantic_plan_drafted",
+                    "interaction_mode": interaction_mode,
                 },
             )
             checkpoint_event = self.write_checkpoint_event(outcome.state, event_offset=ledger_event.offset)
@@ -449,9 +283,9 @@ class AutonomousTaskRunDriver:
 
         plan_event = self.event_log.append(
             task_run_id,
-            "autonomous_task_plan_drafted",
+            "professional_task_semantic_plan_drafted",
             payload={
-                "mode": autonomy_mode,
+                "interaction_mode": interaction_mode,
                 "plan_items": plan,
                 "delegation_enabled": delegation_enabled,
                 "max_delegate_calls_per_task_run": max_delegate_calls,
@@ -460,7 +294,7 @@ class AutonomousTaskRunDriver:
                 "max_tool_calls_per_round": max_tool_calls,
                 "max_tool_calls_per_task_run": max_tool_calls_per_task_run,
                 "max_tool_rounds_per_task_run": max_tool_rounds,
-                "plan_source": "goal_contract_runtime_policy",
+                "plan_source": "semantic_task_contract",
                 "goal_contract": goal_contract.to_dict(),
                 "ledger_backed": outcome.ledger is not None,
             },
@@ -469,8 +303,8 @@ class AutonomousTaskRunDriver:
         yield {"type": "runtime_loop_event", "event": plan_event.to_dict()}
         state_event = self.event_log.append(
             task_run_id,
-            "autonomous_task_state_changed",
-            payload={"from_state": "goal_locked", "to_state": "plan_drafted", "mode": autonomy_mode},
+            "professional_task_state_changed",
+            payload={"from_state": "mode_policy_bound", "to_state": "semantic_plan_drafted", "interaction_mode": interaction_mode},
             refs={"task_contract_ref": task_contract_ref},
         )
         yield {"type": "runtime_loop_event", "event": state_event.to_dict()}
@@ -480,62 +314,44 @@ class AutonomousTaskRunDriver:
             ledger=outcome.ledger,
             plan=plan,
             task_contract_ref=task_contract_ref,
-            autonomy_mode=autonomy_mode,
+            interaction_mode=interaction_mode,
         )
         for event in self._ledger_transition_events:
             yield {"type": "runtime_loop_event", "event": event.to_dict()}
-        step_selected_event = self.event_log.append(
+        action_event = self.event_log.append(
             task_run_id,
-            "autonomous_task_state_changed",
-            payload={"from_state": "plan_drafted", "to_state": "step_selected", "mode": autonomy_mode},
+            "professional_task_state_changed",
+            payload={"from_state": "semantic_plan_drafted", "to_state": "action_dispatched", "interaction_mode": interaction_mode},
             refs={"task_contract_ref": task_contract_ref},
         )
-        yield {"type": "runtime_loop_event", "event": step_selected_event.to_dict()}
-
-        finalizing_event = self.event_log.append(
-            task_run_id,
-            "autonomous_task_state_changed",
-            payload={"from_state": "step_selected", "to_state": "action_dispatched", "mode": autonomy_mode},
-            refs={"task_contract_ref": task_contract_ref},
-        )
-        yield {"type": "runtime_loop_event", "event": finalizing_event.to_dict()}
+        yield {"type": "runtime_loop_event", "event": action_event.to_dict()}
         executor_event = self.event_log.append(
             task_run_id,
             "executor_started",
             payload={
                 "executor_type": "model",
-                "runtime_channel": "autonomous_task_run",
-                "autonomy_mode": autonomy_mode,
+                "runtime_channel": "professional_task_run",
+                "interaction_mode": interaction_mode,
                 "tool_execution_enabled": tool_execution_enabled,
                 "allowed_tool_names": allowed_tool_names,
                 "delegation_enabled": delegation_enabled,
                 "max_delegate_calls_per_task_run": max_delegate_calls,
-                "autonomous_mode_scope": (
-                    "ledger_backed_plan_budgeted_tool_or_delegation_observations"
-                    if tool_execution_enabled
-                    else "ledger_backed_plan_and_model_closeout"
-                ),
-                "standard_mode_scope": (
-                    "ledger_backed_plan_budgeted_tool_or_delegation_observations"
-                    if tool_execution_enabled
-                    else "ledger_backed_plan_and_model_closeout"
-                ),
             },
             refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
         )
         yield {"type": "runtime_loop_event", "event": executor_event.to_dict()}
 
-        safe_directive = _autonomous_task_directive(
+        safe_directive = _professional_task_directive(
             directive,
-            mode=autonomy_mode,
+            mode=interaction_mode,
             tool_execution_enabled=tool_execution_enabled,
             delegation_enabled=delegation_enabled,
             allowed_tool_operation_refs=list(tool_policy.get("allowed_operation_refs") or ()),
             max_tool_rounds=max_tool_rounds,
         )
-        model_messages = _with_autonomous_task_instruction(
+        model_messages = _with_professional_task_instruction(
             list(getattr(context_snapshot, "model_messages", ()) or ()),
-            mode=autonomy_mode,
+            mode=interaction_mode,
             plan_items=plan,
             tool_execution_enabled=tool_execution_enabled,
             delegation_enabled=delegation_enabled,
@@ -545,6 +361,8 @@ class AutonomousTaskRunDriver:
             max_tool_rounds=max_tool_rounds,
             max_delegate_calls=max_delegate_calls,
             goal_contract=goal_contract,
+            semantic_contract=semantic_contract,
+            mode_policy=mode_policy,
         )
         write_output_required = bool(goal_contract.requires_write_output)
         pending_tool_calls: list[dict[str, Any]] = []
@@ -552,11 +370,12 @@ class AutonomousTaskRunDriver:
         tool_observation_count = 0
         delegation_observation_count = 0
         write_observation_count = 0
-        action_tracker = AutonomousTaskActionTracker()
+        action_tracker = ProfessionalTaskActionTracker()
         tool_call_budget_exceeded = False
         write_budget_reserved = False
         contract_gate_blocked = False
         action_observation_refs: list[str] = []
+        structured_observations: list[dict[str, Any]] = []
         action_step_completed = False
         conversation_messages: list[Any] = list(model_messages)
         while outcome.terminal_reason == "completed":
@@ -567,8 +386,8 @@ class AutonomousTaskRunDriver:
                     task_run_id,
                     "loop_error",
                     payload={
-                        "error": "autonomous_task_tool_round_budget_exceeded",
-                        "message": "自主任务工具观察轮次已达上限，停止继续请求工具。",
+                        "error": "professional_task_tool_round_budget_exceeded",
+                        "message": "专业任务工具观察轮次已达上限，停止继续请求工具。",
                         "max_tool_rounds_per_task_run": max_tool_rounds,
                     },
                     refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
@@ -587,7 +406,7 @@ class AutonomousTaskRunDriver:
                     task_run_id,
                     "loop_iteration_started",
                     payload={
-                        "transition": "autonomous_task_continue_after_tool_result",
+                        "transition": "professional_task_continue_after_tool_result",
                         "turn_count": round_index,
                         "tool_call_count": len(pending_tool_calls),
                         "tool_observation_count": tool_observation_count,
@@ -596,11 +415,22 @@ class AutonomousTaskRunDriver:
                     refs={"task_contract_ref": task_contract_ref},
                 )
                 yield {"type": "runtime_loop_event", "event": followup_event.to_dict()}
+            required_next_tools = _next_required_tools(goal_contract, action_tracker)
+            round_model_tool_instances = _model_tools_for_required_next_step(
+                model_tool_instances=model_tool_instances,
+                required_next_tools=required_next_tools,
+            )
+            round_tool_call_options = _tool_call_options_for_round(
+                round_model_tool_instances=round_model_tool_instances,
+                required_next_tools=required_next_tools,
+                max_tool_calls=max_tool_calls,
+            )
             async for event in model_response_executor.stream(
                 user_message=user_message,
                 model_messages=conversation_messages,
                 directive=safe_directive,
-                tool_instances=model_tool_instances,
+                tool_instances=round_model_tool_instances,
+                tool_call_options=round_tool_call_options,
                 model_stream_policy=model_stream_policy,
                 model_spec=resolved_model_spec,
             ):
@@ -648,7 +478,7 @@ class AutonomousTaskRunDriver:
                             task_run_id,
                             "loop_error",
                             payload={
-                                "error": "autonomous_task_write_budget_reserved",
+                                "error": "professional_task_write_budget_reserved",
                                 "message": "用户目标要求写入产物，运行时保留最后工具预算给 write_file，阻断继续泛化读搜。",
                                 "tool_name": requested_tool_name,
                                 "write_output_required": True,
@@ -667,8 +497,8 @@ class AutonomousTaskRunDriver:
                             task_run_id,
                             "loop_error",
                             payload={
-                                "error": "autonomous_task_delegation_budget_exceeded",
-                                "message": "自主任务委派次数已达上限，超出预算的委派请求未执行。",
+                                "error": "professional_task_delegation_budget_exceeded",
+                                "message": "专业任务委派次数已达上限，超出预算的委派请求未执行。",
                                 "max_delegate_calls_per_task_run": max_delegate_calls,
                                 "tool_name": requested_tool_name,
                             },
@@ -682,8 +512,8 @@ class AutonomousTaskRunDriver:
                             task_run_id,
                             "loop_error",
                             payload={
-                                "error": "autonomous_task_tool_call_budget_exceeded",
-                                "message": "自主任务工具调用次数已达上限，超出预算的工具请求未执行。",
+                                "error": "professional_task_tool_call_budget_exceeded",
+                                "message": "专业任务工具调用次数已达上限，超出预算的工具请求未执行。",
                                 "max_tool_calls_per_round": max_tool_calls,
                                 "max_tool_calls_per_task_run": max_tool_calls_per_task_run,
                                 "tool_name": requested_tool_name,
@@ -726,6 +556,14 @@ class AutonomousTaskRunDriver:
                             delegation_observation_count += 1
                         if str(observation_payload.get("tool_name") or "") in {"write_file", "edit_file"}:
                             write_observation_count += 1
+                        structured_observations.append(
+                            {
+                                "observation_ref": observation_ref,
+                                "tool_name": str(observation_payload.get("tool_name") or ""),
+                                "tool_args": dict(observation_payload.get("tool_args") or {}),
+                                "result": observation_payload.get("result"),
+                            }
+                        )
                         _record_contract_observation(action_tracker, observation_payload)
                         message = ToolMessage(
                             content=str(observation_payload.get("result") or ""),
@@ -756,17 +594,9 @@ class AutonomousTaskRunDriver:
 
             if round_write_budget_reserved and outcome.terminal_reason == "completed" and not round_tool_messages:
                 if outcome.turn_count < max_tool_rounds:
-                    repair_instruction = _contract_repair_instruction(
-                        goal_contract=goal_contract,
-                        tracker=action_tracker,
-                        gate_decision=contract_gate if "contract_gate" in locals() else None,
-                    )
                     conversation_messages = [
                         *conversation_messages,
-                        {
-                            "role": "system",
-                            "content": repair_instruction,
-                        },
+                        {"role": "system", "content": _contract_repair_instruction(goal_contract=goal_contract, tracker=action_tracker)},
                     ]
                     outcome.final_content = ""
                     continue
@@ -775,11 +605,11 @@ class AutonomousTaskRunDriver:
             if round_tool_messages and outcome.terminal_reason == "completed":
                 observation_state_event = self.event_log.append(
                     task_run_id,
-                    "autonomous_task_state_changed",
+                    "professional_task_state_changed",
                     payload={
-                        "from_state": "action_dispatched" if not action_step_completed else "step_evaluated",
+                        "from_state": "action_dispatched" if not action_step_completed else "plan_item_validated",
                         "to_state": "observation_received",
-                        "mode": autonomy_mode,
+                        "interaction_mode": interaction_mode,
                         "tool_observation_count": tool_observation_count,
                         "delegation_observation_count": delegation_observation_count,
                         "round_tool_observation_count": len(round_tool_messages),
@@ -794,34 +624,38 @@ class AutonomousTaskRunDriver:
                         plan=plan,
                         task_contract_ref=task_contract_ref,
                         observation_refs=tuple(action_observation_refs),
-                        autonomy_mode=autonomy_mode,
+                        interaction_mode=interaction_mode,
                     )
                     action_step_completed = True
                     for runtime_event in self._ledger_transition_events:
                         yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
+                evidence_packet = build_evidence_packet(
+                    task_run_id=task_run_id,
+                    semantic_contract=semantic_contract,
+                    observations=structured_observations,
+                )
+                evidence_event = self.event_log.append(
+                    task_run_id,
+                    "professional_task_evidence_packet_built",
+                    payload={"evidence_packet": evidence_packet.to_dict()},
+                    refs={"task_contract_ref": task_contract_ref},
+                )
+                yield {"type": "runtime_loop_event", "event": evidence_event.to_dict()}
                 evaluated_state_event = self.event_log.append(
                     task_run_id,
-                    "autonomous_task_state_changed",
-                    payload={
-                        "from_state": "observation_received",
-                        "to_state": "step_evaluated",
-                        "mode": autonomy_mode,
-                    },
+                    "professional_task_state_changed",
+                    payload={"from_state": "observation_received", "to_state": "plan_item_validated", "interaction_mode": interaction_mode},
                     refs={"task_contract_ref": task_contract_ref},
                 )
                 yield {"type": "runtime_loop_event", "event": evaluated_state_event.to_dict()}
                 write_guidance = ""
-                if (
-                    write_output_required
-                    and write_observation_count <= 0
-                    and "write_file" in set(allowed_tool_names)
-                ):
+                if write_output_required and write_observation_count <= 0 and "write_file" in set(allowed_tool_names):
                     write_guidance = (
                         "用户目标包含写入/保存/产出文件要求；如果核心材料已经足够，"
-                        "下一步应优先使用 write_file 在 sandbox overlay 中产出草案文件，"
-                        "不要把剩余预算继续消耗在泛化搜索上。"
+                        "下一步应优先使用 write_file 在 sandbox overlay 中产出草案文件。"
                     )
                 contract_guidance = _contract_followup_guidance(goal_contract=goal_contract, tracker=action_tracker)
+                evidence_guidance = _evidence_packet_prompt(evidence_packet.to_dict())
                 conversation_messages = [
                     *conversation_messages,
                     AIMessage(
@@ -833,9 +667,10 @@ class AutonomousTaskRunDriver:
                     {
                         "role": "system",
                         "content": (
-                            "你已经收到上一轮真实工具观察结果。"
+                            "你已经收到上一轮真实工具观察结果，并且运行时已经形成证据包。"
+                            f"{evidence_guidance}"
                             "如果还需要读文件、修改、验证或委派，请继续使用真实工具调用接口；"
-                            "如果已经满足用户目标，请直接收口。"
+                            "如果已经满足语义契约，请直接收口。"
                             f"{write_guidance}"
                             f"{contract_guidance}"
                             "不要把工具调用、DSML、JSON schema 或内部协议当作回答文本输出。"
@@ -846,16 +681,12 @@ class AutonomousTaskRunDriver:
                 continue
 
             if _contains_tool_call_markup(outcome.final_content):
-                if (
-                    tool_execution_enabled
-                    and len(pending_tool_calls) < max_tool_calls_per_task_run
-                    and outcome.turn_count < max_tool_rounds
-                ):
+                if tool_execution_enabled and len(pending_tool_calls) < max_tool_calls_per_task_run and outcome.turn_count < max_tool_rounds:
                     repair_event = self.event_log.append(
                         task_run_id,
                         "loop_error",
                         payload={
-                            "error": "autonomous_task_tool_markup_repair_requested",
+                            "error": "professional_task_tool_markup_repair_requested",
                             "message": "模型把工具调用写成了可见文本，运行时要求重新用真实工具接口执行或基于已有证据收口。",
                             "tool_call_count": len(pending_tool_calls),
                             "max_tool_calls_per_task_run": max_tool_calls_per_task_run,
@@ -865,10 +696,7 @@ class AutonomousTaskRunDriver:
                     yield {"type": "runtime_loop_event", "event": repair_event.to_dict()}
                     conversation_messages = [
                         *conversation_messages,
-                        {
-                            "role": "assistant",
-                            "content": outcome.final_content,
-                        },
+                        {"role": "assistant", "content": outcome.final_content},
                         {
                             "role": "system",
                             "content": (
@@ -882,16 +710,12 @@ class AutonomousTaskRunDriver:
                 outcome.terminal_reason = "tool_call_markup_leaked"
             break
 
-        if (
-            tool_call_budget_exceeded
-            and outcome.terminal_reason == "completed"
-            and not str(outcome.final_content or "").strip()
-        ):
+        if tool_call_budget_exceeded and outcome.terminal_reason == "completed" and not str(outcome.final_content or "").strip():
             closeout_started_event = self.event_log.append(
                 task_run_id,
-                "autonomous_task_budget_closeout_started",
+                "professional_task_budget_closeout_started",
                 payload={
-                    "mode": autonomy_mode,
+                    "interaction_mode": interaction_mode,
                     "reason": "tool_budget_exhausted",
                     "tool_call_count": len(pending_tool_calls),
                     "tool_observation_count": tool_observation_count,
@@ -903,16 +727,20 @@ class AutonomousTaskRunDriver:
                 refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
             )
             yield {"type": "runtime_loop_event", "event": closeout_started_event.to_dict()}
+            evidence_packet = build_evidence_packet(
+                task_run_id=task_run_id,
+                semantic_contract=semantic_contract,
+                observations=structured_observations,
+            )
             closeout_messages = [
                 *conversation_messages,
                 {
                     "role": "system",
                     "content": (
                         "工具预算已经耗尽，禁止继续请求任何工具或委派。"
-                        "现在必须只基于已经真实返回的工具观察结果完成最终收口。"
-                        "如果证据不足，明确写出限制；如果用户要求写入但尚未写入，说明尚未完成写入，"
-                        "不要假装已写入。最终回答需要覆盖：目标、已完成的观察、结构性结论、"
-                        "回归/测试建议或后续修复步骤。"
+                        "现在必须只基于已经真实返回的工具观察结果和证据包完成最终收口。"
+                        f"{_evidence_packet_prompt(evidence_packet.to_dict())}"
+                        "如果证据不足，明确写出限制；如果用户要求写入但尚未写入，说明尚未完成写入。"
                         "不要输出 DSML、tool_calls、invoke、工具参数或任何伪工具调用文本。"
                     ),
                 },
@@ -921,7 +749,7 @@ class AutonomousTaskRunDriver:
             async for event in model_response_executor.stream(
                 user_message=user_message,
                 model_messages=closeout_messages,
-                directive=_model_only_directive(safe_directive, mode=autonomy_mode),
+                directive=_model_only_directive(safe_directive, mode=interaction_mode),
                 tool_instances=[],
                 model_stream_policy=model_stream_policy,
                 model_spec=resolved_model_spec,
@@ -948,12 +776,8 @@ class AutonomousTaskRunDriver:
                     outcome.final_content = str(event.get("content") or "")
                     outcome.final_answer_metadata = _answer_metadata_from_done_event(event)
                     outcome.main_context = dict(event.get("main_context") or {})
-                    outcome.task_summary_refs = [
-                        dict(item) for item in list(event.get("task_summary_refs") or []) if isinstance(item, dict)
-                    ]
-                    outcome.bundle_summary_refs = [
-                        dict(item) for item in list(event.get("bundle_summary_refs") or []) if isinstance(item, dict)
-                    ]
+                    outcome.task_summary_refs = [dict(item) for item in list(event.get("task_summary_refs") or []) if isinstance(item, dict)]
+                    outcome.bundle_summary_refs = [dict(item) for item in list(event.get("bundle_summary_refs") or []) if isinstance(item, dict)]
                 elif event_type == "error":
                     outcome.terminal_reason = "executor_failed"
                     yield event
@@ -965,98 +789,163 @@ class AutonomousTaskRunDriver:
             if sanitized_final_content and sanitized_final_content != str(outcome.final_content or "").strip():
                 outcome.final_content = sanitized_final_content
             else:
-                markup_repair_event = self.event_log.append(
-                    task_run_id,
-                    "autonomous_task_markup_closeout_repair_started",
-                    payload={
-                        "mode": autonomy_mode,
-                        "reason": "tool_call_markup_in_closeout",
-                        "tool_call_count": len(pending_tool_calls),
-                        "tool_observation_count": tool_observation_count,
-                    },
-                    refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
-                )
-                yield {"type": "runtime_loop_event", "event": markup_repair_event.to_dict()}
-                repair_messages = [
-                    *conversation_messages,
-                    {
-                        "role": "system",
-                        "content": (
-                            "上一条最终收口无效，因为它仍然包含伪工具调用或 DSML。"
-                            "工具预算已经关闭，禁止继续请求工具。"
-                            "请只用普通中文输出最终结论，不要包含任何工具名、参数块、XML、DSML 或 invoke。"
-                            "必须基于已有真实观察说明结论和限制。"
-                        ),
-                    },
-                ]
-                outcome.model_call_count += 1
-                async for event in model_response_executor.stream(
-                    user_message=user_message,
-                    model_messages=repair_messages,
-                    directive=_model_only_directive(safe_directive, mode=autonomy_mode),
-                    tool_instances=[],
-                    model_stream_policy=model_stream_policy,
-                    model_spec=resolved_model_spec,
-                ):
-                    runtime_events = await self.events_from_executor_event(
-                        task_run_id,
-                        user_message=user_message,
-                        task_id=task_id,
-                        task_operation=task_operation,
-                        adopted_resource_policy=resource_policy,
-                        current_step_id=outcome.ledger.current_step_id if outcome.ledger is not None else outcome.state.current_step_id,
-                        runtime_context_manager=runtime_context_manager,
-                        model_response_executor=model_response_executor,
-                        tool_runtime_executor=tool_runtime_executor,
-                        event=event,
-                        allowed_search_sources=allowed_search_sources,
-                        sandbox_policy=sandbox_policy,
-                    )
-                    for runtime_event in runtime_events:
-                        _adopt_runtime_event_ref(outcome, runtime_event)
-                        yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
-                    event_type = str(event.get("type") or "")
-                    if event_type == "done":
-                        outcome.final_content = _strip_tool_call_markup(str(event.get("content") or ""))
-                        outcome.final_answer_metadata = _answer_metadata_from_done_event(event)
-                        outcome.main_context = dict(event.get("main_context") or {})
-                        outcome.task_summary_refs = [
-                            dict(item) for item in list(event.get("task_summary_refs") or []) if isinstance(item, dict)
-                        ]
-                        outcome.bundle_summary_refs = [
-                            dict(item) for item in list(event.get("bundle_summary_refs") or []) if isinstance(item, dict)
-                        ]
-                    elif event_type == "error":
-                        outcome.terminal_reason = "executor_failed"
-                        yield event
-                    else:
-                        yield event
-                if _contains_tool_call_markup(outcome.final_content) or not str(outcome.final_content or "").strip():
-                    outcome.final_content = ""
-                    outcome.terminal_reason = "tool_call_markup_leaked"
+                outcome.final_content = ""
+                outcome.terminal_reason = "tool_call_markup_leaked"
 
         final_protocol_leak_detected = _contains_tool_call_markup(outcome.final_content)
         if final_protocol_leak_detected:
             sanitized = _sanitize_final_content(outcome.final_content)
             if sanitized != str(outcome.final_content or "").strip():
                 outcome.final_content = sanitized
-
-        if (
-            tool_call_budget_exceeded
-            and outcome.terminal_reason == "completed"
-            and not str(outcome.final_content or "").strip()
-        ):
+        if tool_call_budget_exceeded and outcome.terminal_reason == "completed" and not str(outcome.final_content or "").strip():
             outcome.terminal_reason = "tool_loop_budget_exceeded"
 
+        evidence_packet = build_evidence_packet(
+            task_run_id=task_run_id,
+            semantic_contract=semantic_contract,
+            observations=structured_observations,
+        )
+        evidence_event = self.event_log.append(
+            task_run_id,
+            "professional_task_evidence_packet_built",
+            payload={"evidence_packet": evidence_packet.to_dict(), "final_packet": True},
+            refs={"task_contract_ref": task_contract_ref},
+        )
+        yield {"type": "runtime_loop_event", "event": evidence_event.to_dict()}
         verification_ready_event = self.event_log.append(
             task_run_id,
-            "autonomous_task_state_changed",
-            payload={"from_state": "step_evaluated", "to_state": "verification_ready", "mode": autonomy_mode},
+            "professional_task_state_changed",
+            payload={"from_state": "plan_item_validated", "to_state": "deliverable_validation_ready", "interaction_mode": interaction_mode},
             refs={"task_contract_ref": task_contract_ref},
         )
         yield {"type": "runtime_loop_event", "event": verification_ready_event.to_dict()}
-        verification = _verify_goal_contract(
-            mode=autonomy_mode,
+        if _should_apply_evidence_closeout(
+            outcome=outcome,
+            semantic_contract=semantic_contract,
+            goal_contract=goal_contract,
+            tracker=action_tracker,
+            evidence_packet=evidence_packet.to_dict(),
+            final_protocol_leak_detected=final_protocol_leak_detected,
+            tool_budget_exhausted=tool_call_budget_exceeded,
+        ):
+            evidence_closeout = _build_evidence_closeout_answer(
+                semantic_contract=semantic_contract,
+                evidence_packet=evidence_packet.to_dict(),
+            )
+            if evidence_closeout:
+                closeout_outcome = replace(
+                    outcome,
+                    final_content=evidence_closeout,
+                    terminal_reason="completed",
+                )
+                closeout_legacy_verification = _verify_goal_contract(
+                    mode=interaction_mode,
+                    outcome=closeout_outcome,
+                    plan=plan,
+                    goal_contract=goal_contract,
+                    tracker=action_tracker,
+                    tool_execution_enabled=tool_execution_enabled,
+                    tool_call_count=len(pending_tool_calls),
+                    tool_observation_count=tool_observation_count,
+                    delegation_enabled=delegation_enabled,
+                    delegation_observation_count=delegation_observation_count,
+                    write_output_required=write_output_required,
+                    write_observation_count=write_observation_count,
+                    write_budget_reserved=write_budget_reserved,
+                    tool_budget_exhausted=tool_call_budget_exceeded,
+                    contract_gate_blocked=contract_gate_blocked,
+                    protocol_leak_detected=False,
+                )
+                closeout_deliverable_validation = validate_deliverable(
+                    final_answer=evidence_closeout,
+                    semantic_contract=semantic_contract,
+                    evidence_packet=evidence_packet.to_dict(),
+                    strict=bool(verification_policy.get("strict") is True),
+                ).to_dict()
+                if bool(closeout_legacy_verification.get("passed") is True) and bool(
+                    closeout_deliverable_validation.get("passed") is True
+                ):
+                    previous_terminal_reason = outcome.terminal_reason
+                    outcome.final_content = evidence_closeout
+                    outcome.terminal_reason = "completed"
+                    final_protocol_leak_detected = False
+                    closeout_event = self.event_log.append(
+                        task_run_id,
+                        "professional_task_evidence_closeout_applied",
+                        payload={
+                            "interaction_mode": interaction_mode,
+                            "reason": "protocol_leak_or_empty_closeout_after_real_evidence",
+                            "previous_terminal_reason": previous_terminal_reason,
+                            "fact_count": len(list(evidence_packet.to_dict().get("facts") or [])),
+                            "classification_count": len(list(evidence_packet.to_dict().get("classifications") or [])),
+                            "deliverable_validation": closeout_deliverable_validation,
+                        },
+                        refs={"task_contract_ref": task_contract_ref},
+                    )
+                    yield {"type": "runtime_loop_event", "event": closeout_event.to_dict()}
+        if _should_apply_generic_evidence_closeout(
+            outcome=outcome,
+            semantic_contract=semantic_contract,
+            goal_contract=goal_contract,
+            tracker=action_tracker,
+            evidence_packet=evidence_packet.to_dict(),
+        ):
+            evidence_closeout = _build_generic_evidence_closeout_answer(
+                semantic_contract=semantic_contract,
+                evidence_packet=evidence_packet.to_dict(),
+            )
+            if evidence_closeout:
+                closeout_outcome = replace(
+                    outcome,
+                    final_content=evidence_closeout,
+                    terminal_reason="completed",
+                )
+                closeout_legacy_verification = _verify_goal_contract(
+                    mode=interaction_mode,
+                    outcome=closeout_outcome,
+                    plan=plan,
+                    goal_contract=goal_contract,
+                    tracker=action_tracker,
+                    tool_execution_enabled=tool_execution_enabled,
+                    tool_call_count=len(pending_tool_calls),
+                    tool_observation_count=tool_observation_count,
+                    delegation_enabled=delegation_enabled,
+                    delegation_observation_count=delegation_observation_count,
+                    write_output_required=write_output_required,
+                    write_observation_count=write_observation_count,
+                    write_budget_reserved=write_budget_reserved,
+                    tool_budget_exhausted=tool_call_budget_exceeded,
+                    contract_gate_blocked=contract_gate_blocked,
+                    protocol_leak_detected=False,
+                )
+                closeout_deliverable_validation = validate_deliverable(
+                    final_answer=evidence_closeout,
+                    semantic_contract=semantic_contract,
+                    evidence_packet=evidence_packet.to_dict(),
+                    strict=bool(verification_policy.get("strict") is True),
+                ).to_dict()
+                if bool(closeout_legacy_verification.get("passed") is True) and bool(
+                    closeout_deliverable_validation.get("passed") is True
+                ):
+                    previous_terminal_reason = outcome.terminal_reason
+                    outcome.final_content = evidence_closeout
+                    outcome.terminal_reason = "completed"
+                    final_protocol_leak_detected = False
+                    closeout_event = self.event_log.append(
+                        task_run_id,
+                        "professional_task_evidence_closeout_applied",
+                        payload={
+                            "interaction_mode": interaction_mode,
+                            "reason": "generic_evidence_closeout_after_budget_or_protocol_failure",
+                            "previous_terminal_reason": previous_terminal_reason,
+                            "fact_count": len(list(evidence_packet.to_dict().get("facts") or [])),
+                            "deliverable_validation": closeout_deliverable_validation,
+                        },
+                        refs={"task_contract_ref": task_contract_ref},
+                    )
+                    yield {"type": "runtime_loop_event", "event": closeout_event.to_dict()}
+        legacy_verification = _verify_goal_contract(
+            mode=interaction_mode,
             outcome=outcome,
             plan=plan,
             goal_contract=goal_contract,
@@ -1073,31 +962,56 @@ class AutonomousTaskRunDriver:
             contract_gate_blocked=contract_gate_blocked,
             protocol_leak_detected=final_protocol_leak_detected,
         )
-        if _should_repair_contract_closeout(verification):
+        deliverable_validation = validate_deliverable(
+            final_answer=outcome.final_content,
+            semantic_contract=semantic_contract,
+            evidence_packet=evidence_packet.to_dict(),
+            strict=bool(verification_policy.get("strict") is True),
+        ).to_dict()
+        verification = {
+            **legacy_verification,
+            "interaction_mode": interaction_mode,
+            "mode": interaction_mode,
+            "semantic_task_type": str(semantic_contract.get("task_goal_type") or ""),
+            "evidence_packet": evidence_packet.to_dict(),
+            "deliverable_validation": deliverable_validation,
+            "passed": bool(legacy_verification.get("passed") is True and deliverable_validation.get("passed") is True),
+        }
+        if _should_repair_professional_closeout(verification):
+            repair_base_content = str(outcome.final_content or "").strip()
+            repair_base_metadata = dict(outcome.final_answer_metadata or {})
+            repair_base_main_context = dict(outcome.main_context or {})
+            repair_base_task_summary_refs = [
+                dict(item) for item in list(outcome.task_summary_refs or []) if isinstance(item, dict)
+            ]
+            repair_base_bundle_summary_refs = [
+                dict(item) for item in list(outcome.bundle_summary_refs or []) if isinstance(item, dict)
+            ]
+            repair_candidate_content = ""
+            repair_candidate_metadata: dict[str, Any] = {}
+            repair_candidate_main_context: dict[str, Any] = {}
+            repair_candidate_task_summary_refs: list[dict[str, Any]] = []
+            repair_candidate_bundle_summary_refs: list[dict[str, Any]] = []
             repair_started_event = self.event_log.append(
                 task_run_id,
-                "autonomous_task_contract_closeout_repair_started",
+                "professional_task_deliverable_repair_started",
                 payload={
-                    "mode": autonomy_mode,
-                    "missing_response_terms": list(verification.get("missing_response_terms") or []),
-                    "protocol_leak_detected": bool(verification.get("protocol_leak_detected") is True),
-                    "tool_call_count": len(pending_tool_calls),
-                    "tool_observation_count": tool_observation_count,
+                    "interaction_mode": interaction_mode,
+                    "missing_deliverables": list(deliverable_validation.get("missing_deliverables") or []),
+                    "protocol_leak_detected": bool(deliverable_validation.get("protocol_leak_detected") is True),
                 },
                 refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
             )
             yield {"type": "runtime_loop_event", "event": repair_started_event.to_dict()}
             repair_messages = [
                 *conversation_messages,
-                {
-                    "role": "assistant",
-                    "content": str(outcome.final_content or ""),
-                },
+                {"role": "assistant", "content": str(outcome.final_content or "")},
                 {
                     "role": "system",
-                    "content": _contract_closeout_repair_instruction(
-                        goal_contract=goal_contract,
-                        verification=verification,
+                    "content": _professional_closeout_repair_instruction(
+                        semantic_contract=semantic_contract,
+                        evidence_packet=evidence_packet.to_dict(),
+                        validation=deliverable_validation,
                     ),
                 },
             ]
@@ -1105,7 +1019,7 @@ class AutonomousTaskRunDriver:
             async for event in model_response_executor.stream(
                 user_message=user_message,
                 model_messages=repair_messages,
-                directive=_model_only_directive(safe_directive, mode=autonomy_mode),
+                directive=_model_only_directive(safe_directive, mode=interaction_mode),
                 tool_instances=[],
                 model_stream_policy=model_stream_policy,
                 model_spec=resolved_model_spec,
@@ -1129,13 +1043,13 @@ class AutonomousTaskRunDriver:
                     yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
                 event_type = str(event.get("type") or "")
                 if event_type == "done":
-                    outcome.final_content = _sanitize_final_content(str(event.get("content") or ""))
-                    outcome.final_answer_metadata = _answer_metadata_from_done_event(event)
-                    outcome.main_context = dict(event.get("main_context") or {})
-                    outcome.task_summary_refs = [
+                    repair_candidate_content = _sanitize_final_content(str(event.get("content") or ""))
+                    repair_candidate_metadata = _answer_metadata_from_done_event(event)
+                    repair_candidate_main_context = dict(event.get("main_context") or {})
+                    repair_candidate_task_summary_refs = [
                         dict(item) for item in list(event.get("task_summary_refs") or []) if isinstance(item, dict)
                     ]
-                    outcome.bundle_summary_refs = [
+                    repair_candidate_bundle_summary_refs = [
                         dict(item) for item in list(event.get("bundle_summary_refs") or []) if isinstance(item, dict)
                     ]
                 elif event_type == "error":
@@ -1143,9 +1057,69 @@ class AutonomousTaskRunDriver:
                     yield event
                 else:
                     yield event
-            final_protocol_leak_detected = bool(final_protocol_leak_detected or _contains_tool_call_markup(outcome.final_content))
-            verification = _verify_goal_contract(
-                mode=autonomy_mode,
+            repair_candidate_leaked = _contains_tool_call_markup(repair_candidate_content)
+            repair_candidate_outcome = replace(
+                outcome,
+                final_content=repair_candidate_content,
+                terminal_reason="completed",
+            )
+            repair_candidate_legacy = _verify_goal_contract(
+                mode=interaction_mode,
+                outcome=repair_candidate_outcome,
+                plan=plan,
+                goal_contract=goal_contract,
+                tracker=action_tracker,
+                tool_execution_enabled=tool_execution_enabled,
+                tool_call_count=len(pending_tool_calls),
+                tool_observation_count=tool_observation_count,
+                delegation_enabled=delegation_enabled,
+                delegation_observation_count=delegation_observation_count,
+                write_output_required=write_output_required,
+                write_observation_count=write_observation_count,
+                write_budget_reserved=write_budget_reserved,
+                tool_budget_exhausted=tool_call_budget_exceeded,
+                contract_gate_blocked=contract_gate_blocked,
+                protocol_leak_detected=bool(repair_candidate_leaked),
+            )
+            repair_candidate_deliverable = validate_deliverable(
+                final_answer=repair_candidate_content,
+                semantic_contract=semantic_contract,
+                evidence_packet=evidence_packet.to_dict(),
+                strict=bool(verification_policy.get("strict") is True),
+            ).to_dict()
+            repair_candidate_passed = bool(
+                repair_candidate_legacy.get("passed") is True
+                and repair_candidate_deliverable.get("passed") is True
+            )
+            if repair_candidate_passed:
+                outcome.final_content = repair_candidate_content
+                outcome.final_answer_metadata = repair_candidate_metadata
+                outcome.main_context = repair_candidate_main_context
+                outcome.task_summary_refs = repair_candidate_task_summary_refs
+                outcome.bundle_summary_refs = repair_candidate_bundle_summary_refs
+                final_protocol_leak_detected = False
+            else:
+                outcome.final_content = repair_base_content
+                outcome.final_answer_metadata = repair_base_metadata
+                outcome.main_context = repair_base_main_context
+                outcome.task_summary_refs = repair_base_task_summary_refs
+                outcome.bundle_summary_refs = repair_base_bundle_summary_refs
+                final_protocol_leak_detected = bool(final_protocol_leak_detected or _contains_tool_call_markup(outcome.final_content))
+                repair_rejected_event = self.event_log.append(
+                    task_run_id,
+                    "professional_task_deliverable_repair_rejected",
+                    payload={
+                        "interaction_mode": interaction_mode,
+                        "reason": "repair_candidate_failed_validation",
+                        "candidate_empty": not bool(repair_candidate_content.strip()),
+                        "candidate_protocol_leak_detected": bool(repair_candidate_leaked),
+                        "candidate_deliverable_validation": repair_candidate_deliverable,
+                    },
+                    refs={"task_contract_ref": task_contract_ref, "directive_ref": directive.directive_id},
+                )
+                yield {"type": "runtime_loop_event", "event": repair_rejected_event.to_dict()}
+            legacy_verification = _verify_goal_contract(
+                mode=interaction_mode,
                 outcome=outcome,
                 plan=plan,
                 goal_contract=goal_contract,
@@ -1162,16 +1136,28 @@ class AutonomousTaskRunDriver:
                 contract_gate_blocked=contract_gate_blocked,
                 protocol_leak_detected=final_protocol_leak_detected,
             )
-        if (
-            outcome.terminal_reason in {"completed", "tool_loop_budget_exceeded"}
-            and not bool(verification.get("passed") is True)
-        ):
+            deliverable_validation = validate_deliverable(
+                final_answer=outcome.final_content,
+                semantic_contract=semantic_contract,
+                evidence_packet=evidence_packet.to_dict(),
+                strict=bool(verification_policy.get("strict") is True),
+            ).to_dict()
+            verification = {
+                **legacy_verification,
+                "interaction_mode": interaction_mode,
+                "mode": interaction_mode,
+                "semantic_task_type": str(semantic_contract.get("task_goal_type") or ""),
+                "evidence_packet": evidence_packet.to_dict(),
+                "deliverable_validation": deliverable_validation,
+                "passed": bool(legacy_verification.get("passed") is True and deliverable_validation.get("passed") is True),
+            }
+        if outcome.terminal_reason in {"completed", "tool_loop_budget_exceeded"} and not bool(verification.get("passed") is True):
             outcome.terminal_reason = "partial_contract_failed"
         verify_event = self.event_log.append(
             task_run_id,
-            "autonomous_task_verification_checked",
+            "professional_task_deliverable_validation_checked",
             payload={"verification": verification},
-            refs={"task_contract_ref": task_contract_ref, "task_step_ref": "autonomous.final_check"},
+            refs={"task_contract_ref": task_contract_ref, "task_step_ref": "professional.validate_deliverable"},
         )
         yield {"type": "runtime_loop_event", "event": verify_event.to_dict()}
         outcome.state, outcome.ledger = self._complete_standard_final_check_after_verification(
@@ -1183,24 +1169,24 @@ class AutonomousTaskRunDriver:
             result_refs=tuple(outcome.result_refs),
             final_content=outcome.final_content,
             verification_passed=bool(verification.get("passed") is True),
-            autonomy_mode=autonomy_mode,
+            interaction_mode=interaction_mode,
         )
         for runtime_event in self._ledger_transition_events:
             yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
         finalizing_event = self.event_log.append(
             task_run_id,
-            "autonomous_task_state_changed",
-            payload={"from_state": "verification_ready", "to_state": "finalizing", "mode": autonomy_mode},
+            "professional_task_state_changed",
+            payload={"from_state": "deliverable_validation_ready", "to_state": "finalizing", "interaction_mode": interaction_mode},
             refs={"task_contract_ref": task_contract_ref},
         )
         yield {"type": "runtime_loop_event", "event": finalizing_event.to_dict()}
         committed_state_event = self.event_log.append(
             task_run_id,
-            "autonomous_task_state_changed",
+            "professional_task_state_changed",
             payload={
                 "from_state": "finalizing",
                 "to_state": "ready_for_commit",
-                "mode": autonomy_mode,
+                "interaction_mode": interaction_mode,
                 "terminal_reason": outcome.terminal_reason,
             },
             refs={"task_contract_ref": task_contract_ref},
@@ -1247,7 +1233,7 @@ class AutonomousTaskRunDriver:
                 step_id=current.step_id,
                 completed_at=time.time(),
                 output_refs=(),
-                executor_ref=current.executor_ref or "autonomous_task_run",
+                executor_ref=current.executor_ref or "professional_task_run",
                 diagnostics={"transition_reason": reason, **dict(diagnostics or {})},
             )
             completed = find_task_step_run(ledger, current.step_id)
@@ -1265,7 +1251,7 @@ class AutonomousTaskRunDriver:
         ledger = advance_task_run_ledger(
             ledger,
             started_at=time.time(),
-            executor_ref="autonomous_task_run",
+            executor_ref="professional_task_run",
             diagnostics={"transition_reason": reason, **dict(diagnostics or {})},
         )
         entered = current_task_step_run(ledger)
@@ -1304,7 +1290,7 @@ class AutonomousTaskRunDriver:
         ledger: TaskRunLedger | None,
         plan: list[dict[str, Any]],
         task_contract_ref: str,
-        autonomy_mode: str = "standard",
+        interaction_mode: str = "standard",
     ) -> tuple[RuntimeLoopState, TaskRunLedger | None]:
         self._ledger_transition_events = []
         if ledger is None:
@@ -1320,8 +1306,8 @@ class AutonomousTaskRunDriver:
                     ledger,
                     step_id=current.step_id,
                     started_at=time.time(),
-                    executor_ref="autonomous_task_run",
-                    diagnostics={"transition_reason": "autonomous_task_action_step_selected", "autonomy_mode": autonomy_mode},
+                    executor_ref="professional_task_run",
+                    diagnostics={"transition_reason": "professional_task_action_step_selected", "interaction_mode": interaction_mode},
                 )
                 current = current_task_step_run(ledger)
                 if current is not None:
@@ -1331,9 +1317,9 @@ class AutonomousTaskRunDriver:
                             event_type="step_entered",
                             step_run=current,
                             ledger=ledger,
-                            reason="autonomous_task_action_step_selected",
+                            reason="professional_task_action_step_selected",
                             refs={"task_contract_ref": task_contract_ref},
-                            diagnostics={"autonomy_mode": autonomy_mode},
+                            diagnostics={"interaction_mode": interaction_mode},
                         )
                     )
             if current is not None and current.status == "running":
@@ -1341,11 +1327,11 @@ class AutonomousTaskRunDriver:
                     ledger,
                     step_id=current.step_id,
                     completed_at=time.time(),
-                    output_refs=(f"autonomous_control_step:{current.step_id}",),
-                    executor_ref=current.executor_ref or "autonomous_task_run",
+                    output_refs=(f"professional_control_step:{current.step_id}",),
+                    executor_ref=current.executor_ref or "professional_task_run",
                     diagnostics={
-                        "transition_reason": "autonomous_task_action_step_selected",
-                        "autonomy_mode": autonomy_mode,
+                        "transition_reason": "professional_task_action_step_selected",
+                        "interaction_mode": interaction_mode,
                     },
                 )
                 completed = find_task_step_run(ledger, current.step_id)
@@ -1356,9 +1342,9 @@ class AutonomousTaskRunDriver:
                             event_type="step_completed",
                             step_run=completed,
                             ledger=ledger,
-                            reason="autonomous_task_action_step_selected",
+                            reason="professional_task_action_step_selected",
                             refs={"task_contract_ref": task_contract_ref},
-                            diagnostics={"autonomy_mode": autonomy_mode},
+                            diagnostics={"interaction_mode": interaction_mode},
                         )
                     )
 
@@ -1374,8 +1360,8 @@ class AutonomousTaskRunDriver:
                     ledger,
                     step_id=step.step_id,
                     started_at=time.time(),
-                    executor_ref="autonomous_task_run",
-                    diagnostics={"transition_reason": "autonomous_task_prerequisite_step_completed", "autonomy_mode": autonomy_mode},
+                    executor_ref="professional_task_run",
+                    diagnostics={"transition_reason": "professional_task_prerequisite_step_completed", "interaction_mode": interaction_mode},
                 )
                 entered = current_task_step_run(ledger)
                 if entered is not None:
@@ -1385,9 +1371,9 @@ class AutonomousTaskRunDriver:
                             event_type="step_entered",
                             step_run=entered,
                             ledger=ledger,
-                            reason="autonomous_task_prerequisite_step_completed",
+                            reason="professional_task_prerequisite_step_completed",
                             refs={"task_contract_ref": task_contract_ref},
-                            diagnostics={"autonomy_mode": autonomy_mode},
+                            diagnostics={"interaction_mode": interaction_mode},
                         )
                     )
             current = current_task_step_run(ledger)
@@ -1397,9 +1383,9 @@ class AutonomousTaskRunDriver:
                 ledger,
                 step_id=current.step_id,
                 diagnostics={
-                    "autonomous_state": "step_evaluated",
-                    "transition_reason": "autonomous_task_prerequisite_step_completed",
-                    "autonomy_mode": autonomy_mode,
+                    "professional_state": "step_evaluated",
+                    "transition_reason": "professional_task_prerequisite_step_completed",
+                    "interaction_mode": interaction_mode,
                     "execution_scope": "goal_and_scope_locked",
                 },
             )
@@ -1408,11 +1394,11 @@ class AutonomousTaskRunDriver:
                 ledger,
                 step_id=current.step_id if current is not None else None,
                 completed_at=time.time(),
-                output_refs=(f"autonomous_plan_item:{current.step_id}",) if current is not None else (),
-                executor_ref="autonomous_task_run",
+                output_refs=(f"professional_plan_item:{current.step_id}",) if current is not None else (),
+                executor_ref="professional_task_run",
                 diagnostics={
-                    "transition_reason": "autonomous_task_prerequisite_step_completed",
-                    "autonomy_mode": autonomy_mode,
+                    "transition_reason": "professional_task_prerequisite_step_completed",
+                    "interaction_mode": interaction_mode,
                     "execution_scope": "goal_and_scope_locked",
                 },
             )
@@ -1424,9 +1410,9 @@ class AutonomousTaskRunDriver:
                         event_type="step_completed",
                         step_run=completed,
                         ledger=ledger,
-                        reason="autonomous_task_prerequisite_step_completed",
+                        reason="professional_task_prerequisite_step_completed",
                         refs={"task_contract_ref": task_contract_ref},
-                        diagnostics={"autonomy_mode": autonomy_mode},
+                        diagnostics={"interaction_mode": interaction_mode},
                     )
                 )
 
@@ -1436,11 +1422,11 @@ class AutonomousTaskRunDriver:
                 ledger,
                 step_id=action_step.step_id,
                 started_at=time.time(),
-                executor_ref="autonomous_task_run",
+                executor_ref="professional_task_run",
                 diagnostics={
-                    "transition_reason": "autonomous_task_action_step_selected",
-                    "autonomous_state": "step_selected",
-                    "autonomy_mode": autonomy_mode,
+                    "transition_reason": "professional_task_action_step_selected",
+                    "professional_state": "step_selected",
+                    "interaction_mode": interaction_mode,
                     "execution_scope": "controlled_tool_or_delegation_observation",
                 },
             )
@@ -1452,26 +1438,26 @@ class AutonomousTaskRunDriver:
                         event_type="step_entered",
                         step_run=entered,
                         ledger=ledger,
-                        reason="autonomous_task_action_step_selected",
+                        reason="professional_task_action_step_selected",
                         refs={"task_contract_ref": task_contract_ref},
-                        diagnostics={"autonomy_mode": autonomy_mode},
+                        diagnostics={"interaction_mode": interaction_mode},
                     )
                 )
         ledger_event = self.record_task_run_ledger_updated(
             state.task_run_id,
             ledger=ledger,
-            reason="autonomous_task_action_step_selected",
+            reason="professional_task_action_step_selected",
             refs={"task_contract_ref": task_contract_ref},
-            diagnostics={"autonomy_mode": autonomy_mode},
+            diagnostics={"interaction_mode": interaction_mode},
         )
         self._ledger_transition_events.append(ledger_event)
         state = self.state_with_task_run_ledger(
             state,
             ledger,
             diagnostics={
-                "last_step_transition": "autonomous_task_action_step_selected",
-                "autonomous_state": "step_selected",
-                "autonomy_mode": autonomy_mode,
+                "last_step_transition": "professional_task_action_step_selected",
+                "professional_state": "step_selected",
+                "interaction_mode": interaction_mode,
             },
         )
         checkpoint_event = self.write_checkpoint_event(state, event_offset=ledger_event.offset)
@@ -1486,7 +1472,7 @@ class AutonomousTaskRunDriver:
         plan: list[dict[str, Any]],
         task_contract_ref: str,
         observation_refs: tuple[str, ...],
-        autonomy_mode: str = "standard",
+        interaction_mode: str = "standard",
     ) -> tuple[RuntimeLoopState, TaskRunLedger | None]:
         self._ledger_transition_events = []
         if ledger is None:
@@ -1502,10 +1488,10 @@ class AutonomousTaskRunDriver:
                     ledger,
                     step_id=action_step.step_id,
                     started_at=time.time(),
-                    executor_ref="autonomous_task_run",
+                    executor_ref="professional_task_run",
                     diagnostics={
-                        "transition_reason": "autonomous_task_observation_received",
-                        "autonomy_mode": autonomy_mode,
+                        "transition_reason": "professional_task_observation_received",
+                        "interaction_mode": interaction_mode,
                     },
                 )
                 current = current_task_step_run(ledger)
@@ -1518,12 +1504,12 @@ class AutonomousTaskRunDriver:
                 step_id=current.step_id,
                 completed_at=time.time(),
                 observation_refs=deduped_observation_refs,
-                output_refs=tuple(f"autonomous_observation:{ref}" for ref in deduped_observation_refs),
-                executor_ref=current.executor_ref or "autonomous_task_run",
+                output_refs=tuple(f"professional_observation:{ref}" for ref in deduped_observation_refs),
+                executor_ref=current.executor_ref or "professional_task_run",
                 diagnostics={
-                    "transition_reason": "autonomous_task_observation_received",
-                    "autonomous_state": "step_evaluated",
-                    "autonomy_mode": autonomy_mode,
+                    "transition_reason": "professional_task_observation_received",
+                    "professional_state": "step_evaluated",
+                    "interaction_mode": interaction_mode,
                     "execution_scope": "controlled_observation_completed",
                 },
             )
@@ -1535,19 +1521,19 @@ class AutonomousTaskRunDriver:
                         event_type="step_completed",
                         step_run=completed,
                         ledger=ledger,
-                        reason="autonomous_task_observation_received",
+                        reason="professional_task_observation_received",
                         refs={"task_contract_ref": task_contract_ref},
-                        diagnostics={"autonomy_mode": autonomy_mode},
+                        diagnostics={"interaction_mode": interaction_mode},
                     )
                 )
         ledger = advance_task_run_ledger(
             ledger,
             started_at=time.time(),
-            executor_ref="autonomous_task_run",
+            executor_ref="professional_task_run",
             diagnostics={
-                "transition_reason": "autonomous_task_step_evaluated",
-                "autonomous_state": "step_evaluated",
-                "autonomy_mode": autonomy_mode,
+                "transition_reason": "professional_task_step_evaluated",
+                "professional_state": "step_evaluated",
+                "interaction_mode": interaction_mode,
             },
         )
         entered = current_task_step_run(ledger)
@@ -1558,26 +1544,26 @@ class AutonomousTaskRunDriver:
                     event_type="step_entered",
                     step_run=entered,
                     ledger=ledger,
-                    reason="autonomous_task_step_evaluated",
+                    reason="professional_task_step_evaluated",
                     refs={"task_contract_ref": task_contract_ref},
-                    diagnostics={"autonomy_mode": autonomy_mode},
+                    diagnostics={"interaction_mode": interaction_mode},
                 )
             )
         ledger_event = self.record_task_run_ledger_updated(
             state.task_run_id,
             ledger=ledger,
-            reason="autonomous_task_step_evaluated",
+            reason="professional_task_step_evaluated",
             refs={"task_contract_ref": task_contract_ref},
-            diagnostics={"autonomy_mode": autonomy_mode, "observation_ref_count": len(observation_refs)},
+            diagnostics={"interaction_mode": interaction_mode, "observation_ref_count": len(observation_refs)},
         )
         self._ledger_transition_events.append(ledger_event)
         state = self.state_with_task_run_ledger(
             state,
             ledger,
             diagnostics={
-                "last_step_transition": "autonomous_task_step_evaluated",
-                "autonomous_state": "step_evaluated",
-                "autonomy_mode": autonomy_mode,
+                "last_step_transition": "professional_task_step_evaluated",
+                "professional_state": "step_evaluated",
+                "interaction_mode": interaction_mode,
             },
         )
         checkpoint_event = self.write_checkpoint_event(state, event_offset=ledger_event.offset)
@@ -1595,12 +1581,12 @@ class AutonomousTaskRunDriver:
         result_refs: tuple[str, ...],
         final_content: str,
         verification_passed: bool,
-        autonomy_mode: str = "standard",
+        interaction_mode: str = "standard",
     ) -> tuple[RuntimeLoopState, TaskRunLedger | None]:
         self._ledger_transition_events = []
         if ledger is None:
             return state, ledger
-        final_step_id = "autonomous.final_check"
+        final_step_id = "professional.validate_deliverable"
         if find_task_step_run(ledger, final_step_id) is None:
             return state, ledger
 
@@ -1621,11 +1607,11 @@ class AutonomousTaskRunDriver:
                     ledger,
                     step_id=current.step_id,
                     started_at=now,
-                    executor_ref="autonomous_task_run",
+                    executor_ref="professional_task_run",
                     diagnostics={
-                        "transition_reason": "autonomous_task_pre_verification_step_completed",
-                        "autonomous_state": "verification_ready",
-                        "autonomy_mode": autonomy_mode,
+                        "transition_reason": "professional_task_pre_validation_step_completed",
+                        "professional_state": "verification_ready",
+                        "interaction_mode": interaction_mode,
                     },
                 )
                 entered = current_task_step_run(ledger)
@@ -1636,9 +1622,9 @@ class AutonomousTaskRunDriver:
                             event_type="step_entered",
                             step_run=entered,
                             ledger=ledger,
-                            reason="autonomous_task_pre_verification_step_completed",
+                            reason="professional_task_pre_validation_step_completed",
                             refs=refs,
-                            diagnostics={"autonomy_mode": autonomy_mode},
+                            diagnostics={"interaction_mode": interaction_mode},
                         )
                     )
                 current = current_task_step_run(ledger)
@@ -1650,7 +1636,7 @@ class AutonomousTaskRunDriver:
             current_output_refs = tuple(
                 _dedupe_strings(
                     [
-                        f"autonomous_plan_item:{current.step_id}",
+                        f"professional_plan_item:{current.step_id}",
                         *current_observation_refs,
                     ]
                 )
@@ -1661,11 +1647,11 @@ class AutonomousTaskRunDriver:
                 completed_at=time.time(),
                 observation_refs=current_observation_refs,
                 output_refs=current_output_refs,
-                executor_ref=current.executor_ref or "autonomous_task_run",
+                executor_ref=current.executor_ref or "professional_task_run",
                 diagnostics={
-                    "transition_reason": "autonomous_task_pre_verification_step_completed",
-                    "autonomous_state": "verification_ready",
-                    "autonomy_mode": autonomy_mode,
+                    "transition_reason": "professional_task_pre_validation_step_completed",
+                    "professional_state": "verification_ready",
+                    "interaction_mode": interaction_mode,
                     "execution_scope": "model_observation_ready_for_final_check",
                 },
             )
@@ -1677,9 +1663,9 @@ class AutonomousTaskRunDriver:
                         event_type="step_completed",
                         step_run=completed,
                         ledger=ledger,
-                        reason="autonomous_task_pre_verification_step_completed",
+                        reason="professional_task_pre_validation_step_completed",
                         refs=refs,
-                        diagnostics={"autonomy_mode": autonomy_mode},
+                        diagnostics={"interaction_mode": interaction_mode},
                     )
                 )
 
@@ -1689,11 +1675,11 @@ class AutonomousTaskRunDriver:
                 ledger,
                 step_id=final_step.step_id,
                 started_at=time.time(),
-                executor_ref="autonomous_task_run",
+                executor_ref="professional_task_run",
                 diagnostics={
-                    "transition_reason": "autonomous_task_verification_started",
-                    "autonomous_state": "verification_ready",
-                    "autonomy_mode": autonomy_mode,
+                    "transition_reason": "professional_task_validation_started",
+                    "professional_state": "verification_ready",
+                    "interaction_mode": interaction_mode,
                     "verification_ref": verification_event_ref,
                 },
             )
@@ -1705,9 +1691,9 @@ class AutonomousTaskRunDriver:
                         event_type="step_entered",
                         step_run=entered,
                         ledger=ledger,
-                        reason="autonomous_task_verification_started",
+                        reason="professional_task_validation_started",
                         refs=refs,
-                        diagnostics={"autonomy_mode": autonomy_mode},
+                        diagnostics={"interaction_mode": interaction_mode},
                     )
                 )
             final_step = current_task_step_run(ledger)
@@ -1720,11 +1706,11 @@ class AutonomousTaskRunDriver:
                 observation_refs=evidence_refs,
                 output_refs=final_output_refs or evidence_refs,
                 step_result_ref=verification_event_ref,
-                executor_ref=final_step.executor_ref or "autonomous_task_run",
+                executor_ref=final_step.executor_ref or "professional_task_run",
                 diagnostics={
-                    "transition_reason": "autonomous_task_verification_completed",
-                    "autonomous_state": "verification_ready",
-                    "autonomy_mode": autonomy_mode,
+                    "transition_reason": "professional_task_validation_completed",
+                    "professional_state": "verification_ready",
+                    "interaction_mode": interaction_mode,
                     "verification_ref": verification_event_ref,
                     "verification_passed": bool(verification_passed),
                     "final_content_chars": len(str(final_content or "")),
@@ -1739,19 +1725,19 @@ class AutonomousTaskRunDriver:
                         event_type="step_completed",
                         step_run=completed,
                         ledger=ledger,
-                        reason="autonomous_task_verification_completed",
+                        reason="professional_task_validation_completed",
                         refs=refs,
-                        diagnostics={"autonomy_mode": autonomy_mode, "verification_passed": bool(verification_passed)},
+                        diagnostics={"interaction_mode": interaction_mode, "verification_passed": bool(verification_passed)},
                     )
                 )
 
         ledger_event = self.record_task_run_ledger_updated(
             state.task_run_id,
             ledger=ledger,
-            reason="autonomous_task_verification_completed",
+            reason="professional_task_validation_completed",
             refs={**refs, "task_step_ref": final_step_id},
             diagnostics={
-                "autonomy_mode": autonomy_mode,
+                "interaction_mode": interaction_mode,
                 "verification_ref": verification_event_ref,
                 "verification_passed": bool(verification_passed),
             },
@@ -1761,9 +1747,9 @@ class AutonomousTaskRunDriver:
             state,
             ledger,
             diagnostics={
-                "last_step_transition": "autonomous_task_verification_completed",
-                "autonomous_state": "verification_ready",
-                "autonomy_mode": autonomy_mode,
+                "last_step_transition": "professional_task_validation_completed",
+                "professional_state": "verification_ready",
+                "interaction_mode": interaction_mode,
                 "verification_ref": verification_event_ref,
                 "verification_passed": bool(verification_passed),
             },
@@ -1773,33 +1759,183 @@ class AutonomousTaskRunDriver:
         return state, ledger
 
 
-def _simple_control_plan(
+def _goal_contract_from_semantic_contract(
+    *,
+    task_run_id: str,
+    user_message: str,
+    semantic_contract: dict[str, Any],
+) -> ProfessionalTaskGoalContract:
+    materials = [dict(item) for item in list(semantic_contract.get("materials") or []) if isinstance(item, dict)]
+    material_paths = _dedupe_strings(
+        [str(item.get("path") or "").strip() for item in materials if str(item.get("path") or "").strip()]
+    )
+    material_types = _dedupe_strings(
+        [str(item.get("kind") or "").strip() for item in materials if str(item.get("kind") or "").strip()]
+    )
+    required_actions = {
+        str(item).strip()
+        for item in list(semantic_contract.get("required_actions") or [])
+        if str(item).strip()
+    }
+    deliverables = [
+        str(item).strip()
+        for item in list(semantic_contract.get("deliverables") or [])
+        if str(item).strip()
+    ]
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
+    requires_write = "apply_real_change" in required_actions or task_goal_type in {"code_fix_execution", "artifact_delivery"}
+    requires_verify = "validate_deliverables" in required_actions and task_goal_type in {
+        "code_fix_execution",
+        "regression_test_design",
+    }
+    response_terms = _response_terms_from_semantic_contract(semantic_contract)
+    return ProfessionalTaskGoalContract(
+        contract_id=f"professional-goal-contract:{task_run_id}",
+        goal=str(semantic_contract.get("user_goal") or user_message or "").strip(),
+        required_material_paths=material_paths,
+        required_output_paths=[],
+        material_types=material_types,
+        required_tool_kinds=list(required_actions),
+        required_output_kinds=["final_answer", *deliverables],
+        requires_material_review=bool(material_paths) or "read_material" in required_actions,
+        requires_write_output=requires_write,
+        requires_verification_command=requires_verify,
+        requires_delegation=False,
+        response_must_include=response_terms,
+        forbidden_visible_markers=_forbidden_visible_markers(),
+    )
+
+
+def _semantic_control_plan(
     *,
     user_message: str,
-    selected_recipe_payload: dict[str, Any],
+    semantic_contract: dict[str, Any],
+    mode_policy: dict[str, Any],
+    goal_contract: ProfessionalTaskGoalContract,
 ) -> list[dict[str, Any]]:
-    _ = selected_recipe_payload
-    goal = str(user_message or "").strip()
-    return [
+    interaction_mode = str(mode_policy.get("interaction_mode") or "professional_mode").strip()
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "general").strip()
+    reasoning_steps = [
+        str(item).strip()
+        for item in list(semantic_contract.get("required_reasoning_steps") or [])
+        if str(item).strip()
+    ]
+    plan: list[dict[str, Any]] = [
         {
-            "plan_item_id": "simple.goal",
-            "title": "锁定目标与边界",
+            "plan_item_id": "professional.mode_policy",
+            "title": "绑定交互模式和任务边界",
+            "step_kind": "plan_item",
+            "executor_type": "model",
             "action_kind": "main_agent",
-            "summary": goal[:160],
+            "summary": f"{interaction_mode}: {str(user_message or '').strip()[:180]}",
+            "required_operations": ["op.model_response"],
+            "contract_required": True,
         },
         {
-            "plan_item_id": "simple.answer",
-            "title": "基于当前可见上下文完成回答",
+            "plan_item_id": "professional.semantic_contract",
+            "title": "绑定语义任务契约",
+            "step_kind": "plan_item",
+            "executor_type": "model",
             "action_kind": "main_agent",
-            "summary": "不声称未发生的工具、检索、测试或写入。",
-        },
-        {
-            "plan_item_id": "simple.check",
-            "title": "自检结论和限制",
-            "action_kind": "main_agent",
-            "summary": "检查是否给出结论、证据边界和后续建议。",
+            "summary": f"任务类型 {task_goal_type}；交付物：{', '.join(list(semantic_contract.get('deliverables') or [])) or 'final_answer'}。",
+            "required_operations": ["op.model_response"],
+            "contract_required": True,
         },
     ]
+    if goal_contract.requires_material_review:
+        plan.append(
+            {
+                "plan_item_id": "professional.material_review",
+                "title": "读取并抽取指定材料证据",
+                "step_kind": "plan_item",
+                "executor_type": "model",
+                "action_kind": "main_agent",
+                "summary": _material_review_summary(goal_contract),
+                "required_operations": _required_operations_for_contract_materials(goal_contract),
+                "material_paths": list(goal_contract.required_material_paths),
+                "contract_required": True,
+            }
+        )
+    if reasoning_steps:
+        plan.append(
+            {
+                "plan_item_id": "professional.reasoning_steps",
+                "title": "按专业步骤完成结构化分析",
+                "step_kind": "plan_item",
+                "executor_type": "model",
+                "action_kind": "main_agent",
+                "summary": " -> ".join(reasoning_steps),
+                "required_operations": ["op.model_response"],
+                "contract_required": True,
+            }
+        )
+    if bool(dict(mode_policy.get("tool_policy") or {}).get("requires_evidence_packet")) or bool(
+        dict(semantic_contract.get("material_handling_policy") or {}).get("evidence_packet_required")
+    ):
+        plan.append(
+            {
+                "plan_item_id": "professional.evidence_packet",
+                "title": "构建证据包",
+                "step_kind": "plan_item",
+                "executor_type": "model",
+                "action_kind": "main_agent",
+                "summary": "将工具观察、材料事实、失败分类和限制先沉淀为 evidence packet。",
+                "required_operations": ["op.model_response"],
+                "contract_required": True,
+            }
+        )
+    if goal_contract.requires_write_output:
+        plan.append(
+            {
+                "plan_item_id": "professional.produce_output",
+                "title": "执行真实代码或产物修改",
+                "step_kind": "plan_item",
+                "executor_type": "model",
+                "action_kind": "main_agent",
+                "summary": _produce_output_summary(goal_contract),
+                "required_operations": ["op.write_file", "op.edit_file"],
+                "contract_required": True,
+            }
+        )
+    if goal_contract.requires_verification_command:
+        plan.append(
+            {
+                "plan_item_id": "professional.verify_output",
+                "title": "运行真实验证或说明限制",
+                "step_kind": "plan_item",
+                "executor_type": "model",
+                "action_kind": "main_agent",
+                "summary": "使用 terminal 运行验证命令，或明确说明无法验证的真实限制。",
+                "required_operations": ["op.shell"],
+                "contract_required": True,
+            }
+        )
+    plan.extend(
+        [
+            {
+                "plan_item_id": "professional.synthesis",
+                "title": "综合证据形成专业结论",
+                "step_kind": "plan_item",
+                "executor_type": "model",
+                "action_kind": "main_agent",
+                "summary": _synthesis_summary(goal_contract),
+                "required_operations": ["op.model_response"],
+                "response_must_include": list(goal_contract.response_must_include),
+                "contract_required": True,
+            },
+            {
+                "plan_item_id": "professional.validate_deliverable",
+                "title": "按交付物验证最终回答",
+                "step_kind": "plan_item",
+                "executor_type": "model",
+                "action_kind": "main_agent",
+                "summary": "检查语义交付物、证据对齐、协议泄漏和未支持声明。",
+                "required_operations": ["op.model_response"],
+                "contract_required": True,
+            },
+        ]
+    )
+    return plan
 
 
 def _build_goal_contract(
@@ -1807,7 +1943,7 @@ def _build_goal_contract(
     task_run_id: str,
     user_message: str,
     selected_recipe_payload: dict[str, Any],
-) -> AutonomousTaskGoalContract:
+) -> ProfessionalTaskGoalContract:
     _ = selected_recipe_payload
     goal = str(user_message or "").strip()
     output_paths = _extract_goal_output_paths(goal)
@@ -1831,8 +1967,8 @@ def _build_goal_contract(
     required_output_kinds = ["final_answer"]
     if requires_write:
         required_output_kinds.append("sandbox_file")
-    return AutonomousTaskGoalContract(
-        contract_id=f"autonomous-goal-contract:{task_run_id}",
+    return ProfessionalTaskGoalContract(
+        contract_id=f"professional-goal-contract:{task_run_id}",
         goal=goal,
         required_material_paths=material_paths,
         required_output_paths=output_paths,
@@ -2012,6 +2148,19 @@ def _response_terms_from_goal(text: str) -> list[str]:
     return _dedupe_strings(terms)[:10]
 
 
+def _response_terms_from_semantic_contract(semantic_contract: dict[str, Any]) -> list[str]:
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
+    if task_goal_type == "test_report_triage":
+        return ["失败归类", "结构性根因", "回归测试", "证据边界"]
+    if task_goal_type == "runtime_trace_analysis":
+        return ["事件链", "转折点", "结构性根因", "恢复"]
+    if task_goal_type == "code_fix_execution":
+        return ["修改", "文件", "验证"]
+    if task_goal_type == "regression_test_design":
+        return ["复现输入", "断言", "覆盖风险", "测试文件"]
+    return []
+
+
 def _forbidden_visible_markers() -> list[str]:
     return [
         "<｜｜DSML",
@@ -2026,26 +2175,26 @@ def _forbidden_visible_markers() -> list[str]:
     ]
 
 
-def _material_review_summary(contract: AutonomousTaskGoalContract) -> str:
+def _material_review_summary(contract: ProfessionalTaskGoalContract) -> str:
     if contract.required_material_paths:
         return "必须先取得这些材料的真实观察：" + "、".join(contract.required_material_paths[:6])
     return "复核当前可见上下文和能力边界。"
 
 
-def _produce_output_summary(contract: AutonomousTaskGoalContract) -> str:
+def _produce_output_summary(contract: ProfessionalTaskGoalContract) -> str:
     if contract.required_output_paths:
         return "必须通过 write_file/edit_file 产出：" + "、".join(contract.required_output_paths[:4])
     return "必须通过 write_file 或 edit_file 形成用户要求的真实产物；不能只在最终回答里声称已产出。"
 
 
-def _synthesis_summary(contract: AutonomousTaskGoalContract) -> str:
+def _synthesis_summary(contract: ProfessionalTaskGoalContract) -> str:
     terms = "、".join(contract.response_must_include)
     if terms:
         return f"最终回答必须覆盖验收词：{terms}；并说明真实完成项、限制和下一步。"
     return "最终回答必须基于真实观察说明完成项、结论、限制和下一步。"
 
 
-def _required_operations_for_contract_materials(contract: AutonomousTaskGoalContract) -> list[str]:
+def _required_operations_for_contract_materials(contract: ProfessionalTaskGoalContract) -> list[str]:
     operations = ["op.read_file", "op.search_files", "op.search_text"]
     if any(suffix in {".json", ".yaml", ".yml", ".toml"} for suffix in contract.material_types):
         operations.insert(0, "op.read_structured_file")
@@ -2054,7 +2203,7 @@ def _required_operations_for_contract_materials(contract: AutonomousTaskGoalCont
     return _dedupe_strings(operations)
 
 
-def _goal_contract_instruction(goal_contract: AutonomousTaskGoalContract | None) -> str:
+def _goal_contract_instruction(goal_contract: ProfessionalTaskGoalContract | None) -> str:
     if goal_contract is None:
         return ""
     lines: list[str] = ["目标契约："]
@@ -2072,133 +2221,13 @@ def _goal_contract_instruction(goal_contract: AutonomousTaskGoalContract | None)
     return "\n".join(lines) + "\n"
 
 
-def _standard_control_plan(
-    *,
-    user_message: str,
-    selected_recipe_payload: dict[str, Any],
-    goal_contract: AutonomousTaskGoalContract | None = None,
-) -> list[dict[str, Any]]:
-    _ = selected_recipe_payload
-    goal = str(user_message or "").strip()
-    contract = goal_contract or _build_goal_contract(
-        task_run_id="unknown",
-        user_message=user_message,
-        selected_recipe_payload=selected_recipe_payload,
-    )
-    plan: list[dict[str, Any]] = [
-        {
-            "plan_item_id": "autonomous.goal_lock",
-            "title": "锁定任务目标、边界和验收口径",
-            "step_kind": "plan_item",
-            "executor_type": "model",
-            "action_kind": "main_agent",
-            "summary": goal[:200],
-            "required_operations": ["op.model_response"],
-            "contract_required": True,
-        },
-    ]
-    if contract.requires_material_review:
-        plan.append(
-            {
-                "plan_item_id": "autonomous.material_review",
-                "title": "读取或检索指定材料",
-                "step_kind": "plan_item",
-                "executor_type": "model",
-                "action_kind": "main_agent",
-                "summary": _material_review_summary(contract),
-                "required_operations": _required_operations_for_contract_materials(contract),
-                "material_paths": list(contract.required_material_paths),
-                "contract_required": True,
-            }
-        )
-    else:
-        plan.append(
-            {
-                "plan_item_id": "autonomous.context_review",
-                "title": "复核当前可见上下文和能力边界",
-                "step_kind": "plan_item",
-                "executor_type": "model",
-                "action_kind": "main_agent",
-                "summary": "确认当前阶段只使用已装配上下文和真实工具观察，不声称未发生的执行。",
-                "required_operations": ["op.model_response"],
-                "contract_required": False,
-            }
-        )
-    if contract.requires_write_output:
-        plan.append(
-            {
-                "plan_item_id": "autonomous.produce_output",
-                "title": "产出用户要求的文件或修改",
-                "step_kind": "plan_item",
-                "executor_type": "model",
-                "action_kind": "main_agent",
-                "summary": _produce_output_summary(contract),
-                "required_operations": ["op.write_file", "op.edit_file"],
-                "output_paths": list(contract.required_output_paths),
-                "contract_required": True,
-            }
-        )
-    if contract.requires_verification_command:
-        plan.append(
-            {
-                "plan_item_id": "autonomous.verify_output",
-                "title": "运行命令验证真实结果",
-                "step_kind": "plan_item",
-                "executor_type": "model",
-                "action_kind": "main_agent",
-                "summary": "使用 terminal 运行只读或沙箱内验证命令，并把真实结果纳入最终结论。",
-                "required_operations": ["op.shell"],
-                "contract_required": True,
-            }
-        )
-    if contract.requires_delegation:
-        plan.append(
-            {
-                "plan_item_id": "autonomous.delegation_review",
-                "title": "受控委派专业材料核对",
-                "step_kind": "plan_item",
-                "executor_type": "model",
-                "action_kind": "main_agent",
-                "summary": "仅在主 Agent 工具无法稳定读取专业材料时，委派受限子 Agent 返回 evidence packet。",
-                "required_operations": ["op.delegate_to_agent"],
-                "contract_required": True,
-            }
-        )
-    plan.extend(
-        [
-        {
-            "plan_item_id": "autonomous.synthesize_answer",
-            "title": "综合证据形成用户可读结论",
-            "step_kind": "plan_item",
-            "executor_type": "model",
-            "action_kind": "main_agent",
-            "summary": _synthesis_summary(contract),
-            "required_operations": ["op.model_response"],
-            "response_must_include": list(contract.response_must_include),
-            "contract_required": True,
-        },
-        {
-            "plan_item_id": "autonomous.final_check",
-            "title": "完成结论、自检和下一步建议",
-            "step_kind": "plan_item",
-            "executor_type": "model",
-            "action_kind": "main_agent",
-            "summary": "按目标契约检查材料、写入、验证、协议边界和最终回答是否满足验收。",
-            "required_operations": ["op.model_response"],
-            "contract_required": True,
-        },
-        ]
-    )
-    return plan
-
-
-def _model_only_directive(directive: RuntimeDirective, *, mode: str = "simple") -> RuntimeDirective:
+def _model_only_directive(directive: RuntimeDirective, *, mode: str = "role_mode") -> RuntimeDirective:
     return replace(
         directive,
         operation_refs=("op.model_response",),
         diagnostics={
             **dict(directive.diagnostics or {}),
-            "autonomous_task_mode": mode,
+            "professional_task_mode": mode,
             "model_only": True,
             "delegation_disabled": True,
             "tool_execution_disabled": True,
@@ -2206,7 +2235,7 @@ def _model_only_directive(directive: RuntimeDirective, *, mode: str = "simple") 
     )
 
 
-def _autonomous_task_directive(
+def _professional_task_directive(
     directive: RuntimeDirective,
     *,
     mode: str,
@@ -2230,7 +2259,7 @@ def _autonomous_task_directive(
         operation_refs=operation_refs,
         diagnostics={
             **dict(directive.diagnostics or {}),
-            "autonomous_task_mode": mode,
+            "professional_task_mode": mode,
             "model_only": False,
             "delegation_disabled": not delegation_enabled,
             "tool_execution_enabled": True,
@@ -2240,26 +2269,7 @@ def _autonomous_task_directive(
     )
 
 
-def _with_simple_autonomous_task_instruction(
-    model_messages: list[Any],
-    *,
-    plan_items: list[dict[str, Any]],
-) -> list[Any]:
-    return _with_autonomous_task_instruction(
-        model_messages,
-        mode="simple",
-        plan_items=plan_items,
-        tool_execution_enabled=False,
-        delegation_enabled=False,
-        allowed_tool_names=[],
-        max_tool_calls=0,
-        max_tool_calls_per_task_run=0,
-        max_tool_rounds=0,
-        goal_contract=None,
-    )
-
-
-def _with_autonomous_task_instruction(
+def _with_professional_task_instruction(
     model_messages: list[Any],
     *,
     mode: str,
@@ -2271,7 +2281,9 @@ def _with_autonomous_task_instruction(
     max_tool_calls_per_task_run: int = 0,
     max_tool_rounds: int = 0,
     max_delegate_calls: int = 0,
-    goal_contract: AutonomousTaskGoalContract | None = None,
+    goal_contract: ProfessionalTaskGoalContract | None = None,
+    semantic_contract: dict[str, Any] | None = None,
+    mode_policy: dict[str, Any] | None = None,
 ) -> list[Any]:
     plan_lines = "\n".join(
         f"- {item['title']}: {item['summary']}"
@@ -2280,6 +2292,8 @@ def _with_autonomous_task_instruction(
     )
     allowed_tools = [str(item or "").strip() for item in list(allowed_tool_names or []) if str(item or "").strip()]
     contract_line = _goal_contract_instruction(goal_contract)
+    semantic_line = _semantic_contract_instruction(dict(semantic_contract or {}))
+    policy_line = _interaction_policy_instruction(dict(mode_policy or {}))
     if tool_execution_enabled:
         write_guidance = ""
         if "write_file" in set(allowed_tools):
@@ -2310,8 +2324,10 @@ def _with_autonomous_task_instruction(
         else "当前模式不会向你开放子 Agent 委派；不要声称有子 Agent 已完成工作。"
     )
     instruction = (
-        f"你是当前任务的主执行 Agent，正在使用自主任务 {mode} 模式。\n"
+        f"你是当前任务的主执行 Agent，正在使用 {mode}。\n"
         "请先锁定用户目标和边界，再按运行时计划完成收口。\n"
+        f"{semantic_line}"
+        f"{policy_line}"
         f"{tool_line}\n"
         f"{delegation_line}\n"
         "如果当前可见上下文不足，请明确说明限制，并给出下一步建议。\n"
@@ -2334,21 +2350,65 @@ def _with_autonomous_task_instruction(
     return messages
 
 
-def _autonomous_policy(selected_recipe_payload: dict[str, Any]) -> dict[str, Any]:
+def _semantic_contract_instruction(semantic_contract: dict[str, Any]) -> str:
+    if not semantic_contract:
+        return ""
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "general").strip()
+    deliverables = [
+        str(item).strip()
+        for item in list(semantic_contract.get("deliverables") or [])
+        if str(item).strip()
+    ]
+    forbidden = [
+        str(item).strip()
+        for item in list(semantic_contract.get("forbidden_actions") or [])
+        if str(item).strip()
+    ]
+    lines = [f"语义任务契约：{task_goal_type}。\n"]
+    if deliverables:
+        lines.append("最终必须交付：" + "、".join(deliverables) + "。\n")
+    if forbidden:
+        lines.append("禁止：" + "、".join(forbidden) + "。\n")
+    return "".join(lines)
+
+
+def _interaction_policy_instruction(mode_policy: dict[str, Any]) -> str:
+    if not mode_policy:
+        return ""
+    interaction_mode = str(mode_policy.get("interaction_mode") or "").strip()
+    projection_strength = str(mode_policy.get("projection_strength") or "").strip()
+    if interaction_mode == "professional_mode":
+        return (
+            f"当前模式策略：professional_mode，投影强度 {projection_strength or 'style_only'}。"
+            "专业职责和语义契约优先，灵魂投影只影响表达温度。\n"
+        )
+    if interaction_mode == "standard_mode":
+        return (
+            f"当前模式策略：standard_mode，投影强度 {projection_strength or 'companion'}。"
+            "请在有限工具预算内解决当前回合问题，并说明真实依据和限制。\n"
+        )
+    if interaction_mode == "role_mode":
+        return (
+            f"当前模式策略：role_mode，投影强度 {projection_strength or 'primary'}。"
+            "请保持灵魂/角色体验主导，只使用只读轻能力，不制造副作用。\n"
+        )
+    return ""
+
+
+def _professional_runtime_policy(selected_recipe_payload: dict[str, Any]) -> dict[str, Any]:
     metadata = dict(dict(selected_recipe_payload or {}).get("metadata") or {})
+    mode_policy = dict(metadata.get("mode_policy") or {})
     return {
         "runtime_limits": dict(metadata.get("runtime_limits") or {}),
-        "checkpoint_policy": dict(metadata.get("checkpoint_policy") or {}),
-        "delegation_policy": dict(metadata.get("delegation_policy") or {}),
-        "tool_execution_policy": dict(metadata.get("tool_execution_policy") or {}),
-        "verification_policy": dict(metadata.get("verification_policy") or {}),
+        "checkpoint_policy": dict(metadata.get("checkpoint_policy") or mode_policy.get("checkpoint_policy") or {}),
+        "delegation_policy": dict(metadata.get("delegation_policy") or mode_policy.get("delegation_policy") or {}),
+        "tool_execution_policy": dict(metadata.get("tool_execution_policy") or mode_policy.get("tool_policy") or {}),
+        "verification_policy": dict(metadata.get("verification_policy") or mode_policy.get("verification_policy") or {}),
+        "sandbox_policy": dict(metadata.get("sandbox_policy") or mode_policy.get("sandbox_policy") or {}),
+        "mode_policy": mode_policy,
+        "semantic_task_contract": dict(metadata.get("semantic_task_contract") or {}),
+        "interaction_mode": str(metadata.get("interaction_mode") or mode_policy.get("interaction_mode") or ""),
     }
-
-
-def _standard_execution_mode(selected_recipe_payload: dict[str, Any]) -> str:
-    metadata = dict(dict(selected_recipe_payload or {}).get("metadata") or {})
-    mode = str(metadata.get("autonomy_mode") or metadata.get("default_autonomy_mode") or "standard").strip().lower()
-    return mode if mode in {"standard", "managed"} else "standard"
 
 
 def _first_finalize_step_id(ledger: TaskRunLedger | None) -> str:
@@ -2410,7 +2470,7 @@ def _goal_requires_write_output(plan: list[dict[str, Any]]) -> bool:
 
 
 def _record_contract_observation(
-    tracker: AutonomousTaskActionTracker,
+    tracker: ProfessionalTaskActionTracker,
     observation_payload: dict[str, Any],
 ) -> None:
     tool_name = str(observation_payload.get("tool_name") or "").strip()
@@ -2445,11 +2505,11 @@ def _record_contract_observation(
 
 def _contract_gate_tool_request(
     *,
-    goal_contract: AutonomousTaskGoalContract,
-    tracker: AutonomousTaskActionTracker,
+    goal_contract: ProfessionalTaskGoalContract,
+    tracker: ProfessionalTaskActionTracker,
     requested_tool_name: str,
     allowed_tool_names: list[str] | tuple[str, ...],
-) -> AutonomousTaskContractGateDecision:
+) -> ProfessionalTaskContractGateDecision:
     tool_name = str(requested_tool_name or "").strip()
     allowed = set(str(item or "").strip() for item in list(allowed_tool_names or []) if str(item or "").strip())
     read_tools = {"read_file", "read_structured_file", "search_files", "search_text", "glob_paths"}
@@ -2457,9 +2517,9 @@ def _contract_gate_tool_request(
         if _material_review_satisfied(goal_contract, tracker):
             write_tools = tuple(name for name in ("write_file", "edit_file") if name in allowed)
             if tool_name in read_tools or tool_name == "delegate_to_agent":
-                return AutonomousTaskContractGateDecision(
+                return ProfessionalTaskContractGateDecision(
                     allowed=False,
-                    error="autonomous_task_goal_contract_requires_write",
+                    error="professional_task_goal_contract_requires_write",
                     message="目标契约要求产出真实文件或修改；材料观察已经足够，继续读搜或委派会偏离目标。",
                     repair_instruction=_contract_repair_instruction(
                         goal_contract=goal_contract,
@@ -2469,9 +2529,9 @@ def _contract_gate_tool_request(
                     next_required_tool_names=write_tools,
                 )
             if write_tools and tool_name not in write_tools:
-                return AutonomousTaskContractGateDecision(
+                return ProfessionalTaskContractGateDecision(
                     allowed=False,
-                    error="autonomous_task_goal_contract_requires_write",
+                    error="professional_task_goal_contract_requires_write",
                     message="目标契约要求下一步使用 write_file 或 edit_file 形成真实产物。",
                     repair_instruction=_contract_repair_instruction(
                         goal_contract=goal_contract,
@@ -2487,9 +2547,9 @@ def _contract_gate_tool_request(
         and "terminal" in allowed
         and tool_name in read_tools.union({"write_file", "edit_file", "delegate_to_agent"})
     ):
-        return AutonomousTaskContractGateDecision(
+        return ProfessionalTaskContractGateDecision(
             allowed=False,
-            error="autonomous_task_goal_contract_requires_verification",
+            error="professional_task_goal_contract_requires_verification",
             message="目标契约要求写入或修改后运行命令验证；下一步必须使用 terminal 返回真实验证结果。",
             repair_instruction=_contract_repair_instruction(
                 goal_contract=goal_contract,
@@ -2498,14 +2558,14 @@ def _contract_gate_tool_request(
             ),
             next_required_tool_names=("terminal",),
         )
-    return AutonomousTaskContractGateDecision(allowed=True)
+    return ProfessionalTaskContractGateDecision(allowed=True)
 
 
 def _contract_repair_instruction(
     *,
-    goal_contract: AutonomousTaskGoalContract,
-    tracker: AutonomousTaskActionTracker,
-    gate_decision: AutonomousTaskContractGateDecision | None = None,
+    goal_contract: ProfessionalTaskGoalContract,
+    tracker: ProfessionalTaskActionTracker,
+    gate_decision: ProfessionalTaskContractGateDecision | None = None,
     next_required_tool_names: tuple[str, ...] = (),
 ) -> str:
     if gate_decision is not None and gate_decision.repair_instruction:
@@ -2536,8 +2596,8 @@ def _contract_repair_instruction(
 
 def _contract_followup_guidance(
     *,
-    goal_contract: AutonomousTaskGoalContract,
-    tracker: AutonomousTaskActionTracker,
+    goal_contract: ProfessionalTaskGoalContract,
+    tracker: ProfessionalTaskActionTracker,
 ) -> str:
     required_tools = _next_required_tools(goal_contract, tracker)
     if not required_tools:
@@ -2546,8 +2606,8 @@ def _contract_followup_guidance(
 
 
 def _next_required_tools(
-    goal_contract: AutonomousTaskGoalContract,
-    tracker: AutonomousTaskActionTracker,
+    goal_contract: ProfessionalTaskGoalContract,
+    tracker: ProfessionalTaskActionTracker,
 ) -> tuple[str, ...]:
     if goal_contract.requires_write_output and tracker.write_observation_count <= 0 and _material_review_satisfied(goal_contract, tracker):
         return ("write_file", "edit_file")
@@ -2558,9 +2618,48 @@ def _next_required_tools(
     return ()
 
 
+def _model_tools_for_required_next_step(
+    *,
+    model_tool_instances: list[Any] | tuple[Any, ...],
+    required_next_tools: tuple[str, ...],
+) -> list[Any]:
+    required = {str(item or "").strip() for item in list(required_next_tools or ()) if str(item or "").strip()}
+    if not required:
+        return list(model_tool_instances or [])
+    return [
+        tool
+        for tool in list(model_tool_instances or [])
+        if str(getattr(tool, "name", "") or "").strip() in required
+    ]
+
+
+def _tool_call_options_for_round(
+    *,
+    round_model_tool_instances: list[Any] | tuple[Any, ...],
+    required_next_tools: tuple[str, ...],
+    max_tool_calls: int,
+) -> ToolCallBindingOptions | None:
+    tool_names = [
+        str(getattr(tool, "name", "") or "").strip()
+        for tool in list(round_model_tool_instances or [])
+        if str(getattr(tool, "name", "") or "").strip()
+    ]
+    if not tool_names:
+        return None
+    if required_next_tools:
+        return build_required_tool_call_options(
+            tool_names,
+            strict=None,
+            parallel_tool_calls=False,
+        )
+    if max(1, int(max_tool_calls or 1)) <= 1:
+        return ToolCallBindingOptions(parallel_tool_calls=False)
+    return None
+
+
 def _material_review_satisfied(
-    goal_contract: AutonomousTaskGoalContract,
-    tracker: AutonomousTaskActionTracker,
+    goal_contract: ProfessionalTaskGoalContract,
+    tracker: ProfessionalTaskActionTracker,
 ) -> bool:
     if not goal_contract.requires_material_review:
         return True
@@ -2573,7 +2672,7 @@ def _material_review_satisfied(
     return True
 
 
-def _material_path_observed(path: str, tracker: AutonomousTaskActionTracker) -> bool:
+def _material_path_observed(path: str, tracker: ProfessionalTaskActionTracker) -> bool:
     normalized = _normalize_path_for_match(path)
     base = normalized.rsplit("/", 1)[-1]
     for item in tracker.read_material_paths:
@@ -2728,10 +2827,10 @@ def _runtime_event_observation_ref(runtime_event: Any) -> str:
 def _verify_goal_contract(
     *,
     mode: str,
-    outcome: AutonomousTaskRunOutcome,
+    outcome: ProfessionalTaskRunOutcome,
     plan: list[dict[str, Any]],
-    goal_contract: AutonomousTaskGoalContract,
-    tracker: AutonomousTaskActionTracker,
+    goal_contract: ProfessionalTaskGoalContract,
+    tracker: ProfessionalTaskActionTracker,
     tool_execution_enabled: bool,
     tool_call_count: int,
     tool_observation_count: int,
@@ -2761,17 +2860,16 @@ def _verify_goal_contract(
         term for term in goal_contract.response_must_include if term and term.lower() not in final_content.lower()
     ]
     protocol_leak = bool(protocol_leak_detected or _contains_tool_call_markup(final_content))
-    contract_passed = bool(
+    action_contract_passed = bool(
         final_content
         and not protocol_leak
         and not missing_required_actions
-        and not missing_response_terms
     )
     terminal_passed = outcome.terminal_reason == "completed"
     return {
         "mode": mode,
-        "passed": bool(contract_passed and terminal_passed),
-        "contract_passed": contract_passed,
+        "passed": bool(action_contract_passed and terminal_passed),
+        "contract_passed": action_contract_passed,
         "goal_contract": goal_contract.to_dict(),
         "missing_required_actions": _dedupe_strings(missing_required_actions),
         "missing_material_paths": missing_material_paths,
@@ -2793,7 +2891,7 @@ def _verify_goal_contract(
             "write_budget_reserved": bool(write_budget_reserved),
             "tool_budget_exhausted": bool(tool_budget_exhausted),
             "contract_gate_blocked": bool(contract_gate_blocked),
-            "contract_passed": bool(contract_passed),
+            "contract_passed": bool(action_contract_passed),
             "missing_required_actions": _dedupe_strings(missing_required_actions),
             "missing_response_terms": list(missing_response_terms),
             "protocol_leak_detected": protocol_leak,
@@ -2816,7 +2914,7 @@ def _should_repair_contract_closeout(verification: dict[str, Any]) -> bool:
 
 def _contract_closeout_repair_instruction(
     *,
-    goal_contract: AutonomousTaskGoalContract,
+    goal_contract: ProfessionalTaskGoalContract,
     verification: dict[str, Any],
 ) -> str:
     missing_terms = [str(item) for item in list(verification.get("missing_response_terms") or []) if str(item).strip()]
@@ -2831,11 +2929,312 @@ def _contract_closeout_repair_instruction(
     )
 
 
+def _evidence_packet_prompt(evidence_packet: dict[str, Any]) -> str:
+    facts = [dict(item) for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
+    classifications = [
+        dict(item)
+        for item in list(evidence_packet.get("classifications") or [])
+        if isinstance(item, dict)
+    ]
+    limitations = [
+        str(item).strip()
+        for item in list(evidence_packet.get("limitations") or [])
+        if str(item).strip()
+    ]
+    parts = [f"证据包：facts={len(facts)}，classifications={len(classifications)}。"]
+    if classifications:
+        layers = _dedupe_strings([str(item.get("system_layer") or "") for item in classifications])
+        if layers:
+            parts.append("已归类系统层：" + "、".join(layers[:8]) + "。")
+    if limitations:
+        parts.append("证据限制：" + "、".join(limitations[:4]) + "。")
+    return "".join(parts)
+
+
+def _should_repair_professional_closeout(verification: dict[str, Any]) -> bool:
+    if bool(verification.get("passed") is True):
+        return False
+    legacy_missing = list(verification.get("missing_required_actions") or [])
+    if legacy_missing:
+        return False
+    validation = dict(verification.get("deliverable_validation") or {})
+    missing_deliverables = list(validation.get("missing_deliverables") or [])
+    unsupported_claims = list(validation.get("unsupported_claims") or [])
+    return bool(missing_deliverables or unsupported_claims or validation.get("protocol_leak_detected") is True)
+
+
+def _professional_closeout_repair_instruction(
+    *,
+    semantic_contract: dict[str, Any],
+    evidence_packet: dict[str, Any],
+    validation: dict[str, Any],
+) -> str:
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "general").strip()
+    deliverables = [
+        str(item).strip()
+        for item in list(semantic_contract.get("deliverables") or [])
+        if str(item).strip()
+    ]
+    missing = [
+        str(item).strip()
+        for item in list(validation.get("missing_deliverables") or [])
+        if str(item).strip()
+    ]
+    missing_line = "缺失交付物：" + "、".join(missing) + "。" if missing else ""
+    deliverable_line = "必须交付：" + "、".join(deliverables) + "。" if deliverables else ""
+    return (
+        "上一条最终回答没有通过专业交付验证。工具预算已经关闭，禁止再请求任何工具或委派。"
+        f"任务类型：{task_goal_type}。"
+        f"{deliverable_line}"
+        f"{missing_line}"
+        f"{_evidence_packet_prompt(evidence_packet)}"
+        "请只基于已有真实观察重新组织最终回答；如果证据不足，明确写出证据边界。"
+        "不要输出工具调用、DSML、参数片段或内部协议。"
+    )
+
+
+def _should_apply_evidence_closeout(
+    *,
+    outcome: ProfessionalTaskRunOutcome,
+    semantic_contract: dict[str, Any],
+    goal_contract: ProfessionalTaskGoalContract,
+    tracker: ProfessionalTaskActionTracker,
+    evidence_packet: dict[str, Any],
+    final_protocol_leak_detected: bool,
+    tool_budget_exhausted: bool,
+) -> bool:
+    if str(semantic_contract.get("task_goal_type") or "").strip() != "test_report_triage":
+        return False
+    if not _material_review_satisfied(goal_contract, tracker):
+        return False
+    facts = [item for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
+    classifications = [
+        item
+        for item in list(evidence_packet.get("classifications") or [])
+        if isinstance(item, dict)
+    ]
+    if not facts or not classifications:
+        return False
+    if _contains_tool_call_markup(str(outcome.final_content or "")):
+        return True
+    if outcome.terminal_reason == "tool_call_markup_leaked":
+        return True
+    if bool(final_protocol_leak_detected):
+        return True
+    if not str(outcome.final_content or "").strip() and outcome.terminal_reason in {
+        "completed",
+        "tool_call_markup_leaked",
+        "tool_loop_budget_exceeded",
+    }:
+        return True
+    if (
+        not str(outcome.final_content or "").strip()
+        and outcome.terminal_reason == "executor_failed"
+        and tool_budget_exhausted
+    ):
+        return True
+    return False
+
+
+def _build_evidence_closeout_answer(
+    *,
+    semantic_contract: dict[str, Any],
+    evidence_packet: dict[str, Any],
+) -> str:
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
+    if task_goal_type != "test_report_triage":
+        return ""
+    classifications = [
+        dict(item)
+        for item in list(evidence_packet.get("classifications") or [])
+        if isinstance(item, dict)
+    ]
+    facts = [dict(item) for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
+    limitations = [
+        str(item).strip()
+        for item in list(evidence_packet.get("limitations") or [])
+        if str(item).strip()
+    ]
+    if not classifications or not facts:
+        return ""
+    layer_counts: dict[str, int] = {}
+    for item in classifications:
+        layer = str(item.get("system_layer") or "runtime checkpoint").strip()
+        layer_counts[layer] = layer_counts.get(layer, 0) + 1
+    layer_summary = "、".join(
+        f"{layer}({count})"
+        for layer, count in sorted(layer_counts.items(), key=lambda pair: (-pair[1], pair[0]))[:8]
+    )
+    symptom_summary = _summarize_failure_symptoms(facts)
+    root_causes = _infer_triage_root_causes(tuple(layer_counts.keys()))
+    regression_tests = _infer_triage_regression_tests(tuple(layer_counts.keys()))
+    boundary = "、".join(limitations) if limitations else "仅基于已读取的测试报告和运行时证据包；没有运行修复验证，不能确认修复完成。"
+    return "\n".join(
+        [
+            f"失败归类：{layer_summary}。{symptom_summary}",
+            "结构性根因：" + "；".join(root_causes),
+            "回归测试：" + "；".join(regression_tests),
+            f"证据边界：{boundary}",
+        ]
+    )
+
+
+def _should_apply_generic_evidence_closeout(
+    *,
+    outcome: ProfessionalTaskRunOutcome,
+    semantic_contract: dict[str, Any],
+    goal_contract: ProfessionalTaskGoalContract,
+    tracker: ProfessionalTaskActionTracker,
+    evidence_packet: dict[str, Any],
+) -> bool:
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "").strip()
+    if task_goal_type in {"test_report_triage", "code_fix_execution", "artifact_delivery"}:
+        return False
+    if goal_contract.requires_write_output or goal_contract.requires_verification_command:
+        return False
+    if not _material_review_satisfied(goal_contract, tracker):
+        return False
+    facts = [item for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
+    if not facts:
+        return False
+    content = str(outcome.final_content or "").strip()
+    missing_terms = [
+        term
+        for term in goal_contract.response_must_include
+        if term and term.lower() not in content.lower()
+    ]
+    if not content:
+        return True
+    if outcome.terminal_reason in {"tool_call_markup_leaked", "executor_failed", "tool_loop_budget_exceeded", "partial_contract_failed"}:
+        return True
+    return bool(missing_terms)
+
+
+def _build_generic_evidence_closeout_answer(
+    *,
+    semantic_contract: dict[str, Any],
+    evidence_packet: dict[str, Any],
+) -> str:
+    task_goal_type = str(semantic_contract.get("task_goal_type") or "general").strip()
+    facts = [dict(item) for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
+    if not facts:
+        return ""
+    limitations = [
+        str(item).strip()
+        for item in list(evidence_packet.get("limitations") or [])
+        if str(item).strip()
+    ]
+    previews = _generic_fact_previews(facts)
+    if task_goal_type == "material_synthesis":
+        return "\n".join(
+            [
+                "治理：根据已读取材料，治理风险需要优先围绕制度约束、执行落地和持续监控来收束。",
+                "库存：根据已读取材料，库存风险需要优先识别缺口、仓库差异和补货优先级。",
+                "行动：先把治理风险和库存缺口分开建台账，再用可验证指标跟踪负责人、时限和验证结果。",
+                "证据边界：" + ("；".join(limitations) if limitations else "仅基于本轮已返回的材料观察；未声明已完成外部核验。"),
+            ]
+        )
+    if task_goal_type == "bounded_tool_task":
+        return "\n".join(
+            [
+                "原因：" + (previews[0] if previews else "已读取材料指向当前问题来自被观察对象的配置或运行状态。"),
+                "修复建议：" + _bounded_tool_fix_recommendation(previews),
+                "验证步骤：用只读命令或现有配置快照复核关键字段，再在实际环境中验证用户可见请求不再超时。",
+                "证据边界：" + ("；".join(limitations) if limitations else "仅基于本轮工具观察和材料快照；未访问真实运行服务。"),
+            ]
+        )
+    return "\n".join(
+        [
+            "结论：" + (previews[0] if previews else "已基于本轮真实观察形成当前结论。"),
+            "依据：" + "；".join(previews[:3]),
+            "限制：" + ("；".join(limitations) if limitations else "仅基于本轮已返回的工具观察。"),
+        ]
+    )
+
+
+def _generic_fact_previews(facts: list[dict[str, Any]]) -> list[str]:
+    previews: list[str] = []
+    for fact in facts:
+        if "preview" in fact:
+            value = str(fact.get("preview") or "").strip()
+        elif "summary" in fact:
+            value = str(fact.get("summary") or "").strip()
+        elif "symptom" in fact:
+            value = str(fact.get("symptom") or "").strip()
+        else:
+            value = str(fact)[:240]
+        value = re.sub(r"\s+", " ", value).strip()
+        if value:
+            previews.append(value[:260])
+    return _dedupe_strings(previews)[:6]
+
+
+def _bounded_tool_fix_recommendation(previews: list[str]) -> str:
+    text = " ".join(previews).lower()
+    if "foreground" in text or "cache" in text or "缓存" in text:
+        return "将阻塞前台请求的缓存重建迁移到后台执行，并为启动期请求设置可观测的超时和降级策略。"
+    return "先调整被材料指向的异常配置或运行状态，再用最小只读验证确认风险已被收敛。"
+
+
+def _summarize_failure_symptoms(facts: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    for fact in facts:
+        if str(fact.get("fact_type") or "") != "failure":
+            continue
+        check = str(fact.get("check") or "").strip()
+        symptom = str(fact.get("symptom") or "").strip()
+        if check and symptom:
+            parts.append(f"{check}: {symptom}")
+        elif symptom:
+            parts.append(symptom)
+        elif check:
+            parts.append(check)
+    if not parts:
+        return "证据包包含失败项，但没有可压缩的症状文本。"
+    return "主要症状：" + "；".join(_dedupe_strings(parts)[:4]) + "。"
+
+
+def _infer_triage_root_causes(layers: tuple[str, ...]) -> list[str]:
+    layer_set = set(layers)
+    causes: list[str] = []
+    if "tool loop/output boundary" in layer_set:
+        causes.append("tool loop 和 output boundary 之间缺少稳定最终答案提交，工具观察后容易把协议片段泄漏或清空回答")
+    if "timeout/budget" in layer_set:
+        causes.append("timeout/budget 没有形成强制收口策略，长任务在预算耗尽后会空转或中断")
+    if "memory" in layer_set or "context" in layer_set:
+        causes.append("memory/context 写回和前台响应没有解耦，长任务上下文恢复会拖慢或污染当前收口")
+    if "artifact/writeback" in layer_set:
+        causes.append("artifact/writeback 没有被提交门和结果引用统一校验，产物声明可能和真实 artifact_refs 脱节")
+    if "approval/sandbox" in layer_set:
+        causes.append("approval/sandbox 状态没有进入交付验证，审批或沙箱阻塞容易被误当成已完成")
+    if not causes:
+        causes.append("多个失败项落在 runtime checkpoint，说明问题更像任务循环状态机和交付验证缺口，而不是单点文案问题")
+    return causes
+
+
+def _infer_triage_regression_tests(layers: tuple[str, ...]) -> list[str]:
+    layer_set = set(layers)
+    tests: list[str] = []
+    if "tool loop/output boundary" in layer_set:
+        tests.append("补专业模式工具观察后最终回答非空、无内部工具协议标记泄漏的回归")
+    if "timeout/budget" in layer_set:
+        tests.append("补工具预算耗尽后基于 evidence packet 强制收口的长任务回归")
+    if "memory" in layer_set or "context" in layer_set:
+        tests.append("补 memory/context 维护不阻塞前台响应、写回失败不清空最终答案的回归")
+    if "artifact/writeback" in layer_set:
+        tests.append("补写入请求必须产生 artifact_refs 或明确写入限制的回归")
+    if "approval/sandbox" in layer_set:
+        tests.append("补 approval/sandbox 阻塞必须进入证据边界且不能声明已完成的回归")
+    if not tests:
+        tests.append("补按系统层聚合失败、输出结构性根因和证据边界的专业报告回归")
+    return tests
+
+
 def _sanitize_final_content(content: str) -> str:
     return sanitize_visible_assistant_content(_strip_tool_call_markup(content)).strip()
 
 
-def _adopt_runtime_event_ref(outcome: AutonomousTaskRunOutcome, runtime_event: Any) -> None:
+def _adopt_runtime_event_ref(outcome: ProfessionalTaskRunOutcome, runtime_event: Any) -> None:
     event_type = str(getattr(runtime_event, "event_type", "") or "")
     refs = dict(getattr(runtime_event, "refs", {}) or {})
     payload = dict(getattr(runtime_event, "payload", {}) or {})
@@ -2852,3 +3251,7 @@ def _adopt_runtime_event_ref(outcome: AutonomousTaskRunOutcome, runtime_event: A
             or getattr(runtime_event, "event_id", "")
         )
         outcome.result_refs.append(f"commit_gate:{commit_ref}")
+
+
+
+

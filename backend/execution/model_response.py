@@ -26,6 +26,7 @@ class ModelResponseRuntimeExecutor:
         model_messages: list[Any],
         directive: RuntimeDirective,
         tool_instances: list[Any] | None = None,
+        tool_call_options: Any | None = None,
         model_stream_policy: dict[str, Any] | None = None,
         model_spec: Any | None = None,
     ):
@@ -61,7 +62,13 @@ class ModelResponseRuntimeExecutor:
             if stream_enabled and tools and callable(tool_streamer):
                 raw_content = ""
                 aggregated_chunk = None
-                async for chunk in _call_streamer_with_optional_model_spec(tool_streamer, model_messages, tools, model_spec=model_spec):
+                async for chunk in _call_streamer_with_optional_model_spec(
+                    tool_streamer,
+                    model_messages,
+                    tools,
+                    model_spec=model_spec,
+                    tool_call_options=tool_call_options,
+                ):
                     aggregated_chunk = chunk if aggregated_chunk is None else aggregated_chunk + chunk
                     delta_text = _chunk_text(chunk)
                     if not delta_text:
@@ -95,7 +102,13 @@ class ModelResponseRuntimeExecutor:
                     }
                 response = raw_content
             elif tools and callable(tool_invoker):
-                response = await _call_invoker_with_optional_model_spec(tool_invoker, model_messages, tools, model_spec=model_spec)
+                response = await _call_invoker_with_optional_model_spec(
+                    tool_invoker,
+                    model_messages,
+                    tools,
+                    model_spec=model_spec,
+                    tool_call_options=tool_call_options,
+                )
             else:
                 response = await _call_invoker_with_optional_model_spec(invoker, model_messages, model_spec=model_spec)
         except ModelRuntimeError as exc:
@@ -120,6 +133,7 @@ class ModelResponseRuntimeExecutor:
                         model_messages=model_messages,
                         tools=tools,
                         model_spec=model_spec,
+                        tool_call_options=tool_call_options,
                     )
                     response = await asyncio.wait_for(fallback_call, timeout=fallback_timeout_seconds)
                 except asyncio.TimeoutError:
@@ -362,7 +376,8 @@ def _model_only_finalization(directive: RuntimeDirective) -> bool:
     diagnostics = dict(getattr(directive, "diagnostics", {}) or {})
     return (
         bool(diagnostics.get("model_only") is True)
-        and str(diagnostics.get("autonomous_task_mode") or "").strip() in {"simple", "standard", "managed"}
+        and str(diagnostics.get("professional_task_mode") or diagnostics.get("interaction_mode") or "").strip()
+        in {"role_mode", "standard_mode", "professional_mode"}
     )
 
 
@@ -439,13 +454,30 @@ async def _invoke_non_stream_after_stream_error(
     model_messages: list[Any],
     tools: list[Any],
     model_spec: Any | None = None,
+    tool_call_options: Any | None = None,
 ) -> Any:
     if tools and callable(tool_invoker):
-        return await _call_invoker_with_optional_model_spec(tool_invoker, model_messages, tools, model_spec=model_spec)
+        return await _call_invoker_with_optional_model_spec(
+            tool_invoker,
+            model_messages,
+            tools,
+            model_spec=model_spec,
+            tool_call_options=tool_call_options,
+        )
     return await _call_invoker_with_optional_model_spec(invoker, model_messages, model_spec=model_spec)
 
 
-async def _call_invoker_with_optional_model_spec(invoker: Any, *args: Any, model_spec: Any | None = None) -> Any:
+async def _call_invoker_with_optional_model_spec(
+    invoker: Any,
+    *args: Any,
+    model_spec: Any | None = None,
+    tool_call_options: Any | None = None,
+) -> Any:
+    try:
+        return await invoker(*args, model_spec=model_spec, tool_call_options=tool_call_options)
+    except TypeError as exc:
+        if "model_spec" not in str(exc) and "tool_call_options" not in str(exc):
+            raise
     try:
         return await invoker(*args, model_spec=model_spec)
     except TypeError as exc:
@@ -454,7 +486,17 @@ async def _call_invoker_with_optional_model_spec(invoker: Any, *args: Any, model
         return await invoker(*args)
 
 
-def _call_streamer_with_optional_model_spec(streamer: Any, *args: Any, model_spec: Any | None = None):
+def _call_streamer_with_optional_model_spec(
+    streamer: Any,
+    *args: Any,
+    model_spec: Any | None = None,
+    tool_call_options: Any | None = None,
+):
+    try:
+        return streamer(*args, model_spec=model_spec, tool_call_options=tool_call_options)
+    except TypeError as exc:
+        if "model_spec" not in str(exc) and "tool_call_options" not in str(exc):
+            raise
     try:
         return streamer(*args, model_spec=model_spec)
     except TypeError as exc:

@@ -40,27 +40,27 @@ def test_explicit_task_selection_suppresses_nested_rag_resolution() -> None:
         memory_facade=_MemoryFacadeStub(),
     )
     profile = AgentRuntimeProfile(
-        agent_profile_id="writing_team_worker_runtime",
-        agent_id="agent:writing_team_worker",
+        agent_profile_id="writing_modular_worker_runtime",
+        agent_id="agent:writing_modular_worker",
         allowed_runtime_lanes=("coordination_task",),
         allowed_operations=("op.model_response", "op.memory_read"),
         blocked_operations=("op.delegate_to_agent", "op.web_search"),
-        allowed_memory_scopes=("writing_team_long_novel", "state_readonly"),
+        allowed_memory_scopes=("writing_modular_novel", "state_readonly"),
         allowed_context_sections=("task", "projection", "runtime_contracts", "artifact_refs", "memory_runtime_view"),
         lifecycle_policy="task_graph_managed",
     )
     task_selection = {
-        "selected_task_id": "task.writing_team.long_novel.world_designer_a",
-        "task_id": "task.writing_team.long_novel.world_designer_a",
-        "agent_id": "agent:world_designer_a",
+        "selected_task_id": "task.writing.modular_novel.node.world_design",
+        "task_id": "task.writing.modular_novel.node.world_design",
+        "agent_id": "agent:writing_modular_worker",
         "coordination_run_id": "coordrun:test",
-        "continuation_stage_id": "world_designer_a",
-        "stage_execution_request": {"node_id": "world_designer_a"},
+        "continuation_stage_id": "world_design",
+        "stage_execution_request": {"node_id": "world_design"},
     }
 
     runtime = chain.build_runtime(
         session_id="test-explicit-task-boundary",
-        task_id="taskinst:turn:test:world_designer_a",
+        task_id="taskinst:turn:test:world_design",
         turn_id="turn:test",
         message="本轮工作：世界观设计。小说名为《洪荒时代》。主角是一名来自大泽的少年。",
         source="test",
@@ -92,7 +92,7 @@ def test_coordination_task_context_retrieval_requires_explicit_permission() -> N
         "query_understanding": {"should_skip_rag": True},
         "current_turn_context": {
             "coordination_run_id": "coordrun:test",
-            "continuation_stage_id": "world_designer_a",
+            "continuation_stage_id": "world_design",
         },
         "operation_requirement": {
             "required_operations": ["op.model_response"],

@@ -137,12 +137,12 @@ class BodyProfileRegistry:
         lane_descriptor = DEFAULT_RUNTIME_LANE_REGISTRY.get(requested_lane) if requested_lane else None
         if requested_lane and (not allowed_lanes or requested_lane in allowed_lanes):
             if lane_descriptor is None:
-                lane_id = allowed_lanes[0] if allowed_lanes else "full_interactive"
+                lane_id = allowed_lanes[0] if allowed_lanes else "role_interaction"
                 lane_source = "task_binding"
                 lane_issue = "runtime_lane_unknown"
                 permission_state = "denied"
             elif not lane_descriptor.requestable:
-                lane_id = allowed_lanes[0] if allowed_lanes else "full_interactive"
+                lane_id = allowed_lanes[0] if allowed_lanes else "role_interaction"
                 lane_source = "task_binding"
                 lane_issue = "runtime_lane_not_requestable"
                 permission_state = "denied"
@@ -150,7 +150,7 @@ class BodyProfileRegistry:
                 lane_id = requested_lane
                 lane_source = "task_binding"
         else:
-            lane_id = allowed_lanes[0] if allowed_lanes else "full_interactive"
+            lane_id = allowed_lanes[0] if allowed_lanes else "role_interaction"
             if requested_lane:
                 lane_issue = "runtime_lane_not_allowed"
                 permission_state = "denied"

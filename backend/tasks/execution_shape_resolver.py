@@ -56,6 +56,10 @@ def resolve_execution_shape(
     lowered_goal = str(task_intent_contract.user_goal or "").lower()
     capability_requests = set(task_intent_contract.capability_requests)
     diagnostics_payload = dict(task_intent_contract.diagnostics or {})
+    semantic_contract = dict(task_intent_contract.semantic_task_contract or {})
+    mode_policy = dict(task_intent_contract.mode_policy or {})
+    interaction_mode = str(mode_policy.get("interaction_mode") or diagnostics_payload.get("interaction_mode") or "").strip()
+    task_goal_type = str(semantic_contract.get("task_goal_type") or diagnostics_payload.get("semantic_task_type") or "").strip()
     intent_target_domain = str(
         diagnostics_payload.get("intent_target_domain_hint")
         or dict(current_turn.get("intent_decision") or {}).get("target_domain_hint")
@@ -139,8 +143,10 @@ def resolve_execution_shape(
                 diagnostics=_shape_diagnostics(definition_ids, effective_route, execution_posture, effective_skill, source_kind, modality, current_turn),
             )
 
-    if intent_execution_strategy == "autonomous_task_run":
-        reasons.append("intent_autonomous_task_run")
+    if interaction_mode in {"role_mode", "standard_mode", "professional_mode"}:
+        reasons.append(f"interaction_mode:{interaction_mode}")
+        if task_goal_type:
+            reasons.append(f"semantic_task:{task_goal_type}")
         if (
             has_realtime_capability
             or task_intent_contract.execution_intent == "bundle_task"
@@ -154,15 +160,17 @@ def resolve_execution_shape(
             or has_pdf_route
             or has_dataset_route
         ):
-            reasons.append("autonomous_task_run_owns_material_routes")
+            reasons.append("interaction_mode_owns_material_routes")
         return ExecutionShape(
-            recipe_id="runtime.recipe.autonomous_task_run",
-            execution_kind="autonomous_task_run",
+            recipe_id=str(mode_policy.get("recipe_id") or "runtime.recipe.professional_task"),
+            execution_kind=interaction_mode,
             source_kind=source_kind or "runtime_task",
             finalization_policy={
                 "requires_model_finalize": True,
                 "tool_observation_can_finalize": False,
-                "requires_verification_gate": True,
+                "requires_verification_gate": bool(
+                    dict(mode_policy.get("verification_policy") or {}).get("required") is not False
+                ),
             },
             resolution_source="intent_runtime_assembly",
             resolution_reasons=tuple(reasons),
@@ -177,7 +185,13 @@ def resolve_execution_shape(
                     current_turn,
                 ),
                 "intent_execution_strategy": intent_execution_strategy,
-                "autonomy_mode": _autonomy_mode_from_turn(current_turn),
+                "interaction_mode": interaction_mode,
+                "runtime_lane": str(mode_policy.get("runtime_lane") or ""),
+                "projection_strength": str(mode_policy.get("projection_strength") or ""),
+                "semantic_task_type": task_goal_type,
+                "professional_profile_id": str(semantic_contract.get("professional_profile_id") or ""),
+                "mode_policy": mode_policy,
+                "semantic_task_contract": semantic_contract,
             },
         )
     if task_intent_contract.execution_intent == "bundle_task":
@@ -353,20 +367,6 @@ def _shape_diagnostics(
         "modality": modality,
         "current_turn_execution_mode": str(current_turn.get("execution_mode") or ""),
     }
-
-
-def _autonomy_mode_from_turn(current_turn: dict[str, Any]) -> str:
-    mode = str(
-        current_turn.get("autonomy_mode")
-        or dict(current_turn.get("runtime_assembly_hint") or {}).get("autonomy_mode")
-        or dict(current_turn.get("intent_decision") or {}).get("autonomy_mode")
-        or ""
-    ).strip().lower()
-    if mode in {"standard", "managed"}:
-        return mode
-    if mode == "simple":
-        return "simple"
-    return ""
 
 
 def _explicit_task_runtime(current_turn: dict[str, Any], understanding: dict[str, Any]) -> bool:

@@ -12,4 +12,4 @@ Expected report:
 - Mention Atlas Finch.
 - Mention Operations Research.
 - Include the verification marker.
-- State that writes must stay inside the sandbox overlay during autonomous task runs.
+- State that writes must stay inside the sandbox overlay during professional task runs.

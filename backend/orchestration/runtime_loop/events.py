@@ -79,10 +79,13 @@ RuntimeEventType = Literal[
     "child_agent_runtime_started",
     "agent_delegation_quality_checked",
     "agent_delegation_parent_observation_created",
-    "autonomous_task_started",
-    "autonomous_task_state_changed",
-    "autonomous_task_plan_drafted",
-    "autonomous_task_verification_checked",
+    "professional_task_started",
+    "professional_task_state_changed",
+    "professional_task_semantic_plan_drafted",
+    "professional_task_evidence_packet_built",
+    "professional_task_budget_closeout_started",
+    "professional_task_deliverable_repair_started",
+    "professional_task_deliverable_validation_checked",
 ]
 
 

@@ -145,6 +145,51 @@ class SoulRuntimeAssemblyBuilder:
                 source_refs=(str(contract.get("contract_id") or request.task_id),),
             ),
             PromptSection(
+                section_id="semantic_task_section",
+                title="语义任务契约",
+                source_type="semantic_task_contract",
+                source_id=str(
+                    dict(contract.get("metadata") or {}).get("semantic_task_contract", {}).get("contract_id")
+                    if isinstance(dict(contract.get("metadata") or {}).get("semantic_task_contract"), dict)
+                    else request.task_id
+                ),
+                owner_layer="task",
+                cache_scope="dynamic",
+                visible_to_model=True,
+                content=str(contract.get("semantic_task_section") or ""),
+                source_refs=(str(contract.get("contract_id") or request.task_id),),
+            ),
+            PromptSection(
+                section_id="professional_profile_section",
+                title="专业职责",
+                source_type="professional_prompt_profile",
+                source_id=str(
+                    dict(contract.get("metadata") or {}).get("professional_profile", {}).get("profile_id")
+                    if isinstance(dict(contract.get("metadata") or {}).get("professional_profile"), dict)
+                    else ""
+                ),
+                owner_layer="task",
+                cache_scope="dynamic",
+                visible_to_model=True,
+                content=str(contract.get("professional_profile_section") or ""),
+                source_refs=(str(contract.get("contract_id") or request.task_id),),
+            ),
+            PromptSection(
+                section_id="mode_policy_section",
+                title="交互模式策略",
+                source_type="runtime_interaction_mode_policy",
+                source_id=str(
+                    dict(contract.get("metadata") or {}).get("mode_policy", {}).get("authority")
+                    if isinstance(dict(contract.get("metadata") or {}).get("mode_policy"), dict)
+                    else ""
+                ),
+                owner_layer="task",
+                cache_scope="dynamic",
+                visible_to_model=True,
+                content=str(contract.get("mode_policy_section") or ""),
+                source_refs=(str(contract.get("contract_id") or request.task_id),),
+            ),
+            PromptSection(
                 section_id="workflow_section",
                 title="工作流",
                 source_type="task_workflow",

@@ -155,13 +155,13 @@ def _builtin_profiles() -> tuple[IntentDomainProfile, ...]:
             markers=("任务图", "图任务", "graph run", "多agent", "多个 agent", "规划、执行、审核", "按阶段协作", "节点", "handoff"),
             explicit_markers=("任务图", "图任务", "graph run"),
             delegation_markers=("协作", "按阶段", "编排", "调度"),
-            execution_strategy_candidates=("graph_coordination_run", "autonomous_task_run"),
+            execution_strategy_candidates=("graph_coordination_run", "professional_task_run"),
         ),
         IntentDomainProfile(
             domain_id="long_task",
             target_domain_hint="task",
             markers=("追踪", "排查", "修复", "执行计划", "落地", "一次性", "端到端", "重跑", "长跑", "六十轮", "测试报告"),
             delegation_markers=("追踪", "排查", "修复", "执行", "重跑", "检查"),
-            execution_strategy_candidates=("autonomous_task_run", "single_react_loop"),
+            execution_strategy_candidates=("professional_task_run", "single_react_loop"),
         ),
     )

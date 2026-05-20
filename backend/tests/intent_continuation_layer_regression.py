@@ -400,7 +400,7 @@ def test_local_knowledge_request_uses_rag_runtime_strategy_not_text_search() -> 
     assert understanding.candidate_tools == []
 
 
-def test_autonomous_task_run_is_not_graph_coordination_without_graph_language() -> None:
+def test_professional_task_run_is_not_graph_coordination_without_graph_language() -> None:
     message = "帮我追踪这个问题并修复，最好一次性执行完计划。"
 
     frame = collect_intent_frame(message, memory_runtime_view={})
@@ -408,8 +408,9 @@ def test_autonomous_task_run_is_not_graph_coordination_without_graph_language() 
     hint = build_runtime_assembly_hint(intent_frame=frame, intent_decision=decision)
 
     assert frame.task_complexity == "long_running"
-    assert decision.execution_strategy == "autonomous_task_run"
-    assert hint["runtime_mode"] == "autonomous_task"
+    assert decision.execution_strategy == "professional_task_run"
+    assert hint["runtime_mode"] == "professional_task"
+    assert hint["interaction_mode"] == "professional_mode"
     assert hint["graph_coordination_allowed"] is False
 
 

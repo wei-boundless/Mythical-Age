@@ -9,7 +9,7 @@ from .action_request import (
     build_tool_result_observation,
     build_tool_action_request,
 )
-from .autonomous_task_run_driver import AutonomousTaskRunDriver, AutonomousTaskRunOutcome
+from .professional_task_run_driver import ProfessionalTaskRunDriver, ProfessionalTaskRunOutcome
 from .checkpoint import RuntimeCheckpoint, RuntimeCheckpointStore
 from .context_manager import (
     RuntimeContextInvariantReport,
@@ -103,8 +103,8 @@ def __getattr__(name: str):
 __all__ = [
     "RuntimeCheckpoint",
     "RuntimeCheckpointStore",
-    "AutonomousTaskRunDriver",
-    "AutonomousTaskRunOutcome",
+    "ProfessionalTaskRunDriver",
+    "ProfessionalTaskRunOutcome",
     "RuntimeExecutionStore",
     "AgentRun",
     "AgentRunResult",

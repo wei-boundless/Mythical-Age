@@ -264,10 +264,10 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
     ),
     ConversationScenario(
         id="sandbox-file-ops-acceptance",
-        title="自主任务文件操作沙箱验收",
+        title="专业模式文件操作沙箱验收",
         category="acceptance",
         execution_mode="deterministic",
-        goal="验证主 Agent 在无图自主任务中能读取测试文件、写入隔离报告，并证明副作用留在 sandbox overlay。",
+        goal="验证主 Agent 在专业模式中能读取测试文件、写入隔离报告，并证明副作用留在 sandbox overlay。",
         coverage=("tasks", "tool_route", "permissions", "sse"),
         assertions=(
             "读取 fixture 时必须回收固定 marker，而不是编造文件内容。",
@@ -275,7 +275,7 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
             "真实 fixture 文件在场景结束后仍保留原 marker，说明没有被副作用工具误改。",
         ),
         failure_modes=(
-            "自主任务没有进入正式 RuntimeLoop，只用普通聊天声称完成。",
+            "专业模式没有进入正式 RuntimeLoop，只用普通聊天声称完成。",
             "write_file 或 terminal 没有被 sandbox overlay 重定向。",
             "真实工程文件被修改，sandbox 隔离边界失效。",
         ),
@@ -286,12 +286,12 @@ SCENARIOS: tuple[ConversationScenario, ...] = (
             "runtime event runtime_sandbox_prepared",
         ),
         related_regressions=(
-            "backend/tests/autonomous_task_run_regression.py",
+            "backend/tests/professional_task_run_regression.py",
             "backend/tests/system_eval/long_scenarios_regression.py",
         ),
         turns=(
             turn("main", "operator", "检查 sandbox 文件操作 fixture 可用。"),
-            turn("main", "user", "读取 sandbox_file_ops/source_brief.md 并提取固定 marker。", "expect autonomous read"),
+            turn("main", "user", "读取 sandbox_file_ops/source_brief.md 并提取固定 marker。", "expect professional read"),
             turn("main", "user", "在隔离环境里写 atlas-finch-report.md。", "expect sandbox write_file"),
             turn("main", "user", "运行命令确认当前目录位于 sandbox workspace。", "expect sandbox terminal"),
             turn("main", "operator", "确认真实 fixture 仍保留原 marker。"),

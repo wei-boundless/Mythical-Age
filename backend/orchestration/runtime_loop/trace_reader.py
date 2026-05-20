@@ -299,7 +299,7 @@ class RuntimeLoopTraceReader:
             }
         loop_state = checkpoint.loop_state.to_dict() if checkpoint is not None else {}
         events = self.event_log.list_events(task_run_id)
-        autonomous_task_summary = _autonomous_task_summary(
+        professional_task_summary = _professional_task_summary(
             task_run=task_run,
             loop_state=loop_state,
             events=events,
@@ -310,7 +310,7 @@ class RuntimeLoopTraceReader:
             "latest_checkpoint": _checkpoint_summary(checkpoint) if checkpoint is not None else None,
             "loop_state": _loop_state_summary(loop_state),
             "coordination_run": coordination_view,
-            "autonomous_task_summary": autonomous_task_summary,
+            "professional_task_summary": professional_task_summary,
             "project_runtime_status": (
                 self.state_index.get_project_runtime_status(str(dict(task_run).get("diagnostics", {}).get("project_id") or "")).to_dict()
                 if str(dict(task_run).get("diagnostics", {}).get("project_id") or "")
@@ -471,28 +471,29 @@ def _loop_state_summary(loop_state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _autonomous_task_summary(
+def _professional_task_summary(
     *,
     task_run: dict[str, Any],
     loop_state: dict[str, Any],
     events: list[RuntimeEvent],
     checkpoint: Any,
 ) -> dict[str, Any] | None:
-    started_event = _latest_runtime_event(events, "autonomous_task_started")
-    plan_event = _latest_runtime_event(events, "autonomous_task_plan_drafted")
-    state_event = _latest_runtime_event(events, "autonomous_task_state_changed")
-    verification_event = _latest_runtime_event(events, "autonomous_task_verification_checked")
+    started_event = _latest_runtime_event(events, "professional_task_started")
+    plan_event = _latest_runtime_event(events, "professional_task_semantic_plan_drafted")
+    state_event = _latest_runtime_event(events, "professional_task_state_changed")
+    verification_event = _latest_runtime_event(events, "professional_task_deliverable_validation_checked")
     diagnostics = dict(loop_state.get("diagnostics") or {})
-    is_autonomous = bool(
+    is_professional_task = bool(
         started_event is not None
         or plan_event is not None
         or verification_event is not None
-        or str(task_run.get("runtime_lane") or "") == "autonomous_task"
-        or str(loop_state.get("runtime_lane") or "") == "autonomous_task"
-        or str(loop_state.get("task_template_id") or "") == "runtime.recipe.autonomous_task_run"
-        or str(diagnostics.get("autonomy_mode") or diagnostics.get("autonomous_task_mode") or "")
+        or str(task_run.get("runtime_lane") or "") in {"role_interaction", "standard_task", "professional_task"}
+        or str(loop_state.get("runtime_lane") or "") in {"role_interaction", "standard_task", "professional_task"}
+        or str(loop_state.get("task_template_id") or "")
+        in {"runtime.recipe.role_interaction", "runtime.recipe.standard_task", "runtime.recipe.professional_task"}
+        or str(diagnostics.get("interaction_mode") or "")
     )
-    if not is_autonomous:
+    if not is_professional_task:
         return None
 
     started_payload = dict(started_event.payload or {}) if started_event is not None else {}
@@ -504,21 +505,26 @@ def _autonomous_task_summary(
         or loop_state.get("current_step_id")
         or ""
     )
-    verification = _autonomous_verification_summary(verification_event)
-    observation = _autonomous_observation_summary(events)
+    verification = _professional_verification_summary(verification_event)
+    observation = _professional_observation_summary(events)
     return {
         "available": True,
         "task_run_id": str(task_run.get("task_run_id") or loop_state.get("task_run_id") or ""),
-        "runtime_driver": "autonomous_task_run",
+        "runtime_driver": "professional_task_run",
+        "interaction_mode": str(
+            started_payload.get("interaction_mode")
+            or plan_payload.get("interaction_mode")
+            or diagnostics.get("interaction_mode")
+            or ""
+        ),
         "mode": str(
-            started_payload.get("mode")
-            or plan_payload.get("mode")
-            or diagnostics.get("autonomy_mode")
-            or diagnostics.get("autonomous_task_mode")
+            started_payload.get("interaction_mode")
+            or plan_payload.get("interaction_mode")
+            or diagnostics.get("interaction_mode")
             or ""
         ),
         "goal": str(started_payload.get("goal") or ""),
-        "state": str(state_payload.get("to_state") or diagnostics.get("autonomous_state") or ""),
+        "state": str(state_payload.get("to_state") or diagnostics.get("professional_state") or ""),
         "transition": {
             "from_state": str(state_payload.get("from_state") or ""),
             "to_state": str(state_payload.get("to_state") or ""),
@@ -537,10 +543,10 @@ def _autonomous_task_summary(
             ],
         },
         "current_plan_item": _current_plan_item_summary(ledger, current_step_id=current_step_id),
-        "progress": _autonomous_ledger_progress(ledger, current_step_id=current_step_id),
+        "progress": _professional_ledger_progress(ledger, current_step_id=current_step_id),
         "observation": observation,
         "verification": verification,
-        "blocker": _autonomous_task_blocker(
+        "blocker": _professional_task_blocker(
             task_run=task_run,
             loop_state=loop_state,
             events=events,
@@ -565,7 +571,7 @@ def _autonomous_task_summary(
             if events
             else None
         ),
-        "authority": "orchestration.runtime_loop_autonomous_task_summary",
+        "authority": "orchestration.runtime_loop_professional_task_summary",
     }
 
 
@@ -585,14 +591,14 @@ def _latest_task_run_ledger_from_events(events: list[RuntimeEvent]) -> dict[str,
     return {}
 
 
-def _autonomous_ledger_progress(ledger: dict[str, Any], *, current_step_id: str) -> dict[str, Any]:
+def _professional_ledger_progress(ledger: dict[str, Any], *, current_step_id: str) -> dict[str, Any]:
     step_runs = [dict(item) for item in list(dict(ledger or {}).get("step_runs") or []) if isinstance(item, dict)]
     return {
         "ledger_id": str(dict(ledger or {}).get("ledger_id") or ""),
         "ledger_status": str(dict(ledger or {}).get("status") or ""),
         "current_step_id": str(current_step_id or dict(ledger or {}).get("current_step_id") or ""),
         "step_count": len(step_runs),
-        "plan_item_count": sum(1 for item in step_runs if _is_autonomous_plan_step(item)),
+        "plan_item_count": sum(1 for item in step_runs if _is_professional_plan_step(item)),
         "completed_count": sum(1 for item in step_runs if str(item.get("status") or "") == "completed"),
         "running_count": sum(1 for item in step_runs if str(item.get("status") or "") == "running"),
         "pending_count": sum(1 for item in step_runs if str(item.get("status") or "") == "pending"),
@@ -636,17 +642,17 @@ def _current_plan_item_summary(ledger: dict[str, Any], *, current_step_id: str) 
     }
 
 
-def _is_autonomous_plan_step(step_run: dict[str, Any]) -> bool:
+def _is_professional_plan_step(step_run: dict[str, Any]) -> bool:
     diagnostics = dict(step_run.get("diagnostics") or {})
     return bool(
         str(step_run.get("step_kind") or "") == "plan_item"
         or dict(diagnostics.get("plan_item") or {})
-        or str(step_run.get("step_id") or "").startswith("autonomous.")
-        or str(step_run.get("step_id") or "").startswith("simple.")
+        or str(step_run.get("step_id") or "").startswith("professional.")
+        
     )
 
 
-def _autonomous_observation_summary(events: list[RuntimeEvent]) -> dict[str, Any]:
+def _professional_observation_summary(events: list[RuntimeEvent]) -> dict[str, Any]:
     tool_call_events = [event for event in events if str(event.event_type or "") == "tool_call_requested"]
     observation_events = [
         event
@@ -700,7 +706,7 @@ def _executor_observation_payload(event: RuntimeEvent | None) -> dict[str, Any]:
     return observation
 
 
-def _autonomous_verification_summary(event: RuntimeEvent | None) -> dict[str, Any]:
+def _professional_verification_summary(event: RuntimeEvent | None) -> dict[str, Any]:
     if event is None:
         return {"status": "not_run", "passed": False}
     verification = dict(dict(event.payload or {}).get("verification") or {})
@@ -715,7 +721,7 @@ def _autonomous_verification_summary(event: RuntimeEvent | None) -> dict[str, An
     }
 
 
-def _autonomous_task_blocker(
+def _professional_task_blocker(
     *,
     task_run: dict[str, Any],
     loop_state: dict[str, Any],
@@ -1695,3 +1701,4 @@ def _message_summaries(value: Any) -> list[dict[str, Any]]:
             }
         )
     return messages
+

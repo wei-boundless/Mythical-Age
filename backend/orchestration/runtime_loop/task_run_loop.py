@@ -65,7 +65,7 @@ from .action_request import (
     build_tool_action_request,
     build_tool_result_observation,
 )
-from .autonomous_task_run_driver import AutonomousTaskRunDriver, AutonomousTaskRunOutcome
+from .professional_task_run_driver import ProfessionalTaskRunDriver, ProfessionalTaskRunOutcome
 from .checkpoint import RuntimeCheckpoint, RuntimeCheckpointStore
 from .coordination_flow import (
     build_coordination_flow_state,
@@ -1814,10 +1814,10 @@ class TaskRunLoop:
         tool_repetition_guard = ToolRepetitionGuard()
         repeated_tool_halt = False
         builtin_tool_lane_finalized = False
-        autonomous_task_driver_ran = False
-        if _is_autonomous_task_run_recipe(selected_recipe_payload):
-            autonomous_task_driver_ran = True
-            driver = AutonomousTaskRunDriver(
+        professional_task_driver_ran = False
+        if _is_professional_task_run_recipe(selected_recipe_payload):
+            professional_task_driver_ran = True
+            driver = ProfessionalTaskRunDriver(
                 event_log=self.event_log,
                 events_from_executor_event=self._events_from_executor_event,
                 record_task_run_step_event=self._record_task_run_step_event,
@@ -1825,7 +1825,7 @@ class TaskRunLoop:
                 state_with_task_run_ledger=self._state_with_task_run_ledger,
                 write_checkpoint_event=self._write_checkpoint_event,
             )
-            outcome = AutonomousTaskRunOutcome(
+            outcome = ProfessionalTaskRunOutcome(
                 ledger=runtime_task_ledger,
                 state=state,
                 result_refs=list(result_refs),
@@ -1838,13 +1838,7 @@ class TaskRunLoop:
                 task_summary_refs=[dict(item) for item in final_task_summary_refs],
                 bundle_summary_refs=[dict(item) for item in final_bundle_summary_refs],
             )
-            autonomy_mode = _autonomous_task_run_mode(selected_recipe_payload)
-            run_autonomous_stream = (
-                driver.run_standard_stream
-                if autonomy_mode in {"standard", "managed"}
-                else driver.run_simple_stream
-            )
-            async for event in run_autonomous_stream(
+            async for event in driver.run_stream(
                 outcome=outcome,
                 user_message=user_message,
                 task_id=task_id,
@@ -1874,7 +1868,7 @@ class TaskRunLoop:
             final_task_summary_refs = [dict(item) for item in outcome.task_summary_refs]
             final_bundle_summary_refs = [dict(item) for item in outcome.bundle_summary_refs]
 
-        if not final_content and not autonomous_task_driver_ran:
+        if not final_content and not professional_task_driver_ran:
             executor_event = self.event_log.append(
                 state.task_run_id,
                 "executor_started",
@@ -2153,7 +2147,7 @@ class TaskRunLoop:
 
         turn_count = 1
         model_call_count = 1
-        if autonomous_task_driver_ran:
+        if professional_task_driver_ran:
             turn_count = max(1, int(outcome.turn_count or 1))
             model_call_count = max(0, int(outcome.model_call_count or 0))
         followup_messages: list[Any] = []
@@ -5109,7 +5103,7 @@ class TaskRunLoop:
         resolution = dict(dict(operation_requirement.get("metadata") or {}).get("runtime_operation_resolution") or {})
         if str(resolution.get("execution_mode") or "").strip() == "delegate":
             return False
-        if _is_autonomous_task_run_recipe(selected_recipe_payload):
+        if _is_professional_task_run_recipe(selected_recipe_payload):
             return False
         source_kind = str(
             selected_recipe_payload.get("source_kind")
@@ -6208,28 +6202,18 @@ def _recipe_requires_model_finalize(selected_recipe: ExecutionRecipe) -> bool:
     )
 
 
-def _is_autonomous_task_run_recipe(selected_recipe_payload: dict[str, Any]) -> bool:
+def _is_professional_task_run_recipe(selected_recipe_payload: dict[str, Any]) -> bool:
     payload = dict(selected_recipe_payload or {})
     metadata = dict(payload.get("metadata") or {})
     return (
-        str(payload.get("recipe_id") or "").strip() == "runtime.recipe.autonomous_task_run"
-        or str(metadata.get("runtime_driver") or "").strip() == "autonomous_task_run"
-        or str(payload.get("task_mode") or "").strip() == "autonomous_task_run"
+        str(payload.get("recipe_id") or "").strip()
+        in {"runtime.recipe.role_interaction", "runtime.recipe.standard_task", "runtime.recipe.professional_task"}
+        or str(metadata.get("runtime_driver") or "").strip() == "professional_task_run"
+        or str(metadata.get("interaction_mode") or "").strip()
+        in {"role_mode", "standard_mode", "professional_mode"}
+        or str(payload.get("task_mode") or "").strip()
+        in {"role_mode", "standard_mode", "professional_mode"}
     )
-
-
-def _autonomous_task_run_mode(selected_recipe_payload: dict[str, Any]) -> str:
-    payload = dict(selected_recipe_payload or {})
-    metadata = dict(payload.get("metadata") or {})
-    mode = str(
-        metadata.get("autonomy_mode")
-        or metadata.get("default_autonomy_mode")
-        or payload.get("autonomy_mode")
-        or "simple"
-    ).strip().lower()
-    if mode in {"standard", "managed"}:
-        return mode
-    return "simple"
 
 
 def _is_retrieval_task_mode(task_mode: str) -> bool:

@@ -169,12 +169,12 @@ function agentLabel(profileId: string, agentId = "") {
   };
   const normalizedProfile = profileId
     .replace(/^agent:/, "")
-    .replace(/^projection\.writing_team\.long_novel\./, "")
-    .replace(/^task\.writing_team\.long_novel\./, "");
+    .replace(/^projection\.writing\.modular_novel\./, "")
+    .replace(/^task\.writing\.modular_novel\.node\./, "");
   const normalizedAgent = agentId
     .replace(/^agent:/, "")
-    .replace(/^projection\.writing_team\.long_novel\./, "")
-    .replace(/^task\.writing_team\.long_novel\./, "");
+    .replace(/^projection\.writing\.modular_novel\./, "")
+    .replace(/^task\.writing\.modular_novel\.node\./, "");
   if (labels[normalizedProfile]) {
     return labels[normalizedProfile];
   }
@@ -224,11 +224,11 @@ function nodeTitle(nodeId: string, fallback = "") {
   if (labels[nodeId]) {
     return labels[nodeId];
   }
-  const longNovelMatch = nodeId.match(/(?:long_novel|long\.novel)[._-]([a-z0-9_]+)$/i);
-  if (longNovelMatch?.[1] && labels[longNovelMatch[1]]) {
-    return labels[longNovelMatch[1]];
+  const modularNovelMatch = nodeId.match(/(?:modular_novel|modular\.novel)[._-]([a-z0-9_]+)$/i);
+  if (modularNovelMatch?.[1] && labels[modularNovelMatch[1]]) {
+    return labels[modularNovelMatch[1]];
   }
-  const fallbackMatch = fallback.match(/(?:long_novel|long\.novel)[._-]([a-z0-9_]+)$/i);
+  const fallbackMatch = fallback.match(/(?:modular_novel|modular\.novel)[._-]([a-z0-9_]+)$/i);
   if (fallbackMatch?.[1] && labels[fallbackMatch[1]]) {
     return labels[fallbackMatch[1]];
   }

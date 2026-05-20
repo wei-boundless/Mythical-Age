@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from capability_system import build_default_operation_registry
+from prompting.professional_profiles import get_professional_prompt_profile
 from soul import SoulFacade
 from soul.projection_store import get_projection_card
 
@@ -107,6 +108,9 @@ def build_orchestration_runtime_bundle(
         projection_selection=projection_selection,
         agent_descriptor=descriptor,
         task_mode=str(task_execution_assembly.get("task_mode") or ""),
+        task_contract=task_contract,
+        task_execution_assembly=task_execution_assembly,
+        selected_recipe=selected_recipe,
     )
     projection_diagnostics = _projection_resolution_diagnostics(projection_requirement)
     prompt_contract = _build_runtime_prompt_contract(
@@ -272,7 +276,27 @@ def _build_projection_requirement(
     projection_selection: dict[str, Any],
     agent_descriptor: Any | None,
     task_mode: str,
+    task_contract: dict[str, Any] | None = None,
+    task_execution_assembly: dict[str, Any] | None = None,
+    selected_recipe: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    contract = dict(task_contract or {})
+    assembly = dict(task_execution_assembly or {})
+    recipe = dict(selected_recipe or {})
+    metadata = {
+        **dict(recipe.get("metadata") or {}),
+        **dict(assembly.get("metadata") or {}),
+    }
+    mode_policy = dict(
+        contract.get("mode_policy")
+        or metadata.get("mode_policy")
+        or {}
+    )
+    semantic_contract = dict(
+        contract.get("semantic_task_contract")
+        or metadata.get("semantic_task_contract")
+        or {}
+    )
     selected_projection_id = str(projection_selection.get("selected_projection_id") or "").strip()
     default_projection_id = str(getattr(agent_descriptor, "default_projection_id", "") or "").strip()
     default_soul_id = str(getattr(agent_descriptor, "default_soul_id", "") or "").strip()
@@ -308,6 +332,16 @@ def _build_projection_requirement(
         "reason": reason,
         "selection_source": selection_source,
         "task_mode": task_mode,
+        "interaction_mode": str(mode_policy.get("interaction_mode") or metadata.get("interaction_mode") or ""),
+        "projection_strength": str(mode_policy.get("projection_strength") or metadata.get("projection_strength") or ""),
+        "runtime_lane": str(mode_policy.get("runtime_lane") or metadata.get("runtime_lane_hint") or ""),
+        "professional_profile_id": str(
+            semantic_contract.get("professional_profile_id")
+            or metadata.get("professional_profile_id")
+            or ""
+        ),
+        "semantic_task_type": str(semantic_contract.get("task_goal_type") or metadata.get("semantic_task_type") or ""),
+        "mode_policy_ref": str(mode_policy.get("authority") or ""),
     }
 
 
@@ -342,6 +376,23 @@ def _build_runtime_prompt_contract(
     active_skill: dict[str, Any],
     agent_id: str,
 ) -> dict[str, Any]:
+    selected_metadata = dict(selected_recipe.get("metadata") or {})
+    semantic_contract = dict(
+        task_contract.get("semantic_task_contract")
+        or selected_metadata.get("semantic_task_contract")
+        or {}
+    )
+    mode_policy = dict(
+        task_contract.get("mode_policy")
+        or selected_metadata.get("mode_policy")
+        or {}
+    )
+    professional_profile_id = str(
+        semantic_contract.get("professional_profile_id")
+        or selected_metadata.get("professional_profile_id")
+        or ""
+    ).strip()
+    professional_profile = get_professional_prompt_profile(professional_profile_id)
     workflow_steps = [
         str(item.get("title") or item.get("step_id") or "").strip()
         for item in list(task_workflow.get("steps") or ())
@@ -379,6 +430,9 @@ def _build_runtime_prompt_contract(
             workflow_steps=workflow_steps,
             skill_ids=skill_ids,
         ),
+        "semantic_task_section": _semantic_task_section(semantic_contract),
+        "professional_profile_section": professional_profile.prompt if professional_profile is not None else "",
+        "mode_policy_section": _mode_policy_section(mode_policy),
         "resource_section": "",
         "projection_section": _projection_section(projection_requirement),
         "output_section": _output_section(task_execution_assembly=task_execution_assembly, task_spec=task_spec),
@@ -388,8 +442,80 @@ def _build_runtime_prompt_contract(
             "resource_policy_ref": str(operation_requirement.get("requirement_id") or ""),
             "registered_task_id": str(registered_task.get("task_id") or ""),
             "selected_recipe_id": str(selected_recipe.get("recipe_id") or ""),
+            "semantic_task_contract": semantic_contract,
+            "mode_policy": mode_policy,
+            "professional_profile": professional_profile.to_dict() if professional_profile is not None else {},
         },
     }
+
+
+def _semantic_task_section(semantic_contract: dict[str, Any]) -> str:
+    if not semantic_contract:
+        return ""
+    deliverables = [
+        str(item).strip()
+        for item in list(semantic_contract.get("deliverables") or [])
+        if str(item).strip()
+    ]
+    reasoning_steps = [
+        str(item).strip()
+        for item in list(semantic_contract.get("required_reasoning_steps") or [])
+        if str(item).strip()
+    ]
+    required_actions = [
+        str(item).strip()
+        for item in list(semantic_contract.get("required_actions") or [])
+        if str(item).strip()
+    ]
+    forbidden_actions = [
+        str(item).strip()
+        for item in list(semantic_contract.get("forbidden_actions") or [])
+        if str(item).strip()
+    ]
+    materials = [
+        str(dict(item).get("path") or "").strip()
+        for item in list(semantic_contract.get("materials") or [])
+        if isinstance(item, dict) and str(dict(item).get("path") or "").strip()
+    ]
+    lines = [
+        f"你本轮要完成的任务类型是：{str(semantic_contract.get('task_goal_type') or 'general').strip()}。",
+        f"任务领域：{str(semantic_contract.get('domain') or 'general').strip()}。",
+    ]
+    if materials:
+        lines.append("需要优先处理的材料：" + "、".join(materials[:8]) + "。")
+    if reasoning_steps:
+        lines.append("你需要按这些思考步骤推进：" + " -> ".join(reasoning_steps) + "。")
+    if required_actions:
+        lines.append("必须真实完成或明确说明无法完成的动作：" + "、".join(required_actions) + "。")
+    if deliverables:
+        lines.append("最终回答必须交付：" + "、".join(deliverables) + "。")
+    if forbidden_actions:
+        lines.append("禁止：" + "、".join(forbidden_actions) + "。")
+    return "\n".join(lines)
+
+
+def _mode_policy_section(mode_policy: dict[str, Any]) -> str:
+    if not mode_policy:
+        return ""
+    interaction_mode = str(mode_policy.get("interaction_mode") or "").strip()
+    projection_strength = str(mode_policy.get("projection_strength") or "").strip()
+    verification_policy = dict(mode_policy.get("verification_policy") or {})
+    tool_policy = dict(mode_policy.get("tool_policy") or {})
+    lines = [
+        f"当前交互模式：{interaction_mode or 'role_mode'}。",
+        f"投影参与强度：{projection_strength or 'primary'}。",
+    ]
+    if interaction_mode == "role_mode":
+        lines.append("请优先保持角色与灵魂投影的自然表达，只在真实可用的只读能力范围内辅助回答。")
+    elif interaction_mode == "standard_mode":
+        lines.append("请在当前回合内用有限工具解决明确问题，结论必须说明真实依据和限制。")
+    elif interaction_mode == "professional_mode":
+        lines.append("请以专业任务职责和语义契约为最高优先级，灵魂投影只影响表达温度，不能覆盖交付物和验证要求。")
+    if bool(tool_policy.get("requires_evidence_packet")):
+        lines.append("工具或委派观察必须先沉淀为证据包，再进入最终结论。")
+    if bool(verification_policy.get("deliverable_validator")):
+        lines.append("最终回答需要接受交付物验证；缺少必要交付物时不能宣称完成。")
+    return "\n".join(lines)
 
 
 def _communication_guardrail_section(task_spec: dict[str, Any]) -> str:

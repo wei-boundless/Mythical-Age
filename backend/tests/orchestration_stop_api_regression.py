@@ -1,18 +1,39 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from orchestration.runtime_loop.task_run_loop import TaskRunLoop
+from orchestration.runtime_loop.models import RuntimeLoopState, TaskRun
 
 
 def test_task_run_loop_stop_can_write_checkpoint(tmp_path) -> None:
-    loop = TaskRunLoop(root_dir=Path("storage/runtime_state").resolve(), backend_dir=Path("backend").resolve())
-    task_run_id = "taskrun:writing_team_honghuang_20260515b:taskinst:turn:writing_team_honghuang_20260515b:1:world_design:4482b884"
-    task_run = loop.state_index.get_task_run(task_run_id)
-    assert task_run is not None
+    loop = TaskRunLoop(root_dir=tmp_path / "runtime_state", backend_dir=Path("backend").resolve())
+    task_run_id = "taskrun:test-stop-checkpoint"
+    timestamp = time.time()
+    loop.state_index.upsert_task_run(
+        TaskRun(
+            task_run_id=task_run_id,
+            session_id="session:test-stop-checkpoint",
+            task_id="task.test.stop_checkpoint",
+            status="running",
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+    )
+    loop.checkpoints.write(
+        RuntimeLoopState(
+            task_run_id=task_run_id,
+            status="running",
+            transition="loop_iteration",
+            diagnostics={"seed": "test"},
+        ),
+        event_offset=0,
+    )
+
     checkpoint = loop.checkpoints.load_latest(task_run_id)
     assert checkpoint is not None
     loop_state = checkpoint.loop_state.with_status(

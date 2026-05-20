@@ -16,6 +16,7 @@ except ImportError:  # pragma: no cover - optional dependency at runtime
     ChatDeepSeek = None
 
 from bootstrap.settings import AppSettingsService
+from execution.tool_call_policy import ToolCallBindingOptions
 
 if TYPE_CHECKING:
     from agents.models import AgentDefinition
@@ -242,14 +243,25 @@ class ModelRuntime:
             raise last_error
         raise RuntimeError("No model candidates available")
 
-    async def invoke_messages_with_tools(self, messages: list[Any], tools: list[Any], *, model_spec: ModelSpec | "ResolvedModelSpec" | None = None) -> Any:
+    async def invoke_messages_with_tools(
+        self,
+        messages: list[Any],
+        tools: list[Any],
+        *,
+        model_spec: ModelSpec | "ResolvedModelSpec" | None = None,
+        tool_call_options: ToolCallBindingOptions | dict[str, Any] | None = None,
+    ) -> Any:
         last_error: ModelRuntimeError | None = None
         candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
             for attempt in range(1, self._max_retries_for_spec(spec) + 2):
                 model = self._build_chat_model_for_spec(spec)
                 try:
-                    bound_model = model.bind_tools(tools) if tools else model
+                    bound_model = (
+                        _bind_tools_with_options(model, tools, tool_call_options=tool_call_options)
+                        if tools
+                        else model
+                    )
                     return await asyncio.wait_for(
                         bound_model.ainvoke(messages),
                         timeout=self._model_call_timeout_seconds_for_spec(spec),
@@ -331,7 +343,14 @@ class ModelRuntime:
             raise last_error
         raise RuntimeError("No model candidates available")
 
-    async def astream_messages_with_tools(self, messages: list[Any], tools: list[Any], *, model_spec: ModelSpec | "ResolvedModelSpec" | None = None):
+    async def astream_messages_with_tools(
+        self,
+        messages: list[Any],
+        tools: list[Any],
+        *,
+        model_spec: ModelSpec | "ResolvedModelSpec" | None = None,
+        tool_call_options: ToolCallBindingOptions | dict[str, Any] | None = None,
+    ):
         last_error: ModelRuntimeError | None = None
         candidates = self._candidate_specs(model_spec=model_spec)
         for spec_index, spec in enumerate(candidates):
@@ -339,7 +358,11 @@ class ModelRuntime:
                 emitted = False
                 model = self._build_chat_model_for_spec(spec)
                 try:
-                    bound_model = model.bind_tools(tools) if tools else model
+                    bound_model = (
+                        _bind_tools_with_options(model, tools, tool_call_options=tool_call_options)
+                        if tools
+                        else model
+                    )
                     stream = bound_model.astream(messages)
                     async for chunk in self._iterate_with_timeout(stream, spec=spec):
                         emitted = True
@@ -755,6 +778,37 @@ def _compact_error_detail(detail: str, *, limit: int = 500) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 3] + "..."
+
+
+def _bind_tools_with_options(
+    model: Any,
+    tools: list[Any],
+    *,
+    tool_call_options: ToolCallBindingOptions | dict[str, Any] | None,
+) -> Any:
+    options = _normalize_tool_call_options(tool_call_options)
+    kwargs = options.bind_kwargs() if options is not None else {}
+    return model.bind_tools(tools, **kwargs)
+
+
+def _normalize_tool_call_options(
+    tool_call_options: ToolCallBindingOptions | dict[str, Any] | None,
+) -> ToolCallBindingOptions | None:
+    if tool_call_options is None:
+        return None
+    if isinstance(tool_call_options, ToolCallBindingOptions):
+        return tool_call_options
+    if isinstance(tool_call_options, dict):
+        return ToolCallBindingOptions(
+            tool_choice=tool_call_options.get("tool_choice"),
+            strict=tool_call_options.get("strict") if "strict" in tool_call_options else None,
+            parallel_tool_calls=(
+                tool_call_options.get("parallel_tool_calls")
+                if "parallel_tool_calls" in tool_call_options
+                else None
+            ),
+        )
+    return None
 
 
 def _exception_chain_text(exc: Exception) -> str:

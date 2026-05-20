@@ -4,12 +4,14 @@ from typing import Any
 
 from capability_system.local_mcp_registry import get_local_mcp_unit_for_source_kind
 from orchestration.delegation_protocol import build_agent_delegation_protocol, default_expected_output_contract
+from orchestration.interaction_mode_policy import build_runtime_interaction_mode_policy
 from continuation.profile_registry import profile_by_domain
 
 from .bundle_models import BundleItemSpec, BundleSpec
 from .definitions import default_task_definitions
 from .flow_registry import TaskFlowRegistry
 from .match_contracts import TaskIntentContract
+from .semantic_task_contracts import build_semantic_task_contract
 from .spec_models import TaskSpec
 from .step_models import StepInputBinding, TaskStepBlueprint
 from .workflow_registry import TaskWorkflowRegistry
@@ -124,6 +126,20 @@ def build_runtime_task_intent_contract(
             ],
         ]
     )
+    semantic_contract = build_semantic_task_contract(
+        session_id=session_id,
+        task_id=task_id,
+        user_goal=user_goal,
+        query_understanding=understanding,
+        current_turn_context=current_turn,
+        explicit_inputs=explicit_inputs,
+    )
+    mode_policy = build_runtime_interaction_mode_policy(
+        semantic_task_contract=semantic_contract.to_dict(),
+        query_understanding=understanding,
+        current_turn_context=current_turn,
+        intent_decision=dict(current_turn.get("intent_decision") or {}),
+    )
     return TaskIntentContract(
         task_intent_id=f"task-intent:{session_id}:{task_id}",
         session_id=session_id,
@@ -155,8 +171,15 @@ def build_runtime_task_intent_contract(
         ),
         followup_target_refs=tuple(followup_target_refs),
         capability_requests=tuple(capability_requests),
+        semantic_task_contract=semantic_contract.to_dict(),
+        mode_policy=mode_policy.to_dict(),
         diagnostics={
             "execution_mode": str(current_turn.get("execution_mode") or "single"),
+            "interaction_mode": mode_policy.interaction_mode,
+            "runtime_lane": mode_policy.runtime_lane,
+            "projection_strength": mode_policy.projection_strength,
+            "semantic_task_type": semantic_contract.task_goal_type,
+            "professional_profile_id": semantic_contract.professional_profile_id,
             "bundle_item_count": len(bundle_items),
             "route_hint": str(understanding.get("route_hint") or ""),
             "preferred_skill": str(understanding.get("preferred_skill") or ""),
@@ -268,7 +291,7 @@ def _capability_requests_from_intent(current_turn_context: dict[str, Any]) -> li
         or runtime_hint.get("execution_strategy")
         or ""
     ).strip()
-    if strategy not in {"specialist_handoff", "specialist_subagent_long_run"}:
+    if strategy != "specialist_handoff":
         return []
     if target_domain == "dataset":
         return ["dataset_analysis"]

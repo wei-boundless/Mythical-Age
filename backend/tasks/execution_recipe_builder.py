@@ -71,149 +71,95 @@ def _step(
 
 def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
     recipe_id = str(execution_shape.recipe_id or "").strip()
-    if recipe_id == "runtime.recipe.autonomous_task_run":
-        autonomy_mode = str(execution_shape.diagnostics.get("autonomy_mode") or "simple").strip() or "simple"
-        if autonomy_mode not in {"simple", "standard", "managed"}:
-            autonomy_mode = "simple"
-        managed = autonomy_mode == "managed"
-        standard_or_managed = autonomy_mode in {"standard", "managed"}
+    if recipe_id in {
+        "runtime.recipe.role_interaction",
+        "runtime.recipe.standard_task",
+        "runtime.recipe.professional_task",
+    }:
+        mode_policy = dict(execution_shape.diagnostics.get("mode_policy") or {})
+        semantic_contract = dict(execution_shape.diagnostics.get("semantic_task_contract") or {})
+        interaction_mode = str(
+            mode_policy.get("interaction_mode")
+            or execution_shape.diagnostics.get("interaction_mode")
+            or execution_shape.execution_kind
+            or "professional_mode"
+        ).strip()
+        runtime_lane = str(mode_policy.get("runtime_lane") or "").strip()
+        tool_policy = dict(mode_policy.get("tool_policy") or {})
+        delegation_policy = dict(mode_policy.get("delegation_policy") or {})
+        checkpoint_policy = dict(mode_policy.get("checkpoint_policy") or {})
+        verification_policy = dict(mode_policy.get("verification_policy") or {})
+        sandbox_policy = dict(mode_policy.get("sandbox_policy") or {})
+        context_policy = dict(mode_policy.get("context_policy") or {})
+        output_policy = dict(mode_policy.get("output_policy") or {})
+        strict = bool(verification_policy.get("strict") is True)
+        standard_or_professional = interaction_mode in {"standard_mode", "professional_mode"}
+        professional = interaction_mode == "professional_mode"
         return {
-            "title": "Main Agent autonomous task",
-            "description": "Run a graphless autonomous task through the main Agent with plan, observation, verification, and committed closeout.",
+            "title": _interaction_mode_title(interaction_mode),
+            "description": "Run the main Agent through the unified interaction-mode runtime with semantic contract, evidence, validation, and committed closeout.",
             "task_family": "runtime",
-            "task_mode": "autonomous_task_run",
+            "task_mode": interaction_mode,
             "source_kind": execution_shape.source_kind or "runtime_task",
             "output_schema": {
                 "final_answer": {"type": "string", "required": True},
-                "autonomous_task_summary": {"type": "object", "required": False},
+                "interaction_mode_summary": {"type": "object", "required": False},
             },
             "required_operations": ("op.model_response",),
-            "optional_operations": (
-                "op.read_file",
-                "op.search_text",
-                "op.search_files",
-                "op.git_status",
-                "op.git_diff",
-                "op.memory_read",
-                "op.delegate_to_agent",
-                "op.write_file",
-                "op.edit_file",
-                "op.shell",
+            "optional_operations": tuple(
+                str(item)
+                for item in tuple(tool_policy.get("allowed_operation_refs") or ())
+                if str(item).strip() != "op.model_response"
             ),
             "step_blueprints": (
-                _step("understand_goal", "Understand goal", "understand", required_operations=("op.model_response",)),
-                _step("draft_plan", "Draft lightweight plan", "plan", required_operations=("op.model_response",)),
-                _step("summarize_result", "Summarize result", "finalize", required_operations=("op.model_response",)),
+                _step("bind_mode_policy", "Bind mode policy", "understand", required_operations=("op.model_response",)),
+                _step("draft_semantic_plan", "Draft semantic plan", "plan", required_operations=("op.model_response",)),
+                _step("build_evidence_packet", "Build evidence packet", "analyze", required_operations=("op.model_response",)),
+                _step("validate_deliverable", "Validate deliverable", "verify", required_operations=("op.model_response",)),
+                _step("commit_final_answer", "Commit final answer", "finalize", required_operations=("op.model_response",)),
             ),
             "metadata": {
-                "execution_strategy": "autonomous_task_run",
-                "runtime_lane_hint": "autonomous_task",
-                "runtime_driver": "autonomous_task_run",
-                "autonomy_mode": autonomy_mode,
+                "execution_strategy": "interaction_mode_run",
+                "runtime_lane_hint": runtime_lane,
+                "runtime_driver": "professional_task_run",
+                "interaction_mode": interaction_mode,
+                "mode_policy": mode_policy,
+                "semantic_task_contract": semantic_contract,
+                "semantic_task_type": str(semantic_contract.get("task_goal_type") or ""),
+                "professional_profile_id": str(semantic_contract.get("professional_profile_id") or ""),
+                "projection_strength": str(mode_policy.get("projection_strength") or ""),
+                "requires_evidence_packet": bool(tool_policy.get("requires_evidence_packet") or professional),
                 "runtime_limits": {
-                    "max_turns": 12 if managed else (4 if autonomy_mode == "standard" else 4),
-                    "max_model_calls": 32 if managed else (12 if autonomy_mode == "standard" else 6),
-                    "max_runtime_seconds": 1800 if managed else (600 if autonomy_mode == "standard" else 300),
-                    "max_events": 480 if managed else (180 if autonomy_mode == "standard" else 120),
-                    "repair_budget": 3 if managed else (1 if autonomy_mode == "standard" else 0),
-                    "stall_detector": managed or autonomy_mode == "standard",
+                    "max_turns": 12 if professional else (4 if standard_or_professional else 2),
+                    "max_model_calls": 32 if professional else (12 if standard_or_professional else 4),
+                    "max_runtime_seconds": 1800 if professional else (600 if standard_or_professional else 120),
+                    "max_events": 480 if professional else (180 if standard_or_professional else 80),
+                    "repair_budget": 3 if professional else (1 if standard_or_professional else 0),
+                    "stall_detector": standard_or_professional,
                 },
-                "checkpoint_policy": {
-                    "before_commit": True,
-                    "terminal": True,
-                    "after_each_plan_item": standard_or_managed,
-                    "after_each_tool_action": managed,
-                    "after_delegation": standard_or_managed,
-                },
-                "delegation_policy": {
-                    "enabled": standard_or_managed,
-                    "max_delegate_calls_per_step": 1,
-                    "max_delegate_calls_per_task_run": 4 if managed else (1 if autonomy_mode == "standard" else 0),
-                    "delegate_retry_budget": 1 if managed else 0,
-                    "nested_delegation": False,
-                    "allowed_tool_name": "delegate_to_agent",
-                    "allowed_operation_ref": "op.delegate_to_agent",
-                    "allowed_agent_ids": [
-                        "agent:rag_analyst",
-                        "agent:pdf_reader",
-                        "agent:table_analyst",
-                        "agent:web_researcher",
-                    ],
-                },
-                "tool_execution_policy": {
-                    "enabled": standard_or_managed,
-                    "max_tool_calls_per_round": 1,
-                    "max_tool_calls_per_task_run": 12 if managed else (6 if autonomy_mode == "standard" else 1),
-                    "max_tool_rounds_per_task_run": 8 if managed else (6 if autonomy_mode == "standard" else 1),
-                    "allowed_operation_refs": [
-                        "op.read_file",
-                        "op.read_structured_file",
-                        "op.search_text",
-                        "op.search_files",
-                        "op.git_status",
-                        "op.git_diff",
-                        "op.delegate_to_agent",
-                        "op.write_file",
-                        "op.edit_file",
-                        "op.shell",
-                    ],
-                    "allowed_tool_names": [
-                        "read_file",
-                        "read_structured_file",
-                        "search_text",
-                        "search_files",
-                        "git_status",
-                        "git_diff",
-                        "delegate_to_agent",
-                        "write_file",
-                        "edit_file",
-                        "terminal",
-                    ],
-                    "denied_tool_names": [],
-                },
-                "sandbox_policy": {
-                    "enabled": True,
-                    "mode": "workspace_overlay",
-                    "side_effect_root": "output/sandbox_runs",
-                    "workspace_dir_name": "workspace",
-                    "real_workspace_access": "read_only",
-                    "approval_policy": "sandboxed_side_effects",
-                    "side_effect_tools": [
-                        "write_file",
-                        "edit_file",
-                        "terminal",
-                        "python_repl",
-                    ],
-                    "side_effect_operations": [
-                        "op.write_file",
-                        "op.edit_file",
-                        "op.shell",
-                        "op.python_repl",
-                    ],
-                    "overlay_copy_on_write": True,
-                    "exposure_note": "python_repl remains controlled by agent profile and is not exposed when blocked.",
-                },
+                "checkpoint_policy": checkpoint_policy,
+                "delegation_policy": delegation_policy,
+                "tool_execution_policy": tool_policy,
+                "sandbox_policy": sandbox_policy,
+                "context_policy": context_policy,
+                "output_policy": output_policy,
                 "background_policy": {
-                    "enabled": managed,
+                    "enabled": professional,
                     "progress_event_interval_seconds": 30,
-                    "notify_on_blocked": managed,
-                    "notify_on_completed": managed,
+                    "notify_on_blocked": professional,
+                    "notify_on_completed": professional,
                 },
                 "recovery_policy": {
-                    "allow_resume": managed,
-                    "manual_recovery_on_unknown_side_effect": managed,
+                    "allow_resume": professional,
+                    "manual_recovery_on_unknown_side_effect": professional,
                     "reuse_completed_read_results": True,
                 },
-                "verification_policy": {
-                    "required": standard_or_managed,
-                    "strict": managed,
-                    "require_summary_check": True,
-                    "require_artifact_refs_for_write": True,
-                    "require_test_or_limitation": standard_or_managed,
-                },
+                "verification_policy": verification_policy,
                 "final_answer_requirements": (
-                    "Explain the goal, the lightweight plan, the work completed, and any limitations.",
-                    "Do not invent evidence or claim tool execution that did not happen.",
+                    "Answer according to the semantic task contract and the active interaction mode.",
+                    "Do not invent evidence, tool execution, file writes, or test results that did not happen.",
+                    "Do not output tool calls, DSML, raw parameters, or internal protocol fragments.",
+                    *tuple(_deliverable_requirement_lines(semantic_contract, strict=strict)),
                 ),
             },
         }
@@ -413,3 +359,32 @@ def _delegate_profile(
             "fallback_operation": fallback_operation,
         },
     }
+
+
+def _interaction_mode_title(interaction_mode: str) -> str:
+    return {
+        "role_mode": "Main Agent role interaction",
+        "standard_mode": "Main Agent standard task",
+        "professional_mode": "Main Agent professional task",
+    }.get(str(interaction_mode or ""), "Main Agent interaction task")
+
+
+def _deliverable_requirement_lines(semantic_contract: dict[str, Any], *, strict: bool) -> tuple[str, ...]:
+    deliverables = [
+        str(item).strip()
+        for item in list(semantic_contract.get("deliverables") or [])
+        if str(item).strip()
+    ]
+    forbidden = [
+        str(item).strip()
+        for item in list(semantic_contract.get("forbidden_actions") or [])
+        if str(item).strip()
+    ]
+    lines: list[str] = []
+    if deliverables:
+        lines.append("Required deliverables: " + ", ".join(deliverables) + ".")
+    if forbidden:
+        lines.append("Forbidden actions: " + ", ".join(forbidden) + ".")
+    if strict:
+        lines.append("Strict validation is enabled; missing required deliverables must block completion.")
+    return tuple(lines)

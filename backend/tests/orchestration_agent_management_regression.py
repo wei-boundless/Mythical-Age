@@ -413,7 +413,7 @@ def test_agent_group_members_must_be_existing_workers(tmp_path):
         )
 
 
-def test_task_graph_agents_are_not_seeded_but_can_be_created_by_orchestration_order(tmp_path):
+def test_retired_writing_agents_are_not_seeded_and_cannot_be_recreated(tmp_path):
     agent_registry = AgentRegistry(tmp_path)
     runtime_registry = AgentRuntimeRegistry(tmp_path)
     agents = AgentRegistry(tmp_path).list_agents()
@@ -450,33 +450,27 @@ def test_task_graph_agents_are_not_seeded_but_can_be_created_by_orchestration_or
     }
     assert task_graph_template_ids.isdisjoint(agent_ids)
     assert task_graph_template_ids.isdisjoint(profile_ids)
-    assert normalize_agent_id("agent:world_designer_a") == "agent:writing_team_worker"
-    assert normalize_agent_id("agent:writing_simple_creator") == "agent:writing_simple_worker"
-    assert normalize_agent_id("agent:memory_steward") == "agent:writing_memory_steward"
+    assert normalize_agent_id("agent:world_designer_a") == "agent:world_designer_a"
+    assert normalize_agent_id("agent:writing_simple_creator") == "agent:writing_simple_creator"
+    assert normalize_agent_id("agent:memory_steward") == "agent:memory_steward"
+    assert agent_registry.get_agent("agent:world_designer_a") is None
+    assert agent_registry.get_agent("agent:writing_team_worker") is None
 
-    agent_registry.upsert_agent(
-        agent_id="agent:writing_team_worker",
-        agent_name="长篇写作组通用执行 Agent",
-        agent_category="custom_agent",
-        interface_target="task_graph_node_runtime",
-        metadata={
-            "definition_source": "task_graph_assembly_order",
-            "source_task_graph_refs": ["graph.writing_team.long_novel"],
-            "group_eligible": True,
-        },
-    )
-    runtime_profile = runtime_registry.upsert_profile(
-        agent_id="agent:writing_team_worker",
-        agent_profile_id="writing_team_worker_runtime",
-        allowed_runtime_lanes=("coordination_task",),
-        allowed_operations=("op.model_response", "op.memory_read"),
-        blocked_operations=("op.delegate_to_agent",),
-        lifecycle_policy="task_graph_managed",
-    )
-    assert agent_registry.get_agent("agent:world_designer_a").agent_id == "agent:writing_team_worker"
-    assert runtime_profile.agent_id == "agent:writing_team_worker"
-    assert runtime_registry.get_profile("agent:world_designer_a").agent_id == "agent:writing_team_worker"
-    assert "op.delegate_to_agent" in runtime_profile.blocked_operations
+    for retired_agent_id in sorted(retired_ids | task_graph_template_ids):
+        with pytest.raises(ValueError, match="retired writing graph agent ids"):
+            agent_registry.upsert_agent(
+                agent_id=retired_agent_id,
+                agent_name="历史写作 Agent",
+                agent_category="custom_agent",
+                interface_target="task_graph_node_runtime",
+            )
+        with pytest.raises(ValueError, match="retired writing graph agent ids"):
+            runtime_registry.upsert_profile(
+                agent_id=retired_agent_id,
+                agent_profile_id=f"{retired_agent_id.removeprefix('agent:')}_runtime",
+                allowed_runtime_lanes=("coordination_task",),
+                allowed_operations=("op.model_response",),
+            )
 
 
 def test_deleted_task_graph_ordered_agent_does_not_resurrect_from_defaults(tmp_path):
@@ -485,6 +479,7 @@ def test_deleted_task_graph_ordered_agent_does_not_resurrect_from_defaults(tmp_p
     runtime_registry = AgentRuntimeRegistry(tmp_path)
     agents_path = tmp_path / "storage" / "orchestration" / "agents.json"
     profiles_path = tmp_path / "storage" / "orchestration" / "agent_runtime_profiles.json"
+    groups_path = tmp_path / "storage" / "orchestration" / "agent_groups.json"
     agents_path.parent.mkdir(parents=True, exist_ok=True)
     agents_path.write_text(
         json.dumps(
@@ -523,15 +518,26 @@ def test_deleted_task_graph_ordered_agent_does_not_resurrect_from_defaults(tmp_p
         ),
         encoding="utf-8",
     )
-    group_registry.upsert_group(
-        group_id="group.custom.writing",
-        title="写作组",
-        group_kind="coordination_team",
-        coordinator_agent_id="",
-        member_agent_ids=("agent:writing_team_worker",),
+    groups_path.write_text(
+        json.dumps(
+            {
+                "groups": [
+                    {
+                        "group_id": "group.custom.writing",
+                        "title": "写作组",
+                        "group_kind": "coordination_team",
+                        "coordinator_agent_id": "",
+                        "member_agent_ids": ["agent:writing_team_worker"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
     )
 
-    agent_registry.delete_agent("agent:writing_team_worker")
+    assert agent_registry.get_agent("agent:writing_team_worker") is None
     runtime_registry.delete_profile("agent:writing_team_worker")
     group_registry.remove_agent_refs("agent:writing_team_worker")
 

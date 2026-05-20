@@ -56,7 +56,7 @@ def test_coordination_task_without_search_policy_defaults_to_no_search_sources()
         task_selection={
             "coordination_run_id": "coordrun:test",
             "continuation_stage_id": "world_design",
-            "selected_task_id": "task.writing_team.long_novel.world_design",
+            "selected_task_id": "task.writing.modular_novel.node.world_design",
         },
     )
 

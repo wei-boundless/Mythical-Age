@@ -74,6 +74,8 @@ def build_task_execution_assembly_bundle(
         query_understanding=query_understanding,
         current_turn_context=current_turn_payload,
     )
+    semantic_task_contract = dict(task_intent_contract.semantic_task_contract or {})
+    mode_policy = dict(task_intent_contract.mode_policy or {})
     execution_shape = resolve_execution_shape(
         task_intent_contract=task_intent_contract,
         query_understanding=query_understanding,
@@ -286,6 +288,8 @@ def build_task_execution_assembly_bundle(
             "current_turn": current_turn_payload,
         }
     task_contract_payload["task_intent_ref"] = task_intent_contract.task_intent_id
+    task_contract_payload["semantic_task_contract"] = semantic_task_contract
+    task_contract_payload["mode_policy"] = mode_policy
     task_contract_payload["selected_recipe_id"] = selected_recipe.recipe_id
     task_contract_payload["bundle_spec_ref"] = bundle_spec.bundle_id if bundle_spec is not None else ""
     task_contract_payload["requested_outputs"] = list(task_spec.requested_outputs)
@@ -329,6 +333,13 @@ def build_task_execution_assembly_bundle(
             "recipe_id": selected_recipe.recipe_id,
             "execution_kind": selected_recipe.execution_kind,
             "source_kind": selected_recipe.source_kind,
+            "interaction_mode": str(mode_policy.get("interaction_mode") or ""),
+            "runtime_lane_hint": str(mode_policy.get("runtime_lane") or ""),
+            "projection_strength": str(mode_policy.get("projection_strength") or ""),
+            "semantic_task_type": str(semantic_task_contract.get("task_goal_type") or ""),
+            "professional_profile_id": str(semantic_task_contract.get("professional_profile_id") or ""),
+            "mode_policy": mode_policy,
+            "semantic_task_contract": semantic_task_contract,
             "registered_task_id": registered_task_id,
             "binding_task_id": binding_task_id,
             "registered_task_type": str((registered_task or {}).get("task_type") or ""),

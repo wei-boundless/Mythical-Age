@@ -499,7 +499,7 @@
       "default_soul_id": "",
       "default_projection_id": "projection.writing.modular_novel.memory_steward",
       "created_at": 1779294907.9824607,
-      "updated_at": 1779296851.9846773,
+      "updated_at": 1779301019.0042841,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "task_family": "writing_modular_novel",
@@ -523,7 +523,7 @@
       "default_soul_id": "",
       "default_projection_id": "projection.writing.modular_novel.runtime_monitor",
       "created_at": 1779294908.000848,
-      "updated_at": 1779296852.001537,
+      "updated_at": 1779301019.0209699,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "task_family": "writing_modular_novel",
@@ -547,7 +547,7 @@
       "default_soul_id": "",
       "default_projection_id": "projection.writing.modular_novel.worker",
       "created_at": 1779294907.9685512,
-      "updated_at": 1779296851.9728696,
+      "updated_at": 1779301018.9944234,
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "task_family": "writing_modular_novel",
@@ -555,35 +555,6 @@
         "delegation_enabled": true,
         "group_eligible": true,
         "system_key": "custom_agent_pool"
-      }
-    },
-    {
-      "agent_id": "agent:writing_team_worker",
-      "agent_name": "长篇写作组通用执行 Agent",
-      "display_name": "长篇写作组通用执行 Agent",
-      "agent_category": "custom_agent",
-      "profile_type": "custom_agent",
-      "interface_target": "task_graph_node_runtime",
-      "description": "长篇写作 TaskGraph 的通用执行 Agent。具体节点身份由任务图节点投影和职责契约决定。",
-      "enabled": true,
-      "builtin": false,
-      "editable": true,
-      "default_soul_id": "hebo",
-      "default_projection_id": "",
-      "created_at": 1779110782.8700097,
-      "updated_at": 1779110782.8700097,
-      "metadata": {
-        "managed_by": "task_graph_order_from_task_system",
-        "role": "writing_team_runtime_worker",
-        "task_family": "writing_team_long_novel",
-        "definition_source": "task_graph_assembly_order",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "system_key": "custom_agent_pool",
-        "delegation_enabled": true,
-        "group_eligible": true,
-        "agent_template_id": "task_graph.writing_team.long_novel.runtime_worker"
       }
     }
   ]

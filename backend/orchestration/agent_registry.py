@@ -32,10 +32,13 @@ RETIRED_WRITING_AGENT_IDS = {
     "agent:writing_simple_creator",
     "agent:writing_simple_reviewer",
     "agent:writing_final_assembler",
+    "agent:writing_simple_worker",
     "agent:writing_memory_steward",
     "agent:writing_runtime_monitor",
     "agent:writing_team_worker",
 }
+
+RETIRED_WRITING_AGENT_ERROR = "retired writing graph agent ids cannot be recreated; use modular task graph agent ids"
 
 WRITING_AGENT_TEMPLATE_OVERRIDES = {
 }
@@ -290,6 +293,8 @@ class AgentRegistry:
         target = normalize_agent_id(agent_id)
         if not target.startswith("agent:"):
             raise ValueError("agent_id must start with agent:")
+        if target in RETIRED_WRITING_AGENT_IDS:
+            raise ValueError(RETIRED_WRITING_AGENT_ERROR)
         normalized_category = _normalize_agent_category(agent_category or profile_type or "custom_agent")
         if normalized_category not in AGENT_CATEGORIES:
             raise ValueError("unsupported agent_category")

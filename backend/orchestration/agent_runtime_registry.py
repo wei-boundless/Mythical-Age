@@ -31,10 +31,13 @@ RETIRED_WRITING_AGENT_IDS = {
     "agent:writing_simple_creator",
     "agent:writing_simple_reviewer",
     "agent:writing_final_assembler",
+    "agent:writing_simple_worker",
     "agent:writing_memory_steward",
     "agent:writing_runtime_monitor",
     "agent:writing_team_worker",
 }
+
+RETIRED_WRITING_AGENT_ERROR = "retired writing graph agent ids cannot receive runtime profiles; use modular task graph agent ids"
 
 
 def _storage_root(base_dir: Path) -> Path:
@@ -66,11 +69,10 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             agent_profile_id="main_interactive_agent",
             agent_id="agent:0",
             allowed_runtime_lanes=(
-                "full_interactive",
-                "task_dispatch",
-                "final_integration",
                 "game_delivery",
-                "autonomous_task",
+                "role_interaction",
+                "standard_task",
+                "professional_task",
             ),
             allowed_operations=(
                 "op.model_response",
@@ -370,6 +372,8 @@ class AgentRuntimeRegistry:
         target = normalize_agent_id(agent_id)
         if not target.startswith("agent:"):
             raise ValueError("agent_id must start with agent:")
+        if target in RETIRED_WRITING_AGENT_IDS:
+            raise ValueError(RETIRED_WRITING_AGENT_ERROR)
         if self.agent_registry.get_agent(target) is None:
             raise ValueError("unknown agent")
         if contains_raw_secret(model_profile):

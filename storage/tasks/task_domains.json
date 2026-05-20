@@ -36,18 +36,6 @@
       }
     },
     {
-      "domain_id": "domain.writing_team.long_novel",
-      "task_family": "writing_team_long_novel",
-      "title": "长篇小说写作团队",
-      "description": "面向世界观、人物、大纲、章节、审校、入库的连续多 Agent 写作任务域。",
-      "enabled": true,
-      "sort_order": 255,
-      "metadata": {
-        "managed_by": "codex_writing_team_rebuild",
-        "assembly_doc": "docs/系统规划/86-长篇小说写作团队任务图重新装配流程记录-20260515.md"
-      }
-    },
-    {
       "domain_id": "domain.general",
       "task_family": "general",
       "title": "general任务域",

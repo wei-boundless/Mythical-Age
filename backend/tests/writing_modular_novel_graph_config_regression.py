@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import shutil
+import sys
 from pathlib import Path
 
 from api import tasks as tasks_api
@@ -24,6 +25,7 @@ def _load_config_module():
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -94,8 +96,21 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
     chapter_draft = next(node for node in chapter_graph.nodes if node.node_id == "chapter_draft")
     chapter_router = next(node for node in chapter_graph.nodes if node.node_id == "chapter_progress_router")
     next_volume_router = next(node for node in chapter_graph.nodes if node.node_id == "next_volume_router")
+    chapter_review = next(node for node in chapter_graph.nodes if node.node_id == "chapter_review")
+    volume_plan = next(node for node in chapter_graph.nodes if node.node_id == "volume_plan")
+    volume_review = next(node for node in chapter_graph.nodes if node.node_id == "volume_review")
     assert chapter_draft.task_id == "task.writing.modular_novel.node.chapter_draft"
     assert chapter_draft.task_id in {item.task_id for item in registry.list_specific_task_records()}
+    assert "名家级中文商业网文长篇写手" in chapter_draft.metadata["role_prompt"]
+    assert "头部中文商业网文的连载质感" in chapter_draft.metadata["role_prompt"]
+    assert "不能复刻任何具体作者" in chapter_draft.metadata["role_prompt"]
+    assert "爽点兑现" in chapter_draft.metadata["role_prompt"]
+    assert "章末牵引" in chapter_draft.metadata["role_prompt"]
+    assert "名家级中文商业网文章节总审" in chapter_review.metadata["role_prompt"]
+    assert "头部连载作品的阅读体验" in chapter_review.metadata["role_prompt"]
+    assert "名家级中文商业网文分卷规划师" in volume_plan.metadata["role_prompt"]
+    assert "不能复刻任何具体作者" in volume_plan.metadata["role_prompt"]
+    assert "名家级中文商业网文卷级总审" in volume_review.metadata["role_prompt"]
     assert not any(
         node.task_id.startswith("task.writing.simple_novel.")
         for node in chapter_graph.nodes
@@ -117,7 +132,6 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
     assert next_volume_router.loop_route_policy["target_key"] == "target_volumes"
 
     edge_pairs = {(edge.source_node_id, edge.target_node_id, edge.edge_type) for edge in chapter_graph.edges}
-    assert ("chapter_progress_router", "chapter_outline", "structured_handoff") in edge_pairs
     assert ("chapter_progress_router", "volume_review", "structured_handoff") in edge_pairs
     assert ("memory.writing.baseline", "chapter_draft", "memory_read") in edge_pairs
     assert ("memory_commit_chapter", "memory.writing.artifact_index", "memory_commit") in edge_pairs
@@ -132,6 +146,7 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
     assert [frame["frame_id"] for frame in chapter_spec.loop_frames[:2]] == ["loop.chapter_batch", "loop.volume"]
     assert chapter_spec.loop_frames[0]["entry_stage_id"] == "chapter_outline"
     assert chapter_spec.loop_frames[0]["router_stage_id"] == "chapter_progress_router"
+    assert chapter_spec.loop_frames[0]["continue_stage_id"] == "chapter_outline"
     assert chapter_spec.loop_frames[0]["exit_stage_id"] == "volume_review"
     assert len(split_plans) == 1
     assert split_plans[0]["node_id"] == "chapter_draft"
@@ -147,6 +162,29 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
         "repair_loop",
         "commit",
     ]
+
+    design_graph = graphs["graph.writing.modular_novel.design_init"]
+    world_design = next(node for node in design_graph.nodes if node.node_id == "world_design")
+    world_review = next(node for node in design_graph.nodes if node.node_id == "world_review")
+    world_prompt = world_design.metadata["role_prompt"]
+    review_prompt = world_review.metadata["role_prompt"]
+    assert "名家级中文商业网文世界架构师" in world_prompt
+    assert "头部中文商业网文的共性能力" in world_prompt
+    assert "不能复刻" in world_prompt
+    assert "空间与场域结构" in world_prompt
+    assert "交换体系" in world_prompt
+    assert "成长与资源体系" in world_prompt
+    assert "原创机制" in world_prompt
+    assert "题材专属元素、套路资产或类型预设" in world_prompt
+    assert "比如" not in world_prompt
+    assert "例如" not in world_prompt
+    assert "商业化追读钩子" in world_prompt
+    assert "世界设定 Bible" in review_prompt
+    assert "商业化承载" in review_prompt
+
+    workflows = {item.workflow_id: item for item in registry.workflow_registry.list_workflows()}
+    assert workflows["workflow.writing.modular_novel.node.world_design"].prompt == world_prompt
+    assert workflows["workflow.writing.modular_novel.node.chapter_draft"].prompt == chapter_draft.metadata["role_prompt"]
 
     master_graph = graphs["graph.writing.modular_novel.master"]
     master_spec = compile_task_graph_definition_runtime_spec(

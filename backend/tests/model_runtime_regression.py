@@ -13,6 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from execution.model_runtime import ModelRuntime, ModelRuntimeError, ModelSpec
+from execution.tool_call_policy import ToolCallBindingOptions
 
 MAIN_AGENT = SimpleNamespace(agent_id="agent:main:test")
 
@@ -381,6 +382,40 @@ def test_model_runtime_logs_provider_detail_when_switching_tool_candidate(
     assert response.content == "ok"
     assert "Switching tool-enabled model candidate after provider_error on openai/gpt-4.1-mini" in caplog.text
     assert "unsupported tool schema" in caplog.text
+
+
+def test_model_runtime_passes_native_tool_choice_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = _runtime(retries=0)
+    captured: dict[str, object] = {}
+
+    class _BindableFakeModel(_FakeModel):
+        def bind_tools(self, tools, **kwargs):
+            captured["tools"] = tools
+            captured["kwargs"] = kwargs
+            return self
+
+    monkeypatch.setattr(runtime, "_build_chat_model_for_spec", lambda _spec: _BindableFakeModel(SimpleNamespace(content="ok")))
+
+    options = ToolCallBindingOptions(
+        tool_choice={"type": "function", "function": {"name": "write_file"}},
+        strict=False,
+        parallel_tool_calls=False,
+    )
+    response = asyncio.run(
+        runtime.invoke_messages_with_tools(
+            [HumanMessage(content="write")],
+            [SimpleNamespace(name="write_file")],
+            tool_call_options=options,
+        )
+    )
+
+    assert response.content == "ok"
+    assert captured["tools"] == [SimpleNamespace(name="write_file")]
+    assert captured["kwargs"] == {
+        "tool_choice": {"type": "function", "function": {"name": "write_file"}},
+        "strict": False,
+        "parallel_tool_calls": False,
+    }
 
 
 def test_deepseek_payload_replays_reasoning_content_for_tool_roundtrip() -> None:

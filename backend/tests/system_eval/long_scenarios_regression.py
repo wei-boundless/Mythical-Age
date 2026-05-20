@@ -24,10 +24,10 @@ def test_long_scenarios_core_assets_exist() -> None:
         "knowledge/E-commerce Data/inventory.xlsx",
         "knowledge/E-commerce Data/employees.xlsx",
         "tests/fixtures/sandbox_file_ops/source_brief.md",
-        "tests/fixtures/autonomous_task_suite/buggy_counter.py",
-        "tests/fixtures/autonomous_task_suite/failing_sixty_turn_summary.json",
-        "tests/fixtures/autonomous_task_suite/ops_incident_snapshot.json",
-        "tests/fixtures/autonomous_task_suite/node_status_filter_contract.json",
+        "tests/fixtures/professional_task_suite/buggy_counter.py",
+        "tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json",
+        "tests/fixtures/professional_task_suite/ops_incident_snapshot.json",
+        "tests/fixtures/professional_task_suite/node_status_filter_contract.json",
     ]
     for relative_path in required_paths:
         assert (root / relative_path).exists(), relative_path
@@ -50,11 +50,11 @@ def test_long_scenarios_are_rebuilt_around_batches_and_a_sixty_turn_marathon() -
     assert "task-system-light-web-game-acceptance" in by_id
     assert "task-system-short-story-coordination-acceptance" in by_id
     assert "sandbox-file-ops-acceptance" in by_id
-    assert "autonomous-code-fix-acceptance" in by_id
-    assert "autonomous-test-report-triage" in by_id
-    assert "autonomous-doc-data-analysis" in by_id
-    assert "autonomous-feature-slice-acceptance" in by_id
-    assert "autonomous-ops-troubleshooting" in by_id
+    assert "professional-code-fix-acceptance" in by_id
+    assert "professional-test-report-triage" in by_id
+    assert "professional-doc-data-analysis" in by_id
+    assert "professional-feature-slice-acceptance" in by_id
+    assert "professional-ops-troubleshooting" in by_id
     assert "permission-boundary-and-safe-fallback" in by_id
     assert "multi-session-workbench-isolation" in by_id
     assert "sixty-turn-real-user-marathon" in by_id
@@ -65,12 +65,12 @@ def test_long_scenarios_are_rebuilt_around_batches_and_a_sixty_turn_marathon() -
     assert "batches" in SCENARIO_SETS
     assert "sandbox-file-ops-acceptance" in SCENARIO_SETS["batches"]
     assert SCENARIO_SETS["sandbox"] == ("sandbox-file-ops-acceptance",)
-    assert SCENARIO_SETS["autonomous_tasks"] == (
-        "autonomous-code-fix-acceptance",
-        "autonomous-test-report-triage",
-        "autonomous-doc-data-analysis",
-        "autonomous-feature-slice-acceptance",
-        "autonomous-ops-troubleshooting",
+    assert SCENARIO_SETS["professional_tasks"] == (
+        "professional-code-fix-acceptance",
+        "professional-test-report-triage",
+        "professional-doc-data-analysis",
+        "professional-feature-slice-acceptance",
+        "professional-ops-troubleshooting",
     )
     assert "task_acceptance" in SCENARIO_SETS
     assert SCENARIO_SETS["task_acceptance"] == (
@@ -101,7 +101,7 @@ def test_long_scenarios_collectively_cover_runtime_capabilities() -> None:
         "context_compaction",
         "session_isolation",
         "stress",
-        "autonomous_task",
+        "professional_task",
         "code_fix",
         "test_report",
         "feature_slice",

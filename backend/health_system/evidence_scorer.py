@@ -104,7 +104,7 @@ def score_runtime_event(event: dict[str, Any], *, total_events: int = 0, index: 
             semantic_score=0.4,
             novelty_score=0.1,
         )
-    if event_type == "autonomous_task_plan_drafted":
+    if event_type == "professional_task_semantic_plan_drafted":
         return EvidenceScore(
             causal_score=0.7,
             temporal_score=base,
@@ -114,7 +114,7 @@ def score_runtime_event(event: dict[str, Any], *, total_events: int = 0, index: 
             semantic_score=0.5,
             novelty_score=0.2,
         )
-    if event_type == "autonomous_task_verification_checked":
+    if event_type == "professional_task_deliverable_validation_checked":
         return EvidenceScore(
             causal_score=0.7,
             temporal_score=base,

@@ -17,6 +17,7 @@ def build_runtime_assembly_hint(
         "execution_strategy": intent_decision.execution_strategy,
         "target_domain_hint": intent_decision.target_domain_hint,
         "runtime_mode": _runtime_mode(intent_decision.execution_strategy),
+        "interaction_mode": _interaction_mode(intent_decision.execution_strategy),
         "strategy_candidates": list(intent_frame.execution_strategy_candidates),
         "task_complexity": intent_frame.task_complexity,
         "graph_coordination_allowed": intent_decision.execution_strategy == "graph_coordination_run",
@@ -25,12 +26,8 @@ def build_runtime_assembly_hint(
 
 
 def _runtime_mode(strategy: str) -> str:
-    if strategy == "autonomous_task_run":
-        return "autonomous_task"
-    if strategy == "single_agent_background_run":
-        return "background_single_agent"
-    if strategy == "specialist_subagent_long_run":
-        return "specialist_background"
+    if strategy == "professional_task_run":
+        return "professional_task"
     if strategy == "specialist_handoff":
         return "specialist_handoff"
     if strategy == "graph_coordination_run":
@@ -38,3 +35,9 @@ def _runtime_mode(strategy: str) -> str:
     if strategy == "retrieval_augmented_answer":
         return "retrieval_augmented_answer"
     return "interactive_single_agent"
+
+
+def _interaction_mode(strategy: str) -> str:
+    if strategy == "professional_task_run":
+        return "professional_mode"
+    return ""

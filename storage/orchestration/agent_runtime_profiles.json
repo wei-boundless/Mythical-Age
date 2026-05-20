@@ -4,11 +4,10 @@
       "agent_profile_id": "main_interactive_agent",
       "agent_id": "agent:0",
       "allowed_runtime_lanes": [
-        "full_interactive",
-        "task_dispatch",
-        "final_integration",
         "game_delivery",
-        "autonomous_task"
+        "role_interaction",
+        "standard_task",
+        "professional_task"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -680,75 +679,6 @@
         "runtime_template_id": "builtin.specialist.web_researcher"
       },
       "runtime_template_id": "builtin.specialist.web_researcher"
-    },
-    {
-      "agent_profile_id": "writing_team_worker_runtime",
-      "agent_id": "agent:writing_team_worker",
-      "allowed_runtime_lanes": [
-        "coordination_task",
-        "readonly_exploration"
-      ],
-      "allowed_operations": [
-        "op.model_response",
-        "op.memory_read"
-      ],
-      "blocked_operations": [
-        "op.write_file",
-        "op.edit_file",
-        "op.shell",
-        "op.python_repl",
-        "op.memory_write_candidate",
-        "op.delegate_to_agent",
-        "op.rag_search",
-        "op.web_search"
-      ],
-      "allowed_memory_scopes": [
-        "conversation_readonly",
-        "state_readonly",
-        "writing_team_long_novel"
-      ],
-      "allowed_context_sections": [
-        "task",
-        "projection",
-        "runtime_contracts",
-        "artifact_refs",
-        "memory_runtime_view"
-      ],
-      "use_shared_contract": true,
-      "can_delegate_to_agents": false,
-      "allowed_delegate_agent_ids": [],
-      "max_delegate_calls_per_turn": 0,
-      "delegate_context_policy": "summary_and_refs_only",
-      "approval_policy": "read_only_first",
-      "trace_policy": "runtime_event_log",
-      "lifecycle_policy": "task_graph_managed",
-      "model_profile": {
-        "profile_id": "",
-        "display_name": "",
-        "provider": "",
-        "model": "",
-        "credential_ref": "",
-        "max_output_tokens": null,
-        "timeout_seconds": null,
-        "long_output_timeout_seconds": null,
-        "max_retries": null,
-        "temperature": null,
-        "thinking_mode": "",
-        "reasoning_effort": "",
-        "stream_policy": {},
-        "fallback_profile_ref": "",
-        "capability_tags": [],
-        "metadata": {}
-      },
-      "metadata": {
-        "managed_by": "task_graph_order_from_task_system",
-        "task_family": "writing_team_long_novel",
-        "source_task_graph_refs": [
-          "graph.writing_team.long_novel"
-        ],
-        "runtime_template_id": "task_graph.writing_team.long_novel.readonly_worker"
-      },
-      "runtime_template_id": "task_graph.writing_team.long_novel.readonly_worker"
     },
     {
       "agent_profile_id": "writing_modular_worker_runtime",
