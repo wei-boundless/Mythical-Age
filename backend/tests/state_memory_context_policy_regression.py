@@ -3,8 +3,8 @@ from __future__ import annotations
 from memory_system import MemoryFacade, MemoryRuntimeView
 from memory_system.contracts import MemoryContextCandidate
 from context_system.policy import build_context_package_result
-from structured_memory import MemoryNote
-from structured_memory.process_state import ContextSlots, ProcessState
+from memory_system.storage import MemoryNote
+from memory_system.storage.process_state import ContextSlots, ProcessState
 from token_accounting import count_text_tokens
 
 
@@ -150,3 +150,4 @@ def test_context_policy_uses_shared_token_counter_for_retrieval_accounting() -> 
 
     rendered = result.package.model_visible_sections["retrieval_evidence"][0]
     assert result.package.token_accounting["retrieval_tokens"] == count_text_tokens(rendered)
+

@@ -9728,30 +9728,8 @@
           }
         }
       ],
-      "issues": [
-        {
-          "code": "node_type_invalid",
-          "message": "节点 node_type 不受支持",
-          "severity": "error",
-          "node_id": "graph_module.design_init",
-          "edge_id": ""
-        },
-        {
-          "code": "node_type_invalid",
-          "message": "节点 node_type 不受支持",
-          "severity": "error",
-          "node_id": "graph_module.chapter_cycle",
-          "edge_id": ""
-        },
-        {
-          "code": "node_type_invalid",
-          "message": "节点 node_type 不受支持",
-          "severity": "error",
-          "node_id": "graph_module.finalize",
-          "edge_id": ""
-        }
-      ],
-      "valid": false,
+      "issues": [],
+      "valid": true,
       "subtask_refs": []
     },
     {

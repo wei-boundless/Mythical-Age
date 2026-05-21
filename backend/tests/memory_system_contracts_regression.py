@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from structured_memory import MemoryNote
-from structured_memory.process_state import ContextSlots, FlowState, ProcessState, TaskState
-from structured_memory.session_memory import SessionMemoryManager
+from memory_system.storage import MemoryNote
+from memory_system.storage.process_state import ContextSlots, FlowState, ProcessState, TaskState
+from memory_system.storage.session_memory import SessionMemoryManager
 
 from memory_system import ConversationMemoryStoreAdapter, LongTermMemoryStoreAdapter, MemoryFacade, StateMemoryStoreAdapter
 from memory_system.contracts import (
@@ -486,3 +486,4 @@ _Current-turn outputs, conclusions, or artifacts that remain active._
     assert bundle.context_package
     assert bundle.runtime_view.read_only is True
     assert bundle.diagnostics["context_policy_attached"] is True
+

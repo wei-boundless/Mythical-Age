@@ -3,6 +3,7 @@
 import {
   MessageSquare,
   Plus,
+  Sparkles,
   Trash2,
   Workflow,
 } from "lucide-react";
@@ -18,6 +19,7 @@ const primaryNavItems: Array<{
 }> = [
   { icon: MessageSquare, label: "主会话", description: "对话与任务入口", view: "chat" },
   { icon: Workflow, label: "图任务层", description: "任务图编辑与运行", view: "task-system" },
+  { icon: Sparkles, label: "灵魂系统", description: "世界观、灵魂与投影", view: "playground" },
 ];
 
 export function Sidebar() {

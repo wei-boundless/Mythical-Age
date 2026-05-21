@@ -1,0 +1,110 @@
+{
+  "items": [
+    {
+      "soul_id": "goumang",
+      "name": "句芒",
+      "display_name": "句芒",
+      "story_id": "story.goumang.default",
+      "world_id": "world.honghuang",
+      "manifestation_id": "manifestation.goumang.default",
+      "default_projection_id": "goumang__primary",
+      "default_work_prompt_id": "work_prompt.default",
+      "description": "对话、引导、统筹与归口倾向灵魂。",
+      "source": "builtin",
+      "enabled": true,
+      "tags": [
+        "general_qa",
+        "final_answer",
+        "system_design"
+      ],
+      "metadata": {
+        "system_default": true
+      }
+    },
+    {
+      "soul_id": "hebo",
+      "name": "河伯",
+      "display_name": "河伯",
+      "story_id": "story.hebo.default",
+      "world_id": "world.honghuang",
+      "manifestation_id": "manifestation.hebo.default",
+      "default_projection_id": "projection.worker.web_evidence_researcher",
+      "default_work_prompt_id": "work_prompt.default",
+      "description": "信息收集、上下文召回、资料整理灵魂。",
+      "source": "builtin",
+      "enabled": true,
+      "tags": [
+        "context_qa",
+        "knowledge_lookup",
+        "evidence_search"
+      ],
+      "metadata": {
+        "system_default": true
+      }
+    },
+    {
+      "soul_id": "siyue",
+      "name": "四岳",
+      "display_name": "四岳",
+      "story_id": "story.siyue.default",
+      "world_id": "world.honghuang",
+      "manifestation_id": "manifestation.siyue.default",
+      "default_projection_id": "siyue__primary",
+      "default_work_prompt_id": "work_prompt.default",
+      "description": "组织、结构、规划灵魂。",
+      "source": "builtin",
+      "enabled": true,
+      "tags": [
+        "system_design",
+        "knowledge_synthesis",
+        "writing_outline"
+      ],
+      "metadata": {
+        "system_default": true
+      }
+    },
+    {
+      "soul_id": "zhurong",
+      "name": "祝融",
+      "display_name": "祝融",
+      "story_id": "story.zhurong.default",
+      "world_id": "world.honghuang",
+      "manifestation_id": "manifestation.zhurong.default",
+      "default_projection_id": "zhurong__primary",
+      "default_work_prompt_id": "work_prompt.default",
+      "description": "行动、推进、落地灵魂。",
+      "source": "builtin",
+      "enabled": true,
+      "tags": [
+        "implementation",
+        "code_or_file_processing",
+        "writing_draft"
+      ],
+      "metadata": {
+        "system_default": true
+      }
+    },
+    {
+      "soul_id": "xuannv",
+      "name": "玄女",
+      "display_name": "玄女",
+      "story_id": "story.xuannv.default",
+      "world_id": "world.honghuang",
+      "manifestation_id": "manifestation.xuannv.default",
+      "default_projection_id": "xuannv__primary",
+      "default_work_prompt_id": "work_prompt.default",
+      "description": "审查、前提、风险灵魂。",
+      "source": "builtin",
+      "enabled": true,
+      "tags": [
+        "reasoning_qa",
+        "risk_review",
+        "test_failure_diagnosis"
+      ],
+      "metadata": {
+        "system_default": true
+      }
+    }
+  ],
+  "authority": "soul.cards.catalog"
+}

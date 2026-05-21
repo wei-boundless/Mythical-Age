@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 from memory_layout import durable_memory_layout_from_backend_dir
-from structured_memory import DurableMemoryConsolidator, MemoryManager
+from memory_system.storage import DurableMemoryConsolidator, MemoryManager
 
 from .parser_adapter import MultimodalParserAdapter
 from .registry import RAGIndexRegistry
@@ -169,3 +169,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

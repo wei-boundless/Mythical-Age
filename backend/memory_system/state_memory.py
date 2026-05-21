@@ -79,7 +79,7 @@ class StateMemoryStoreAdapter:
             ),
             next_step=tuple(_clean(item) for item in getattr(state, "next_step", []) or [] if _clean(item)),
             updated_at=_clean(getattr(state, "updated_at", "")),
-            source="structured_memory.process_state",
+            source="memory_system.storage.process_state",
         )
 
     def restore_candidates(self, session_id: str) -> tuple[StateMemoryRestoreCandidate, ...]:
@@ -379,3 +379,4 @@ def _safe_int(value: Any) -> int:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
+

@@ -15,6 +15,7 @@ class SoulProfile:
     seed_path: str
     description: str
     background: str = ""
+    soul_traits: tuple[str, ...] = ()
     personality_traits: tuple[str, ...] = ()
     expression_style: tuple[str, ...] = ()
     preferred_role_types: tuple[str, ...] = ()
@@ -29,6 +30,10 @@ class SoulProfile:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
+        if not payload["soul_traits"] and payload["personality_traits"]:
+            payload["soul_traits"] = payload["personality_traits"]
+        if not payload["personality_traits"] and payload["soul_traits"]:
+            payload["personality_traits"] = payload["soul_traits"]
         payload["metadata"] = dict(self.metadata)
         return payload
 
@@ -236,6 +241,72 @@ class SoulManifestation:
         payload = asdict(self)
         payload["metadata"] = dict(self.metadata)
         return payload
+
+
+@dataclass(slots=True, frozen=True)
+class SoulCard:
+    soul_id: str
+    name: str
+    display_name: str
+    story_id: str = ""
+    world_id: str = ""
+    manifestation_id: str = ""
+    default_projection_id: str = ""
+    default_work_prompt_id: str = ""
+    description: str = ""
+    source: str = "builtin"
+    enabled: bool = True
+    tags: tuple[str, ...] = ()
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["tags"] = list(self.tags)
+        payload["metadata"] = dict(self.metadata)
+        return payload
+
+
+@dataclass(slots=True, frozen=True)
+class SoulModeProfile:
+    mode: str
+    title: str
+    section_order: tuple[str, ...]
+    includes_world: bool
+    includes_story: bool
+    includes_work_prompt: bool
+    description: str = ""
+    authority: str = "soul.mode_profile"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["section_order"] = list(self.section_order)
+        return payload
+
+
+@dataclass(slots=True, frozen=True)
+class SoulResourceCatalog:
+    worlds: tuple[SoulWorld, ...]
+    stories: tuple[SoulStory, ...]
+    cards: tuple[SoulCard, ...]
+    work_prompts: tuple[WorkPrompt, ...]
+    common_contracts: tuple[CommonContractPrompt, ...]
+    manifestations: tuple[SoulManifestation, ...]
+    modes: tuple[SoulModeProfile, ...]
+    active_soul_id: str = ""
+    authority: str = "soul.resource_catalog"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "active_soul_id": self.active_soul_id,
+            "worlds": [item.to_dict() for item in self.worlds],
+            "stories": [item.to_dict() for item in self.stories],
+            "cards": [item.to_dict() for item in self.cards],
+            "work_prompts": [item.to_dict() for item in self.work_prompts],
+            "common_contracts": [item.to_dict() for item in self.common_contracts],
+            "manifestations": [item.to_dict() for item in self.manifestations],
+            "modes": [item.to_dict() for item in self.modes],
+            "authority": self.authority,
+        }
 
 
 @dataclass(slots=True, frozen=True)

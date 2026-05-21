@@ -9,8 +9,8 @@ from .manifest_scan import MemoryHeader, format_memory_manifest, scan_memory_hea
 from memory_layout import durable_memory_layout_from_backend_dir
 from .read_agent import MemoryReadAgent
 from .read_models import MemoryRecallRequest, MemoryRecallResult, MemoryRecallSelection
-from structured_memory.exact_lookup import ExactMemoryMatch, find_exact_memory_matches
-from structured_memory.memory_manager import MemoryManager
+from memory_system.storage.exact_lookup import ExactMemoryMatch, find_exact_memory_matches
+from memory_system.storage.memory_manager import MemoryManager
 
 
 class DurableMemoryLayer:
@@ -566,3 +566,4 @@ class DurableMemoryLayer:
         for key, value in payload.items():
             setattr(note, key, value)
         return note
+

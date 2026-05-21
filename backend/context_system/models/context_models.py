@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 from context_system.compaction.compactor import CompactResult
-from structured_memory.models import Message
+from memory_system.storage.models import Message
 
 PressureLevel = Literal["normal", "warning", "microcompact", "full_compact"]
 
@@ -85,3 +85,4 @@ class ContextControllerResult:
     messages: list[Message]
     package: ContextPackage
     compact_result: CompactResult
+

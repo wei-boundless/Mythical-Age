@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from structured_memory.text_utils import normalize_storage_text
+from memory_system.storage.text_utils import normalize_storage_text
 from token_accounting import count_text_tokens
 
 from .contracts import ConversationMemorySnapshot, MemoryContextCandidate, MemoryWriteCandidate
@@ -70,7 +70,7 @@ class ConversationMemoryStoreAdapter:
             MemoryContextCandidate(
                 candidate_id=f"memory-context:{safe_session_id}:conversation:summary",
                 memory_layer="conversation",
-                source="structured_memory.session_summary",
+                source="memory_system.storage.session_summary",
                 content_ref=snapshot.compact_summary_ref,
                 rendered_preview=rendered_preview,
                 relevance=0.72,
@@ -173,3 +173,4 @@ def _latest_mtime_iso(paths: list[Path]) -> str:
     from datetime import datetime, timezone
 
     return datetime.fromtimestamp(max(mtimes), tz=timezone.utc).isoformat()
+

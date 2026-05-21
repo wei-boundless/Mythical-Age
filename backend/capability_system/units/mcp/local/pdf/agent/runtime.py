@@ -16,7 +16,7 @@ from capability_system.units.mcp.local.pdf.agent.models import (
 from capability_system.units.mcp.local.pdf.analysis import PdfTextParser
 from capability_system.units.mcp.local.pdf.analysis.parser import PdfPageSnapshot, PdfSegment
 from runtime_encoding import count_mojibake_markers, looks_like_mojibake
-from structured_memory.text_utils import normalize_storage_text
+from memory_system.storage.text_utils import normalize_storage_text
 
 
 _OVERVIEW_HINT_RE = re.compile(
@@ -1316,3 +1316,4 @@ class PDFReadAgentRuntime:
             and "toc_page" not in page.quality_flags
             and "copyright_page" not in page.quality_flags
         )
+

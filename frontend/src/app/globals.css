@@ -28062,3 +28062,285 @@ button:hover {
     padding: 0.5rem;
   }
 }
+
+/* Soul worldview refresh and light-blue workspace tuning */
+:root,
+html[data-soul] {
+  --color-bg: #eef6ff;
+  --color-bg-alt: #e4f0fb;
+  --color-text: #102033;
+  --color-text-soft: #476175;
+  --color-text-muted: #71879a;
+  --color-border: #c7d9ea;
+  --color-border-strong: #8eb7df;
+  --color-panel: #ffffff;
+  --color-panel-soft: #f7fbff;
+  --color-panel-strong: #ffffff;
+  --color-soul: #2f7fc6;
+  --color-soul-soft: rgba(47, 127, 198, 0.1);
+  --color-accent: #246fb1;
+  --glow-soul: 0 12px 36px rgba(42, 111, 174, 0.11);
+}
+
+.practical-workspace {
+  background:
+    linear-gradient(180deg, #f7fbff, #eef6ff 44%, #e8f2fb);
+}
+
+.practical-sidebar {
+  background: #eaf4ff;
+}
+
+.practical-mainbar {
+  background: rgba(247, 251, 255, 0.92);
+}
+
+.practical-layer-context,
+.task-monitor-dock {
+  background: #f2f8ff;
+}
+
+.practical-layer-tab--active,
+.action-button--primary,
+.boundary-button--primary {
+  border-color: #246fb1;
+  background: #246fb1;
+  color: #fff;
+}
+
+.chat-panel-footer {
+  background: linear-gradient(180deg, rgba(238, 246, 255, 0), rgba(238, 246, 255, 0.88) 24%, rgba(238, 246, 255, 0.98) 100%);
+}
+
+.chat-input-panel--inline {
+  box-shadow: 0 12px 28px rgba(42, 111, 174, 0.1);
+}
+
+.chat-input-panel__textarea:focus {
+  box-shadow: inset 0 0 0 1px #2f7fc6, 0 0 0 3px rgba(47, 127, 198, 0.12);
+}
+
+.chat-input-panel__actions .action-button--primary {
+  min-height: 2.28rem;
+  padding-inline: 0.95rem;
+  box-shadow: 0 10px 22px rgba(36, 111, 177, 0.2);
+}
+
+.soul-system-console {
+  gap: 0.85rem;
+  color: var(--color-text);
+}
+
+.soul-worldview-entry {
+  display: grid;
+  gap: 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  padding: 1rem;
+  box-shadow: 0 12px 28px rgba(42, 111, 174, 0.08);
+}
+
+.soul-worldview-entry__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.soul-worldview-entry__head div {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.soul-worldview-entry__head span,
+.soul-world-card span {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.soul-worldview-entry__head strong {
+  color: var(--color-text);
+  font-size: 1.15rem;
+}
+
+.soul-worldview-entry__head p {
+  max-width: 34rem;
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.84rem;
+  line-height: 1.65;
+}
+
+.soul-world-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+
+.soul-world-card {
+  display: grid;
+  gap: 0.32rem;
+  min-width: 0;
+  min-height: 8.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: #f8fbff;
+  color: inherit;
+  cursor: pointer;
+  padding: 0.82rem;
+  text-align: left;
+}
+
+.soul-world-card:hover,
+.soul-world-card--active {
+  border-color: var(--color-border-strong);
+  background: #fff;
+}
+
+.soul-world-card--active {
+  box-shadow: inset 0 0 0 1px rgba(47, 127, 198, 0.18), 0 10px 24px rgba(42, 111, 174, 0.08);
+}
+
+.soul-world-card--honghuang {
+  background:
+    linear-gradient(135deg, rgba(216, 183, 101, 0.14), rgba(255, 255, 255, 0.86) 52%),
+    #fff;
+}
+
+.soul-world-card strong {
+  color: var(--color-text);
+  font-size: 0.96rem;
+}
+
+.soul-world-card em,
+.soul-world-card small {
+  color: var(--color-text-soft);
+  font-style: normal;
+  line-height: 1.5;
+}
+
+.soul-world-card em {
+  font-size: 0.8rem;
+}
+
+.soul-world-card small {
+  margin-top: auto;
+  font-size: 0.72rem;
+}
+
+.soul-system-console--plain .soul-origin-banner {
+  display: none;
+}
+
+.soul-system-console--plain .soul-system-hero {
+  border-color: var(--color-border);
+  background:
+    linear-gradient(135deg, rgba(47, 127, 198, 0.08), transparent 52%),
+    #fff;
+}
+
+.soul-system-console--plain .soul-lore-panel,
+.soul-system-console--plain .soul-portrait-manager {
+  background: #f8fbff;
+}
+
+.soul-system-console--honghuang .soul-system-hero {
+  border-color: color-mix(in srgb, #d8b765 52%, var(--color-border));
+  background:
+    radial-gradient(circle at 12% 20%, rgba(216, 183, 101, 0.26), transparent 34%),
+    radial-gradient(circle at 92% 16%, rgba(47, 127, 198, 0.1), transparent 28%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.86), rgba(255, 250, 237, 0.7));
+}
+
+.soul-system-hero,
+.soul-system-grid,
+.soul-mode-switcher {
+  max-width: 100%;
+}
+
+.soul-plain-world-placeholder {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 0.45rem;
+  width: 100%;
+  height: 100%;
+  min-height: 16rem;
+  color: var(--color-text-soft);
+  text-align: center;
+}
+
+.soul-plain-world-placeholder svg {
+  color: var(--color-soul);
+}
+
+.soul-plain-world-placeholder strong {
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.soul-plain-world-placeholder span {
+  max-width: 18rem;
+  color: var(--color-text-soft);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.soul-empty-world {
+  display: grid;
+  gap: 0.3rem;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: 8px;
+  background: #f8fbff;
+  padding: 0.85rem;
+}
+
+.soul-empty-world strong {
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.soul-empty-world p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.soul-empty-world--editor {
+  min-height: 20rem;
+  align-content: center;
+  text-align: center;
+}
+
+.soul-system-console .workspace-section,
+.soul-system-console .soul-file-card,
+.soul-system-console .soul-seed-card,
+.soul-system-console .soul-managed-section,
+.soul-system-console .soul-projection-card,
+.soul-system-console .soul-projection-editor-card {
+  border-color: var(--color-border);
+  background-color: #fff;
+  color: var(--color-text);
+}
+
+.soul-system-console .soul-seed-card--active,
+.soul-system-console .soul-projection-card--selected,
+.soul-system-console .soul-mode-card--active {
+  border-color: var(--color-border-strong);
+  box-shadow: inset 0 0 0 1px rgba(47, 127, 198, 0.18);
+}
+
+@media (max-width: 960px) {
+  .soul-worldview-entry__head {
+    display: grid;
+  }
+
+  .soul-world-grid {
+    grid-template-columns: 1fr;
+  }
+}

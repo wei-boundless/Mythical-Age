@@ -114,6 +114,14 @@ class CustomSoulSaveRequest(BaseModel):
     enabled: bool = True
 
 
+class SoulModePreviewRequest(BaseModel):
+    mode: str = Field(default="work_mode", min_length=1)
+    soul_id: str = Field(default="hebo", min_length=1)
+    projection_id: str = ""
+    work_prompt_id: str = ""
+    task_contract: str = ""
+
+
 def _project_root_from_backend(base_dir: Path) -> Path:
     return base_dir.resolve().parent
 
@@ -144,6 +152,12 @@ def build_soul_catalog(base_dir: Path) -> dict[str, Any]:
 async def soul_catalog() -> dict[str, Any]:
     runtime = require_runtime()
     return build_soul_catalog(runtime.base_dir)
+
+
+@router.get("/soul/resources")
+async def soul_resources() -> dict[str, Any]:
+    runtime = require_runtime()
+    return SoulFacade(runtime.base_dir).build_resource_catalog()
 
 
 @router.post("/soul/switch")
@@ -205,6 +219,22 @@ async def soul_work_log(soul_id: str, limit: int = 20) -> dict[str, Any]:
     if facade.get_profile(normalized_soul_id) is None:
         raise HTTPException(status_code=404, detail="Unknown soul")
     return facade.get_work_log(normalized_soul_id, limit=limit)
+
+
+@router.post("/soul/modes/preview")
+async def soul_mode_preview(payload: SoulModePreviewRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    facade = SoulFacade(runtime.base_dir)
+    try:
+        return facade.preview_mode(
+            mode=payload.mode.strip(),
+            soul_id=payload.soul_id.strip().lower(),
+            projection_id=payload.projection_id.strip(),
+            work_prompt_id=payload.work_prompt_id.strip(),
+            task_contract=payload.task_contract,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/soul/projection-instances/preview")

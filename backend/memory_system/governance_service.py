@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from memory_layout import durable_memory_layout_from_backend_dir
-from structured_memory.frontmatter import format_frontmatter, parse_frontmatter
+from memory_system.storage.frontmatter import format_frontmatter, parse_frontmatter
 
 from .governance import MemoryGovernance
 from .compat_types import MemoryNote, utc_now_iso
@@ -308,3 +308,4 @@ class DurableMemoryGovernanceService:
             allowed=True,
             metadata={"source_action": action},
         )
+

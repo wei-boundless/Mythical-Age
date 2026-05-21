@@ -15,7 +15,7 @@ from bootstrap.settings import AppSettingsService
 from knowledge_system import RetrievalService
 from sessions import SessionManager
 from runtime import ModelRuntime
-from structured_memory import ConsolidationConfig, ConsolidationReport, ConsolidationScheduler
+from memory_system.storage import ConsolidationConfig, ConsolidationReport, ConsolidationScheduler
 
 
 class AppRuntime:
@@ -154,3 +154,4 @@ class AppRuntime:
 
 
 app_runtime = AppRuntime()
+

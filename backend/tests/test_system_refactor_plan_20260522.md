@@ -14,6 +14,7 @@
 - `backend/tests/support/trace_stubs.py`：trace reader、state index、task run stub。
 - `backend/tests/support/writing_fixtures.py`：写作配置脚本加载和 storage seed。
 - `backend/tests/system_eval/execution_core.py`：系统/长场景 runner 共享工具函数。
+- `backend/health_system/maintenance/test_system/test_discovery.py`：测试文件发现规则的唯一入口。
 - `backend/health_system/maintenance/test_system/case_registry.py` 与 `agent.py`：统一测试文件发现规则。
 
 ## 实施阶段
@@ -21,8 +22,9 @@
 1. 新增 `tests/support`，迁移重复 runtime/trace/writing fixture。
 2. 将 `runner.py` 与 `long_runner.py` 的重复公共函数回收到 `execution_core.py`。
 3. 修正 case discovery，让测试治理层覆盖 pytest 的常见命名。
-4. 删除测试与 maintenance 下的 `__pycache__` 运行残留。
-5. 运行聚焦回归：support 迁移涉及的测试、harness/test_system 测试、system_eval warning/registry 测试。
+4. 抽出 `test_discovery.py`，避免 `case_registry` 和 `TestAgentAdvisor` 各维护一份发现规则。
+5. 删除测试与 maintenance 下的 `__pycache__` 运行残留。
+6. 运行聚焦回归：support 迁移涉及的测试、harness/test_system 测试、system_eval warning/registry 测试。
 
 ## 不做的事
 

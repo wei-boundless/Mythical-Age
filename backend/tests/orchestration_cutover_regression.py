@@ -31,6 +31,7 @@ _ToolRuntimeStub = EmptyToolRuntimeStub
 _SkillRegistryStub = EmptySkillRegistryStub
 _SettingsStub = PrimarySettingsStub
 _PermissionStub = DefaultPermissionStub
+_SessionManagerStub = InMemorySessionManagerStub
 _ModelRuntimeStub = SingleMessageModelRuntimeStub
 
 

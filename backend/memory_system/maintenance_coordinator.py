@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from project_layout import ProjectLayout
-from structured_memory.models import MemoryNote
-from structured_memory.text_utils import normalize_storage_text
+from memory_system.storage.models import MemoryNote
+from memory_system.storage.text_utils import normalize_storage_text
 
 from .maintenance_agent import MemoryMaintenanceAgent
 from .maintenance_models import (
@@ -451,3 +451,4 @@ class MemoryMaintenanceCoordinator:
             if normalized and normalized not in result:
                 result.append(normalized)
         return result
+

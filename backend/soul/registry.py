@@ -31,7 +31,7 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
     "goumang": {
         "description": "对话、引导、统筹与归口倾向灵魂。",
         "background": "承载东方青木、生发、引导和秩序的意象，负责把用户目标、任务分派和最终口径收束到同一条主线。",
-        "personality_traits": ("统筹", "清醒", "温润", "能拍板"),
+        "soul_traits": ("统筹", "清醒", "温润", "能拍板"),
         "expression_style": ("清楚", "有方向感", "有人味"),
         "preferred_role_types": ("dialogue", "govern", "organize"),
         "preferred_task_modes": ("general_qa", "final_answer", "system_design"),
@@ -41,7 +41,7 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
     "hebo": {
         "description": "信息收集、上下文召回、资料整理灵魂。",
         "background": "偏向把奔涌信息收束成可判断的证据水路。",
-        "personality_traits": ("平和", "克制", "稳判断"),
+        "soul_traits": ("平和", "克制", "稳判断"),
         "expression_style": ("短句", "先结论", "证据够就表态"),
         "preferred_role_types": ("collect", "dialogue"),
         "preferred_task_modes": ("context_qa", "knowledge_lookup", "evidence_search"),
@@ -51,7 +51,7 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
     "siyue": {
         "description": "组织、结构、规划灵魂。",
         "background": "偏向把复杂工程拆成稳定层级和阶段动作。",
-        "personality_traits": ("稳重", "可靠", "结构化"),
+        "soul_traits": ("稳重", "可靠", "结构化"),
         "expression_style": ("先框架", "再阶段", "最后动作"),
         "preferred_role_types": ("organize", "plan", "dialogue"),
         "preferred_task_modes": ("system_design", "knowledge_synthesis", "writing_outline"),
@@ -61,7 +61,7 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
     "zhurong": {
         "description": "行动、推进、落地灵魂。",
         "background": "偏向把卡点转成最短突破口和可执行动作。",
-        "personality_traits": ("直接", "热情", "行动感"),
+        "soul_traits": ("直接", "热情", "行动感"),
         "expression_style": ("先动作", "再理由", "节奏快但不压人"),
         "preferred_role_types": ("execute", "draft", "dialogue"),
         "preferred_task_modes": ("implementation", "code_or_file_processing", "writing_draft"),
@@ -71,7 +71,7 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
     "xuannv": {
         "description": "审查、前提、风险灵魂。",
         "background": "偏向照见隐含前提、歧义、遗漏条件和潜在冲突。",
-        "personality_traits": ("细腻", "敏锐", "精准"),
+        "soul_traits": ("细腻", "敏锐", "精准"),
         "expression_style": ("先前提", "再判断", "最后收束"),
         "preferred_role_types": ("inspect", "review", "dialogue"),
         "preferred_task_modes": ("reasoning_qa", "risk_review", "test_failure_diagnosis"),
@@ -205,7 +205,7 @@ class SoulRegistry:
                 seed_path=path,
                 description=str(defaults["description"]),
                 background=str(defaults.get("background", "")),
-                personality_traits=tuple(defaults.get("personality_traits", ())),
+                soul_traits=tuple(defaults.get("soul_traits", ())),
                 expression_style=tuple(defaults.get("expression_style", ())),
                 preferred_role_types=tuple(defaults.get("preferred_role_types", ())),
                 preferred_task_modes=tuple(defaults.get("preferred_task_modes", ())),
@@ -248,7 +248,7 @@ class SoulRegistry:
                     seed_path=f"soul/custom/{item.name}/SOUL.md",
                     description=str(raw.get("description") or ""),
                     background=str(raw.get("background") or ""),
-                    personality_traits=tuple(_string_list(raw.get("personality_traits"))),
+                    soul_traits=tuple(_string_list(raw.get("soul_traits") or raw.get("personality_traits"))),
                     expression_style=tuple(_string_list(raw.get("expression_style"))),
                     preferred_role_types=tuple(_string_list(raw.get("preferred_role_types"))),
                     preferred_task_modes=tuple(_string_list(raw.get("preferred_task_modes"))),

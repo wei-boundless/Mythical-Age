@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Boxes, ChevronLeft, FilePenLine, ImageUp, Loader2, PencilLine, Plus, RotateCcw, Save, Sparkles, X } from "lucide-react";
+import { Boxes, ChevronLeft, FilePenLine, ImageUp, Layers3, Loader2, PencilLine, Plus, RotateCcw, Save, Sparkles, X } from "lucide-react";
 import Image from "next/image";
 
 import {
@@ -367,6 +367,7 @@ export function PlaygroundView() {
   const { activeSoulKey, switchSoul } = useAppStore();
   const [catalog, setCatalog] = useState<SoulSystemCatalog | null>(null);
   const [mode, setMode] = useState<SoulPanelMode>("contract");
+  const [selectedWorldId, setSelectedWorldId] = useState("world.default");
   const [selectedPath, setSelectedPath] = useState(ACTIVE_SEED_PATH);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState("");
@@ -410,6 +411,14 @@ export function PlaygroundView() {
     setError("");
     const payload = await getSoulSystemCatalog();
     setCatalog(payload);
+    setSelectedWorldId((current) => {
+      if (payload.resource_catalog?.worlds.some((world) => world.world_id === current)) {
+        return current;
+      }
+      return payload.resource_catalog?.worlds.find((world) => world.world_id === "world.honghuang")?.world_id
+        ?? payload.resource_catalog?.worlds[0]?.world_id
+        ?? "world.default";
+    });
     if (options.selectActive) {
       const activeFile = payload.static_files.find((file) => file.path === ACTIVE_SEED_PATH);
       setSelectedPath(activeFile?.path ?? payload.static_files[0]?.path ?? ACTIVE_SEED_PATH);
@@ -446,12 +455,24 @@ export function PlaygroundView() {
   }, []);
 
   const allFiles = useMemo(() => [...(catalog?.static_files ?? []), ...(catalog?.seeds ?? [])], [catalog]);
-  const selectedFile = allFiles.find((file) => file.path === selectedPath) ?? allFiles[0] ?? null;
+  const selectedFile = selectedPath ? allFiles.find((file) => file.path === selectedPath) ?? null : null;
   const coreFile = catalog?.static_files.find((file) => file.path === CORE_PATH) ?? null;
   const activeFile = catalog?.static_files.find((file) => file.path === ACTIVE_SEED_PATH) ?? null;
+  const resourceCatalog = catalog?.resource_catalog ?? null;
+  const worlds = resourceCatalog?.worlds ?? [];
+  const selectedWorld = worlds.find((world) => world.world_id === selectedWorldId) ?? worlds[0] ?? null;
+  const selectedWorldTheme = String(selectedWorld?.metadata?.theme ?? "");
+  const isHonghuangWorld = selectedWorld?.world_id === "world.honghuang" || selectedWorldTheme === "honghuang";
+  const storiesForWorld = resourceCatalog?.stories.filter((story) => story.world_id === selectedWorld?.world_id) ?? [];
+  const soulCardsForWorld = resourceCatalog?.cards.filter((card) => card.world_id === selectedWorld?.world_id) ?? [];
+  const worldSoulIds = new Set([
+    ...storiesForWorld.map((story) => story.soul_id),
+    ...soulCardsForWorld.map((card) => card.soul_id),
+  ].filter(Boolean));
+  const seedsForWorld = catalog?.seeds.filter((seed) => worldSoulIds.has(seed.key)) ?? [];
   const selectedSeed = isSoulSeed(selectedFile)
     ? selectedFile
-    : catalog?.seeds.find((seed) => seed.active || seed.key === activeSoulKey) ?? catalog?.seeds[0] ?? null;
+    : seedsForWorld.find((seed) => seed.active || seed.key === activeSoulKey) ?? seedsForWorld[0] ?? null;
   const selectedVisibleContent = visibleSoulContent(selectedFile);
   const hasUnsavedChanges = Boolean(selectedFile && draft !== selectedVisibleContent);
   const portraitSrc = selectedSeed
@@ -516,6 +537,36 @@ export function PlaygroundView() {
       return;
     }
     chooseFile(seed);
+  }
+
+  function selectWorld(worldId: string) {
+    if (isEditing && hasUnsavedChanges && !window.confirm("当前内容还没有保存，要放弃这些修改并切换世界观吗？")) {
+      return;
+    }
+    const nextWorld = worlds.find((world) => world.world_id === worldId) ?? null;
+    const nextSoulIds = new Set([
+      ...(resourceCatalog?.stories.filter((story) => story.world_id === nextWorld?.world_id).map((story) => story.soul_id) ?? []),
+      ...(resourceCatalog?.cards.filter((card) => card.world_id === nextWorld?.world_id).map((card) => card.soul_id) ?? []),
+    ].filter(Boolean));
+    const nextSeed = catalog?.seeds.find((seed) => nextSoulIds.has(seed.key)) ?? null;
+    setSelectedWorldId(worldId);
+    setProjectionDraft(null);
+    setProjectionDraftNodes([]);
+    setProjectionPanelPage("catalog");
+    setSelectedManagedSectionId("section-0");
+    setNotice("");
+    setError("");
+    if (mode === "core" && coreFile) {
+      chooseFile(coreFile);
+      return;
+    }
+    if (nextSeed) {
+      chooseFile(nextSeed);
+    } else {
+      setSelectedPath("");
+      setDraft("");
+      setIsEditing(false);
+    }
   }
 
   function profileForSeed(seed: SoulSystemSeed) {
@@ -594,7 +645,12 @@ export function PlaygroundView() {
 
   function handleModeSwitch(nextMode: SoulPanelMode) {
     if (nextMode === "contract") {
-      jumpToMode(nextMode, activeFile);
+      setMode(nextMode);
+      if (selectedSeed) {
+        chooseSoul(selectedSeed);
+      } else if (activeFile && !selectedWorld) {
+        chooseFile(activeFile);
+      }
       return;
     }
     if (nextMode === "projection") {
@@ -951,7 +1007,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
   }
 
   return (
-    <div className="workspace-view soul-system-console">
+    <div className={`workspace-view soul-system-console ${isHonghuangWorld ? "soul-system-console--honghuang" : "soul-system-console--plain"}`}>
       {loading ? (
         <div className="workspace-alert">
           <Loader2 size={16} className="spin" />
@@ -961,19 +1017,56 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
       {error ? <div className="workspace-alert workspace-alert--danger">{error}</div> : null}
       {notice ? <div className="workspace-alert">{notice}</div> : null}
 
-      <section className="soul-origin-banner">
-        <span>洪荒灵魂系统</span>
-        <p>{SHARED_SOUL_LORE}</p>
+      <section className="soul-worldview-entry">
+        <div className="soul-worldview-entry__head">
+          <div>
+            <span>Worldview Library</span>
+            <strong>先选择世界观，再选择灵魂</strong>
+          </div>
+          <p>世界观决定背景与故事层；灵魂负责本体设定；投影负责实际工作 prompt。</p>
+        </div>
+        <div className="soul-world-grid">
+          {worlds.map((world) => {
+            const worldCards = resourceCatalog?.cards.filter((card) => card.world_id === world.world_id) ?? [];
+            const active = selectedWorld?.world_id === world.world_id;
+            return (
+              <button
+                aria-pressed={active}
+                className={`soul-world-card ${active ? "soul-world-card--active" : ""} ${String(world.metadata?.theme ?? "") === "honghuang" ? "soul-world-card--honghuang" : ""}`}
+                key={world.world_id}
+                onClick={() => selectWorld(world.world_id)}
+                type="button"
+              >
+                <span>{world.world_id}</span>
+                <strong>{world.title}</strong>
+                <em>{world.summary || "暂无摘要"}</em>
+                <small>{worldCards.length ? `${worldCards.length} 个灵魂` : "无背景 / 工作组合"}</small>
+              </button>
+            );
+          })}
+        </div>
       </section>
 
-      <section className="soul-system-hero">
+      {isHonghuangWorld ? (
+        <section className="soul-origin-banner">
+          <span>洪荒世界观组合</span>
+          <p>{SHARED_SOUL_LORE}</p>
+        </section>
+      ) : null}
+
+      <section className="soul-system-hero" aria-label="当前世界观与灵魂">
         <div className="soul-lore-panel">
-          <strong>{selectedLore?.title ?? "古老灵魂的降临"}</strong>
-          <p>{selectedLore?.summary ?? "选择一个灵魂后，这里会显示它的背景设定与协作气质。"}</p>
+          <span>{selectedWorld?.title ?? "未选择世界观"}</span>
+          <strong>{isHonghuangWorld ? selectedLore?.title ?? "古老灵魂的降临" : "无背景工作组合"}</strong>
+          <p>
+            {isHonghuangWorld
+              ? selectedLore?.summary ?? "选择一个灵魂后，这里会显示它的背景设定与协作气质。"
+              : selectedWorld?.content || "这个世界观不注入额外故事背景，适合纯工作 prompt 和低角色感任务。"}
+          </p>
         </div>
         <div className="soul-portrait-manager">
           <div className="soul-portrait-manager__stage">
-            {portraitSrc ? (
+            {isHonghuangWorld && portraitSrc ? (
               <Image
                 alt={`${selectedSeed?.name ?? "灵魂"}立绘`}
                 height={1448}
@@ -982,8 +1075,15 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
                 unoptimized
                 width={1086}
               />
-            ) : null}
+            ) : (
+              <div className="soul-plain-world-placeholder">
+                <Layers3 size={30} />
+                <strong>{selectedWorld?.title ?? "世界观"}</strong>
+                <span>无立绘背景，保留工作 prompt 与共同契约。</span>
+              </div>
+            )}
           </div>
+          {isHonghuangWorld ? (
           <div className="soul-portrait-manager__body">
             <strong>{selectedSeed?.name ?? catalog?.active_soul_name ?? "未知灵魂"}</strong>
             <button
@@ -1003,6 +1103,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
               type="file"
             />
           </div>
+          ) : null}
         </div>
       </section>
 
@@ -1032,7 +1133,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
               <div className="soul-projection-group">
                 <span>灵魂</span>
                 <div className="soul-seed-grid soul-seed-grid--compact">
-                  {catalog?.seeds.map((seed) => {
+                  {seedsForWorld.map((seed) => {
                     const count = (projectionCatalog?.cards ?? []).filter((card) => card.soul_id === seed.key || card.soul_name === seed.name).length;
                     return (
                       <article
@@ -1047,6 +1148,12 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
                       </article>
                     );
                   })}
+                  {!seedsForWorld.length ? (
+                    <div className="soul-empty-world">
+                      <strong>这个世界观暂未绑定灵魂</strong>
+                      <p>投影会跟随灵魂卡片出现。当前世界观适合维护纯工作 prompt 和共同契约。</p>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </>
@@ -1054,7 +1161,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
 
           {mode === "contract" ? (
             <div className="soul-seed-grid">
-              {catalog?.seeds.map((seed) => {
+              {seedsForWorld.map((seed) => {
                 const isCustomSoul = seed.source === "user";
                 const isEnabled = seed.enabled !== false;
                 return (
@@ -1106,6 +1213,12 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
                   </article>
                 );
               })}
+              {!seedsForWorld.length ? (
+                <div className="soul-empty-world">
+                  <strong>这个世界观暂未绑定灵魂</strong>
+                  <p>可以先维护工作 prompt 和共同契约；以后在资源库里把灵魂卡片绑定到这个世界观。</p>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -1351,6 +1464,11 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
                   <pre>先在左侧选择一个灵魂，再进入它的投影列表。</pre>
                 </div>
               )}
+            </div>
+          ) : mode === "contract" && !selectedSeed ? (
+            <div className="soul-empty-world soul-empty-world--editor">
+              <strong>当前世界观没有绑定灵魂</strong>
+              <p>这个入口适合后续放无背景工作 prompt。现在可以切到“共同契约”维护用户自定义契约，或选择洪荒时代进入灵魂卡片。</p>
             </div>
           ) : selectedFile ? (
             <>

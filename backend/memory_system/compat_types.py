@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from structured_memory.models import DEFAULT_DURABLE_SCHEMA_VERSION, MemoryNote, Message, utc_now_iso
-from structured_memory.process_state import ContextSlots, FlowState, ProcessState, TaskState, TurnUnderstanding
-from structured_memory.session_memory import SessionMemoryManager
+from memory_system.storage.models import DEFAULT_DURABLE_SCHEMA_VERSION, MemoryNote, Message, utc_now_iso
+from memory_system.storage.process_state import ContextSlots, FlowState, ProcessState, TaskState, TurnUnderstanding
+from memory_system.storage.session_memory import SessionMemoryManager
 
 __all__ = [
     "ContextSlots",
@@ -16,3 +16,4 @@ __all__ = [
     "TurnUnderstanding",
     "utc_now_iso",
 ]
+

@@ -190,7 +190,8 @@ def test_delegate_mode_template_skips_legacy_template_mcp_phase() -> None:
         and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
     )
     payload = dict(built_event.get("payload") or {})
-    assert str(dict(payload.get("selected_recipe") or {}).get("recipe_id") or "") == "runtime.recipe.pdf_analysis"
+    assert str(dict(payload.get("selected_recipe") or {}).get("recipe_id") or "") == "runtime.recipe.conversation"
+    assert str(dict(payload.get("selected_recipe") or {}).get("execution_kind") or "") == "conversation"
 
     assert "mcp_start" not in event_types
 

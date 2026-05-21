@@ -35,7 +35,7 @@ from health_system.maintenance.harness.regression_gate import run_profile
 from observability import current_trace_backend, is_langsmith_tracing_enabled, is_trace_capture_enabled
 from bootstrap.app_runtime import app_runtime
 
-from execution_core import (
+from tests.system_eval.execution_core import (
     build_run_context,
     collect_sse_events,
     extract_langsmith_trace_reference,

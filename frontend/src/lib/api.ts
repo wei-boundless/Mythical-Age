@@ -2570,6 +2570,58 @@ export type SoulProjectionCardCreatePayload = {
   select_after_create?: boolean;
 };
 
+export type SoulResourceWorld = {
+  world_id: string;
+  title: string;
+  summary: string;
+  content: string;
+  source_ref: string;
+  version?: string;
+  metadata?: Record<string, unknown>;
+  chars?: number;
+};
+
+export type SoulResourceStory = {
+  story_id: string;
+  soul_id: string;
+  title: string;
+  summary: string;
+  content: string;
+  world_id: string;
+  source_ref: string;
+  version?: string;
+  metadata?: Record<string, unknown>;
+  chars?: number;
+};
+
+export type SoulResourceCard = {
+  soul_id: string;
+  name: string;
+  display_name: string;
+  story_id: string;
+  world_id: string;
+  manifestation_id: string;
+  default_projection_id: string;
+  default_work_prompt_id: string;
+  description: string;
+  source: "builtin" | "user" | string;
+  enabled: boolean;
+  tags: string[];
+  metadata?: Record<string, unknown>;
+};
+
+export type SoulResourceCatalog = {
+  active_soul_id: string;
+  worlds: SoulResourceWorld[];
+  stories: SoulResourceStory[];
+  cards: SoulResourceCard[];
+  work_prompts: Array<Record<string, unknown>>;
+  common_contracts: Array<Record<string, unknown>>;
+  manifestations: Array<Record<string, unknown>>;
+  modes: Array<Record<string, unknown>>;
+  authority: string;
+};
+
 export type SoulSystemCatalog = {
   active_soul_key: string;
   active_soul_id?: string;
@@ -2582,6 +2634,7 @@ export type SoulSystemCatalog = {
   static_files: SoulSystemFile[];
   seeds: SoulSystemSeed[];
   soul_profiles?: SoulProfile[];
+  resource_catalog?: SoulResourceCatalog;
   management?: {
     planes: string[];
     authorization_owner: string;

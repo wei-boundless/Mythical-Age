@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .catalog_service import SoulCatalogService
 from .registry import SoulRegistry, normalize_path, read_text, write_text
 
 
@@ -12,9 +13,31 @@ class SoulRegistryService:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
         self.registry = SoulRegistry(self.base_dir)
+        self.catalog_service = SoulCatalogService(self.base_dir, registry=self.registry)
 
     def build_catalog(self) -> dict[str, Any]:
-        return self.registry.build_catalog()
+        catalog = self.registry.build_catalog()
+        catalog["resource_catalog"] = self.catalog_service.to_dict()
+        catalog["management"] = {
+            **dict(catalog.get("management") or {}),
+            "planes": [
+                "resources",
+                "worlds",
+                "stories",
+                "cards",
+                "work_prompts",
+                "common_contracts",
+                "manifestations",
+                "activity",
+                "projection",
+                "runtime",
+            ],
+            "resource_catalog_enabled": True,
+        }
+        return catalog
+
+    def build_resource_catalog(self) -> dict[str, Any]:
+        return self.catalog_service.to_dict()
 
     def profiles(self, *, include_disabled: bool = False) -> dict[str, Any]:
         return {

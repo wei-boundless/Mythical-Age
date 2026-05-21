@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from memory_layout import durable_memory_layout_from_backend_dir
-from structured_memory.models import utc_now_iso
+from memory_system.storage.models import utc_now_iso
 
 from .contracts import MemoryCommitAction, MemoryCommitLayer, MemoryCommitRecord
 
@@ -61,3 +61,4 @@ class MemoryGovernance:
 
 def _safe_stamp(value: str) -> str:
     return "".join(char for char in str(value or "") if char.isdigit())[:14] or "record"
+

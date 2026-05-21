@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from structured_memory.models import Message
-from structured_memory.session_memory import SessionMemoryManager
+from memory_system.storage.models import Message
+from memory_system.storage.session_memory import SessionMemoryManager
 from token_accounting import count_text_tokens
 
 
@@ -321,3 +321,4 @@ class ContextCompactor:
         tokens_before = self._conversation_tokens(working)
         level = self._pressure_level(tokens_before, len(working))
         return self.apply_strategy(working, pressure_level=level)
+

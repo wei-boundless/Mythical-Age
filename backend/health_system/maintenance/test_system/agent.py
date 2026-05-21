@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .case_registry import active_cases, all_cases, candidate_cases, cases_for_profile
+from .test_discovery import discover_test_files
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,19 +84,7 @@ class TestAgentAdvisor:
         return report.to_dict()
 
     def _discover_test_files(self) -> list[str]:
-        if not self.tests_root.exists():
-            return []
-        result: list[str] = []
-        for pattern in ("*_regression.py", "*_eval.py", "*_experiment.py", "*_smoke.py"):
-            for path in self.tests_root.rglob(pattern):
-                if not path.is_file() or "__pycache__" in path.parts:
-                    continue
-                try:
-                    relative = path.relative_to(self.backend_root).as_posix()
-                except ValueError:
-                    continue
-                result.append(relative)
-        return sorted(set(result))
+        return discover_test_files(self.tests_root)
 
     def _missing_registered_files(
         self,

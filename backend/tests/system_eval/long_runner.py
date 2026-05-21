@@ -42,16 +42,7 @@ from health_system.maintenance.harness.persistence import (
 )
 from observability import current_trace_backend, is_langsmith_tracing_enabled, is_trace_capture_enabled
 from bootstrap.app_runtime import app_runtime
-from tests.system_eval.execution_core import (
-    build_run_context,
-    collect_sse_events,
-    extract_langsmith_trace_reference,
-    final_text,
-    iso_now,
-    latest_event_payload,
-    orchestration_diff_mismatches,
-    slug,
-)
+from tests.system_eval.execution_core import build_run_context, collect_sse_events, extract_langsmith_trace_reference, final_text, iso_now, latest_event_payload, orchestration_diff_mismatches, slug
 from tests.system_eval.long_scenarios import LongScenario, LongScenarioTurn, SCENARIO_SETS, scenario_map
 
 
@@ -1182,7 +1173,7 @@ def _execute_scenario(
 ) -> ScenarioResult:
     started_at = iso_now()
     started = time.perf_counter()
-    scenario_dir = output_dir / "artifacts" / _slug(scenario.id)
+    scenario_dir = output_dir / "artifacts" / slug(scenario.id)
     scenario_dir.mkdir(parents=True, exist_ok=True)
     _write_long_progress(
         output_dir=output_dir,
@@ -1234,7 +1225,7 @@ def _execute_scenario(
                     "rerun.prefix_context_replay=true",
                 ]
             turn_results.append(turn_result)
-            artifact_path = scenario_dir / f"turn-{index:02d}-{_slug(turn.session)}.json"
+            artifact_path = scenario_dir / f"turn-{index:02d}-{slug(turn.session)}.json"
             artifact_paths.append(str(artifact_path))
             _write_long_progress(
                 output_dir=output_dir,
@@ -1391,7 +1382,7 @@ def _execute_scenario(
                 "contract_blockers": list(turn.runtime_control_diagnostics.get("contract_blockers") or []),
                 "blocked_reason": str(turn.runtime_control_diagnostics.get("blocked_reason") or ""),
                 "missing_execution_ids": list(turn.runtime_control_diagnostics.get("missing_execution_ids") or []),
-                "artifact_path": str(scenario_dir / f"turn-{turn.index:02d}-{_slug(turn.session_alias)}.json"),
+                "artifact_path": str(scenario_dir / f"turn-{turn.index:02d}-{slug(turn.session_alias)}.json"),
             }
             for turn in runtime_blocked_turns
         ],
@@ -1404,7 +1395,7 @@ def _execute_scenario(
                 "answer_fallback_reason": turn.answer_fallback_reason,
                 "orchestration_diff_status": turn.orchestration_diff_status,
                 "warnings": list(turn.quality_warnings),
-                "artifact_path": str(scenario_dir / f"turn-{turn.index:02d}-{_slug(turn.session_alias)}.json"),
+                "artifact_path": str(scenario_dir / f"turn-{turn.index:02d}-{slug(turn.session_alias)}.json"),
             }
             for turn in warning_turns
         ],
@@ -1456,19 +1447,13 @@ def _execute_scenario(
 
 
 def _build_context(output_dir: Path) -> RunContext:
-    settings = get_settings()
-    return RunContext(
-        run_id=output_dir.name,
+    return build_run_context(
         profile="long",
-        mode="inprocess",
-        repo_root=str(REPO_ROOT),
-        backend_root=str(BACKEND_DIR),
-        frontend_root=str(REPO_ROOT / "frontend"),
-        output_dir=str(output_dir),
-        generated_at=iso_now(),
-        python_version=platform.python_version(),
-        llm_provider=settings.llm_provider,
-        llm_model=settings.llm_model,
+        output_dir=output_dir,
+        repo_root=REPO_ROOT,
+        backend_root=BACKEND_DIR,
+        frontend_root=REPO_ROOT / "frontend",
+        settings=get_settings(),
         langsmith_enabled=is_langsmith_tracing_enabled(),
         trace_backend=current_trace_backend(),
         trace_enabled=is_trace_capture_enabled(),
@@ -1541,7 +1526,7 @@ def _issues_from_result(index: int, result: ScenarioResult) -> list[IssueEntry]:
 
 def _trace_from_result(result: ScenarioResult) -> TraceSpan:
     return TraceSpan(
-        trace_id=f"long-{_slug(result.name)}",
+        trace_id=f"long-{slug(result.name)}",
         stage="long_scenario",
         status=result.status,
         started_at=result.timing.started_at,

@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from .test_discovery import discover_test_files
+
 
 TestLayer = Literal["chain", "functional", "system", "scenario"]
 TestCaseStatus = Literal["active", "quarantined", "candidate"]
@@ -328,7 +330,7 @@ def candidate_cases() -> list[TestCaseDefinition]:
     if not tests_root.exists():
         return []
     result: list[TestCaseDefinition] = []
-    for path in _discover_test_files(tests_root):
+    for path in discover_test_files(tests_root):
         if path in registered:
             continue
         result.append(
@@ -382,25 +384,13 @@ def _backend_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _discover_test_files(tests_root: Path) -> list[str]:
-    backend_root = tests_root.parent
-    result: list[str] = []
-    for pattern in ("*_regression.py", "*_eval.py", "*_experiment.py", "*_smoke.py"):
-        for path in tests_root.rglob(pattern):
-            if not path.is_file() or "__pycache__" in path.parts:
-                continue
-            try:
-                result.append(path.relative_to(backend_root).as_posix())
-            except ValueError:
-                continue
-    return sorted(set(result))
-
-
 def _guess_layer(path: str) -> TestLayer:
     normalized = path.replace("\\", "/")
     name = Path(normalized).name
     if "/system_eval/" in normalized or name.endswith("_eval.py") or name.endswith("_experiment.py"):
         return "scenario"
+    if name.endswith("_test.py") or name.startswith("test_"):
+        return "system"
     if "app_" in name or "/harness/" in normalized or "runtime" in name or "orchestration" in name:
         return "system"
     return "functional"

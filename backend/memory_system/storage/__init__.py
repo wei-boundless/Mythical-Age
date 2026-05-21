@@ -125,4 +125,5 @@ def __getattr__(name: str):
             "ReconciliationDecision": ReconciliationDecision,
             "UnderstandingReconciler": UnderstandingReconciler,
         }[name]
-    raise AttributeError(f"module 'structured_memory' has no attribute {name!r}")
+    raise AttributeError(f"module 'memory_system.storage' has no attribute {name!r}")
+

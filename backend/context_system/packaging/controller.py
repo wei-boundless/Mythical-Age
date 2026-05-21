@@ -3,10 +3,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from structured_memory.flow_snapshots import FlowSnapshot
-from structured_memory.models import Message
-from structured_memory.session_memory import SessionMemoryManager
-from structured_memory.text_utils import normalize_storage_text
+from memory_system.storage.flow_snapshots import FlowSnapshot
+from memory_system.storage.models import Message
+from memory_system.storage.session_memory import SessionMemoryManager
+from memory_system.storage.text_utils import normalize_storage_text
 
 from context_system.compaction.compactor import ContextCompactor
 from context_system.models.context_models import ContextBudget, ContextControllerResult, ContextPackage, PressureLevel
@@ -496,3 +496,4 @@ class ContextController:
             if cleaned and cleaned not in deduped:
                 deduped.append(cleaned)
         return deduped
+

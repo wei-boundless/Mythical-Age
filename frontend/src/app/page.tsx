@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { MessageSquare, Workflow } from "lucide-react";
+import { MessageSquare, Sparkles, Workflow } from "lucide-react";
 
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
 import { ChatPanel } from "@/components/chat/ChatPanel";
+import { PlaygroundView } from "@/components/workspace/views/PlaygroundView";
 import { SystemFrameworkView } from "@/components/workspace/views/SystemFrameworkView";
 import { TaskSystemView } from "@/components/workspace/views/TaskSystemView";
 import { TaskGraphRunInteractionDock } from "@/components/workspace/views/task-system/TaskGraphRunInteractionDock";
@@ -14,6 +15,7 @@ import type { WorkspaceView } from "@/lib/store/types";
 
 const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "chat",
+  "playground",
   "task-system",
   "system-framework"
 ]);
@@ -36,11 +38,16 @@ const MAIN_LAYERS: Array<{
     description: "任务图、任务域、编辑器与运行配置",
     view: "task-system",
   },
+  {
+    icon: Sparkles,
+    label: "灵魂系统",
+    description: "世界观、灵魂卡片、投影与共同契约",
+    view: "playground",
+  },
 ];
 
 function Workspace() {
   const {
-    activeSoulKey,
     activeWorkspaceView,
     setWorkspaceView,
     clearTaskGraphMonitorRun,
@@ -55,15 +62,9 @@ function Workspace() {
     taskGraphMonitorLoading,
     taskGraphRunInteractionOpen,
   } = useAppStore();
-  const mainView = activeWorkspaceView === "task-system" ? "task-system" : "chat";
-
-  useEffect(() => {
-    if (activeSoulKey) {
-      document.documentElement.dataset.soul = activeSoulKey;
-      return;
-    }
-    delete document.documentElement.dataset.soul;
-  }, [activeSoulKey]);
+  const mainView = activeWorkspaceView === "task-system" || activeWorkspaceView === "playground"
+    ? activeWorkspaceView
+    : "chat";
 
   useEffect(() => {
     const view = new URLSearchParams(window.location.search).get("view");
@@ -73,7 +74,12 @@ function Workspace() {
   }, [setWorkspaceView]);
 
   useEffect(() => {
-    if (activeWorkspaceView !== "chat" && activeWorkspaceView !== "task-system" && activeWorkspaceView !== "system-framework") {
+    if (
+      activeWorkspaceView !== "chat"
+      && activeWorkspaceView !== "playground"
+      && activeWorkspaceView !== "task-system"
+      && activeWorkspaceView !== "system-framework"
+    ) {
       setWorkspaceView("chat");
     }
   }, [activeWorkspaceView, setWorkspaceView]);
@@ -107,7 +113,9 @@ function Workspace() {
         <header className="practical-mainbar">
           <div className="practical-mainbar__title">
             <span>LangChain Agent</span>
-            <strong>{mainView === "chat" ? "主会话页面" : "图任务层"}</strong>
+            <strong>
+              {mainView === "chat" ? "主会话页面" : mainView === "task-system" ? "图任务层" : "灵魂系统"}
+            </strong>
           </div>
           <nav className="practical-layer-tabs" aria-label="主工作层">
             {MAIN_LAYERS.map((item) => {
@@ -146,7 +154,7 @@ function Workspace() {
         </section>
 
         <section className="practical-content">
-          {mainView === "chat" ? <ChatPanel /> : <TaskSystemView />}
+          {mainView === "chat" ? <ChatPanel /> : mainView === "task-system" ? <TaskSystemView /> : <PlaygroundView />}
         </section>
       </section>
 
