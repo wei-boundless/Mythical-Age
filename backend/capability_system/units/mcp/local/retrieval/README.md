@@ -7,7 +7,7 @@ The active chat/retrieval path is:
 
 1. `RetrievalService` builds a route plan.
 2. `RetrievalBootstrapper` discovers and converts source documents.
-3. `normalized_ingestion` cleans blocks and builds hierarchical index units.
+3. `knowledge_system.ingestion` cleans blocks and builds hierarchical index units.
 4. `LlamaIndexRetrievalBackend` stores dense vectors in Qdrant and lexical BM25
    data under `storage/indexes`.
 5. Retrieval fuses dense and lexical candidates, coalesces related hits, reranks
@@ -39,7 +39,7 @@ Binary `.doc/.ppt/.xls` files are recognized, but the parser will only produce a
   Local multimodal parser kept as a fallback for document conversion.
 - `registry.py`
   Collection wrapper around the active retrieval backend. New runtime code
-  should prefer `retrieval.service.RetrievalService`.
+  should prefer `knowledge_system.retrieval.RetrievalService`.
 - `cli.py`
   Maintenance helper for collection status, rebuilds, and test queries.
 
@@ -54,7 +54,7 @@ Binary `.doc/.ppt/.xls` files are recognized, but the parser will only produce a
 ```python
 from pathlib import Path
 
-from retrieval import RetrievalService
+from knowledge_system.retrieval import RetrievalService
 
 service = RetrievalService(Path("backend").resolve())
 result = service.retrieve_execution("What does the table say?", top_k=5)

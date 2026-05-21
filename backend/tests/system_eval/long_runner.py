@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import platform
 import sys
 import time
 from collections import Counter
@@ -43,7 +42,16 @@ from health_system.maintenance.harness.persistence import (
 )
 from observability import current_trace_backend, is_langsmith_tracing_enabled, is_trace_capture_enabled
 from bootstrap.app_runtime import app_runtime
-from tests.system_eval.execution_core import collect_sse_events, extract_langsmith_trace_reference, final_text, iso_now
+from tests.system_eval.execution_core import (
+    build_run_context,
+    collect_sse_events,
+    extract_langsmith_trace_reference,
+    final_text,
+    iso_now,
+    latest_event_payload,
+    orchestration_diff_mismatches,
+    slug,
+)
 from tests.system_eval.long_scenarios import LongScenario, LongScenarioTurn, SCENARIO_SETS, scenario_map
 
 
@@ -131,19 +139,6 @@ class TurnResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-def _slug(value: str) -> str:
-    parts = []
-    for char in value:
-        if char.isalnum():
-            parts.append(char.lower())
-        else:
-            parts.append("-")
-    slug = "".join(parts).strip("-")
-    while "--" in slug:
-        slug = slug.replace("--", "-")
-    return slug or "artifact"
 
 
 def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
@@ -523,29 +518,6 @@ def _sync_memory(runtime, session_id: str, *, durable: bool = False) -> dict[str
     }
 
 
-def _latest_event_payload(events: list[dict[str, Any]], event_name: str) -> dict[str, Any]:
-    for item in reversed(events):
-        if str(item.get("event") or "") != event_name:
-            continue
-        data = item.get("data")
-        return dict(data) if isinstance(data, dict) else {}
-    return {}
-
-
-def _orchestration_diff_mismatches(diff: dict[str, Any]) -> list[str]:
-    mismatches: list[str] = []
-    for item in list(diff.get("items") or []):
-        if not isinstance(item, dict) or str(item.get("status") or "") != "mismatch":
-            continue
-        field = str(item.get("field") or "unknown")
-        expected = item.get("expected")
-        actual = item.get("actual")
-        reason = str(item.get("reason") or "")
-        suffix = f" / {reason}" if reason else ""
-        mismatches.append(f"{field}: expected={expected!r}, actual={actual!r}{suffix}")
-    return mismatches
-
-
 def _event_data(events: list[dict[str, Any]], event_name: str) -> list[dict[str, Any]]:
     return [
         dict(item.get("data") or {})
@@ -764,7 +736,7 @@ def _latest_artifact_mtime(output_dir: Path) -> float:
 
 def _progress_event_id(run_id: str, event_type: str, *, scenario_id: str = "", turn_ref: str = "") -> str:
     raw = ":".join(item for item in (run_id, event_type, scenario_id, turn_ref, str(int(time.time() * 1000))) if item)
-    return f"harness-progress:{_slug(raw)}"
+    return f"harness-progress:{slug(raw)}"
 
 
 def _write_long_progress(
@@ -988,12 +960,12 @@ def _execute_user_turn(
 
     trace_ref = extract_langsmith_trace_reference(events)
     response_text = final_text(events)
-    orchestration_plan_payload = _latest_event_payload(events, "orchestration_plan")
+    orchestration_plan_payload = latest_event_payload(events, "orchestration_plan")
     orchestration_plan = dict(orchestration_plan_payload.get("plan") or {})
-    orchestration_diff_payload = _latest_event_payload(events, "orchestration_diff")
+    orchestration_diff_payload = latest_event_payload(events, "orchestration_diff")
     orchestration_diff = dict(orchestration_diff_payload.get("diff") or {})
-    orchestration_diff_mismatches = _orchestration_diff_mismatches(orchestration_diff)
-    runtime_control = _latest_event_payload(events, "orchestration_runtime_control")
+    orchestration_diff_mismatch_items = orchestration_diff_mismatches(orchestration_diff)
+    runtime_control = latest_event_payload(events, "orchestration_runtime_control")
     runtime_control_diagnostics = dict(runtime_control.get("diagnostics") or {})
     runtime_control_warnings = [
         str(item)
@@ -1131,7 +1103,7 @@ def _execute_user_turn(
         orchestration_plan_id=str(orchestration_plan.get("plan_id") or orchestration_diff.get("plan_id") or ""),
         orchestration_diff_status=str(orchestration_diff.get("status") or ""),
         orchestration_diff_summary=str(orchestration_diff.get("summary") or ""),
-        orchestration_diff_mismatches=orchestration_diff_mismatches,
+        orchestration_diff_mismatches=orchestration_diff_mismatch_items,
         runtime_control_source=str(runtime_control.get("source") or ""),
         runtime_primary_active=bool(runtime_control.get("primary_active", False)),
         runtime_control_warnings=runtime_control_warnings,
@@ -1163,7 +1135,7 @@ def _execute_user_turn(
     turn_result.failed_checks.extend(_collect_critical_quality_failures(turn_result))
     turn_result.passed = not turn_result.failed_checks and "error" not in turn_result.event_types
 
-    artifact_path = scenario_dir / f"turn-{turn_index:02d}-{_slug(turn.session)}.json"
+    artifact_path = scenario_dir / f"turn-{turn_index:02d}-{slug(turn.session)}.json"
     artifact_path.write_text(
         json.dumps(
             {

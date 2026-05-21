@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from orchestration.runtime_loop.professional_state_machine import (
+from runtime.professional_runtime.state_machine import (
     initial_professional_run_state,
     unsatisfied_obligations_from_verification,
 )

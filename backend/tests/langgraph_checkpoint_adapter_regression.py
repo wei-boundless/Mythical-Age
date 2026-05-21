@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from orchestration.runtime_loop.langgraph_checkpoint_adapter import LangGraphCheckpointStoreAdapter
+from runtime.coordination_runtime.checkpoint_adapter import LangGraphCheckpointStoreAdapter
 
 
 def test_langgraph_checkpoint_adapter_persists_by_thread_id(tmp_path) -> None:

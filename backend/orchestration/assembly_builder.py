@@ -664,7 +664,7 @@ def _context_policy_ref(context_policy_result: dict[str, Any]) -> str:
 
 
 def _operation_requirement_from_payload(payload: dict[str, Any]):
-    from tasks.capability_requirements import OperationRequirement
+    from task_system.contracts.capability_requirements import OperationRequirement
 
     return OperationRequirement(
         requirement_id=str(payload.get("requirement_id") or ""),

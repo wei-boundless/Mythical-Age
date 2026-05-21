@@ -53,7 +53,7 @@ export function TaskGraphBlueprintPage({
       <header className="task-graph-studio-page__head">
         <span>图工作台</span>
         <strong>图级配置</strong>
-        <small>定义任务图身份、边界节点和全局运行语义；节点、边和图节点协议在对象编辑台维护。</small>
+        <small>定义任务图身份、边界节点和全局运行语义；节点、边和图模块协议在对象编辑台维护。</small>
         <TaskSystemToolbarButton onClick={onOpenTemplateChooser}>
           <GitBranch size={14} />切换蓝图模板
         </TaskSystemToolbarButton>

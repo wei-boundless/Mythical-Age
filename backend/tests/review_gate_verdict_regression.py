@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from api.orchestration import _review_gate_recovery_quality_gate
-from orchestration.runtime_loop.review_gate_verdict import extract_explicit_review_verdict
-from orchestration.runtime_loop.task_run_loop import _stage_business_acceptance
+from runtime.coordination_runtime.review_gate_verdict import extract_explicit_review_verdict
+from runtime.unit_runtime.quality_gates import _stage_business_acceptance
 
 
 def _review_contract() -> dict[str, object]:
@@ -46,6 +46,35 @@ def test_chinese_review_rework_or_next_stage_no_rejects_runtime_and_breakpoint_r
         explicit_inputs={},
         final_content=content,
         output_refs=["artifact:world_review"],
+        terminal_status="completed",
+        requires_file_artifact_refs=True,
+    )
+    recovery = _review_gate_recovery_quality_gate(content)
+
+    assert extract_explicit_review_verdict(content) == "revise"
+    assert acceptance["accepted"] is False
+    assert acceptance["business_accepted"] is False
+    assert recovery["accepted"] is False
+
+
+def test_conditional_pass_with_blockers_is_revise() -> None:
+    content = """# 角色审核报告
+
+审核结论：有条件通过。需完成指定修改后方可进入剧情大纲节点。
+
+## 二、阻塞问题（必须修改，否则不能进入下一阶段）
+
+### 阻塞-1：角色动机与世界观冲突
+
+修改要求：完成阻塞问题后，角色设定候选可进入记忆提交节点冻结。
+"""
+
+    acceptance = _stage_business_acceptance(
+        stage_id="character_review",
+        contract=_review_contract(),
+        explicit_inputs={},
+        final_content=content,
+        output_refs=["artifact:character_review"],
         terminal_status="completed",
         requires_file_artifact_refs=True,
     )

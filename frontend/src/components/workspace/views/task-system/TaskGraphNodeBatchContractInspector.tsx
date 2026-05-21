@@ -162,7 +162,7 @@ export function TaskGraphNodeBatchContractInspector({
                 value={stringValue(acceptancePolicy.review_node_id)}
               />
             </TaskSystemField>
-            <TaskSystemField label="审核子图">
+            <TaskSystemField label="审核图模块">
               <input
                 onChange={(event) => update("runtime", ["batch_acceptance_policy", "review_graph_id"], event.target.value)}
                 placeholder="review graph id"

@@ -6,8 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from orchestration.runtime_loop.task_run_loop import TaskRunLoop
-from orchestration.runtime_loop.models import RuntimeLoopState, TaskRun
+from runtime.unit_runtime.loop import TaskRunLoop
+from runtime.shared.models import RuntimeLoopState, TaskRun
 
 
 def test_task_run_loop_stop_can_write_checkpoint(tmp_path) -> None:

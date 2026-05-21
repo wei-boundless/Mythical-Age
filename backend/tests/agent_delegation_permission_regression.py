@@ -10,9 +10,9 @@ if str(BACKEND_DIR) not in sys.path:
 
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration.delegation_catalog import DelegationCatalogBuilder
-from orchestration.runtime_loop.agent_delegation_executor import AgentDelegationExecutor
-from orchestration.runtime_loop.delegation_models import AgentDelegationRequest
-from orchestration.runtime_loop.models import AgentRun
+from runtime.execution.agent_delegation_executor import AgentDelegationExecutor
+from runtime.execution.delegation_models import AgentDelegationRequest
+from runtime.shared.models import AgentRun
 
 
 def test_delegation_catalog_filters_by_parent_agent_permission(tmp_path) -> None:

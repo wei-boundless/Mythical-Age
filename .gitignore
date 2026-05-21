@@ -18,6 +18,17 @@ frontend/orchestration-*.png
 backend/.env
 backend/storage/
 backend/session-memory/
+backend/checkpoints/
+backend/coordination_checkpoints/
+backend/events/
+backend/executions/
+backend/output/
+backend/runtime_objects/
+backend/runtime_state/
+backend/runtime_views/
+backend/state_index/
+backend/timeline_ledgers/
+backend/working_memory/
 backend/durable_memory/**/*.md
 !backend/durable_memory/SCHEMA.md
 !backend/durable_memory/meta/SCHEMA.md

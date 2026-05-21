@@ -3,9 +3,10 @@
 import type {
   ComposableUnitSpec,
   ContractSpec,
-  NestedRuntimePlanSpec,
+  GraphModuleRuntimePlanSpec,
   OrchestrationAgentRuntimeCatalog,
   TaskGraphRecord,
+  GraphModuleExpansionSpec,
   UnitInterfaceSpec,
   UnitPortEdgeSpec,
 } from "@/lib/api";
@@ -13,14 +14,15 @@ import type {
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import { taskGraphDisplayName } from "./taskGraphNameRegistry";
 import {
-  TaskGraphGraphUnitInspector,
-  TaskGraphNestedRuntimeInspector,
+  TaskGraphGraphModuleInspector,
+  TaskGraphModuleRuntimeInspector,
   TaskGraphTimelineBlockInspector,
-} from "./TaskGraphGraphUnitInspector";
+} from "./TaskGraphGraphModuleInspector";
 import {
   TaskGraphInterfacePlaceholderPanel,
   TaskGraphIssueInspector,
   TaskGraphOverlayStatusPanel,
+  TaskGraphModuleExpansionInspector,
   TaskGraphUnmappedUnitPanel,
 } from "./TaskGraphInspectorUtilityPanels";
 import { TaskGraphNodeUnitInspector } from "./TaskGraphNodeUnitInspector";
@@ -62,8 +64,15 @@ function selectedTimelineBlock(subject: TaskGraphComposableSubject, blocks: Task
   return subject.kind === "timeline_block" ? blocks.find((block) => block.block_id === subject.block_id) ?? null : null;
 }
 
-function selectedNestedRuntime(subject: TaskGraphComposableSubject, plans: NestedRuntimePlanSpec[]) {
-  return subject.kind === "nested_runtime" ? plans.find((plan) => plan.plan_id === subject.plan_id) ?? null : null;
+function selectedGraphModuleRuntime(subject: TaskGraphComposableSubject, plans: GraphModuleRuntimePlanSpec[]) {
+  return subject.kind === "graph_module_runtime" ? plans.find((plan) => plan.plan_id === subject.plan_id) ?? null : null;
+}
+
+function selectedGraphModuleExpansion(subject: TaskGraphComposableSubject, expansions: GraphModuleExpansionSpec[]) {
+  if (subject.kind !== "graph_module_expansion" && subject.kind !== "graph_module_expansion_node" && subject.kind !== "graph_module_expansion_edge") {
+    return null;
+  }
+  return expansions.find((expansion) => expansion.unit_id === subject.unit_id) ?? null;
 }
 
 function isOverlayEdge(edge: UnitPortEdgeSpec | null, overlayEdgeIds: Set<string>) {
@@ -108,8 +117,9 @@ export function TaskGraphObjectInspector({
   contractSpecs,
   domainTaskOptions,
   graphDraft,
+  graphModuleExpansions,
   interfaces,
-  nestedRuntime,
+  graphModuleRuntime,
   onOpenGraph,
   onSelectSubject,
   orchestrationAgentCatalog,
@@ -130,8 +140,9 @@ export function TaskGraphObjectInspector({
   contractSpecs: ContractSpec[];
   domainTaskOptions: Array<{ value: string; label: string }>;
   graphDraft: TaskGraphDraftV2;
+  graphModuleExpansions: GraphModuleExpansionSpec[];
   interfaces: UnitInterfaceSpec[];
-  nestedRuntime: NestedRuntimePlanSpec[];
+  graphModuleRuntime: GraphModuleRuntimePlanSpec[];
   onOpenGraph?: (graphId: string) => void;
   onSelectSubject: (subject: TaskGraphComposableSubject) => void;
   orchestrationAgentCatalog?: OrchestrationAgentRuntimeCatalog | null;
@@ -153,7 +164,8 @@ export function TaskGraphObjectInspector({
   const unit = selectedUnit(selectedSubject, units);
   const portEdge = selectedPortEdge(selectedSubject, portEdges);
   const block = selectedTimelineBlock(selectedSubject, blocks);
-  const nestedPlan = selectedNestedRuntime(selectedSubject, nestedRuntime);
+  const nestedPlan = selectedGraphModuleRuntime(selectedSubject, graphModuleRuntime);
+  const graphModuleExpansion = selectedGraphModuleExpansion(selectedSubject, graphModuleExpansions);
   const unitOptions = units.map((item) => item.unit_id);
   const nodeUnitOptions = units.filter((item) => nodeIdFromUnit(item)).map((item) => item.unit_id);
   const graphName = taskGraphDisplayName(graphDraft.graph_id, undefined, metadata, graphDraft.title || graphDraft.graph_id);
@@ -196,7 +208,7 @@ export function TaskGraphObjectInspector({
   };
   const formatGraph = (graphId: string) => {
     const graph = (taskGraphs ?? []).find((item) => item.graph_id === graphId);
-    return graph ? `${graph.title || graph.graph_id} · ${graph.graph_id}` : graphId || "不绑定子任务图";
+    return graph ? `${graph.title || graph.graph_id} · ${graph.graph_id}` : graphId || "不绑定图模块";
   };
 
   const updateTimelineBlock = (blockId: string, patch: Record<string, unknown>) => {
@@ -341,7 +353,7 @@ export function TaskGraphObjectInspector({
       formatContract={formatContract}
       graphDraft={graphDraft}
       graphName={graphName}
-      graphUnitCount={units.filter((item) => item.unit_type === "graph").length}
+      graphModuleCount={units.filter((item) => item.unit_type === "graph").length}
       interfaceCount={interfaces.length}
       nodeTitle={nodeTitle}
       portEdgeCount={portEdges.length}
@@ -371,9 +383,9 @@ export function TaskGraphObjectInspector({
     );
   };
 
-  const renderGraphUnitEditor = (selected: ComposableUnitSpec) => {
+  const renderGraphModuleEditor = (selected: ComposableUnitSpec) => {
     return (
-      <TaskGraphGraphUnitInspector
+      <TaskGraphGraphModuleInspector
         blocks={blocks}
         contractOptions={contractOptions}
         formatContract={formatContract}
@@ -388,7 +400,7 @@ export function TaskGraphObjectInspector({
   };
 
   const renderUnitEditor = (selected: ComposableUnitSpec) => {
-    if (selected.unit_type === "graph") return renderGraphUnitEditor(selected);
+    if (selected.unit_type === "graph") return renderGraphModuleEditor(selected);
     const mappedNode = nodeForUnit(selected);
     if (mappedNode) return renderNodeUnitEditor(selected, mappedNode);
     return <TaskGraphUnmappedUnitPanel selected={selected} />;
@@ -429,8 +441,8 @@ export function TaskGraphObjectInspector({
     />
   );
 
-  const renderNestedRuntime = (plan: NestedRuntimePlanSpec) => (
-    <TaskGraphNestedRuntimeInspector plan={plan} />
+  const renderGraphModuleRuntime = (plan: GraphModuleRuntimePlanSpec) => (
+    <TaskGraphModuleRuntimeInspector plan={plan} />
   );
 
   return (
@@ -439,7 +451,12 @@ export function TaskGraphObjectInspector({
       {unit ? renderUnitEditor(unit) : null}
       {portEdge ? renderPortEdgeEditor(portEdge) : null}
       {block ? renderBlockEditor(block) : null}
-      {nestedPlan ? renderNestedRuntime(nestedPlan) : null}
+      {nestedPlan ? renderGraphModuleRuntime(nestedPlan) : null}
+      <TaskGraphModuleExpansionInspector
+        expansion={graphModuleExpansion}
+        onOpenGraph={onOpenGraph}
+        selectedSubject={selectedSubject}
+      />
       <TaskGraphIssueInspector selectedSubject={selectedSubject} />
       <TaskGraphInterfacePlaceholderPanel selectedSubject={selectedSubject} />
       <TaskGraphOverlayStatusPanel

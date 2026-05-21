@@ -73,7 +73,7 @@ describe("task graph selection", () => {
     expect(recommendedTaskGraphId(graphs, "graph.user.selected")).toBe("graph.user.selected");
   });
 
-  it("surfaces graph unit and batch contract feature badges", () => {
+  it("surfaces graph module and batch contract feature badges", () => {
     const badges = taskGraphFeatureBadges(graph({
       graph_id: "graph.writing.modular_novel.chapter_cycle",
       contract_bindings: {
@@ -84,7 +84,7 @@ describe("task graph selection", () => {
       },
     }));
 
-    expect(badges).toContain("GraphUnit");
+    expect(badges).toContain("图模块");
     expect(badges).toContain("批次契约");
     expect(badges).toContain("contract_bindings");
   });

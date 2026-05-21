@@ -182,6 +182,13 @@ async def get_artifact_repository_overview(
     repository_id: str = "",
     collection_id: str = "",
     status: str = "",
+    graph_id: str = "",
+    stage_id: str = "",
+    node_run_id: str = "",
+    task_ref: str = "",
+    output_contract_id: str = "",
+    producer_node_id: str = "",
+    artifact_kind: str = "",
     limit: int = Query(default=500, ge=1, le=2000),
 ) -> dict[str, Any]:
     runtime = require_runtime()
@@ -190,6 +197,13 @@ async def get_artifact_repository_overview(
         repository_id=repository_id.strip(),
         collection_id=collection_id.strip(),
         status=status.strip(),
+        graph_id=graph_id.strip(),
+        stage_id=stage_id.strip(),
+        node_run_id=node_run_id.strip(),
+        task_ref=task_ref.strip(),
+        output_contract_id=output_contract_id.strip(),
+        producer_node_id=producer_node_id.strip(),
+        artifact_kind=artifact_kind.strip(),
         limit=limit,
     )
 
@@ -200,6 +214,13 @@ async def list_artifact_repository_records(
     repository_id: str = "",
     collection_id: str = "",
     status: str = "",
+    graph_id: str = "",
+    stage_id: str = "",
+    node_run_id: str = "",
+    task_ref: str = "",
+    output_contract_id: str = "",
+    producer_node_id: str = "",
+    artifact_kind: str = "",
     limit: int = Query(default=500, ge=1, le=2000),
 ) -> dict[str, Any]:
     runtime = require_runtime()
@@ -208,6 +229,13 @@ async def list_artifact_repository_records(
         repository_id=repository_id.strip(),
         collection_id=collection_id.strip(),
         status=status.strip(),
+        graph_id=graph_id.strip(),
+        stage_id=stage_id.strip(),
+        node_run_id=node_run_id.strip(),
+        task_ref=task_ref.strip(),
+        output_contract_id=output_contract_id.strip(),
+        producer_node_id=producer_node_id.strip(),
+        artifact_kind=artifact_kind.strip(),
         limit=limit,
     )
     return {
@@ -215,6 +243,13 @@ async def list_artifact_repository_records(
         "repository_id": repository_id,
         "collection_id": collection_id,
         "status": status,
+        "graph_id": graph_id,
+        "stage_id": stage_id,
+        "node_run_id": node_run_id,
+        "task_ref": task_ref,
+        "output_contract_id": output_contract_id,
+        "producer_node_id": producer_node_id,
+        "artifact_kind": artifact_kind,
         "artifacts": overview["artifacts"],
         "authority": "artifact_repository.records_api",
     }

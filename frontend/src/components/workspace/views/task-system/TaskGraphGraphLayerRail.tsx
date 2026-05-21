@@ -2,7 +2,7 @@
 
 import { Boxes, Cable, FileWarning, GitBranch, Layers3, Network, Route } from "lucide-react";
 
-import type { ComposableUnitSpec, NestedRuntimePlanSpec, TaskGraphStandardView, UnitPortEdgeSpec } from "@/lib/api";
+import type { ComposableUnitSpec, GraphModuleExpansionSpec, GraphModuleRuntimePlanSpec, TaskGraphStandardView, UnitPortEdgeSpec } from "@/lib/api";
 
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import { taskGraphDisplayName } from "./taskGraphNameRegistry";
@@ -20,7 +20,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 function unitTypeLabel(type: string) {
   const labels: Record<string, string> = {
     node: "执行单元",
-    graph: "子图单元",
+    graph: "图模块",
     resource: "资源单元",
     human_gate: "人工门控",
     tool: "工具单元",
@@ -59,11 +59,17 @@ function unitIcon(unitType: string) {
   return GitBranch;
 }
 
+function expansionTitle(expansion: GraphModuleExpansionSpec | null | undefined, fallback = "导入图模块") {
+  const graph = asRecord(expansion?.imported_graph);
+  return String(graph.title ?? expansion?.linked_graph_id ?? fallback).trim() || fallback;
+}
+
 export function TaskGraphGraphLayerRail({
   activeFacet,
+  graphModuleExpansions,
   graphDraft,
   issues,
-  nestedRuntime,
+  graphModuleRuntime,
   onOpenGraph,
   onFacetChange,
   onSelectSubject,
@@ -74,9 +80,10 @@ export function TaskGraphGraphLayerRail({
   units,
 }: {
   activeFacet: TaskGraphModuleFacet;
+  graphModuleExpansions: GraphModuleExpansionSpec[];
   graphDraft: TaskGraphDraftV2;
   issues: TaskGraphPreflightIssue[];
-  nestedRuntime: NestedRuntimePlanSpec[];
+  graphModuleRuntime: GraphModuleRuntimePlanSpec[];
   onOpenGraph?: (graphId: string) => void;
   onFacetChange: (facet: TaskGraphModuleFacet) => void;
   onSelectSubject: (subject: TaskGraphComposableSubject) => void;
@@ -95,6 +102,7 @@ export function TaskGraphGraphLayerRail({
   const graphActive = subjectKey === taskGraphComposableSubjectKey(graphSubject);
   const graphIssueCount = issues.filter((issue) => issue.scope === "graph" || !issue.target_id).length;
   const visibleIssues = issues.slice(0, 6);
+  const expansionByUnitId = new Map(graphModuleExpansions.map((item) => [item.unit_id, item]));
 
   return (
     <aside className="task-graph-composer-rail" aria-label="图层关系">
@@ -108,15 +116,15 @@ export function TaskGraphGraphLayerRail({
           onClick={() => onSelectSubject(graphSubject)}
           type="button"
         >
-          <span>父图边界</span>
+          <span>封装图边界</span>
           <strong>{graphName}</strong>
           <small>{graphDraft.graph_id}</small>
           <em>{standardViewLoading ? "编译中" : `${units.length} 单元 / ${portEdges.length} 端口边`}</em>
         </button>
         <div className="task-graph-composer-mini-metrics">
-          <p><span>GraphUnit</span><strong>{counts.graph ?? 0}</strong></p>
+          <p><span>图模块</span><strong>{counts.graph ?? 0}</strong></p>
           <p><span>资源</span><strong>{counts.resource ?? 0}</strong></p>
-          <p><span>嵌套运行</span><strong>{nestedRuntime.length}</strong></p>
+          <p><span>导入计划</span><strong>{graphModuleRuntime.length}</strong></p>
           <p><span>问题</span><strong>{issues.length}</strong></p>
         </div>
         {graphIssueCount ? (
@@ -200,8 +208,44 @@ export function TaskGraphGraphLayerRail({
 
       <section className="task-graph-composer-panel">
         <header>
+          <Network aria-hidden="true" size={15} />
+          <strong>导入图模块</strong>
+        </header>
+        <div className="task-graph-composer-object-list">
+          {units.filter((unit) => unit.unit_type === "graph").map((unit) => {
+            const expansion = expansionByUnitId.get(unit.unit_id);
+            const subject: TaskGraphComposableSubject = { kind: "graph_module_expansion", unit_id: unit.unit_id, plan_id: expansion?.plan_id };
+            const active = subjectKey === taskGraphComposableSubjectKey(subject)
+              || (selectedSubject.kind === "graph_module_expansion_node" && selectedSubject.unit_id === unit.unit_id)
+              || (selectedSubject.kind === "graph_module_expansion_edge" && selectedSubject.unit_id === unit.unit_id);
+            const linkedGraphId = String(asRecord(unit.ref).graph_id ?? expansion?.linked_graph_id ?? "").trim();
+            const issue = firstIssueForTarget(issues, unit.unit_id);
+            return (
+              <button
+                className={active ? "active" : ""}
+                key={unit.unit_id}
+                onClick={() => onSelectSubject(subject)}
+                type="button"
+              >
+                <Network aria-hidden="true" size={14} />
+                <span>
+                  <strong>{expansionTitle(expansion, unit.title || unit.unit_id)}</strong>
+                  <small>{linkedGraphId || "未绑定 linked_graph_id"} / {(expansion?.nodes?.length ?? 0)} 节点</small>
+                </span>
+                {issue ? <em>{issue.severity}</em> : expansion?.issues?.length ? <em>issue</em> : null}
+              </button>
+            );
+          })}
+          {!units.some((unit) => unit.unit_type === "graph") ? (
+            <div className="task-graph-composer-empty">阶段图块绑定 linked_graph_id 后会形成可导入图模块。</div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="task-graph-composer-panel">
+        <header>
           <Route aria-hidden="true" size={15} />
-          <strong>图节点来源</strong>
+          <strong>图模块来源</strong>
         </header>
         <div className="task-graph-composer-object-list">
           {blocks.map((block: TaskGraphTimelineBlock) => {
@@ -220,7 +264,7 @@ export function TaskGraphGraphLayerRail({
             );
           })}
           {!blocks.length ? (
-            <div className="task-graph-composer-empty">还没有图节点来源，右侧选择当前任务图后可以新增。</div>
+            <div className="task-graph-composer-empty">还没有图模块来源，右侧选择当前任务图后可以新增。</div>
           ) : null}
         </div>
       </section>
@@ -244,7 +288,7 @@ export function TaskGraphGraphLayerRail({
       <section className="task-graph-composer-panel">
         <header>
           <Network aria-hidden="true" size={15} />
-          <strong>子图入口</strong>
+          <strong>模块工作台</strong>
         </header>
         <div className="task-graph-composer-object-list">
           {units.filter((unit) => unit.unit_type === "graph").map((unit) => {
@@ -273,7 +317,7 @@ export function TaskGraphGraphLayerRail({
             );
           })}
           {!units.some((unit) => unit.unit_type === "graph") ? (
-            <div className="task-graph-composer-empty">阶段图块绑定 linked_graph_id 后会派生 GraphUnit。</div>
+            <div className="task-graph-composer-empty">阶段图块绑定 linked_graph_id 后会派生导入图模块。</div>
           ) : null}
         </div>
       </section>

@@ -349,7 +349,7 @@ class MultimodalParserAdapter:
                 text=(
                     f"Binary Office file detected: {path.name}\n"
                     "Direct parsing is not implemented for this binary format. "
-                    "Please convert it to docx/pptx/xlsx or PDF for better retrieval."
+                    "Please convert it to docx/pptx/xlsx or PDF for better knowledge_system.retrieval."
                 ),
                 source=self._source(path),
                 modality="text",

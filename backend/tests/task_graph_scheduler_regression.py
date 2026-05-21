@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from orchestration.runtime_loop.task_graph_scheduler import bootstrap_scheduler_state
-from tasks.coordination_graph_models import TaskGraphRuntimeEdge, TaskGraphRuntimeNode, TaskGraphRuntimeSpec
+from runtime.graph_runtime.scheduler import bootstrap_scheduler_state
+from task_system.compiler.coordination_graph_models import TaskGraphRuntimeEdge, TaskGraphRuntimeNode, TaskGraphRuntimeSpec
 
 
 def _runtime_spec() -> TaskGraphRuntimeSpec:

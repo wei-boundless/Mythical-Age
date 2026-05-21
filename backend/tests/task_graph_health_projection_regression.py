@@ -5,17 +5,17 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from api import health_system as health_api
-from orchestration.runtime_loop import TaskRunLoop
-from orchestration.runtime_loop.task_graph_batch_runtime import (
+from runtime import TaskRunLoop
+from runtime.graph_runtime.batch_runtime import (
     attach_batch_execution_request,
     bootstrap_batch_lifecycle_runtime_state,
     select_batch_for_stage,
     transition_batch_after_stage_result,
 )
-from orchestration.runtime_loop.task_graph_run_monitor import build_task_graph_run_monitor_view
+from runtime.graph_runtime.run_monitor import build_task_graph_run_monitor_view
 from health_system.maintenance.test_system.task_graph_health import build_task_graph_health_projection
-from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-from tasks.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
+from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
 
 
 def _task_run() -> dict[str, object]:

@@ -9,10 +9,10 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from execution.model_response import ModelResponseRuntimeExecutor
-from execution.model_runtime import ModelRuntimeError
+from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
+from runtime.model_gateway.model_runtime import ModelRuntimeError
 from orchestration import RuntimeDirective
-from orchestration.runtime_loop.task_run_loop import _model_stream_policy_from_task_execution_assembly
+from runtime.unit_runtime.quality_gates import _model_stream_policy_from_task_execution_assembly
 
 
 def _directive() -> RuntimeDirective:

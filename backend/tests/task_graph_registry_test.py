@@ -4,13 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from api.tasks import _task_system_payload
-from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-from tasks.flow_registry import TaskFlowRegistry
-from tasks.task_graph_models import task_graph_from_dict, validate_task_graph
-from orchestration.runtime_loop.continuation_policy import derive_stage_contracts_from_graph
-from orchestration.runtime_loop.langgraph_coordination_runtime import _runtime_spec_from_payload
-from orchestration.runtime_loop.task_graph_scheduler import bootstrap_scheduler_state
+from api.task_system import _task_system_payload
+from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+from task_system.registry.flow_registry import TaskFlowRegistry
+from task_system.graphs.task_graph_models import task_graph_from_dict, validate_task_graph
+from runtime.contracts.continuation_policy import derive_stage_contracts_from_graph
+from runtime.coordination_runtime.runtime_payloads import _runtime_spec_from_payload
+from runtime.graph_runtime.scheduler import bootstrap_scheduler_state
 
 
 def test_task_graph_registry_round_trips_single_agent_graph(tmp_path: Path) -> None:

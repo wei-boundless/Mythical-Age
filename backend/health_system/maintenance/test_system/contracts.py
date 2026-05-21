@@ -22,7 +22,7 @@ class TestProfile:
     harness_profile: str = ""
     extra_args: tuple[str, ...] = ()
     requires_confirmation: bool = False
-    monitor_owner: str = "orchestration.runtime_loop"
+    monitor_owner: str = "runtime"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -46,7 +46,7 @@ class RuntimeLoopMonitorSummary:
     memory: dict[str, Any] = field(default_factory=dict)
     checkpoints: dict[str, Any] = field(default_factory=dict)
     stages: list[dict[str, Any]] = field(default_factory=list)
-    authority: str = "orchestration.runtime_loop_monitor"
+    authority: str = "runtime_monitor"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

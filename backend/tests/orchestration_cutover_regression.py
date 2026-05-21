@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,90 +13,29 @@ from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration import AgentRuntimeChainAssembler, StageProjectionCycle
 from query import QueryRuntime
-from tasks import TaskFlowRegistry
+from task_system import TaskFlowRegistry
+from tests.support.runtime_stubs import (
+    DefaultPermissionStub,
+    EmptySkillRegistryStub,
+    EmptyToolRuntimeStub,
+    InMemorySessionManagerStub,
+    PrimarySettingsStub,
+    QueryRuntimeMemoryFacadeStub,
+    SingleMessageModelRuntimeStub,
+    isolated_backend_root,
+)
 
 
-class _MemoryFacadeStub:
-    session_memory = SimpleNamespace(
-        manager=lambda _session_id: SimpleNamespace(load_state=lambda: None),
-        update_runtime_state_from_context_state=lambda *_args, **_kwargs: None,
-    )
-
-    def build_memory_context_package(self, *_args, **_kwargs):
-        return None
-
-    def build_memory_runtime_view(self, *_args, **_kwargs):
-        return {"view_id": "memview:test", "state_snapshot": {}}
-
-    def enqueue_memory_maintenance_after_commit(self, *_args, **_kwargs):
-        return SimpleNamespace(
-            to_dict=lambda: {
-                "attempted": False,
-                "queued": True,
-                "status": "queued",
-                "session_memory_succeeded": False,
-                "durable_memory_succeeded": False,
-                "durable_write_count": 0,
-            }
-        )
-
-
-class _ToolRuntimeStub:
-    registry = None
-    definitions = []
-    instances = []
-
-    def get_definition(self, _name):
-        return None
-
-
-class _SkillRegistryStub:
-    skills = []
-
-
-class _SettingsStub:
-    def get_rag_mode(self) -> bool:
-        return False
-
-    def get_orchestration_plan_mode(self) -> str:
-        return "primary"
-
-
-class _PermissionStub:
-    def current_mode(self) -> str:
-        return "default"
-
-    def supported_modes(self) -> list[str]:
-        return ["default"]
-
-
-class _ModelRuntimeStub:
-    async def invoke_messages(self, _messages):
-        return SimpleNamespace(content="单轮收口回答")
-
-
-class _SessionManagerStub:
-    def __init__(self) -> None:
-        self.messages: list[dict[str, object]] = []
-
-    def load_session_record(self, _session_id):
-        return {"messages": list(self.messages)}
-
-    def load_session_for_agent(self, _session_id, *, include_compressed_context: bool = False):
-        return list(self.messages)
-
-    def load_session(self, _session_id):
-        return list(self.messages)
-
-    def append_messages(self, _session_id, messages):
-        self.messages.extend(messages)
-        return list(messages)
+_MemoryFacadeStub = QueryRuntimeMemoryFacadeStub
+_ToolRuntimeStub = EmptyToolRuntimeStub
+_SkillRegistryStub = EmptySkillRegistryStub
+_SettingsStub = PrimarySettingsStub
+_PermissionStub = DefaultPermissionStub
+_ModelRuntimeStub = SingleMessageModelRuntimeStub
 
 
 def _isolated_backend_root() -> Path:
-    root = Path(tempfile.mkdtemp(prefix="orchestration-cutover-")) / "backend"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    return isolated_backend_root("orchestration-cutover-")
 
 
 def test_agent_runtime_chain_cutsover_to_formal_orchestration_objects() -> None:

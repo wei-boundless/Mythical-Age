@@ -12,7 +12,7 @@ describe("TaskGraph module composition facets", () => {
   it("keeps publish diagnostics on the matching module facet", () => {
     expect(taskGraphModuleFacetFromEditorFocus("connections")).toBe("connections");
     expect(taskGraphModuleFacetFromEditorFocus("interfaces")).toBe("interfaces");
-    expect(taskGraphModuleFacetFromEditorFocus("nested_runtime")).toBe("nested_runtime");
+    expect(taskGraphModuleFacetFromEditorFocus("graph_module_runtime")).toBe("graph_module_runtime");
     expect(taskGraphModuleFacetFromEditorFocus("units")).toBe("units");
   });
 
@@ -30,9 +30,10 @@ describe("TaskGraph module composition facets", () => {
       "units",
       "interfaces",
       "connections",
-      "nested_runtime",
+      "graph_module_runtime",
       "stitching",
     ]);
+    expect(TASK_GRAPH_MODULE_FACET_ITEMS.find((item) => item.id === "graph_module_runtime")?.title).toBe("导入模块");
   });
 
   it("reads and updates the composable graph overlay port edges", () => {

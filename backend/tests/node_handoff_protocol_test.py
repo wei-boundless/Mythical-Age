@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestration.runtime_loop.node_handoff_protocol import (
+from runtime.execution.node_handoff_protocol import (
     build_node_executor_binding,
     build_standard_node_input_package,
     build_standard_node_result_package,
@@ -108,9 +108,9 @@ def test_standard_node_input_package_filters_internal_protocol_inputs() -> None:
         },
         explicit_inputs={
             "user_goal": "启动子图",
-            "parent_graph_unit_runtime_handle": {"linked_graph_id": "graph.child"},
-            "parent_stage_execution_request": {"stage_id": "graph_unit.block.child"},
-            "parent_standard_input_package": {"input_items": [{"input_key": "polluted"}]},
+            "importing_graph_module_runtime_handle": {"linked_graph_id": "graph.child"},
+            "importing_stage_execution_request": {"stage_id": "graph_module.block.child"},
+            "importing_standard_input_package": {"input_items": [{"input_key": "polluted"}]},
             "runtime_protocol.debug": {"artifact_refs": ["artifact:debug/should_not_leak.md"]},
         },
         dispatch_context={"activation_id": "activation:child:1", "execution_permit_id": "permit:child:1"},

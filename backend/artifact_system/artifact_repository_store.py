@@ -84,14 +84,31 @@ class ArtifactRepositoryStore:
                 """
                 INSERT INTO artifact_records (
                     artifact_id, artifact_ref, path, repository_id, collection_id,
+                    output_contract_id, artifact_kind, producer_node_id, content_type, materialization_id,
                     logical_repository_id, effective_repository_id, task_run_id, scope_kind, scope_id,
                     graph_id, stage_id, node_run_id, task_ref, coordination_run_id,
                     status, content_hash, metadata_json, created_at, updated_at, authority
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(artifact_id) DO UPDATE SET
                     artifact_ref = excluded.artifact_ref,
                     path = excluded.path,
+                    output_contract_id = excluded.output_contract_id,
+                    artifact_kind = excluded.artifact_kind,
+                    producer_node_id = excluded.producer_node_id,
+                    content_type = excluded.content_type,
+                    materialization_id = excluded.materialization_id,
+                    logical_repository_id = excluded.logical_repository_id,
+                    effective_repository_id = excluded.effective_repository_id,
+                    task_run_id = excluded.task_run_id,
+                    scope_kind = excluded.scope_kind,
+                    scope_id = excluded.scope_id,
+                    graph_id = excluded.graph_id,
+                    stage_id = excluded.stage_id,
+                    node_run_id = excluded.node_run_id,
+                    task_ref = excluded.task_ref,
+                    coordination_run_id = excluded.coordination_run_id,
                     status = excluded.status,
+                    content_hash = excluded.content_hash,
                     metadata_json = excluded.metadata_json,
                     updated_at = excluded.updated_at
                 """,
@@ -101,6 +118,11 @@ class ArtifactRepositoryStore:
                     stored.path,
                     stored.repository_id,
                     stored.collection_id,
+                    stored.output_contract_id,
+                    stored.artifact_kind,
+                    stored.producer_node_id,
+                    stored.content_type,
+                    stored.materialization_id,
                     stored.logical_repository_id,
                     stored.effective_repository_id,
                     stored.task_run_id,
@@ -139,6 +161,13 @@ class ArtifactRepositoryStore:
         repository_id: str = "",
         collection_id: str = "",
         status: str = "",
+        graph_id: str = "",
+        stage_id: str = "",
+        node_run_id: str = "",
+        task_ref: str = "",
+        output_contract_id: str = "",
+        producer_node_id: str = "",
+        artifact_kind: str = "",
         limit: int = 500,
     ) -> tuple[ArtifactRecord, ...]:
         filters: list[str] = []
@@ -155,6 +184,27 @@ class ArtifactRepositoryStore:
         if status:
             filters.append("status = ?")
             params.append(status)
+        if graph_id:
+            filters.append("graph_id = ?")
+            params.append(graph_id)
+        if stage_id:
+            filters.append("stage_id = ?")
+            params.append(stage_id)
+        if node_run_id:
+            filters.append("node_run_id = ?")
+            params.append(node_run_id)
+        if task_ref:
+            filters.append("task_ref = ?")
+            params.append(task_ref)
+        if output_contract_id:
+            filters.append("output_contract_id = ?")
+            params.append(output_contract_id)
+        if producer_node_id:
+            filters.append("producer_node_id = ?")
+            params.append(producer_node_id)
+        if artifact_kind:
+            filters.append("artifact_kind = ?")
+            params.append(artifact_kind)
         sql = "SELECT * FROM artifact_records"
         if filters:
             sql += " WHERE " + " AND ".join(filters)
@@ -195,6 +245,11 @@ class ArtifactRepositoryStore:
                     path TEXT NOT NULL DEFAULT '',
                     repository_id TEXT NOT NULL,
                     collection_id TEXT NOT NULL DEFAULT 'default',
+                    output_contract_id TEXT NOT NULL DEFAULT '',
+                    artifact_kind TEXT NOT NULL DEFAULT 'file',
+                    producer_node_id TEXT NOT NULL DEFAULT '',
+                    content_type TEXT NOT NULL DEFAULT '',
+                    materialization_id TEXT NOT NULL DEFAULT '',
                     logical_repository_id TEXT NOT NULL DEFAULT '',
                     effective_repository_id TEXT NOT NULL DEFAULT '',
                     task_run_id TEXT NOT NULL DEFAULT '',
@@ -213,10 +268,29 @@ class ArtifactRepositoryStore:
                     authority TEXT NOT NULL DEFAULT 'artifact_repository.record'
                 );
 
+                """
+            )
+            _ensure_columns(
+                conn,
+                "artifact_records",
+                {
+                    "output_contract_id": "TEXT NOT NULL DEFAULT ''",
+                    "artifact_kind": "TEXT NOT NULL DEFAULT 'file'",
+                    "producer_node_id": "TEXT NOT NULL DEFAULT ''",
+                    "content_type": "TEXT NOT NULL DEFAULT ''",
+                    "materialization_id": "TEXT NOT NULL DEFAULT ''",
+                },
+            )
+            conn.executescript(
+                """
                 CREATE INDEX IF NOT EXISTS idx_artifact_records_scope
                     ON artifact_records(task_run_id, logical_repository_id, collection_id, status);
                 CREATE INDEX IF NOT EXISTS idx_artifact_records_stage
                     ON artifact_records(task_run_id, stage_id, node_run_id);
+                CREATE INDEX IF NOT EXISTS idx_artifact_records_contract
+                    ON artifact_records(output_contract_id, status, updated_at);
+                CREATE INDEX IF NOT EXISTS idx_artifact_records_producer
+                    ON artifact_records(graph_id, producer_node_id, task_ref);
                 """
             )
 
@@ -228,6 +302,14 @@ def build_artifact_id(*parts: str) -> str:
 
 def content_hash(value: str) -> str:
     return hashlib.sha1(str(value or "").encode("utf-8")).hexdigest()
+
+
+def file_content_hash(path: Path) -> str:
+    digest = hashlib.sha1()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _repository_from_row(row: sqlite3.Row) -> ArtifactRepository:
@@ -255,6 +337,11 @@ def _record_from_row(row: sqlite3.Row) -> ArtifactRecord:
         path=str(row["path"] or ""),
         repository_id=str(row["repository_id"]),
         collection_id=str(row["collection_id"] or "default"),
+        output_contract_id=str(row["output_contract_id"] or ""),
+        artifact_kind=str(row["artifact_kind"] or "file"),
+        producer_node_id=str(row["producer_node_id"] or ""),
+        content_type=str(row["content_type"] or ""),
+        materialization_id=str(row["materialization_id"] or ""),
         logical_repository_id=str(row["logical_repository_id"] or row["repository_id"]),
         effective_repository_id=str(row["effective_repository_id"] or row["repository_id"]),
         task_run_id=str(row["task_run_id"] or ""),
@@ -288,3 +375,14 @@ def _loads(value: Any, default: Any) -> Any:
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _ensure_columns(conn: sqlite3.Connection, table_name: str, columns: dict[str, str]) -> None:
+    existing = {
+        str(row[1])
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    for column_name, column_spec in columns.items():
+        if column_name in existing:
+            continue
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_spec}")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from orchestration.interaction_mode_policy import build_runtime_interaction_mode_policy
-from tasks.assembly_support import build_runtime_task_intent_contract
+from task_system.services.assembly_support import build_runtime_task_intent_contract
 
 
 def test_test_report_triage_promotes_to_professional_mode() -> None:

@@ -11,31 +11,30 @@ if str(BACKEND_DIR) not in sys.path:
 
 from query import QueryRuntime
 from query.models import QueryRequest
-from tasks import TaskFlowRegistry
-
-from tests.orchestration_cutover_regression import (
-    _MemoryFacadeStub,
-    _ModelRuntimeStub,
-    _PermissionStub,
-    _SessionManagerStub,
-    _SettingsStub,
-    _SkillRegistryStub,
-    _ToolRuntimeStub,
-    _isolated_backend_root,
+from task_system import TaskFlowRegistry
+from tests.support.runtime_stubs import (
+    DefaultPermissionStub,
+    EmptySkillRegistryStub,
+    EmptyToolRuntimeStub,
+    InMemorySessionManagerStub,
+    PrimarySettingsStub,
+    QueryRuntimeMemoryFacadeStub,
+    SingleMessageModelRuntimeStub,
+    isolated_backend_root,
 )
 
 
 def _build_stream_runtime() -> QueryRuntime:
     return QueryRuntime(
-        base_dir=_isolated_backend_root(),
-        settings_service=_SettingsStub(),
-        session_manager=_SessionManagerStub(),
-        memory_facade=_MemoryFacadeStub(),
+        base_dir=isolated_backend_root("query-runtime-loop-"),
+        settings_service=PrimarySettingsStub(),
+        session_manager=InMemorySessionManagerStub(),
+        memory_facade=QueryRuntimeMemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
-        tool_runtime=_ToolRuntimeStub(),
-        skill_registry=_SkillRegistryStub(),
-        permission_service=_PermissionStub(),
-        model_runtime=_ModelRuntimeStub(),
+        tool_runtime=EmptyToolRuntimeStub(),
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=SingleMessageModelRuntimeStub(),
     )
 
 
@@ -111,7 +110,7 @@ def test_astream_selected_health_task_adopts_configured_health_agent() -> None:
 
 
 def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: Path) -> None:
-    base_dir = _isolated_backend_root()
+    base_dir = isolated_backend_root("query-runtime-loop-")
     registry = TaskFlowRegistry(base_dir)
     registry.upsert_task_agent_adoption_plan(
         task_id="task.dev.light_web_game",
@@ -124,14 +123,14 @@ def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: P
     )
     runtime = QueryRuntime(
         base_dir=base_dir,
-        settings_service=_SettingsStub(),
-        session_manager=_SessionManagerStub(),
-        memory_facade=_MemoryFacadeStub(),
+        settings_service=PrimarySettingsStub(),
+        session_manager=InMemorySessionManagerStub(),
+        memory_facade=QueryRuntimeMemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
-        tool_runtime=_ToolRuntimeStub(),
-        skill_registry=_SkillRegistryStub(),
-        permission_service=_PermissionStub(),
-        model_runtime=_ModelRuntimeStub(),
+        tool_runtime=EmptyToolRuntimeStub(),
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=SingleMessageModelRuntimeStub(),
     )
 
     async def _collect() -> tuple[list[dict[str, object]], str]:
@@ -202,7 +201,7 @@ def test_terminal_state_index_failure_still_yields_done() -> None:
     def _raise_state_index_failure(*_args, **_kwargs):
         raise PermissionError("simulated state_index replace failure")
 
-    runtime.task_run_loop._upsert_finished_task_run = _raise_state_index_failure  # type: ignore[method-assign]
+    runtime.task_run_loop.task_run_finalizer.upsert_finished_task_run = _raise_state_index_failure  # type: ignore[method-assign]
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -229,14 +228,14 @@ def test_terminal_state_index_failure_still_yields_done() -> None:
 def test_assistant_commit_enqueues_memory_maintenance_without_waiting(tmp_path: Path) -> None:
     runtime = QueryRuntime(
         base_dir=tmp_path,
-        settings_service=_SettingsStub(),
-        session_manager=_SessionManagerStub(),
-        memory_facade=_MemoryFacadeStub(),
+        settings_service=PrimarySettingsStub(),
+        session_manager=InMemorySessionManagerStub(),
+        memory_facade=QueryRuntimeMemoryFacadeStub(),
         retrieval_service=SimpleNamespace(),
-        tool_runtime=_ToolRuntimeStub(),
-        skill_registry=_SkillRegistryStub(),
-        permission_service=_PermissionStub(),
-        model_runtime=_ModelRuntimeStub(),
+        tool_runtime=EmptyToolRuntimeStub(),
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=SingleMessageModelRuntimeStub(),
     )
 
     result = runtime._apply_assistant_message_commit(

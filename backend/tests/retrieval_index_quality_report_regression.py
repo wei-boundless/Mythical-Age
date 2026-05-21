@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from normalized_ingestion.models import IndexableUnit
-from normalized_ingestion.policy import ChunkingPolicy
-from retrieval_core.bootstrap import build_index_quality_report, merge_index_quality_reports
+from knowledge_system.ingestion.models import IndexableUnit
+from knowledge_system.ingestion.policy import ChunkingPolicy
+from knowledge_system.indexing.bootstrap import build_index_quality_report, merge_index_quality_reports
 
 
 def _unit(

@@ -1,13 +1,13 @@
 import type { UnitPortEdgeSpec } from "@/lib/api";
 
-export type TaskGraphModuleFacet = "units" | "interfaces" | "connections" | "nested_runtime" | "stitching";
+export type TaskGraphModuleFacet = "units" | "interfaces" | "connections" | "graph_module_runtime" | "stitching";
 
 export type TaskGraphComposableGraphOverlay = {
   version: string;
   units: Array<Record<string, unknown>>;
   interfaces: Array<Record<string, unknown>>;
   port_edges: UnitPortEdgeSpec[];
-  nested_runtime: Array<Record<string, unknown>>;
+  graph_module_runtime: Array<Record<string, unknown>>;
 };
 
 export const TASK_GRAPH_MODULE_FACET_ITEMS: Array<{
@@ -18,7 +18,7 @@ export const TASK_GRAPH_MODULE_FACET_ITEMS: Array<{
   { id: "units", title: "可组合单元", desc: "graph / node / resource" },
   { id: "interfaces", title: "接口端口", desc: "input / output ports" },
   { id: "connections", title: "端口连接", desc: "port edge contracts" },
-  { id: "nested_runtime", title: "嵌套运行", desc: "run handle / commit" },
+  { id: "graph_module_runtime", title: "导入模块", desc: "module relation graph" },
   { id: "stitching", title: "图块来源", desc: "timeline blocks" },
 ];
 
@@ -64,7 +64,7 @@ export function taskGraphComposableOverlayFromMetadata(metadata: Record<string, 
     units: asRecordArray(overlay.units),
     interfaces: asRecordArray(overlay.interfaces),
     port_edges: asPortEdgeArray(overlay.port_edges),
-    nested_runtime: asRecordArray(overlay.nested_runtime),
+    graph_module_runtime: asRecordArray(overlay.graph_module_runtime),
   };
 }
 

@@ -148,7 +148,7 @@ export function taskSystemOptionLabel(value: string) {
     graph_run_loop: "图运行循环",
     orchestration_default: "按编排默认选择",
     fixed_agent: "固定 Agent",
-    graph_node_binding: "按图节点绑定",
+    graph_node_binding: "按图模块绑定",
     standard: "标准任务",
     long_running: "长周期任务",
     critical: "关键任务",

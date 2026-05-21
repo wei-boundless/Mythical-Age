@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from execution.model_runtime import ModelRuntimeError, stringify_content
-from output_boundary import (
+from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content
+from response_system import (
     answer_looks_like_snippet_dump,
     build_rag_answer_finalization_messages,
     normalize_finalized_answer,
@@ -20,7 +20,7 @@ class RAGAnswerFinalizationResult:
 
 
 class RAGEvidenceOutputPolicy:
-    """Model-backed answer finalization for evidence-first retrieval."""
+    """Model-backed answer finalization for evidence-first knowledge_system.retrieval."""
 
     def __init__(self, *, model_runtime) -> None:
         self.model_runtime = model_runtime

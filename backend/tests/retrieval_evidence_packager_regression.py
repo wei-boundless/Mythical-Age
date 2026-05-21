@@ -3,9 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from capability_system.units.mcp.local.retrieval.router import RAGQueryRouter
-from retrieval.evidence_packager import build_evidence_pack
-from retrieval.service import RetrievalService
-from retrieval_core.retrievers import RetrievalRequest
+from knowledge_system.retrieval.evidence_packager import build_evidence_pack
+from knowledge_system.retrieval.service import RetrievalService
+from knowledge_system.indexing.retrievers import RetrievalRequest
 
 
 def test_evidence_pack_uses_agent_facing_contract() -> None:

@@ -45,7 +45,7 @@ from .resource_policy_builder import RuntimeApprovalContext, build_resource_poli
 from .resource_runtime_view import ResourceRuntimeView, build_resource_runtime_views
 from .unit_registry import BASE_UNIT_DESCRIPTORS, UnitCatalog, build_base_unit_catalog
 from capability_system import build_default_operation_registry
-from tasks.capability_requirements import OperationRequirement, build_operation_requirement
+from task_system.contracts.capability_requirements import OperationRequirement, build_operation_requirement
 
 
 def build_orchestration_runtime_bundle(*args, **kwargs):
@@ -108,9 +108,10 @@ _RUNTIME_LOOP_EXPORTS = {
 
 def __getattr__(name: str):
     if name in _RUNTIME_LOOP_EXPORTS:
-        from . import runtime_loop
+        from importlib import import_module
 
-        value = getattr(runtime_loop, name)
+        runtime = import_module("runtime")
+        value = getattr(runtime, name)
         globals()[name] = value
         return value
     raise AttributeError(f"module 'orchestration' has no attribute {name!r}")

@@ -8,7 +8,7 @@ from prompting.long_term_context import build_long_term_context_bundle
 from prompting.manifest import PromptManifest, build_prompt_manifest, prompt_section
 
 if TYPE_CHECKING:
-    from context_management import ContextPackage
+    from context_system import ContextPackage
 
 STATIC_PROMPT_ASSEMBLY_ORDER: tuple[str, ...] = (
     "soul_static_context",

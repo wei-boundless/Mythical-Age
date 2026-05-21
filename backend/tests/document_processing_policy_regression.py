@@ -5,10 +5,10 @@ from pathlib import Path
 
 from capability_system.units.mcp.local.pdf.analysis.parser import PdfPageSnapshot, PdfSegment
 from capability_system.units.mcp.local.retrieval.parser_adapter import MultimodalParserAdapter
-from document_conversion.docling_converter import DoclingConverter
-from document_conversion.models import ConversionBlock, ConversionResult, SourceFileRecord
-from normalized_ingestion import NormalizedDocumentBuilder, build_indexable_units
-from normalized_ingestion.policy import ChunkingPolicy
+from knowledge_system.conversion.docling_converter import DoclingConverter
+from knowledge_system.conversion.models import ConversionBlock, ConversionResult, SourceFileRecord
+from knowledge_system.ingestion import NormalizedDocumentBuilder, build_indexable_units
+from knowledge_system.ingestion.policy import ChunkingPolicy
 
 
 class _FakePdfParser:

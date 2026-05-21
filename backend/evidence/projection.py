@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from context_policy.runtime_models import MainContextState, TaskSummaryRef
+from context_system.policy.runtime_models import MainContextState, TaskSummaryRef
 from .mcp_models import CanonicalResult, MCPResult
 
 

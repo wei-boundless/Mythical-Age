@@ -9,10 +9,10 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
-from orchestration.runtime_loop.agent_delegation_executor import AgentDelegationExecutor
-from orchestration.runtime_loop.context_manager import _render_agent_delegation_guidance_block
-from orchestration.runtime_loop.models import AgentRun
-from tasks.assembly_builder import build_task_execution_assembly_bundle
+from runtime.execution.agent_delegation_executor import AgentDelegationExecutor
+from runtime.shared.context_manager import _render_agent_delegation_guidance_block
+from runtime.shared.models import AgentRun
+from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 from understanding.task_understanding import analyze_task_understanding
 
 

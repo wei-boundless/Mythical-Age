@@ -6,10 +6,10 @@ from typing import Any
 
 from capability_system.local_mcp_registry import get_local_mcp_unit
 from continuation import collect_continuation_candidates, decide_continuation
-from context_management import ContextResolver
+from context_system import ContextResolver
 from intent import build_runtime_assembly_hint, collect_intent_frame, decide_intent
-from tasks.assembly_builder import build_task_execution_assembly_bundle
-from tasks.flow_registry import TaskFlowRegistry
+from task_system.services.assembly_builder import build_task_execution_assembly_bundle
+from task_system.registry.flow_registry import TaskFlowRegistry
 from understanding.capability_resolution_view import capability_resolution_view
 from understanding.memory_intent import analyze_memory_intent
 from understanding.query_understanding import analyze_query_understanding

@@ -10,8 +10,8 @@ if str(BACKEND_DIR) not in sys.path:
 
 from capability_system.search_policy import normalize_search_policy, operation_allowed_by_search_policy
 from capability_system.tool_definitions import build_tool_instances
-from orchestration.runtime_loop.task_run_loop import TaskRunLoop
-from orchestration.runtime_loop.task_run_loop import _resolve_runtime_search_sources
+from runtime.unit_runtime.loop import TaskRunLoop
+from runtime.unit_runtime.loop import _resolve_runtime_search_sources
 
 
 def test_normalized_empty_search_policy_blocks_source_bound_operations() -> None:

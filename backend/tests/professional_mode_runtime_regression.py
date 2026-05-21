@@ -4,10 +4,10 @@ from pathlib import Path
 
 from orchestration.assembly_builder import build_orchestration_runtime_bundle
 from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY
-from orchestration.runtime_loop.deliverable_validator import validate_deliverable
-from orchestration.runtime_loop.evidence_packet import build_evidence_packet
+from runtime.contracts.deliverable_validator import validate_deliverable
+from runtime.memory.evidence_packet import build_evidence_packet
 from prompting.professional_profiles import get_professional_prompt_profile
-from tasks.assembly_builder import build_task_execution_assembly_bundle
+from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 
 
 def test_professional_mode_recipe_uses_new_runtime_names() -> None:

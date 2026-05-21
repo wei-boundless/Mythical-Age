@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from understanding.task_understanding import analyze_task_understanding
-from tasks.definitions import select_runtime_task_definitions
+from task_system.tasks.definitions import select_runtime_task_definitions
 
 
 def main() -> None:

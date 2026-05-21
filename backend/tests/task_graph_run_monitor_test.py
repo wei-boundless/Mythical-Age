@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from orchestration.runtime_loop.task_graph_run_monitor import build_task_graph_run_monitor_view
+from runtime.graph_runtime.run_monitor import build_task_graph_run_monitor_view
 
 
 def _base_task_run() -> dict[str, object]:

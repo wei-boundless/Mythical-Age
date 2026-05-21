@@ -113,7 +113,7 @@ def summarize_runtime_loop_trace(trace: dict[str, Any] | None) -> dict[str, Any]
             }
             for event_type in RUNTIME_STAGE_ORDER
         ],
-        "authority": "orchestration.runtime_loop_monitor",
+        "authority": "runtime_monitor",
     }
 
 
@@ -153,7 +153,7 @@ def _empty_summary() -> dict[str, Any]:
         },
         "checkpoints": {"latest_checkpoint_id": "", "event_offset": -1, "status": "", "turn_count": 0, "step_count": 0},
         "stages": [],
-        "authority": "orchestration.runtime_loop_monitor",
+        "authority": "runtime_monitor",
     }
 
 

@@ -10,9 +10,9 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from orchestration import ResourcePolicy
-from mcp_server.local_capability_server import LocalCapabilityMCPExecutor, LocalMCPToolRequest
-from mcp_server.server import build_server
-from mcp_server.tool_pool import build_mcp_tool_pool
+from capability_system.mcp.server.local_capability_server import LocalCapabilityMCPExecutor, LocalMCPToolRequest
+from capability_system.mcp.server.server import build_server
+from capability_system.mcp.server.tool_pool import build_mcp_tool_pool
 
 
 class _OrchestratorStub:

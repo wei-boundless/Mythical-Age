@@ -980,12 +980,12 @@ class RuntimeConfigManager:
         return self.save({"orchestration_plan_mode": "primary"})
 
     def get_context_budget_preset(self) -> str:
-        from context_management.budget_presets import normalize_context_budget_preset_id
+        from context_system.budget.presets import normalize_context_budget_preset_id
 
         return normalize_context_budget_preset_id(str(self.load().get("context_budget_preset") or ""))
 
     def set_context_budget_preset(self, preset_id: str) -> dict[str, Any]:
-        from context_management.budget_presets import normalize_context_budget_preset_id
+        from context_system.budget.presets import normalize_context_budget_preset_id
 
         return self.save({"context_budget_preset": normalize_context_budget_preset_id(preset_id)})
 

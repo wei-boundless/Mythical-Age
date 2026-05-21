@@ -1,4 +1,4 @@
-from orchestration.runtime_loop.task_run_loop import TaskRunLoop
+from runtime.unit_runtime.loop import TaskRunLoop
 
 
 def test_coordination_active_node_id_prefers_stage_id() -> None:

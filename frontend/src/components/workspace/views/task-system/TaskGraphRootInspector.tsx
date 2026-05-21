@@ -36,7 +36,7 @@ export function TaskGraphRootInspector({
   nodeTitle,
   portEdgeCount,
   unitsCount,
-  graphUnitCount,
+  graphModuleCount,
   updateTaskGraphDraft,
   updateTaskGraphRuntimePolicy,
 }: {
@@ -49,7 +49,7 @@ export function TaskGraphRootInspector({
   formatContract: (contractId: string) => string;
   graphDraft: TaskGraphDraftV2;
   graphName: string;
-  graphUnitCount: number;
+  graphModuleCount: number;
   interfaceCount: number;
   nodeTitle: (node: Record<string, unknown> | null, fallback?: string) => string;
   portEdgeCount: number;
@@ -90,7 +90,7 @@ export function TaskGraphRootInspector({
             { label: "节点/Unit", value: unitsCount },
             { label: "接口", value: interfaceCount },
             { label: "交接边", value: portEdgeCount },
-            { label: "图节点", value: graphUnitCount },
+            { label: "图模块", value: graphModuleCount },
           ]}
           overline="当前任务图"
           title={graphName}
@@ -279,7 +279,7 @@ export function TaskGraphRootInspector({
         <div className="task-graph-topology-actions task-graph-topology-actions--stacked">
           <button onClick={addTimelineBlock} type="button">
             <Layers3 aria-hidden="true" size={14} />
-            <span>新增图节点来源</span>
+            <span>新增图模块来源</span>
           </button>
           <button disabled={!unitsCount} onClick={addOverlayPortEdge} type="button">
             <Cable aria-hidden="true" size={14} />

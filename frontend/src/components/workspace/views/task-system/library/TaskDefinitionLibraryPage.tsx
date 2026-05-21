@@ -264,7 +264,7 @@ export function TaskDefinitionLibraryPage({
           <div>
             <span>任务定义库</span>
             <h3>{selectedTask ? (taskDraft.task_title || selectedTask.task_title) : "未选择任务"}</h3>
-            <p>这里只定义可复用的具体任务。任务图是同一任务域下的独立编排对象，图节点可以引用这里的任务定义。</p>
+            <p>这里只定义可复用的具体任务。任务图是同一任务域下的独立编排对象，图模块可以引用这里的任务定义。</p>
           </div>
           <div className="boundary-actions">
             <ToolbarButton disabled={!selectedTask} onClick={onSendTaskToChat}>带入主会话</ToolbarButton>
@@ -426,7 +426,7 @@ export function TaskDefinitionLibraryPage({
             </section>
 
             <section className="boundary-card">
-              <header><strong>被任务图节点引用</strong><span>{selectedTaskGraphReferences.length} 张图</span></header>
+              <header><strong>被任务图模块引用</strong><span>{selectedTaskGraphReferences.length} 张图</span></header>
               <div className="boundary-list boundary-list--scroll">
                 {selectedTaskGraphReferences.map(({ graph, nodeRefs }) => (
                   <article className="boundary-list-row boundary-list-row--stacked" key={graph.graph_id}>
@@ -441,7 +441,7 @@ export function TaskDefinitionLibraryPage({
                   </article>
                 ))}
                 {!selectedTaskGraphReferences.length ? (
-                  <div className="boundary-empty">当前具体任务还没有被任何任务图节点引用。</div>
+                  <div className="boundary-empty">当前具体任务还没有被任何任务图模块引用。</div>
                 ) : null}
               </div>
             </section>

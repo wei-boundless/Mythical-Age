@@ -497,6 +497,68 @@
       }
     },
     {
+      "task_id": "task.writing.modular_novel.node.memory_commit_character",
+      "task_title": "人设与关系提交",
+      "task_family": "writing_modular_novel",
+      "description": "人设与关系提交",
+      "enabled": true,
+      "runtime_lane": "coordination_task",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.character_commit",
+      "acceptance_profile_id": "",
+      "default_flow_contract_id": "flow.writing.modular_novel.node.memory_commit_character",
+      "default_workflow_id": "workflow.writing.modular_novel.node.memory_commit_character",
+      "default_projection_policy": "fixed_projection",
+      "task_policy": {
+        "safety_policy": {
+          "verification_mode": "artifact_or_trace",
+          "write_mode": "scoped",
+          "safety_class": "S2_bounded"
+        },
+        "task_structure": {
+          "runtime_lane_hint": "coordination_task",
+          "memory_scope_hint": "writing_modular_novel",
+          "workflow_steps": [
+            {
+              "step_id": "read_contract_packet",
+              "title": "读取契约化输入包"
+            },
+            {
+              "step_id": "execute_node",
+              "title": "执行节点职责"
+            },
+            {
+              "step_id": "commit_artifact_refs",
+              "title": "提交结构化产物引用"
+            }
+          ],
+          "task_resource_kind": "writing_modular_novel",
+          "execution_chain_type": "coordination_node",
+          "projection_id": "projection.writing.modular_novel.memory_steward",
+          "node_id": "memory_commit_character",
+          "runtime_interaction_mode": "role_mode",
+          "suppress_bundle_projection": true,
+          "trigger_signals": [],
+          "notes": ""
+        },
+        "runtime_limits": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "projection_id": "projection.writing.modular_novel.memory_steward",
+        "node_id": "memory_commit_character",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.memory_commit_character",
+        "source_flow_id": "flow.writing.modular_novel.node.memory_commit_character"
+      }
+    },
+    {
       "task_id": "task.writing.modular_novel.node.plot_design",
       "task_title": "剧情与伏笔设计",
       "task_family": "writing_modular_novel",

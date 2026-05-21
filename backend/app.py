@@ -15,7 +15,7 @@ from api.orchestration import router as orchestration_router
 from api.capability_system import router as capability_system_router
 from api.sessions import router as sessions_router
 from api.souls import router as souls_router
-from api.tasks import router as tasks_router
+from api.task_system import router as task_system_router
 from api.tokens import router as tokens_router
 from bootstrap.lifespan import runtime_lifespan
 from sessions import InvalidSessionId
@@ -45,7 +45,7 @@ app.include_router(memory_router, prefix="/api", tags=["memory"])
 app.include_router(mcp_system_router, prefix="/api", tags=["mcp-system"])
 app.include_router(tokens_router, prefix="/api", tags=["tokens"])
 app.include_router(config_router, prefix="/api", tags=["config"])
-app.include_router(tasks_router, prefix="/api", tags=["tasks"])
+app.include_router(task_system_router, prefix="/api", tags=["tasks"])
 app.include_router(health_system_router, prefix="/api", tags=["health-system"])
 app.include_router(health_workbench_router, prefix="/api", tags=["health-workbench"])
 app.include_router(orchestration_router, prefix="/api", tags=["orchestration"])

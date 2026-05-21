@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from memory_system.facade import MemoryFacade
 from orchestration.agent_runtime_chain import AgentRuntimeChainAssembler
 from orchestration.agent_runtime_registry import default_agent_runtime_profiles
-from tasks.definitions import default_task_definitions, select_runtime_task_definitions
+from task_system.tasks.definitions import default_task_definitions, select_runtime_task_definitions
 from understanding.memory_intent import analyze_memory_intent
 from understanding.query_understanding import analyze_query_understanding
 

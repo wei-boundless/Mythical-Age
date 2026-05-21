@@ -431,7 +431,7 @@ export function buildTimelinePreflightIssues(
       issues.push({ code: "timeline_block_handoff_contract_missing", message: `图块 ${block.title || block.block_id} 缺少 handoff_contract_id。`, severity: "warning", phase_id: block.phase_id });
     }
     if (!block.linked_graph_id) {
-      issues.push({ code: "timeline_block_child_graph_missing", message: `图块 ${block.title || block.block_id} 还没有绑定 linked_graph_id，父图运行时只能把它视为本图阶段块。`, severity: "warning", phase_id: block.phase_id });
+      issues.push({ code: "timeline_block_imported_graph_missing", message: `图块 ${block.title || block.block_id} 还没有绑定 linked_graph_id，运行时只能把它视为当前封装图内的阶段块。`, severity: "warning", phase_id: block.phase_id });
     }
     if (!block.version_ref) {
       issues.push({ code: "timeline_block_version_anchor_missing", message: `图块 ${block.title || block.block_id} 缺少 version_ref，断开后难以追踪旧引用。`, severity: "info", phase_id: block.phase_id });

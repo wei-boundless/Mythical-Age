@@ -9,8 +9,8 @@ from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_models import AgentRuntimeProfile
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from orchestration.assembly_builder import build_orchestration_runtime_bundle
-from orchestration.runtime_loop.runtime_assembly_builder import build_single_agent_runtime_assembly
-from orchestration.runtime_loop.contract_compiler_models import CompiledGlobalContract, ContractManifest
+from runtime.contracts.runtime_assembly_builder import build_single_agent_runtime_assembly
+from runtime.contracts.compiler_models import CompiledGlobalContract, ContractManifest
 from orchestration.worker_agent_factory import default_worker_agent_blueprints
 
 

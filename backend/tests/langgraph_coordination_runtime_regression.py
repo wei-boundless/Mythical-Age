@@ -2,22 +2,23 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from orchestration.runtime_loop.event_log import RuntimeEventLog
-from orchestration.runtime_loop.langgraph_coordination_runtime import (
+from runtime.shared.event_log import RuntimeEventLog
+from runtime.coordination_runtime.runtime import (
     LangGraphCoordinationRuntime,
     _apply_loop_derived_fields,
     _review_gate_event_is_accepted,
     _pending_inputs_for_stage_quality_retry,
     _stage_execution_message,
 )
-from orchestration.runtime_loop.models import CoordinationRun, TaskRun
-from orchestration.runtime_loop.node_execution_request import NodeResultReadyEvent
-from orchestration.runtime_loop.state_index import RuntimeStateIndex
-from orchestration.runtime_loop.task_run_loop import _render_standard_input_package_for_model
-from tasks import TaskContractRegistry
-from tasks.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol, TopologyTemplate
-from tasks.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
-from orchestration.runtime_loop.continuation_policy import parse_stage_contracts
+from runtime.shared.models import CoordinationRun, TaskRun
+from runtime.execution.node_execution_request import NodeResultReadyEvent
+from runtime.memory.state_index import RuntimeStateIndex
+from runtime.unit_runtime.loop import _render_standard_input_package_for_model
+from task_system import TaskContractRegistry
+from task_system.registry.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol, TopologyTemplate
+from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
+from runtime.contracts.continuation_policy import parse_stage_contracts
+from tests.support.trace_stubs import TraceReaderStub
 
 
 def _chapter_loop_derived_fields_for_test() -> list[dict]:
@@ -339,7 +340,7 @@ def test_standard_input_package_renderer_skips_internal_protocol_inputs() -> Non
             "standard_input_package": {
                 "input_items": [
                     {
-                        "input_key": "parent_stage_execution_request",
+                        "input_key": "importing_stage_execution_request",
                         "content_type": "runtime_protocol",
                         "content_preview": "父级调度协议不应进入模型。",
                         "metadata": {"text": "parent protocol leak"},
@@ -352,7 +353,7 @@ def test_standard_input_package_renderer_skips_internal_protocol_inputs() -> Non
                     {
                         "input_key": "user_goal",
                         "content_type": "text",
-                        "content_preview": "启动子图并完成世界观设计。",
+                        "content_preview": "启动导入模块并完成世界观设计。",
                     },
                 ]
             }
@@ -361,8 +362,8 @@ def test_standard_input_package_renderer_skips_internal_protocol_inputs() -> Non
 
     assert "标准节点输入材料" in message
     assert "user_goal" in message
-    assert "启动子图并完成世界观设计" in message
-    assert "parent_stage_execution_request" not in message
+    assert "启动导入模块并完成世界观设计" in message
+    assert "importing_stage_execution_request" not in message
     assert "parent protocol leak" not in message
     assert "runtime_protocol.trace" not in message
 
@@ -404,12 +405,7 @@ def test_loop_derived_fields_use_runtime_batch_size_for_ten_chapter_request() ->
     assert next_result["batch_chapter_numbers"] == list(range(11, 21))
 
 
-class _Trace:
-    def __init__(self, traces):
-        self.traces = traces
-
-    def get_trace(self, task_run_id: str, *, include_payloads: bool = False, include_model_messages: bool = False):
-        return self.traces.get(task_run_id)
+_Trace = TraceReaderStub
 
 
 def _loop_graph_from_derived_fields(derived_fields: list[dict], *, graph_id: str = "graph.test.loop_refresh") -> TaskGraphDefinition:
@@ -2427,23 +2423,23 @@ def test_parse_stage_contracts_derives_from_graph_nodes_when_metadata_is_missing
     assert contracts[1].output_mappings[0]["output_key"] == "contract.test.b:artifact_refs"
 
 
-def test_langgraph_runtime_emits_graph_unit_stage_request(tmp_path) -> None:
-    parent_graph = TaskGraphDefinition(
-        graph_id="graph.test.parent_graph_unit_runtime",
-        title="父图 GraphUnit 运行",
+def test_langgraph_runtime_emits_graph_module_stage_request(tmp_path) -> None:
+    importing_graph = TaskGraphDefinition(
+        graph_id="graph.test.importing_graph_module_runtime",
+        title="导入方图模块运行",
         graph_kind="coordination",
-        default_protocol_id="protocol.test.graph_unit",
+        default_protocol_id="protocol.test.graph_module",
         runtime_policy={"coordinator_agent_id": "agent:0"},
         metadata={
             "timeline_blocks": [
                 {
                     "block_id": "block.child",
-                    "block_type": "child_graph",
-                    "title": "子图阶段",
+                    "block_type": "imported_graph",
+                    "title": "导入模块阶段",
                     "phase_id": "phase.child",
-                    "linked_graph_id": "graph.test.child_graph_unit_runtime",
+                    "linked_graph_id": "graph.test.imported_graph_module_runtime",
                     "version_ref": "v1",
-                    "handoff_contract_id": "contract.test.graph_unit.handoff",
+                    "handoff_contract_id": "contract.test.graph_module.handoff",
                     "input_port_id": "input.child",
                     "output_port_id": "output.child",
                 }
@@ -2452,7 +2448,7 @@ def test_langgraph_runtime_emits_graph_unit_stage_request(tmp_path) -> None:
         publish_state="published",
         enabled=True,
     )
-    registry = _GraphUnitRegistry(parent_graph)
+    registry = _GraphModuleRegistry(importing_graph)
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
     runtime = LangGraphCoordinationRuntime(
@@ -2463,42 +2459,42 @@ def test_langgraph_runtime_emits_graph_unit_stage_request(tmp_path) -> None:
         trace_reader=_Trace({}),
     )
     coordination_run = CoordinationRun(
-        coordination_run_id="coordrun:graph-unit",
-        task_run_id="taskrun:graph-unit",
-        graph_ref=parent_graph.graph_id,
+        coordination_run_id="coordrun:graph-module",
+        task_run_id="taskrun:graph-module",
+        graph_ref=importing_graph.graph_id,
         coordinator_agent_id="agent:0",
-        communication_protocol_id="protocol.test.graph_unit",
+        communication_protocol_id="protocol.test.graph_module",
         status="running",
     )
     state_index.upsert_coordination_run(coordination_run)
 
     result = runtime.initialize(
         coordination_run=coordination_run,
-        inherited_inputs={"user_goal": "运行子图"},
+        inherited_inputs={"user_goal": "运行导入模块"},
     )
 
     assert result.stage_execution_request is not None
     request = result.stage_execution_request
-    assert request.stage_id == "graph_unit.block.child"
-    assert request.executor_type == "graph_unit"
-    assert request.task_ref == "task_graph.node.graph.test.parent_graph_unit_runtime.graph_unit.block.child"
-    assert request.executor_binding["selected_executor"] == "graph_unit"
-    handle = request.runtime_assembly["graph_unit_runtime_handle"]
-    assert handle["authority"] == "orchestration.graph_unit_runtime_handle"
-    assert handle["linked_graph_id"] == "graph.test.child_graph_unit_runtime"
-    assert handle["nested_runtime_plan_id"] == "nested.block.child"
-    assert handle["parent_coordination_run_id"] == "coordrun:graph-unit"
-    assert handle["handoff_contract_id"] == "contract.test.graph_unit.handoff"
-    assert handle["explicit_inputs"]["user_goal"] == "运行子图"
-    assert handle["executor_policy"]["auto_start_child_initial_stage"] is True
+    assert request.stage_id == "graph_module.block.child"
+    assert request.executor_type == "graph_module"
+    assert request.task_ref == "task_graph.node.graph.test.importing_graph_module_runtime.graph_module.block.child"
+    assert request.executor_binding["selected_executor"] == "graph_module"
+    handle = request.runtime_assembly["graph_module_runtime_handle"]
+    assert handle["authority"] == "orchestration.graph_module_runtime_handle"
+    assert handle["linked_graph_id"] == "graph.test.imported_graph_module_runtime"
+    assert handle["graph_module_runtime_plan_id"] == "graph_module_runtime.block.child"
+    assert handle["importing_coordination_run_id"] == "coordrun:graph-module"
+    assert handle["handoff_contract_id"] == "contract.test.graph_module.handoff"
+    assert handle["explicit_inputs"]["user_goal"] == "运行导入模块"
+    assert handle["executor_policy"]["auto_start_imported_initial_stage"] is True
 
 
-class _GraphUnitRegistry:
+class _GraphModuleRegistry:
     def __init__(self, graph: TaskGraphDefinition) -> None:
         self.graph = graph
         self.protocol = TaskCommunicationProtocol(
-            protocol_id="protocol.test.graph_unit",
-            title="GraphUnit Protocol",
+            protocol_id="protocol.test.graph_module",
+            title="GraphModule Protocol",
             message_types=("message/send",),
             enabled=True,
         )
@@ -2507,7 +2503,7 @@ class _GraphUnitRegistry:
         return self.graph if graph_id == self.graph.graph_id else None
 
     def derive_coordination_task_view_from_graph(self, graph):
-        from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+        from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 
         runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph, communication_protocol=self.protocol)
         return CoordinationTaskDefinition(

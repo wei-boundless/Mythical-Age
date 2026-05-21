@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from orchestration.runtime_loop.task_run_loop import _sectioned_text_batch_quality_gate
+from runtime.unit_runtime.quality_gates import _sectioned_text_batch_quality_gate
 
 
 def test_chapter_draft_quality_gate_reports_per_chapter_metric_deficits() -> None:

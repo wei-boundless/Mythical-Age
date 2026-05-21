@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from orchestration.runtime_loop.professional_run_session import build_professional_run_session
-from orchestration.runtime_loop.resume_decision import decide_professional_run_resume
+from runtime.professional_runtime.run_session import build_professional_run_session
+from runtime.shared.resume_decision import decide_professional_run_resume
 
 
 def test_professional_resume_starts_new_without_checkpoint() -> None:

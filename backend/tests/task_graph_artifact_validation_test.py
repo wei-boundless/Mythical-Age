@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from orchestration.runtime_loop.task_run_loop import _validate_required_artifact_file
+from runtime.unit_runtime.loop import _validate_required_artifact_file
 
 
 def test_task_graph_artifact_policy_requires_final_content(tmp_path: Path) -> None:

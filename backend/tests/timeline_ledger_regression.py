@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from orchestration.runtime_loop.timeline_ledger import TimelineLedgerStore
+from runtime.memory.timeline_ledger import TimelineLedgerStore
 
 
 def test_timeline_ledger_appends_monotonic_events_by_coordination_run(tmp_path) -> None:

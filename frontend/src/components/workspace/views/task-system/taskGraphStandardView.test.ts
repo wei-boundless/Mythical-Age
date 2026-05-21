@@ -138,7 +138,7 @@ const STANDARD_VIEW_FIXTURE: TaskGraphStandardView = {
       title: "正式创作图",
       ref: { graph_id: "graph.creation", version_ref: "v1" },
       interface_id: "interface.graph.block.creation",
-      runtime_policy: { execution_mode: "nested_graph_run" },
+      runtime_policy: { execution_mode: "graph_module_run" },
       phase_id: "phase.draft",
       sequence_index: 2,
       source_kind: "timeline_block",
@@ -179,20 +179,47 @@ const STANDARD_VIEW_FIXTURE: TaskGraphStandardView = {
       metadata: {},
     },
   ],
-  nested_runtime: [
+  graph_module_runtime: [
     {
-      plan_id: "nested.block.creation",
-      parent_graph_id: "graph.novel",
+      plan_id: "graph_module_runtime.block.creation",
+      importing_graph_id: "graph.novel",
       unit_id: "unit.graph.block.creation",
       linked_graph_id: "graph.creation",
       version_ref: "v1",
       handoff_contract_id: "contract.creation.commit",
       input_port_id: "input.default",
       output_port_id: "output.default",
-      isolation_policy: "isolated_per_nested_run",
+      isolation_policy: "isolated_per_graph_module_run",
       visibility_policy: "committed_only",
       detach_policy: "preserve_version_anchor",
       metadata: {},
+    },
+  ],
+  graph_module_expansions: [
+    {
+      plan_id: "graph_module_runtime.block.creation",
+      runtime_node_id: "graph_module.block.creation",
+      unit_id: "unit.graph.block.creation",
+      linked_graph_id: "graph.creation",
+      scope_prefix: "graph_module.block.creation::",
+      imported_graph: { graph_id: "graph.creation", title: "正式创作图" },
+      entry_node_id: "outline",
+      output_node_id: "commit",
+      nodes: [
+        { scoped_node_id: "graph_module.block.creation::outline", node_id: "outline", title: "细纲" },
+        { scoped_node_id: "graph_module.block.creation::draft", node_id: "draft", title: "正文" },
+      ],
+      edges: [
+        {
+          scoped_edge_id: "graph_module.block.creation::edge.outline.draft",
+          edge_id: "edge.outline.draft",
+          scoped_source_node_id: "graph_module.block.creation::outline",
+          scoped_target_node_id: "graph_module.block.creation::draft",
+        },
+      ],
+      resources: [],
+      issues: [],
+      metadata: { expansion_status: "expanded" },
     },
   ],
   timeline: {
@@ -245,15 +272,19 @@ describe("TaskGraph standard view helpers", () => {
     expect(describeTaskGraphStandardEdge(STANDARD_VIEW_FIXTURE.edges[0]!)).toContain("memory.world.world_bible");
   });
 
-  it("summarizes composable units, interfaces, port edges, and nested runtime", () => {
+  it("summarizes composable units, interfaces, port edges, and graph module runtime", () => {
     const model = buildTaskGraphComposableStandardModel(STANDARD_VIEW_FIXTURE);
 
     expect(model.units).toHaveLength(2);
     expect(model.nodeUnits[0]?.unit_id).toBe("unit.node.writer");
-    expect(model.graphUnits[0]?.unit_id).toBe("unit.graph.block.creation");
+    expect(model.graphModules[0]?.unit_id).toBe("unit.graph.block.creation");
     expect(model.interfaces).toHaveLength(2);
     expect(model.interfaceByUnitId.get("unit.graph.block.creation")?.output_ports[0]?.status_required).toBe("committed");
     expect(model.portEdgesByUnitId.get("unit.node.writer")).toHaveLength(1);
-    expect(model.nestedRuntime[0]?.linked_graph_id).toBe("graph.creation");
+    expect(model.graphModuleRuntime[0]?.linked_graph_id).toBe("graph.creation");
+    expect(model.graphModuleExpansions[0]?.nodes?.[0]?.node_id).toBe("outline");
+    expect(model.graphModuleExpansionByUnitId.get("unit.graph.block.creation")?.linked_graph_id).toBe("graph.creation");
+    expect(model.expandedNodeCount).toBe(2);
+    expect(model.expandedEdgeCount).toBe(1);
   });
 });

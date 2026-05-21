@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from orchestration.runtime_loop.langgraph_coordination_runtime import LangGraphCoordinationRuntimeResult
-from orchestration.runtime_loop.node_execution_request import NodeExecutionRequest
-from orchestration.runtime_loop.task_run_loop import _stable_stage_turn_id
+from runtime.coordination_runtime.runtime import LangGraphCoordinationRuntimeResult
+from runtime.execution.node_execution_request import NodeExecutionRequest
+from runtime.unit_runtime.loop import _stable_stage_turn_id
 
 
 def test_node_execution_request_builds_stable_boundary_payload() -> None:

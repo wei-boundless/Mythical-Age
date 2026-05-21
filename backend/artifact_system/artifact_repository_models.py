@@ -31,6 +31,11 @@ class ArtifactRecord:
     path: str
     repository_id: str
     collection_id: str
+    output_contract_id: str = ""
+    artifact_kind: str = "file"
+    producer_node_id: str = ""
+    content_type: str = ""
+    materialization_id: str = ""
     logical_repository_id: str = ""
     effective_repository_id: str = ""
     task_run_id: str = ""

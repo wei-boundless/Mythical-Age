@@ -9,7 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from orchestration.agent_runtime_chain import AgentRuntimeChainAssembler
 from orchestration.agent_runtime_models import AgentRuntimeProfile
-from orchestration.runtime_loop.task_run_loop import _task_operation_allows_context_retrieval
+from runtime.unit_runtime.loop import _task_operation_allows_context_retrieval
 from understanding.capability_resolution_view import capability_resolution_view
 
 

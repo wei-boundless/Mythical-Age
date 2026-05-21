@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from memory_system import MemoryFacade
-from orchestration.runtime_loop.task_run_loop import _project_file_work_context_from_tool_observation
+from runtime.unit_runtime.loop import _project_file_work_context_from_tool_observation
 from query.runtime import QueryRuntime
 
 

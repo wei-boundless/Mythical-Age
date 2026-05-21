@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from execution.model_runtime import ModelRuntime
 from capability_system.skill_registry import SkillRegistry
 from capability_system.skill_scanner import refresh_snapshot
 from capability_system.tool_registry import refresh_tool_registry
@@ -12,9 +11,10 @@ from memory_system import MemoryFacade
 from permissions import PermissionService
 from project_layout import ProjectLayout
 from query import QueryRuntime
-from retrieval import RetrievalService
 from bootstrap.settings import AppSettingsService
+from knowledge_system import RetrievalService
 from sessions import SessionManager
+from runtime import ModelRuntime
 from structured_memory import ConsolidationConfig, ConsolidationReport, ConsolidationScheduler
 
 

@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from document_conversion.cache import DocumentCacheLayout
-from document_conversion.models import STRUCTURE_CONTRACT_VERSION, ConversionBlock, ConversionResult, SourceFileRecord
-from retrieval_core.bootstrap import RetrievalBootstrapper
+from knowledge_system.conversion.cache import DocumentCacheLayout
+from knowledge_system.conversion.models import STRUCTURE_CONTRACT_VERSION, ConversionBlock, ConversionResult, SourceFileRecord
+from knowledge_system.indexing.bootstrap import RetrievalBootstrapper
 
 
 class _StubConverter:

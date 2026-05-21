@@ -7,9 +7,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from context_management.projection import ContextProjection
-from orchestration.runtime_loop.observation_aggregator import ObservationAggregator
-from orchestration.runtime_loop.task_run_loop import _build_answer_readiness_judge_message
+from context_system.projection.projection import ContextProjection
+from runtime.memory.observation_aggregator import ObservationAggregator
+from runtime.unit_runtime.loop import _build_answer_readiness_judge_message
 
 
 def test_observation_aggregator_builds_evidence_items_without_losing_projection() -> None:

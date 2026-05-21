@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from retrieval_core.embedding_cache import CachedEmbeddingModel
+from knowledge_system.indexing.embedding_cache import CachedEmbeddingModel
 
 
 class _CountingEmbedding:

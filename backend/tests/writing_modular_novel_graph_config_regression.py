@@ -1,49 +1,26 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import json
-import shutil
-import sys
 from pathlib import Path
 
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
-from orchestration.runtime_loop.contract_compiler import compile_coordination_contract_manifest
-from orchestration.runtime_loop.runtime_assembly_builder import build_node_runtime_assembly
-from api import tasks as tasks_api
-from tasks.contract_registry import TaskContractRegistry
-from tasks.flow_registry import TaskFlowRegistry
-from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+from runtime.contracts.compiler import compile_coordination_contract_manifest
+from runtime.contracts.runtime_assembly_builder import build_node_runtime_assembly
+from api import task_system as tasks_api
+from task_system.registry.contract_registry import TaskContractRegistry
+from task_system.registry.flow_registry import TaskFlowRegistry
+from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+from tests.support.runtime_stubs import RuntimeBaseDirStub
+from tests.support.writing_fixtures import load_writing_modular_config_module, seed_writing_storage
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-CONFIGURE_SCRIPT = REPO_ROOT / "scripts" / "configure_writing_modular_novel_graph.py"
+_RuntimeStub = RuntimeBaseDirStub
+_load_config_module = load_writing_modular_config_module
+_seed_storage = seed_writing_storage
 
 
-class _RuntimeStub:
-    def __init__(self, base_dir: Path) -> None:
-        self.base_dir = Path(base_dir)
-
-
-def _load_config_module():
-    spec = importlib.util.spec_from_file_location("configure_writing_modular_novel_graph", CONFIGURE_SCRIPT)
-    assert spec is not None
-    assert spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _seed_storage(tmp_path: Path) -> Path:
-    storage = tmp_path / "storage"
-    storage.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(REPO_ROOT / "storage" / "tasks", storage / "tasks")
-    shutil.copytree(REPO_ROOT / "storage" / "orchestration", storage / "orchestration")
-    return tmp_path
-
-
-def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(tmp_path: Path) -> None:
+def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches(tmp_path: Path) -> None:
     base_dir = _seed_storage(tmp_path)
     config = _load_config_module()
 
@@ -197,6 +174,21 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
     world_commit_prompt = memory_commit_world.metadata["role_prompt"]
     assert "没有阻塞问题" in world_commit_prompt
     assert "你必须拒绝提交" in world_commit_prompt
+    character_review = next(node for node in design_graph.nodes if node.node_id == "character_review")
+    memory_commit_character = next(node for node in design_graph.nodes if node.node_id == "memory_commit_character")
+    plot_design = next(node for node in design_graph.nodes if node.node_id == "plot_design")
+    assert "只要报告中存在阻塞问题" in character_review.metadata["role_prompt"]
+    assert "裁决必须是返修或拒绝" in character_review.metadata["role_prompt"]
+    assert "人设与关系基准库管理员" in memory_commit_character.metadata["role_prompt"]
+    assert "没有阻塞问题" in memory_commit_character.metadata["role_prompt"]
+    plot_memory_policy = plot_design.contract_bindings["memory"]["memory_read_policy"]
+    assert "character_commit_ref" in plot_memory_policy["topics"]
+    assert "character_commit_ref" in plot_memory_policy["required_topics"]
+    assert "character_design_ref" not in plot_memory_policy["topics"]
+    design_edge_pairs = {(edge.source_node_id, edge.target_node_id, edge.edge_type) for edge in design_graph.edges}
+    assert ("character_review", "memory_commit_character", "structured_handoff") in design_edge_pairs
+    assert ("memory_commit_character", "plot_design", "structured_handoff") in design_edge_pairs
+    assert ("character_review", "plot_design", "structured_handoff") not in design_edge_pairs
 
     workflows = {item.workflow_id: item for item in registry.workflow_registry.list_workflows()}
     assert workflows["workflow.writing.modular_novel.node.world_design"].prompt == world_prompt
@@ -223,13 +215,13 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
     master_graph = graphs["graph.writing.modular_novel.master"]
     assert "model_requirement" not in master_graph.contract_bindings.get("runtime", {})
     assert "subtask_refs" not in master_graph.metadata
-    assert master_graph.metadata["graph_unit_refs"] == [
+    assert master_graph.metadata["graph_module_refs"] == [
         "graph.writing.modular_novel.design_init",
         "graph.writing.modular_novel.chapter_cycle",
         "graph.writing.modular_novel.finalize",
     ]
     for node in master_graph.nodes:
-        assert node.node_type == "graph_unit"
+        assert node.node_type == "graph_module"
         assert node.task_id == ""
         assert node.agent_id == ""
         assert node.agent_group_id == ""
@@ -238,35 +230,35 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
         assert node.projection_overlay_id == ""
         assert "role_prompt" not in node.metadata
         assert "model_requirement" not in node.contract_bindings.get("runtime", {})
-        assert node.contract_bindings["runtime"]["nested_runtime"]["linked_graph_id"] == node.metadata["linked_graph_id"]
-        assert node.executor_policy["default_executor"] == "graph_unit"
-        assert node.executor_policy["allowed_executors"] == ["graph_unit"]
+        assert node.contract_bindings["runtime"]["graph_module_runtime"]["linked_graph_id"] == node.metadata["linked_graph_id"]
+        assert node.executor_policy["default_executor"] == "graph_module"
+        assert node.executor_policy["allowed_executors"] == ["graph_module"]
     master_spec = compile_task_graph_definition_runtime_spec(
         graph=master_graph,
         specific_tasks=tuple(registry.list_specific_task_records()),
         communication_protocol=registry.get_task_communication_protocol(master_graph.default_protocol_id),
     )
     assert master_spec.valid is True
-    assert [plan.linked_graph_id for plan in master_spec.nested_runtime_plans] == [
+    assert [plan.linked_graph_id for plan in master_spec.graph_module_runtime_plans] == [
         "graph.writing.modular_novel.design_init",
         "graph.writing.modular_novel.chapter_cycle",
         "graph.writing.modular_novel.finalize",
     ]
     assert [node.node_id for node in master_spec.nodes] == [
-        "graph_unit.design_init",
-        "graph_unit.chapter_cycle",
-        "graph_unit.finalize",
+        "graph_module.design_init",
+        "graph_module.chapter_cycle",
+        "graph_module.finalize",
     ]
-    assert all(node.metadata.get("explicit_graph_unit_node") is True for node in master_spec.nodes)
+    assert all(node.metadata.get("explicit_graph_module_node") is True for node in master_spec.nodes)
     assert master_spec.subtask_refs == ()
     for node in master_spec.nodes:
-        assert node.node_type == "graph_unit"
-        assert node.role == "nested_graph"
+        assert node.node_type == "graph_module"
+        assert node.role == "graph_module"
         assert node.agent_id == ""
         assert node.runtime_lane == ""
         assert node.projection_id == ""
-        assert node.task_id.startswith("task_graph.node.graph.writing.modular_novel.master.graph_unit.")
-        assert node.metadata["runtime_role"] == "graph_unit_container"
+        assert node.task_id.startswith("task_graph.node.graph.writing.modular_novel.master.graph_module.")
+        assert node.metadata["runtime_role"] == "graph_module_container"
         assert node.metadata["model_visible"] is False
         assert "agent_group_id" not in node.metadata
         assert "model_requirement" not in node.metadata
@@ -286,13 +278,13 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
         tasks_api.require_runtime = original  # type: ignore[assignment]
 
     assert master_package["valid"] is True
-    assert master_package["summary"]["graph_unit_count"] == 3
-    assert master_package["summary"]["graph_unit_execution_plan_count"] == 3
-    assert master_package["summary"]["graph_unit_execution_plan_issue_count"] == 0
+    assert master_package["summary"]["graph_module_count"] == 3
+    assert master_package["summary"]["graph_module_execution_plan_count"] == 3
+    assert master_package["summary"]["graph_module_execution_plan_issue_count"] == 0
     assert master_package["summary"]["assembly_count"] == 0
     assert master_package["runtime_spec"]["subtask_refs"] == ()
     assert master_package["node_runtime_assemblies"] == []
-    assert [plan["linked_graph_id"] for plan in master_package["graph_unit_execution_plans"]] == [
+    assert [plan["linked_graph_id"] for plan in master_package["graph_module_execution_plans"]] == [
         "graph.writing.modular_novel.design_init",
         "graph.writing.modular_novel.chapter_cycle",
         "graph.writing.modular_novel.finalize",

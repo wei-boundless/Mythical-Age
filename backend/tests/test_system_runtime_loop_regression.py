@@ -5,7 +5,7 @@ from health_system.maintenance.test_system.runtime_loop_probe import (
     runtime_events_from_turn_payload,
     runtime_loop_summary_from_turn_payload,
 )
-from orchestration.runtime_loop.task_run_loop import _memory_commit_state_from_assistant_commit_result
+from runtime.unit_runtime.loop import _memory_commit_state_from_assistant_commit_result
 
 
 def _runtime_event(event_type: str, *, payload=None, payload_summary=None, offset=1):

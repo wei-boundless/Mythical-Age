@@ -23,7 +23,7 @@ function timelineBlocks(graph: TaskGraphRecord) {
   return asArray(graphMetadata(graph).timeline_blocks).map(asRecord);
 }
 
-function hasLinkedGraphUnits(graph: TaskGraphRecord) {
+function hasLinkedGraphModules(graph: TaskGraphRecord) {
   return timelineBlocks(graph).some((block) => text(block.linked_graph_id));
 }
 
@@ -47,7 +47,7 @@ function graphContractBindingCount(graph: TaskGraphRecord) {
 export function taskGraphFeatureBadges(graph: TaskGraphRecord): string[] {
   const badges: string[] = [];
   if (graph.graph_id === MODULAR_NOVEL_MASTER_GRAPH_ID) badges.push("推荐主图");
-  if (hasLinkedGraphUnits(graph)) badges.push("GraphUnit");
+  if (hasLinkedGraphModules(graph)) badges.push("图模块");
   if (graphHasBatchContract(graph)) badges.push("批次契约");
   if (graphContractBindingCount(graph)) badges.push("contract_bindings");
   if (text(graph.default_protocol_id)) badges.push("协议");
@@ -67,7 +67,7 @@ export function taskGraphSelectionScore(graph: TaskGraphRecord) {
   if (family === "writing_modular_novel") score += 1800;
   if (graphId.includes(".modular_novel.")) score += 1500;
   if (managedBy.includes("modular_novel")) score += 1200;
-  if (hasLinkedGraphUnits(graph)) score += 900;
+  if (hasLinkedGraphModules(graph)) score += 900;
   if (graphHasBatchContract(graph)) score += 700;
   if (graphContractBindingCount(graph)) score += 400;
   if (graph.enabled) score += 80;

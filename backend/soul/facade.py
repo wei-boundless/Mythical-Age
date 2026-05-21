@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .activity_service import SoulActivityService
 from .assembly_service import SoulAssemblyService
 from .projection_service import SoulProjectionService
 from .registry_service import SoulRegistryService
@@ -19,6 +20,7 @@ class SoulFacade:
             registry_service=self.registry_service,
         )
         self.assembly_service = SoulAssemblyService(self.base_dir)
+        self.activity_service = SoulActivityService(self.base_dir)
 
     def build_catalog(self) -> dict[str, Any]:
         return self.registry_service.build_catalog()
@@ -67,3 +69,6 @@ class SoulFacade:
 
     def build_runtime_view(self, **payload: Any) -> dict[str, Any]:
         return self.assembly_service.build_runtime_view(**payload)
+
+    def get_work_log(self, soul_id: str, *, limit: int = 20) -> dict[str, Any]:
+        return self.activity_service.work_log(soul_id, limit=limit).to_dict()

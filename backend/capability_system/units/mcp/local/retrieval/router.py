@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from .collections import build_default_collections
 from .models import RetrievalHit
 from .query_rewriter import QueryRewriteResult, QueryRewriter
-from retrieval.planning import QueryVariant, RetrievalFilter, RetrievalIntent, RetrievalPlan, RetrievalPolicy, RetrievalTrace
+from knowledge_system.retrieval.planning import QueryVariant, RetrievalFilter, RetrievalIntent, RetrievalPlan, RetrievalPolicy, RetrievalTrace
 
 if TYPE_CHECKING:
     from .registry import RAGIndexRegistry

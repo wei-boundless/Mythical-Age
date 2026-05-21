@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestration.runtime_loop import TaskRunLoop
-from orchestration.runtime_loop.node_execution_request import NodeResultReadyEvent
-from orchestration.runtime_loop.task_graph_batch_runtime import (
+from runtime import TaskRunLoop
+from runtime.execution.node_execution_request import NodeResultReadyEvent
+from runtime.graph_runtime.batch_runtime import (
     bootstrap_batch_lifecycle_runtime_state,
     batch_execution_instance_for_result,
     node_has_more_batch_work,
     select_batch_for_stage,
     transition_batch_after_stage_result,
 )
-from orchestration.runtime_loop.task_graph_run_monitor import build_task_graph_run_monitor_view
-from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-from tasks.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
+from runtime.graph_runtime.run_monitor import build_task_graph_run_monitor_view
+from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
 
 
 def _batch_graph() -> TaskGraphDefinition:
@@ -283,7 +283,7 @@ def test_parallel_batch_runtime_dispatches_multiple_active_batches_and_matches_r
     assert set(state["running_batch_ids"]) == {"item_1_2", "item_3_4"}
     assert state["summary"]["active_execution_count"] == 2
 
-    from orchestration.runtime_loop.task_graph_batch_runtime import attach_batch_execution_request
+    from runtime.graph_runtime.batch_runtime import attach_batch_execution_request
 
     state = attach_batch_execution_request(
         runtime_state=state,

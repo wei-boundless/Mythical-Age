@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from context_policy import build_context_package_result
-from context_management.budget_presets import get_context_budget_preset
+from context_system.policy import build_context_package_result
+from context_system.budget.presets import get_context_budget_preset
 
 from .compaction import build_memory_compaction_result
 from .conversation_memory import ConversationMemoryStoreAdapter

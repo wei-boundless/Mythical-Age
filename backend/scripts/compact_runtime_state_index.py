@@ -13,7 +13,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from orchestration.runtime_loop.state_index import RuntimeStateIndex
+from runtime.memory.state_index import RuntimeStateIndex
 
 
 def compact_runtime_state_index(root_dir: Path, *, dry_run: bool = False) -> dict[str, Any]:

@@ -1,5 +1,6 @@
 import type {
   ComposableUnitSpec,
+  GraphModuleExpansionSpec,
   TaskGraphStandardEdgeSpec,
   TaskGraphStandardResourceSpec,
   TaskGraphStandardView,
@@ -18,6 +19,10 @@ function edgeMemoryCollection(edge: TaskGraphStandardEdgeSpec) {
 
 function resourceRepositoryId(resource: TaskGraphStandardResourceSpec) {
   return String(resource.repository_id || resource.node_id).trim();
+}
+
+function expansionUnitId(expansion: GraphModuleExpansionSpec) {
+  return String(expansion.unit_id ?? "").trim();
 }
 
 export function isTaskGraphThreadLedgerResource(resource: TaskGraphStandardResourceSpec) {
@@ -156,16 +161,20 @@ export function buildTaskGraphComposableStandardModel(standardView: TaskGraphSta
     return {
       units: [] as ComposableUnitSpec[],
       nodeUnits: [] as ComposableUnitSpec[],
-      graphUnits: [] as ComposableUnitSpec[],
+      graphModules: [] as ComposableUnitSpec[],
       resourceUnits: [] as ComposableUnitSpec[],
       humanGateUnits: [] as ComposableUnitSpec[],
       toolUnits: [] as ComposableUnitSpec[],
       runtimeMonitorUnits: [] as ComposableUnitSpec[],
       interfaces: [] as UnitInterfaceSpec[],
       portEdges: [] as UnitPortEdgeSpec[],
-      nestedRuntime: [] as NonNullable<TaskGraphStandardView["nested_runtime"]>,
+      graphModuleRuntime: [] as NonNullable<TaskGraphStandardView["graph_module_runtime"]>,
+      graphModuleExpansions: [] as NonNullable<TaskGraphStandardView["graph_module_expansions"]>,
+      graphModuleExpansionByUnitId: new Map<string, GraphModuleExpansionSpec>(),
       interfaceByUnitId: new Map<string, UnitInterfaceSpec>(),
       portEdgesByUnitId: new Map<string, UnitPortEdgeSpec[]>(),
+      expandedNodeCount: 0,
+      expandedEdgeCount: 0,
       issueCount: 0,
     };
   }
@@ -173,7 +182,13 @@ export function buildTaskGraphComposableStandardModel(standardView: TaskGraphSta
   const units = standardView.units ?? [];
   const interfaces = standardView.interfaces ?? [];
   const portEdges = standardView.port_edges ?? [];
-  const nestedRuntime = standardView.nested_runtime ?? [];
+  const graphModuleRuntime = standardView.graph_module_runtime ?? [];
+  const graphModuleExpansions = standardView.graph_module_expansions ?? [];
+  const graphModuleExpansionByUnitId = new Map(
+    graphModuleExpansions
+      .map((item) => [expansionUnitId(item), item] as const)
+      .filter(([unitId]) => Boolean(unitId)),
+  );
   const interfaceByUnitId = new Map(interfaces.map((item) => [item.unit_id, item]));
   const portEdgesByUnitId = new Map<string, UnitPortEdgeSpec[]>();
   for (const edge of portEdges) {
@@ -187,17 +202,22 @@ export function buildTaskGraphComposableStandardModel(standardView: TaskGraphSta
   return {
     units,
     nodeUnits: units.filter((unit) => unit.unit_type === "node"),
-    graphUnits: units.filter((unit) => unit.unit_type === "graph"),
+    graphModules: units.filter((unit) => unit.unit_type === "graph"),
     resourceUnits: units.filter((unit) => unit.unit_type === "resource"),
     humanGateUnits: units.filter((unit) => unit.unit_type === "human_gate"),
     toolUnits: units.filter((unit) => unit.unit_type === "tool"),
     runtimeMonitorUnits: units.filter((unit) => unit.unit_type === "runtime_monitor"),
     interfaces,
     portEdges,
-    nestedRuntime,
+    graphModuleRuntime,
+    graphModuleExpansions,
+    graphModuleExpansionByUnitId,
     interfaceByUnitId,
     portEdgesByUnitId,
-    issueCount: (standardView.issues ?? []).filter((issue) => issue.unit_id || issue.code.startsWith("port_edge_") || issue.code.startsWith("nested_graph_")).length,
+    expandedNodeCount: graphModuleExpansions.reduce((total, item) => total + (item.nodes?.length ?? 0), 0),
+    expandedEdgeCount: graphModuleExpansions.reduce((total, item) => total + (item.edges?.length ?? 0), 0),
+    issueCount: (standardView.issues ?? []).filter((issue) => issue.unit_id || issue.code.startsWith("port_edge_") || issue.code.startsWith("graph_module_")).length
+      + graphModuleExpansions.reduce((total, item) => total + (item.issues?.length ?? 0), 0),
   };
 }
 

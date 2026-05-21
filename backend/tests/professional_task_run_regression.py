@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,84 +13,27 @@ if str(BACKEND_DIR) not in sys.path:
 
 from capability_system.tool_definitions import get_tool_definition_map
 from query import QueryRuntime
-from tasks.assembly_support import build_runtime_task_intent_contract
-from tasks.execution_recipe_builder import build_execution_recipe
-from tasks.execution_shape_resolver import resolve_execution_shape
+from task_system.services.assembly_support import build_runtime_task_intent_contract
+from task_system.planning.execution_recipe_builder import build_execution_recipe
+from task_system.planning.execution_shape_resolver import resolve_execution_shape
+from tests.support.runtime_stubs import (
+    DefaultPermissionStub,
+    EmptySkillRegistryStub,
+    EmptyToolRuntimeStub,
+    InMemorySessionManagerStub,
+    PrimarySettingsStub,
+    QueryRuntimeMemoryFacadeStub,
+    SingleMessageModelRuntimeStub,
+    isolated_backend_root,
+)
 
 
-class _MemoryFacadeStub:
-    session_memory = SimpleNamespace(
-        manager=lambda _session_id: SimpleNamespace(load_state=lambda: None),
-        update_runtime_state_from_context_state=lambda *_args, **_kwargs: None,
-    )
-
-    def build_memory_context_package(self, *_args, **_kwargs):
-        return None
-
-    def build_memory_runtime_view(self, *_args, **_kwargs):
-        return {"view_id": "memview:test", "state_snapshot": {}}
-
-    def enqueue_memory_maintenance_after_commit(self, *_args, **_kwargs):
-        return SimpleNamespace(
-            to_dict=lambda: {
-                "attempted": False,
-                "queued": True,
-                "status": "queued",
-                "session_memory_succeeded": False,
-                "durable_memory_succeeded": False,
-                "durable_write_count": 0,
-            }
-        )
-
-
-class _SkillRegistryStub:
-    skills = []
-
-
-class _SettingsStub:
-    def get_rag_mode(self) -> bool:
-        return False
-
-    def get_orchestration_plan_mode(self) -> str:
-        return "primary"
-
-
-class _PermissionStub:
-    def current_mode(self) -> str:
-        return "default"
-
-    def supported_modes(self) -> list[str]:
-        return ["default"]
-
-
-class _SessionManagerStub:
-    def __init__(self) -> None:
-        self.messages: list[dict[str, object]] = []
-
-    def load_session_record(self, _session_id):
-        return {"messages": list(self.messages)}
-
-    def load_session_for_agent(self, _session_id, *, include_compressed_context: bool = False):
-        return list(self.messages)
-
-    def load_session(self, _session_id):
-        return list(self.messages)
-
-    def append_messages(self, _session_id, messages):
-        self.messages.extend(messages)
-        return list(messages)
-
-
-class _ToolRuntimeStub:
-    registry = None
-    definitions = []
-    instances = []
-
-    def get_definition(self, _name):
-        return None
-
-    def get_instance(self, _name):
-        return None
+_MemoryFacadeStub = QueryRuntimeMemoryFacadeStub
+_SkillRegistryStub = EmptySkillRegistryStub
+_SettingsStub = PrimarySettingsStub
+_PermissionStub = DefaultPermissionStub
+_SessionManagerStub = InMemorySessionManagerStub
+_ToolRuntimeStub = EmptyToolRuntimeStub
 
 
 class _ToolRuntimeWithSearchTextStub:
@@ -122,7 +64,7 @@ class _SearchTextToolStub:
 
     def invoke(self, args):
         query = str(dict(args or {}).get("query") or "")
-        return f"真实工具结果：query={query}; 命中 backend/orchestration/runtime_loop/professional_task_run_driver.py"
+        return f"真实工具结果：query={query}; 命中 backend/runtime/professional_runtime/driver.py"
 
 
 class _ToolRuntimeWithSideEffectsStub:
@@ -162,14 +104,10 @@ class _ToolRuntimeWithSideEffectsStub:
         return next((tool for tool in self._instances if getattr(tool, "name", "") == target), None)
 
 
-class _ModelRuntimeStub:
-    async def invoke_messages(self, _messages, **_kwargs):
-        return SimpleNamespace(
-            content=(
-                "tool grounded answer：已锁定目标、按专业模式计划完成分析，并给出当前结论。"
-                "限制：本轮没有执行额外工具。"
-            )
-        )
+_ModelRuntimeStub = lambda: SingleMessageModelRuntimeStub(
+    "tool grounded answer：已锁定目标、按专业模式计划完成分析，并给出当前结论。"
+    "限制：本轮没有执行额外工具。"
+)
 
 
 class _ToolCallingModelRuntimeStub:
@@ -737,7 +675,7 @@ class _EvidenceCloseoutLeakModelRuntimeStub:
         return SimpleNamespace(
             content=(
                 "name=\"read_file\" string=\"true\">\n"
-                "<｜｜DSML｜｜parameter name=\"path\">backend/orchestration/runtime_loop/tool_adoption.py"
+                "<｜｜DSML｜｜parameter name=\"path\">backend/runtime/shared/tool_adoption.py"
             )
         )
 
@@ -887,9 +825,7 @@ class _VerificationThenReadModelRuntimeStub:
 
 
 def _isolated_backend_root() -> Path:
-    root = Path(tempfile.mkdtemp(prefix="professional-task-run-")) / "backend"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    return isolated_backend_root("professional-task-run-")
 
 
 def _professional_task_selection(
@@ -1634,10 +1570,8 @@ def test_professional_verification_blocks_complete_when_required_terms_are_missi
 
 
 def test_professional_artifact_auto_write_creates_real_sandbox_file_and_ref() -> None:
-    from orchestration.runtime_loop.professional_task_run_driver import (
-        _build_artifact_delivery_auto_write_observation,
-        _goal_contract_from_semantic_contract,
-    )
+    from runtime.professional_runtime.evidence_closeout import _build_artifact_delivery_auto_write_observation
+    from runtime.professional_runtime.goal_contract import _goal_contract_from_semantic_contract
 
     backend_root = _isolated_backend_root()
     sandbox_root = backend_root.parent / "output" / "sandbox_runs" / "auto-write-regression" / "workspace"
@@ -1694,7 +1628,7 @@ def test_professional_artifact_auto_write_creates_real_sandbox_file_and_ref() ->
 
 
 def test_professional_goal_contract_expands_output_directory_file_list() -> None:
-    from orchestration.runtime_loop.professional_task_run_driver import _goal_contract_from_semantic_contract
+    from runtime.professional_runtime.goal_contract import _goal_contract_from_semantic_contract
 
     goal_contract = _goal_contract_from_semantic_contract(
         task_run_id="taskrun:multifile-contract",
@@ -1715,9 +1649,9 @@ def test_professional_goal_contract_expands_output_directory_file_list() -> None
 
 
 def test_professional_obligation_requires_all_explicit_output_paths() -> None:
-    from orchestration.runtime_loop.obligation_validation import validate_obligations
-    from orchestration.runtime_loop.professional_task_run_driver import _goal_contract_from_semantic_contract
-    from orchestration.runtime_loop.tool_observation_ledger import (
+    from runtime.contracts.obligation_validation import validate_obligations
+    from runtime.professional_runtime.goal_contract import _goal_contract_from_semantic_contract
+    from runtime.memory.tool_observation_ledger import (
         ToolObservationLedger,
         build_tool_observation_record,
     )

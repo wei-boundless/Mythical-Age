@@ -39,7 +39,7 @@ export function TaskGraphExecutionPackagePanel({
   runtimeSpec: TaskGraphRuntimeSpec | null;
   runtimeSpecError?: string;
 }) {
-  const graphUnitExecutionPlans = executionPackage?.graph_unit_execution_plans ?? [];
+  const graphModuleExecutionPlans = executionPackage?.graph_module_execution_plans ?? [];
   const splitPlans = executionPackage?.split_plans ?? [];
   const splitMergeIssues = executionPackage?.split_merge_issues ?? [];
   const objectTraceIndex = executionPackage?.object_trace_index ?? [];
@@ -57,9 +57,9 @@ export function TaskGraphExecutionPackagePanel({
           <div className="task-graph-mini-kv">
             <p><span>执行包</span><strong>{executionPackage.valid ? "通过" : "待修复"}</strong></p>
             <p><span>Assembly</span><strong>{executionPackage.node_runtime_assemblies.length}</strong></p>
-            <p><span>GraphUnit</span><strong>{executionPackage.graph_units.length}</strong></p>
-            <p><span>图节点契约</span><strong>{String(executionPackage.summary.graph_unit_handoff_contract_count ?? 0)}</strong></p>
-            <p><span>子图计划</span><strong>{graphUnitExecutionPlans.length}</strong></p>
+            <p><span>图模块</span><strong>{executionPackage.graph_modules.length}</strong></p>
+            <p><span>图模块契约</span><strong>{String(executionPackage.summary.graph_module_handoff_contract_count ?? 0)}</strong></p>
+            <p><span>模块计划</span><strong>{graphModuleExecutionPlans.length}</strong></p>
             <p><span>批次计划</span><strong>{String(executionPackage.summary.split_plan_count ?? splitPlans.length)}</strong></p>
             <p><span>批次数</span><strong>{String(executionPackage.summary.split_batch_count ?? 0)}</strong></p>
             <p><span>批次生命周期</span><strong>{String(splitLifecycleCount)}</strong></p>
@@ -215,16 +215,16 @@ export function TaskGraphExecutionPackagePanel({
               </div>
             </section>
           ) : null}
-          {graphUnitExecutionPlans.length ? (
+          {graphModuleExecutionPlans.length ? (
             <section className="task-graph-runtime-spec-panel">
-              <header><strong>GraphUnit 子图执行计划</strong><span>Parent node / Child package preview</span></header>
+              <header><strong>导入图模块执行计划</strong><span>Module node / Imported package preview</span></header>
               <div className="task-graph-preflight-list">
-                {graphUnitExecutionPlans.map((plan, index) => {
-                  const childGraph = recordValue(plan, "child_graph") as Record<string, unknown> | null | undefined;
-                  const runtimeSummary = recordValue(plan, "child_runtime_spec_summary") as Record<string, unknown> | null | undefined;
-                  const manifestSummary = recordValue(plan, "child_contract_manifest_summary") as Record<string, unknown> | null | undefined;
-                  const schedulerSummary = recordValue(plan, "child_scheduler_summary") as Record<string, unknown> | null | undefined;
-                  const assemblySummary = recordValue(plan, "child_node_runtime_assembly_summary") as Record<string, unknown> | null | undefined;
+                {graphModuleExecutionPlans.map((plan, index) => {
+                  const importedGraph = recordValue(plan, "imported_graph") as Record<string, unknown> | null | undefined;
+                  const runtimeSummary = recordValue(plan, "imported_runtime_spec_summary") as Record<string, unknown> | null | undefined;
+                  const manifestSummary = recordValue(plan, "imported_contract_manifest_summary") as Record<string, unknown> | null | undefined;
+                  const schedulerSummary = recordValue(plan, "imported_scheduler_summary") as Record<string, unknown> | null | undefined;
+                  const assemblySummary = recordValue(plan, "imported_node_runtime_assembly_summary") as Record<string, unknown> | null | undefined;
                   const planIssues = recordArrayValue(plan, "issues");
                   const valid = recordValue(plan, "valid") !== false && !planIssues.some((issue) => String((issue as Record<string, unknown>).severity ?? "error") === "error");
                   return (
@@ -233,9 +233,9 @@ export function TaskGraphExecutionPackagePanel({
                         {valid ? "ready" : "blocked"}
                       </span>
                       <div>
-                        <strong>{String(recordValue(childGraph, "title") ?? recordValue(plan, "linked_graph_id") ?? "未绑定子图")}</strong>
+                        <strong>{String(recordValue(importedGraph, "title") ?? recordValue(plan, "linked_graph_id") ?? "未绑定图模块")}</strong>
                         <span>
-                          父节点 {String(recordValue(plan, "runtime_node_id") ?? "-")} / 子图 {String(recordValue(plan, "linked_graph_id") ?? "-")} / 版本 {String(recordValue(plan, "version_ref") ?? "未锚定")}
+                          模块节点 {String(recordValue(plan, "runtime_node_id") ?? "-")} / 导入模块 {String(recordValue(plan, "linked_graph_id") ?? "-")} / 版本 {String(recordValue(plan, "version_ref") ?? "未锚定")}
                         </span>
                         <small>
                           Runtime {recordNumberValue(runtimeSummary, "node_count")} 节点 / {recordNumberValue(runtimeSummary, "edge_count")} 边；
@@ -244,11 +244,11 @@ export function TaskGraphExecutionPackagePanel({
                           Assembly {recordNumberValue(assemblySummary, "assembly_count")}
                         </small>
                         {planIssues.length ? (
-                          <small>{planIssues.map((issue) => String((issue as Record<string, unknown>).code ?? "graph_unit_issue")).join(" / ")}</small>
+                          <small>{planIssues.map((issue) => String((issue as Record<string, unknown>).code ?? "graph_module_issue")).join(" / ")}</small>
                         ) : null}
                       </div>
                       <em>{String(recordValue(plan, "handoff_contract_id") ?? "无交接契约")}</em>
-                      <small>{String(recordValue(plan, "isolation_policy") ?? "isolated_per_nested_run")}</small>
+                      <small>{String(recordValue(plan, "isolation_policy") ?? "isolated_per_graph_module_run")}</small>
                     </article>
                   );
                 })}
@@ -264,22 +264,22 @@ export function TaskGraphExecutionPackagePanel({
             <p><span>图契约</span><strong>{Object.keys(contractManifest.graph_contract_bindings ?? {}).length}</strong></p>
             <p><span>节点契约</span><strong>{contractManifest.node_contracts.length}</strong></p>
             <p><span>边契约</span><strong>{contractManifest.edge_handoff_contracts.length}</strong></p>
-            <p><span>图节点契约</span><strong>{(contractManifest.graph_unit_handoff_contracts ?? []).length}</strong></p>
+            <p><span>图模块契约</span><strong>{(contractManifest.graph_module_handoff_contracts ?? []).length}</strong></p>
             <p><span>问题</span><strong>{contractManifest.issues.length}</strong></p>
           </div>
-          {(contractManifest.graph_unit_handoff_contracts ?? []).length ? (
+          {(contractManifest.graph_module_handoff_contracts ?? []).length ? (
             <div className="task-graph-preflight-list">
-              {(contractManifest.graph_unit_handoff_contracts ?? []).slice(0, 6).map((item, index) => (
-                <article className="task-graph-preflight-row" key={`${String(recordValue(item, "plan_id") ?? index)}_graph_unit_handoff`}>
-                  <span className="task-graph-preflight-row__severity task-graph-preflight-row__severity--info">graph_unit</span>
+              {(contractManifest.graph_module_handoff_contracts ?? []).slice(0, 6).map((item, index) => (
+                <article className="task-graph-preflight-row" key={`${String(recordValue(item, "plan_id") ?? index)}_graph_module_handoff`}>
+                  <span className="task-graph-preflight-row__severity task-graph-preflight-row__severity--info">graph_module</span>
                   <div>
-                    <strong>{String(recordValue(item, "linked_graph_id") ?? "未绑定子图")}</strong>
+                    <strong>{String(recordValue(item, "linked_graph_id") ?? "未绑定图模块")}</strong>
                     <span>
                       {String(recordValue(item, "runtime_node_id") ?? "-")} / {String(recordValue(item, "input_port_id") ?? "input.default")} {"->"} {String(recordValue(item, "output_port_id") ?? "output.default")}
                     </span>
                   </div>
                   <em>{String(recordValue(item, "handoff_contract_id") ?? "无交接契约")}</em>
-                  <small>graph_unit_handoff</small>
+                  <small>graph_module_handoff</small>
                 </article>
               ))}
             </div>
@@ -317,15 +317,15 @@ export function TaskGraphExecutionPackagePanel({
             <p><span>起点</span><strong>{listText(runtimeSpec.start_node_ids) || "-"}</strong></p>
             <p><span>终点</span><strong>{listText(runtimeSpec.terminal_node_ids) || "-"}</strong></p>
             <p><span>通信</span><strong>{listText(runtimeSpec.communication_modes) || "-"}</strong></p>
-            <p><span>GraphUnit</span><strong>{(runtimeSpec.nested_runtime_plans ?? runtimeSpec.graph_units ?? []).length}</strong></p>
+            <p><span>图模块</span><strong>{(runtimeSpec.graph_module_runtime_plans ?? runtimeSpec.graph_modules ?? []).length}</strong></p>
           </div>
-          {(runtimeSpec.nested_runtime_plans ?? runtimeSpec.graph_units ?? []).length ? (
+          {(runtimeSpec.graph_module_runtime_plans ?? runtimeSpec.graph_modules ?? []).length ? (
             <div className="task-graph-preflight-list">
-              {(runtimeSpec.nested_runtime_plans ?? runtimeSpec.graph_units ?? []).map((plan, index) => (
+              {(runtimeSpec.graph_module_runtime_plans ?? runtimeSpec.graph_modules ?? []).map((plan, index) => (
                 <article className="task-graph-preflight-row" key={`${String(plan.plan_id ?? plan.runtime_node_id ?? index)}`}>
-                  <span className="task-graph-preflight-row__severity task-graph-preflight-row__severity--info">graph_unit</span>
+                  <span className="task-graph-preflight-row__severity task-graph-preflight-row__severity--info">graph_module</span>
                   <div>
-                    <strong>{String(plan.linked_graph_id ?? "未绑定子图")}</strong>
+                    <strong>{String(plan.linked_graph_id ?? "未绑定图模块")}</strong>
                     <span>{String(plan.plan_id ?? "")} / {String(plan.version_ref ?? "未锚定版本")}</span>
                   </div>
                   <em>{String(plan.runtime_node_id ?? plan.unit_id ?? "")}</em>

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from orchestration.runtime_loop.tool_repetition_guard import ToolRepetitionGuard
+from runtime.shared.tool_repetition_guard import ToolRepetitionGuard
 
 
 def test_tool_repetition_guard_allows_same_tool_with_different_queries() -> None:

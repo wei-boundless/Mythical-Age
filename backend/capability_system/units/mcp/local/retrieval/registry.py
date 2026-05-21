@@ -5,13 +5,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from config import get_settings
-from retrieval_core.index_store import RetrievalLayout
+from knowledge_system.indexing.index_store import RetrievalLayout
 
 from .collections import CollectionConfig, build_default_collections
 from .models import RetrievalHit
 
 if TYPE_CHECKING:
-    from retrieval_core import RetrievalBootstrapper, RetrievalRequest
+    from knowledge_system.indexing import RetrievalBootstrapper, RetrievalRequest
 
 
 class CollectionHandle:
@@ -52,7 +52,7 @@ class RAGIndexRegistry:
     @property
     def bootstrapper(self):
         if self._bootstrapper is None:
-            from retrieval_core import RetrievalBootstrapper
+            from knowledge_system.indexing import RetrievalBootstrapper
 
             self._bootstrapper = RetrievalBootstrapper(self.base_dir)
         return self._bootstrapper
@@ -141,7 +141,7 @@ class RAGIndexRegistry:
         query_mode: str,
         collections: tuple[str, ...],
     ):
-        from retrieval_core import RetrievalRequest
+        from knowledge_system.indexing import RetrievalRequest
 
         return RetrievalRequest(
             query=query,

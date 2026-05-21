@@ -30,8 +30,8 @@ export function focusForPreflightIssue(issue: TaskGraphPreflightIssue): TaskGrap
   if (issue.source.includes("composable_graph")) {
     const facet = issue.scope === "port_edge"
       ? "connections"
-      : issue.title.includes("nested_graph")
-        ? "nested_runtime"
+      : issue.title.includes("graph_module")
+        ? "graph_module_runtime"
         : issue.title.includes("unit_interface")
           ? "interfaces"
           : "units";

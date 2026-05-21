@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from normalized_ingestion.chunking import build_indexable_units
-from normalized_ingestion.models import NormalizedBlock, NormalizedDocument
-from normalized_ingestion.policy import ChunkingPolicy
+from knowledge_system.ingestion.chunking import build_indexable_units
+from knowledge_system.ingestion.models import NormalizedBlock, NormalizedDocument
+from knowledge_system.ingestion.policy import ChunkingPolicy
 
 
 def _document() -> NormalizedDocument:

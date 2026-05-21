@@ -6,13 +6,12 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from api import tasks as tasks_api
-from tasks import ContractSpec, TaskContractRegistry
+from api import task_system as tasks_api
+from task_system import ContractSpec, TaskContractRegistry
+from tests.support.runtime_stubs import RuntimeBaseDirStub
 
 
-class _RuntimeStub:
-    def __init__(self, base_dir: Path) -> None:
-        self.base_dir = Path(base_dir)
+_RuntimeStub = RuntimeBaseDirStub
 
 
 def test_contract_registry_loads_generic_default_specs_with_chinese_titles(tmp_path: Path) -> None:

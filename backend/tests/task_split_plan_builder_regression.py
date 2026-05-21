@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from api import tasks as tasks_api
-from tasks import TaskFlowRegistry, build_static_split_plan
-from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+from api import task_system as tasks_api
+from task_system import TaskFlowRegistry, build_static_split_plan
+from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+from tests.support.runtime_stubs import RuntimeBaseDirStub
 
 
-class _RuntimeStub:
-    def __init__(self, base_dir: Path) -> None:
-        self.base_dir = Path(base_dir)
+_RuntimeStub = RuntimeBaseDirStub
 
 
 def test_static_split_plan_compiles_unit_batch_contract_into_ranges() -> None:

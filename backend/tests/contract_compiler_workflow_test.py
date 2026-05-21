@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from orchestration.agent_runtime_models import AgentRuntimeProfile
-from orchestration.runtime_loop.contract_compiler import compile_workflow_contract_manifest
-from tasks import TaskContractRegistry, TaskFlowRegistry, TaskWorkflowRegistry
+from runtime.contracts.compiler import compile_workflow_contract_manifest
+from task_system import TaskContractRegistry, TaskFlowRegistry, TaskWorkflowRegistry
 
 
 def _seed_basic_contracts(registry: TaskContractRegistry) -> None:

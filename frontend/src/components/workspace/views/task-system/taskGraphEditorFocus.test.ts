@@ -126,17 +126,17 @@ describe("TaskGraph editor focus", () => {
     });
   });
 
-  it("routes composable nested graph diagnostics to the nested runtime facet", () => {
+  it("routes composable graph module diagnostics to the graph module runtime facet", () => {
     const focus = focusForPreflightIssue(issue({
       source: "backend.composable_graph",
       scope: "unit",
       target_id: "unit.graph.block.design",
-      title: "nested_graph_handoff_contract_missing",
+      title: "graph_module_handoff_contract_missing",
     }));
 
     expect(focus).toMatchObject({
       layer: "modules",
-      facet: "nested_runtime",
+      facet: "graph_module_runtime",
       node_id: "unit.graph.block.design",
     });
   });

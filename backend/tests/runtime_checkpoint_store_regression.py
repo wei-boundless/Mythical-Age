@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from orchestration.runtime_loop.checkpoint import RuntimeCheckpointStore
-from orchestration.runtime_loop.models import RuntimeLoopState
+from runtime.shared.checkpoint import RuntimeCheckpointStore
+from runtime.shared.models import RuntimeLoopState
 
 
 def test_runtime_checkpoint_write_retries_windows_permission_error(tmp_path: Path, monkeypatch) -> None:

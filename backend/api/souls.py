@@ -197,6 +197,16 @@ async def soul_projection_template_detail(template_id: str) -> dict[str, Any]:
     return template.to_dict()
 
 
+@router.get("/soul/{soul_id}/activity")
+async def soul_work_log(soul_id: str, limit: int = 20) -> dict[str, Any]:
+    runtime = require_runtime()
+    normalized_soul_id = soul_id.strip().lower()
+    facade = SoulFacade(runtime.base_dir)
+    if facade.get_profile(normalized_soul_id) is None:
+        raise HTTPException(status_code=404, detail="Unknown soul")
+    return facade.get_work_log(normalized_soul_id, limit=limit)
+
+
 @router.post("/soul/projection-instances/preview")
 async def soul_projection_instance_preview(payload: ProjectionInstancePreviewRequest) -> dict[str, Any]:
     runtime = require_runtime()

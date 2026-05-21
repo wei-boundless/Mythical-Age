@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from capability_system.units.mcp.local.retrieval.models import RetrievalHit
-from retrieval.candidate_graph import coalesce_with_candidate_graph
-from retrieval_core.llamaindex_backend import LlamaIndexRetrievalBackend
-from retrieval_core.retrievers import RetrievalRequest
+from knowledge_system.retrieval.candidate_graph import coalesce_with_candidate_graph
+from knowledge_system.indexing.llamaindex_backend import LlamaIndexRetrievalBackend
+from knowledge_system.indexing.retrievers import RetrievalRequest
 
 
 def _hit(

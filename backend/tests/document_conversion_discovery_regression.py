@@ -8,7 +8,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from capability_system.units.mcp.local.retrieval.collections import CollectionConfig
-from document_conversion import discover_source_files
+from knowledge_system.conversion import discover_source_files
 
 
 def test_discover_source_files_prefixes_same_name_files_from_distinct_roots(tmp_path: Path) -> None:

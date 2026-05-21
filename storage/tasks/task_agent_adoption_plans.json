@@ -283,6 +283,35 @@
       "task_privilege": "bounded"
     },
     {
+      "plan_id": "taskadopt:task.writing.modular_novel.node.memory_commit_character",
+      "task_id": "task.writing.modular_novel.node.memory_commit_character",
+      "adoption_mode": "adopt_with_projection",
+      "default_agent_id": "agent:writing_modular_memory_steward",
+      "allow_worker_agent_spawn": false,
+      "worker_agent_blueprint_id": "",
+      "worker_agent_naming_rule": "",
+      "notes": "模块化写作任务图使用通用任务图执行能力，不新增写作专用后端入口。",
+      "metadata": {
+        "derived_from": "task_assignment",
+        "participant_agent_ids": [],
+        "runtime_limits": {},
+        "execution_chain_type": "coordination_node",
+        "task_graph_id": "",
+        "graph_id": "",
+        "communication_protocol_id": "",
+        "topology_template_id": "",
+        "agent_group_id": "",
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "memory_commit_character"
+      },
+      "authority": "task_system.task_execution_policy",
+      "execution_policy_id": "taskexecpol:task.writing.modular_novel.node.memory_commit_character",
+      "execution_chain_type": "coordination_node",
+      "runtime_agent_selection_policy": "orchestration_default",
+      "task_level": "standard",
+      "task_privilege": "bounded"
+    },
+    {
       "plan_id": "taskadopt:task.writing.modular_novel.node.plot_design",
       "task_id": "task.writing.modular_novel.node.plot_design",
       "adoption_mode": "adopt_with_projection",

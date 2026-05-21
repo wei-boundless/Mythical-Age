@@ -96,7 +96,7 @@ export function TaskDomainLibraryPage({
             ) : (
               <h3>{selectedDomain?.title || "任务域"}</h3>
             )}
-            <p>任务域只负责分类、入口策略和域级边界，不编辑图节点和运行产物。</p>
+            <p>任务域只负责分类、入口策略和域级边界，不编辑图模块和运行产物。</p>
           </div>
           <div className="boundary-actions">
             <ToolbarButton onClick={() => onSetEditingDomainName(true)}>

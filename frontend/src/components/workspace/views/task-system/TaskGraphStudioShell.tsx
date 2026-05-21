@@ -19,7 +19,7 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
   },
   agents: {
     title: "节点装配",
-    summary: "给当前图节点绑定执行器、Agent、Projection 与运行场景权限引用。",
+    summary: "给当前图模块绑定执行器、Agent、Projection 与运行场景权限引用。",
     checkpoints: ["执行器", "Agent 引用", "Projection"],
   },
   topology: {

@@ -10,7 +10,7 @@ if str(BACKEND_DIR) not in sys.path:
 from orchestration import build_orchestration_runtime_bundle
 from orchestration.agent_runtime_models import AgentRuntimeProfile
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
-from tasks.assembly_builder import build_task_execution_assembly_bundle
+from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 
 
 def test_orchestration_runtime_bundle_builds_formal_objects() -> None:
@@ -210,7 +210,7 @@ def test_removed_story_task_selection_falls_back_to_general_runtime() -> None:
 
 
 def test_removed_longform_writing_runtime_residue_stays_absent() -> None:
-    from tasks.flow_registry import TaskFlowRegistry
+    from task_system.registry.flow_registry import TaskFlowRegistry
     from orchestration.agent_runtime_chain import _align_understanding_with_explicit_task_selection
     from understanding.query_understanding import analyze_query_understanding
 

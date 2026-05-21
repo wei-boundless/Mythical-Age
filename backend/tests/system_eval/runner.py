@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import platform
 import subprocess
 import sys
 import time
@@ -36,24 +35,21 @@ from health_system.maintenance.harness.regression_gate import run_profile
 from observability import current_trace_backend, is_langsmith_tracing_enabled, is_trace_capture_enabled
 from bootstrap.app_runtime import app_runtime
 
-from execution_core import collect_sse_events, extract_langsmith_trace_reference, final_text, has_event, iso_now
+from execution_core import (
+    build_run_context,
+    collect_sse_events,
+    extract_langsmith_trace_reference,
+    final_text,
+    has_event,
+    iso_now,
+    latest_event_payload,
+    orchestration_diff_mismatches,
+    slug,
+)
 
 
 async def _fake_invoke_messages(_messages: list[dict[str, str]]):
     return SimpleNamespace(content="smoke token")
-
-
-def _slug(value: str) -> str:
-    parts = []
-    for char in value:
-        if char.isalnum():
-            parts.append(char.lower())
-        else:
-            parts.append("-")
-    slug = "".join(parts).strip("-")
-    while "--" in slug:
-        slug = slug.replace("--", "-")
-    return slug or "artifact"
 
 
 def _tail(text: str, *, limit: int = 800) -> str:
@@ -63,43 +59,14 @@ def _tail(text: str, *, limit: int = 800) -> str:
     return normalized[-limit:]
 
 
-def _latest_event_payload(events: list[dict[str, Any]], event_name: str) -> dict[str, Any]:
-    for item in reversed(events):
-        if str(item.get("event") or "") != event_name:
-            continue
-        data = item.get("data")
-        return dict(data) if isinstance(data, dict) else {}
-    return {}
-
-
-def _orchestration_diff_mismatches(diff: dict[str, Any]) -> list[str]:
-    mismatches: list[str] = []
-    for item in list(diff.get("items") or []):
-        if not isinstance(item, dict) or str(item.get("status") or "") != "mismatch":
-            continue
-        field = str(item.get("field") or "unknown")
-        expected = item.get("expected")
-        actual = item.get("actual")
-        reason = str(item.get("reason") or "")
-        suffix = f" / {reason}" if reason else ""
-        mismatches.append(f"{field}: expected={expected!r}, actual={actual!r}{suffix}")
-    return mismatches
-
-
 def _build_context(profile: str, output_dir: Path) -> RunContext:
-    settings = get_settings()
-    return RunContext(
-        run_id=output_dir.name,
+    return build_run_context(
         profile=profile,
-        mode="inprocess",
-        repo_root=str(REPO_ROOT),
-        backend_root=str(BACKEND_DIR),
-        frontend_root=str(FRONTEND_DIR),
-        output_dir=str(output_dir),
-        generated_at=iso_now(),
-        python_version=platform.python_version(),
-        llm_provider=settings.llm_provider,
-        llm_model=settings.llm_model,
+        output_dir=output_dir,
+        repo_root=REPO_ROOT,
+        backend_root=BACKEND_DIR,
+        frontend_root=FRONTEND_DIR,
+        settings=get_settings(),
         langsmith_enabled=is_langsmith_tracing_enabled(),
         trace_backend=current_trace_backend(),
         trace_enabled=is_trace_capture_enabled(),
@@ -128,7 +95,7 @@ def _result_to_issue(index: int, result: ScenarioResult) -> IssueEntry | None:
 
 def _trace_for_result(result: ScenarioResult) -> TraceSpan:
     return TraceSpan(
-        trace_id=f"{_slug(result.category)}-{_slug(result.name)}",
+        trace_id=f"{slug(result.category)}-{slug(result.name)}",
         stage=result.category,
         status=result.status,
         started_at=result.timing.started_at,
@@ -164,7 +131,7 @@ def _run_command(
     duration_ms = round((time.perf_counter() - started) * 1000.0, 2)
     ended_at = iso_now()
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    log_path = artifact_dir / f"{_slug(name)}.log"
+    log_path = artifact_dir / f"{slug(name)}.log"
     log_path.write_text(
         "\n".join(
             [
@@ -279,10 +246,10 @@ def _run_inprocess_sse_smoke(artifact_dir: Path) -> ScenarioResult:
     event_path.write_text(json.dumps(events, ensure_ascii=False, indent=2), encoding="utf-8")
 
     trace_ref = extract_langsmith_trace_reference(events)
-    orchestration_plan = dict(_latest_event_payload(events, "orchestration_plan").get("plan") or {})
-    orchestration_diff = dict(_latest_event_payload(events, "orchestration_diff").get("diff") or {})
+    orchestration_plan = dict(latest_event_payload(events, "orchestration_plan").get("plan") or {})
+    orchestration_diff = dict(latest_event_payload(events, "orchestration_diff").get("diff") or {})
     orchestration_diff_status = str(orchestration_diff.get("status") or "")
-    orchestration_mismatches = _orchestration_diff_mismatches(orchestration_diff)
+    orchestration_mismatches = orchestration_diff_mismatches(orchestration_diff)
     orchestration_path = artifact_dir / "inprocess-sse-smoke.orchestration.json"
     orchestration_path.write_text(
         json.dumps(

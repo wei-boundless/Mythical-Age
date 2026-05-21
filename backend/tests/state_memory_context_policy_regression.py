@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from memory_system import MemoryFacade, MemoryRuntimeView
 from memory_system.contracts import MemoryContextCandidate
-from context_policy import build_context_package_result
+from context_system.policy import build_context_package_result
 from structured_memory import MemoryNote
 from structured_memory.process_state import ContextSlots, ProcessState
 from token_accounting import count_text_tokens

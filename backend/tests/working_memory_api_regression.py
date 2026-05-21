@@ -4,17 +4,10 @@ import asyncio
 from pathlib import Path
 
 from api import memory as memory_api
-from memory_system import MemoryFacade
+from tests.support.runtime_stubs import MemoryApiRuntimeStub
 
 
-class _RuntimeStub:
-    def __init__(self, base_dir: Path) -> None:
-        self.base_dir = Path(base_dir)
-        self.memory_facade = MemoryFacade(base_dir)
-        self.refreshed_paths: list[str] = []
-
-    def refresh_indexes_for_path(self, path: str) -> None:
-        self.refreshed_paths.append(path)
+_RuntimeStub = MemoryApiRuntimeStub
 
 
 def test_working_memory_overview_and_detail_api_expose_runtime_governance(tmp_path: Path) -> None:

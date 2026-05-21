@@ -4,8 +4,8 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable
 
-from context_management import ContextController
-from context_management.budget_presets import get_context_budget_preset
+from context_system import ContextController
+from context_system.budget.presets import get_context_budget_preset
 from project_layout import ProjectLayout
 from .compat_types import Message, SessionMemoryManager
 
@@ -40,7 +40,7 @@ class SessionMemoryLayer:
         return SessionMemoryManager(self.session_dir(session_id))
 
     def compactor(self, session_id: str):
-        from context_management import ContextCompactor
+        from context_system import ContextCompactor
 
         budget = self._context_budget()
         return ContextCompactor(

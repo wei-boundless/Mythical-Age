@@ -5,23 +5,23 @@ from pathlib import Path
 import pytest
 
 from orchestration.agent_runtime_models import AgentRuntimeProfile
-from orchestration.runtime_loop import (
+from runtime import (
     RuntimeContextManager,
     TaskRunLoop,
     build_node_runtime_assembly,
     build_single_agent_runtime_assembly,
 )
 from orchestration.agent_runtime_chain import _memory_request_profile_for_context_assembly
-from orchestration.runtime_loop.contract_compiler_models import (
+from runtime.contracts.compiler_models import (
     CompiledAcceptanceContract,
     CompiledEdgeHandoffContract,
     CompiledGlobalContract,
     CompiledNodeContract,
     ContractManifest,
 )
-from orchestration.runtime_loop.node_execution_request import NodeExecutionRequest
-from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-from tasks.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
+from runtime.execution.node_execution_request import NodeExecutionRequest
+from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 
 
 def _manifest() -> ContractManifest:

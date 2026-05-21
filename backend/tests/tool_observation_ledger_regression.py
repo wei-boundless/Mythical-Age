@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from orchestration.runtime_loop.tool_observation_ledger import (
+from runtime.memory.tool_observation_ledger import (
     ToolObservationLedger,
     build_tool_observation_record,
 )
-from orchestration.runtime_loop.protocol_boundary import detect_protocol_leak, strip_protocol_leak
-from execution.tool_result_envelope import build_tool_result_envelope
+from runtime.shared.protocol_boundary import detect_protocol_leak, strip_protocol_leak
+from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
 
 def test_tool_observation_ledger_classifies_core_tool_side_effects() -> None:
@@ -71,7 +71,7 @@ def test_tool_observation_ledger_records_structured_paths_and_command_receipts()
     search_envelope = build_tool_result_envelope(
         tool_name="search_text",
         tool_args={"query": "ProfessionalTaskRunDriver"},
-        result="backend/orchestration/runtime_loop/professional_task_run_driver.py:107:1:class ProfessionalTaskRunDriver:",
+        result="backend/runtime/professional_runtime/driver.py:102:1:class ProfessionalTaskRunDriver:",
     )
     terminal_envelope = build_tool_result_envelope(
         tool_name="terminal",
@@ -94,17 +94,17 @@ def test_tool_observation_ledger_records_structured_paths_and_command_receipts()
         )
     )
 
-    assert ledger.has_read("backend/orchestration/runtime_loop/professional_task_run_driver.py") is True
+    assert ledger.has_read("backend/runtime/professional_runtime/driver.py") is True
     assert ledger.has_verification("pytest") is True
     assert ledger.verification_passed() is True
-    assert ledger.summary()["matched_paths"] == ["backend/orchestration/runtime_loop/professional_task_run_driver.py"]
+    assert ledger.summary()["matched_paths"] == ["backend/runtime/professional_runtime/driver.py"]
 
 
 def test_tool_observation_ledger_extracts_paths_from_wrapped_search_text() -> None:
     envelope = build_tool_result_envelope(
         tool_name="search_text",
         tool_args={"query": "ProfessionalTaskRunDriver"},
-        result="真实工具结果：query=ProfessionalTaskRunDriver; 命中 backend/orchestration/runtime_loop/professional_task_run_driver.py",
+        result="真实工具结果：query=ProfessionalTaskRunDriver; 命中 backend/runtime/professional_runtime/driver.py",
     )
     ledger = ToolObservationLedger(ledger_id="ledger:wrapped-search", task_run_id="taskrun:wrapped-search")
     ledger = ledger.append(
@@ -115,8 +115,8 @@ def test_tool_observation_ledger_extracts_paths_from_wrapped_search_text() -> No
         )
     )
 
-    assert ledger.summary()["matched_paths"] == ["backend/orchestration/runtime_loop/professional_task_run_driver.py"]
-    assert ledger.has_read("backend/orchestration/runtime_loop/professional_task_run_driver.py") is True
+    assert ledger.summary()["matched_paths"] == ["backend/runtime/professional_runtime/driver.py"]
+    assert ledger.has_read("backend/runtime/professional_runtime/driver.py") is True
 
 
 def test_terminal_parser_error_is_not_a_passing_verification() -> None:

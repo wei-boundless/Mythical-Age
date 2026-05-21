@@ -168,6 +168,132 @@ class CommonContractPrompt:
 
 
 @dataclass(slots=True, frozen=True)
+class SoulWorld:
+    world_id: str
+    title: str
+    summary: str = ""
+    content: str = ""
+    source_ref: str = ""
+    version: str = "v1"
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["metadata"] = dict(self.metadata)
+        payload["chars"] = len(self.content)
+        return payload
+
+
+@dataclass(slots=True, frozen=True)
+class SoulStory:
+    story_id: str
+    soul_id: str
+    title: str
+    summary: str = ""
+    content: str = ""
+    world_id: str = ""
+    source_ref: str = ""
+    version: str = "v1"
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["metadata"] = dict(self.metadata)
+        payload["chars"] = len(self.content)
+        return payload
+
+
+@dataclass(slots=True, frozen=True)
+class WorkPrompt:
+    prompt_id: str
+    title: str
+    content: str
+    source_ref: str = ""
+    task_mode: str = "work_mode"
+    role_type: str = ""
+    version: str = "v1"
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["metadata"] = dict(self.metadata)
+        payload["chars"] = len(self.content)
+        return payload
+
+
+@dataclass(slots=True, frozen=True)
+class SoulManifestation:
+    manifestation_id: str
+    soul_id: str
+    display_name: str
+    avatar_ref: str = ""
+    portrait_ref: str = ""
+    model_ref: str = ""
+    state: str = "idle"
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["metadata"] = dict(self.metadata)
+        return payload
+
+
+@dataclass(slots=True, frozen=True)
+class SoulActivityEvent:
+    event_id: str
+    soul_id: str
+    task_run_id: str
+    session_id: str = ""
+    task_id: str = ""
+    projection_id: str = ""
+    work_prompt_id: str = ""
+    agent_id: str = ""
+    agent_run_id: str = ""
+    status: str = ""
+    title: str = ""
+    summary: str = ""
+    artifact_count: int = 0
+    artifact_refs: tuple[str, ...] = ()
+    source_refs: tuple[str, ...] = ()
+    last_activity_at: float = 0.0
+    authority: str = "soul.work_log_view"
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["artifact_refs"] = list(self.artifact_refs)
+        payload["source_refs"] = list(self.source_refs)
+        return payload
+
+
+@dataclass(slots=True, frozen=True)
+class SoulWorkLogView:
+    soul_id: str
+    limit: int
+    events: tuple[SoulActivityEvent, ...]
+    source_systems: tuple[str, ...] = (
+        "runtime_state_index",
+        "runtime_event_log",
+        "artifact_repository",
+        "memory_write_receipts",
+    )
+    read_model_only: bool = True
+    stores_memory_content: bool = False
+    authority: str = "soul.work_log_view"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "soul_id": self.soul_id,
+            "limit": self.limit,
+            "event_count": len(self.events),
+            "events": [item.to_dict() for item in self.events],
+            "source_systems": list(self.source_systems),
+            "read_model_only": self.read_model_only,
+            "stores_memory_content": self.stores_memory_content,
+            "authority": self.authority,
+        }
+
+
+@dataclass(slots=True, frozen=True)
 class SoulTemplatePrompt:
     prompt_id: str
     soul_id: str

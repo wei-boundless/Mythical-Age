@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from orchestration.agent_runtime_models import AgentRuntimeProfile
-from orchestration.runtime_loop.contract_compiler import compile_coordination_contract_manifest
-from tasks import TaskContractRegistry, compile_task_graph_definition_runtime_spec
-from tasks.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol
-from tasks.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
+from runtime.contracts.compiler import compile_coordination_contract_manifest
+from task_system import TaskContractRegistry, compile_task_graph_definition_runtime_spec
+from task_system.registry.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol
+from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
 
 
 def _seed_coordination_contracts(registry: TaskContractRegistry) -> None:
@@ -15,8 +15,8 @@ def _seed_coordination_contracts(registry: TaskContractRegistry) -> None:
         ("contract.test.node_output", "测试节点输出", "node_execution"),
         ("contract.test.node_override", "测试节点覆盖契约", "node_execution"),
         ("contract.test.edge_handoff", "测试边交接", "edge_handoff"),
-        ("contract.test.graph_unit.handoff", "测试图节点交接", "edge_handoff"),
-        ("contract.test.graph_unit.binding_handoff", "测试图节点绑定交接", "edge_handoff"),
+        ("contract.test.graph_module.handoff", "测试图节点交接", "edge_handoff"),
+        ("contract.test.graph_module.binding_handoff", "测试图节点绑定交接", "edge_handoff"),
     ):
         registry.upsert_contract_spec(
             {
@@ -450,11 +450,11 @@ def test_coordination_contract_compiler_does_not_collect_conflicting_legacy_cont
     assert edge_contract.contract_refs == ("contract.test.node_output",)
 
 
-def test_coordination_contract_compiler_compiles_graph_unit_handoff_contracts(tmp_path: Path) -> None:
+def test_coordination_contract_compiler_compiles_graph_module_handoff_contracts(tmp_path: Path) -> None:
     contract_registry = TaskContractRegistry(tmp_path)
     _seed_coordination_contracts(contract_registry)
     coordination = CoordinationTaskDefinition(
-        graph_id="graph.test.graph_unit_manifest",
+        graph_id="graph.test.graph_module_manifest",
         title="图节点契约清单",
         coordination_mode="pipeline",
         coordinator_agent_id="agent:0",
@@ -470,15 +470,15 @@ def test_coordination_contract_compiler_compiles_graph_unit_handoff_contracts(tm
         metadata={
             "timeline_blocks": [
                 {
-                    "block_id": "block.child",
-                    "block_type": "child_graph",
-                    "title": "子图阶段",
-                    "phase_id": "phase.child",
-                    "linked_graph_id": "graph.test.child",
+                    "block_id": "block.import",
+                    "block_type": "imported_graph",
+                    "title": "导入模块阶段",
+                    "phase_id": "phase.import",
+                    "linked_graph_id": "graph.test.imported",
                     "version_ref": "v1",
-                    "handoff_contract_id": "contract.test.graph_unit.handoff",
+                    "handoff_contract_id": "contract.test.graph_module.handoff",
                     "contract_bindings": {
-                        "handoff": {"handoff_contract_id": "contract.test.graph_unit.binding_handoff"},
+                        "handoff": {"handoff_contract_id": "contract.test.graph_module.binding_handoff"},
                         "runtime": {"resume_policy": "resume_from_checkpoint"},
                     },
                 }
@@ -495,21 +495,21 @@ def test_coordination_contract_compiler_compiles_graph_unit_handoff_contracts(tm
 
     assert manifest.valid is False
     assert "contract_binding_conflict" in {item.code for item in manifest.issues}
-    graph_unit_contract = manifest.graph_unit_handoff_contracts[0]
-    assert graph_unit_contract.plan_id == "nested.block.child"
-    assert graph_unit_contract.runtime_node_id == "graph_unit.block.child"
-    assert graph_unit_contract.linked_graph_id == "graph.test.child"
-    assert graph_unit_contract.handoff_contract_id == "contract.test.graph_unit.binding_handoff"
-    assert graph_unit_contract.contract_refs == ("contract.test.graph_unit.binding_handoff",)
-    assert graph_unit_contract.handoff_bindings["handoff_contract_id"] == "contract.test.graph_unit.binding_handoff"
-    assert "contract.test.graph_unit.binding_handoff" in {item.contract_id for item in manifest.global_contracts}
+    graph_module_contract = manifest.graph_module_handoff_contracts[0]
+    assert graph_module_contract.plan_id == "graph_module_runtime.block.import"
+    assert graph_module_contract.runtime_node_id == "graph_module.block.import"
+    assert graph_module_contract.linked_graph_id == "graph.test.imported"
+    assert graph_module_contract.handoff_contract_id == "contract.test.graph_module.binding_handoff"
+    assert graph_module_contract.contract_refs == ("contract.test.graph_module.binding_handoff",)
+    assert graph_module_contract.handoff_bindings["handoff_contract_id"] == "contract.test.graph_module.binding_handoff"
+    assert "contract.test.graph_module.binding_handoff" in {item.contract_id for item in manifest.global_contracts}
 
 
-def test_coordination_contract_compiler_reports_missing_graph_unit_handoff_contract(tmp_path: Path) -> None:
+def test_coordination_contract_compiler_reports_missing_graph_module_handoff_contract(tmp_path: Path) -> None:
     contract_registry = TaskContractRegistry(tmp_path)
     _seed_coordination_contracts(contract_registry)
     coordination = CoordinationTaskDefinition(
-        graph_id="graph.test.graph_unit_missing_handoff",
+        graph_id="graph.test.graph_module_missing_handoff",
         title="图节点缺失交接契约",
         coordination_mode="pipeline",
         coordinator_agent_id="agent:0",
@@ -526,7 +526,7 @@ def test_coordination_contract_compiler_reports_missing_graph_unit_handoff_contr
             "timeline_blocks": [
                 {
                     "block_id": "block.child",
-                    "block_type": "child_graph",
+                    "block_type": "imported_graph",
                     "linked_graph_id": "graph.test.child",
                     "version_ref": "v1",
                 }
@@ -541,5 +541,5 @@ def test_coordination_contract_compiler_reports_missing_graph_unit_handoff_contr
         graph_spec=graph_spec,
     )
 
-    assert manifest.graph_unit_handoff_contracts[0].contract_refs == ()
-    assert "graph_unit_handoff_contract_missing" in {item.code for item in manifest.issues}
+    assert manifest.graph_module_handoff_contracts[0].contract_refs == ()
+    assert "graph_module_handoff_contract_missing" in {item.code for item in manifest.issues}

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from context_management import ContextPackage
-from orchestration.runtime_loop import RuntimeContextManager
-from orchestration.runtime_loop.context_manager import _render_runtime_execution_block
+from context_system import ContextPackage
+from runtime import RuntimeContextManager
+from runtime.shared.context_manager import _render_runtime_execution_block
 from prompting.builder import _render_context_package_block
 
 
 def test_runtime_context_prompt_omits_hot_truth_for_non_compact_packages() -> None:
-    from orchestration.runtime_loop.context_manager import _render_context_policy_block
+    from runtime.shared.context_manager import _render_context_policy_block
 
     block = _render_context_policy_block(
         {
@@ -30,7 +30,7 @@ def test_runtime_context_prompt_omits_hot_truth_for_non_compact_packages() -> No
 
 
 def test_runtime_context_prompt_keeps_hot_truth_for_compact_packages() -> None:
-    from orchestration.runtime_loop.context_manager import _render_context_policy_block
+    from runtime.shared.context_manager import _render_context_policy_block
 
     block = _render_context_policy_block(
         {

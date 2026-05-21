@@ -7,7 +7,7 @@ from pathlib import Path
 from health_system import HealthRegistry
 from orchestration import AgentRuntimeRegistry
 from orchestration import AgentRegistry
-from tasks import TaskFlowRegistry
+from task_system import TaskFlowRegistry
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:

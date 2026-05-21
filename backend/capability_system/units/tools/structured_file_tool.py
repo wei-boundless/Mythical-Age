@@ -11,6 +11,8 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, Cal
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from capability_system.units.tools.workspace_paths import resolve_workspace_path
+
 
 class ReadStructuredFileInput(BaseModel):
     path: str = Field(..., description="JSON/YAML/TOML file path relative to the project root")
@@ -28,18 +30,7 @@ class ReadStructuredFileTool(BaseTool):
         self._root_dir = root_dir.resolve()
 
     def _resolve_path(self, path: str) -> Path:
-        normalized = str(path or "").strip()
-        candidate = (self._root_dir / normalized).resolve()
-        if (self._root_dir in candidate.parents or candidate == self._root_dir) and (
-            candidate.exists() or self._root_dir.name != "backend"
-        ):
-            return candidate
-        if self._root_dir.name == "backend":
-            workspace_root = self._root_dir.parent.resolve()
-            workspace_candidate = (workspace_root / normalized).resolve()
-            if workspace_root in workspace_candidate.parents or workspace_candidate == workspace_root:
-                return workspace_candidate
-        raise ValueError("Path traversal detected.")
+        return resolve_workspace_path(self._root_dir, path)
 
     def _run(self, path: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
         try:

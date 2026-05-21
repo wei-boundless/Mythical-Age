@@ -827,6 +827,113 @@
       }
     },
     {
+      "contract_id": "contract.writing.modular_novel.character_commit",
+      "title_zh": "人设与关系提交输出契约",
+      "title_en": "character_commit",
+      "contract_kind": "final_output",
+      "description": "人设与关系提交输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "input_fields": [
+        {
+          "field_id": "上游交接包",
+          "title_zh": "上游交接包",
+          "field_type": "string",
+          "required": true,
+          "description": "上游交接包",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        }
+      ],
+      "output_fields": [
+        {
+          "field_id": "artifact_refs",
+          "title_zh": "artifact_refs",
+          "field_type": "array",
+          "required": true,
+          "description": "artifact_refs",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "memory_commit_character_ref",
+          "title_zh": "memory_commit_character_ref",
+          "field_type": "artifact_ref",
+          "required": true,
+          "description": "memory_commit_character_ref",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "artifact",
+          "visibility": "model_visible"
+        }
+      ],
+      "artifact_requirements": [
+        {
+          "requirement_id": "artifact.memory_character_character_commit_round__round_index_03d__md",
+          "title_zh": "memory/character/character_commit_round_{round_index:03d}.md",
+          "artifact_type": "markdown",
+          "required": true,
+          "description": "",
+          "naming_rule": "memory/character/character_commit_round_{round_index:03d}.md",
+          "storage_policy": "artifact_ref",
+          "metadata": {}
+        }
+      ],
+      "acceptance_rules": [
+        {
+          "rule_id": "contract_writing_modular_novel_character_commit.artifact_refs",
+          "title_zh": "必须产出可追踪产物引用",
+          "rule_type": "artifact_exists",
+          "severity": "error",
+          "target_field": "artifact_refs",
+          "criteria": "长文本和节点结果必须以 artifact refs 交接，不能只返回摘要。",
+          "config": {}
+        }
+      ],
+      "runtime_requirements": [],
+      "context_visibility_policy": {
+        "main_session_history": "summary",
+        "upstream_outputs": "summary",
+        "sibling_nodes": "status_only",
+        "artifact_access": "refs_only",
+        "notes": ""
+      },
+      "handoff_policy": {
+        "handoff_mode": "structured_packet",
+        "include_artifact_refs": true,
+        "include_raw_messages": false,
+        "ack_required": true,
+        "timeout_policy": "fail_closed",
+        "metadata": {}
+      },
+      "failure_policy": {
+        "failure_mode": "fail_closed",
+        "retry_allowed": false,
+        "retry_limit": 0,
+        "escalate_to": "coordinator",
+        "fallback_contract_id": "",
+        "metadata": {}
+      },
+      "human_gate_policy": {
+        "required": false,
+        "gate_type": "none",
+        "reviewer_role": "",
+        "decision_contract_id": "",
+        "metadata": {}
+      },
+      "allowed_agent_kinds": [],
+      "allowed_runtime_lanes": [],
+      "version": "1.0.0",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "task_family": "writing_modular_novel"
+      }
+    },
+    {
       "contract_id": "contract.writing.modular_novel.character_design",
       "title_zh": "人设与关系设计输出契约",
       "title_en": "character_design",
@@ -2162,29 +2269,29 @@
       }
     },
     {
-      "contract_id": "contract.writing.modular_novel.graph_unit_handoff",
-      "title_zh": "任务图单元交接契约",
-      "title_en": "graph_unit_handoff",
+      "contract_id": "contract.writing.modular_novel.graph_module_handoff",
+      "title_zh": "图模块导入交接契约",
+      "title_en": "graph_module_handoff",
       "contract_kind": "edge_handoff",
-      "description": "任务图单元交接契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
+      "description": "图模块导入交接契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
       "input_fields": [
         {
-          "field_id": "parent_graph_id",
-          "title_zh": "parent_graph_id",
+          "field_id": "importing_graph_id",
+          "title_zh": "importing_graph_id",
           "field_type": "string",
           "required": true,
-          "description": "parent_graph_id",
+          "description": "importing_graph_id",
           "default_value": null,
           "schema": {},
           "source_hint": "upstream_output",
           "visibility": "model_visible"
         },
         {
-          "field_id": "source_graph_unit_id",
-          "title_zh": "source_graph_unit_id",
+          "field_id": "source_graph_module_id",
+          "title_zh": "source_graph_module_id",
           "field_type": "string",
           "required": true,
-          "description": "source_graph_unit_id",
+          "description": "source_graph_module_id",
           "default_value": null,
           "schema": {},
           "source_hint": "upstream_output",
@@ -2204,22 +2311,22 @@
       ],
       "output_fields": [
         {
-          "field_id": "child_graph_id",
-          "title_zh": "child_graph_id",
+          "field_id": "imported_graph_id",
+          "title_zh": "imported_graph_id",
           "field_type": "string",
           "required": false,
-          "description": "child_graph_id",
+          "description": "imported_graph_id",
           "default_value": null,
           "schema": {},
           "source_hint": "artifact",
           "visibility": "model_visible"
         },
         {
-          "field_id": "child_run_ref",
-          "title_zh": "child_run_ref",
+          "field_id": "imported_run_ref",
+          "title_zh": "imported_run_ref",
           "field_type": "artifact_ref",
           "required": true,
-          "description": "child_run_ref",
+          "description": "imported_run_ref",
           "default_value": null,
           "schema": {},
           "source_hint": "artifact",
@@ -2251,7 +2358,7 @@
       "artifact_requirements": [],
       "acceptance_rules": [
         {
-          "rule_id": "contract_writing_modular_novel_graph_unit_handoff.artifact_refs",
+          "rule_id": "contract_writing_modular_novel_graph_module_handoff.artifact_refs",
           "title_zh": "必须产出可追踪产物引用",
           "rule_type": "artifact_exists",
           "severity": "error",

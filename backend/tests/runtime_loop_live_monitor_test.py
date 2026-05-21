@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 
-from orchestration.runtime_loop.checkpoint import RuntimeCheckpointStore
-from orchestration.runtime_loop.models import CoordinationNodeRun, CoordinationRun, RuntimeLoopState, TaskRun
-from orchestration.runtime_loop.state_index import RuntimeStateIndex
-from orchestration.runtime_loop.trace_reader import RuntimeLoopTraceReader
-from orchestration.runtime_loop.event_log import RuntimeEventLog
-from orchestration.runtime_loop.langgraph_checkpoint_adapter import LangGraphCheckpointStoreAdapter
+from runtime.shared.checkpoint import RuntimeCheckpointStore
+from runtime.shared.models import CoordinationNodeRun, CoordinationRun, RuntimeLoopState, TaskRun
+from runtime.memory.state_index import RuntimeStateIndex
+from runtime.memory.trace_reader import RuntimeLoopTraceReader
+from runtime.shared.event_log import RuntimeEventLog
+from runtime.coordination_runtime.checkpoint_adapter import LangGraphCheckpointStoreAdapter
 
 
 def test_trace_reader_builds_live_monitor_from_latest_runtime_state(tmp_path) -> None:

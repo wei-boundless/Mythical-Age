@@ -26,7 +26,7 @@ from orchestration import (
     build_resource_runtime_views,
 )
 from capability_system import build_default_operation_registry
-from tasks.capability_requirements import build_operation_requirement
+from task_system.contracts.capability_requirements import build_operation_requirement
 
 router = APIRouter()
 

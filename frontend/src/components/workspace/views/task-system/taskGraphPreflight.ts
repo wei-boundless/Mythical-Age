@@ -6,7 +6,7 @@ import { buildTaskGraphMemoryModel } from "./taskGraphMemoryMatrix";
 
 export type TaskGraphPreflightSeverity = "error" | "warning" | "info";
 
-export type TaskGraphPreflightScope = "graph" | "node" | "edge" | "phase" | "runtime" | "unit" | "interface" | "port_edge";
+export type TaskGraphPreflightScope = "graph" | "node" | "edge" | "phase" | "runtime" | "unit" | "interface" | "port_edge" | "graph_module";
 
 export type TaskGraphPreflightIssue = {
   issue_id: string;
@@ -39,7 +39,7 @@ export type BuildTaskGraphPreflightReportInput = {
     issues?: Array<Record<string, unknown>>;
     diagnostics?: Record<string, unknown>;
   } | null;
-  standardView?: Pick<TaskGraphStandardView, "issues" | "units" | "interfaces" | "port_edges" | "nested_runtime"> | null;
+  standardView?: Pick<TaskGraphStandardView, "issues" | "units" | "interfaces" | "port_edges" | "graph_module_runtime" | "graph_module_expansions"> | null;
 };
 
 function stringValue(value: unknown) {
@@ -715,11 +715,14 @@ export function buildTaskGraphPreflightReport({
     });
   });
 
+  const hasGraphModuleExpansionIssues = (standardView?.graph_module_expansions ?? [])
+    .some((expansion) => (expansion.issues ?? []).length > 0);
   (standardView?.issues ?? [])
     .filter((issue) => {
       const source = stringValue(issue.source);
       const code = stringValue(issue.code);
-      return source === "task_system.composable_graph_issue" || code.startsWith("port_edge_") || code.startsWith("nested_graph_") || code.startsWith("graph_unit_") || code.startsWith("unit_interface_");
+      if (source === "task_system.graph_module_expansion" && hasGraphModuleExpansionIssues) return false;
+      return source === "task_system.composable_graph_issue" || source === "task_system.graph_module_expansion" || code.startsWith("port_edge_") || code.startsWith("graph_module_") || code.startsWith("unit_interface_");
     })
     .forEach((issue, index) => {
       const code = stringValue(issue.code);
@@ -730,16 +733,38 @@ export function buildTaskGraphPreflightReport({
           : "warning";
       const edgeId = stringValue(issue.edge_id);
       const unitId = stringValue(issue.unit_id);
+      const expansionIssue = stringValue(issue.source) === "task_system.graph_module_expansion";
       pushIssue(issues, {
         issue_id: `composable:${code || index}:${edgeId || unitId || "graph"}`,
         severity,
-        scope: edgeId ? "port_edge" : unitId ? "unit" : "graph",
+        scope: expansionIssue ? "graph_module" : edgeId ? "port_edge" : unitId ? "unit" : "graph",
         target_id: edgeId || unitId,
-        title: code || "可组合图问题",
-        detail: stringValue(issue.message) || "后端可组合图标准视图返回了未命名问题。",
-        source: "backend.composable_graph",
+        title: code || (expansionIssue ? "导入图模块问题" : "可组合图问题"),
+        detail: stringValue(issue.message) || (expansionIssue ? "导入图模块拓扑解析失败。" : "后端可组合图标准视图返回了未命名问题。"),
+        source: expansionIssue ? "backend.graph_module_expansion" : "backend.composable_graph",
       });
     });
+
+  (standardView?.graph_module_expansions ?? []).forEach((expansion, expansionIndex) => {
+    (expansion.issues ?? []).forEach((issue, issueIndex) => {
+      const code = stringValue(issue.code);
+      const severity = stringValue(issue.severity) === "error"
+        ? "error"
+        : stringValue(issue.severity) === "info"
+          ? "info"
+          : "warning";
+      const unitId = stringValue(issue.unit_id ?? expansion.unit_id);
+      pushIssue(issues, {
+        issue_id: `graph_module_expansion:${code || issueIndex}:${unitId || expansionIndex}`,
+        severity,
+        scope: "graph_module",
+        target_id: unitId,
+        title: code || "导入图模块问题",
+        detail: stringValue(issue.message) || "导入图模块拓扑解析失败。",
+        source: "backend.graph_module_expansion",
+      });
+    });
+  });
 
   const errorCount = issues.filter((issue) => issue.severity === "error").length;
   const warningCount = issues.filter((issue) => issue.severity === "warning").length;

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from orchestration.runtime_loop.models import CoordinationRun, TaskRun
-from orchestration.runtime_loop.state_index import RuntimeStateIndex
+from runtime.shared.models import CoordinationRun, TaskRun
+from runtime.memory.state_index import RuntimeStateIndex
 
 
 def test_state_index_compacts_task_run_heavy_diagnostics(tmp_path) -> None:

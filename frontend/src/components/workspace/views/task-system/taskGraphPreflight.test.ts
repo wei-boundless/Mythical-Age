@@ -70,8 +70,8 @@ describe("TaskGraph preflight", () => {
       standardView: {
         issues: [
           {
-            code: "nested_graph_handoff_contract_missing",
-            message: "嵌套图运行缺少交接契约",
+            code: "graph_module_handoff_contract_missing",
+            message: "图模块运行缺少交接契约",
             severity: "warning",
             unit_id: "unit.graph.block.design",
             source: "task_system.composable_graph_issue",
@@ -90,6 +90,50 @@ describe("TaskGraph preflight", () => {
     expect(report.valid).toBe(false);
     expect(report.issues.some((issue) => issue.source === "backend.composable_graph" && issue.scope === "unit")).toBe(true);
     expect(report.issues.some((issue) => issue.source === "backend.composable_graph" && issue.scope === "port_edge" && issue.severity === "error")).toBe(true);
+  });
+
+  it("routes graph module expansion issues to graph module diagnostics", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [{ node_id: "graph_module.block.design", node_type: "graph_module" }],
+      edges: [],
+      standardView: {
+        issues: [
+          {
+            code: "graph_module_linked_graph_not_found",
+            message: "导入图模块不存在",
+            severity: "error",
+            unit_id: "unit.graph.block.design",
+            source: "task_system.graph_module_expansion",
+          },
+        ],
+        graph_module_expansions: [
+          {
+            plan_id: "graph_module_runtime.block.design",
+            runtime_node_id: "graph_module.block.design",
+            unit_id: "unit.graph.block.design",
+            linked_graph_id: "graph.missing",
+            scope_prefix: "graph_module.block.design::",
+            issues: [
+              {
+                code: "graph_module_linked_graph_not_found",
+                message: "导入图模块不存在",
+                severity: "error",
+                unit_id: "unit.graph.block.design",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const expansionIssues = report.issues.filter((issue) => issue.source === "backend.graph_module_expansion");
+    expect(report.valid).toBe(false);
+    expect(expansionIssues).toHaveLength(1);
+    expect(expansionIssues[0]?.scope).toBe("graph_module");
+    expect(expansionIssues[0]?.target_id).toBe("unit.graph.block.design");
   });
 
   it("warns when nodes have no Chinese name registry or explicit display name", () => {

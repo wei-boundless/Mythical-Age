@@ -77,7 +77,7 @@ BASE_UNIT_DESCRIPTORS: tuple[UnitDescriptor, ...] = (
     UnitDescriptor(
         unit_id="runtime.model",
         unit_type="agent",
-        owner_module="backend.execution.model_runtime",
+        owner_module="backend.runtime.model_gateway.model_runtime",
         ports=("execution", "artifact", "trace"),
         capability_tags=("model_call", "stream"),
     ),
@@ -91,7 +91,7 @@ BASE_UNIT_DESCRIPTORS: tuple[UnitDescriptor, ...] = (
     UnitDescriptor(
         unit_id="task.coordinator",
         unit_type="task",
-        owner_module="backend.tasks.coordinator",
+        owner_module="backend.task_system.services.assembly_builder",
         ports=("artifact", "commit", "trace"),
         capability_tags=("task_record", "result_ref"),
     ),

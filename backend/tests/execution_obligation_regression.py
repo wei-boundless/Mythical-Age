@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from intent.execution_obligation import build_execution_obligation
-from tasks.assembly_support import build_runtime_task_intent_contract
+from task_system.services.assembly_support import build_runtime_task_intent_contract
 
 
 def test_execution_obligation_extracts_read_write_and_pytest_from_failure_repair_goal() -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from output_boundary import sanitize_visible_assistant_content
+from response_system import sanitize_visible_assistant_content
 from .compat_types import Message
 
 

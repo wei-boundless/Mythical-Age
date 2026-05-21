@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from orchestration.runtime_loop.length_budget_compiler import compile_length_budget
-from orchestration.runtime_loop.continuation_policy import derive_stage_contracts_from_graph, parse_stage_contracts
-from orchestration.runtime_loop.task_run_loop import _count_text_units, _length_budget_quality_gate, _stage_business_acceptance
-from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-from tasks.task_graph_models import task_graph_from_dict
+from runtime.contracts.length_budget_compiler import compile_length_budget
+from runtime.contracts.continuation_policy import derive_stage_contracts_from_graph, parse_stage_contracts
+from runtime.unit_runtime.quality_gates import _count_text_units, _length_budget_quality_gate, _stage_business_acceptance
+from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
+from task_system.graphs.task_graph_models import task_graph_from_dict
 from text_metric import count_text_units
 
 

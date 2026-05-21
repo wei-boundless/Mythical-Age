@@ -6,12 +6,12 @@ from types import SimpleNamespace
 
 from api import orchestration as orchestration_api
 from orchestration.resource_inventory import build_runtime_resource_inventory
-from orchestration.runtime_loop.professional_state_machine import (
+from runtime.professional_runtime.state_machine import (
     initial_professional_run_state,
     unsatisfied_obligations_from_verification,
 )
-from orchestration.runtime_loop.resume_decision import decide_professional_run_resume
-from orchestration.runtime_loop.tool_observation_ledger import (
+from runtime.shared.resume_decision import decide_professional_run_resume
+from runtime.memory.tool_observation_ledger import (
     ToolObservationLedger,
     build_tool_observation_record,
 )

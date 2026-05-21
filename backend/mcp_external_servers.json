@@ -1,5 +1,5 @@
 {
   "schema_version": 1,
-  "authority": "mcp_client.external_config_store",
+  "authority": "capability_system.mcp.client.external_config_store",
   "servers": []
 }

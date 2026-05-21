@@ -8,6 +8,8 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, Cal
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from capability_system.units.tools.workspace_paths import relative_workspace_path, resolve_workspace_path, workspace_root_for_tool
+
 
 class WriteFileInput(BaseModel):
     path: str = Field(..., description="Relative path inside the project root")
@@ -24,26 +26,16 @@ class _WorkspacePathMixin:
     _root_dir: Path = PrivateAttr()
 
     def _workspace_root(self) -> Path:
-        if self._root_dir.name == "backend" and self._root_dir.parent.exists():
-            return self._root_dir.parent.resolve()
-        return self._root_dir
+        return workspace_root_for_tool(self._root_dir)
 
     def _resolve_path(self, path: str) -> Path:
         normalized = str(path or "").strip()
         if not normalized:
             raise ValueError("Path is required.")
-        workspace_root = self._workspace_root()
-        candidate = (workspace_root / normalized).resolve()
-        if workspace_root not in candidate.parents and candidate != workspace_root:
-            raise ValueError("Path traversal detected.")
-        return candidate
+        return resolve_workspace_path(self._root_dir, normalized)
 
     def _display_path(self, path: Path) -> str:
-        workspace_root = self._workspace_root()
-        try:
-            return path.resolve().relative_to(workspace_root).as_posix()
-        except ValueError:
-            return str(path.resolve())
+        return relative_workspace_path(self._root_dir, path)
 
 
 class WriteFileTool(_WorkspacePathMixin, BaseTool):

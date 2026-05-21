@@ -94,9 +94,9 @@ const CONTRACT_BINDING_SECTIONS: ContractBindingSectionSpec[] = [
     id: "handoff",
     title: "Handoff",
     aside: "交接 / 确认",
-    description: "声明边或图节点如何把上游结果交给下游。",
+    description: "声明边或图模块如何把上游结果交给下游。",
     fields: [
-      { kind: "contract", label: "父子图交接契约", path: ["handoff_contract_id"], wide: true },
+      { kind: "contract", label: "图模块交接契约", path: ["handoff_contract_id"], wide: true },
       { kind: "select", label: "确认策略", path: ["ack_policy"], options: ["explicit_ack", "implicit_ack", "manual_ack", "none"] },
       { kind: "boolean", label: "需要确认", path: ["ack_required"] },
       { kind: "select", label: "等待策略", path: ["wait_policy"], options: ["wait_all_upstream_completed", "wait_any_upstream_completed", "wait_required_contracts", "wait_handoff_ack", "fire_and_continue", "manual_release"] },

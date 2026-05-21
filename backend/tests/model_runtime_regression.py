@@ -12,10 +12,10 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from execution.model_runtime import ModelRuntime, ModelRuntimeError, ModelSpec
-from execution.provider_tool_call_adapter import normalize_tool_call_dicts, tool_calls_for_langchain_messages
-from execution.model_response import ModelResponseRuntimeExecutor
-from execution.tool_call_policy import ToolCallBindingOptions
+from runtime.model_gateway.model_runtime import ModelRuntime, ModelRuntimeError, ModelSpec
+from runtime.tool_runtime.provider_tool_call_adapter import normalize_tool_call_dicts, tool_calls_for_langchain_messages
+from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
+from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 
 MAIN_AGENT = SimpleNamespace(agent_id="agent:main:test")
 
@@ -378,7 +378,7 @@ def test_model_runtime_logs_provider_detail_when_switching_tool_candidate(
 
     monkeypatch.setattr(runtime, "_build_chat_model_for_spec", lambda _spec: _BindableFakeModel(models.pop(0).outcome))
 
-    with caplog.at_level("WARNING", logger="execution.model_runtime"):
+    with caplog.at_level("WARNING", logger="runtime.model_gateway.model_runtime"):
         response = asyncio.run(runtime.invoke_messages_with_tools([HumanMessage(content="hello")], [object()]))
 
     assert response.content == "ok"

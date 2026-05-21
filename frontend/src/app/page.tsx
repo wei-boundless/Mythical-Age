@@ -1,41 +1,48 @@
 "use client";
 
-import type { CSSProperties } from "react";
 import { useEffect } from "react";
+import { MessageSquare, Workflow } from "lucide-react";
 
-import { Navbar } from "@/components/layout/Navbar";
-import { ResizeHandle } from "@/components/layout/ResizeHandle";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { WorkspacePanel } from "@/components/workspace/WorkspacePanel";
+import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
+import { ChatPanel } from "@/components/chat/ChatPanel";
 import { SystemFrameworkView } from "@/components/workspace/views/SystemFrameworkView";
+import { TaskSystemView } from "@/components/workspace/views/TaskSystemView";
 import { TaskGraphRunInteractionDock } from "@/components/workspace/views/task-system/TaskGraphRunInteractionDock";
 import { AppProvider, useAppStore } from "@/lib/store";
 import type { WorkspaceView } from "@/lib/store/types";
 
 const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "chat",
-  "memory",
-  "test-system",
-  "health-system",
-  "capability-system",
-  "mcp-system",
-  "evidence",
   "task-system",
-  "orchestration",
-  "system-framework",
-  "experiments",
-  "playground",
-  "system-config"
+  "system-framework"
 ]);
+
+const MAIN_LAYERS: Array<{
+  icon: typeof MessageSquare;
+  label: string;
+  description: string;
+  view: WorkspaceView;
+}> = [
+  {
+    icon: MessageSquare,
+    label: "主会话",
+    description: "对话、任务入口与普通协作",
+    view: "chat",
+  },
+  {
+    icon: Workflow,
+    label: "图任务层",
+    description: "任务图、任务域、编辑器与运行配置",
+    view: "task-system",
+  },
+];
 
 function Workspace() {
   const {
-    sidebarWidth,
-    setSidebarWidth,
     activeSoulKey,
     activeWorkspaceView,
     setWorkspaceView,
-    soulOptions,
     clearTaskGraphMonitorRun,
     evaluateBoundTaskGraphMonitor,
     setTaskGraphRunInteractionOpen,
@@ -48,9 +55,7 @@ function Workspace() {
     taskGraphMonitorLoading,
     taskGraphRunInteractionOpen,
   } = useAppStore();
-  const isBoundaryWorkspace = activeWorkspaceView === "task-system" || activeWorkspaceView === "orchestration";
-  const activeSoul = soulOptions.find((soul) => soul.key === activeSoulKey) ?? soulOptions[0] ?? null;
-  const soulBackgroundPath = activeSoul?.backgroundPath ?? `/souls/backgrounds/${activeSoulKey ?? "hebo"}-bg.png`;
+  const mainView = activeWorkspaceView === "task-system" ? "task-system" : "chat";
 
   useEffect(() => {
     if (activeSoulKey) {
@@ -66,6 +71,12 @@ function Workspace() {
       setWorkspaceView(view as WorkspaceView);
     }
   }, [setWorkspaceView]);
+
+  useEffect(() => {
+    if (activeWorkspaceView !== "chat" && activeWorkspaceView !== "task-system" && activeWorkspaceView !== "system-framework") {
+      setWorkspaceView("chat");
+    }
+  }, [activeWorkspaceView, setWorkspaceView]);
 
   if (activeWorkspaceView === "system-framework") {
     return (
@@ -89,25 +100,58 @@ function Workspace() {
   }
 
   return (
-    <main className={`workspace-shell ${isBoundaryWorkspace ? "workspace-shell--task-focus" : ""} min-h-screen px-3 py-4 md:px-6 md:py-6`}>
-      <div
-        aria-hidden="true"
-        className="soul-background-figure"
-        style={{ "--soul-background-image": `url(${soulBackgroundPath})` } as CSSProperties}
-      />
-      <div className={`workspace-grid mx-auto flex flex-col ${isBoundaryWorkspace ? "gap-3 max-w-[1920px]" : "gap-4 max-w-[1820px]"}`}>
-        <Navbar />
-        <div className={`workspace-frame ${isBoundaryWorkspace ? "workspace-frame--work" : ""} flex min-h-[calc(100vh-112px)] flex-col gap-3 xl:flex-row ${isBoundaryWorkspace ? "xl:gap-2" : "xl:gap-0"}`}>
-          <div
-            className={`w-full xl:shrink-0 ${isBoundaryWorkspace ? "workspace-sidebar-slot--compact" : ""}`}
-            style={isBoundaryWorkspace ? undefined : { width: `min(100%, ${sidebarWidth}px)` }}
-          >
-            <Sidebar compact={isBoundaryWorkspace} />
+    <main className="practical-workspace">
+      <Sidebar />
+
+      <section className="practical-main" aria-label="主工作区">
+        <header className="practical-mainbar">
+          <div className="practical-mainbar__title">
+            <span>LangChain Agent</span>
+            <strong>{mainView === "chat" ? "主会话页面" : "图任务层"}</strong>
           </div>
-          {isBoundaryWorkspace ? null : <ResizeHandle onResize={(delta) => setSidebarWidth(Math.max(280, sidebarWidth + delta))} />}
-          <WorkspacePanel />
-        </div>
-      </div>
+          <nav className="practical-layer-tabs" aria-label="主工作层">
+            {MAIN_LAYERS.map((item) => {
+              const Icon = item.icon;
+              const active = mainView === item.view;
+              return (
+                <button
+                  aria-pressed={active}
+                  className={active ? "practical-layer-tab practical-layer-tab--active" : "practical-layer-tab"}
+                  key={item.view}
+                  onClick={() => setWorkspaceView(item.view)}
+                  type="button"
+                >
+                  <Icon size={16} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </header>
+
+        <section className="practical-layer-context" aria-label="当前层说明">
+          {MAIN_LAYERS.map((item) => {
+            if (item.view !== mainView) return null;
+            const Icon = item.icon;
+            return (
+              <div className="practical-layer-card" key={item.view}>
+                <Icon size={17} />
+                <div>
+                  <strong>{item.label}</strong>
+                  <span>{item.description}</span>
+                </div>
+              </div>
+            );
+          })}
+        </section>
+
+        <section className="practical-content">
+          {mainView === "chat" ? <ChatPanel /> : <TaskSystemView />}
+        </section>
+      </section>
+
+      <TaskMonitorDock />
+
       <TaskGraphRunInteractionDock
         actionLoading={taskGraphMonitorActionLoading}
         binding={taskGraphMonitorBinding}

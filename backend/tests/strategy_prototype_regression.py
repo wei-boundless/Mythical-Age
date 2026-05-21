@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from prompting.professional_profiles import get_professional_prompt_profile
 from prompting.strategy_prototypes import get_strategy_prototype, strategy_prototype_for_task_goal
-from tasks.assembly_support import build_runtime_task_intent_contract
+from task_system.services.assembly_support import build_runtime_task_intent_contract
 
 
 def test_unknown_professional_goal_keeps_generic_strategy_without_losing_obligations() -> None:

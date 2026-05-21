@@ -30,29 +30,29 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
-function graphUnitShadowUnitIds(units: ComposableUnitSpec[]) {
+function graphModuleShadowUnitIds(units: ComposableUnitSpec[]) {
   const shadowIds = new Set<string>();
   units.filter((unit) => unit.unit_type === "graph").forEach((unit) => {
-    const graphUnitSuffix = unit.unit_id.replace(/^unit\.graph\./, "").trim();
-    if (graphUnitSuffix && graphUnitSuffix !== unit.unit_id) {
-      shadowIds.add(`unit.node.graph_unit.${graphUnitSuffix}`);
+    const graphModuleSuffix = unit.unit_id.replace(/^unit\.graph\./, "").trim();
+    if (graphModuleSuffix && graphModuleSuffix !== unit.unit_id) {
+      shadowIds.add(`unit.node.graph_module.${graphModuleSuffix}`);
     }
     const timelineBlockId = String(asRecord(unit.ref).timeline_block_id ?? "").trim();
     const blockSuffix = timelineBlockId.replace(/^block\./, "").trim();
     if (blockSuffix) {
-      shadowIds.add(`unit.node.graph_unit.${blockSuffix}`);
+      shadowIds.add(`unit.node.graph_module.${blockSuffix}`);
     }
   });
   return shadowIds;
 }
 
-function graphUnitDisplayUnits(units: ComposableUnitSpec[]) {
-  const shadowUnitIds = graphUnitShadowUnitIds(units);
+function graphModuleDisplayUnits(units: ComposableUnitSpec[]) {
+  const shadowUnitIds = graphModuleShadowUnitIds(units);
   return units.filter((unit) => !shadowUnitIds.has(unit.unit_id));
 }
 
-function graphUnitDisplayPortEdges(edges: UnitPortEdgeSpec[], units: ComposableUnitSpec[]) {
-  const visibleUnitIds = new Set(graphUnitDisplayUnits(units).map((unit) => unit.unit_id));
+function graphModuleDisplayPortEdges(edges: UnitPortEdgeSpec[], units: ComposableUnitSpec[]) {
+  const visibleUnitIds = new Set(graphModuleDisplayUnits(units).map((unit) => unit.unit_id));
   return edges.filter((edge) => visibleUnitIds.has(edge.source_unit_id) && visibleUnitIds.has(edge.target_unit_id));
 }
 
@@ -110,8 +110,8 @@ export function TaskGraphComposableEditorPage({
   const [facet, setFacet] = useState<TaskGraphModuleFacet>(() => taskGraphModuleFacetFromEditorFocus(editorFocus?.facet));
   const [selectedSubject, setSelectedSubject] = useState<TaskGraphComposableSubject>(() => subjectFromFocus(editorFocus, taskGraphDraft.graph_id));
   const composableModel = buildTaskGraphComposableStandardModel(standardView);
-  const displayUnits = useMemo(() => graphUnitDisplayUnits(composableModel.units), [composableModel.units]);
-  const displayPortEdges = useMemo(() => graphUnitDisplayPortEdges(composableModel.portEdges, composableModel.units), [composableModel.portEdges, composableModel.units]);
+  const displayUnits = useMemo(() => graphModuleDisplayUnits(composableModel.units), [composableModel.units]);
+  const displayPortEdges = useMemo(() => graphModuleDisplayPortEdges(composableModel.portEdges, composableModel.units), [composableModel.portEdges, composableModel.units]);
   const preflightReport = useMemo(
     () => buildTaskGraphPreflightReport({
       nodes: activeGraphNodes,
@@ -179,9 +179,10 @@ export function TaskGraphComposableEditorPage({
       <section className="task-graph-composer-workbench">
         <TaskGraphGraphLayerRail
           activeFacet={facet}
+          graphModuleExpansions={composableModel.graphModuleExpansions}
           graphDraft={taskGraphDraft}
-          issues={preflightReport.issues.filter((issue) => issue.source.includes("composable_graph") || issue.source.includes("timeline") || issue.scope === "unit" || issue.scope === "port_edge")}
-          nestedRuntime={composableModel.nestedRuntime}
+          issues={preflightReport.issues.filter((issue) => issue.source.includes("composable_graph") || issue.source.includes("graph_module_expansion") || issue.source.includes("timeline") || issue.scope === "unit" || issue.scope === "port_edge")}
+          graphModuleRuntime={composableModel.graphModuleRuntime}
           onOpenGraph={onOpenGraph}
           onFacetChange={applyFacet}
           onSelectSubject={applySubject}
@@ -193,6 +194,7 @@ export function TaskGraphComposableEditorPage({
         />
         <TaskGraphComposableCanvas
           activeFacet={facet}
+          graphModuleExpansions={composableModel.graphModuleExpansions}
           graphDraft={taskGraphDraft}
           onFacetChange={applyFacet}
           onSelectSubject={applySubject}
@@ -207,8 +209,9 @@ export function TaskGraphComposableEditorPage({
           contractSpecs={contractSpecs}
           domainTaskOptions={domainTaskOptions}
           graphDraft={taskGraphDraft}
+          graphModuleExpansions={composableModel.graphModuleExpansions}
           interfaces={composableModel.interfaces}
-          nestedRuntime={composableModel.nestedRuntime}
+          graphModuleRuntime={composableModel.graphModuleRuntime}
           onOpenGraph={onOpenGraph}
           onSelectSubject={applySubject}
           orchestrationAgentCatalog={orchestrationAgentCatalog}

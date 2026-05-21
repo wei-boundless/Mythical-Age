@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from context_management import ContextResolver
+from context_system import ContextResolver
 from intent.signal_collector import collect_intent_frame
 
 

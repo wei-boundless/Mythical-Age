@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from orchestration import AgentRuntimeRegistry, build_orchestration_runtime_bundle
-from tasks import TaskFlowRegistry
-from tasks.assembly_builder import build_task_execution_assembly_bundle
+from task_system import TaskFlowRegistry
+from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 
 from .constants import HEALTH_SESSION_ID, health_specific_task_id
 from .models import HealthIssue

@@ -1,18 +1,12 @@
 import type { Metadata } from "next";
-import { Cormorant_SC, IBM_Plex_Mono, Noto_Serif_SC } from "next/font/google";
+import { IBM_Plex_Mono, Noto_Sans_SC } from "next/font/google";
 
 import "./globals.css";
 
-const displayFont = Noto_Serif_SC({
+const displayFont = Noto_Sans_SC({
   subsets: ["latin"],
-  weight: ["400", "600", "700"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-display"
-});
-
-const brandLatinFont = Cormorant_SC({
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-  variable: "--font-brand-latin"
 });
 
 const monoFont = IBM_Plex_Mono({
@@ -33,7 +27,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className={`${displayFont.variable} ${brandLatinFont.variable} ${monoFont.variable}`}>
+      <body className={`${displayFont.variable} ${monoFont.variable}`}>
         {children}
       </body>
     </html>

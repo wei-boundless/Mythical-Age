@@ -584,7 +584,7 @@ def _runtime_summary_dataclass(payload: dict[str, Any]):
         memory=dict(payload.get("memory") or {}),
         checkpoints=dict(payload.get("checkpoints") or {}),
         stages=list(payload.get("stages") or []),
-        authority=str(payload.get("authority") or "orchestration.runtime_loop_monitor"),
+        authority=str(payload.get("authority") or "runtime_monitor"),
     )
 
 

@@ -182,7 +182,7 @@ export function NodeResponsibilityCard({
         <TaskSystemSelectField
           label="默认执行器"
           onChange={(value) => patchExecutorPolicy({ default_executor: value, allowed_executors: Array.from(new Set(["agent", value])) })}
-          options={uniqueStrings(["agent", "human", "tool", "subgraph", String(executorPolicy.default_executor ?? "")])}
+          options={uniqueStrings(["agent", "human", "tool", "graph_module", String(executorPolicy.default_executor ?? "")])}
           value={String(executorPolicy.default_executor ?? "agent")}
         />
         <TaskSystemSelectField

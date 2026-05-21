@@ -4,9 +4,9 @@ from pathlib import Path
 from typing import Any
 
 from capability_system.units.mcp.local.retrieval.router import RAGQueryRouter
-from retrieval.service import RetrievalService
-from retrieval_core.llamaindex_backend import LlamaIndexRetrievalBackend
-from retrieval_core.retrievers import RetrievalRequest
+from knowledge_system.retrieval.service import RetrievalService
+from knowledge_system.indexing.llamaindex_backend import LlamaIndexRetrievalBackend
+from knowledge_system.indexing.retrievers import RetrievalRequest
 
 
 def test_lexical_filter_predicate_accepts_table_row_window() -> None:

@@ -385,7 +385,7 @@ function LegacyPortEdgeInspector({
       <TaskGraphInspectorSection icon={<Plus aria-hidden="true" size={15} />} title="端口化">
         <div className="task-graph-note">
           <strong>升级为显式端口边</strong>
-          <span>显式边会写入 metadata.composable_graph.port_edges，可以连接图节点、普通节点和资源 Unit 的端口。</span>
+          <span>显式边会写入 metadata.composable_graph.port_edges，可以连接图模块、普通节点和资源 Unit 的端口。</span>
         </div>
         <button
           className="task-graph-composer-subtle-action"

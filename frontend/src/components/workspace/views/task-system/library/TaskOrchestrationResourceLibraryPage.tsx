@@ -84,7 +84,7 @@ export function TaskOrchestrationResourceLibraryPage({
         </article>
       </section>
       <section className="boundary-card">
-        <header><strong>图节点装配入口</strong><span>由图工作台负责</span></header>
+        <header><strong>图模块装配入口</strong><span>由图工作台负责</span></header>
         <div className="boundary-kv">
           <p><span>Agent 主数据</span><strong>编排控制台维护</strong></p>
           <p><span>运行档案</span><strong>编排控制台维护</strong></p>

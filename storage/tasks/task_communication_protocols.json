@@ -36,17 +36,17 @@
         "task/revision_request",
         "task/memory_read",
         "task/memory_write",
-        "task/graph_unit_commit"
+        "task/graph_module_commit"
       ],
       "payload_contracts": [
         "contract.writing.modular_novel.graph",
-        "contract.writing.modular_novel.graph_unit_handoff",
+        "contract.writing.modular_novel.graph_module_handoff",
         "contract.writing.modular_novel.design_commit",
         "contract.writing.modular_novel.chapter_batch_commit",
         "contract.writing.modular_novel.final_delivery"
       ],
       "signal_rules": [
-        "graph_unit_commits_before_next_graph_unit",
+        "graph_module_commits_before_next_graph_module",
         "unit_batch_range_is_runtime_contract",
         "review_result_required_before_commit",
         "baseline_memory_updates_only_through_commit_nodes"
@@ -54,7 +54,7 @@
       "handoff_rules": [
         "structured_artifact_refs_only",
         "no_raw_agent_dialogue",
-        "committed_refs_only_between_graph_units",
+        "committed_refs_only_between_graph_modules",
         "batch_candidate_not_visible_as_committed_memory"
       ],
       "ack_policy": "explicit_ack",

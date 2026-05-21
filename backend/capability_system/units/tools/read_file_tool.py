@@ -8,6 +8,8 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, Cal
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from capability_system.units.tools.workspace_paths import resolve_workspace_path
+
 
 def _read_text_with_fallback(file_path: Path) -> str:
     encodings = ("utf-8", "utf-8-sig", "gb18030", "gbk")
@@ -35,23 +37,7 @@ class ReadFileTool(BaseTool):
         self._root_dir = root_dir.resolve()
 
     def _resolve_path(self, path: str) -> Path:
-        normalized = str(path or "").strip()
-        candidate = (self._root_dir / normalized).resolve()
-        if self._root_dir not in candidate.parents and candidate != self._root_dir:
-            raise ValueError("Path traversal detected.")
-        if candidate.exists() or self._root_dir.name != "backend":
-            return candidate
-
-        # Runtime base_dir is backend/, while users often provide workspace-root
-        # paths such as docs/foo.md. Keep backend-relative paths working, but
-        # allow read-only access to sibling project files when explicitly named.
-        workspace_root = self._root_dir.parent.resolve()
-        workspace_candidate = (workspace_root / normalized).resolve()
-        if workspace_root not in workspace_candidate.parents and workspace_candidate != workspace_root:
-            raise ValueError("Path traversal detected.")
-        if workspace_candidate.exists():
-            return workspace_candidate
-        return candidate
+        return resolve_workspace_path(self._root_dir, path)
 
     def _run(
         self,

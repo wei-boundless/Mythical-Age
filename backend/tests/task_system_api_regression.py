@@ -5,20 +5,19 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from api import orchestration as orchestration_api
-from api import tasks as tasks_api
-from orchestration.runtime_loop.node_execution_request import NodeExecutionRequest
-from orchestration.runtime_loop.models import AgentRun, CoordinationRun, TaskRun
-from orchestration.runtime_loop.coordination_trace_adapter import CoordinationTraceAdapter
-from orchestration.runtime_loop.state_index import RuntimeStateIndex
-from orchestration.runtime_loop.task_run_loop import TaskRunLoop
+from api import task_system as tasks_api
+from runtime.execution.node_execution_request import NodeExecutionRequest
+from runtime.shared.models import AgentRun, CoordinationRun, TaskRun
+from runtime.coordination_runtime.trace_adapter import CoordinationTraceAdapter
+from runtime.memory.state_index import RuntimeStateIndex
+from runtime.unit_runtime.loop import TaskRunLoop
 from soul.facade import SoulFacade
-from tasks import TaskFlowRegistry, TaskWorkflowRegistry
-from tasks.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
+from task_system import TaskFlowRegistry, TaskWorkflowRegistry
+from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphNodeDefinition
+from tests.support.runtime_stubs import RuntimeBaseDirStub
 
 
-class _RuntimeStub:
-    def __init__(self, base_dir: Path) -> None:
-        self.base_dir = Path(base_dir)
+_RuntimeStub = RuntimeBaseDirStub
 
 
 def _parallel_batch_api_graph() -> TaskGraphDefinition:
@@ -345,20 +344,20 @@ def test_stage_execution_scheduler_ignores_rewind_invalidated_completed_run(tmp_
     ) is None
 
 
-def test_graph_unit_stage_scheduler_starts_and_reuses_child_task_graph_run(tmp_path: Path) -> None:
+def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_dir = tmp_path / "runtime_state"
     registry = TaskFlowRegistry(backend_dir)
     registry.upsert_task_graph(
-        graph_id="graph.test.graph_unit_child_run",
-        title="GraphUnit 子图",
+        graph_id="graph.test.graph_module_imported_run",
+        title="GraphModule 导入模块",
         graph_kind="multi_agent",
         nodes=(
             {
                 "node_id": "child_node",
                 "node_type": "agent",
                 "title": "子节点",
-                "task_id": "task_graph.node.graph.test.graph_unit_child_run.child_node",
+                "task_id": "task_graph.node.graph.test.graph_module_imported_run.child_node",
                 "agent_id": "agent:0",
             },
         ),
@@ -369,27 +368,27 @@ def test_graph_unit_stage_scheduler_starts_and_reuses_child_task_graph_run(tmp_p
     loop = TaskRunLoop(runtime_dir, backend_dir=backend_dir)
     runtime = SimpleNamespace(base_dir=backend_dir, query_runtime=SimpleNamespace(task_run_loop=loop))
     request = NodeExecutionRequest(
-        request_id="nodeexec:graph-unit",
-        coordination_run_id="coordrun:parent",
-        thread_id="coordrun:parent",
-        root_task_run_id="taskrun:parent",
-        stage_id="graph_unit.block.child",
-        node_id="graph_unit.block.child",
-        task_ref="task_graph.node.graph.test.parent.graph_unit.block.child",
-        executor_type="graph_unit",
+        request_id="nodeexec:graph-module",
+        coordination_run_id="coordrun:importing",
+        thread_id="coordrun:importing",
+        root_task_run_id="taskrun:importing",
+        stage_id="graph_module.block.child",
+        node_id="graph_module.block.child",
+        task_ref="task_graph.node.graph.test.importing.graph_module.block.child",
+        executor_type="graph_module",
         executor_binding={
-            "selected_executor": "graph_unit",
-            "graph_unit_runtime_handle": {
-                "authority": "orchestration.graph_unit_runtime_handle",
-                "handle_id": "graphunitrun:test",
-                "parent_graph_id": "graph.test.parent",
-                "parent_coordination_run_id": "coordrun:parent",
-                "parent_root_task_run_id": "taskrun:parent",
-                "parent_stage_id": "graph_unit.block.child",
-                "parent_node_id": "graph_unit.block.child",
-                "linked_graph_id": "graph.test.graph_unit_child_run",
-                "nested_runtime_plan_id": "nested.block.child",
-                "handoff_contract_id": "contract.test.graph_unit.handoff",
+            "selected_executor": "graph_module",
+            "graph_module_runtime_handle": {
+                "authority": "orchestration.graph_module_runtime_handle",
+                "handle_id": "graphmodrun:test",
+                "importing_graph_id": "graph.test.importing",
+                "importing_coordination_run_id": "coordrun:importing",
+                "importing_root_task_run_id": "taskrun:importing",
+                "importing_stage_id": "graph_module.block.child",
+                "importing_node_id": "graph_module.block.child",
+                "linked_graph_id": "graph.test.graph_module_imported_run",
+                "graph_module_runtime_plan_id": "graph_module_runtime.block.child",
+                "handoff_contract_id": "contract.test.graph_module.handoff",
                 "standard_input_package": {
                     "input_items": [
                         {
@@ -400,25 +399,25 @@ def test_graph_unit_stage_scheduler_starts_and_reuses_child_task_graph_run(tmp_p
                     ]
                 },
                 "explicit_inputs": {
-                    "user_goal": "启动子图",
-                    "parent_stage_execution_request": {"artifact_refs": ["artifact:debug/should_not_be_visible.md"]},
+                    "user_goal": "启动导入模块",
+                    "importing_stage_execution_request": {"artifact_refs": ["artifact:debug/should_not_be_visible.md"]},
                 },
-                "executor_policy": {"auto_start_child_initial_stage": False},
+                "executor_policy": {"auto_start_imported_initial_stage": False},
             },
         },
         runtime_assembly={
-            "authority": "orchestration.graph_unit_runtime_assembly",
-            "graph_unit_runtime_handle": {
-                "authority": "orchestration.graph_unit_runtime_handle",
-                "handle_id": "graphunitrun:test",
-                "parent_graph_id": "graph.test.parent",
-                "parent_coordination_run_id": "coordrun:parent",
-                "parent_root_task_run_id": "taskrun:parent",
-                "parent_stage_id": "graph_unit.block.child",
-                "parent_node_id": "graph_unit.block.child",
-                "linked_graph_id": "graph.test.graph_unit_child_run",
-                "nested_runtime_plan_id": "nested.block.child",
-                "handoff_contract_id": "contract.test.graph_unit.handoff",
+            "authority": "orchestration.graph_module_runtime_assembly",
+            "graph_module_runtime_handle": {
+                "authority": "orchestration.graph_module_runtime_handle",
+                "handle_id": "graphmodrun:test",
+                "importing_graph_id": "graph.test.importing",
+                "importing_coordination_run_id": "coordrun:importing",
+                "importing_root_task_run_id": "taskrun:importing",
+                "importing_stage_id": "graph_module.block.child",
+                "importing_node_id": "graph_module.block.child",
+                "linked_graph_id": "graph.test.graph_module_imported_run",
+                "graph_module_runtime_plan_id": "graph_module_runtime.block.child",
+                "handoff_contract_id": "contract.test.graph_module.handoff",
                 "standard_input_package": {
                     "input_items": [
                         {
@@ -429,14 +428,14 @@ def test_graph_unit_stage_scheduler_starts_and_reuses_child_task_graph_run(tmp_p
                     ]
                 },
                 "explicit_inputs": {
-                    "user_goal": "启动子图",
-                    "parent_stage_execution_request": {"artifact_refs": ["artifact:debug/should_not_be_visible.md"]},
+                    "user_goal": "启动导入模块",
+                    "importing_stage_execution_request": {"artifact_refs": ["artifact:debug/should_not_be_visible.md"]},
                 },
-                "executor_policy": {"auto_start_child_initial_stage": False},
+                "executor_policy": {"auto_start_imported_initial_stage": False},
             },
         },
-        explicit_inputs={"user_goal": "启动子图"},
-        dispatch_context={"dispatch_event_id": "tlevent:graph-unit:001"},
+        explicit_inputs={"user_goal": "启动导入模块"},
+        dispatch_context={"dispatch_event_id": "tlevent:graph-module:001"},
     )
 
     asyncio.run(
@@ -449,47 +448,47 @@ def test_graph_unit_stage_scheduler_starts_and_reuses_child_task_graph_run(tmp_p
         )
     )
 
-    child_runs = [
+    imported_runs = [
         task_run
         for task_run in loop.state_index.list_session_task_runs("session:test")
-        if dict(task_run.diagnostics or {}).get("graph_unit_child_run") is True
+        if dict(task_run.diagnostics or {}).get("graph_module_imported_run") is True
     ]
-    assert len(child_runs) == 1
-    child = child_runs[0]
-    assert child.diagnostics["linked_graph_id"] == "graph.test.graph_unit_child_run"
-    assert child.diagnostics["parent_coordination_run_id"] == "coordrun:parent"
-    assert child.diagnostics["parent_stage_id"] == "graph_unit.block.child"
-    assert child.diagnostics["stage_idempotency_key"] == request.idempotency_key
-    assert child.diagnostics["parent_graph_unit_runtime_handle"]["linked_graph_id"] == "graph.test.graph_unit_child_run"
-    assert child.diagnostics["parent_stage_execution_request"]["request_id"] == "nodeexec:graph-unit"
-    assert child.diagnostics["parent_standard_input_package"]["input_items"][0]["input_key"] == "world_design"
-    initial_inputs_ref = str(child.diagnostics["task_graph_initial_inputs_ref"])
+    assert len(imported_runs) == 1
+    imported = imported_runs[0]
+    assert imported.diagnostics["linked_graph_id"] == "graph.test.graph_module_imported_run"
+    assert imported.diagnostics["importing_coordination_run_id"] == "coordrun:importing"
+    assert imported.diagnostics["importing_stage_id"] == "graph_module.block.child"
+    assert imported.diagnostics["stage_idempotency_key"] == request.idempotency_key
+    assert imported.diagnostics["importing_graph_module_runtime_handle"]["linked_graph_id"] == "graph.test.graph_module_imported_run"
+    assert imported.diagnostics["importing_stage_execution_request"]["request_id"] == "nodeexec:graph-module"
+    assert imported.diagnostics["importing_standard_input_package"]["input_items"][0]["input_key"] == "world_design"
+    initial_inputs_ref = str(imported.diagnostics["task_graph_initial_inputs_ref"])
     child_initial_inputs = dict(loop.runtime_objects.get_object(initial_inputs_ref)["initial_inputs"])
-    assert child_initial_inputs == {"user_goal": "启动子图"}
-    child_coordination_run_id = str(child.diagnostics["child_coordination_run_id"])
-    child_state = loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=child_coordination_run_id)
-    assert child_state["pending_inputs"]["user_goal"] == "启动子图"
+    assert child_initial_inputs == {"user_goal": "启动导入模块"}
+    imported_coordination_run_id = str(imported.diagnostics["imported_coordination_run_id"])
+    child_state = loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=imported_coordination_run_id)
+    assert child_state["pending_inputs"]["user_goal"] == "启动导入模块"
     for protocol_key in (
-        "parent_graph_unit_runtime_handle",
-        "parent_stage_execution_request",
-        "parent_standard_input_package",
-        "graph_unit_runtime_handle",
+        "importing_graph_module_runtime_handle",
+        "importing_stage_execution_request",
+        "importing_standard_input_package",
+        "graph_module_runtime_handle",
     ):
         assert protocol_key not in child_state["pending_inputs"]
     assert child_state["diagnostics"]["filtered_internal_protocol_input_keys"] == []
     child_request = child_state["stage_execution_request"]
     child_explicit_inputs = dict(child_request["explicit_inputs"])
-    assert child_explicit_inputs["user_goal"] == "启动子图"
-    assert "parent_stage_execution_request" not in child_explicit_inputs
-    assert "parent_standard_input_package" not in child_explicit_inputs
+    assert child_explicit_inputs["user_goal"] == "启动导入模块"
+    assert "importing_stage_execution_request" not in child_explicit_inputs
+    assert "importing_standard_input_package" not in child_explicit_inputs
     child_input_keys = {
         item["input_key"]
         for item in child_request["standard_input_package"]["input_items"]
     }
     assert "user_goal" in child_input_keys
-    assert "parent_stage_execution_request" not in child_input_keys
-    assert "parent_standard_input_package" not in child_input_keys
-    assert "parent_graph_unit_runtime_handle" not in child_input_keys
+    assert "importing_stage_execution_request" not in child_input_keys
+    assert "importing_standard_input_package" not in child_input_keys
+    assert "importing_graph_module_runtime_handle" not in child_input_keys
     assert child_request["artifact_context_packet"]["artifact_refs"] == []
 
     reused = orchestration_api._schedule_stage_execution_background(
@@ -502,23 +501,23 @@ def test_graph_unit_stage_scheduler_starts_and_reuses_child_task_graph_run(tmp_p
 
     assert reused["background_started"] is False
     assert reused["reason"] == "stage_execution_already_has_effective_task_run"
-    assert reused["existing_task_run_id"] == child.task_run_id
+    assert reused["existing_task_run_id"] == imported.task_run_id
 
 
-def test_graph_unit_child_completion_commits_output_packet_and_releases_parent(tmp_path: Path) -> None:
+def test_graph_module_imported_completion_commits_output_packet_and_releases_importing_stage(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_dir = tmp_path / "runtime_state"
     registry = TaskFlowRegistry(backend_dir)
     registry.upsert_task_graph(
-        graph_id="graph.test.child_graph_unit_commit",
-        title="GraphUnit 子图提交",
+        graph_id="graph.test.imported_graph_module_commit",
+        title="GraphModule 导入模块提交",
         graph_kind="multi_agent",
         nodes=(
             {
                 "node_id": "child_node",
                 "node_type": "agent",
                 "title": "子节点",
-                "task_id": "task_graph.node.graph.test.child_graph_unit_commit.child_node",
+                "task_id": "task_graph.node.graph.test.imported_graph_module_commit.child_node",
                 "agent_id": "agent:0",
             },
         ),
@@ -526,25 +525,25 @@ def test_graph_unit_child_completion_commits_output_packet_and_releases_parent(t
         publish_state="published",
         enabled=True,
     )
-    parent_graph = registry.upsert_task_graph(
-        graph_id="graph.test.parent_graph_unit_commit",
-        title="GraphUnit 父图提交",
+    importing_graph = registry.upsert_task_graph(
+        graph_id="graph.test.importing_graph_module_commit",
+        title="GraphModule 导入方提交",
         graph_kind="coordination",
         nodes=(
             {
                 "node_id": "after_child",
                 "node_type": "agent",
                 "title": "后续节点",
-                "task_id": "task_graph.node.graph.test.parent_graph_unit_commit.after_child",
+                "task_id": "task_graph.node.graph.test.importing_graph_module_commit.after_child",
                 "agent_id": "agent:0",
             },
         ),
         edges=(
             {
                 "edge_id": "child_to_after",
-                "source_node_id": "graph_unit.block.child",
+                "source_node_id": "graph_module.block.child",
                 "target_node_id": "after_child",
-                "payload_contract_id": "contract.test.graph_unit.output",
+                "payload_contract_id": "contract.test.graph_module.output",
                 "ack_required": False,
             },
         ),
@@ -552,50 +551,51 @@ def test_graph_unit_child_completion_commits_output_packet_and_releases_parent(t
             "timeline_blocks": [
                 {
                     "block_id": "block.child",
-                    "block_type": "child_graph",
-                    "title": "子图阶段",
+                    "block_type": "imported_graph",
+                    "title": "导入模块阶段",
                     "phase_id": "phase.child",
-                    "linked_graph_id": "graph.test.child_graph_unit_commit",
+                    "linked_graph_id": "graph.test.imported_graph_module_commit",
                     "version_ref": "v1",
-                    "handoff_contract_id": "contract.test.graph_unit.handoff",
+                    "handoff_contract_id": "contract.test.graph_module.handoff",
                     "input_port_id": "input.child",
                     "output_port_id": "output.child",
                 }
             ],
             "stage_contracts": [
                 {
-                    "stage_id": "graph_unit.block.child",
-                    "task_ref": "task_graph.node.graph.test.parent_graph_unit_commit.graph_unit.block.child",
-                    "node_id": "graph_unit.block.child",
-                    "node_type": "graph_unit",
-                    "title": "子图阶段",
+                    "stage_id": "graph_module.block.child",
+                    "task_ref": "task_graph.node.graph.test.importing_graph_module_commit.graph_module.block.child",
+                    "node_id": "graph_module.block.child",
+                    "node_type": "graph_module",
+                    "title": "导入模块阶段",
                     "executor_policy": {
-                        "default_executor": "graph_unit",
-                        "allowed_executors": ["graph_unit"],
-                        "subgraph_id": "graph.test.child_graph_unit_commit",
-                        "auto_start_child_initial_stage": False,
+                        "default_executor": "graph_module",
+                        "allowed_executors": ["graph_module"],
+                        "linked_graph_id": "graph.test.imported_graph_module_commit",
+                        "imported_graph_id": "graph.test.imported_graph_module_commit",
+                        "auto_start_imported_initial_stage": False,
                     },
-                    "linked_graph_id": "graph.test.child_graph_unit_commit",
-                    "nested_runtime_plan_id": "nested.block.child",
-                    "handoff_contract_id": "contract.test.graph_unit.handoff",
+                    "linked_graph_id": "graph.test.imported_graph_module_commit",
+                    "graph_module_runtime_plan_id": "graph_module_runtime.block.child",
+                    "handoff_contract_id": "contract.test.graph_module.handoff",
                     "input_port_id": "input.child",
                     "output_port_id": "output.child",
-                    "output_mappings": [{"output_key": "contract.test.graph_unit.output:artifact_refs", "required": True}],
+                    "output_mappings": [{"output_key": "contract.test.graph_module.output:artifact_refs", "required": True}],
                 },
                 {
                     "stage_id": "after_child",
-                    "task_ref": "task_graph.node.graph.test.parent_graph_unit_commit.after_child",
+                    "task_ref": "task_graph.node.graph.test.importing_graph_module_commit.after_child",
                     "node_id": "after_child",
                     "node_type": "agent",
                     "title": "后续节点",
                     "agent_id": "agent:0",
-                    "required_inputs": ["contract.test.graph_unit.output:artifact_refs"],
+                    "required_inputs": ["contract.test.graph_module.output:artifact_refs"],
                     "input_bindings": [
                         {
                             "source": "stage_output",
-                            "source_stage_id": "graph_unit.block.child",
-                            "output_key": "contract.test.graph_unit.output:artifact_refs",
-                            "input_key": "contract.test.graph_unit.output:artifact_refs",
+                            "source_stage_id": "graph_module.block.child",
+                            "output_key": "contract.test.graph_module.output:artifact_refs",
+                            "input_key": "contract.test.graph_module.output:artifact_refs",
                             "required": True,
                         }
                     ],
@@ -610,12 +610,12 @@ def test_graph_unit_child_completion_commits_output_packet_and_releases_parent(t
     runtime = SimpleNamespace(base_dir=backend_dir, query_runtime=SimpleNamespace(task_run_loop=loop))
     parent_start = loop.start_task_graph_run(
         session_id="session:test",
-        graph=parent_graph,
+        graph=importing_graph,
         runtime_spec=orchestration_api.compile_task_graph_definition_runtime_spec(
-            graph=parent_graph,
+            graph=importing_graph,
             communication_protocol=None,
         ),
-        initial_inputs={"user_goal": "运行父图"},
+        initial_inputs={"user_goal": "运行导入方图"},
     )
     parent_coordination_run = parent_start.coordination_run
     assert parent_coordination_run is not None
@@ -633,40 +633,40 @@ def test_graph_unit_child_completion_commits_output_packet_and_releases_parent(t
             current_turn_context={},
         )
     )
-    child_run = next(
+    imported_run = next(
         task_run
         for task_run in loop.state_index.list_session_task_runs("session:test")
-        if dict(task_run.diagnostics or {}).get("graph_unit_child_run") is True
+        if dict(task_run.diagnostics or {}).get("graph_module_imported_run") is True
     )
-    child_coordination_run_id = str(child_run.diagnostics["child_coordination_run_id"])
-    child_state = loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=child_coordination_run_id)
-    child_state["terminal_status"] = "completed"
-    child_state["node_statuses"] = {"child_node": "completed"}
-    child_state["completed_nodes"] = ["child_node"]
-    child_state["stage_results"] = {
+    imported_coordination_run_id = str(imported_run.diagnostics["imported_coordination_run_id"])
+    imported_state = loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=imported_coordination_run_id)
+    imported_state["terminal_status"] = "completed"
+    imported_state["node_statuses"] = {"child_node": "completed"}
+    imported_state["completed_nodes"] = ["child_node"]
+    imported_state["stage_results"] = {
         "child_node": {
             "task_run_id": "taskrun:child-node",
             "task_result_ref": "taskresult:child-node",
             "artifact_refs": ["artifact:child/final.md"],
-            "outputs": {"summary": "子图完成", "output_refs": ["artifact:child/final.md"]},
+            "outputs": {"summary": "导入模块完成", "output_refs": ["artifact:child/final.md"]},
             "accepted": True,
         }
     }
-    child_state["final_result_ref"] = "taskresult:child-node"
+    imported_state["final_result_ref"] = "taskresult:child-node"
     loop.langgraph_coordination_runtime.checkpoints.put_state(
-        thread_id=child_coordination_run_id,
-        state=child_state,
+        thread_id=imported_coordination_run_id,
+        state=imported_state,
         metadata={"event": "test_child_completed"},
     )
-    child_coordination_run = loop.state_index.get_coordination_run(child_coordination_run_id)
-    assert child_coordination_run is not None
+    imported_coordination_run = loop.state_index.get_coordination_run(imported_coordination_run_id)
+    assert imported_coordination_run is not None
     CoordinationTraceAdapter(loop.state_index, loop.event_log).write_state(
-        coordination_run=child_coordination_run,
-        state=child_state,
+        coordination_run=imported_coordination_run,
+        state=imported_state,
         checkpoint_ref="coordchk:test-child-completed",
-        event_task_run_id=child_run.task_run_id,
+        event_task_run_id=imported_run.task_run_id,
     )
-    refreshed_child = loop.state_index.get_task_run(child_run.task_run_id)
+    refreshed_child = loop.state_index.get_task_run(imported_run.task_run_id)
     assert refreshed_child is not None
     loop.state_index.upsert_task_run(
         TaskRun(
@@ -706,9 +706,9 @@ def test_graph_unit_child_completion_commits_output_packet_and_releases_parent(t
     finally:
         orchestration_api.require_runtime = original  # type: ignore[assignment]
 
-    assert payload["mode"] == "resumed_from_graph_unit_child_output_packet"
-    assert payload["consumed_task_run_id"] == child_run.task_run_id
-    assert payload["packet_ref"].startswith("rtobj:graph_unit_output_packets:")
+    assert payload["mode"] == "resumed_from_graph_module_imported_output_packet"
+    assert payload["consumed_task_run_id"] == imported_run.task_run_id
+    assert payload["packet_ref"].startswith("rtobj:graph_module_output_packets:")
     assert payload["stage_execution_request"]["stage_id"] == "after_child"
     packet = loop.runtime_objects.get_object(payload["packet_ref"])
     assert packet["artifact_refs_by_stage"]["child_node"] == ["artifact:child/final.md"]
@@ -716,20 +716,20 @@ def test_graph_unit_child_completion_commits_output_packet_and_releases_parent(t
     parent_state_after = loop.langgraph_coordination_runtime.checkpoints.get_state(
         thread_id=parent_coordination_run.coordination_run_id,
     )
-    assert parent_state_after["node_statuses"]["graph_unit.block.child"] == "completed"
+    assert parent_state_after["node_statuses"]["graph_module.block.child"] == "completed"
     assert parent_state_after["node_statuses"]["after_child"] == "running"
-    stage_result = parent_state_after["stage_results"]["graph_unit.block.child"]
+    stage_result = parent_state_after["stage_results"]["graph_module.block.child"]
     assert stage_result["task_result_ref"] == payload["packet_ref"]
     assert stage_result["standard_result_package"]["authority"] == "task_graph.standard_node_result_package"
-    committed_child = loop.state_index.get_task_run(child_run.task_run_id)
+    committed_child = loop.state_index.get_task_run(imported_run.task_run_id)
     assert committed_child is not None
-    assert committed_child.diagnostics["graph_unit_output_packet_committed"]["packet_ref"] == payload["packet_ref"]
+    assert committed_child.diagnostics["graph_module_output_packet_committed"]["packet_ref"] == payload["packet_ref"]
     assert second["mode"] in {"replayed_active_stage_request", "resumed_from_task_result"}
-    assert loop.state_index.get_task_run(child_run.task_run_id).diagnostics["graph_unit_output_packet_committed"]["packet_ref"] == payload["packet_ref"]  # type: ignore[union-attr]
+    assert loop.state_index.get_task_run(imported_run.task_run_id).diagnostics["graph_module_output_packet_committed"]["packet_ref"] == payload["packet_ref"]  # type: ignore[union-attr]
 
 
-def test_graph_unit_core_artifact_refs_exclude_debug_reports() -> None:
-    refs = orchestration_api._graph_unit_core_artifact_refs(
+def test_graph_module_core_artifact_refs_exclude_debug_reports() -> None:
+    refs = orchestration_api._graph_module_core_artifact_refs(
         artifact_refs_by_stage={
             "project_brief": [
                 "artifact:run/project_brief.md",
@@ -748,20 +748,20 @@ def test_graph_unit_core_artifact_refs_exclude_debug_reports() -> None:
     ]
 
 
-def test_graph_unit_child_result_waits_until_child_completed(tmp_path: Path) -> None:
+def test_graph_module_imported_result_waits_until_imported_graph_completed(tmp_path: Path) -> None:
     state_index = RuntimeStateIndex(tmp_path / "runtime_state")
     child = TaskRun(
         task_run_id="taskrun:child",
         session_id="session:test",
-        task_id="task_graph.graph_unit.graph.child",
+        task_id="task_graph.graph_module.graph.child",
         status="running",
         diagnostics={
-            "graph_unit_child_run": True,
-            "parent_coordination_run_id": "coordrun:parent",
-            "parent_stage_id": "graph_unit.block.child",
-            "parent_stage_request_id": "nodeexec:graph-unit",
-            "parent_stage_idempotency_key": "idem:graph-unit",
-            "child_coordination_run_id": "coordrun:child",
+            "graph_module_imported_run": True,
+            "importing_coordination_run_id": "coordrun:parent",
+            "importing_stage_id": "graph_module.block.child",
+            "importing_stage_request_id": "nodeexec:graph-module",
+            "importing_stage_idempotency_key": "idem:graph-module",
+            "imported_coordination_run_id": "coordrun:child",
             "linked_graph_id": "graph.child",
         },
     )
@@ -775,43 +775,43 @@ def test_graph_unit_child_result_waits_until_child_completed(tmp_path: Path) -> 
         ),
     )
     runtime = SimpleNamespace(query_runtime=SimpleNamespace(task_run_loop=loop))
-    result = orchestration_api._latest_unconsumed_graph_unit_child_result(
+    result = orchestration_api._latest_unconsumed_graph_module_imported_result(
         runtime=runtime,
         session_id="session:test",
         state={
-            "active_stage_id": "graph_unit.block.child",
+            "active_stage_id": "graph_module.block.child",
             "stage_execution_request": {
-                "stage_id": "graph_unit.block.child",
-                "task_ref": "task_graph.node.graph.parent.graph_unit.block.child",
-                "executor_type": "graph_unit",
-                "request_id": "nodeexec:graph-unit",
-                "idempotency_key": "idem:graph-unit",
+                "stage_id": "graph_module.block.child",
+                "task_ref": "task_graph.node.graph.parent.graph_module.block.child",
+                "executor_type": "graph_module",
+                "request_id": "nodeexec:graph-module",
+                "idempotency_key": "idem:graph-module",
             },
             "stage_contracts": {},
             "stage_results": {},
             "pending_inputs": {},
         },
-        active_stage_id="graph_unit.block.child",
+        active_stage_id="graph_module.block.child",
         coordination_run_id="coordrun:parent",
     )
 
     assert result == {}
 
 
-def test_graph_unit_child_failure_commits_failure_packet_and_uses_parent_failure_policy(tmp_path: Path) -> None:
+def test_graph_module_imported_failure_commits_failure_packet_and_uses_importing_failure_policy(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_dir = tmp_path / "runtime_state"
     registry = TaskFlowRegistry(backend_dir)
     registry.upsert_task_graph(
-        graph_id="graph.test.child_graph_unit_failure",
-        title="GraphUnit 失败子图",
+        graph_id="graph.test.imported_graph_module_failure",
+        title="GraphModule 失败导入模块",
         graph_kind="multi_agent",
         nodes=(
             {
                 "node_id": "child_node",
                 "node_type": "agent",
                 "title": "子节点",
-                "task_id": "task_graph.node.graph.test.child_graph_unit_failure.child_node",
+                "task_id": "task_graph.node.graph.test.imported_graph_module_failure.child_node",
                 "agent_id": "agent:0",
             },
         ),
@@ -819,25 +819,25 @@ def test_graph_unit_child_failure_commits_failure_packet_and_uses_parent_failure
         publish_state="published",
         enabled=True,
     )
-    parent_graph = registry.upsert_task_graph(
-        graph_id="graph.test.parent_graph_unit_failure",
-        title="GraphUnit 父图失败传播",
+    importing_graph = registry.upsert_task_graph(
+        graph_id="graph.test.importing_graph_module_failure",
+        title="GraphModule 导入方失败传播",
         graph_kind="coordination",
         nodes=(
             {
                 "node_id": "after_child",
                 "node_type": "agent",
                 "title": "后续节点",
-                "task_id": "task_graph.node.graph.test.parent_graph_unit_failure.after_child",
+                "task_id": "task_graph.node.graph.test.importing_graph_module_failure.after_child",
                 "agent_id": "agent:0",
             },
         ),
         edges=(
             {
                 "edge_id": "child_to_after",
-                "source_node_id": "graph_unit.block.child",
+                "source_node_id": "graph_module.block.child",
                 "target_node_id": "after_child",
-                "payload_contract_id": "contract.test.graph_unit.output",
+                "payload_contract_id": "contract.test.graph_module.output",
                 "ack_required": False,
                 "failure_propagation_policy": "fail_downstream",
             },
@@ -846,39 +846,40 @@ def test_graph_unit_child_failure_commits_failure_packet_and_uses_parent_failure
             "timeline_blocks": [
                 {
                     "block_id": "block.child",
-                    "block_type": "child_graph",
-                    "title": "子图阶段",
+                    "block_type": "imported_graph",
+                    "title": "导入模块阶段",
                     "phase_id": "phase.child",
-                    "linked_graph_id": "graph.test.child_graph_unit_failure",
+                    "linked_graph_id": "graph.test.imported_graph_module_failure",
                     "version_ref": "v1",
-                    "handoff_contract_id": "contract.test.graph_unit.handoff",
+                    "handoff_contract_id": "contract.test.graph_module.handoff",
                     "input_port_id": "input.child",
                     "output_port_id": "output.child",
                 }
             ],
             "stage_contracts": [
                 {
-                    "stage_id": "graph_unit.block.child",
-                    "task_ref": "task_graph.node.graph.test.parent_graph_unit_failure.graph_unit.block.child",
-                    "node_id": "graph_unit.block.child",
-                    "node_type": "graph_unit",
-                    "title": "子图阶段",
+                    "stage_id": "graph_module.block.child",
+                    "task_ref": "task_graph.node.graph.test.importing_graph_module_failure.graph_module.block.child",
+                    "node_id": "graph_module.block.child",
+                    "node_type": "graph_module",
+                    "title": "导入模块阶段",
                     "executor_policy": {
-                        "default_executor": "graph_unit",
-                        "allowed_executors": ["graph_unit"],
-                        "subgraph_id": "graph.test.child_graph_unit_failure",
-                        "auto_start_child_initial_stage": False,
+                        "default_executor": "graph_module",
+                        "allowed_executors": ["graph_module"],
+                        "linked_graph_id": "graph.test.imported_graph_module_failure",
+                        "imported_graph_id": "graph.test.imported_graph_module_failure",
+                        "auto_start_imported_initial_stage": False,
                     },
-                    "linked_graph_id": "graph.test.child_graph_unit_failure",
-                    "nested_runtime_plan_id": "nested.block.child",
-                    "handoff_contract_id": "contract.test.graph_unit.handoff",
+                    "linked_graph_id": "graph.test.imported_graph_module_failure",
+                    "graph_module_runtime_plan_id": "graph_module_runtime.block.child",
+                    "handoff_contract_id": "contract.test.graph_module.handoff",
                     "input_port_id": "input.child",
                     "output_port_id": "output.child",
                     "retry_policy": {"retry_limit": 0},
                 },
                 {
                     "stage_id": "after_child",
-                    "task_ref": "task_graph.node.graph.test.parent_graph_unit_failure.after_child",
+                    "task_ref": "task_graph.node.graph.test.importing_graph_module_failure.after_child",
                     "node_id": "after_child",
                     "node_type": "agent",
                     "title": "后续节点",
@@ -894,12 +895,12 @@ def test_graph_unit_child_failure_commits_failure_packet_and_uses_parent_failure
     runtime = SimpleNamespace(base_dir=backend_dir, query_runtime=SimpleNamespace(task_run_loop=loop))
     parent_start = loop.start_task_graph_run(
         session_id="session:test",
-        graph=parent_graph,
+        graph=importing_graph,
         runtime_spec=orchestration_api.compile_task_graph_definition_runtime_spec(
-            graph=parent_graph,
+            graph=importing_graph,
             communication_protocol=None,
         ),
-        initial_inputs={"user_goal": "运行父图"},
+        initial_inputs={"user_goal": "运行导入方图"},
     )
     parent_coordination_run = parent_start.coordination_run
     assert parent_coordination_run is not None
@@ -917,30 +918,30 @@ def test_graph_unit_child_failure_commits_failure_packet_and_uses_parent_failure
             current_turn_context={},
         )
     )
-    child_run = next(
+    imported_run = next(
         task_run
         for task_run in loop.state_index.list_session_task_runs("session:test")
-        if dict(task_run.diagnostics or {}).get("graph_unit_child_run") is True
+        if dict(task_run.diagnostics or {}).get("graph_module_imported_run") is True
     )
-    child_coordination_run_id = str(child_run.diagnostics["child_coordination_run_id"])
-    child_state = loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=child_coordination_run_id)
+    imported_coordination_run_id = str(imported_run.diagnostics["imported_coordination_run_id"])
+    child_state = loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=imported_coordination_run_id)
     child_state["terminal_status"] = "failed"
     child_state["node_statuses"] = {"child_node": "failed"}
     child_state["failed_nodes"] = ["child_node"]
     loop.langgraph_coordination_runtime.checkpoints.put_state(
-        thread_id=child_coordination_run_id,
+        thread_id=imported_coordination_run_id,
         state=child_state,
         metadata={"event": "test_child_failed"},
     )
-    child_coordination_run = loop.state_index.get_coordination_run(child_coordination_run_id)
+    child_coordination_run = loop.state_index.get_coordination_run(imported_coordination_run_id)
     assert child_coordination_run is not None
     CoordinationTraceAdapter(loop.state_index, loop.event_log).write_state(
         coordination_run=child_coordination_run,
         state=child_state,
         checkpoint_ref="coordchk:test-child-failed",
-        event_task_run_id=child_run.task_run_id,
+        event_task_run_id=imported_run.task_run_id,
     )
-    refreshed_child = loop.state_index.get_task_run(child_run.task_run_id)
+    refreshed_child = loop.state_index.get_task_run(imported_run.task_run_id)
     assert refreshed_child is not None
     loop.state_index.upsert_task_run(
         TaskRun(
@@ -974,20 +975,20 @@ def test_graph_unit_child_failure_commits_failure_packet_and_uses_parent_failure
     finally:
         orchestration_api.require_runtime = original  # type: ignore[assignment]
 
-    assert payload["mode"] == "resumed_from_graph_unit_child_output_packet"
-    assert payload["packet_ref"].startswith("rtobj:graph_unit_failure_packets:")
+    assert payload["mode"] == "resumed_from_graph_module_imported_output_packet"
+    assert payload["packet_ref"].startswith("rtobj:graph_module_failure_packets:")
     assert payload["stage_execution_request"] is None
     parent_state_after = loop.langgraph_coordination_runtime.checkpoints.get_state(
         thread_id=parent_coordination_run.coordination_run_id,
     )
     assert parent_state_after["terminal_status"] == "failed"
-    assert parent_state_after["node_statuses"]["graph_unit.block.child"] == "failed"
+    assert parent_state_after["node_statuses"]["graph_module.block.child"] == "failed"
     assert parent_state_after["node_statuses"]["after_child"] == "failed"
     scheduler_state = dict(dict(parent_state_after["diagnostics"]).get("task_graph_scheduler_state") or {})
     assert scheduler_state["diagnostics"]["failure_propagated_node_ids"] == ["after_child"]
-    committed_child = loop.state_index.get_task_run(child_run.task_run_id)
+    committed_child = loop.state_index.get_task_run(imported_run.task_run_id)
     assert committed_child is not None
-    assert committed_child.diagnostics["graph_unit_failure_packet_committed"]["packet_ref"] == payload["packet_ref"]
+    assert committed_child.diagnostics["graph_module_failure_packet_committed"]["packet_ref"] == payload["packet_ref"]
 
 
 def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Path) -> None:
@@ -1258,23 +1259,23 @@ def test_task_graph_execution_package_combines_runtime_contracts_and_scheduler(t
     assert trace_by_type[("edge", "start_finish")]["manifest_ref"]["contract_refs"] == ["contract.agent_output.markdown"]
 
 
-def test_task_graph_execution_package_expands_graph_unit_child_plan(tmp_path: Path) -> None:
+def test_task_graph_execution_package_expands_graph_module_imported_plan(tmp_path: Path) -> None:
     registry = TaskFlowRegistry(tmp_path)
     registry.upsert_task_graph(
         graph_id="graph.test.child_execution_plan",
-        title="子图执行计划",
+        title="导入图模块执行计划",
         graph_kind="multi_agent",
         nodes=(
             {
                 "node_id": "child_start",
                 "node_type": "agent",
-                "title": "子图开始",
+                "title": "模块开始",
                 "agent_id": "agent:0",
             },
             {
                 "node_id": "child_finish",
                 "node_type": "agent",
-                "title": "子图结束",
+                "title": "模块结束",
                 "agent_id": "agent:0",
             },
         ),
@@ -1290,15 +1291,15 @@ def test_task_graph_execution_package_expands_graph_unit_child_plan(tmp_path: Pa
         enabled=True,
     )
     registry.upsert_task_graph(
-        graph_id="graph.test.parent_execution_plan",
-        title="父图执行计划",
+        graph_id="graph.test.importing_execution_plan",
+        title="图模块导入执行计划",
         graph_kind="coordination",
         metadata={
             "timeline_blocks": [
                 {
                     "block_id": "block.child",
-                    "block_type": "child_graph",
-                    "title": "子图阶段",
+                    "block_type": "imported_graph",
+                    "title": "图模块阶段",
                     "phase_id": "phase.child",
                     "linked_graph_id": "graph.test.child_execution_plan",
                     "version_ref": "v1",
@@ -1314,43 +1315,43 @@ def test_task_graph_execution_package_expands_graph_unit_child_plan(tmp_path: Pa
     original = tasks_api.require_runtime
     tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
     try:
-        payload = asyncio.run(tasks_api.build_task_system_task_graph_execution_package("graph.test.parent_execution_plan"))
+        payload = asyncio.run(tasks_api.build_task_system_task_graph_execution_package("graph.test.importing_execution_plan"))
     finally:
         tasks_api.require_runtime = original  # type: ignore[assignment]
 
-    plans = payload["graph_unit_execution_plans"]
-    assert payload["summary"]["graph_unit_count"] == 1
-    assert payload["summary"]["graph_unit_handoff_contract_count"] == 1
-    assert payload["summary"]["graph_unit_execution_plan_count"] == 1
-    assert payload["summary"]["graph_unit_execution_plan_issue_count"] == 0
-    assert plans[0]["authority"] == "task_system.graph_unit_execution_plan"
+    plans = payload["graph_module_execution_plans"]
+    assert payload["summary"]["graph_module_count"] == 1
+    assert payload["summary"]["graph_module_handoff_contract_count"] == 1
+    assert payload["summary"]["graph_module_execution_plan_count"] == 1
+    assert payload["summary"]["graph_module_execution_plan_issue_count"] == 0
+    assert plans[0]["authority"] == "task_system.graph_module_execution_plan"
     assert plans[0]["valid"] is True
     assert plans[0]["linked_graph_id"] == "graph.test.child_execution_plan"
-    assert plans[0]["child_graph"]["title"] == "子图执行计划"
-    assert plans[0]["child_runtime_spec_summary"]["node_count"] == 2
-    assert plans[0]["child_contract_manifest_summary"]["edge_handoff_contract_count"] == 1
-    assert plans[0]["child_scheduler_summary"]["authority"] == "task_system.task_graph_scheduler_state"
-    assert plans[0]["child_node_runtime_assembly_summary"]["assembly_count"] == 2
-    graph_unit_contracts = payload["contract_manifest"]["graph_unit_handoff_contracts"]
-    assert graph_unit_contracts[0]["runtime_node_id"] == "graph_unit.block.child"
-    assert graph_unit_contracts[0]["handoff_contract_id"] == "contract.agent_output.markdown"
-    graph_unit_trace = next(item for item in payload["object_trace_index"] if item["object_type"] == "graph_unit")
-    assert graph_unit_trace["runtime_ref"]["plan_id"] == "nested.block.child"
-    assert graph_unit_trace["manifest_ref"]["handoff_contract_id"] == "contract.agent_output.markdown"
-    assert graph_unit_trace["child_plan_ref"]["valid"] is True
+    assert plans[0]["imported_graph"]["title"] == "导入图模块执行计划"
+    assert plans[0]["imported_runtime_spec_summary"]["node_count"] == 2
+    assert plans[0]["imported_contract_manifest_summary"]["edge_handoff_contract_count"] == 1
+    assert plans[0]["imported_scheduler_summary"]["authority"] == "task_system.task_graph_scheduler_state"
+    assert plans[0]["imported_node_runtime_assembly_summary"]["assembly_count"] == 2
+    graph_module_contracts = payload["contract_manifest"]["graph_module_handoff_contracts"]
+    assert graph_module_contracts[0]["runtime_node_id"] == "graph_module.block.child"
+    assert graph_module_contracts[0]["handoff_contract_id"] == "contract.agent_output.markdown"
+    graph_module_trace = next(item for item in payload["object_trace_index"] if item["object_type"] == "graph_module")
+    assert graph_module_trace["runtime_ref"]["plan_id"] == "graph_module_runtime.block.child"
+    assert graph_module_trace["manifest_ref"]["handoff_contract_id"] == "contract.agent_output.markdown"
+    assert graph_module_trace["imported_plan_ref"]["valid"] is True
 
 
-def test_task_graph_execution_package_reports_missing_graph_unit_child(tmp_path: Path) -> None:
+def test_task_graph_execution_package_reports_missing_graph_module_imported_graph(tmp_path: Path) -> None:
     TaskFlowRegistry(tmp_path).upsert_task_graph(
-        graph_id="graph.test.parent_missing_child",
-        title="父图缺失子图",
+        graph_id="graph.test.importing_missing_module",
+        title="导入图模块缺失",
         graph_kind="coordination",
         metadata={
             "timeline_blocks": [
                 {
                     "block_id": "block.missing",
-                    "block_type": "child_graph",
-                    "title": "缺失子图阶段",
+                    "block_type": "imported_graph",
+                    "title": "缺失图模块阶段",
                     "phase_id": "phase.child",
                     "linked_graph_id": "graph.test.missing_child",
                     "version_ref": "v1",
@@ -1364,14 +1365,14 @@ def test_task_graph_execution_package_reports_missing_graph_unit_child(tmp_path:
     original = tasks_api.require_runtime
     tasks_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
     try:
-        payload = asyncio.run(tasks_api.build_task_system_task_graph_execution_package("graph.test.parent_missing_child"))
+        payload = asyncio.run(tasks_api.build_task_system_task_graph_execution_package("graph.test.importing_missing_module"))
     finally:
         tasks_api.require_runtime = original  # type: ignore[assignment]
 
     assert payload["valid"] is False
-    assert payload["graph_unit_execution_plans"][0]["valid"] is False
-    assert payload["summary"]["graph_unit_execution_plan_issue_count"] == 1
-    assert any(issue["code"] == "graph_unit_linked_graph_not_found" for issue in payload["issues"])
+    assert payload["graph_module_execution_plans"][0]["valid"] is False
+    assert payload["summary"]["graph_module_execution_plan_issue_count"] == 1
+    assert any(issue["code"] == "graph_module_linked_graph_not_found" for issue in payload["issues"])
 
 
 def test_task_system_formal_object_upserts_persist_and_return_management_payload(tmp_path: Path) -> None:

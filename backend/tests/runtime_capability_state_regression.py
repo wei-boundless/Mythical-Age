@@ -9,8 +9,8 @@ if str(ROOT) not in sys.path:
 
 from capability_system import build_default_operation_registry
 from orchestration.agent_runtime_models import AgentRuntimeProfile
-from orchestration.runtime_loop.context_manager import RuntimeContextManager
-from orchestration.runtime_loop.model_adoption import (
+from runtime.shared.context_manager import RuntimeContextManager
+from runtime.shared.model_adoption import (
     build_model_response_runtime_adoption,
     build_runtime_capability_state,
 )

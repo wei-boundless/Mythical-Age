@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from orchestration.runtime_loop.agent_delegation_executor import _delegation_request_counts_against_budget
-from orchestration.runtime_loop.delegation_models import AgentDelegationRequest, AgentDelegationResult
-from orchestration.runtime_loop.task_run_loop import _classify_delegation_goal_alignment
+from runtime.execution.agent_delegation_executor import _delegation_request_counts_against_budget
+from runtime.execution.delegation_models import AgentDelegationRequest, AgentDelegationResult
+from runtime.unit_runtime.loop import _classify_delegation_goal_alignment
 
 
 def _request(

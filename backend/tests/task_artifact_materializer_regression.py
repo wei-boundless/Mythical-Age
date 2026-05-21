@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from orchestration.runtime_loop.task_artifact_materializer import materialize_task_artifacts
+from runtime.unit_runtime.artifact_materializer import materialize_task_artifacts
 
 
 def _base_policy(target: str) -> dict:

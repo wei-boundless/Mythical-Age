@@ -660,7 +660,7 @@ export type ContractManifest = {
   workflow_contracts: Array<Record<string, unknown>>;
   node_contracts: Array<Record<string, unknown>>;
   edge_handoff_contracts: Array<Record<string, unknown>>;
-  graph_unit_handoff_contracts: Array<Record<string, unknown>>;
+  graph_module_handoff_contracts: Array<Record<string, unknown>>;
   runtime_contracts: Array<Record<string, unknown>>;
   acceptance_contracts: Array<Record<string, unknown>>;
   issues: ContractCompileIssue[];
@@ -722,8 +722,8 @@ export type TaskGraphRuntimeSpec = {
   artifact_context_edges?: Array<Record<string, unknown>>;
   revision_edges?: Array<Record<string, unknown>>;
   loop_frames?: Array<Record<string, unknown>>;
-  nested_runtime_plans?: Array<Record<string, unknown>>;
-  graph_units?: Array<Record<string, unknown>>;
+  graph_module_runtime_plans?: Array<Record<string, unknown>>;
+  graph_modules?: Array<Record<string, unknown>>;
   issues: Array<Record<string, unknown>>;
   valid: boolean;
   diagnostics?: Record<string, unknown>;
@@ -740,8 +740,8 @@ export type TaskGraphExecutionPackage = {
   runtime_spec: TaskGraphRuntimeSpec;
   node_runtime_assemblies: RuntimeAssembly[];
   scheduler_state: Record<string, unknown>;
-  graph_units: Array<Record<string, unknown>>;
-  graph_unit_execution_plans?: Array<Record<string, unknown>>;
+  graph_modules: Array<Record<string, unknown>>;
+  graph_module_execution_plans?: Array<Record<string, unknown>>;
   split_plans?: Array<Record<string, unknown>>;
   split_merge_issues?: Array<Record<string, unknown>>;
   object_trace_index?: Array<Record<string, unknown>>;
@@ -863,9 +863,9 @@ export type UnitPortEdgeSpec = {
   metadata?: Record<string, unknown>;
 };
 
-export type NestedRuntimePlanSpec = {
+export type GraphModuleRuntimePlanSpec = {
   plan_id: string;
-  parent_graph_id: string;
+  importing_graph_id: string;
   unit_id: string;
   linked_graph_id: string;
   version_ref?: string;
@@ -875,6 +875,22 @@ export type NestedRuntimePlanSpec = {
   isolation_policy?: string;
   visibility_policy?: string;
   detach_policy?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type GraphModuleExpansionSpec = {
+  plan_id: string;
+  runtime_node_id: string;
+  unit_id: string;
+  linked_graph_id: string;
+  scope_prefix: string;
+  imported_graph?: Record<string, unknown>;
+  entry_node_id?: string;
+  output_node_id?: string;
+  nodes?: Array<Record<string, unknown> & { scoped_node_id?: string; node_id?: string; title?: string; node_type?: string; phase_id?: string }>;
+  edges?: Array<Record<string, unknown> & { scoped_edge_id?: string; edge_id?: string; scoped_source_node_id?: string; scoped_target_node_id?: string; source_node_id?: string; target_node_id?: string; edge_type?: string; payload_contract_id?: string }>;
+  resources?: Array<Record<string, unknown> & { scoped_node_id?: string; node_id?: string; title?: string; resource_type?: string; repository_id?: string }>;
+  issues?: Array<Record<string, unknown>>;
   metadata?: Record<string, unknown>;
 };
 
@@ -897,7 +913,8 @@ export type TaskGraphStandardView = {
   units?: ComposableUnitSpec[];
   interfaces?: UnitInterfaceSpec[];
   port_edges?: UnitPortEdgeSpec[];
-  nested_runtime?: NestedRuntimePlanSpec[];
+  graph_module_runtime?: GraphModuleRuntimePlanSpec[];
+  graph_module_expansions?: GraphModuleExpansionSpec[];
   timeline: TaskGraphStandardTimelineSpec;
   runtime_isolation: TaskGraphRuntimeIsolationSpec;
   memory_matrix: Record<string, unknown>;

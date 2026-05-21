@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from orchestration.assembly_builder import build_orchestration_runtime_bundle
-from tasks.assembly_builder import build_task_execution_assembly_bundle
+from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 
 
 def _runtime_for_goal(user_goal: str) -> dict:

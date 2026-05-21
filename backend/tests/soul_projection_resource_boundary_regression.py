@@ -3,7 +3,7 @@ from __future__ import annotations
 from capability_system import build_default_operation_registry, build_operation_requirement, build_resource_policy_candidate, build_resource_runtime_views
 from soul.runtime_assembly import build_soul_runtime_view
 from soul.view_mapping import soul_tool_view_from_resource_runtime_view
-from tasks.runtime_contracts import ProjectionRequirement, TaskPromptContract
+from task_system.contracts.runtime_contracts import ProjectionRequirement, TaskPromptContract
 
 
 def test_resource_runtime_view_maps_to_soul_tool_view_without_execution_authority() -> None:

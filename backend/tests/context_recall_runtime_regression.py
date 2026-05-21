@@ -8,9 +8,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from execution.model_response import ModelResponseRuntimeExecutor
+from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from orchestration.runtime_directive import RuntimeDirective
-from orchestration.runtime_loop.task_run_loop import TaskRunLoop
+from runtime.unit_runtime.loop import TaskRunLoop
 from understanding.memory_intent import MemoryIntent
 from understanding.task_understanding import analyze_task_understanding
 

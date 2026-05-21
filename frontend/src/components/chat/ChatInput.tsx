@@ -40,13 +40,43 @@ export function ChatInput({
   const selectionModeLabel = taskSelection?.mode === "coordination" ? "协调任务" : "特定任务";
 
   return (
-    <div className="panel chat-input-panel chat-input-panel--workbench rounded-[16px] p-3">
-      <div className="archive-section-head mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="archive-section-head__eyebrow">输入</p>
-          <p className="chat-input-panel__note text-sm">输入问题、任务目标或协调任务指令。</p>
+    <div className="chat-input-panel chat-input-panel--inline">
+      {taskSelection ? (
+        <div className="chat-task-selection-bar">
+          <div className="chat-task-selection-bar__content">
+            <span className="chat-task-selection-bar__eyebrow">当前承接</span>
+            <strong>{selectionModeLabel} · {selectionLabel}</strong>
+          </div>
+          <button className="chat-task-selection-bar__clear" onClick={onClearTaskSelection} type="button">
+            清除
+          </button>
         </div>
-        <div className="chat-search-policy chat-search-policy--corner" aria-label="本轮能力权限">
+      ) : null}
+      <div className="chat-input-panel__composer">
+        <textarea
+          className="chat-input-panel__textarea"
+          disabled={disabled}
+          onChange={(event) => setValue(event.target.value)}
+          onKeyDown={(event) => {
+            if (disabled) {
+              return;
+            }
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              const nextValue = value.trim();
+              if (!nextValue) {
+                return;
+              }
+              void onSend(nextValue);
+              setValue("");
+            }
+          }}
+          placeholder="输入消息，Cmd/Ctrl + Enter 发送"
+          value={value}
+        />
+      </div>
+      <div className="chat-input-panel__footer">
+        <div className="chat-search-policy chat-search-policy--compact" aria-label="本轮能力权限">
           {SEARCH_POLICY_OPTIONS.map((option) => {
             const enabled = searchPolicy[option.id];
             return (
@@ -62,43 +92,6 @@ export function ChatInput({
             );
           })}
         </div>
-      </div>
-      {taskSelection ? (
-        <div className="chat-task-selection-bar">
-          <div className="chat-task-selection-bar__content">
-            <span className="chat-task-selection-bar__eyebrow">当前承接</span>
-            <strong>{selectionModeLabel} · {selectionLabel}</strong>
-          </div>
-          <button className="chat-task-selection-bar__clear" onClick={onClearTaskSelection} type="button">
-            清除
-          </button>
-        </div>
-      ) : null}
-      <textarea
-        className="chat-input-panel__textarea min-h-24 w-full resize-none rounded-[16px] px-3 py-3 text-[var(--color-text)] outline-none transition placeholder:text-[var(--color-text-soft)] focus:border-[var(--color-soul)] focus:ring-2 focus:ring-[var(--color-soul-soft)]"
-        disabled={disabled}
-        onChange={(event) => setValue(event.target.value)}
-        onKeyDown={(event) => {
-          if (disabled) {
-            return;
-          }
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-            event.preventDefault();
-            const nextValue = value.trim();
-            if (!nextValue) {
-              return;
-            }
-            void onSend(nextValue);
-            setValue("");
-          }
-        }}
-        placeholder="输入你的问题，Cmd/Ctrl + Enter 发送"
-        value={value}
-      />
-      <div className="chat-input-panel__footer mt-2 flex items-center justify-between gap-3">
-        <p className="chat-input-panel__hint text-sm">
-          当前开关会约束本轮可装载能力与可委派子Agent。
-        </p>
         <div className="chat-input-panel__actions">
           {disabled ? (
             <button

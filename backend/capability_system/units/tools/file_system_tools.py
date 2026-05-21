@@ -9,34 +9,17 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, Cal
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from capability_system.units.tools.workspace_paths import relative_workspace_path, resolve_workspace_path
+
 
 class _WorkspacePathMixin:
     _root_dir: Path
 
     def _resolve_path(self, path: str = "") -> Path:
-        normalized = str(path or ".").strip() or "."
-        candidate = (self._root_dir / normalized).resolve()
-        if (self._root_dir in candidate.parents or candidate == self._root_dir) and (
-            candidate.exists() or self._root_dir.name != "backend"
-        ):
-            return candidate
-        if self._root_dir.name == "backend":
-            workspace_root = self._root_dir.parent.resolve()
-            workspace_candidate = (workspace_root / normalized).resolve()
-            if workspace_root in workspace_candidate.parents or workspace_candidate == workspace_root:
-                return workspace_candidate
-        raise ValueError("Path traversal detected.")
+        return resolve_workspace_path(self._root_dir, path)
 
     def _relative_path(self, path: Path) -> str:
-        roots = [self._root_dir]
-        if self._root_dir.name == "backend":
-            roots.append(self._root_dir.parent.resolve())
-        for root in roots:
-            try:
-                return str(path.relative_to(root)).replace("\\", "/")
-            except ValueError:
-                continue
-        return str(path)
+        return relative_workspace_path(self._root_dir, path)
 
 
 class ListDirInput(BaseModel):

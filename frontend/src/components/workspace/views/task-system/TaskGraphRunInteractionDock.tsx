@@ -254,6 +254,10 @@ export function TaskGraphRunInteractionDock({
     return null;
   }
 
+  if (!open && !needsAttention) {
+    return null;
+  }
+
   const launcher = (
     <aside
       className={needsAttention ? "health-agent-launcher task-graph-run-interaction-launcher task-graph-run-interaction-launcher--attention" : "health-agent-launcher task-graph-run-interaction-launcher"}

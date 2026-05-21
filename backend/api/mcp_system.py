@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from mcp_client import ExternalMCPManager, ExternalMCPServerConfig
+from capability_system.mcp.client import ExternalMCPManager, ExternalMCPServerConfig
 
 router = APIRouter()
 

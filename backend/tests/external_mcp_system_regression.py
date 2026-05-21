@@ -7,13 +7,13 @@ from fastapi.testclient import TestClient
 
 from app import app
 from bootstrap.app_runtime import app_runtime
-from mcp_client import ExternalMCPConfigStore, ExternalMCPManager
-from mcp_client.models import ExternalMCPServerConfig
-from mcp_server.tool_pool import build_mcp_tool_pool
+from capability_system.mcp.client import ExternalMCPConfigStore, ExternalMCPManager
+from capability_system.mcp.client.models import ExternalMCPServerConfig
+from capability_system.mcp.server.tool_pool import build_mcp_tool_pool
 
 
 def _fake_server_config(backend_dir: Path) -> ExternalMCPServerConfig:
-    fixture = backend_dir / "tests" / "fixtures" / "fake_external_mcp_server.py"
+    fixture = backend_dir / "tests" / "fixtures" / "fake_external_capability_system.mcp.server.py"
     return ExternalMCPServerConfig(
         server_id="external_demo",
         title="External Demo",

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from memory_system.working_memory_finalizer import WorkingMemoryFinalizer
 from memory_system.working_memory_service import WorkingMemoryService
-from orchestration.runtime_loop.context_packet_resolver import resolve_memory_snapshot
-from orchestration.runtime_loop.langgraph_coordination_runtime import _working_memory_read_operation_from_context
+from runtime.coordination_runtime.context_packet_resolver import resolve_memory_snapshot
+from runtime.coordination_runtime.memory_helpers import _working_memory_read_operation_from_context
 
 
 def test_working_memory_defaults_to_node_scope_only(tmp_path) -> None:

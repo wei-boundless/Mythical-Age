@@ -9,7 +9,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from capability_system import build_default_operation_registry
 from orchestration import OperationGate, ResourcePolicy
-from orchestration.runtime_loop.task_run_loop import TaskRunLoop
+from runtime.unit_runtime.loop import TaskRunLoop
 from capability_system.tool_authorization import build_authorized_tool_set, build_tool_authorization_index, resolve_tool_operation_id
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
 
