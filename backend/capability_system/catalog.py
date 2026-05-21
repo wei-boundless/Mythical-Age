@@ -8,6 +8,7 @@ from capability_system.local_mcp_registry import build_local_mcp_catalog, defaul
 from capability_system.mcp.management_service import MCPManagementService
 from capability_system.mcp_registry import build_mcp_catalog
 from capability_system.operation_registry import build_default_operation_registry
+from capability_system.permission_views import attach_capability_permission_views
 from .endpoints import build_capability_endpoints
 from .models import AgentCapability, CapabilityBindingEdge, CapabilityBindingGraph, MCPCapability
 from .search_policy import classify_tool_source, search_policy_labels, tool_text_set
@@ -439,7 +440,7 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
         "capability_endpoints": capability_endpoints,
         "operations": operations,
     }
-    capability_units = build_capability_units(catalog_payload)
+    capability_units = attach_capability_permission_views(build_capability_units(catalog_payload))
 
     validation_issues = validate_capability_catalog(
         skills=skills,
@@ -447,6 +448,7 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
         agent_bindings=bindings_by_agent,
         mcps=mcps,
         capability_endpoints=capability_endpoints,
+        capability_units=capability_units,
         operations=operations,
     )
     return {

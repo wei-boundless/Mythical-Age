@@ -15,11 +15,11 @@ export const TASK_GRAPH_MODULE_FACET_ITEMS: Array<{
   title: string;
   desc: string;
 }> = [
-  { id: "units", title: "可组合单元", desc: "graph / node / resource" },
-  { id: "interfaces", title: "接口端口", desc: "input / output ports" },
-  { id: "connections", title: "端口连接", desc: "port edge contracts" },
-  { id: "graph_module_runtime", title: "导入模块", desc: "module relation graph" },
-  { id: "stitching", title: "图块来源", desc: "timeline blocks" },
+  { id: "units", title: "标准单元", desc: "从 canonical 图编译" },
+  { id: "interfaces", title: "接口端口", desc: "输入/输出契约诊断" },
+  { id: "connections", title: "端口映射", desc: "由 canonical edges 派生" },
+  { id: "graph_module_runtime", title: "图模块展开", desc: "导入图只读诊断" },
+  { id: "stitching", title: "图块来源", desc: "legacy/derived blocks" },
 ];
 
 const TASK_GRAPH_MODULE_FACETS = new Set<TaskGraphModuleFacet>(
@@ -78,31 +78,6 @@ export function taskGraphComposableOverlayMetadataPatch(
       ...patch,
     },
   };
-}
-
-export function upsertTaskGraphOverlayPortEdge(
-  metadata: Record<string, unknown>,
-  edge: UnitPortEdgeSpec,
-): { composable_graph: TaskGraphComposableGraphOverlay } {
-  const overlay = taskGraphComposableOverlayFromMetadata(metadata);
-  const edgeId = String(edge.edge_id ?? "").trim();
-  const nextEdge = {
-    ...edge,
-    edge_id: edgeId,
-    edge_type: String(edge.edge_type ?? "handoff").trim() || "handoff",
-    temporal_semantics: asRecord(edge.temporal_semantics),
-    handoff: asRecord(edge.handoff),
-    metadata: {
-      ...asRecord(edge.metadata),
-      explicit_overlay: true,
-    },
-  };
-  const exists = overlay.port_edges.some((item) => item.edge_id === edgeId);
-  return taskGraphComposableOverlayMetadataPatch(metadata, {
-    port_edges: exists
-      ? overlay.port_edges.map((item) => (item.edge_id === edgeId ? nextEdge : item))
-      : [...overlay.port_edges, nextEdge],
-  });
 }
 
 export function removeTaskGraphOverlayPortEdge(

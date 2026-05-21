@@ -428,12 +428,33 @@ def test_task_graph_definition_compiles_direct_runtime_spec_with_policy_diagnost
     scheduler_support = spec.diagnostics["scheduler_support"]
     assert scheduler_support["authority"] == "task_system.scheduler_support_report"
     assert scheduler_support["partial_count"] > 0
-    assert any(item["field"] == "phase_id" for item in scheduler_support["supported"])
-    assert any(item["field"] == "sequence_index" for item in scheduler_support["supported"])
+    assert any(item["field"] == "phase_id" for item in scheduler_support["partial"])
+    assert any(item["field"] == "sequence_index" for item in scheduler_support["partial"])
+    assert not any(item["field"] == "sequence_index" for item in scheduler_support["supported"])
     assert any(issue.code == "scheduler_policy_partial" for issue in spec.issues)
     layered = spec.diagnostics["layered_graph"]
     assert layered["authority"] == "task_system.layered_graph_normalizer"
     assert layered["summary"]["memory_edge_count"] == 1
+
+
+def test_task_graph_runtime_spec_does_not_derive_temporal_edges_from_sequence_index(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    graph = registry.upsert_task_graph(
+        graph_id="graph.test.no_sequence_temporal",
+        title="顺序坐标不派生阻塞边",
+        graph_kind="multi_agent",
+        nodes=(
+            {"node_id": "a", "node_type": "agent", "agent_id": "agent:a", "phase_id": "phase.work", "sequence_index": 1},
+            {"node_id": "b", "node_type": "agent", "agent_id": "agent:b", "phase_id": "phase.work", "sequence_index": 2},
+        ),
+        edges=(),
+    )
+
+    spec = compile_task_graph_definition_runtime_spec(graph=graph)
+    layered = spec.diagnostics["layered_graph"]
+
+    assert spec.temporal_edges == ()
+    assert layered["summary"]["temporal_edge_count"] == 0
 
 
 def test_task_graph_runtime_spec_reports_unsupported_scheduler_policy(tmp_path: Path) -> None:

@@ -2363,6 +2363,7 @@ class TaskRunLoop:
                             approval_state=approval_state,
                             current_state=state,
                             current_task_run=start.task_run,
+                            existing_approval_event=runtime_event,
                         )
                         yield {"type": "runtime_loop_event", "event": approval_event.to_dict()}
                         yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
@@ -2787,6 +2788,7 @@ class TaskRunLoop:
                             approval_state=approval_state,
                             current_state=state,
                             current_task_run=start.task_run,
+                            existing_approval_event=runtime_event,
                         )
                         yield {"type": "runtime_loop_event", "event": approval_event.to_dict()}
                         yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
@@ -3074,6 +3076,7 @@ class TaskRunLoop:
                                 approval_state=approval_state,
                                 current_state=state,
                                 current_task_run=start.task_run,
+                                existing_approval_event=runtime_event,
                             )
                             yield {"type": "runtime_loop_event", "event": approval_event.to_dict()}
                             yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
@@ -4420,6 +4423,7 @@ class TaskRunLoop:
         current_state: RuntimeLoopState | None = None,
         current_task_run: TaskRun | None = None,
         event_offset: int | None = None,
+        existing_approval_event: Any | None = None,
     ) -> tuple[RuntimeLoopState, Any, Any, TaskRun | None]:
         base_state = current_state
         if base_state is None:
@@ -4461,7 +4465,7 @@ class TaskRunLoop:
                 "pending_approval_state": dict(approval_state),
             },
         )
-        approval_event = self.event_log.append(
+        approval_event = existing_approval_event or self.event_log.append(
             task_run_id,
             "approval_waiting",
             payload={"approval": dict(approval_state)},
@@ -4471,9 +4475,10 @@ class TaskRunLoop:
                 "action_request_ref": str(approval_state.get("action_request_ref") or ""),
             },
         )
+        approval_event_offset = int(getattr(approval_event, "offset", event_offset if event_offset is not None else -1))
         checkpoint_event = self._write_checkpoint_event(
             waiting_state,
-            event_offset=approval_event.offset if event_offset is None else max(event_offset, approval_event.offset),
+            event_offset=approval_event_offset if event_offset is None else max(event_offset, approval_event_offset),
         )
         task_run = current_task_run or self.state_index.get_task_run(task_run_id)
         if task_run is not None:
@@ -7659,4 +7664,3 @@ class _ContinuationAgentRuntimeChain:
         while isinstance(chain, _ContinuationAgentRuntimeChain):
             chain = chain._base
         return chain
-        

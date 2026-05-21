@@ -22,6 +22,13 @@ const primaryNavItems: Array<{
   { icon: Sparkles, label: "灵魂系统", description: "世界观、灵魂与投影", view: "playground" },
 ];
 
+function navItemIsActive(current: WorkspaceView, target: WorkspaceView) {
+  if (target === "task-system") {
+    return current === "task-system" || current === "capability-system" || current === "mcp-system";
+  }
+  return current === target;
+}
+
 export function Sidebar() {
   const {
     sessions,
@@ -44,7 +51,7 @@ export function Sidebar() {
         <div className="practical-sidebar__nav-list">
           {primaryNavItems.map((item) => {
             const Icon = item.icon;
-            const active = activeWorkspaceView === item.view;
+            const active = navItemIsActive(activeWorkspaceView, item.view);
             return (
               <button
                 aria-pressed={active}

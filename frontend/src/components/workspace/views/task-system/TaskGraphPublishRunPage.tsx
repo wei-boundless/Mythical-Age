@@ -51,7 +51,7 @@ function repairActionLabel(issue: TaskGraphPreflightIssue) {
 function preflightIssueGroup(issue: TaskGraphPreflightIssue) {
   if (issue.source.includes("projection") || issue.source.includes("prompt") || issue.source.includes("cognition")) return "职责与输入包";
   if (issue.source.includes("memory") || issue.source.includes("artifact") || issue.source.includes("commit_visibility")) return "资源流";
-  if (issue.source.includes("timeline") || issue.source.includes("revision")) return "拓扑时序";
+  if (issue.source.includes("timeline") || issue.source.includes("revision")) return "生命周期诊断";
   if (issue.source.includes("human_gate") || issue.source.includes("manual")) return "人工执行";
   if (issue.source.includes("contract") || issue.source.includes("review_gate")) return "契约与质量门";
   if (issue.source.includes("runtime") || issue.source.includes("scheduler")) return "运行装配";
@@ -419,8 +419,8 @@ export function TaskGraphPublishRunPage({
                   <p><span>Terminal</span><strong>{schedulerSummary.terminal_status || "-"}</strong></p>
                 </div>
                 <div className="task-graph-note">
-                  <strong>当前 active phase：{schedulerSummary.active_phase_ids.join(" / ") || "-"}</strong>
-                  <span>当前阶段顺序：{Object.entries(schedulerSummary.active_sequence_by_phase).map(([phase, value]) => `${phase}=S${value}`).join(" / ") || "-"}</span>
+                  <strong>观察到的活跃坐标：{schedulerSummary.active_phase_ids.join(" / ") || "-"}</strong>
+                  <span>调度权威来自显式边与等待策略；顺序坐标仅作运行观察：{Object.entries(schedulerSummary.active_sequence_by_phase).map(([phase, value]) => `${phase}=S${value}`).join(" / ") || "-"}</span>
                 </div>
                 <div className="task-graph-preflight-list">
                   {schedulerSummary.phase_states.slice(0, 6).map((phase) => (
@@ -562,7 +562,7 @@ export function TaskGraphPublishRunPage({
                     </span>
                     <div>
                       <strong>{issue.code || "temporal_violation"}</strong>
-                      <span>{issue.message || "节点运行不在当前拓扑时序许可窗口内。"}</span>
+                      <span>{issue.message || "节点运行不在当前显式依赖和执行许可窗口内。"}</span>
                     </div>
                     <em>{issue.target_id || boundTemporal?.active_node_id || "runtime"}</em>
                     <small>monitor.temporal</small>

@@ -144,7 +144,7 @@ export function TaskGraphLibraryPage({
                   <p><span>节点配置</span><strong>图工作台 / 对象编辑台</strong></p>
                   <p><span>边交接</span><strong>图工作台 / 交接边</strong></p>
                   <p><span>契约绑定</span><strong>图工作台 / contract_bindings</strong></p>
-                  <p><span>时序分层</span><strong>图工作台 / 拓扑时序</strong></p>
+                  <p><span>生命周期</span><strong>图工作台 / 运行诊断</strong></p>
                   <p><span>资源流</span><strong>图工作台 / 资源流</strong></p>
                   <p><span>发布运行</span><strong>图工作台 / 执行包</strong></p>
                 </div>

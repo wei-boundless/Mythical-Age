@@ -105,7 +105,7 @@ export function TaskGraphGraphLayerRail({
   const expansionByUnitId = new Map(graphModuleExpansions.map((item) => [item.unit_id, item]));
 
   return (
-    <aside className="task-graph-composer-rail" aria-label="图层关系">
+    <aside className="task-graph-composer-rail" aria-label="标准视图诊断">
       <section className="task-graph-composer-panel task-graph-composer-panel--identity">
         <header>
           <GitBranch aria-hidden="true" size={15} />
@@ -116,10 +116,10 @@ export function TaskGraphGraphLayerRail({
           onClick={() => onSelectSubject(graphSubject)}
           type="button"
         >
-          <span>封装图边界</span>
+          <span>标准视图边界</span>
           <strong>{graphName}</strong>
           <small>{graphDraft.graph_id}</small>
-          <em>{standardViewLoading ? "编译中" : `${units.length} 单元 / ${portEdges.length} 端口边`}</em>
+          <em>{standardViewLoading ? "编译中" : `${units.length} 标准单元 / ${portEdges.length} 派生端口边`}</em>
         </button>
         <div className="task-graph-composer-mini-metrics">
           <p><span>图模块</span><strong>{counts.graph ?? 0}</strong></p>
@@ -138,7 +138,7 @@ export function TaskGraphGraphLayerRail({
       <section className="task-graph-composer-panel">
         <header>
           <Layers3 aria-hidden="true" size={15} />
-          <strong>工作分面</strong>
+          <strong>诊断分面</strong>
         </header>
         <div className="task-graph-composer-facet-grid">
           {TASK_GRAPH_MODULE_FACET_ITEMS.map((facet) => (
@@ -202,7 +202,7 @@ export function TaskGraphGraphLayerRail({
               </button>
             );
           })}
-          {!portEdges.length ? <div className="task-graph-composer-empty">当前任务图还没有可见交接边。</div> : null}
+          {!portEdges.length ? <div className="task-graph-composer-empty">当前标准视图还没有派生端口边。</div> : null}
         </div>
       </section>
 
@@ -237,7 +237,7 @@ export function TaskGraphGraphLayerRail({
             );
           })}
           {!units.some((unit) => unit.unit_type === "graph") ? (
-            <div className="task-graph-composer-empty">阶段图块绑定 linked_graph_id 后会形成可导入图模块。</div>
+            <div className="task-graph-composer-empty">canonical 图模块节点或 legacy 图块绑定 linked_graph_id 后会形成导入图模块诊断。</div>
           ) : null}
         </div>
       </section>

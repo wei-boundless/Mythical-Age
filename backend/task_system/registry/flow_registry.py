@@ -2408,17 +2408,27 @@ class TaskFlowRegistry:
             dict.fromkeys(str(item).strip() for item in subtask_refs if str(item).strip().startswith("task."))
         )
         normalized_graph_nodes = tuple(dict(item) for item in graph_nodes if isinstance(item, dict))
+        normalized_graph_edges = tuple(dict(item) for item in graph_edges if isinstance(item, dict))
+        topology_ref = str(topology_template_id or "").strip()
+        topology_template = self.get_topology_template(topology_ref) if topology_ref else None
+        if topology_template is not None:
+            if not normalized_graph_nodes and topology_template.nodes:
+                normalized_graph_nodes = tuple(dict(item) for item in topology_template.nodes)
+            if not normalized_graph_edges and topology_template.edges:
+                normalized_graph_edges = tuple(dict(item) for item in topology_template.edges)
         if normalized_graph_nodes:
             normalized_subtask_refs = tuple(
                 dict.fromkeys([*normalized_subtask_refs, *_subtask_refs_from_graph_nodes(normalized_graph_nodes)])
             )
         else:
-            normalized_graph_nodes, _ = _default_coordination_graph(
+            normalized_graph_nodes, default_edges = _default_coordination_graph(
                 coordinator_agent_id=normalize_agent_id(str(coordinator_agent_id or "agent:0").strip() or "agent:0"),
                 participant_agent_ids=normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip()),
                 task_family=normalized_family,
                 subtask_refs=normalized_subtask_refs,
             )
+            if not normalized_graph_edges:
+                normalized_graph_edges = default_edges
         if not normalized_family and normalized_subtask_refs:
             record = self.get_specific_task_record(normalized_subtask_refs[0])
             normalized_family = str(getattr(record, "task_family", "") or "").strip()
@@ -2431,7 +2441,7 @@ class TaskFlowRegistry:
             task_family=normalized_family,
             graph_kind="coordination",
             nodes=tuple(_normalize_agent_refs_in_mapping(dict(item)) for item in normalized_graph_nodes),
-            edges=tuple(dict(item) for item in graph_edges if isinstance(item, dict)),
+            edges=normalized_graph_edges,
             default_protocol_id=str(dict(metadata or {}).get("protocol_id") or ""),
             runtime_policy={
                 "coordinator_agent_id": str(coordinator_agent_id or "agent:0").strip() or "agent:0",
@@ -2456,7 +2466,7 @@ class TaskFlowRegistry:
                 "graph_id": target,
                 "task_family": normalized_family,
                 "domain_id": normalized_domain_id,
-                "topology_template_id": str(topology_template_id or "").strip(),
+                "topology_template_id": topology_ref,
                 "handoff_policy": str(handoff_policy or "filtered_handoff").strip(),
                 "conflict_resolution_policy": str(conflict_resolution_policy or "coordinator_review").strip(),
                 "output_merge_policy": str(output_merge_policy or "coordinator_final_merge").strip(),

@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 
-import type { TaskGraphStandardNodeSpec, TaskGraphStandardView } from "@/lib/api";
+import type { TaskGraphStandardView } from "@/lib/api";
 
 import { TaskSystemField, TaskSystemSelectField, taskSystemOptionLabel } from "./TaskSystemWorkbenchUi";
 import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
@@ -128,14 +128,6 @@ export function TaskGraphNodeStandardPage({
                   value={stringValue(currentNode.phase_id)}
                 />
               </TaskSystemField>
-              <TaskSystemField label="顺序">
-                <input
-                  min={0}
-                  onChange={(event) => updateTaskGraphNode(currentNodeId, { sequence_index: Number(event.target.value || 0) })}
-                  type="number"
-                  value={Number(currentNode.sequence_index ?? 0)}
-                />
-              </TaskSystemField>
               <TaskSystemSelectField
                 label="执行模式"
                 onChange={(value) => updateTaskGraphNode(currentNodeId, { execution_mode: value })}
@@ -160,22 +152,10 @@ export function TaskGraphNodeStandardPage({
                   value={stringValue(currentNode.artifact_target)}
                 />
               </TaskSystemField>
-              <label className="boundary-check">
-                <input
-                  checked={currentNode.main_chain !== false}
-                  onChange={(event) => updateTaskGraphNode(currentNodeId, { main_chain: event.target.checked })}
-                  type="checkbox"
-                />
-                进入主链
-              </label>
-              <label className="boundary-check">
-                <input
-                  checked={currentNode.blocks_phase_exit !== false}
-                  onChange={(event) => updateTaskGraphNode(currentNodeId, { blocks_phase_exit: event.target.checked })}
-                  type="checkbox"
-                />
-                阻塞阶段出口
-              </label>
+              <div className="task-graph-note">
+                <strong>节点不声明隐式执行链</strong>
+                <span>节点页只维护身份、执行者、运行策略和产物目标；执行因果、阻塞和汇合应通过 canonical 边、barrier/manual_gate 节点及等待/汇合策略表达。</span>
+              </div>
             </div>
           ) : (
             <div className="task-graph-note">

@@ -12,6 +12,8 @@ from api.health_workbench import router as health_workbench_router
 from api.memory import router as memory_router
 from api.mcp_system import router as mcp_system_router
 from api.orchestration import router as orchestration_router
+from api.orchestration_catalog import router as orchestration_catalog_router
+from api.orchestration_runtime_loop import router as orchestration_runtime_loop_router
 from api.capability_system import router as capability_system_router
 from api.sessions import router as sessions_router
 from api.souls import router as souls_router
@@ -48,7 +50,9 @@ app.include_router(config_router, prefix="/api", tags=["config"])
 app.include_router(task_system_router, prefix="/api", tags=["tasks"])
 app.include_router(health_system_router, prefix="/api", tags=["health-system"])
 app.include_router(health_workbench_router, prefix="/api", tags=["health-workbench"])
+app.include_router(orchestration_catalog_router, prefix="/api", tags=["orchestration-catalog"])
 app.include_router(orchestration_router, prefix="/api", tags=["orchestration"])
+app.include_router(orchestration_runtime_loop_router, prefix="/api", tags=["orchestration-runtime-loop"])
 app.include_router(capability_system_router, prefix="/api", tags=["capability-system"])
 app.include_router(souls_router, prefix="/api", tags=["souls"])
 

@@ -12,6 +12,7 @@ def validate_capability_catalog(
     agent_bindings: dict[str, list[str]],
     mcps: list[dict[str, Any]] | None = None,
     capability_endpoints: list[dict[str, Any]] | None = None,
+    capability_units: list[dict[str, Any]] | None = None,
     operations: list[dict[str, Any]] | None = None,
     task_operation_ids: list[str] | None = None,
 ) -> list[CapabilityValidationIssue]:
@@ -172,6 +173,50 @@ def validate_capability_catalog(
                     subject=endpoint_id,
                 )
             )
+
+    seen_capability_ids: set[str] = set()
+    for unit in list(capability_units or []):
+        capability_id = str(unit.get("capability_id") or "").strip()
+        if not capability_id:
+            issues.append(
+                CapabilityValidationIssue(
+                    severity="error",
+                    code="capability_unit_missing_id",
+                    message="CapabilityUnit is missing capability_id.",
+                    subject=str(unit.get("kind") or ""),
+                )
+            )
+            continue
+        if capability_id in seen_capability_ids:
+            issues.append(
+                CapabilityValidationIssue(
+                    severity="error",
+                    code="capability_unit_duplicate_id",
+                    message=f"CapabilityUnit {capability_id} is duplicated.",
+                    subject=capability_id,
+                )
+            )
+        seen_capability_ids.add(capability_id)
+        for operation_id in [str(item).strip() for item in list(unit.get("operation_ids") or []) if str(item).strip()]:
+            if known_operations and operation_id not in known_operations:
+                issues.append(
+                    CapabilityValidationIssue(
+                        severity="error",
+                        code="capability_unit_unknown_operation",
+                        message=f"CapabilityUnit {capability_id} references unknown operation {operation_id}.",
+                        subject=capability_id,
+                    )
+                )
+        if str(unit.get("kind") or "") == "mcp" and str(unit.get("provider_kind") or "") == "local":
+            if str(unit.get("model_visibility") or "") != "not_direct_model_tool":
+                issues.append(
+                    CapabilityValidationIssue(
+                        severity="error",
+                        code="capability_unit_local_mcp_model_visibility_invalid",
+                        message=f"Local MCP CapabilityUnit {capability_id} must not be exposed as a direct model tool.",
+                        subject=capability_id,
+                    )
+                )
 
     alias_owner: dict[str, str] = {}
     for operation in list(operations or []):

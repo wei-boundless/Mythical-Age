@@ -285,8 +285,8 @@ def _legacy_node_diagnostics(nodes: tuple[TaskGraphNodeDefinition, ...]) -> list
         if sequence_index:
             diagnostics.append(
                 RuntimeSemanticsDiagnostic(
-                    code="sequence_index_legacy_timing_gate",
-                    message="sequence_index 当前仍可能触发 legacy sequence gate，但它不是通用因果依赖；新图应使用显式边和边语义表达阻塞关系。",
+                    code="sequence_index_legacy_lifecycle_coordinate",
+                    message="sequence_index 只是生命周期坐标/展示排序，不是通用因果依赖；需要阻塞关系时必须使用显式边和边语义。",
                     scope="node",
                     ref_id=node_id,
                     field="sequence_index",
@@ -392,7 +392,7 @@ def _legacy_field_payloads(*, graph: TaskGraphDefinition, diagnostics: list[Runt
         in {
             "legacy_timeline_policy_not_runtime_semantics",
             "phase_definitions_are_lifecycle_metadata",
-            "sequence_index_legacy_timing_gate",
+            "sequence_index_legacy_lifecycle_coordinate",
             "timeline_group_legacy_display",
             "timeline_group_duplicates_phase",
             "edge_temporal_semantics_legacy_projection",

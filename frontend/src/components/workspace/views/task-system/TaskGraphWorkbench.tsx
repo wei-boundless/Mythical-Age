@@ -58,7 +58,7 @@ export function TaskGraphWorkbench({
   workspaceSlot,
   ...rest
 }: TaskGraphWorkbenchProps) {
-  const [editorFocus, setEditorFocus] = useState<TaskGraphEditorFocus>(() => ({ layer: activeGraphNodes.length ? "modules" : "blueprint" }));
+  const [editorFocus, setEditorFocus] = useState<TaskGraphEditorFocus>(() => ({ layer: activeGraphNodes.length ? "topology" : "blueprint" }));
   const [executionPackage, setExecutionPackage] = useState<TaskGraphExecutionPackage | null>(null);
   const [executionPackageError, setExecutionPackageError] = useState("");
   const [executionPackageLoading, setExecutionPackageLoading] = useState(false);
@@ -130,7 +130,7 @@ export function TaskGraphWorkbench({
     rest.setSelectedTaskGraphId(target.graph_id);
     rest.setSelectedGraphNodeId("");
     rest.setSelectedGraphEdgeId("");
-    setEditorFocus({ layer: "modules", facet: "units" });
+    setEditorFocus({ layer: "topology", facet: "graph" });
   };
   const focusPreflightIssue = (issue: TaskGraphPreflightIssue) => {
     applyEditorFocus(focusForPreflightIssue(issue));
@@ -333,7 +333,7 @@ export function TaskGraphWorkbench({
         <small>
           {taskGraphStandardView
             ? `graph=${String(taskGraphStandardView.graph.graph_id ?? taskGraphDraftV2.graph_id)} · ${taskGraphStandardView.nodes.length} nodes · ${taskGraphStandardView.edges.length} edges · ${taskGraphStandardView.resources.length} resources`
-            : "图工作台当前页面会优先读取后端编译出的标准对象视图，避免前端和 runtime 语义分叉。"}
+            : "标准对象视图用于解释和校验当前草稿；可运行结构仍以 nodes / edges 草稿为唯一写入源。"}
         </small>
       </div>
       <div className="task-graph-standard-status__actions">

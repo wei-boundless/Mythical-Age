@@ -5,7 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from api import orchestration as orchestration_api
+from api import orchestration_catalog as orchestration_catalog_api
 from api import task_system as tasks_api
+from orchestration import coordination_recovery, coordination_rewind, coordination_scheduler
 from runtime.execution.node_execution_request import NodeExecutionRequest
 from runtime.shared.models import AgentRun, CoordinationRun, TaskRun
 from runtime.coordination_runtime.trace_adapter import CoordinationTraceAdapter
@@ -67,12 +69,12 @@ def test_orchestration_agents_payload_keeps_removed_legacy_groups_absent(tmp_pat
             },
         ),
     )
-    original = orchestration_api.require_runtime
-    orchestration_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
+    original = orchestration_catalog_api.require_runtime
+    orchestration_catalog_api.require_runtime = lambda: _RuntimeStub(tmp_path)  # type: ignore[assignment]
     try:
-        payload = asyncio.run(orchestration_api.orchestration_agents())
+        payload = asyncio.run(orchestration_catalog_api.orchestration_agents())
     finally:
-        orchestration_api.require_runtime = original  # type: ignore[assignment]
+        orchestration_catalog_api.require_runtime = original  # type: ignore[assignment]
 
     groups = payload["agent_groups"]
 
@@ -107,7 +109,7 @@ def test_coordination_rewind_api_downstream_scan_ignores_feedback_edges() -> Non
         },
     }
 
-    assert orchestration_api._coordination_downstream_stage_ids(
+    assert coordination_rewind._coordination_downstream_stage_ids(
         state=state,
         stage_id="d",
         include_downstream=True,
@@ -192,7 +194,7 @@ def test_coordination_rewind_invalidates_running_stage_task_runs(tmp_path: Path)
         status="running",
     )
 
-    changed = orchestration_api._mark_invalidated_stage_task_runs(
+    changed = coordination_rewind._mark_invalidated_stage_task_runs(
         task_run_loop=type("Loop", (), {"state_index": state_index})(),
         coordination_run=coordination_run,
         stage_ids=["volume_plan", "chapter_outline"],
@@ -244,7 +246,7 @@ def test_stage_execution_scheduler_skips_existing_same_source_task_run(tmp_path:
     state_index.upsert_task_run(existing)
     loop = SimpleNamespace(state_index=state_index, event_log=SimpleNamespace(append=lambda *args, **kwargs: None))
 
-    result = orchestration_api._schedule_stage_execution_background(
+    result = coordination_scheduler._schedule_stage_execution_background(
         runtime=SimpleNamespace(query_runtime=SimpleNamespace(task_run_loop=loop)),
         session_id="session:test",
         source="test",
@@ -297,10 +299,10 @@ def test_stage_execution_scheduler_allows_new_idempotency_key(tmp_path: Path) ->
     )
     loop = SimpleNamespace(state_index=state_index)
 
-    assert orchestration_api._matching_stage_execution_task_run(
+    assert coordination_scheduler._matching_stage_execution_task_run(
         task_run_loop=loop,
         session_id="session:test",
-        identity=orchestration_api._stage_execution_schedule_identity(retry),
+        identity=coordination_scheduler._stage_execution_schedule_identity(retry),
     ) is None
 
 
@@ -337,10 +339,10 @@ def test_stage_execution_scheduler_ignores_rewind_invalidated_completed_run(tmp_
     )
     loop = SimpleNamespace(state_index=state_index)
 
-    assert orchestration_api._matching_stage_execution_task_run(
+    assert coordination_scheduler._matching_stage_execution_task_run(
         task_run_loop=loop,
         session_id="session:test",
-        identity=orchestration_api._stage_execution_schedule_identity(request),
+        identity=coordination_scheduler._stage_execution_schedule_identity(request),
     ) is None
 
 
@@ -439,7 +441,7 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
     )
 
     asyncio.run(
-        orchestration_api._execute_stage_request_in_background(
+        coordination_scheduler._execute_stage_request_in_background(
             runtime=runtime,
             session_id="session:test",
             source="test",
@@ -491,7 +493,7 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
     assert "importing_graph_module_runtime_handle" not in child_input_keys
     assert child_request["artifact_context_packet"]["artifact_refs"] == []
 
-    reused = orchestration_api._schedule_stage_execution_background(
+    reused = coordination_scheduler._schedule_stage_execution_background(
         runtime=runtime,
         session_id="session:test",
         source="test",
@@ -625,7 +627,7 @@ def test_graph_module_imported_completion_commits_output_packet_and_releases_imp
     parent_request = NodeExecutionRequest.from_dict(parent_state["stage_execution_request"])
 
     asyncio.run(
-        orchestration_api._execute_stage_request_in_background(
+        coordination_scheduler._execute_stage_request_in_background(
             runtime=runtime,
             session_id="session:test",
             source="test",
@@ -729,7 +731,7 @@ def test_graph_module_imported_completion_commits_output_packet_and_releases_imp
 
 
 def test_graph_module_core_artifact_refs_exclude_debug_reports() -> None:
-    refs = orchestration_api._graph_module_core_artifact_refs(
+    refs = coordination_recovery._graph_module_core_artifact_refs(
         artifact_refs_by_stage={
             "project_brief": [
                 "artifact:run/project_brief.md",
@@ -775,7 +777,7 @@ def test_graph_module_imported_result_waits_until_imported_graph_completed(tmp_p
         ),
     )
     runtime = SimpleNamespace(query_runtime=SimpleNamespace(task_run_loop=loop))
-    result = orchestration_api._latest_unconsumed_graph_module_imported_result(
+    result = coordination_recovery._latest_unconsumed_graph_module_imported_result(
         runtime=runtime,
         session_id="session:test",
         state={
@@ -910,7 +912,7 @@ def test_graph_module_imported_failure_commits_failure_packet_and_uses_importing
     parent_request = NodeExecutionRequest.from_dict(parent_state["stage_execution_request"])
 
     asyncio.run(
-        orchestration_api._execute_stage_request_in_background(
+        coordination_scheduler._execute_stage_request_in_background(
             runtime=runtime,
             session_id="session:test",
             source="test",

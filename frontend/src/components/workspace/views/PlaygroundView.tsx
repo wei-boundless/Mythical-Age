@@ -1,7 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Boxes, ChevronLeft, FilePenLine, ImageUp, Layers3, Loader2, PencilLine, Plus, RotateCcw, Save, Sparkles, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Boxes,
+  ChevronLeft,
+  Clock3,
+  FilePenLine,
+  ImageUp,
+  Layers3,
+  Loader2,
+  PencilLine,
+  Plus,
+  RotateCcw,
+  Save,
+  Send,
+  Sparkles,
+  X
+} from "lucide-react";
 import Image from "next/image";
 
 import {
@@ -12,19 +28,22 @@ import {
   enableCustomSoul,
   getSoulProjectionCards,
   getSoulSystemCatalog,
+  getSoulWorkLog,
   saveSoulSystemFile,
   uploadSoulPortrait,
   type SoulProjectionCard,
   type SoulProjectionCatalog,
   type SoulSystemCatalog,
   type SoulSystemFile,
-  type SoulSystemSeed
+  type SoulSystemSeed,
+  type SoulWorkLogView
 } from "@/lib/api";
 import type { SoulKey } from "@/lib/souls";
 import { useAppStore } from "@/lib/store";
 
 type SoulPanelMode = "contract" | "projection" | "core";
 type ProjectionPanelPage = "catalog" | "editor";
+type SoulPortalView = "home" | "transition" | "world";
 
 type ProjectionDraft = {
   sourceProjectionId?: string;
@@ -363,6 +382,26 @@ function applyProjectionNodesToDraft(draft: ProjectionDraft, nodes: ProjectionNo
   return next;
 }
 
+function imageMeta(metadata: Record<string, unknown> | undefined, key: string) {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function fallbackWorldImage(worldId: string | undefined, kind: "gate" | "scene") {
+  if (worldId === "world.honghuang") return `/souls/generated/world-honghuang-${kind}.png`;
+  return `/souls/generated/world-default-${kind}.png`;
+}
+
+function shortDateTime(value: number) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value * 1000));
+}
+
 export function PlaygroundView() {
   const { activeSoulKey, switchSoul } = useAppStore();
   const [catalog, setCatalog] = useState<SoulSystemCatalog | null>(null);
@@ -382,6 +421,10 @@ export function PlaygroundView() {
   const [projectionNodeMap, setProjectionNodeMap] = useState<Record<string, ProjectionNode[]>>({});
   const [selectedProjectionId, setSelectedProjectionId] = useState("");
   const [projectionPanelPage, setProjectionPanelPage] = useState<ProjectionPanelPage>("catalog");
+  const [portalView, setPortalView] = useState<SoulPortalView>("home");
+  const [transitionWorldId, setTransitionWorldId] = useState("");
+  const [workLog, setWorkLog] = useState<SoulWorkLogView | null>(null);
+  const [workLogLoading, setWorkLogLoading] = useState(false);
   const [selectedManagedSectionId, setSelectedManagedSectionId] = useState("section-0");
   const [newRuleTitle, setNewRuleTitle] = useState("");
   const [loading, setLoading] = useState(true);
@@ -492,6 +535,24 @@ export function PlaygroundView() {
     ? allProjectionCards.filter((card) => card.soul_id === selectedSeed.key || card.soul_name === selectedSeed.name)
     : [];
   const selectedProjectionCard = allProjectionCards.find((card) => card.projection_id === selectedProjectionId) ?? null;
+  const selectedManifestation = selectedSeed
+    ? resourceCatalog?.manifestations.find((item) => String(item.soul_id || "") === selectedSeed.key) ?? null
+    : null;
+  const selectedStory = selectedSeed
+    ? storiesForWorld.find((story) => story.soul_id === selectedSeed.key)
+      ?? resourceCatalog?.stories.find((story) => story.soul_id === selectedSeed.key)
+      ?? null
+    : null;
+  const selectedSoulCard = selectedSeed
+    ? soulCardsForWorld.find((card) => card.soul_id === selectedSeed.key)
+      ?? resourceCatalog?.cards.find((card) => card.soul_id === selectedSeed.key)
+      ?? null
+    : null;
+  const worldGateImage = imageMeta(selectedWorld?.metadata, "gate_image") || fallbackWorldImage(selectedWorld?.world_id, "gate");
+  const worldSceneImage = imageMeta(selectedWorld?.metadata, "scene_image") || fallbackWorldImage(selectedWorld?.world_id, "scene");
+  const soulBackgroundImage = imageMeta(selectedManifestation?.metadata, "background_ref")
+    || (selectedSeed ? `/souls/backgrounds/${selectedSeed.key}-bg.png` : worldSceneImage);
+  const activeBackdropImage = selectedSeed ? soulBackgroundImage : worldSceneImage;
 
   useEffect(() => {
     if (!activeSoulKey || !catalogRef.current) return;
@@ -518,6 +579,29 @@ export function PlaygroundView() {
     };
   }, [activeSoulKey]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWorkLog() {
+      if (!selectedSeed) {
+        setWorkLog(null);
+        return;
+      }
+      setWorkLogLoading(true);
+      try {
+        const payload = await getSoulWorkLog(selectedSeed.key, 5);
+        if (!cancelled) setWorkLog(payload);
+      } catch {
+        if (!cancelled) setWorkLog(null);
+      } finally {
+        if (!cancelled) setWorkLogLoading(false);
+      }
+    }
+    void loadWorkLog();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSeed]);
+
   function chooseFile(file: SoulSystemFile | SoulSystemSeed) {
     if (isEditing && hasUnsavedChanges && file.path !== selectedPath && !window.confirm("当前内容还没有保存，要放弃这些修改并切换吗？")) {
       return false;
@@ -537,6 +621,26 @@ export function PlaygroundView() {
       return;
     }
     chooseFile(seed);
+  }
+
+  function openWorld(worldId: string) {
+    if (isEditing && hasUnsavedChanges && !window.confirm("当前内容还没有保存，要放弃这些修改并进入世界吗？")) {
+      return;
+    }
+    setTransitionWorldId(worldId);
+    setPortalView("transition");
+    window.setTimeout(() => {
+      selectWorld(worldId);
+      setPortalView("world");
+      setTransitionWorldId("");
+    }, 950);
+  }
+
+  function backToHome() {
+    setPortalView("home");
+    setTransitionWorldId("");
+    setNotice("");
+    setError("");
   }
 
   function selectWorld(worldId: string) {
@@ -1015,6 +1119,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
     : selectedWorld?.content || selectedWorld?.summary || "这个世界观不注入额外故事背景，适合纯工作 prompt 和低角色感任务。";
   const selectedSeedLabel = selectedSeed?.name ?? catalog?.active_soul_name ?? "未选择灵魂";
   const selectedLayerLabel = mode === "core" ? "共同契约" : mode === "projection" ? "工作投影" : "灵魂本体";
+  const transitionWorld = worlds.find((world) => world.world_id === transitionWorldId) ?? selectedWorld;
 
   function renderSoulRoster() {
     if (!seedsForWorld.length) {
@@ -1410,10 +1515,10 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
     );
   }
 
-  return (
-    <div className={`workspace-view soul-studio ${isHonghuangWorld ? "soul-studio--honghuang" : "soul-studio--plain"}`}>
-      <div className="soul-studio__ambient" aria-hidden="true" />
-      <div className="soul-studio__alerts">
+  function renderAlerts() {
+    if (!loading && !error && !notice) return null;
+    return (
+      <div className="soul-portal__alerts">
         {loading ? (
           <div className="soul-notice">
             <Loader2 size={16} className="spin" />
@@ -1423,160 +1528,288 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
         {error ? <div className="soul-notice soul-notice--danger">{error}</div> : null}
         {notice ? <div className="soul-notice">{notice}</div> : null}
       </div>
+    );
+  }
 
-      <section className="soul-studio__worldfield" aria-label="世界观选择">
-        <div className="soul-worldfield__intro">
-          <span>Soul Studio</span>
-          <h2>世界观先打开，灵魂再降临</h2>
-          <p>第一层决定故事背景，第二层决定灵魂本体，第三层才进入实际工作 prompt。纯工作场不会注入额外身份。</p>
-        </div>
-        <div className="soul-worldfield__path">
-          {worlds.map((world, index) => {
-            const active = selectedWorld?.world_id === world.world_id;
-            const worldCards = resourceCatalog?.cards.filter((card) => card.world_id === world.world_id) ?? [];
-            const honghuang = String(world.metadata?.theme ?? "") === "honghuang";
-            return (
-              <button
-                aria-pressed={active}
-                className={`soul-world-node ${active ? "soul-world-node--active" : ""} ${honghuang ? "soul-world-node--honghuang" : ""}`}
-                key={world.world_id}
-                onClick={() => selectWorld(world.world_id)}
-                type="button"
-              >
-                <span>{String(index + 1).padStart(2, "0")}</span>
-                <strong>{world.title}</strong>
-                <em>{world.summary || "无额外世界观注入"}</em>
-                <small>{worldCards.length ? `${worldCards.length} 个灵魂` : "纯工作场"}</small>
-              </button>
-            );
-          })}
-          {!worlds.length ? (
-            <div className="soul-empty-state">
-              <strong>世界观库为空</strong>
-              <p>灵魂系统需要先加载世界观目录。</p>
-            </div>
-          ) : null}
-        </div>
-      </section>
+  function renderHome() {
+    return (
+      <div className="soul-portal__home">
+        <section className="soul-home-threshold">
+          <div className="soul-home-threshold__copy">
+            <span className="soul-kicker">Soul System</span>
+            <h1>穿过世界门扉</h1>
+            <p>先选择世界，再遇见灵魂。每一次进入，都会换一片背景、一种气息，以及一个即将降临的工作投影。</p>
+          </div>
 
-      <section className="soul-studio__stage" aria-label="当前世界与灵魂舞台">
-        <div className="soul-stage__script">
-          <span>{selectedWorld?.title ?? "未选择世界观"}</span>
-          <h2>{isHonghuangWorld ? selectedSeedLabel : "纯工作模式"}</h2>
-          <strong>{stageTitle}</strong>
-          <p>{stageSummary}</p>
-          {isHonghuangWorld ? (
-            <blockquote>{SHARED_SOUL_LORE}</blockquote>
-          ) : (
-            <div className="soul-stage__plain-note">
-              <Layers3 size={18} />
-              不加载故事背景与灵魂身份，只保留工作 prompt、共同契约和必要上下文。
+          <div className="soul-home-threshold__status" aria-label="当前灵魂状态">
+            <span>当前背景</span>
+            <strong>{selectedWorld?.title ?? "未选择世界"}</strong>
+            <small>{selectedSeed?.name ? `${selectedSeed.name} / ${selectedLayerLabel}` : "纯工作场"}</small>
+          </div>
+
+          <section className="soul-world-gates" aria-label="世界观选择">
+            <div className="soul-world-gates__current" aria-hidden="true">
+              <span />
+              <span />
             </div>
-          )}
-          <div className="soul-stage__signals" aria-label="当前层级">
-            <span><small>世界层</small><b>{selectedWorld?.title ?? "未选择"}</b></span>
-            <span><small>灵魂层</small><b>{selectedSeed?.name ?? "无绑定"}</b></span>
-            <span><small>工作层</small><b>{selectedLayerLabel}</b></span>
-          </div>
-        </div>
-        <div className="soul-stage__visual">
-          <div className="soul-stage__aurora" aria-hidden="true" />
-          <div className="soul-stage__portrait">
-            {isHonghuangWorld && portraitSrc ? (
-              <Image
-                alt={`${selectedSeed?.name ?? "灵魂"}立绘`}
-                height={1448}
-                priority
-                src={portraitSrc}
-                unoptimized
-                width={1086}
-              />
-            ) : (
-              <div className="soul-stage__empty-visual">
-                <Layers3 size={32} />
-                <strong>{selectedWorld?.title ?? "世界观"}</strong>
-                <span>无背景，无灵魂，专注工作。</span>
-              </div>
-            )}
-          </div>
-          <div className="soul-stage__caption">
-            <span>{selectedSeed ? visibilityLabel(selectedSeed) : "工作场"}</span>
-            <strong>{selectedSeed?.name ?? "无绑定灵魂"}</strong>
-            {isHonghuangWorld ? (
-              <>
+            <div className="soul-world-gates__tunnel" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+            {worlds.map((world, index) => {
+              const worldCards = resourceCatalog?.cards.filter((card) => card.world_id === world.world_id) ?? [];
+              const gateImage = imageMeta(world.metadata, "gate_image") || fallbackWorldImage(world.world_id, "gate");
+              const theme = String(world.metadata?.theme ?? "plain");
+              return (
                 <button
-                  className="soul-action soul-action--primary"
-                  disabled={!selectedSeed || uploadingPortrait === selectedSeed?.key}
-                  onClick={() => portraitInputRef.current?.click()}
+                  className={`soul-world-gate soul-world-gate--${theme}`}
+                  key={world.world_id}
+                  onClick={() => openWorld(world.world_id)}
+                  style={{
+                    "--gate-image": `url("${gateImage}")`,
+                    "--gate-shift": `${(index - 0.5) * 0.9}rem`,
+                    "--gate-tilt": `${(index - 0.5) * -5}deg`,
+                  } as React.CSSProperties}
                   type="button"
                 >
-                  <ImageUp size={16} />
-                  {uploadingPortrait === selectedSeed?.key ? "上传中" : "替换立绘"}
+                  <span className="soul-world-gate__image" aria-hidden="true" />
+                  <span className="soul-world-gate__rim" aria-hidden="true" />
+                  <span className="soul-world-gate__copy">
+                    <em>{String(index + 1).padStart(2, "0")}</em>
+                    <strong>{world.title}</strong>
+                    <small>{worldCards.length ? `${worldCards.length} 个灵魂可召唤` : "纯工作模式"}</small>
+                  </span>
                 </button>
-                <input
-                  accept="image/png"
-                  hidden
-                  onChange={(event) => void handlePortraitUpload(event.target.files?.[0] ?? null)}
-                  ref={portraitInputRef}
-                  type="file"
-                />
-              </>
+              );
+            })}
+          </section>
+        </section>
+      </div>
+    );
+  }
+
+  function renderTransition() {
+    const transitionGateImage = imageMeta(transitionWorld?.metadata, "gate_image")
+      || fallbackWorldImage(transitionWorld?.world_id, "gate");
+    return (
+      <section
+        className="soul-transition"
+        aria-label="穿越时空"
+        style={{ "--transition-gate": `url("${transitionGateImage}")` } as React.CSSProperties}
+      >
+        <div className="soul-transition__tunnel" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="soul-transition__rift" aria-hidden="true" />
+        <div className="soul-transition__copy">
+          <span>Entering World</span>
+          <strong>{transitionWorld?.title ?? "世界"}</strong>
+          <p>正在穿越世界边界...</p>
+        </div>
+      </section>
+    );
+  }
+
+  function renderWorldScene() {
+    return (
+      <div className="soul-world-scene">
+        <section className="soul-world-scene__intro">
+          <div className="soul-world-scene__veil" aria-hidden="true" />
+          <button className="soul-world-scene__back" onClick={backToHome} type="button">
+            <ArrowLeft size={16} />
+            返回世界门扉
+          </button>
+          <div className="soul-world-scene__copy">
+            <span>{selectedWorld?.title ?? "未选择世界"}</span>
+            <h2>{selectedWorld?.title ?? "世界页面"}</h2>
+            <p>{selectedWorld?.content || selectedWorld?.summary || "这个世界还没有写入背景介绍。"}</p>
+            {isHonghuangWorld ? <blockquote>{SHARED_SOUL_LORE}</blockquote> : null}
+          </div>
+        </section>
+
+        <section className="soul-world-scene__summon" aria-label="灵魂选择">
+          <div className="soul-summon-heading">
+            <span>Summon</span>
+            <strong>选择即将降临的灵魂</strong>
+          </div>
+          <div className="soul-summon-line">
+            {seedsForWorld.map((seed) => {
+              const active = selectedSeed?.key === seed.key;
+              const manifestation = resourceCatalog?.manifestations.find((item) => String(item.soul_id || "") === seed.key);
+              const seedPortrait = String(manifestation?.portrait_ref || seed.portrait_path || `/souls/${seed.key}.png`);
+              return (
+                <button
+                  className={`soul-summon ${active ? "soul-summon--active" : ""}`}
+                  key={seed.key}
+                  onClick={() => chooseSoul(seed)}
+                  type="button"
+                >
+                  <span className="soul-summon__flame" aria-hidden="true">
+                    <i />
+                  </span>
+                  <span className="soul-summon__portrait">
+                    <Image alt={`${seed.name}灵魂立绘`} height={320} src={seedPortrait} unoptimized width={240} />
+                  </span>
+                  <span className="soul-summon__name">
+                    <strong>{seed.name}</strong>
+                    <small>{seed.profile?.description || "灵魂本体"}</small>
+                  </span>
+                </button>
+              );
+            })}
+            {!seedsForWorld.length ? (
+              <div className="soul-empty-state">
+                <strong>这个世界没有绑定灵魂</strong>
+                <p>当前适合作为纯工作场，只使用工作 prompt 和共同契约。</p>
+              </div>
             ) : null}
           </div>
-        </div>
-      </section>
+        </section>
 
-      <section className="soul-studio__workbench" aria-label="灵魂工作层">
-        <div className="soul-workbench__header">
-          <div>
-            <span>Work Projection</span>
-            <h3>{activeMode.label}</h3>
-            <p>{activeMode.description}</p>
+        <section className="soul-presence" aria-label="灵魂详情">
+          <div className="soul-presence__body">
+            <div className="soul-presence__copy">
+              <span>{selectedWorld?.title ?? "World"}</span>
+              <h2>{selectedSeed ? selectedSeed.name : "纯工作模式"}</h2>
+              <strong>{selectedSeed ? selectedLore?.title ?? selectedSoulCard?.description ?? "灵魂本体" : "无背景，无灵魂"}</strong>
+              <p>
+                {selectedSeed
+                  ? selectedLore?.summary ?? selectedStory?.content ?? selectedSeed.profile?.background ?? "这个灵魂还没有写入背景故事。"
+                  : selectedWorld?.summary ?? "不注入故事背景，只保留任务、上下文与共同契约。"}
+              </p>
+              <div className="soul-presence__actions">
+                {selectedSeed ? (
+                  <>
+                    <button
+                      className="soul-action soul-action--primary"
+                      disabled={saving === selectedSeed.path || selectedSeed.active || activeSoulKey === selectedSeed.key}
+                      onClick={() => void activateSeed(selectedSeed)}
+                      type="button"
+                    >
+                      <Send size={16} />
+                      {selectedSeed.active || activeSoulKey === selectedSeed.key ? "已激活" : "设为当前灵魂"}
+                    </button>
+                    <button
+                      className="soul-action soul-action--ghost"
+                      disabled={uploadingPortrait === selectedSeed.key}
+                      onClick={() => portraitInputRef.current?.click()}
+                      type="button"
+                    >
+                      <ImageUp size={16} />
+                      {uploadingPortrait === selectedSeed.key ? "上传中" : "替换立绘"}
+                    </button>
+                    <input
+                      accept="image/png"
+                      hidden
+                      onChange={(event) => void handlePortraitUpload(event.target.files?.[0] ?? null)}
+                      ref={portraitInputRef}
+                      type="file"
+                    />
+                  </>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="soul-presence__figure">
+              {selectedSeed && portraitSrc ? (
+                <Image alt={`${selectedSeed.name}立绘`} height={1448} priority src={portraitSrc} unoptimized width={1086} />
+              ) : (
+                <div className="soul-presence__plain">
+                  <Layers3 size={34} />
+                  <strong>纯工作场</strong>
+                  <span>只保留工作 prompt。</span>
+                </div>
+              )}
+            </div>
           </div>
-          <nav className="soul-mode-ribbon" aria-label="灵魂系统模式">
-            {SOUL_MODES.map((item) => (
-              <button
-                className={`soul-mode-choice ${mode === item.id ? "soul-mode-choice--active" : ""}`}
-                key={item.id}
-                onClick={() => handleModeSwitch(item.id)}
-                type="button"
-              >
-                <span>{item.label}</span>
-              </button>
-            ))}
-          </nav>
-        </div>
 
-        <div className="soul-workbench__body">
-          <aside className="soul-workbench__rail" aria-label="当前层级目录">
-            <div className="soul-rail-head">
-              <Sparkles size={18} />
-              <div>
-                <span>{mode === "core" ? "Shared Contract" : mode === "projection" ? "Soul Projection" : "Soul Body"}</span>
-                <strong>{mode === "core" ? "共同契约目录" : mode === "projection" ? "选择投影所属灵魂" : "选择灵魂本体"}</strong>
-              </div>
+          <div className="soul-presence__log">
+            <div>
+              <Clock3 size={16} />
+              <strong>最近工作日志</strong>
             </div>
-            {mode === "core" ? renderCoreIndex() : renderSoulRoster()}
-          </aside>
+            {workLogLoading ? <span>读取中...</span> : null}
+            {!workLogLoading && workLog?.events?.length ? (
+              workLog.events.slice(0, 3).map((event) => (
+                <span key={event.event_id}>
+                  <b>{event.title || event.task_id || "未命名任务"}</b>
+                  <small>{event.status || "unknown"} {shortDateTime(event.last_activity_at)}</small>
+                </span>
+              ))
+            ) : null}
+            {!workLogLoading && !workLog?.events?.length ? <span>暂无近期记录</span> : null}
+          </div>
+        </section>
 
-          <main className="soul-workbench__editor" aria-label="当前编辑区">
-            <div className="soul-editor-head">
-              <div className="soul-editor-head__icon">
-                {mode === "projection" ? <Boxes size={19} /> : <FilePenLine size={19} />}
-              </div>
-              <div>
-                <span>{mode === "projection" ? "投影管理" : isEditing ? "正在编辑" : "设定阅读"}</span>
-                <strong>
-                  {mode === "projection"
-                    ? `${selectedSeed?.name ?? "当前灵魂"}的工作投影`
-                    : displayFileLabel(selectedFile)}
-                </strong>
-              </div>
+        <section className="soul-work-layer" aria-label="灵魂内部工作层">
+          <div className="soul-work-layer__header">
+            <div>
+              <span>Inside Soul</span>
+              <h3>{activeMode.label}</h3>
+              <p>{activeMode.description}</p>
             </div>
-            {mode === "projection" ? renderProjectionSurface() : renderManagedSurface()}
-          </main>
-        </div>
-      </section>
+            <nav className="soul-mode-ribbon" aria-label="灵魂系统模式">
+              {SOUL_MODES.map((item) => (
+                <button
+                  className={`soul-mode-choice ${mode === item.id ? "soul-mode-choice--active" : ""}`}
+                  key={item.id}
+                  onClick={() => handleModeSwitch(item.id)}
+                  type="button"
+                >
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          <div className="soul-work-layer__body">
+            <aside className="soul-work-layer__index" aria-label="当前目录">
+              <div className="soul-rail-head">
+                <Sparkles size={18} />
+                <div>
+                  <span>{mode === "core" ? "Shared Contract" : mode === "projection" ? "Projection" : "Soul Body"}</span>
+                  <strong>{mode === "core" ? "共同契约" : mode === "projection" ? "工作投影" : "背景与本体"}</strong>
+                </div>
+              </div>
+              {mode === "core" ? renderCoreIndex() : renderSoulRoster()}
+            </aside>
+
+            <main className="soul-work-layer__editor" aria-label="当前编辑区">
+              <div className="soul-editor-head">
+                <div className="soul-editor-head__icon">
+                  {mode === "projection" ? <Boxes size={19} /> : <FilePenLine size={19} />}
+                </div>
+                <div>
+                  <span>{mode === "projection" ? "投影管理" : isEditing ? "正在编辑" : "设定阅读"}</span>
+                  <strong>
+                    {mode === "projection"
+                      ? `${selectedSeed?.name ?? "当前灵魂"}的工作投影`
+                      : displayFileLabel(selectedFile)}
+                  </strong>
+                </div>
+              </div>
+              {mode === "projection" ? renderProjectionSurface() : renderManagedSurface()}
+            </main>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`workspace-view soul-studio soul-portal ${isHonghuangWorld ? "soul-studio--honghuang" : "soul-studio--plain"} soul-portal--${portalView}`}
+      style={{ "--soul-backdrop": `url("${activeBackdropImage}")`, "--world-scene": `url("${worldSceneImage}")`, "--world-gate": `url("${worldGateImage}")` } as React.CSSProperties}
+    >
+      <div className="soul-portal__backdrop" aria-hidden="true" />
+      {renderAlerts()}
+      {portalView === "home" ? renderHome() : null}
+      {portalView === "transition" ? renderTransition() : null}
+      {portalView === "world" ? renderWorldScene() : null}
     </div>
   );
 }

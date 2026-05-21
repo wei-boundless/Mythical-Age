@@ -74,7 +74,7 @@ def test_scheduler_bootstrap_marks_downstream_ready_after_upstream_completed() -
     review = next(item for item in state.node_states if item.node_id == "review")
     assert draft.status == "ready"
     assert "upstream:draft" in review.blocked_reasons
-    assert "sequence_wait:2" in review.blocked_reasons
+    assert not any(reason.startswith("sequence_wait") for reason in review.blocked_reasons)
     edge = next(item for item in state.edge_states if item.edge_id == "plan_draft")
     assert edge.status == "ack_waiting"
 
@@ -302,7 +302,7 @@ def test_scheduler_supports_wait_any_shadow_readiness() -> None:
     assert "merge" in state.ready_node_ids
 
 
-def test_scheduler_shadow_blocks_later_phase_until_current_phase_completes() -> None:
+def test_scheduler_does_not_serialize_independent_nodes_by_phase_coordinate() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.phase_gate",
         domain_id="domain.test",
@@ -318,14 +318,16 @@ def test_scheduler_shadow_blocks_later_phase_until_current_phase_completes() -> 
 
     state = bootstrap_scheduler_state(runtime_spec=spec)
 
-    assert state.ready_node_ids == ("plan",)
+    assert state.ready_node_ids == ("plan", "draft")
     draft = next(item for item in state.node_states if item.node_id == "draft")
-    assert draft.status == "blocked"
-    assert draft.blocked_reasons == ("phase_not_active:phase.write",)
-    assert state.diagnostics["active_phase_ids"] == ["phase.plan"]
+    assert draft.status == "ready"
+    assert draft.blocked_reasons == ()
+    assert state.diagnostics["legacy_timing_gate_enabled"] is False
+    assert state.diagnostics["scheduling_authority"] == "explicit_dependency_ready_set"
+    assert state.diagnostics["active_phase_ids"] == ["phase.plan", "phase.write"]
 
 
-def test_scheduler_shadow_allows_same_sequence_parallel_group() -> None:
+def test_scheduler_does_not_use_sequence_coordinate_as_merge_gate() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.sequence_group",
         domain_id="domain.test",
@@ -345,8 +347,43 @@ def test_scheduler_shadow_allows_same_sequence_parallel_group() -> None:
     assert state.ready_node_ids == ("a", "b")
     merge = next(item for item in state.node_states if item.node_id == "merge")
     assert merge.status == "blocked"
-    assert merge.blocked_reasons == ("sequence_wait:1",)
+    assert merge.blocked_reasons == ()
     assert state.diagnostics["active_sequence_by_phase"] == {"phase.work": 1}
+
+
+def test_scheduler_join_waits_for_explicit_upstream_edges_not_sequence_coordinate() -> None:
+    spec = TaskGraphRuntimeSpec(
+        graph_id="graph.test.explicit_join",
+        domain_id="domain.test",
+        task_family="test",
+        coordinator_agent_id="agent:0",
+        nodes=(
+            TaskGraphRuntimeNode(node_id="a", title="A", node_type="agent", role="worker", phase_id="phase.work", sequence_index=1),
+            TaskGraphRuntimeNode(node_id="b", title="B", node_type="agent", role="worker", phase_id="phase.work", sequence_index=1),
+            TaskGraphRuntimeNode(node_id="merge", title="Merge", node_type="barrier", role="coordinator", phase_id="phase.work", sequence_index=2),
+        ),
+        edges=(
+            TaskGraphRuntimeEdge(edge_id="a_merge", source_node_id="a", target_node_id="merge", mode="handoff"),
+            TaskGraphRuntimeEdge(edge_id="b_merge", source_node_id="b", target_node_id="merge", mode="handoff"),
+        ),
+        start_node_ids=("a", "b"),
+        terminal_node_ids=("merge",),
+    )
+
+    blocked = bootstrap_scheduler_state(runtime_spec=spec)
+    merge = next(item for item in blocked.node_states if item.node_id == "merge")
+
+    assert blocked.ready_node_ids == ("a", "b")
+    assert "merge" in blocked.blocked_node_ids
+    assert merge.blocked_reasons == ("upstream:a", "upstream:b")
+    assert not any(reason.startswith("sequence_wait") for reason in merge.blocked_reasons)
+
+    released = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={"a": "completed", "b": "completed", "merge": "pending"},
+    )
+
+    assert released.ready_node_ids == ("merge",)
 
 
 def test_scheduler_allows_partial_join_after_upstreams_reach_terminal_state() -> None:

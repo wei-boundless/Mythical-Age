@@ -9,9 +9,60 @@ if str(BACKEND_DIR) not in sys.path:
 
 from capability_system import build_default_operation_registry
 from orchestration import OperationGate, ResourcePolicy
+from runtime.shared.action_request import build_tool_result_observation
+from runtime.shared.execution_record import OperationExecutionRecord, build_execution_receipt
+from runtime.shared.models import RuntimeLoopState, TaskRun
 from runtime.unit_runtime.loop import TaskRunLoop
 from capability_system.tool_authorization import build_authorized_tool_set, build_tool_authorization_index, resolve_tool_operation_id
 from capability_system.tool_definitions import build_tool_instances, get_tool_definitions
+
+
+class _ApprovalToolExecutorStub:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def run(
+        self,
+        *,
+        task_run_id,
+        action_request,
+        directive,
+        execution_record,
+        execution_store=None,
+        max_result_size_chars=0,
+        sandbox_policy=None,
+    ):
+        self.calls.append(
+            {
+                "task_run_id": task_run_id,
+                "operation_id": execution_record.operation_id,
+                "directive_ref": directive.directive_id,
+                "request_ref": action_request.request_id,
+                "tool_name": action_request.payload.get("tool_name"),
+                "sandbox_policy": dict(sandbox_policy or {}),
+            }
+        )
+        final_record = execution_record
+        if execution_store is not None and isinstance(execution_record, OperationExecutionRecord):
+            dispatched = execution_store.mark_dispatched(execution_record, diagnostics={"test": "approval_resume"})
+            final_record = execution_store.mark_completed(
+                dispatched,
+                result_ref=f"execution-result:{dispatched.execution_id}",
+                result_payload={"result": "approved write executed"},
+            )
+        receipt = build_execution_receipt(final_record).to_dict()
+        observation = build_tool_result_observation(
+            task_run_id=task_run_id,
+            request_ref=action_request.request_id,
+            directive_ref=directive.directive_id,
+            tool_name=str(action_request.payload.get("tool_name") or ""),
+            tool_call_id=str(dict(action_request.payload.get("tool_call") or {}).get("id") or action_request.request_id),
+            tool_args=dict(dict(action_request.payload.get("tool_call") or {}).get("args") or {}),
+            result="approved write executed",
+            execution_receipt=receipt,
+            result_ref=receipt.get("result_ref", ""),
+        )
+        return {"observation": observation, "execution_record": final_record, "error": ""}
 
 
 def test_all_builtin_tools_have_explicit_operation_id() -> None:
@@ -137,3 +188,187 @@ def test_requires_approval_schema_visible_tool_still_needs_gate_approval_token()
     assert result.allowed is False
     assert result.requires_approval is True
     assert result.decision == "requires_approval"
+
+
+def test_task_run_loop_records_waiting_approval_checkpoint(tmp_path: Path) -> None:
+    loop = TaskRunLoop(tmp_path / "runtime-approval")
+    task_run = TaskRun(
+        task_run_id="taskrun:approval-wait",
+        session_id="session-approval",
+        task_id="task-approval",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    loop.state_index.upsert_task_run(task_run)
+
+    state, approval_event, checkpoint_event, _ = loop._enter_waiting_approval(
+        task_run_id=task_run.task_run_id,
+        approval_state={
+            "status": "pending",
+            "task_run_id": task_run.task_run_id,
+            "operation_id": "op.write_file",
+            "directive_ref": "runtime-directive:approval:write",
+            "action_request_ref": "rtact:approval:write",
+            "tool_name": "write_file",
+            "tool_args": {"path": "docs/a.md", "content": "hello"},
+        },
+        current_state=RuntimeLoopState(task_run_id=task_run.task_run_id, status="running"),
+        current_task_run=task_run,
+    )
+    stored = loop.state_index.get_task_run(task_run.task_run_id)
+    checkpoint = loop.checkpoints.load_latest(task_run.task_run_id)
+
+    assert state.status == "waiting_approval"
+    assert state.terminal_reason == "waiting_approval"
+    assert approval_event.event_type == "approval_waiting"
+    assert checkpoint_event.event_type == "checkpoint_written"
+    assert stored is not None
+    assert stored.status == "waiting_approval"
+    assert stored.terminal_reason == "waiting_approval"
+    assert checkpoint is not None
+    assert checkpoint.loop_state.pending_approval_state["operation_id"] == "op.write_file"
+
+
+def test_task_run_loop_rejects_pending_approval_without_executing_tool(tmp_path: Path) -> None:
+    loop = TaskRunLoop(tmp_path / "runtime-approval-reject")
+    task_run = TaskRun(
+        task_run_id="taskrun:approval-reject",
+        session_id="session-approval",
+        task_id="task-approval",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    loop.state_index.upsert_task_run(task_run)
+    loop._enter_waiting_approval(
+        task_run_id=task_run.task_run_id,
+        approval_state={
+            "status": "pending",
+            "task_run_id": task_run.task_run_id,
+            "operation_id": "op.write_file",
+            "directive_ref": "runtime-directive:approval:write",
+            "action_request_ref": "rtact:approval:write",
+            "tool_name": "write_file",
+            "tool_call_id": "call-write",
+            "tool_args": {"path": "docs/a.md", "content": "hello"},
+            "directive": {
+                "directive_id": "runtime-directive:approval:write",
+                "task_id": "task-approval",
+                "plan_ref": "orchplan:approval",
+                "stage_ref": "orchstage:approval",
+                "executor_type": "tool",
+                "adopted_resource_policy_ref": "respol:approval",
+                "operation_refs": ["op.write_file"],
+            },
+            "resource_policy": {
+                "policy_id": "respol:approval",
+                "task_id": "task-approval",
+                "requires_approval_operations": ["op.write_file"],
+                "adopted": True,
+                "runtime_executable": True,
+            },
+        },
+        current_state=RuntimeLoopState(task_run_id=task_run.task_run_id, status="running"),
+        current_task_run=task_run,
+    )
+
+    import asyncio
+
+    result = asyncio.run(
+        loop.resolve_pending_approval(
+            task_run.task_run_id,
+            decision="reject",
+            message="not this turn",
+        )
+    )
+    stored = loop.state_index.get_task_run(task_run.task_run_id)
+    checkpoint = loop.checkpoints.load_latest(task_run.task_run_id)
+
+    assert result["decision"] == "rejected"
+    assert result["resume_result"]["executed"] is False
+    assert stored is not None
+    assert stored.status == "blocked"
+    assert checkpoint is not None
+    assert checkpoint.loop_state.pending_approval_state["status"] == "rejected"
+    assert loop.execution_store.list_task_run_records(task_run.task_run_id) == []
+
+
+def test_task_run_loop_approves_pending_approval_with_bound_token_and_gate(tmp_path: Path) -> None:
+    loop = TaskRunLoop(tmp_path / "runtime-approval-approve")
+    task_run = TaskRun(
+        task_run_id="taskrun:approval-approve",
+        session_id="session-approval",
+        task_id="task-approval",
+        status="running",
+        created_at=1.0,
+        updated_at=1.0,
+    )
+    loop.state_index.upsert_task_run(task_run)
+    loop._enter_waiting_approval(
+        task_run_id=task_run.task_run_id,
+        approval_state={
+            "status": "pending",
+            "task_run_id": task_run.task_run_id,
+            "operation_id": "op.write_file",
+            "directive_ref": "runtime-directive:approval:write",
+            "action_request_ref": "rtact:approval:write",
+            "tool_name": "write_file",
+            "tool_call_id": "call-write",
+            "tool_args": {"path": "docs/a.md", "content": "hello"},
+            "directive": {
+                "directive_id": "runtime-directive:approval:write",
+                "task_id": "task-approval",
+                "plan_ref": "orchplan:approval",
+                "stage_ref": "orchstage:approval",
+                "executor_type": "tool",
+                "adopted_resource_policy_ref": "respol:approval",
+                "operation_refs": ["op.write_file"],
+            },
+            "resource_policy": {
+                "policy_id": "respol:approval",
+                "task_id": "task-approval",
+                "requires_approval_operations": ["op.write_file"],
+                "adopted": True,
+                "runtime_executable": True,
+            },
+        },
+        current_state=RuntimeLoopState(task_run_id=task_run.task_run_id, status="running"),
+        current_task_run=task_run,
+    )
+
+    import asyncio
+
+    executor = _ApprovalToolExecutorStub()
+    result = asyncio.run(
+        loop.resolve_pending_approval(
+            task_run.task_run_id,
+            decision="approve",
+            message="ok",
+            tool_runtime_executor=executor,
+        )
+    )
+    stored = loop.state_index.get_task_run(task_run.task_run_id)
+    checkpoint = loop.checkpoints.load_latest(task_run.task_run_id)
+    gate = result["resume_result"]["gate"]
+
+    assert result["decision"] == "approved"
+    assert result["resume_result"]["executed"] is True
+    assert executor.calls == [
+        {
+            "task_run_id": task_run.task_run_id,
+            "operation_id": "op.write_file",
+            "directive_ref": "runtime-directive:approval:write",
+            "request_ref": "rtact:approval:write",
+            "tool_name": "write_file",
+            "sandbox_policy": {},
+        }
+    ]
+    assert gate["decision"] == "allow"
+    assert stored is not None
+    assert stored.status == "completed"
+    assert checkpoint is not None
+    assert checkpoint.loop_state.pending_approval_state["status"] == "approved"
+    token = checkpoint.loop_state.pending_approval_state["approval_token"]
+    assert token["operation_id"] == "op.write_file"
+    assert token["directive_ref"] == "runtime-directive:approval:write"

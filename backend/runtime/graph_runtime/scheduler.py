@@ -49,18 +49,6 @@ def bootstrap_scheduler_state(
     running = {node_id for node_id, status in statuses.items() if status in ACTIVE_STATUSES}
     waiting = {node_id for node_id, status in statuses.items() if status in WAITING_STATUSES}
     start_node_ids = set(runtime_spec.start_node_ids or ())
-    phase_order = _phase_order(execution_nodes)
-    active_phase_ids = _active_phase_ids(
-        nodes=execution_nodes,
-        statuses=statuses,
-        phase_order=phase_order,
-        optional_node_ids=optional_node_ids,
-    )
-    active_sequence_by_phase = _active_sequence_by_phase(
-        nodes=execution_nodes,
-        statuses=statuses,
-        active_phase_ids=active_phase_ids,
-    )
 
     node_states: list[TaskGraphNodeRunState] = []
     ready_node_ids: list[str] = []
@@ -74,11 +62,6 @@ def bootstrap_scheduler_state(
         blocked_reasons: list[str] = []
         if status in {"pending", "ready"}:
             required_sources = tuple(incoming.get(node.node_id, ()))
-            timing_allowed, timing_reasons = _node_timing_allowed(
-                node=node,
-                active_phase_ids=active_phase_ids,
-                active_sequence_by_phase=active_sequence_by_phase,
-            )
             ready = _node_ready(
                 node=node,
                 current_status=status,
@@ -92,7 +75,7 @@ def bootstrap_scheduler_state(
                 accepted_result_records_by_scope=accepted_by_scope,
                 edge_handoff_index=handoff_index,
                 active_scope_key=active_scope_key,
-            ) and timing_allowed
+            )
             if ready:
                 status = "ready"
                 ready_node_ids.append(node.node_id)
@@ -118,7 +101,6 @@ def bootstrap_scheduler_state(
                         active_scope_key=active_scope_key,
                     )
                 )
-                blocked_reasons.extend(timing_reasons)
                 if node.wait_policy not in {
                     "wait_all_upstream_completed",
                     "wait_required_contracts",
@@ -181,6 +163,11 @@ def bootstrap_scheduler_state(
         for edge in runtime_spec.edges
     ]
     phase_states = _phase_states(execution_nodes, node_states)
+    active_phase_ids = _observed_active_phase_ids(nodes=execution_nodes, node_states=node_states)
+    active_sequence_by_phase = _observed_active_sequence_by_phase(
+        node_states=node_states,
+        active_phase_ids=set(active_phase_ids),
+    )
     resolved_terminal = terminal_status or _terminal_status(
         runtime_spec=runtime_spec,
         completed=set(completed_node_ids),
@@ -213,8 +200,13 @@ def bootstrap_scheduler_state(
             "temporal_edge_count": len(runtime_spec.temporal_edges),
             "blocking_temporal_edge_count": len(_blocking_temporal_edges(runtime_spec.temporal_edges)),
             "phase_count": len(phase_states),
+            "scheduling_authority": "explicit_dependency_ready_set",
+            "lifecycle_coordinate_authority": "diagnostic_only",
+            "legacy_timing_gate_enabled": False,
             "active_phase_ids": list(active_phase_ids),
             "active_sequence_by_phase": dict(active_sequence_by_phase),
+            "active_phase_ids_semantics": "observed_ready_running_waiting_only",
+            "active_sequence_by_phase_semantics": "observed_ready_running_waiting_only",
             "optional_node_ids": sorted(optional_node_ids),
             "timeline_gate_enabled": temporal_gate_enabled,
             "edge_handoff_gate_enabled": bool(handoff_index),
@@ -525,67 +517,38 @@ def _phase_order(nodes: tuple[TaskGraphRuntimeNode, ...]) -> tuple[str, ...]:
     return tuple(sorted(phase_first_index, key=lambda item: phase_first_index[item]))
 
 
-def _active_phase_ids(
+def _observed_active_phase_ids(
     *,
     nodes: tuple[TaskGraphRuntimeNode, ...],
-    statuses: dict[str, str],
-    phase_order: tuple[str, ...],
-    optional_node_ids: set[str],
-) -> set[str]:
-    running_phases = {
-        _phase_id(node)
-        for node in nodes
-        if statuses.get(node.node_id) in ACTIVE_STATUSES
+    node_states: list[TaskGraphNodeRunState],
+) -> tuple[str, ...]:
+    phase_order = _phase_order(nodes)
+    active_statuses = ACTIVE_STATUSES | WAITING_STATUSES | {"ready"}
+    active_by_phase = {
+        state.phase_id or "phase.unassigned"
+        for state in node_states
+        if state.status in active_statuses
     }
-    if running_phases:
-        return running_phases
-    nodes_by_phase: dict[str, list[TaskGraphRuntimeNode]] = defaultdict(list)
-    for node in nodes:
-        nodes_by_phase[_phase_id(node)].append(node)
-    for phase_id in phase_order:
-        phase_nodes = nodes_by_phase.get(phase_id, [])
-        if phase_nodes and all(node.node_id in optional_node_ids for node in phase_nodes):
-            if not any(statuses.get(node.node_id) in ACTIVE_STATUSES | {"ready"} for node in phase_nodes):
-                continue
-        if any(statuses.get(node.node_id, "pending") not in TERMINAL_COMPLETED | TERMINAL_FAILED for node in phase_nodes):
-            return {phase_id}
-    return set(phase_order[:1])
+    return tuple(phase_id for phase_id in phase_order if phase_id in active_by_phase)
 
 
-def _active_sequence_by_phase(
+def _observed_active_sequence_by_phase(
     *,
-    nodes: tuple[TaskGraphRuntimeNode, ...],
-    statuses: dict[str, str],
+    node_states: list[TaskGraphNodeRunState],
     active_phase_ids: set[str],
 ) -> dict[str, int]:
     result: dict[str, int] = {}
     for phase_id in active_phase_ids:
         candidates = [
-            node.sequence_index
-            for node in nodes
-            if _phase_id(node) == phase_id
-            and node.sequence_index > 0
-            and statuses.get(node.node_id, "pending") not in TERMINAL_COMPLETED | TERMINAL_FAILED
+            state.sequence_index
+            for state in node_states
+            if (state.phase_id or "phase.unassigned") == phase_id
+            and state.status in ACTIVE_STATUSES | WAITING_STATUSES | {"ready"}
+            and state.sequence_index > 0
         ]
         if candidates:
             result[phase_id] = min(candidates)
     return result
-
-
-def _node_timing_allowed(
-    *,
-    node: TaskGraphRuntimeNode,
-    active_phase_ids: set[str],
-    active_sequence_by_phase: dict[str, int],
-) -> tuple[bool, list[str]]:
-    reasons: list[str] = []
-    phase_id = _phase_id(node)
-    if active_phase_ids and phase_id not in active_phase_ids:
-        reasons.append(f"phase_not_active:{phase_id}")
-    active_sequence = active_sequence_by_phase.get(phase_id, 0)
-    if active_sequence > 0 and node.sequence_index > active_sequence:
-        reasons.append(f"sequence_wait:{active_sequence}")
-    return not reasons, reasons
 
 
 def _source_readiness_dependencies_satisfied(

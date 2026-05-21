@@ -130,7 +130,7 @@ export function focusForPreflightIssue(issue: TaskGraphPreflightIssue): TaskGrap
       return {
         ...base,
         layer: "modules",
-        facet: "blocks",
+        facet: "stitching",
         node_id: issue.scope === "node" ? issue.target_id : undefined,
         edge_id: issue.scope === "edge" ? issue.target_id : undefined,
       };

@@ -417,7 +417,7 @@ export function TaskGraphRunMonitorPanel({
                     <strong>{issue.code || "temporal_violation"}</strong>
                     <span>{issue.severity || "error"} · {issue.targetId || "runtime"}</span>
                   </div>
-                  <small>{issue.message || "节点运行不在当前拓扑时序许可窗口内。"}</small>
+                  <small>{issue.message || "节点运行不在当前显式依赖和执行许可窗口内。"}</small>
                 </article>
               ))
             ) : (

@@ -203,7 +203,39 @@ def test_capability_catalog_exposes_canonical_capability_units() -> None:
     assert units["mcp:local:mcp:document:pdf:pdf"]["operation_ids"] == ["op.mcp_pdf"]
     assert units["mcp:local:mcp:document:pdf:pdf"]["provider_kind"] == "local"
     assert units["mcp:local:mcp:document:pdf:pdf"]["model_visibility"] == "not_direct_model_tool"
+    assert units["mcp:local:mcp:document:pdf:pdf"]["permission_view"]["gate_state"] == "not_checked"
+    assert units["mcp:local:mcp:document:pdf:pdf"]["permission_view"]["diagnostics"]["management_view_only"] is True
     assert catalog["summary"]["capability_unit_count"] == len(catalog["capability_units"])
+
+
+def test_capability_validation_checks_capability_units() -> None:
+    issues = validate_capability_catalog(
+        skills=[],
+        tools=[],
+        agent_bindings={},
+        operations=[{"operation_id": "op.known"}],
+        capability_units=[
+            {
+                "capability_id": "mcp:local:bad",
+                "kind": "mcp",
+                "provider_kind": "local",
+                "model_visibility": "schema_only",
+                "operation_ids": ["op.missing"],
+            },
+            {
+                "capability_id": "mcp:local:bad",
+                "kind": "mcp",
+                "provider_kind": "local",
+                "model_visibility": "schema_only",
+                "operation_ids": [],
+            },
+        ],
+    )
+    codes = {issue.code for issue in issues}
+
+    assert "capability_unit_duplicate_id" in codes
+    assert "capability_unit_unknown_operation" in codes
+    assert "capability_unit_local_mcp_model_visibility_invalid" in codes
 
 
 def test_capability_unit_projection_uses_skill_declared_operation_dependencies() -> None:

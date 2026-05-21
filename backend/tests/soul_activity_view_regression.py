@@ -5,6 +5,7 @@ from pathlib import Path
 
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.shared.models import AgentRun, TaskRun
+from project_layout import ProjectLayout
 from soul.activity_service import SoulActivityService
 
 
@@ -30,7 +31,7 @@ def test_soul_work_log_is_read_only_summary_view(tmp_path: Path) -> None:
     )
 
     task_run_id = "taskrun:soul-activity:1"
-    index = RuntimeStateIndex(base_dir)
+    index = RuntimeStateIndex(ProjectLayout.from_backend_dir(base_dir).runtime_state_dir)
     index.upsert_task_run(
         TaskRun(
             task_run_id=task_run_id,
@@ -79,7 +80,7 @@ def test_soul_work_log_does_not_guess_unmapped_projection(tmp_path: Path) -> Non
         json.dumps({"selected_projection_id": "", "cards": []}),
         encoding="utf-8",
     )
-    RuntimeStateIndex(base_dir).upsert_task_run(
+    RuntimeStateIndex(ProjectLayout.from_backend_dir(base_dir).runtime_state_dir).upsert_task_run(
         TaskRun(
             task_run_id="taskrun:soul-activity:unmapped",
             session_id="session:soul-activity",

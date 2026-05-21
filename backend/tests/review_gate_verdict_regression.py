@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from api.orchestration import _review_gate_recovery_quality_gate
+from orchestration.coordination_recovery import _recovery_stage_business_acceptance
 from runtime.coordination_runtime.review_gate_verdict import extract_explicit_review_verdict
 from runtime.unit_runtime.quality_gates import _stage_business_acceptance
 
@@ -25,7 +25,14 @@ def test_chinese_review_conclusion_with_notes_accepts_runtime_and_breakpoint_rec
         terminal_status="completed",
         requires_file_artifact_refs=True,
     )
-    recovery = _review_gate_recovery_quality_gate(content)
+    recovery = _recovery_stage_business_acceptance(
+        stage_id="world_review",
+        contract=_review_contract(),
+        explicit_inputs={},
+        final_content=content,
+        output_refs=["artifact:world_review"],
+        terminal_status="completed",
+    )
 
     assert extract_explicit_review_verdict(content) == "pass_with_notes"
     assert acceptance["accepted"] is True
@@ -49,7 +56,14 @@ def test_chinese_review_rework_or_next_stage_no_rejects_runtime_and_breakpoint_r
         terminal_status="completed",
         requires_file_artifact_refs=True,
     )
-    recovery = _review_gate_recovery_quality_gate(content)
+    recovery = _recovery_stage_business_acceptance(
+        stage_id="world_review",
+        contract=_review_contract(),
+        explicit_inputs={},
+        final_content=content,
+        output_refs=["artifact:world_review"],
+        terminal_status="completed",
+    )
 
     assert extract_explicit_review_verdict(content) == "revise"
     assert acceptance["accepted"] is False
@@ -78,7 +92,14 @@ def test_conditional_pass_with_blockers_is_revise() -> None:
         terminal_status="completed",
         requires_file_artifact_refs=True,
     )
-    recovery = _review_gate_recovery_quality_gate(content)
+    recovery = _recovery_stage_business_acceptance(
+        stage_id="character_review",
+        contract=_review_contract(),
+        explicit_inputs={},
+        final_content=content,
+        output_refs=["artifact:character_review"],
+        terminal_status="completed",
+    )
 
     assert extract_explicit_review_verdict(content) == "revise"
     assert acceptance["accepted"] is False
@@ -113,7 +134,14 @@ def test_review_table_header_does_not_turn_passed_review_into_revise() -> None:
         terminal_status="completed",
         requires_file_artifact_refs=True,
     )
-    recovery = _review_gate_recovery_quality_gate(content)
+    recovery = _recovery_stage_business_acceptance(
+        stage_id="world_review",
+        contract=_review_contract(),
+        explicit_inputs={},
+        final_content=content,
+        output_refs=["artifact:world_review"],
+        terminal_status="completed",
+    )
 
     assert extract_explicit_review_verdict(content) == "pass"
     assert acceptance["accepted"] is True

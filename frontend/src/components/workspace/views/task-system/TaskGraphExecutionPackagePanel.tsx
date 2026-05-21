@@ -85,8 +85,8 @@ export function TaskGraphExecutionPackagePanel({
                 <p><span>边语义</span><strong>{String(recordValue(runtimeSemanticsSummary, "edge_count") ?? 0)}</strong></p>
                 <p><span>旧字段</span><strong>{String(recordValue(runtimeSemanticsSummary, "legacy_field_count") ?? 0)}</strong></p>
                 <p><span>诊断</span><strong>{String(recordValue(runtimeSemanticsSummary, "diagnostic_count") ?? runtimeSemanticDiagnostics.length)}</strong></p>
-                <p><span>Step 可编辑</span><strong>{recordValue(runtimeStepPolicy, "editor_visible") ? "是" : "否"}</strong></p>
-                <p><span>Step 角色</span><strong>{String(recordValue(runtimeStepPolicy, "runtime_role") ?? "-")}</strong></p>
+                <p><span>Dispatch 边界</span><strong>{recordValue(runtimeStepPolicy, "editor_visible") ? "可见" : "运行时"}</strong></p>
+                <p><span>运行角色</span><strong>{String(recordValue(runtimeStepPolicy, "runtime_role") ?? "-")}</strong></p>
               </div>
               {runtimeSemanticDiagnostics.length ? (
                 <div className="task-graph-preflight-list">

@@ -146,38 +146,13 @@ def _temporal_edges(
     edges: list[TaskGraphEdgeDefinition],
 ) -> list[dict[str, Any]]:
     explicit = [_temporal_edge_payload(edge) for edge in edges if _is_temporal_edge(edge)]
-    derived: list[dict[str, Any]] = []
-    nodes_by_phase: dict[str, list[TaskGraphNodeDefinition]] = {}
-    for node in nodes:
-        phase_id = str(node.phase_id or "").strip()
-        if not phase_id:
-            continue
-        nodes_by_phase.setdefault(phase_id, []).append(node)
-    for phase_id, phase_nodes in nodes_by_phase.items():
-        ordered = sorted(phase_nodes, key=lambda item: (int(item.sequence_index or 0), item.node_id))
-        for previous, current in zip(ordered, ordered[1:]):
-            if int(previous.sequence_index or 0) == int(current.sequence_index or 0):
-                continue
-            derived.append(
-                {
-                    "edge_id": f"temporal:{phase_id}:{previous.node_id}->{current.node_id}",
-                    "source_node_id": previous.node_id,
-                    "target_node_id": current.node_id,
-                    "temporal_type": "phase_sequence",
-                    "phase_id": phase_id,
-                    "sequence_policy": "strict_after_source",
-                    "blocking": True,
-                    "derived": True,
-                    "authority": "task_system.temporal_edge",
-                }
-            )
     metadata = dict(graph.metadata or {})
     metadata_edges = [
         dict(item)
         for item in list(metadata.get("temporal_edges") or [])
         if isinstance(item, dict)
     ]
-    return [*metadata_edges, *explicit, *derived]
+    return [*metadata_edges, *explicit]
 
 
 def _is_temporal_edge(edge: TaskGraphEdgeDefinition) -> bool:

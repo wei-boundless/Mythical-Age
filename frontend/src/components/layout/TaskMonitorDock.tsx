@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, ChevronRight, Minimize2, Network, RefreshCw, X } from "lucide-react";
+import { Activity, ChevronRight, Minimize2, Network, RefreshCw, ShieldAlert, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { TaskGraphRunMonitorPanel } from "@/components/task-graph-monitor/TaskGraphRunMonitorPanel";
@@ -10,6 +10,7 @@ export function TaskMonitorDock() {
   const {
     clearTaskGraphMonitorRun,
     evaluateBoundTaskGraphMonitor,
+    resolveRuntimeApproval,
     setTaskGraphRunInteractionOpen,
     taskGraphBoundRunMonitor,
     taskGraphLiveMonitor,
@@ -20,8 +21,18 @@ export function TaskMonitorDock() {
     taskGraphRunMonitor,
   } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
+  const [approvalBusy, setApprovalBusy] = useState(false);
+  const [approvalError, setApprovalError] = useState("");
   const monitor = taskGraphBoundRunMonitor ?? taskGraphRunMonitor ?? null;
   const hasSignal = Boolean(monitor || taskGraphLiveMonitor || taskGraphMonitorBinding);
+  const pendingApproval = useMemo(() => {
+    const state = taskGraphLiveMonitor?.loop_state;
+    const approval = state && typeof state === "object" && !Array.isArray(state)
+      ? (state.pending_approval_state as Record<string, unknown> | undefined)
+      : undefined;
+    return approval && String(approval.status ?? "") === "pending" ? approval : null;
+  }, [taskGraphLiveMonitor?.loop_state]);
+  const pendingApprovalTaskRunId = String(taskGraphLiveMonitor?.task_run?.task_run_id ?? pendingApproval?.task_run_id ?? "").trim();
 
   useEffect(() => {
     const collapseQuery = window.matchMedia("(max-width: 1260px)");
@@ -38,12 +49,28 @@ export function TaskMonitorDock() {
   }, []);
 
   const statusText = useMemo(() => {
+    if (pendingApproval) return "等待审批";
     if (taskGraphMonitorLoading) return "同步中";
     if (monitor) return "运行监控";
     if (taskGraphMonitorBinding) return "已绑定";
     if (taskGraphLiveMonitor) return "实时信号";
     return "待命";
-  }, [monitor, taskGraphLiveMonitor, taskGraphMonitorBinding, taskGraphMonitorLoading]);
+  }, [monitor, pendingApproval, taskGraphLiveMonitor, taskGraphMonitorBinding, taskGraphMonitorLoading]);
+
+  async function submitApproval(decision: "approve" | "reject") {
+    if (!pendingApprovalTaskRunId || approvalBusy) {
+      return;
+    }
+    setApprovalBusy(true);
+    setApprovalError("");
+    try {
+      await resolveRuntimeApproval(pendingApprovalTaskRunId, decision);
+    } catch (error) {
+      setApprovalError(error instanceof Error ? error.message : "审批提交失败");
+    } finally {
+      setApprovalBusy(false);
+    }
+  }
 
   return (
     <aside className={collapsed ? "task-monitor-dock task-monitor-dock--collapsed" : "task-monitor-dock"} aria-label="任务监控">
@@ -111,6 +138,23 @@ export function TaskMonitorDock() {
             <section className="task-monitor-alert task-monitor-alert--error">
               <strong>监控读取异常</strong>
               <span>{taskGraphMonitorError}</span>
+            </section>
+          ) : null}
+
+          {pendingApproval ? (
+            <section className="task-monitor-alert task-monitor-alert--attention">
+              <strong className="task-monitor-alert__title"><ShieldAlert size={14} /> 工具调用等待审批</strong>
+              <span>{String(pendingApproval.tool_name ?? pendingApproval.operation_id ?? "unknown")}</span>
+              <small>{String(pendingApproval.directive_ref ?? "")}</small>
+              <div className="task-monitor-summary__actions">
+                <button disabled={approvalBusy} onClick={() => { void submitApproval("approve"); }} type="button">
+                  <span>批准执行</span>
+                </button>
+                <button disabled={approvalBusy} onClick={() => { void submitApproval("reject"); }} type="button">
+                  <span>拒绝</span>
+                </button>
+              </div>
+              {approvalError ? <span>{approvalError}</span> : null}
             </section>
           ) : null}
 

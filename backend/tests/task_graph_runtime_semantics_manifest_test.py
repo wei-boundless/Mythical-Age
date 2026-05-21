@@ -56,7 +56,7 @@ def test_runtime_semantics_manifest_is_generic_and_keeps_step_runtime_only() -> 
     assert edge_roles == {"draft_validate": "validation_input", "validate_publish": "publish_input"}
     diagnostic_codes = {item["code"] for item in manifest["diagnostics"]}
     assert "legacy_timeline_policy_not_runtime_semantics" in diagnostic_codes
-    assert "sequence_index_legacy_timing_gate" in diagnostic_codes
+    assert "sequence_index_legacy_lifecycle_coordinate" in diagnostic_codes
     assert "timeline_group_duplicates_phase" in diagnostic_codes
 
     serialized = str(manifest)

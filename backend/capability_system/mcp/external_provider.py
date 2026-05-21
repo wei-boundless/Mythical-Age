@@ -40,6 +40,7 @@ class ExternalMCPProvider:
                     status=status,
                     status_reason=status_reason,
                     diagnostics={
+                        "external_config": server.to_dict(),
                         "scope": server.scope,
                         "tags": list(server.tags),
                         "snapshot_policy": "not_connected_during_catalog",
@@ -47,6 +48,12 @@ class ExternalMCPProvider:
                 )
             )
         return servers
+
+    def upsert_server(self, config) -> None:
+        self.manager.upsert_server(config)
+
+    def delete_server(self, server_id: str) -> None:
+        self.manager.delete_server(server_id)
 
     def inspect_server(self, server_id: str) -> MCPProviderServer:
         server = self.manager.config_store.get_server(server_id)

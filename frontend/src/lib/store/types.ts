@@ -176,6 +176,7 @@ export type StoreActions = {
   evaluateBoundTaskGraphMonitor: () => Promise<void>;
   submitTaskGraphMonitorDecision: (decision: string, controlAction: string, resumePayload?: Record<string, unknown>) => Promise<void>;
   resumeTaskGraphRun: (taskGraphRunId: string, payload?: Record<string, unknown>) => Promise<void>;
+  resolveRuntimeApproval: (taskRunId: string, decision: "approve" | "reject", message?: string) => Promise<void>;
   setTaskSelection: (selection: TaskSelectionState | null) => void;
 };
 

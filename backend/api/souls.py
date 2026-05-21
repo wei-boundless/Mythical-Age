@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from agent_system.registry.agent_registry import AgentRegistry
 from soul import SoulFacade
+from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
 from soul.registry import (
     ACTIVE_SEED_PATH,
     BUILTIN_SEED_PATHS,
@@ -122,6 +123,14 @@ class SoulModePreviewRequest(BaseModel):
     task_contract: str = ""
 
 
+class SoulImageAssetGenerateRequest(BaseModel):
+    target_id: str = Field(..., min_length=1)
+    asset_kind: str = Field(default="world", min_length=1)
+    prompt: str = Field(..., min_length=1)
+    size: str = Field(default="1024x1024")
+    overwrite: bool = False
+
+
 def _project_root_from_backend(base_dir: Path) -> Path:
     return base_dir.resolve().parent
 
@@ -219,6 +228,27 @@ async def soul_work_log(soul_id: str, limit: int = 20) -> dict[str, Any]:
     if facade.get_profile(normalized_soul_id) is None:
         raise HTTPException(status_code=404, detail="Unknown soul")
     return facade.get_work_log(normalized_soul_id, limit=limit)
+
+
+@router.get("/soul/image-assets/config")
+async def soul_image_asset_config() -> dict[str, Any]:
+    runtime = require_runtime()
+    return SoulImageAssetService(runtime.base_dir).config_summary()
+
+
+@router.post("/soul/image-assets/generate")
+async def generate_soul_image_asset(payload: SoulImageAssetGenerateRequest) -> dict[str, Any]:
+    runtime = require_runtime()
+    try:
+        return await SoulImageAssetService(runtime.base_dir).generate(
+            prompt=payload.prompt,
+            target_id=payload.target_id,
+            asset_kind=payload.asset_kind,
+            size=payload.size,
+            overwrite=payload.overwrite,
+        )
+    except SoulImageAssetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/soul/modes/preview")

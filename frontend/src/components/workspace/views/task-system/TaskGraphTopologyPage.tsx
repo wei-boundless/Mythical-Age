@@ -51,9 +51,9 @@ type TaskGraphTopologyPageProps = Pick<
 type EdgeFlowFilter = "all" | "execution" | "memory" | "artifact" | "revision";
 
 const ROLE_QUICK_ADDS = [
-  { role: "coordinator", label: "协调" },
-  { role: "writer", label: "写作" },
-  { role: "reviewer", label: "评审" },
+  { role: "coordinator", label: "协调器" },
+  { role: "executor", label: "执行节点" },
+  { role: "reviewer", label: "审核节点" },
 ];
 
 const RESOURCE_QUICK_ADDS = [
@@ -181,7 +181,7 @@ function selectedEdgeControlSummary(edge: Record<string, unknown> | null) {
   if (!edge) return "";
   const edgeType = String(edge.edge_type ?? edge.mode ?? "").trim();
   const metadata = asRecord(edge.metadata);
-  if (edgeType === "memory_read") return "资源读取边：把仓库记录装配进目标节点输入包，不直接推进主链。";
+  if (edgeType === "memory_read") return "资源读取边：把仓库记录装配进目标节点输入包，不直接激活下游执行节点。";
   if (edgeType === "memory_write_candidate" || edgeType === "memory_write") return "候选写入边：源节点产出候选版本，是否可见取决于后续提交边。";
   if (edgeType === "memory_commit") return "提交边：把候选版本转为已提交记录，并按提交可见性进入后续节点。";
   if (edgeType.startsWith("artifact_") || Object.keys(asRecord(edge.artifact_ref_policy)).length > 0) return "产物上下文边：传递产物引用或展开策略，不替代控制流。";
@@ -257,8 +257,6 @@ export function TaskGraphTopologyPage({
   const selectedRepositoryReadCount = selectedRepository ? memoryModel.memoryEdges.filter((edge) => edge.repositoryNodeId === selectedRepository.nodeId && edge.operation === "read").length : 0;
   const selectedRepositoryWriteCount = selectedRepository ? memoryModel.memoryEdges.filter((edge) => edge.repositoryNodeId === selectedRepository.nodeId && edge.operation === "write_candidate").length : 0;
   const selectedRepositoryCommitCount = selectedRepository ? memoryModel.memoryEdges.filter((edge) => edge.repositoryNodeId === selectedRepository.nodeId && edge.operation === "commit").length : 0;
-  const selectedNodeSequence = Number(selectedGraphNode?.sequence_index ?? 0);
-  const selectedNodeMainChain = selectedGraphNode ? (selectedGraphNode.main_chain === true || selectedNodeId === taskGraphDraftV2.entry_node_id || selectedNodeId === taskGraphDraftV2.output_node_id) : false;
   const selectedEdgeSummary = selectedEdgeControlSummary(selectedGraphEdge);
 
   return (
@@ -313,7 +311,7 @@ export function TaskGraphTopologyPage({
       <main className="task-graph-topology-canvas-shell">
         <header className="task-graph-topology-canvas-head">
           <div>
-            <span>Topology</span>
+            <span>Canonical Graph Builder</span>
             <strong>{taskGraphDraftV2.title}</strong>
           </div>
           <div className="task-graph-topology-metrics" aria-label="拓扑计数">
@@ -391,9 +389,7 @@ export function TaskGraphTopologyPage({
           {selectedGraphNode ? (
             <div className="task-graph-topology-resource-summary">
               <p><span>类型</span><strong>{nodeKindLabel(selectedNodeKind)}</strong></p>
-              <p><span>Phase</span><strong>{String(selectedGraphNode.phase_id ?? "未分配")}</strong></p>
-              <p><span>Step</span><strong>{selectedNodeSequence > 0 ? `S${selectedNodeSequence}` : "未设置"}</strong></p>
-              <p><span>主链</span><strong>{selectedNodeMainChain ? "是" : "否"}</strong></p>
+              <p><span>生命周期</span><strong>{String(selectedGraphNode.phase_id ?? "未分配")}</strong></p>
               <p><span>执行模式</span><strong>{String(selectedGraphNode.execution_mode ?? "sync")}</strong></p>
               <p><span>等待策略</span><strong>{String(selectedGraphNode.wait_policy ?? "wait_all")}</strong></p>
               <p><span>入边</span><strong>{incomingSelectedEdgeCount}</strong></p>
@@ -433,7 +429,7 @@ export function TaskGraphTopologyPage({
             ) : null}
             <button disabled={!selectedNodeId} onClick={() => onEditorFocus?.({ layer: "timeline", facet: "clock", node_id: selectedNodeId })} type="button">
               <GitBranch size={15} />
-              <span>定位时序位置</span>
+              <span>查看生命周期诊断</span>
             </button>
             <button disabled={!selectedNodeCanMutate} onClick={() => setLinkingFromNodeId(selectedNodeId)} type="button">
               <Link2 size={15} />

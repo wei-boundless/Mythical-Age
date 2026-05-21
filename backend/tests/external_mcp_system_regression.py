@@ -83,19 +83,19 @@ def test_external_mcp_api_catalog_and_tool_call() -> None:
 
         with TestClient(app) as client:
             app_runtime.require_ready()
-            catalog_response = client.get("/api/mcp-system/catalog")
+            catalog_response = client.get("/api/mcp-system/management/catalog")
             assert catalog_response.status_code == 200
             catalog = catalog_response.json()
-            assert catalog["summary"]["server_count"] >= 1
+            assert catalog["summary"]["external_server_count"] >= 1
             assert any(item["server_id"] == "external_demo" for item in catalog["servers"])
 
-            inspect_response = client.post("/api/mcp-system/servers/external_demo/inspect")
+            inspect_response = client.post("/api/mcp-system/management/providers/external/servers/external_demo/inspect")
             assert inspect_response.status_code == 200
             inspect_payload = inspect_response.json()
             assert inspect_payload["status"] in {"connected", "failed"}
 
             call_response = client.post(
-                "/api/mcp-system/servers/external_demo/tools/external_echo/call",
+                "/api/mcp-system/management/providers/external/servers/external_demo/tools/external_echo/call",
                 json={"arguments": {"message": "from-api"}},
             )
             assert call_response.status_code == 200

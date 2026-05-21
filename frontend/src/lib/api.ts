@@ -1860,6 +1860,15 @@ export type RuntimeLoopTaskRunLiveMonitor = {
   updated_at: number;
 };
 
+export type RuntimeApprovalResolution = {
+  authority: string;
+  task_run_id: string;
+  decision: string;
+  approval: Record<string, unknown>;
+  resume_result: Record<string, unknown>;
+  events: Array<Record<string, unknown>>;
+};
+
 export type RuntimeResourceInventoryItem = {
   resource_id: string;
   title: string;
@@ -2655,6 +2664,17 @@ export type SoulResourceCard = {
   metadata?: Record<string, unknown>;
 };
 
+export type SoulResourceManifestation = {
+  manifestation_id: string;
+  soul_id: string;
+  display_name: string;
+  avatar_ref: string;
+  portrait_ref: string;
+  model_ref: string;
+  state: string;
+  metadata?: Record<string, unknown>;
+};
+
 export type SoulResourceCatalog = {
   active_soul_id: string;
   worlds: SoulResourceWorld[];
@@ -2662,9 +2682,35 @@ export type SoulResourceCatalog = {
   cards: SoulResourceCard[];
   work_prompts: Array<Record<string, unknown>>;
   common_contracts: Array<Record<string, unknown>>;
-  manifestations: Array<Record<string, unknown>>;
+  manifestations: SoulResourceManifestation[];
   modes: Array<Record<string, unknown>>;
   authority: string;
+};
+
+export type SoulWorkLogEvent = {
+  event_id: string;
+  soul_id: string;
+  task_run_id: string;
+  session_id: string;
+  task_id: string;
+  projection_id: string;
+  work_prompt_id: string;
+  agent_id: string;
+  agent_run_id: string;
+  status: string;
+  title: string;
+  summary: string;
+  artifact_count: number;
+  artifact_refs: string[];
+  source_refs: string[];
+  last_activity_at: number;
+};
+
+export type SoulWorkLogView = {
+  soul_id: string;
+  limit: number;
+  events: SoulWorkLogEvent[];
+  authority?: string;
 };
 
 export type SoulSystemCatalog = {
@@ -2707,84 +2753,55 @@ export type ExternalMCPServerConfig = {
   metadata: Record<string, unknown>;
 };
 
-export type ExternalMCPTool = {
-  name: string;
+export type MCPManagementTool = {
+  provider_id: string;
+  provider_kind: "local" | "external" | string;
+  server_id: string;
+  tool_name: string;
   title: string;
   description: string;
+  operation_id: string;
+  model_visibility: string;
   input_schema: Record<string, unknown>;
   output_schema: Record<string, unknown>;
   annotations: Record<string, unknown>;
-  meta: Record<string, unknown>;
+  tags: string[];
+  diagnostics: Record<string, unknown>;
+  transport?: string;
+  status?: string;
 };
 
-export type ExternalMCPResource = {
-  uri: string;
-  name: string;
-  title: string;
-  description: string;
-  mime_type: string;
-  size: number | null;
-  annotations: Record<string, unknown>;
-  meta: Record<string, unknown>;
-};
-
-export type ExternalMCPPrompt = {
-  name: string;
-  title: string;
-  description: string;
-  arguments: Array<Record<string, unknown>>;
-  meta: Record<string, unknown>;
-};
-
-export type ExternalMCPSnapshot = {
+export type MCPManagementServer = {
+  provider_id: string;
   server_id: string;
   title: string;
+  description: string;
+  provider_kind: "local" | "external" | string;
   transport: string;
   enabled: boolean;
-  scope: string;
   status: string;
   status_reason: string;
-  capabilities: Record<string, unknown>;
-  tools: ExternalMCPTool[];
-  resources: ExternalMCPResource[];
-  prompts: ExternalMCPPrompt[];
+  operation_ids: string[];
+  tools: MCPManagementTool[];
   diagnostics: Record<string, unknown>;
 };
 
-export type ExternalMCPToolPoolEntry = {
-  entry_id: string;
-  entry_kind: string;
-  display_name: string;
-  route_family: string;
-  candidate_visibility: string;
-  model_visibility: string;
-  runtime_exposure: string;
-  requires_explicit_binding: boolean;
-  discovery_priority: number;
-  name: string;
-  source: string;
-  server_id: string;
-  server_title: string;
-  transport: string;
-  tool_name: string;
-  description: string;
-  authorized: boolean;
-  authorization: Record<string, unknown>;
-  operation: Record<string, unknown>;
-};
-
-export type ExternalMCPCatalog = {
+export type MCPManagementCatalog = {
   authority: string;
-  servers: ExternalMCPServerConfig[];
-  snapshots: ExternalMCPSnapshot[];
-  tool_pool: ExternalMCPToolPoolEntry[];
+  providers: Array<{
+    provider_id: string;
+    provider_kind: string;
+  }>;
+  servers: MCPManagementServer[];
+  tools: MCPManagementTool[];
   summary: {
+    provider_count: number;
     server_count: number;
-    enabled_server_count: number;
-    connected_server_count: number;
+    local_server_count: number;
+    external_server_count: number;
     tool_count: number;
-    resource_count: number;
-    prompt_count: number;
+    unsupported_count: number;
+    failed_count: number;
   };
 };
 
@@ -3696,6 +3713,22 @@ export async function getRuntimeLoopTaskRunMemoryReceipts(taskRunId: string) {
   );
 }
 
+export async function resolveRuntimeLoopTaskRunApproval(
+  taskRunId: string,
+  payload: {
+    decision: "approve" | "reject" | string;
+    message?: string;
+  }
+) {
+  return request<RuntimeApprovalResolution>(
+    `/orchestration/runtime-loop/task-runs/${encodeURIComponent(taskRunId)}/approval`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
 export async function getProjectRuntimeStatus(projectId: string) {
   return request<ProjectRuntimeStatusView>(
     `/orchestration/projects/${encodeURIComponent(projectId)}/runtime-status`
@@ -3877,32 +3910,55 @@ export async function updateCapabilitySystemTool(toolName: string, payload: { to
   });
 }
 
-export async function getMCPSystemCatalog() {
-  return request<ExternalMCPCatalog>("/mcp-system/catalog");
+export async function getMCPManagementCatalog() {
+  return request<MCPManagementCatalog>("/mcp-system/management/catalog");
 }
 
-export async function upsertMCPSystemServer(serverId: string, payload: ExternalMCPServerConfig) {
-  return request<ExternalMCPCatalog>(`/mcp-system/servers/${encodeURIComponent(serverId)}`, {
+export async function upsertMCPManagementExternalServer(serverId: string, payload: ExternalMCPServerConfig) {
+  return request<MCPManagementCatalog>(`/mcp-system/management/providers/external/servers/${encodeURIComponent(serverId)}`, {
     method: "PUT",
     body: JSON.stringify(payload)
   });
 }
 
-export async function deleteMCPSystemServer(serverId: string) {
-  return request<ExternalMCPCatalog>(`/mcp-system/servers/${encodeURIComponent(serverId)}`, {
+export async function deleteMCPManagementExternalServer(serverId: string) {
+  return request<MCPManagementCatalog>(`/mcp-system/management/providers/external/servers/${encodeURIComponent(serverId)}`, {
     method: "DELETE"
   });
 }
 
-export async function inspectMCPSystemServer(serverId: string) {
-  return request<ExternalMCPSnapshot>(`/mcp-system/servers/${encodeURIComponent(serverId)}/inspect`, {
-    method: "POST"
-  });
+export async function inspectMCPManagementServer(providerId: string, serverId: string) {
+  return request<MCPManagementServer>(
+    `/mcp-system/management/providers/${encodeURIComponent(providerId)}/servers/${encodeURIComponent(serverId)}/inspect`,
+    {
+      method: "POST"
+    }
+  );
 }
 
-export async function callMCPSystemTool(serverId: string, toolName: string, argumentsPayload: Record<string, unknown>) {
+export async function previewMCPManagementTool(
+  providerId: string,
+  serverId: string,
+  toolName: string,
+  argumentsPayload: Record<string, unknown>
+) {
   return request<Record<string, unknown>>(
-    `/mcp-system/servers/${encodeURIComponent(serverId)}/tools/${encodeURIComponent(toolName)}/call`,
+    `/mcp-system/management/providers/${encodeURIComponent(providerId)}/servers/${encodeURIComponent(serverId)}/tools/${encodeURIComponent(toolName)}/preview`,
+    {
+      method: "POST",
+      body: JSON.stringify({ arguments: argumentsPayload })
+    }
+  );
+}
+
+export async function callMCPManagementTool(
+  providerId: string,
+  serverId: string,
+  toolName: string,
+  argumentsPayload: Record<string, unknown>
+) {
+  return request<Record<string, unknown>>(
+    `/mcp-system/management/providers/${encodeURIComponent(providerId)}/servers/${encodeURIComponent(serverId)}/tools/${encodeURIComponent(toolName)}/call`,
     {
       method: "POST",
       body: JSON.stringify({ arguments: argumentsPayload })
@@ -3962,6 +4018,10 @@ export async function deleteCustomSoul(soulId: string) {
 
 export async function getSoulProjectionCards() {
   return request<SoulProjectionCatalog>("/soul/projections");
+}
+
+export async function getSoulWorkLog(soulId: string, limit = 6) {
+  return request<SoulWorkLogView>(`/soul/${encodeURIComponent(soulId)}/activity?limit=${limit}`);
 }
 
 export async function createSoulProjectionCard(payload: SoulProjectionCardCreatePayload) {

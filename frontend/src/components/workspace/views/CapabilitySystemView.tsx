@@ -77,7 +77,15 @@ metadata:
   supported_task_kinds: []
   supported_source_kinds: []
   capability_tags: []
-  preferred_route: rag
+  preferred_route: capability_authoring
+  requires_operations:
+    - op.read_file
+    - op.write_file
+    - op.edit_file
+  requires_capabilities:
+    - tool:read_file
+    - tool:write_file
+    - tool:edit_file
   activation_policy: model_visible
   context_mode: inline
   route_authority: candidate_only
@@ -93,6 +101,7 @@ ${description || "描述这个 skill 如何帮助智能体完成任务。"}
 
 ## 执行准则
 
+- 如果这个 skill 需要工具、MCP 或文件能力，先声明 \`requires_operations\` 和 \`requires_capabilities\`，不要假设权限会自动扩大。
 - 直接完成用户任务，不暴露内部路由、工具协议或调度细节。
 `;
 }

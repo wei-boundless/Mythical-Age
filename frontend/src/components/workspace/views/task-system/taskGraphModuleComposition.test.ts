@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   removeTaskGraphOverlayPortEdge,
   TASK_GRAPH_MODULE_FACET_ITEMS,
+  taskGraphComposableOverlayMetadataPatch,
   taskGraphComposableOverlayFromMetadata,
   taskGraphModuleFacetFromEditorFocus,
-  upsertTaskGraphOverlayPortEdge,
 } from "./taskGraphModuleComposition";
 
 describe("TaskGraph module composition facets", () => {
@@ -33,10 +33,10 @@ describe("TaskGraph module composition facets", () => {
       "graph_module_runtime",
       "stitching",
     ]);
-    expect(TASK_GRAPH_MODULE_FACET_ITEMS.find((item) => item.id === "graph_module_runtime")?.title).toBe("导入模块");
+    expect(TASK_GRAPH_MODULE_FACET_ITEMS.find((item) => item.id === "graph_module_runtime")?.title).toBe("图模块展开");
   });
 
-  it("reads and updates the composable graph overlay port edges", () => {
+  it("reads, normalizes, and removes composable graph overlay port edges", () => {
     const metadata = {
       keep: "unchanged",
       composable_graph: {
@@ -56,23 +56,28 @@ describe("TaskGraph module composition facets", () => {
     const initial = taskGraphComposableOverlayFromMetadata(metadata);
     expect(initial.port_edges).toHaveLength(1);
 
-    const upserted = upsertTaskGraphOverlayPortEdge(metadata, {
-      edge_id: "port_edge.two",
-      source_unit_id: "unit.b",
-      source_port_id: "output.default",
-      target_unit_id: "unit.c",
-      target_port_id: "input.default",
-      payload_contract_id: "contract.test",
-      edge_type: "handoff",
-      temporal_semantics: { trigger_timing: "after_source_success" },
-      handoff: {},
-      metadata: {},
+    const normalized = taskGraphComposableOverlayMetadataPatch(metadata, {
+      port_edges: [
+        ...initial.port_edges,
+        {
+          edge_id: "port_edge.two",
+          source_unit_id: "unit.b",
+          source_port_id: "output.default",
+          target_unit_id: "unit.c",
+          target_port_id: "input.default",
+          payload_contract_id: "contract.test",
+          edge_type: "handoff",
+          temporal_semantics: { trigger_timing: "after_source_success" },
+          handoff: {},
+          metadata: { explicit_overlay: true },
+        },
+      ],
     });
 
-    expect(upserted.composable_graph.port_edges).toHaveLength(2);
-    expect(upserted.composable_graph.port_edges[1]?.metadata?.explicit_overlay).toBe(true);
+    expect(normalized.composable_graph.port_edges).toHaveLength(2);
+    expect(normalized.composable_graph.port_edges[1]?.metadata?.explicit_overlay).toBe(true);
 
-    const removed = removeTaskGraphOverlayPortEdge({ composable_graph: upserted.composable_graph }, "port_edge.one");
+    const removed = removeTaskGraphOverlayPortEdge({ composable_graph: normalized.composable_graph }, "port_edge.one");
     expect(removed.composable_graph.port_edges.map((edge) => edge.edge_id)).toEqual(["port_edge.two"]);
   });
 });

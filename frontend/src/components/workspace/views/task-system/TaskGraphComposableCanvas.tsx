@@ -187,12 +187,12 @@ export function TaskGraphComposableCanvas({
   const canvasTitle = showingImportedGraph ? expansionTitle(selectedExpansion) : graphDraft.title || graphDraft.graph_id;
   const canvasOverline = activeFacet === "graph_module_runtime"
     ? showingImportedGraph ? "图模块内部拓扑" : "导入模块关系图"
-    : "封装图画布";
+    : "标准视图画布";
   const canvasDescription = activeFacet === "graph_module_runtime"
     ? showingImportedGraph
       ? "当前只读查看被导入图模块的内部节点与边；编辑请进入该图模块工作台。"
       : "当前显示已导入图模块之间的交接关系；选择一个模块可查看它的内部拓扑。"
-    : "当前画布显示本封装图边界内的节点、图模块、端口边和阶段图块派生关系。";
+    : "当前画布只读显示 canonical 图编译出的单元、端口边和阶段图块派生关系；结构修改请回到 Graph Builder。";
 
   return (
     <main className="task-graph-composer-canvas-shell" aria-label="当前层级可组合图画布">
@@ -214,29 +214,29 @@ export function TaskGraphComposableCanvas({
         <button className={activeFacet === "units" ? "active" : ""} onClick={() => onFacetChange("units")} type="button">
           <GitBranch aria-hidden="true" size={14} />
           <span>单元</span>
-          <strong>图和节点同构</strong>
+          <strong>标准对象</strong>
         </button>
         <button className={activeFacet === "connections" ? "active" : ""} onClick={() => onFacetChange("connections")} type="button">
           <Cable aria-hidden="true" size={14} />
           <span>边</span>
-          <strong>端口与时序语义</strong>
+          <strong>派生映射</strong>
         </button>
         <button className={activeFacet === "graph_module_runtime" ? "active" : ""} onClick={() => onFacetChange("graph_module_runtime")} type="button">
           <Network aria-hidden="true" size={14} />
           <span>图模块</span>
-          <strong>导入关系图</strong>
+          <strong>只读展开</strong>
         </button>
         <button className={activeFacet === "stitching" ? "active" : ""} onClick={() => onFacetChange("stitching")} type="button">
           <ScanLine aria-hidden="true" size={14} />
           <span>图块</span>
-          <strong>时序层拼接</strong>
+          <strong>legacy 来源</strong>
         </button>
       </section>
 
       <div className="coordination-topology-viewport coordination-topology-viewport--builder task-graph-composer-viewport">
         <TaskGraphTopologyCanvas
           edges={canvasEdges}
-          emptyDescription={activeFacet === "graph_module_runtime" ? "绑定 linked_graph_id 并刷新标准视图后，导入图模块会生成可浏览的关系图。" : "保存或刷新标准视图后，节点、阶段图块和显式覆盖层会被编译成可组合单元。"}
+          emptyDescription={activeFacet === "graph_module_runtime" ? "绑定 linked_graph_id 并刷新标准视图后，导入图模块会生成可浏览的关系图。" : "保存或刷新标准视图后，canonical 节点、边和图模块会被编译成标准对象。"}
           emptyTitle={activeFacet === "graph_module_runtime" ? "当前还没有导入图模块" : "当前层级还没有可组合单元"}
           nodes={canvasNodes}
           onSelectEdge={(edgeId) => {
@@ -268,7 +268,7 @@ export function TaskGraphComposableCanvas({
         <span><i className="legend-dot legend-dot--unit" />普通 Unit</span>
         <span><i className="legend-dot legend-dot--graph" />图模块</span>
         <span><i className="legend-line legend-line--derived" />派生端口边</span>
-        <span><i className="legend-line legend-line--overlay" />显式覆盖边</span>
+        <span><i className="legend-line legend-line--overlay" />metadata 覆盖边</span>
       </footer>
     </main>
   );

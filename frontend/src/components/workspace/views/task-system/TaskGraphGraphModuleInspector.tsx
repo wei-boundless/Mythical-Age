@@ -106,7 +106,7 @@ export function TaskGraphGraphModuleInspector({
         />
         <div className="task-graph-note">
           <strong>图模块是模块边界</strong>
-          <span>这里配置封装图导入模块时使用的入口、版本和交接边界；模块内部节点请进入该图模块工作台编辑。</span>
+          <span>这里配置导入图模块时使用的入口、版本和交接边界；模块内部节点请进入该图模块工作台编辑。</span>
         </div>
       </TaskGraphInspectorSection>
 

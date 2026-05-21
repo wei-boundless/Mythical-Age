@@ -7,7 +7,10 @@
       "content": "这是默认无背景世界。它只表示当前灵魂不绑定额外世界观，不参与纯工作模式。",
       "source_ref": "soul/worlds/catalog.json",
       "metadata": {
-        "system_default": true
+        "system_default": true,
+        "theme": "plain",
+        "gate_image": "/souls/generated/world-default-gate.png",
+        "scene_image": "/souls/generated/world-default-scene.png"
       }
     },
     {
@@ -18,7 +21,9 @@
       "source_ref": "soul/worlds/catalog.json",
       "metadata": {
         "theme": "honghuang",
-        "style_scope": "worldview_only"
+        "style_scope": "worldview_only",
+        "gate_image": "/souls/generated/world-honghuang-gate.png",
+        "scene_image": "/souls/generated/world-honghuang-scene.png"
       }
     }
   ],

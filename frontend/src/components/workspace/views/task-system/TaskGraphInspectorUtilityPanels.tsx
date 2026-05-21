@@ -31,7 +31,7 @@ export function TaskGraphInterfacePlaceholderPanel({ selectedSubject }: { select
     <TaskGraphInspectorSection icon={<Cable aria-hidden="true" size={15} />} title="接口端口" aside="只读预览">
       <div className="task-graph-note">
         <strong>接口覆盖层将在下一阶段开放</strong>
-        <span>当前先通过节点契约、图模块交接契约和显式端口边维护接口语义。</span>
+        <span>当前先通过 canonical 边、节点契约和图模块交接契约维护接口语义；标准视图端口边只做诊断投影。</span>
       </div>
     </TaskGraphInspectorSection>
   );
@@ -135,8 +135,8 @@ export function TaskGraphModuleExpansionInspector({
             metrics={[
               { label: "原始 ID", value: stringValue(selectedNode.node_id, "-") },
               { label: "阶段", value: stringValue(selectedNode.phase_id, "未分配") },
-              { label: "顺序", value: stringValue(selectedNode.sequence_index, "0") },
-              { label: "阻塞", value: selectedNode.blocks_phase_exit === false ? "否" : "是" },
+              { label: "旧坐标", value: stringValue(selectedNode.sequence_index, "0") },
+              { label: "运行策略", value: stringValue(selectedNode.execution_mode, "sync") },
             ]}
             overline="只读拓扑"
             title={stringValue(selectedNode.title ?? selectedNode.node_id, "内部节点")}

@@ -213,9 +213,9 @@ export function buildTaskGraphPreflightReport({
       severity: "error",
       scope: "graph",
       target_id: "",
-      title: "旧图结构校验未通过",
-      detail: `旧编辑器校验报告仍有 ${editorIssueCount} 个问题。`,
-      source: "legacy.editor_graph_spec",
+      title: "编辑器结构校验未通过",
+      detail: `当前 canonical 图结构校验仍有 ${editorIssueCount} 个问题。`,
+      source: "frontend.preflight.editor_graph_spec",
     });
   }
 

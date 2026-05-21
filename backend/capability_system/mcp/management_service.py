@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from capability_system.mcp.external_provider import ExternalMCPProvider
+from capability_system.mcp.client import ExternalMCPServerConfig
 from capability_system.mcp.local_provider import LocalMCPProvider
 from orchestration import ResourcePolicy
 
@@ -93,6 +94,18 @@ class MCPManagementService:
     ) -> dict[str, Any]:
         provider = self._provider(provider_id)
         return provider.call_tool(server_id, tool_name, arguments)
+
+    def upsert_external_server(self, config: ExternalMCPServerConfig) -> None:
+        provider = self._provider("external")
+        if not isinstance(provider, ExternalMCPProvider):
+            raise KeyError("external")
+        provider.upsert_server(config)
+
+    def delete_external_server(self, server_id: str) -> None:
+        provider = self._provider("external")
+        if not isinstance(provider, ExternalMCPProvider):
+            raise KeyError("external")
+        provider.delete_server(server_id)
 
     def _provider(self, provider_id: str):
         target = str(provider_id or "").strip()

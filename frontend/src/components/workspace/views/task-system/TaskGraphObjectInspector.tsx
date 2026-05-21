@@ -32,7 +32,6 @@ import {
   removeTaskGraphOverlayPortEdge,
   taskGraphComposableOverlayMetadataPatch,
   taskGraphComposableOverlayFromMetadata,
-  upsertTaskGraphOverlayPortEdge,
 } from "./taskGraphModuleComposition";
 import type { TaskGraphComposableSubject } from "./taskGraphComposableEditorTypes";
 import type { TaskGraphWorkbenchAgentCatalog } from "./taskGraphTypes";
@@ -77,17 +76,6 @@ function selectedGraphModuleExpansion(subject: TaskGraphComposableSubject, expan
 
 function isOverlayEdge(edge: UnitPortEdgeSpec | null, overlayEdgeIds: Set<string>) {
   return Boolean(edge && (overlayEdgeIds.has(edge.edge_id) || asRecord(edge.metadata).explicit_overlay));
-}
-
-function portOptionsForUnit(unitId: string, interfaces: UnitInterfaceSpec[], direction?: "input" | "output") {
-  const iface = interfaces.find((item) => item.unit_id === unitId);
-  if (!iface) return [];
-  const ports = direction === "input"
-    ? iface.input_ports
-    : direction === "output"
-      ? iface.output_ports
-      : [...iface.input_ports, ...iface.output_ports];
-  return ports.map((port) => port.port_id).filter(Boolean);
 }
 
 function nodeIdFromUnit(unit: ComposableUnitSpec | null) {
@@ -246,66 +234,6 @@ export function TaskGraphObjectInspector({
     onSelectSubject({ kind: "graph", graph_id: graphDraft.graph_id });
   };
 
-  const addOverlayPortEdge = (seed?: Partial<UnitPortEdgeSpec>) => {
-    const sourceUnitId = seed?.source_unit_id ?? units[0]?.unit_id ?? "";
-    const targetUnitId = seed?.target_unit_id ?? units[1]?.unit_id ?? sourceUnitId;
-    const sourcePortId = seed?.source_port_id ?? portOptionsForUnit(sourceUnitId, interfaces, "output")[0] ?? "output.default";
-    const targetPortId = seed?.target_port_id ?? portOptionsForUnit(targetUnitId, interfaces, "input")[0] ?? "input.default";
-    const edgeId = seed?.edge_id ?? `port_edge.explicit.${overlay.port_edges.length + 1}`;
-    updateTaskGraphMetadata(upsertTaskGraphOverlayPortEdge(metadata, {
-      edge_id: edgeId,
-      source_unit_id: sourceUnitId,
-      source_port_id: sourcePortId,
-      target_unit_id: targetUnitId,
-      target_port_id: targetPortId,
-      payload_contract_id: seed?.payload_contract_id ?? "",
-      edge_type: seed?.edge_type ?? "handoff",
-      temporal_semantics: {
-        trigger_timing: "after_source_success",
-        visibility_timing: "after_commit",
-        acknowledgement_timing: "explicit_ack",
-        propagation_timing: "buffer_until_commit",
-        ...asRecord(seed?.temporal_semantics),
-      },
-      handoff: asRecord(seed?.handoff),
-      metadata: { ...asRecord(seed?.metadata), explicit_overlay: true },
-    }));
-    onSelectSubject({ kind: "port_edge", edge_id: edgeId });
-  };
-
-  const updateOverlayPortEdge = (edge: UnitPortEdgeSpec, patch: Record<string, unknown>) => {
-    const nextEdge: UnitPortEdgeSpec = {
-      ...edge,
-      ...patch,
-      edge_id: stringValue(patch.edge_id ?? edge.edge_id),
-      source_unit_id: stringValue(patch.source_unit_id ?? edge.source_unit_id),
-      source_port_id: stringValue(patch.source_port_id ?? edge.source_port_id),
-      target_unit_id: stringValue(patch.target_unit_id ?? edge.target_unit_id),
-      target_port_id: stringValue(patch.target_port_id ?? edge.target_port_id),
-      payload_contract_id: stringValue(patch.payload_contract_id ?? edge.payload_contract_id),
-      edge_type: stringValue(patch.edge_type ?? edge.edge_type, "handoff"),
-      temporal_semantics: asRecord(patch.temporal_semantics ?? edge.temporal_semantics),
-      handoff: asRecord(patch.handoff ?? edge.handoff),
-      metadata: {
-        ...asRecord(edge.metadata),
-        ...asRecord(patch.metadata),
-        explicit_overlay: true,
-      },
-    };
-    updateTaskGraphMetadata(taskGraphComposableOverlayMetadataPatch(metadata, {
-      port_edges: overlay.port_edges.map((item) => (item.edge_id === edge.edge_id ? nextEdge : item)),
-    }));
-  };
-
-  const updateOverlayPortEdgeTemporal = (edge: UnitPortEdgeSpec, patch: Record<string, unknown>) => {
-    updateOverlayPortEdge(edge, {
-      temporal_semantics: {
-        ...asRecord(edge.temporal_semantics),
-        ...patch,
-      },
-    });
-  };
-
   const removeOverlayEdge = (edgeId: string) => {
     updateTaskGraphMetadata(removeTaskGraphOverlayPortEdge(metadata, edgeId));
     onSelectSubject({ kind: "graph", graph_id: graphDraft.graph_id });
@@ -345,7 +273,6 @@ export function TaskGraphObjectInspector({
   const renderGraphEditor = () => (
     <TaskGraphRootInspector
       activeGraphNodes={activeGraphNodes}
-      addOverlayPortEdge={() => addOverlayPortEdge()}
       addTimelineBlock={addTimelineBlock}
       agentOptions={agentOptions}
       contractOptions={contractOptions}
@@ -410,7 +337,6 @@ export function TaskGraphObjectInspector({
     const originalEdge = edgeForPortEdge(edge);
     return (
       <TaskGraphPortEdgeInspector
-        addOverlayPortEdge={addOverlayPortEdge}
         contractOptions={contractOptions}
         edge={edge}
         formatContract={formatContract}
@@ -422,8 +348,6 @@ export function TaskGraphObjectInspector({
         removeOverlayEdge={removeOverlayEdge}
         unitOptions={unitOptions}
         updateLegacyEdgeEndpoint={updateLegacyEdgeEndpoint}
-        updateOverlayPortEdge={updateOverlayPortEdge}
-        updateOverlayPortEdgeTemporal={updateOverlayPortEdgeTemporal}
         updateTaskGraphEdge={updateTaskGraphEdge}
       />
     );

@@ -21,10 +21,6 @@ function stringValue(value: unknown, fallback = "") {
   return next || fallback;
 }
 
-function booleanValue(value: unknown, fallback = false) {
-  return typeof value === "boolean" ? value : fallback;
-}
-
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -75,14 +71,14 @@ export function TaskGraphNodeUnitInspector({
 
   return (
     <>
-      <TaskGraphInspectorSection icon={<GitBranch aria-hidden="true" size={15} />} title="节点" aside="时序点 / 执行位">
+      <TaskGraphInspectorSection icon={<GitBranch aria-hidden="true" size={15} />} title="节点" aside="canonical node">
         <TaskGraphInspectorSummary
           overline={stringValue(node.node_type, selected.unit_type)}
           title={nodeTitle(node, selected.title || selected.unit_id)}
           caption={nodeId}
           metrics={[
             { label: "接口", value: iface?.interface_id || selected.interface_id || "未派生" },
-            { label: "阶段", value: stringValue(node.phase_id ?? selected.phase_id, "未分配") },
+            { label: "生命周期", value: stringValue(node.phase_id ?? selected.phase_id, "未分配") },
             { label: "绑定任务", value: taskLabel(taskId, domainTaskOptions) },
             { label: "连接边", value: unitEdges.length },
           ]}
@@ -147,13 +143,14 @@ export function TaskGraphNodeUnitInspector({
         onChange={(patch) => updateTaskGraphNode(nodeId, patch)}
       />
 
-      <TaskGraphInspectorSection icon={<GitBranch aria-hidden="true" size={15} />} title="时序与运行">
+      <TaskGraphInspectorSection icon={<GitBranch aria-hidden="true" size={15} />} title="运行策略">
+        <div className="task-graph-note">
+          <strong>运行依赖由边决定</strong>
+          <span>生命周期坐标只用于展示和诊断；需要顺序、并发汇合或阻塞关系时，请配置显式边、等待策略或汇合策略。</span>
+        </div>
         <div className="boundary-form task-graph-composer-inspector-form">
-          <TaskSystemField label="阶段">
+          <TaskSystemField label="生命周期坐标">
             <input onChange={(event) => updateTaskGraphNode(nodeId, { phase_id: event.target.value })} value={stringValue(node.phase_id)} />
-          </TaskSystemField>
-          <TaskSystemField label="顺序">
-            <input min={0} onChange={(event) => updateTaskGraphNode(nodeId, { sequence_index: Number(event.target.value || 0) })} type="number" value={Number(node.sequence_index ?? selected.sequence_index ?? 0)} />
           </TaskSystemField>
           <TaskSystemSelectField
             formatOption={taskSystemOptionLabel}
@@ -176,14 +173,6 @@ export function TaskGraphNodeUnitInspector({
             options={["all_success", "any_success", "allow_partial_with_issues", "coordinator_decides", "fail_on_any_error"]}
             value={stringValue(node.join_policy, "all_success")}
           />
-          <label className="boundary-check">
-            <input checked={booleanValue(node.main_chain, true)} onChange={(event) => updateTaskGraphNode(nodeId, { main_chain: event.target.checked })} type="checkbox" />
-            进入主链
-          </label>
-          <label className="boundary-check">
-            <input checked={booleanValue(node.blocks_phase_exit, true)} onChange={(event) => updateTaskGraphNode(nodeId, { blocks_phase_exit: event.target.checked })} type="checkbox" />
-            阻塞阶段出口
-          </label>
         </div>
       </TaskGraphInspectorSection>
 

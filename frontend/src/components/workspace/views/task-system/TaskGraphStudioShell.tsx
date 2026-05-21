@@ -23,14 +23,14 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
     checkpoints: ["执行器", "Agent 引用", "Projection"],
   },
   topology: {
-    title: "快速拓扑",
-    summary: "快速维护业务节点和基础交接边，复杂对象配置进入图工作台。",
-    checkpoints: ["节点", "基础边", "快捷结构"],
+    title: "Graph Builder",
+    summary: "维护当前任务图唯一可运行结构：canonical nodes、edges、入口、出口和图模块占位。",
+    checkpoints: ["canonical 节点", "canonical 边", "入口/出口"],
   },
   modules: {
-    title: "图工作台",
-    summary: "左侧管理图层关系，中间编辑任务图画布，右侧配置选中对象的契约、时序和运行协议。",
-    checkpoints: ["图层关系", "任务图画布", "对象编辑台"],
+    title: "Compiled View",
+    summary: "查看后端标准视图、端口映射和图模块展开；这里用于诊断，不作为第二套运行图真相。",
+    checkpoints: ["标准视图", "端口诊断", "图模块展开"],
   },
   responsibility: {
     title: "节点认知包",
@@ -38,9 +38,9 @@ const LAYER_CONTEXT: Record<TaskGraphStudioLayerId, { title: string; summary: st
     checkpoints: ["身份投影", "输入包", "输出交接"],
   },
   timeline: {
-    title: "拓扑时序控制",
-    summary: "从主链、阶段、循环框、并发组和审核回退编译运行位置与执行许可。",
-    checkpoints: ["主链", "循环展开", "执行许可"],
+    title: "生命周期诊断",
+    summary: "查看阶段、循环和旧坐标如何进入诊断；节点 ready/blocked 仍由显式依赖边和运行边界决定。",
+    checkpoints: ["生命周期坐标", "循环", "运行诊断"],
   },
   memory: {
     title: "资源流",

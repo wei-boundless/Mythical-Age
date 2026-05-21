@@ -10,7 +10,8 @@
       "state": "idle",
       "metadata": {
         "system_default": true,
-        "display_only": true
+        "display_only": true,
+        "background_ref": "/souls/backgrounds/goumang-bg.png"
       }
     },
     {
@@ -23,7 +24,8 @@
       "state": "idle",
       "metadata": {
         "system_default": true,
-        "display_only": true
+        "display_only": true,
+        "background_ref": "/souls/backgrounds/hebo-bg.png"
       }
     },
     {
@@ -36,7 +38,8 @@
       "state": "idle",
       "metadata": {
         "system_default": true,
-        "display_only": true
+        "display_only": true,
+        "background_ref": "/souls/backgrounds/siyue-bg.png"
       }
     },
     {
@@ -49,7 +52,8 @@
       "state": "idle",
       "metadata": {
         "system_default": true,
-        "display_only": true
+        "display_only": true,
+        "background_ref": "/souls/backgrounds/zhurong-bg.png"
       }
     },
     {
@@ -62,7 +66,8 @@
       "state": "idle",
       "metadata": {
         "system_default": true,
-        "display_only": true
+        "display_only": true,
+        "background_ref": "/souls/backgrounds/xuannv-bg.png"
       }
     }
   ],

@@ -2,29 +2,136 @@
   <summary>Skill registry snapshot for admin display. Runtime prompts should inject only the selected active skill.</summary>
   <skill name="PDF 阅读分析">
     <description>用于本地 PDF 的整篇阅读、章节定位和页级问答，适合回答“这份文档讲什么”“这一部分讲什么”“第几页写了什么”等深读问题。</description>
-    <use_when>Use for reading local documents or PDFs, including whole-document, section-level, and page-level questions.</use_when>
-    <delegation_protocol>When the main agent delegates, ask for pdf_reading; pass query, path/active_pdf, page or section mode, follow-up constraints, and expected_output_contract. Return page/section anchors and extraction limits; if the task is knowledge-base lookup or data aggregation, report the better specialist.</delegation_protocol>
-    <return_protocol>Return summary, answer_candidate, page or section evidence_refs, artifact_refs if any, confidence, limitations, consumed_handles, and produced_handles. State OCR/extraction limits explicitly.</return_protocol>
-    <output_rule>Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol.</output_rule>
+    <use_when>- 用户点名某个 PDF、报告、白皮书、手册、论文。
+- 用户问“第几页讲了什么”“第二部分强调了什么”“这份文档核心观点是什么”。
+- 会话里已经有激活的 PDF 绑定，用户继续追问“这一页”“这一部分”“这份 PDF”。</use_when>
+    <delegation_protocol>当主 Agent 委派给你时，应明确说明：
+
+- `delegation_kind=pdf_reading`
+- 目标文件路径或文件句柄
+- 页码、章节、全文、摘要中的哪一种阅读粒度
+- 用户真正想要的产出形式
+- 是否允许跨页归纳，还是只允许局部阅读
+
+主 Agent 应尽量把问题写成“请阅读什么、关注什么、输出什么”，例如：
+
+
+
+主 Agent 传入的 `input_payload` 应尽量包含：
+
+- `query`：当前用户真正问的问题，不要只写“继续看”。
+- `path` 或 `active_pdf`：目标 PDF 路径或句柄。
+- `mode`：`page`、`section` 或 `document`。
+- `page` / `pages` / `section`：如果用户限定了页码或章节，要显式传入。
+- `followup_constraint_policy`：如果是续接任务，要说明是否禁止切换文档或扩大范围。
+- `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations` 和 `confidence`。
+
+如果主 Agent 给你的输入里同时出现 PDF 与表格/数据集约束，你应优先检查当前任务是不是被错派。只要核心问题是“按部门/前五/全表/汇总/统计”，就应在限制中提示应改派 `structured-data-analysis`，不要把数据问题硬读成 PDF 问题。</delegation_protocol>
+    <return_protocol>你返回给主 Agent 的结果应包括：
+
+- `summary`：对当前问题的直接回答
+- `evidence_refs`：页码、章节或文档锚点
+- `artifact_refs`：如有 OCR 产物或分析产物，提供引用
+- `limitations`：抽取噪声、页码缺失、图表难读等限制
+- `followup_questions`：只有在必须补读时才提出
+- `consumed_handles`：你实际阅读的 PDF、页码、章节或结果句柄
+- `produced_handles`：可复用的阅读结果或摘读产物句柄
+
+你应始终把页码、章节或文档锚点写清楚，让主 Agent 能直接收口。</return_protocol>
+    <output_rule>- 页级问题优先保留定位感，说明是基于哪一页或哪一部分。
+- 总览问题优先给摘要，再给重要章节或结论。
+- 有明显 OCR 噪声或抽取不完整时，要提示不确定性。
+- 遇到图表、附录、脚注等边缘内容，不要把局部细节误讲成全文中心。
+- 组织结果时优先用“结论 / 页码或章节 / 关键内容 / 限制”四段式。
+- 如果用户要行动建议，要把建议和文档原意分开写，避免把建议伪装成原文结论。
+- 如果是一页只够支撑局部判断，就明确说这是局部判断，不要冒充全文结论。</output_rule>
   </skill>
   <skill name="知识库问答">
     <description>面向本地知识库、FAQ 和内部资料的检索问答工作流，适合做基于现有材料的事实确认、规则解释和可追溯回答。</description>
-    <use_when>Use for local knowledge-base lookup, factual explanation, and questions that should be answered from local materials.</use_when>
-    <delegation_protocol>When the main agent delegates, ask for evidence_lookup; pass query, exact answer scope, known knowledge-base anchors, follow-up constraints, and expected_output_contract. If the task is actually PDF reading, dataset analysis, or current web research, return a limitation naming the better specialist instead of expanding scope.</delegation_protocol>
-    <return_protocol>Return summary, answer_candidate, evidence_refs, artifact_refs if any, confidence, limitations, consumed_handles, and produced_handles. Use conclusion/evidence/limitations wording and do not mention internal tool names.</return_protocol>
-    <output_rule>Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol.</output_rule>
+    <use_when>- 用户明确提到知识库、本地资料、内部文档、FAQ、帮助中心、规则说明。
+- 问题本质上是在确认一个事实、解释一个规则、核对一个产品能力、说明一个常见故障原因。
+- 回答需要“根据现有材料来讲”，而不是依赖最新外部信息或临时计算。</use_when>
+    <delegation_protocol>当主 Agent 需要你执行检索时，应把任务写成“可直接执行”的委派说明，而不是笼统地说“查一下”。
+
+主 Agent 应传入：
+
+- `delegation_kind=evidence_lookup`
+- 用户原问题
+- 期望回答范围
+- 已知知识库锚点或文档线索
+- 若有，当前绑定的资料名、主题词、路径线索或 follow-up 约束
+- `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations` 和 `confidence`
+
+适合的主 Agent 指令风格：
+
+
+
+如果用户的问题其实是 PDF 页级阅读、表格统计或最新外部信息，你应明确回传“这不是知识库检索的最佳入口”，并提示主 Agent 改派对应技能。</delegation_protocol>
+    <return_protocol>你返回给主 Agent 的结果应保持稳定结构：
+
+- `summary`：一句话结论
+- `evidence_refs`：可引用的证据线索
+- `artifact_refs`：如有，可回传产物引用
+- `limitations`：证据不足、覆盖范围有限、索引不全等限制
+- `followup_questions`：只有在必须补充上下文时才提出
+- `consumed_handles`：你实际使用的知识库、文档或检索锚点
+- `produced_handles`：如生成了可复用结果，回传结果句柄
+
+回传内容应满足：
+
+- 先结论，后证据
+- 证据不足就直接说不足，不要编造补全
+- 不暴露内部工具名、路由名、协议名
+- 如果只能给出近似判断，要明确标注不确定性
+- 如果判断出任务不属于知识库检索，应在 `limitations` 中写明推荐的能力域，例如 `requires_pdf_reading` 或 `requires_structured_data_analysis`</return_protocol>
+    <output_rule>- 结论优先，不要先铺陈检索过程。
+- 尽量保留来源感，比如“根据知识库说明”或“从现有资料看”。
+- 有冲突证据时，不要强行合并，要说明冲突点。
+- 没有足够依据时，不要补齐想象内容。
+- 组织结果时优先用“结论 / 依据 / 限制 / 下一步”四段式。
+- 如果能给业务语言翻译，就把术语翻译成业务能懂的话，但不要丢掉证据锚点。
+- 如果证据分散，先合并成一个清楚判断，再列出最关键的两三条证据，不要堆片段。</output_rule>
   </skill>
   <skill name="Skill 创建顾问">
     <description>用于创建、改写和审查能力系统 Skill，帮助把用户意图整理成清晰的能力边界、触发条件、执行准则和模型可见提示。</description>
-    <delegation_protocol>When the main agent delegates, ask for capability_design or skill_update; pass the target use case, expected trigger phrases, execution boundary, required tools, and whether the skill must coordinate with sub-agents. If the request is only a wording polish, keep scope narrow and avoid inventing new behavior.</delegation_protocol>
-    <return_protocol>Return a concrete skill draft or review notes with three parts: boundary, prompt structure, and validation gaps. Clearly separate what should be changed in metadata, what should be changed in the body, and what should remain untouched. If the skill is too broad, say how to split it.</return_protocol>
-    <output_rule>Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol.</output_rule>
+    <use_when>当用户要新增、改写、审查或拆分 Skill 时使用；重点处理能力边界、触发条件、依赖 operation、正文是否面向 Agent 执行、以及输出协议是否稳定。</use_when>
+    <return_protocol>返回 Skill 草案或审查意见时，分清 metadata、prompt/body、requires_operations、requires_capabilities、适用场景、不适用场景、验证缺口；如果能力过宽，直接给出拆分建议。</return_protocol>
+    <output_rule>先给可执行结论，再给需要修改的具体字段和正文片段；不要把 Skill 写成开发说明，不要编造不存在的工具或权限。</output_rule>
   </skill>
   <skill name="结构化数据分析">
     <description>用于本地 Excel、CSV、JSON 等结构化数据的可计算分析，适合筛选、排序、分组汇总、Top N、极值记录和结构检查。</description>
-    <use_when>Use for structured data questions such as filtering, ranking, grouping, summary statistics, and record lookup.</use_when>
-    <delegation_protocol>When the main agent delegates, ask for table_analysis; pass query, path/active_dataset, required columns, filter/grouping/ranking criteria, active result/subset handles, follow-up constraint policy, and expected_output_contract.</delegation_protocol>
-    <return_protocol>Return summary, answer_candidate, calculation evidence_refs, artifact_refs if any, confidence, limitations, consumed_handles, and produced_handles. State field, sheet, or subset limits explicitly.</return_protocol>
-    <output_rule>Directly answer the user-facing task. Do not describe internal tool calls, routing policy, or protocol.</output_rule>
+    <use_when>- 用户提到 Excel、CSV、JSON、表格、数据库导出、库存表、订单表、员工表。
+- 用户问的是“前五 / 最高 / 最低 / 按地区汇总 / 哪些符合条件 / 一共有多少 / 某类记录有哪些”。
+- 会话里已经绑定了一个数据集，用户继续追问“按仓库展开一下”“把前五列出来”“再按地区看一下”。</use_when>
+    <delegation_protocol>当主 Agent 委派给你时，应明确传入：
+
+- `delegation_kind=table_analysis`
+- `query`：当前用户真正要求的计算或汇总问题
+- `path` 或 `active_dataset`：目标数据集路径或句柄
+- 筛选、分组、排序、Top N、字段口径等约束
+- 如果是 follow-up，传入 `active_result_handle_id`、`active_subset_handle_id`、`followup_target_refs`
+- 如果用户说“这些人 / 这前五名 / 不要扩展回全表”，必须传入 `followup_constraint_policy=result_subset_only_do_not_expand_to_full_object`
+- `expected_output_contract`：要求回传 `summary`、`answer_candidate`、`evidence_refs`、`limitations`、`confidence`
+
+适合的主 Agent 指令风格：
+
+
+
+如果主 Agent 给你的输入里同时出现 PDF、报告页码或知识库检索要求，你应先判断是否被错派。核心问题是文档页级阅读时，应提示改派 `pdf-analysis`；核心问题是资料事实确认时，应提示改派 `rag-skill`。</delegation_protocol>
+    <return_protocol>你返回给主 Agent 的结果应包括：
+
+- `summary`：一句话说明计算结论。
+- `answer_candidate`：可直接收口的中文答案草稿。
+- `evidence_refs`：相关行、聚合结果、字段或结果句柄。
+- `limitations`：字段缺失、口径不明、数据不完整、只能基于子集等限制。
+- `consumed_handles`：实际使用的数据集、结果子集或结果句柄。
+- `produced_handles`：新生成的分析结果、聚合表或摘要句柄。</return_protocol>
+    <output_rule>- 先给结果，再补充筛选条件、分组逻辑或关键数字。
+- 如果问题有歧义，要指出歧义点，例如时间范围、字段口径、排序依据。
+- 对 Top N、极值、汇总类问题，尽量让结果可比、可核对。
+- 如果数据不完整、字段不明确或绑定数据集不对，要明确说明。
+- 组织结果时优先用“结论 / 口径 / 结果表 / 注意事项”四段式。
+- 如果字段名不直观，要把计算口径翻译成业务语言再给出。
+- 如果用户只要一个答案，就别把完整表格铺满；保留最相关的几项和可核对的口径即可。</output_rule>
   </skill>
 </skills>

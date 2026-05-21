@@ -1,4 +1,4 @@
-import { Cable, GitBranch, Layers3, Plus, RotateCw } from "lucide-react";
+import { GitBranch, Layers3, Plus, RotateCw } from "lucide-react";
 
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import { TaskGraphContractBindingInspector } from "./TaskGraphContractBindingInspector";
@@ -24,7 +24,6 @@ function stringValue(value: unknown, fallback = "") {
 
 export function TaskGraphRootInspector({
   activeGraphNodes,
-  addOverlayPortEdge,
   addTimelineBlock,
   agentOptions,
   contractOptions,
@@ -41,7 +40,6 @@ export function TaskGraphRootInspector({
   updateTaskGraphRuntimePolicy,
 }: {
   activeGraphNodes: Array<Record<string, unknown>>;
-  addOverlayPortEdge: () => void;
   addTimelineBlock: () => void;
   agentOptions: string[];
   contractOptions: string[];
@@ -281,10 +279,10 @@ export function TaskGraphRootInspector({
             <Layers3 aria-hidden="true" size={14} />
             <span>新增图模块来源</span>
           </button>
-          <button disabled={!unitsCount} onClick={addOverlayPortEdge} type="button">
-            <Cable aria-hidden="true" size={14} />
-            <span>新增显式端口边</span>
-          </button>
+        </div>
+        <div className="task-graph-note">
+          <strong>端口边由 canonical edges 派生</strong>
+          <span>新增运行边请回到 Graph Builder；metadata 覆盖边只作为迁移诊断保留。</span>
         </div>
       </TaskGraphInspectorSection>
     </>

@@ -11,6 +11,13 @@ DEFAULT_SKILL_OUTPUT_RULE = (
 VALID_ACTIVATION_POLICIES = {"model_visible", "manual", "disabled"}
 VALID_CONTEXT_MODES = {"inline", "isolated", "summary_only"}
 VALID_ROUTE_AUTHORITIES = {"candidate_only", "preferred", "required"}
+KNOWN_SKILL_ROUTE_OPERATION_MAP = {
+    "rag": "op.mcp_retrieval",
+    "retrieval": "op.mcp_retrieval",
+    "pdf": "op.mcp_pdf",
+    "structured_data": "op.mcp_structured_data",
+    "data": "op.mcp_structured_data",
+}
 
 
 def normalize_string(value: Any, default: str = "") -> str:
@@ -67,7 +74,7 @@ class SkillRuntimeContract:
     supported_task_kinds: list[str] = field(default_factory=list)
     supported_source_kinds: list[str] = field(default_factory=list)
     capability_tags: list[str] = field(default_factory=list)
-    preferred_route: str = "rag"
+    preferred_route: str = ""
     forbidden_routes: list[str] = field(default_factory=list)
     routing_hints: list[str] = field(default_factory=list)
     examples: list[str] = field(default_factory=list)
@@ -91,7 +98,7 @@ class SkillRuntimeContract:
             supported_task_kinds=normalize_string_list(self.supported_task_kinds),
             supported_source_kinds=normalize_string_list(self.supported_source_kinds),
             capability_tags=normalize_string_list(self.capability_tags),
-            preferred_route=normalize_string(self.preferred_route, "rag") or "rag",
+            preferred_route=normalize_string(self.preferred_route),
             forbidden_routes=normalize_string_list(self.forbidden_routes),
             routing_hints=normalize_string_list(self.routing_hints),
             examples=normalize_string_list(self.examples),
@@ -119,6 +126,10 @@ class SkillRuntimeContract:
             errors.append(f"context_mode must be one of {sorted(VALID_CONTEXT_MODES)}")
         if self.route_authority not in VALID_ROUTE_AUTHORITIES:
             errors.append(f"route_authority must be one of {sorted(VALID_ROUTE_AUTHORITIES)}")
+        if self.preferred_route and self.preferred_route in KNOWN_SKILL_ROUTE_OPERATION_MAP:
+            operation_id = KNOWN_SKILL_ROUTE_OPERATION_MAP[self.preferred_route]
+            if operation_id not in set(self.requires_operations):
+                errors.append(f"preferred_route {self.preferred_route} requires explicit {operation_id} in requires_operations")
         return errors
 
     def to_dict(self) -> dict[str, Any]:
@@ -141,6 +152,7 @@ class SkillContract:
         use_when: str = "",
         delegation_protocol: str = "",
         return_protocol: str = "",
+        output_rule: str = "",
     ) -> "SkillContract":
         normalized = runtime.normalized()
         prompt = SkillPromptContract(
@@ -150,6 +162,7 @@ class SkillContract:
             use_when=use_when,
             delegation_protocol=delegation_protocol,
             return_protocol=return_protocol,
+            output_rule=normalize_string(output_rule, DEFAULT_SKILL_OUTPUT_RULE) or DEFAULT_SKILL_OUTPUT_RULE,
         )
         return cls(
             runtime=normalized,
@@ -171,7 +184,7 @@ class SkillContract:
             supported_task_kinds=normalize_string_list(runtime_payload.get("supported_task_kinds")),
             supported_source_kinds=normalize_string_list(runtime_payload.get("supported_source_kinds")),
             capability_tags=normalize_string_list(runtime_payload.get("capability_tags")),
-            preferred_route=normalize_string(runtime_payload.get("preferred_route"), "rag") or "rag",
+            preferred_route=normalize_string(runtime_payload.get("preferred_route")),
             forbidden_routes=normalize_string_list(runtime_payload.get("forbidden_routes")),
             routing_hints=normalize_string_list(runtime_payload.get("routing_hints")),
             examples=normalize_string_list(runtime_payload.get("examples")),

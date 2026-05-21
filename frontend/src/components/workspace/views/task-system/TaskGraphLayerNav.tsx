@@ -29,7 +29,7 @@ export type TaskGraphStudioLayer = {
   id: TaskGraphStudioLayerId;
   title: string;
   description: string;
-  category: "foundation" | "structure" | "runtime" | "quality";
+  category: "builder" | "execution" | "resources" | "validation";
   metric: string;
   state: "ready" | "draft" | "blocked";
   icon: LucideIcon;
@@ -39,54 +39,54 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
   {
     id: "blueprint",
     title: "图级配置",
-    description: "身份、入口、出口、运行模式",
-    category: "foundation",
+    description: "身份、入口、出口、全局策略",
+    category: "builder",
     metric: "图级",
     state: "ready",
     icon: Boxes,
   },
   {
-    id: "agents",
-    title: "节点装配",
-    description: "执行器、Agent、Projection 引用",
-    category: "foundation",
-    metric: "装配",
-    state: "draft",
-    icon: Network,
-  },
-  {
     id: "topology",
-    title: "快速拓扑",
-    description: "节点、边和快捷结构",
-    category: "structure",
-    metric: "画布",
+    title: "Graph Builder",
+    description: "唯一可运行结构：节点、边、入口、出口",
+    category: "builder",
+    metric: "主编辑",
     state: "ready",
     icon: GitBranch,
   },
   {
     id: "modules",
-    title: "图工作台",
-    description: "图层、画布、对象编辑台",
-    category: "structure",
-    metric: "图化",
+    title: "Compiled View",
+    description: "标准视图、端口、图模块展开诊断",
+    category: "validation",
+    metric: "只读/诊断",
     state: "ready",
     icon: Boxes,
   },
   {
+    id: "agents",
+    title: "执行者",
+    description: "Agent、Projection、运行档案",
+    category: "execution",
+    metric: "装配",
+    state: "draft",
+    icon: Network,
+  },
+  {
     id: "responsibility",
-    title: "节点认知包",
-    description: "身份、输入包、输出交接",
-    category: "structure",
+    title: "节点契约",
+    description: "输入包、输出契约、Prompt 使用边界",
+    category: "execution",
     metric: "语义",
     state: "draft",
     icon: Route,
   },
   {
     id: "timeline",
-    title: "生命周期",
-    description: "运行语义、阶段、循环、坐标",
-    category: "runtime",
-    metric: "生命周期",
+    title: "生命周期诊断",
+    description: "阶段、循环、坐标，只作观察与迁移",
+    category: "validation",
+    metric: "诊断",
     state: "draft",
     icon: PlayCircle,
   },
@@ -94,7 +94,7 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     id: "memory",
     title: "资源流",
     description: "仓库、读写边、Snapshot",
-    category: "runtime",
+    category: "resources",
     metric: "资源",
     state: "draft",
     icon: BrainCircuit,
@@ -103,7 +103,7 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     id: "risk",
     title: "风险治理",
     description: "线程账本、问题台账、边界风险",
-    category: "quality",
+    category: "resources",
     metric: "治理",
     state: "draft",
     icon: ShieldAlert,
@@ -112,7 +112,7 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     id: "contracts",
     title: "契约与质量门",
     description: "输入输出、载荷、审核标准",
-    category: "quality",
+    category: "validation",
     metric: "质量",
     state: "draft",
     icon: FileCheck2,
@@ -121,7 +121,7 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
     id: "publish",
     title: "预检与运行",
     description: "保存、预检、发布、监控",
-    category: "quality",
+    category: "validation",
     metric: "闭环",
     state: "draft",
     icon: CheckCircle2,
@@ -133,10 +133,10 @@ const LAYER_GROUPS: Array<{
   title: string;
   description: string;
 }> = [
-  { id: "foundation", title: "基础", description: "图身份、节点装配、运行入口" },
-  { id: "structure", title: "结构", description: "执行拓扑和语义交接" },
-  { id: "runtime", title: "运行", description: "时序、循环、记忆、产物" },
-  { id: "quality", title: "质量", description: "契约、预检、发布" },
+  { id: "builder", title: "主图", description: "canonical 草稿结构" },
+  { id: "execution", title: "执行", description: "节点身份与执行契约" },
+  { id: "resources", title: "资源", description: "记忆、产物、治理账本" },
+  { id: "validation", title: "验证", description: "编译视图、生命周期、发布" },
 ];
 
 export function TaskGraphLayerNav({

@@ -446,6 +446,7 @@ def _checkpoint_summary(checkpoint: Any) -> dict[str, Any]:
 def _loop_state_summary(loop_state: dict[str, Any]) -> dict[str, Any]:
     diagnostics = dict(loop_state.get("diagnostics") or {})
     stage_request = dict(diagnostics.get("stage_execution_request") or {})
+    pending_approval_state = dict(loop_state.get("pending_approval_state") or {})
     return {
         "task_run_id": str(loop_state.get("task_run_id") or ""),
         "status": str(loop_state.get("status") or ""),
@@ -458,6 +459,7 @@ def _loop_state_summary(loop_state: dict[str, Any]) -> dict[str, Any]:
         "runtime_lane": str(loop_state.get("runtime_lane") or ""),
         "projection_ref": str(loop_state.get("projection_ref") or ""),
         "result_ref_count": len(list(loop_state.get("result_refs") or [])),
+        "pending_approval_state": pending_approval_state,
         "diagnostics": {
             "task_graph_run": bool(diagnostics.get("task_graph_run") is True),
             "task_graph_id": str(diagnostics.get("task_graph_id") or ""),
@@ -466,6 +468,7 @@ def _loop_state_summary(loop_state: dict[str, Any]) -> dict[str, Any]:
             ),
             "langgraph_checkpoint_ref": str(diagnostics.get("langgraph_checkpoint_ref") or ""),
             "active_stage_id": str(stage_request.get("stage_id") or ""),
+            "pending_approval": bool(str(pending_approval_state.get("status") or "") == "pending"),
         },
         "authority": str(loop_state.get("authority") or "runtime_state"),
     }
@@ -1891,4 +1894,3 @@ def _message_summaries(value: Any) -> list[dict[str, Any]]:
             }
         )
     return messages
-

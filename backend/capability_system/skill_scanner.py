@@ -14,9 +14,16 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from capability_system.paths import CapabilitySystemPaths
-from capability_system.skill_contracts import SkillContract, SkillPromptContract, SkillRuntimeContract
+from capability_system.skill_contracts import (
+    DEFAULT_SKILL_OUTPUT_RULE,
+    SkillContract,
+    SkillPromptContract,
+    SkillRuntimeContract,
+)
 
 FRONTMATTER_PATTERN = re.compile(r"^---\n(.*?)\n---\n?", re.DOTALL)
+SECTION_HEADING_PATTERN = re.compile(r"^#{2,3}\s+(.+?)\s*$", re.MULTILINE)
+FENCED_CODE_PATTERN = re.compile(r"```.*?```", re.DOTALL)
 
 
 @dataclass
@@ -29,7 +36,7 @@ class SkillRecord:
     supported_task_kinds: list[str] = field(default_factory=list)
     supported_source_kinds: list[str] = field(default_factory=list)
     capability_tags: list[str] = field(default_factory=list)
-    preferred_route: str = "rag"
+    preferred_route: str = ""
     forbidden_routes: list[str] = field(default_factory=list)
     routing_hints: list[str] = field(default_factory=list)
     examples: list[str] = field(default_factory=list)
@@ -39,6 +46,10 @@ class SkillRecord:
     reference_paths: list[str] = field(default_factory=list)
     requires_operations: list[str] = field(default_factory=list)
     requires_capabilities: list[str] = field(default_factory=list)
+    prompt_use_when: str = ""
+    prompt_delegation_protocol: str = ""
+    prompt_return_protocol: str = ""
+    prompt_output_rule: str = ""
     schema_version: int = 3
     validation_errors: list[str] = field(default_factory=list)
 
@@ -64,12 +75,17 @@ def _record_from_contract(contract: SkillContract) -> SkillRecord:
         reference_paths=list(runtime.reference_paths),
         requires_operations=list(runtime.requires_operations),
         requires_capabilities=list(runtime.requires_capabilities),
+        prompt_use_when=contract.prompt.use_when,
+        prompt_delegation_protocol=contract.prompt.delegation_protocol,
+        prompt_return_protocol=contract.prompt.return_protocol,
+        prompt_output_rule=contract.prompt.output_rule,
         validation_errors=list(contract.validation_errors),
     )
 
 
 def _contract_from_record(record: SkillRecord, *, body: str = "") -> SkillContract:
-    return SkillContract.from_runtime(
+    prompt = _prompt_payload_from_record(record, body)
+    contract = SkillContract.from_runtime(
         SkillRuntimeContract(
             name=record.name,
             title=record.title,
@@ -91,10 +107,12 @@ def _contract_from_record(record: SkillRecord, *, body: str = "") -> SkillContra
             requires_capabilities=record.requires_capabilities,
         ),
         body=body,
-        use_when=_build_skill_use_when(record),
-        delegation_protocol=_build_skill_delegation_protocol(record),
-        return_protocol=_build_skill_return_protocol(record),
+        use_when=prompt.get("use_when", ""),
+        delegation_protocol=prompt.get("delegation_protocol", ""),
+        return_protocol=prompt.get("return_protocol", ""),
+        output_rule=prompt.get("output_rule", ""),
     )
+    return contract
 
 
 def _parse_frontmatter(text: str) -> dict[str, Any]:
@@ -172,6 +190,9 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
         meta = _parse_frontmatter(text)
         body = _read_skill_body_without_frontmatter(text)
         metadata = meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {}
+        prompt_meta = meta.get("prompt") if isinstance(meta.get("prompt"), dict) else meta.get("prompt_view")
+        if not isinstance(prompt_meta, dict):
+            prompt_meta = {}
         skill_dir = skill_file.parent
 
         title = (
@@ -191,7 +212,7 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
             supported_task_kinds=_coerce_list(_lookup(meta, "metadata.supported_task_kinds")),
             supported_source_kinds=_coerce_list(_lookup(meta, "metadata.supported_source_kinds")),
             capability_tags=_coerce_list(_lookup(meta, "metadata.capability_tags")),
-            preferred_route=_coerce_str(_lookup(meta, "metadata.preferred_route"), "rag") or "rag",
+            preferred_route=_coerce_str(_lookup(meta, "metadata.preferred_route")),
             forbidden_routes=_coerce_list(_lookup(meta, "metadata.forbidden_routes")),
             routing_hints=_coerce_list(_lookup(meta, "metadata.routing_hints")),
             examples=_coerce_list(_lookup(meta, "metadata.examples")),
@@ -201,6 +222,10 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
             reference_paths=_collect_reference_paths(base_dir, skill_dir),
             requires_operations=_coerce_list(_lookup(meta, "metadata.requires_operations")),
             requires_capabilities=_coerce_list(_lookup(meta, "metadata.requires_capabilities")),
+            prompt_use_when=_coerce_str(prompt_meta.get("use_when")),
+            prompt_delegation_protocol=_coerce_str(prompt_meta.get("delegation_protocol")),
+            prompt_return_protocol=_coerce_str(prompt_meta.get("return_protocol")),
+            prompt_output_rule=_coerce_str(prompt_meta.get("output_rule")),
         )
         records.append(_record_from_contract(_contract_from_record(record, body=body)))
     return records
@@ -231,85 +256,79 @@ def build_snapshot(skills: list[SkillRecord]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _build_skill_use_when(skill: SkillRecord) -> str:
-    source_kinds = set(skill.supported_source_kinds)
-    modalities = set(skill.supported_modalities)
-    task_kinds = set(skill.supported_task_kinds)
-
-    if "knowledge_base" in source_kinds:
-        return "Use for local knowledge-base lookup, factual explanation, and questions that should be answered from local materials."
-    if "document" in source_kinds or "pdf" in modalities or "document" in modalities:
-        return "Use for reading local documents or PDFs, including whole-document, section-level, and page-level questions."
-    if "dataset" in source_kinds or modalities & {"table", "spreadsheet", "csv", "json"}:
-        return "Use for structured data questions such as filtering, ranking, grouping, summary statistics, and record lookup."
-    if "external_web" in source_kinds or modalities & {"realtime", "web", "finance"}:
-        return "Use when the user needs current external information, real-time lookup, or official web sources."
-    if "workflow" in source_kinds or "workflow_lesson_capture" in task_kinds:
-        return "Use for workflow reflection and reusable lesson capture after a failed-then-corrected attempt."
-    return ""
-
-
-def _build_skill_delegation_protocol(skill: SkillRecord) -> str:
-    if skill.name == "skill-creator":
-        return (
-            "When the main agent delegates, ask for capability_design or skill_update; pass the target use case, "
-            "expected trigger phrases, execution boundary, required tools, and whether the skill must coordinate with "
-            "sub-agents. If the request is only a wording polish, keep scope narrow and avoid inventing new behavior."
-        )
-    if skill.name == "rag-skill":
-        return (
-            "When the main agent delegates, ask for evidence_lookup; pass query, exact answer scope, known knowledge-base "
-            "anchors, follow-up constraints, and expected_output_contract. If the task is actually PDF reading, dataset "
-            "analysis, or current web research, return a limitation naming the better specialist instead of expanding scope."
-        )
-    if skill.name == "pdf-analysis":
-        return (
-            "When the main agent delegates, ask for pdf_reading; pass query, path/active_pdf, page or section mode, "
-            "follow-up constraints, and expected_output_contract. Return page/section anchors and extraction limits; if "
-            "the task is knowledge-base lookup or data aggregation, report the better specialist."
-        )
-    if skill.name == "structured-data-analysis":
-        return (
-            "When the main agent delegates, ask for table_analysis; pass query, path/active_dataset, required columns, "
-            "filter/grouping/ranking criteria, active result/subset handles, follow-up constraint policy, and expected_output_contract."
-        )
-    return ""
-
-
-def _build_skill_return_protocol(skill: SkillRecord) -> str:
-    if skill.name == "skill-creator":
-        return (
-            "Return a concrete skill draft or review notes with three parts: boundary, prompt structure, and validation "
-            "gaps. Clearly separate what should be changed in metadata, what should be changed in the body, and what should "
-            "remain untouched. If the skill is too broad, say how to split it."
-        )
-    if skill.name == "rag-skill":
-        return (
-            "Return summary, answer_candidate, evidence_refs, artifact_refs if any, confidence, limitations, consumed_handles, "
-            "and produced_handles. Use conclusion/evidence/limitations wording and do not mention internal tool names."
-        )
-    if skill.name == "pdf-analysis":
-        return (
-            "Return summary, answer_candidate, page or section evidence_refs, artifact_refs if any, confidence, limitations, "
-            "consumed_handles, and produced_handles. State OCR/extraction limits explicitly."
-        )
-    if skill.name == "structured-data-analysis":
-        return (
-            "Return summary, answer_candidate, calculation evidence_refs, artifact_refs if any, confidence, limitations, "
-            "consumed_handles, and produced_handles. State field, sheet, or subset limits explicitly."
-        )
-    return ""
-
-
 def _build_prompt_view(skill: SkillRecord) -> SkillPromptContract:
+    prompt = _prompt_payload_from_record(skill, "")
     return SkillPromptContract(
         name=skill.name,
         title=skill.title,
         capability=skill.description,
-        use_when=_build_skill_use_when(skill),
-        delegation_protocol=_build_skill_delegation_protocol(skill),
-        return_protocol=_build_skill_return_protocol(skill),
+        use_when=prompt.get("use_when", ""),
+        delegation_protocol=prompt.get("delegation_protocol", ""),
+        return_protocol=prompt.get("return_protocol", ""),
+        output_rule=prompt.get("output_rule", "") or DEFAULT_SKILL_OUTPUT_RULE,
     )
+
+
+def _prompt_payload_from_record(record: SkillRecord, body: str) -> dict[str, str]:
+    cleaned_body = _strip_fenced_code(body)
+    sections = _extract_markdown_sections(cleaned_body)
+    return {
+        "use_when": record.prompt_use_when
+        or _first_section_text(sections, ("适用场景", "什么时候使用", "use when"))
+        or _first_labeled_block(
+            cleaned_body,
+            ("适合被唤起的情况", "典型请求包括"),
+            ("不适合被唤起的情况", "## ", "### ", "执行目标", "工作原则"),
+        ),
+        "delegation_protocol": record.prompt_delegation_protocol or _first_section_text(sections, ("委派协议", "delegation protocol")),
+        "return_protocol": record.prompt_return_protocol or _first_section_text(sections, ("回传协议", "return protocol", "输出结构", "输出要求")),
+        "output_rule": record.prompt_output_rule or _first_section_text(sections, ("回答要求", "输出要求", "output rule")),
+    }
+
+
+def _extract_markdown_sections(body: str) -> dict[str, str]:
+    matches = list(SECTION_HEADING_PATTERN.finditer(body or ""))
+    sections: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        heading = match.group(1).strip().lower()
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
+        text = body[start:end].strip()
+        if heading and text:
+            sections[heading] = text
+    return sections
+
+
+def _strip_fenced_code(body: str) -> str:
+    return FENCED_CODE_PATTERN.sub("", body or "")
+
+
+def _first_section_text(sections: dict[str, str], names: tuple[str, ...]) -> str:
+    for name in names:
+        target = name.strip().lower()
+        for heading, text in sections.items():
+            if target == heading or target in heading:
+                return text.strip()
+    return ""
+
+
+def _first_labeled_block(body: str, start_labels: tuple[str, ...], stop_labels: tuple[str, ...]) -> str:
+    lines = (body or "").splitlines()
+    capturing = False
+    collected: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not capturing:
+            if any(label in stripped for label in start_labels):
+                capturing = True
+            continue
+        if not stripped and not collected:
+            continue
+        if any(stripped.startswith(label) for label in stop_labels):
+            break
+        if stripped:
+            collected.append(stripped)
+    return "\n".join(collected).strip()
 
 
 def build_registry(skills: list[SkillRecord]) -> dict[str, Any]:

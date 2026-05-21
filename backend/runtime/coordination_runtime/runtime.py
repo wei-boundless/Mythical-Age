@@ -82,6 +82,10 @@ from ..shared.models import AgentHandoffEnvelope, CoordinationRun
 from ..contracts.runtime_assembly_builder import build_node_runtime_assembly
 from orchestration.artifact_policy_view import render_artifact_policy_instructions
 from ..execution.node_execution_request import NodeExecutionRequest, NodeResultReadyEvent
+from ..execution.graph_module_runtime import (
+    build_graph_module_runtime_handle_from_contract,
+    graph_module_stage_is_enabled,
+)
 from ..graph_runtime.batch_runtime import (
     apply_batch_to_pending_inputs,
     attach_batch_execution_request,
@@ -3340,15 +3344,7 @@ def _contract_payload(contract: CoordinationStageContract, *, topology_nodes: li
 
 
 def _is_graph_module_stage(contract: dict[str, Any]) -> bool:
-    metadata = dict(contract.get("metadata") or {}) if isinstance(contract.get("metadata"), dict) else {}
-    return (
-        str(contract.get("node_type") or "").strip() == "graph_module"
-        or bool(contract.get("graph_module") is True)
-        or bool(metadata.get("graph_module") is True)
-        or bool(contract.get("linked_graph_id"))
-        or bool(metadata.get("linked_graph_id"))
-        or str(metadata.get("execution_mode") or "").strip() == "graph_module_run"
-    )
+    return graph_module_stage_is_enabled(contract)
 
 
 def _graph_module_runtime_handle_from_contract(
@@ -3361,103 +3357,18 @@ def _graph_module_runtime_handle_from_contract(
     dispatch_context: dict[str, Any],
     standard_input_package: dict[str, Any],
 ) -> dict[str, Any]:
-    runtime_node = _runtime_node_payload(state, node_id)
-    metadata = dict(runtime_node.get("metadata") or {})
-    contract_metadata = dict(contract.get("metadata") or {}) if isinstance(contract.get("metadata"), dict) else {}
-    graph_module_plan = dict(
-        contract.get("graph_module_runtime_plan")
-        or contract_metadata.get("graph_module_runtime_plan")
-        or metadata.get("graph_module_runtime_plan")
-        or {}
+    return build_graph_module_runtime_handle_from_contract(
+        importing_graph_id=_graph_id_from_state(state),
+        importing_coordination_run_id=str(state.get("coordination_run_id") or ""),
+        importing_root_task_run_id=str(state.get("root_task_run_id") or ""),
+        stage_id=stage_id,
+        node_id=node_id,
+        contract=contract,
+        runtime_node=_runtime_node_payload(state, node_id),
+        explicit_inputs=explicit_inputs,
+        dispatch_context=dispatch_context,
+        standard_input_package=standard_input_package,
     )
-    linked_graph_id = str(
-        contract.get("linked_graph_id")
-        or contract_metadata.get("linked_graph_id")
-        or metadata.get("linked_graph_id")
-        or graph_module_plan.get("linked_graph_id")
-        or ""
-    ).strip()
-    graph_module_plan_id = str(
-        contract.get("graph_module_runtime_plan_id")
-        or contract_metadata.get("graph_module_runtime_plan_id")
-        or metadata.get("graph_module_runtime_plan_id")
-        or graph_module_plan.get("plan_id")
-        or ""
-    ).strip()
-    importing_graph_id = _graph_id_from_state(state) or str(graph_module_plan.get("importing_graph_id") or "")
-    seed = {
-        "importing_coordination_run_id": str(state.get("coordination_run_id") or ""),
-        "importing_stage_id": stage_id,
-        "node_id": node_id,
-        "linked_graph_id": linked_graph_id,
-        "dispatch_event_id": str(dispatch_context.get("dispatch_event_id") or ""),
-        "scope_path": list(dispatch_context.get("scope_path") or []),
-    }
-    return {
-        "authority": "orchestration.graph_module_runtime_handle",
-        "handle_id": f"graphmodrun:{_short_hash(seed)}",
-        "importing_graph_id": importing_graph_id,
-        "importing_coordination_run_id": str(state.get("coordination_run_id") or ""),
-        "importing_root_task_run_id": str(state.get("root_task_run_id") or ""),
-        "importing_stage_id": stage_id,
-        "importing_node_id": node_id,
-        "linked_graph_id": linked_graph_id,
-        "graph_module_runtime_plan_id": graph_module_plan_id,
-        "graph_module_runtime_plan": graph_module_plan,
-        "version_ref": str(
-            contract.get("version_ref")
-            or contract_metadata.get("version_ref")
-            or metadata.get("version_ref")
-            or graph_module_plan.get("version_ref")
-            or ""
-        ).strip(),
-        "handoff_contract_id": str(
-            contract.get("handoff_contract_id")
-            or contract_metadata.get("handoff_contract_id")
-            or metadata.get("handoff_contract_id")
-            or graph_module_plan.get("handoff_contract_id")
-            or ""
-        ).strip(),
-        "input_port_id": str(
-            contract.get("input_port_id")
-            or contract_metadata.get("input_port_id")
-            or metadata.get("input_port_id")
-            or graph_module_plan.get("input_port_id")
-            or "input.default"
-        ).strip() or "input.default",
-        "output_port_id": str(
-            contract.get("output_port_id")
-            or contract_metadata.get("output_port_id")
-            or metadata.get("output_port_id")
-            or graph_module_plan.get("output_port_id")
-            or "output.default"
-        ).strip() or "output.default",
-        "isolation_policy": str(
-            contract.get("isolation_policy")
-            or contract_metadata.get("isolation_policy")
-            or metadata.get("isolation_policy")
-            or graph_module_plan.get("isolation_policy")
-            or "isolated_per_graph_module_run"
-        ).strip() or "isolated_per_graph_module_run",
-        "visibility_policy": str(
-            contract.get("visibility_policy")
-            or contract_metadata.get("visibility_policy")
-            or metadata.get("visibility_policy")
-            or graph_module_plan.get("visibility_policy")
-            or "committed_only"
-        ).strip() or "committed_only",
-        "detach_policy": str(
-            contract.get("detach_policy")
-            or contract_metadata.get("detach_policy")
-            or metadata.get("detach_policy")
-            or graph_module_plan.get("detach_policy")
-            or "preserve_version_anchor"
-        ).strip() or "preserve_version_anchor",
-        "executor_policy": dict(contract.get("executor_policy") or metadata.get("executor_policy") or {}),
-        "explicit_inputs": dict(explicit_inputs or {}),
-        "standard_input_package": dict(standard_input_package or {}),
-        "dispatch_context": dict(dispatch_context or {}),
-    }
 
 
 

@@ -2057,7 +2057,10 @@ class _SequencedRegistry:
                 {"node_id": "b", "agent_id": "agent:0", "task_id": "task.test.b", "role": "participant", "phase_id": "phase.write", "sequence_index": 2},
                 {"node_id": "c", "agent_id": "agent:0", "task_id": "task.test.c", "role": "participant", "phase_id": "phase.write", "sequence_index": 3},
             ),
-            graph_edges=(),
+            graph_edges=(
+                {"edge_id": "a_b", "from": "a", "to": "b", "mode": "structured_handoff"},
+                {"edge_id": "b_c", "from": "b", "to": "c", "mode": "structured_handoff"},
+            ),
             metadata={
                 "stage_contracts": [
                     {"stage_id": "a", "task_ref": "task.test.a", "node_id": "a"},
@@ -2098,7 +2101,7 @@ class _SequencedRegistry:
         return list(self.tasks)
 
 
-def test_langgraph_coordination_runtime_uses_scheduler_sequence_gate(tmp_path) -> None:
+def test_langgraph_coordination_runtime_uses_explicit_edges_for_sequence(tmp_path) -> None:
     registry = _SequencedRegistry()
     state_index = RuntimeStateIndex(tmp_path)
     event_log = RuntimeEventLog(tmp_path)
@@ -2141,7 +2144,9 @@ def test_langgraph_coordination_runtime_uses_scheduler_sequence_gate(tmp_path) -
     assert result.state["blocked_nodes"] == ["c"]
     scheduler_state = dict(dict(result.state["diagnostics"]).get("task_graph_scheduler_state") or {})
     c_state = next(item for item in scheduler_state["node_states"] if item["node_id"] == "c")
-    assert "sequence_wait:2" in c_state["blocked_reasons"]
+    assert "upstream:b" in c_state["blocked_reasons"]
+    assert not any(str(reason).startswith("sequence_wait") for reason in c_state["blocked_reasons"])
+    assert scheduler_state["diagnostics"]["legacy_timing_gate_enabled"] is False
 
 
 def test_langgraph_coordination_runtime_blocks_when_required_input_missing(tmp_path) -> None:

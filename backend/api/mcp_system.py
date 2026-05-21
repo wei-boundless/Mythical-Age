@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from capability_system.mcp.client import ExternalMCPManager, ExternalMCPServerConfig
+from capability_system.mcp.client import ExternalMCPServerConfig
 from capability_system.mcp.management_service import MCPManagementService
 
 router = APIRouter()
@@ -35,11 +35,6 @@ class ExternalMCPToolCallRequest(BaseModel):
     arguments: dict[str, Any] = Field(default_factory=dict)
 
 
-def _manager() -> ExternalMCPManager:
-    runtime = require_runtime()
-    return ExternalMCPManager(runtime.base_dir, permission_mode=runtime.permission_service.current_mode())
-
-
 def _management_service() -> MCPManagementService:
     runtime = require_runtime()
     return MCPManagementService(runtime.base_dir, permission_mode=runtime.permission_service.current_mode())
@@ -66,71 +61,67 @@ def _request_to_config(payload: ExternalMCPServerRequest) -> ExternalMCPServerCo
     )
 
 
-@router.get("/mcp-system/catalog")
-async def mcp_system_catalog() -> dict[str, Any]:
-    return await _manager().build_catalog()
-
-
 @router.get("/mcp-system/management/catalog")
-async def mcp_management_catalog() -> dict[str, Any]:
+def mcp_management_catalog() -> dict[str, Any]:
     return _management_service().build_catalog()
 
 
+@router.put("/mcp-system/management/providers/external/servers/{server_id}")
+def upsert_external_mcp_management_server(server_id: str, payload: ExternalMCPServerRequest) -> dict[str, Any]:
+    config = _request_to_config(payload)
+    if config.server_id != server_id:
+        raise HTTPException(status_code=400, detail="server_id in path and payload must match")
+    try:
+        service = _management_service()
+        service.upsert_external_server(config)
+        return service.build_catalog()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown MCP provider") from exc
+
+
+@router.delete("/mcp-system/management/providers/external/servers/{server_id}")
+def delete_external_mcp_management_server(server_id: str) -> dict[str, Any]:
+    try:
+        service = _management_service()
+        service.delete_external_server(server_id)
+        return service.build_catalog()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown MCP provider") from exc
+
+
 @router.post("/mcp-system/management/providers/{provider_id}/servers/{server_id}/inspect")
-async def inspect_mcp_management_server(provider_id: str, server_id: str) -> dict[str, Any]:
+def inspect_mcp_management_server(provider_id: str, server_id: str) -> dict[str, Any]:
     try:
         return _management_service().inspect_server(provider_id, server_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown MCP provider or server") from exc
 
 
-@router.post("/mcp-system/servers")
-async def create_mcp_server(payload: ExternalMCPServerRequest) -> dict[str, Any]:
-    manager = _manager()
+@router.post("/mcp-system/management/providers/{provider_id}/servers/{server_id}/tools/{tool_name}/preview")
+def preview_mcp_management_tool(
+    provider_id: str,
+    server_id: str,
+    tool_name: str,
+    payload: ExternalMCPToolCallRequest,
+) -> dict[str, Any]:
     try:
-        manager.upsert_server(_request_to_config(payload))
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return await manager.build_catalog()
-
-
-@router.put("/mcp-system/servers/{server_id}")
-async def update_mcp_server(server_id: str, payload: ExternalMCPServerRequest) -> dict[str, Any]:
-    manager = _manager()
-    config = _request_to_config(payload)
-    if config.server_id != server_id:
-        raise HTTPException(status_code=400, detail="server_id in path and payload must match")
-    try:
-        manager.upsert_server(config)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return await manager.build_catalog()
-
-
-@router.delete("/mcp-system/servers/{server_id}")
-async def delete_mcp_server(server_id: str) -> dict[str, Any]:
-    manager = _manager()
-    try:
-        manager.delete_server(server_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return await manager.build_catalog()
-
-
-@router.post("/mcp-system/servers/{server_id}/inspect")
-async def inspect_mcp_server(server_id: str) -> dict[str, Any]:
-    manager = _manager()
-    try:
-        snapshot = await manager.inspect_server(server_id)
+        return _management_service().preview_permission(provider_id, server_id, tool_name, payload.arguments)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Unknown MCP server") from exc
-    return snapshot.to_dict()
+        raise HTTPException(status_code=404, detail="Unknown MCP provider, server, or tool") from exc
 
 
-@router.post("/mcp-system/servers/{server_id}/tools/{tool_name}/call")
-async def call_mcp_tool(server_id: str, tool_name: str, payload: ExternalMCPToolCallRequest) -> dict[str, Any]:
-    manager = _manager()
+@router.post("/mcp-system/management/providers/{provider_id}/servers/{server_id}/tools/{tool_name}/call")
+def call_mcp_management_tool(
+    provider_id: str,
+    server_id: str,
+    tool_name: str,
+    payload: ExternalMCPToolCallRequest,
+) -> dict[str, Any]:
     try:
-        return await manager.call_tool(server_id, tool_name, payload.arguments)
+        return _management_service().call_tool(provider_id, server_id, tool_name, payload.arguments)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Unknown MCP server") from exc
+        raise HTTPException(status_code=404, detail="Unknown MCP provider, server, or tool") from exc

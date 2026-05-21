@@ -837,8 +837,8 @@ def _scheduler_support_report(
             ref_id=graph.graph_id,
             field="metadata.timeline_policy",
             value=dict(metadata.get("timeline_policy") or {}),
-            status="unsupported",
-            reason="当前 LangGraph runtime 仍按拓扑依赖推进，尚未按图级 timeline_policy 控制 phase/sequence。",
+            status="partial",
+            reason="timeline_policy 只作为生命周期展示/诊断配置保留；运行调度不再按图级 phase/sequence 自动阻塞。",
         )
     if metadata.get("phase_definitions"):
         mark(
@@ -847,7 +847,7 @@ def _scheduler_support_report(
             field="metadata.phase_definitions",
             value="configured",
             status="partial",
-            reason="阶段定义已进入 RuntimeSpec diagnostics 和前端预检，但运行调度尚未按 phase exit policy 推进。",
+            reason="阶段定义已进入 RuntimeSpec diagnostics 和前端预检，但只表达 lifecycle coordinate，不是默认运行闸门。",
         )
 
     for node in nodes:
@@ -873,11 +873,11 @@ def _scheduler_support_report(
             mark(scope="node", ref_id=node.node_id, field="join_policy", value=node.join_policy, status="unsupported", reason="当前调度器尚未实现该 join_policy。")
 
         if node.phase_id:
-            mark(scope="node", ref_id=node.node_id, field="phase_id", value=node.phase_id, status="supported", reason="TaskGraphSchedulerState 已按 active phase gate 控制节点 ready/blocked。")
+            mark(scope="node", ref_id=node.node_id, field="phase_id", value=node.phase_id, status="partial", reason="phase_id 只作为生命周期坐标和调度诊断保留；不再默认控制节点 ready/blocked。")
         if node.sequence_index:
-            mark(scope="node", ref_id=node.node_id, field="sequence_index", value=node.sequence_index, status="supported", reason="TaskGraphSchedulerState 已按 phase 内 active sequence 控制节点 ready/blocked。")
+            mark(scope="node", ref_id=node.node_id, field="sequence_index", value=node.sequence_index, status="partial", reason="sequence_index 只作为展示排序/生命周期坐标保留；需要顺序约束时必须使用显式边或显式 blocking temporal edge。")
         if node.timeline_group_id:
-            mark(scope="node", ref_id=node.node_id, field="timeline_group_id", value=node.timeline_group_id, status="partial", reason="并行组已保留到 RuntimeSpec，但运行调度尚未按 timeline_group_id 同步启动。")
+            mark(scope="node", ref_id=node.node_id, field="timeline_group_id", value=node.timeline_group_id, status="partial", reason="timeline_group_id 只作为旧展示坐标保留；运行调度不会按它同步启动或自动汇合。")
         if node.review_gate_policy:
             mark(scope="node", ref_id=node.node_id, field="review_gate_policy", value="configured", status="partial", reason="审核门策略已保留，但运行层仍主要依赖 stage contract / human gate 处理验收。")
         if node.loop_policy:

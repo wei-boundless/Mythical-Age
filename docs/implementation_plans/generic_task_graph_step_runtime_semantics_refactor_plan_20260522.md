@@ -46,9 +46,9 @@ step 不适合作为图编辑器的业务结构：
 
 当前系统有几个结构性问题：
 
-### 3.1 `sequence_index` 被当成运行语义
+### 3.1 `sequence_index` 曾被当成运行语义
 
-它现在确实被 scheduler 消费，会产生 `sequence_wait`。但这不是通用图语义，只是 legacy timing gate。
+旧实现曾被 scheduler 消费并产生 `sequence_wait`。这不是通用图语义，只是 legacy timing gate。
 
 问题在于：
 
@@ -64,7 +64,7 @@ step 不适合作为图编辑器的业务结构：
 
 ### 3.3 `timeline_policy` 和 `phase_definitions` 不是强调度协议
 
-编译器已经把 `timeline_policy` 标为 unsupported，`phase_definitions` 标为 partial。
+编译器应把它们标为 lifecycle/display/diagnostic 信息，而不是 supported 调度能力。
 
 这类字段可以辅助展示生命周期，但不能被编辑器展示成已经生效的调度能力。
 
@@ -88,7 +88,7 @@ step 不适合作为图编辑器的业务结构：
 TaskGraphRuntimeSemanticsManifest
 ```
 
-它不改变当前运行行为，但把通用语义编译出来，作为后续编辑器和调度重构的唯一依据。
+它把通用语义编译出来，作为编辑器展示、调度诊断和后续运行切换的依据。
 
 ### 4.1 节点语义
 
@@ -234,3 +234,64 @@ debug_snapshot
 - RuntimeSpec 和标准视图都能读取 Manifest。
 - 新增通用测试覆盖 Manifest，不用写作任务做唯一证明。
 
+## 8. 第二轮执行计划：运行时 ready-set 切换
+
+### 8.1 当前必须修掉的结构性问题
+
+第一轮已经把 step 从编辑器语义里拿掉，但运行层还有两个旧闸门会继续制造错误行为：
+
+1. `TaskGraphSchedulerState` 仍用 `phase_id + sequence_index` 计算 active phase / active sequence，并用 `phase_not_active`、`sequence_wait` 阻塞节点。
+2. `layered_graph_normalizer` 会从同一 phase 内的 `sequence_index` 自动派生 blocking temporal edge，相当于把展示坐标又偷偷变成因果边。
+
+这两处如果只改一处，系统仍会把没有显式依赖的节点串行化，所以必须同时切换。
+
+### 8.2 目标调度规则
+
+调度权威只来自运行依赖，不来自展示坐标：
+
+- 显式执行边决定上游完成依赖。
+- 显式 blocking temporal edge 决定额外时间依赖。
+- `wait_policy` / `join_policy` 决定 all / any / partial / manual / ack 的放行规则。
+- result record、handoff ack、artifact requirement 继续作为边级门控。
+- `phase_id`、`sequence_index`、`timeline_group_id` 只作为 lifecycle coordinate 和诊断信息保留，不参与 ready/blocked 裁决。
+
+### 8.3 明确不做的事
+
+- 不把 LangGraph step 引入编辑器。
+- 不用 `timeline_group_id` 自动创建并发组或汇合点。
+- 不从 `sequence_index` 自动创建阻塞边。
+- 不为了写作模板加运行时特判。
+- 不保留 `sequence_wait` 作为默认行为；需要顺序就必须画显式边或显式 blocking temporal edge。
+
+### 8.4 文件级执行清单
+
+1. `backend/task_system/compiler/layered_graph_normalizer.py`
+   - 删除从 `phase_id + sequence_index` 自动派生 blocking temporal edge 的逻辑。
+   - 仅保留用户显式声明的 temporal edges 和 metadata.temporal_edges。
+
+2. `backend/runtime/graph_runtime/scheduler.py`
+   - 移除 `_node_timing_allowed` 对 ready 的阻塞。
+   - 将 active phase / active sequence 改成运行观察诊断，不再作为门控输入。
+   - diagnostics 增加 `scheduling_authority`、`legacy_timing_gate_enabled=false`、`lifecycle_coordinate_authority=diagnostic_only`。
+
+3. `backend/task_system/compiler/coordination_graph_compiler.py`
+   - 更新 scheduler support report：`phase_id`、`sequence_index`、`timeline_group_id` 不再标为 supported 强能力。
+   - 文案明确它们是 lifecycle/display/diagnostic 字段。
+
+4. `backend/task_system/runtime_semantics/compiler.py`
+   - 更新 legacy 诊断文案，去掉“当前仍可能触发 legacy gate”的过期描述。
+
+5. 测试
+   - 修改旧 `sequence_wait` 断言。
+   - 新增“不同 phase/sequence 的无依赖节点可并发 ready”的测试。
+   - 新增“join/barrier 必须靠显式上游边等待全部来源”的测试。
+   - 新增“不再从 sequence_index 派生 temporal edge”的编译测试。
+
+### 8.5 验收标准
+
+- ready-set 只由边、等待策略、结果记录、handoff ack 和失败传播决定。
+- `phase_not_active`、`sequence_wait` 不再出现在默认 scheduler blocked reasons。
+- 无显式依赖的节点不会因为 phase/sequence 被串行化。
+- 有显式上游边的汇合节点会等待全部 required upstream。
+- 显式 blocking temporal edge 仍然可以阻塞下游。
+- 能力报告不再谎称 `sequence_index` 是调度支持能力。

@@ -84,13 +84,13 @@ export const DEFAULT_PHASE_ID = "phase.unassigned";
 
 export const DEFAULT_LIFECYCLE_POLICY: TaskGraphLifecyclePolicy = {
   lifecycle_id: "task_graph_default",
-  main_chain_mode: "phase_sequence",
+  main_chain_mode: "lifecycle_coordinates",
   maturity_model: ["draft", "mutual_review", "candidate_final", "review_passed", "committed"],
 };
 
 export const DEFAULT_TIMELINE_POLICY: TaskGraphTimelinePolicy = {
-  ordering: "phase_then_sequence_index",
-  parallel_group_policy: "same_sequence_or_group",
+  ordering: "lifecycle_coordinate_display",
+  parallel_group_policy: "explicit_edges_and_join_policy",
   phase_exit_policy: "all_blocking_nodes_complete",
 };
 
@@ -434,7 +434,7 @@ export function buildTimelinePreflightIssues(
       issues.push({ code: "timeline_block_handoff_contract_missing", message: `图块 ${block.title || block.block_id} 缺少 handoff_contract_id。`, severity: "warning", phase_id: block.phase_id });
     }
     if (!block.linked_graph_id) {
-      issues.push({ code: "timeline_block_imported_graph_missing", message: `图块 ${block.title || block.block_id} 还没有绑定 linked_graph_id，运行时只能把它视为当前封装图内的阶段块。`, severity: "warning", phase_id: block.phase_id });
+      issues.push({ code: "timeline_block_imported_graph_missing", message: `图块 ${block.title || block.block_id} 还没有绑定 linked_graph_id，运行时只能把它视为当前图内的生命周期阶段块。`, severity: "warning", phase_id: block.phase_id });
     }
     if (!block.version_ref) {
       issues.push({ code: "timeline_block_version_anchor_missing", message: `图块 ${block.title || block.block_id} 缺少 version_ref，断开后难以追踪旧引用。`, severity: "info", phase_id: block.phase_id });

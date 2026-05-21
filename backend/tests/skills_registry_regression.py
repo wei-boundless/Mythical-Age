@@ -62,7 +62,9 @@ def main() -> None:
     assert "skill-creator" in by_name
     creator = by_name["skill-creator"]
     assert creator.title == "Skill 创建顾问"
-    assert creator.preferred_route == "rag"
+    assert creator.preferred_route == "capability_authoring"
+    assert creator.requires_operations == ["op.read_file", "op.write_file", "op.edit_file"]
+    assert creator.requires_capabilities == ["tool:read_file", "tool:write_file", "tool:edit_file"]
     assert "skill-authoring" in creator.capability_tags
     assert "skill_create" in creator.supported_task_kinds
     assert "skill_update" in creator.supported_task_kinds
@@ -93,6 +95,9 @@ def main() -> None:
     snapshot_text = capability_paths.skills_snapshot_path.read_text(encoding="utf-8")
     assert "Skill registry snapshot for admin display" in snapshot_text
     assert "Available local capabilities" not in snapshot_text
+    assert "When the main agent delegates" not in snapshot_text
+    assert "When the main agent delegates, ask for evidence_lookup" not in snapshot_text
+    assert "delegation_kind=evidence_lookup" in snapshot_text
     assert "<use_when>" in snapshot_text
     assert "<delegation_protocol>" in snapshot_text
     assert "<return_protocol>" in snapshot_text

@@ -49,6 +49,36 @@ def test_mcp_management_catalog_unifies_local_and_external_without_inspecting_ex
         _clear(backend_dir, server_id)
 
 
+def test_mcp_management_service_owns_external_config_writes() -> None:
+    backend_dir = Path(__file__).resolve().parents[1]
+    server_id = "management_write_demo"
+    _clear(backend_dir, server_id)
+    service = MCPManagementService(backend_dir)
+    try:
+        service.upsert_external_server(
+            ExternalMCPServerConfig(
+                server_id=server_id,
+                title="Management Write Demo",
+                description="External MCP configuration must be owned by the unified management service.",
+                transport="streamable_http",
+                enabled=True,
+                url="http://127.0.0.1:65535/mcp",
+            )
+        )
+        catalog = service.build_catalog()
+        external = next(item for item in catalog["servers"] if item["server_id"] == server_id)
+
+        assert external["provider_id"] == "external"
+        assert external["status"] == "unsupported"
+        assert external["diagnostics"]["external_config"]["server_id"] == server_id
+
+        service.delete_external_server(server_id)
+        next_catalog = service.build_catalog()
+        assert not any(item["server_id"] == server_id for item in next_catalog["servers"])
+    finally:
+        _clear(backend_dir, server_id)
+
+
 def test_local_mcp_permission_preview_fails_closed_without_resource_policy() -> None:
     backend_dir = Path(__file__).resolve().parents[1]
     service = MCPManagementService(backend_dir, include_external=False)

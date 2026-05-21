@@ -29,10 +29,6 @@ function nodeId(node: Record<string, unknown>) {
   return String(node.node_id ?? node.id ?? "").trim();
 }
 
-function booleanValue(value: unknown, fallback = false) {
-  return typeof value === "boolean" ? value : fallback;
-}
-
 function splitList(value: string) {
   return value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
 }
@@ -103,7 +99,7 @@ export function TaskGraphTimelinePage({
 
   const reviewNodes = activeGraphNodes.filter((node) => asRecord(node.review_gate_policy).is_review_gate === true || node.node_type === "review_gate");
   const loopNodes = activeGraphNodes.filter((node) => Object.keys(asRecord(node.loop_policy)).length > 0 || String(node.node_type ?? "") === "loop_frame");
-  const mainChainNodes = activeGraphNodes.filter((node) => node.main_chain === true || nodeId(node) === taskGraphDraft.entry_node_id || nodeId(node) === taskGraphDraft.output_node_id);
+  const boundaryNodeCount = new Set([taskGraphDraft.entry_node_id, taskGraphDraft.output_node_id].map((item) => String(item ?? "").trim()).filter(Boolean)).size;
   const asyncNodes = activeGraphNodes.filter((node) => ["async", "background", "parallel"].includes(String(node.execution_mode ?? "")));
   const revisionEdges = activeGraphEdges.filter((edge) => {
     const metadata = asRecord(edge.metadata);
@@ -173,7 +169,7 @@ export function TaskGraphTimelinePage({
           <div className="task-graph-mini-kv">
             <p><span>阶段</span><strong>{phaseDefinitions.length}</strong></p>
             <p><span>阶段图块</span><strong>{timelineBlocks.length}</strong></p>
-            <p><span>主链节点</span><strong>{mainChainNodes.length || "自动识别"}</strong></p>
+            <p><span>边界节点</span><strong>{boundaryNodeCount || "未声明"}</strong></p>
             <p><span>循环框</span><strong>{loopNodes.length}</strong></p>
             <p><span>异步/并发</span><strong>{asyncNodes.length}</strong></p>
             <p><span>审核门</span><strong>{reviewNodes.length}</strong></p>
@@ -214,7 +210,7 @@ export function TaskGraphTimelinePage({
             <p><span>节点语义</span><strong>{String(runtimeSemanticsSummary.node_count ?? nodeSemantics.length)}</strong></p>
             <p><span>边语义</span><strong>{String(runtimeSemanticsSummary.edge_count ?? edgeSemantics.length)}</strong></p>
             <p><span>旧字段</span><strong>{String(runtimeSemanticsSummary.legacy_field_count ?? legacyFields.length)}</strong></p>
-            <p><span>Step 可编辑</span><strong>{runtimeStepPolicy.editor_visible ? "是" : "否"}</strong></p>
+            <p><span>Dispatch 边界</span><strong>{runtimeStepPolicy.editor_visible ? "可见" : "运行时"}</strong></p>
             <p><span>诊断问题</span><strong>{standardTimelineModel.issueCount}</strong></p>
           </div>
         </article>
@@ -223,7 +219,7 @@ export function TaskGraphTimelinePage({
       <section className="task-graph-facet-switch" aria-label="时序配置分面">
         {[
           ["semantics", "运行语义", "node role / edge role"],
-          ["phases", "主链阶段", "phase / exit / gate"],
+          ["phases", "生命周期阶段", "phase / boundary / gate"],
           ["coordinates", "激活坐标", "phase / legacy sequence"],
           ["edges", "边生命周期", "trigger / visibility / ack"],
           ["loops", "循环框", "static frame / runtime iteration"],
@@ -256,7 +252,7 @@ export function TaskGraphTimelinePage({
               <p><span>边语义</span><strong>{edgeSemantics.length}</strong></p>
               <p><span>产物状态</span><strong>{artifactLifecycleStateCount}</strong></p>
               <p><span>旧字段</span><strong>{legacyFields.length}</strong></p>
-              <p><span>Step 可编辑</span><strong>{runtimeStepPolicy.editor_visible ? "是" : "否"}</strong></p>
+              <p><span>Dispatch 边界</span><strong>{runtimeStepPolicy.editor_visible ? "可见" : "运行时"}</strong></p>
             </div>
           </section>
           <div className="task-graph-form-grid">
@@ -359,9 +355,13 @@ export function TaskGraphTimelinePage({
               <header><strong>生命周期语义</strong></header>
               <div className="task-graph-mini-kv">
                 <p><span>节点</span><strong>{activeGraphNodes.length}</strong></p>
-                <p><span>阻塞出口</span><strong>{activeGraphNodes.filter((node) => node.blocks_phase_exit !== false).length}</strong></p>
+                <p><span>边界节点</span><strong>{boundaryNodeCount || "未声明"}</strong></p>
                 <p><span>审核门</span><strong>{reviewNodes.length}</strong></p>
                 <p><span>时序问题</span><strong>{timelineIssues.length}</strong></p>
+              </div>
+              <div className="task-graph-note">
+                <strong>阶段出口不由节点布尔值控制</strong>
+                <span>需要阻塞、审批或提交边界时，请使用 barrier/manual_gate/review_gate 节点和显式边生命周期语义表达。</span>
               </div>
             </article>
           </section>
@@ -451,7 +451,7 @@ export function TaskGraphTimelinePage({
           <header><strong>节点激活坐标</strong><span>{temporalEdges.length} 条显式时序边</span></header>
           <div className="task-graph-note">
             <strong>phase/sequence 是旧运行坐标，不是通用因果关系</strong>
-            <span>新图应通过显式边、边职责和产物状态表达启动条件；这里保留旧坐标用于迁移、展示和现有 scheduler 兼容。</span>
+            <span>新图应通过显式边、边职责和产物状态表达启动条件；这里保留旧坐标用于迁移、展示和运行观察。</span>
           </div>
           {standardTimelineModel.phases.length ? (
             <div className="task-graph-standard-list">
@@ -483,12 +483,7 @@ export function TaskGraphTimelinePage({
                     />
                   </TaskSystemField>
                   <TaskSystemField label="旧顺序坐标">
-                    <input
-                      min={0}
-                      onChange={(event) => updateTaskGraphNode(nodeId, { sequence_index: Number(event.target.value || 0) })}
-                      type="number"
-                      value={Number(node.sequence_index ?? index + 1)}
-                    />
+                    <input disabled value={String(node.sequence_index ?? index + 1)} />
                   </TaskSystemField>
                   <TaskSystemSelectField
                     formatOption={taskSystemOptionLabel}
@@ -511,14 +506,6 @@ export function TaskGraphTimelinePage({
                     options={["all_success", "any_success", "allow_partial_with_issues", "coordinator_decides", "fail_on_any_error"]}
                     value={String(node.join_policy ?? "all_success")}
                   />
-                  <label className="boundary-check">
-                    <input
-                      checked={booleanValue(node.blocks_phase_exit, true)}
-                      onChange={(event) => updateTaskGraphNode(nodeId, { blocks_phase_exit: event.target.checked })}
-                      type="checkbox"
-                    />
-                    阻塞阶段出口
-                  </label>
                   <label className="boundary-check">
                     <input
                       checked={reviewGatePolicy.is_review_gate === true || node.node_type === "review_gate"}

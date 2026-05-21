@@ -1,9 +1,8 @@
-import { Cable, Layers3, Plus, Trash2 } from "lucide-react";
+import { Cable, Layers3, Trash2 } from "lucide-react";
 
 import type { UnitInterfaceSpec, UnitPortEdgeSpec } from "@/lib/api";
 
 import { TaskGraphContractBindingInspector } from "./TaskGraphContractBindingInspector";
-import { edgePayloadContractIdOf } from "./taskGraphContractBindings";
 import {
   TaskGraphInspectorSection,
   TaskGraphInspectorSummary,
@@ -104,25 +103,19 @@ type SharedEdgeProps = {
 };
 
 export function TaskGraphPortEdgeInspector({
-  addOverlayPortEdge,
   edge,
   isOverlay,
   originalEdge,
   removeOverlayEdge,
   updateLegacyEdgeEndpoint,
-  updateOverlayPortEdge,
-  updateOverlayPortEdgeTemporal,
   updateTaskGraphEdge,
   ...shared
 }: SharedEdgeProps & {
-  addOverlayPortEdge: (seed?: Partial<UnitPortEdgeSpec>) => void;
   edge: UnitPortEdgeSpec;
   isOverlay: boolean;
   originalEdge: Record<string, unknown> | null;
   removeOverlayEdge: (edgeId: string) => void;
   updateLegacyEdgeEndpoint: (edge: Record<string, unknown>, edgeId: string, patch: Record<string, unknown>) => void;
-  updateOverlayPortEdge: (edge: UnitPortEdgeSpec, patch: Record<string, unknown>) => void;
-  updateOverlayPortEdgeTemporal: (edge: UnitPortEdgeSpec, patch: Record<string, unknown>) => void;
   updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
 }) {
   if (isOverlay) {
@@ -130,8 +123,6 @@ export function TaskGraphPortEdgeInspector({
       <OverlayPortEdgeInspector
         edge={edge}
         removeOverlayEdge={removeOverlayEdge}
-        updateOverlayPortEdge={updateOverlayPortEdge}
-        updateOverlayPortEdgeTemporal={updateOverlayPortEdgeTemporal}
         {...shared}
       />
     );
@@ -139,7 +130,6 @@ export function TaskGraphPortEdgeInspector({
   if (originalEdge) {
     return (
       <LegacyPortEdgeInspector
-        addOverlayPortEdge={addOverlayPortEdge}
         edge={edge}
         originalEdge={originalEdge}
         updateLegacyEdgeEndpoint={updateLegacyEdgeEndpoint}
@@ -157,64 +147,48 @@ export function TaskGraphPortEdgeInspector({
       />
       <div className="task-graph-note">
         <strong>未找到可写回的原始边</strong>
-        <span>可以升级为显式端口边，让配置写入可组合覆盖层。</span>
+        <span>这条端口边来自标准视图或覆盖层诊断。需要运行时生效时，请回到 Graph Builder 创建 canonical edge。</span>
       </div>
-      <button className="task-graph-composer-subtle-action" onClick={() => addOverlayPortEdge(edge)} type="button">升级为显式端口边</button>
     </TaskGraphInspectorSection>
   );
 }
 
 function OverlayPortEdgeInspector({
+  contractOptions,
   edge,
   formatContract,
   formatUnit,
-  interfaces,
-  contractOptions,
   removeOverlayEdge,
-  unitOptions,
-  updateOverlayPortEdge,
-  updateOverlayPortEdgeTemporal,
 }: SharedEdgeProps & {
   edge: UnitPortEdgeSpec;
   removeOverlayEdge: (edgeId: string) => void;
-  updateOverlayPortEdge: (edge: UnitPortEdgeSpec, patch: Record<string, unknown>) => void;
-  updateOverlayPortEdgeTemporal: (edge: UnitPortEdgeSpec, patch: Record<string, unknown>) => void;
 }) {
-  const sourcePorts = portOptionsForUnit(edge.source_unit_id, interfaces, "output");
-  const targetPorts = portOptionsForUnit(edge.target_unit_id, interfaces, "input");
   return (
-    <TaskGraphInspectorSection icon={<Cable aria-hidden="true" size={15} />} title="显式端口边" aside="覆盖层">
+    <TaskGraphInspectorSection icon={<Cable aria-hidden="true" size={15} />} title="metadata 覆盖端口边" aside="诊断覆盖层">
       <TaskGraphInspectorSummary
         overline={edge.edge_type || "handoff"}
         title={edge.edge_id || "未命名端口边"}
         caption={edgeSourceSummary(edge)}
+        metrics={[
+          { label: "源", value: formatUnit(edge.source_unit_id) },
+          { label: "目标", value: formatUnit(edge.target_unit_id) },
+          { label: "契约", value: edge.payload_contract_id ? formatContract(edge.payload_contract_id) : "未声明" },
+          { label: "候选契约", value: contractOptions.length },
+        ]}
       />
-      <div className="boundary-form task-graph-composer-inspector-form">
-        <TaskSystemField label="边 ID" wide>
-          <input onChange={(event) => updateOverlayPortEdge(edge, { edge_id: event.target.value })} value={edge.edge_id} />
-        </TaskSystemField>
-        <TaskGraphObjectSelectField formatOption={formatUnit} label="源单元" onChange={(value) => updateOverlayPortEdge(edge, { source_unit_id: value, source_port_id: portOptionsForUnit(value, interfaces, "output")[0] ?? "output.default" })} options={unitOptions} value={edge.source_unit_id} />
-        <TaskSystemSelectField label="源端口" onChange={(value) => updateOverlayPortEdge(edge, { source_port_id: value })} options={sourcePorts} value={edge.source_port_id} />
-        <TaskGraphObjectSelectField formatOption={formatUnit} label="目标单元" onChange={(value) => updateOverlayPortEdge(edge, { target_unit_id: value, target_port_id: portOptionsForUnit(value, interfaces, "input")[0] ?? "input.default" })} options={unitOptions} value={edge.target_unit_id} />
-        <TaskSystemSelectField label="目标端口" onChange={(value) => updateOverlayPortEdge(edge, { target_port_id: value })} options={targetPorts} value={edge.target_port_id} />
-        <TaskGraphObjectSelectField formatOption={formatContract} label="载荷契约" onChange={(value) => updateOverlayPortEdge(edge, { payload_contract_id: value })} options={contractOptions} value={edge.payload_contract_id ?? ""} wide />
-        <TaskSystemSelectField label="边类型" onChange={(value) => updateOverlayPortEdge(edge, { edge_type: value })} options={["handoff", "memory_handoff", "artifact_context", "temporal_dependency"]} value={edge.edge_type ?? "handoff"} />
-        <SupportMatrixNote />
-        <SupportedSelectField field="trigger_timing" label="触发时机" onChange={(value) => updateOverlayPortEdgeTemporal(edge, { trigger_timing: value })} options={["after_source_success", "after_source_commit", "manual_release", "phase_gate_passed"]} value={stringValue(asRecord(edge.temporal_semantics).trigger_timing, "after_source_success")} />
-        <SupportedSelectField field="visibility_timing" label="可见时机" onChange={(value) => updateOverlayPortEdgeTemporal(edge, { visibility_timing: value })} options={["after_commit", "after_ack", "same_clock", "next_clock"]} value={stringValue(asRecord(edge.temporal_semantics).visibility_timing, "after_commit")} />
-        <SupportedSelectField field="acknowledgement_timing" label="确认时机" onChange={(value) => updateOverlayPortEdgeTemporal(edge, { acknowledgement_timing: value })} options={["explicit_ack", "implicit_ack", "manual_ack", "none"]} value={stringValue(asRecord(edge.temporal_semantics).acknowledgement_timing, "explicit_ack")} />
-        <SupportedSelectField field="propagation_timing" label="传播策略" onChange={(value) => updateOverlayPortEdgeTemporal(edge, { propagation_timing: value })} options={["buffer_until_commit", "immediate_refs_only", "manual_release", "block_until_ack"]} value={stringValue(asRecord(edge.temporal_semantics).propagation_timing, "buffer_until_commit")} />
-        <button className="task-graph-inline-danger" onClick={() => removeOverlayEdge(edge.edge_id)} type="button">
-          <Trash2 aria-hidden="true" size={14} />
-          移除覆盖边
-        </button>
+      <div className="task-graph-note">
+        <strong>覆盖边只读</strong>
+        <span>它会进入标准视图诊断，但不是 canonical 运行边。需要运行时生效时，请在 Graph Builder 中创建或修改 canonical edge。</span>
       </div>
+      <button className="task-graph-inline-danger" onClick={() => removeOverlayEdge(edge.edge_id)} type="button">
+        <Trash2 aria-hidden="true" size={14} />
+        移除覆盖边
+      </button>
     </TaskGraphInspectorSection>
   );
 }
 
 function LegacyPortEdgeInspector({
-  addOverlayPortEdge,
   edge,
   formatContract,
   formatUnit,
@@ -225,7 +199,6 @@ function LegacyPortEdgeInspector({
   updateLegacyEdgeEndpoint,
   updateTaskGraphEdge,
 }: SharedEdgeProps & {
-  addOverlayPortEdge: (seed?: Partial<UnitPortEdgeSpec>) => void;
   edge: UnitPortEdgeSpec;
   originalEdge: Record<string, unknown>;
   updateLegacyEdgeEndpoint: (edge: Record<string, unknown>, edgeId: string, patch: Record<string, unknown>) => void;
@@ -237,10 +210,6 @@ function LegacyPortEdgeInspector({
   const handoff = asRecord(originalEdge.working_memory_handoff_policy);
   const sourcePorts = portOptionsForUnit(edge.source_unit_id, interfaces, "output");
   const targetPorts = portOptionsForUnit(edge.target_unit_id, interfaces, "input");
-  const payloadContractId = edgePayloadContractIdOf({
-    ...originalEdge,
-    payload_contract_id: stringValue(originalEdge.payload_contract_id ?? edge.payload_contract_id),
-  });
 
   const patchEdgeMetadata = (patch: Record<string, unknown>) => {
     updateTaskGraphEdge(edgeId, {
@@ -382,34 +351,11 @@ function LegacyPortEdgeInspector({
         </div>
       </TaskGraphInspectorSection>
 
-      <TaskGraphInspectorSection icon={<Plus aria-hidden="true" size={15} />} title="端口化">
+      <TaskGraphInspectorSection icon={<Cable aria-hidden="true" size={15} />} title="端口映射诊断">
         <div className="task-graph-note">
-          <strong>升级为显式端口边</strong>
-          <span>显式边会写入 metadata.composable_graph.port_edges，可以连接图模块、普通节点和资源 Unit 的端口。</span>
+          <strong>端口边由 canonical edge 派生</strong>
+          <span>这里不再新增 metadata 覆盖边；需要运行时生效的连接应在 Graph Builder 中创建或修改 canonical edge。</span>
         </div>
-        <button
-          className="task-graph-composer-subtle-action"
-          onClick={() => addOverlayPortEdge({
-            ...edge,
-            payload_contract_id: payloadContractId,
-            edge_type: stringValue(originalEdge.edge_type ?? originalEdge.mode ?? edge.edge_type, "handoff"),
-            handoff: {
-              ...asRecord(edge.handoff),
-              wait_policy: originalEdge.wait_policy,
-              ack_policy: originalEdge.ack_policy,
-              ack_required: originalEdge.ack_required,
-              failure_propagation_policy: originalEdge.failure_propagation_policy,
-              result_delivery_policy: originalEdge.result_delivery_policy,
-            },
-            metadata: {
-              ...asRecord(edge.metadata),
-              upgraded_from_edge_id: edgeId,
-            },
-          })}
-          type="button"
-        >
-          升级为显式端口边
-        </button>
       </TaskGraphInspectorSection>
     </>
   );

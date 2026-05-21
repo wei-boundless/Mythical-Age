@@ -17,6 +17,7 @@ import {
   listSkills,
   resumeOrchestrationTaskGraphRun,
   renameSession,
+  resolveRuntimeLoopTaskRunApproval,
   saveFile,
   setRagMode,
   stopOrchestrationTaskRun,
@@ -142,6 +143,9 @@ export class WorkspaceRuntime {
       },
       resumeTaskGraphRun: async (taskGraphRunId, payload) => {
         await this.resumeTaskGraphRun(taskGraphRunId, payload);
+      },
+      resolveRuntimeApproval: async (taskRunId, decision, message) => {
+        await this.resolveRuntimeApproval(taskRunId, decision, message);
       },
       setTaskSelection: (selection) => {
         this.setTaskSelection(selection);
@@ -1130,6 +1134,19 @@ export class WorkspaceRuntime {
     }
   }
 
+  private async resolveRuntimeApproval(taskRunId: string, decision: "approve" | "reject", message?: string) {
+    const runId = taskRunId.trim();
+    if (!runId) {
+      return;
+    }
+    await resolveRuntimeLoopTaskRunApproval(runId, { decision, message });
+    const sessionId = this.store.getState().currentSessionId;
+    if (sessionId) {
+      await this.hydrateLatestOrchestrationSnapshot(sessionId);
+      this.startOrchestrationMonitorPolling(sessionId);
+    }
+  }
+
   private async hydrateLatestOrchestrationSnapshot(sessionId: string): Promise<boolean> {
     const targetSessionId = sessionId.trim();
     const requestId = ++this.orchestrationHydrateRequest;
@@ -1147,6 +1164,7 @@ export class WorkspaceRuntime {
       }
       const liveStatus = String(liveMonitor.monitor.status ?? liveMonitor.monitor.task_run?.status ?? "").trim();
       const hasActiveGraphRun = Boolean(liveMonitor.monitor.has_coordination) && ["created", "running", "waiting_approval", "blocked"].includes(liveStatus);
+      const hasPendingApproval = liveStatus === "waiting_approval" || String((liveMonitor.monitor.loop_state as Record<string, unknown> | undefined)?.terminal_reason ?? "") === "waiting_approval";
       const taskRunId = String(liveMonitor.monitor.task_run?.task_run_id ?? "").trim();
       const coordinationRunId = String(
         liveMonitor.latest_coordination_run_id
@@ -1166,7 +1184,7 @@ export class WorkspaceRuntime {
           taskGraphRunMonitor,
         }));
       }
-      return hasActiveGraphRun;
+      return hasActiveGraphRun || hasPendingApproval;
     } catch {
       // Keep current snapshot on transient runtime-loop query failures.
       return false;
