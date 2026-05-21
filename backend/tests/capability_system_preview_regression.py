@@ -240,6 +240,9 @@ def test_operation_gate_headless_approval_requires_matching_token() -> None:
                 granted=True,
                 source="test",
             ),
+            validators={
+                "filesystem_path": lambda _operation_input: True,
+            },
         ),
     )
 
@@ -277,12 +280,38 @@ def test_operation_gate_approval_state_can_satisfy_headless_approval() -> None:
                     ),
                 )
             ),
+            validators={
+                "filesystem_path": lambda _operation_input: True,
+            },
         ),
     )
 
     assert result.allowed is True
     assert result.decision == "allow"
     assert result.pipeline_stage == "allow_rule"
+
+
+def test_operation_gate_fails_closed_when_declared_safety_validator_is_missing() -> None:
+    registry = build_default_operation_registry()
+    policy = _runtime_policy(allowed=("op.read_file",), task_id="task-missing-validator")
+    gate = OperationGate(registry)
+
+    result = gate.check(
+        "op.read_file",
+        resource_policy=policy,
+        directive_ref="directive-read-missing-validator",
+        context=OperationGatePipelineContext(
+            operation_input={"operation_id": "op.read_file", "path": "backend/orchestration/resource_gate.py"},
+            validators={},
+        ),
+    )
+
+    assert result.allowed is False
+    assert result.decision == "deny"
+    assert result.reason == "operation safety validator is unavailable"
+    assert result.pipeline_stage == "operation_specific_safety_validator"
+    assert result.diagnostics["safety_validator_ref"] == "filesystem_path"
+    assert result.diagnostics["fail_closed"] is True
 
 
 def test_operation_gate_denial_tracking_circuit_breaker() -> None:

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from evidence.models import EvidenceArtifact
+from project_layout import ProjectLayout
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +22,9 @@ class MaterializedTable:
 class TableMaterializer:
     def __init__(self, *, root_dir: Path) -> None:
         self.root_dir = Path(root_dir).resolve()
-        self.artifact_dir = self.root_dir / "output" / "evidence_artifacts" / "tables"
+        layout = ProjectLayout.from_backend_dir(self.root_dir)
+        self.workspace_root = layout.project_root.resolve()
+        self.artifact_dir = self.workspace_root / "output" / "evidence_artifacts" / "tables"
 
     def materialize(
         self,
@@ -38,18 +41,18 @@ class TableMaterializer:
         safe_session = _safe_token(session_id or "default")
         safe_artifact = _safe_token(artifact.artifact_id)
         target_dir = (self.artifact_dir / safe_session).resolve()
-        if self.root_dir not in target_dir.parents and target_dir != self.root_dir:
+        if self.workspace_root not in target_dir.parents and target_dir != self.workspace_root:
             return None
         target_dir.mkdir(parents=True, exist_ok=True)
         target_path = (target_dir / f"{safe_artifact}.csv").resolve()
-        if self.root_dir not in target_path.parents:
+        if self.workspace_root not in target_path.parents:
             return None
 
         with target_path.open("w", encoding="utf-8-sig", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerows(rows)
 
-        dataset_path = str(target_path.relative_to(self.root_dir)).replace("\\", "/")
+        dataset_path = str(target_path.relative_to(self.workspace_root)).replace("\\", "/")
         table_artifact_id = _stable_id("artifact:table_object", f"{artifact.artifact_id}:{dataset_path}")
         materialized = EvidenceArtifact(
             artifact_id=table_artifact_id,

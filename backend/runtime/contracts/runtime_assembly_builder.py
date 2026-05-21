@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from orchestration.agent_runtime_models import AgentRuntimeProfile
+from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 
 from orchestration.artifact_policy_view import artifact_policy_summary
 

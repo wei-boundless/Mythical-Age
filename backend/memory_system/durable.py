@@ -6,7 +6,7 @@ import re
 from typing import Any, Callable
 
 from .manifest_scan import MemoryHeader, format_memory_manifest, scan_memory_headers
-from memory_layout import durable_memory_layout_from_backend_dir
+from memory_system.layout import durable_memory_layout_from_backend_dir
 from .read_agent import MemoryReadAgent
 from .read_models import MemoryRecallRequest, MemoryRecallResult, MemoryRecallSelection
 from memory_system.storage.exact_lookup import ExactMemoryMatch, find_exact_memory_matches

@@ -5,7 +5,7 @@ from pathlib import Path
 from langchain_core.tools import BaseTool
 
 from capability_system.tool_contracts import ToolExecutionContract
-from capability_system.tool_definitions import ToolDefinition, build_tool_instances, get_tool_definition_map
+from capability_system.tool_definitions import ToolDefinition, build_tool_instances
 from capability_system.tool_registry import ToolRegistry
 
 
@@ -36,7 +36,7 @@ class ToolRuntime:
         return self._by_name.get(name.strip())
 
     def get_definition(self, name: str | None) -> ToolDefinition | None:
-        return get_tool_definition_map().get((name or "").strip())
+        return self.registry.get_by_name(name)
 
     def get_contract(self, name: str | None) -> ToolExecutionContract | None:
         definition = self.get_definition(name)

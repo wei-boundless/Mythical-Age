@@ -1,0 +1,23 @@
+{
+  "node_run_id": "coordnode:coordrun:taskrun:session:writing-smoke-20260521:task.writing.modular_novel.smoke.design_init:4168997e:primary:world_review",
+  "coordination_run_id": "coordrun:taskrun:session:writing-smoke-20260521:task.writing.modular_novel.smoke.design_init:4168997e:primary",
+  "task_run_id": "taskrun:session:writing-smoke-20260521:task.writing.modular_novel.smoke.design_init:4168997e",
+  "node_id": "world_review",
+  "role": "reviewer",
+  "assigned_agent_id": "",
+  "assigned_agent_run_ref": "",
+  "status": "pending",
+  "handoff_count": 0,
+  "latest_handoff_ref": "",
+  "created_at": 1779305964.958547,
+  "updated_at": 1779305964.958547,
+  "diagnostics": {
+    "coordination_engine": "langgraph_runtime",
+    "stage_id": "world_review",
+    "stage_status": "pending",
+    "message_type": "",
+    "task_ref": "task.writing.modular_novel.node.world_review",
+    "working_memory_refs": []
+  },
+  "authority": "orchestration.coordination_node_run"
+}

@@ -83,8 +83,8 @@ export const TASK_GRAPH_STUDIO_LAYERS: TaskGraphStudioLayer[] = [
   },
   {
     id: "timeline",
-    title: "拓扑时序",
-    description: "主链、阶段、循环、许可",
+    title: "生命周期",
+    description: "运行语义、阶段、循环、坐标",
     category: "runtime",
     metric: "生命周期",
     state: "draft",

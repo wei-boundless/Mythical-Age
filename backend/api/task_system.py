@@ -4,9 +4,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from orchestration.agent_registry import AgentRegistry
-from orchestration.agent_runtime_models import AgentRuntimeProfile
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from agent_system.registry.agent_registry import AgentRegistry
+from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from runtime.contracts.compiler import (
     compile_coordination_contract_manifest,
 )

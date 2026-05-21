@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from orchestration.agent_identity import normalize_agent_id, normalize_agent_id_sequence
-from orchestration.agent_registry import AgentRegistry
+from agent_system.identity import normalize_agent_id, normalize_agent_id_sequence
+from agent_system.registry.agent_registry import AgentRegistry
 from project_layout import ProjectLayout
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 
 from task_system.registry.flow_models import (
     AgentTaskCarryingProfile,
@@ -2477,7 +2477,7 @@ class TaskFlowRegistry:
         explicit = normalize_agent_id_sequence(str(item).strip() for item in participant_agent_ids if str(item).strip())
         if explicit:
             return explicit
-        from orchestration.agent_group_registry import AgentGroupRegistry
+        from agent_system.groups.registry import AgentGroupRegistry
 
         group = AgentGroupRegistry(self.base_dir).get_group(agent_group_id)
         if group is None:

@@ -75,6 +75,8 @@ class SkillRuntimeContract:
     context_mode: str = "inline"
     route_authority: str = "candidate_only"
     reference_paths: list[str] = field(default_factory=list)
+    requires_operations: list[str] = field(default_factory=list)
+    requires_capabilities: list[str] = field(default_factory=list)
 
     def normalized(self) -> "SkillRuntimeContract":
         activation_policy = self.activation_policy if self.activation_policy in VALID_ACTIVATION_POLICIES else "model_visible"
@@ -97,6 +99,8 @@ class SkillRuntimeContract:
             context_mode=context_mode,
             route_authority=route_authority,
             reference_paths=normalize_string_list(self.reference_paths),
+            requires_operations=normalize_string_list(self.requires_operations),
+            requires_capabilities=normalize_string_list(self.requires_capabilities),
         )
 
     def validate(self) -> list[str]:
@@ -175,6 +179,8 @@ class SkillContract:
             context_mode=normalize_string(runtime_payload.get("context_mode"), "inline") or "inline",
             route_authority=normalize_string(runtime_payload.get("route_authority"), "candidate_only") or "candidate_only",
             reference_paths=normalize_string_list(runtime_payload.get("reference_paths")),
+            requires_operations=normalize_string_list(runtime_payload.get("requires_operations")),
+            requires_capabilities=normalize_string_list(runtime_payload.get("requires_capabilities")),
         ).normalized()
         if isinstance(prompt_payload, dict):
             prompt = SkillPromptContract(

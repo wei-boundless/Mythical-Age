@@ -4,6 +4,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from project_layout import ProjectLayout
+
 
 class PdfAnalysisCatalog:
     GENERIC_DOC_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -21,15 +23,16 @@ class PdfAnalysisCatalog:
 
     @staticmethod
     def list_pdf_paths(root_dir: Path) -> list[Path]:
-        knowledge_dir = root_dir / "knowledge"
+        knowledge_dir = ProjectLayout.from_backend_dir(root_dir).knowledge_storage_dir
         return sorted(path for path in knowledge_dir.rglob("*.pdf") if path.is_file())
 
     @staticmethod
     def resolve_pdf_path(root_dir: Path, path: str, query: str) -> Path:
         normalized = (path or "").strip()
+        knowledge_dir = ProjectLayout.from_backend_dir(root_dir).knowledge_storage_dir.resolve()
         if normalized:
-            candidate = (root_dir / normalized).resolve()
-            if root_dir not in candidate.parents and candidate != root_dir:
+            candidate = (knowledge_dir / normalized).resolve()
+            if knowledge_dir not in candidate.parents and candidate != knowledge_dir:
                 raise ValueError("检测到非法路径访问。")
             return candidate
 
@@ -48,7 +51,8 @@ class PdfAnalysisCatalog:
 
     @staticmethod
     def relative_path(root_dir: Path, path: Path) -> str:
-        return str(path.relative_to(root_dir)).replace("\\", "/")
+        knowledge_dir = ProjectLayout.from_backend_dir(root_dir).knowledge_storage_dir.resolve()
+        return str(path.resolve().relative_to(knowledge_dir)).replace("\\", "/")
 
     @staticmethod
     def extract_explicit_pdf_references(text: str) -> list[str]:

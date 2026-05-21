@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from memory_layout import durable_memory_layout_from_backend_dir
+from memory_system.layout import durable_memory_layout_from_backend_dir
 from memory_system.storage.models import utc_now_iso
 
 from .contracts import MemoryCommitAction, MemoryCommitLayer, MemoryCommitRecord

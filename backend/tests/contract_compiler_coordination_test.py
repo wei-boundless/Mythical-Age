@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestration.agent_runtime_models import AgentRuntimeProfile
+from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from runtime.contracts.compiler import compile_coordination_contract_manifest
 from task_system import TaskContractRegistry, compile_task_graph_definition_runtime_spec
 from task_system.registry.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol

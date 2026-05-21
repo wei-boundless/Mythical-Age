@@ -7,9 +7,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from orchestration import build_orchestration_runtime_bundle
-from orchestration.agent_runtime_models import AgentRuntimeProfile
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from agent_system.assembly.runtime_bundle_builder import build_orchestration_runtime_bundle
+from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 
 
@@ -211,7 +211,7 @@ def test_removed_story_task_selection_falls_back_to_general_runtime() -> None:
 
 def test_removed_longform_writing_runtime_residue_stays_absent() -> None:
     from task_system.registry.flow_registry import TaskFlowRegistry
-    from orchestration.agent_runtime_chain import _align_understanding_with_explicit_task_selection
+    from agent_system.assembly.runtime_chain import _align_understanding_with_explicit_task_selection
     from understanding.query_understanding import analyze_query_understanding
 
     registry = TaskFlowRegistry(BACKEND_DIR)

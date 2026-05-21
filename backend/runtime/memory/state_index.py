@@ -26,7 +26,7 @@ from ..execution.delegation_models import (
     delegation_request_from_dict,
     delegation_result_from_dict,
 )
-from orchestration.worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
+from agent_system.registry.worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
 from ..shared.runtime_object_store import RuntimeObjectStore
 
 

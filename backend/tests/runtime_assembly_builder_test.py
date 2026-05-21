@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from orchestration.agent_runtime_models import AgentRuntimeProfile
+from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from runtime import (
     RuntimeContextManager,
     TaskRunLoop,
     build_node_runtime_assembly,
     build_single_agent_runtime_assembly,
 )
-from orchestration.agent_runtime_chain import _memory_request_profile_for_context_assembly
+from agent_system.assembly.runtime_chain import _memory_request_profile_for_context_assembly
 from runtime.contracts.compiler_models import (
     CompiledAcceptanceContract,
     CompiledEdgeHandoffContract,

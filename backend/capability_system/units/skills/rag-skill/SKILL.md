@@ -19,6 +19,10 @@ metadata:
     - grounded-answer
     - citation-aware
   preferred_route: rag
+  requires_operations:
+    - op.mcp_retrieval
+  requires_capabilities:
+    - mcp:local:retrieval
   forbidden_routes:
     - tool
   routing_hints:

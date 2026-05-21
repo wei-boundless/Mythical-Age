@@ -24,6 +24,25 @@ class ProjectLayout:
             storage_root=project_root / "storage",
         )
 
+    @classmethod
+    def from_runtime_root(cls, runtime_root: str | Path) -> "ProjectLayout":
+        resolved_root = Path(runtime_root).resolve()
+        if resolved_root.name == "runtime_state" and resolved_root.parent.name == "storage":
+            project_root = resolved_root.parent.parent
+            return cls(
+                backend_dir=project_root / "backend",
+                project_root=project_root,
+                storage_root=project_root / "storage",
+            )
+        if resolved_root.name == "storage":
+            project_root = resolved_root.parent
+            return cls(
+                backend_dir=project_root / "backend",
+                project_root=project_root,
+                storage_root=resolved_root,
+            )
+        return cls.from_backend_dir(resolved_root)
+
     @property
     def durable_memory_dir(self) -> Path:
         return self.storage_root / "durable_memory"
@@ -87,6 +106,7 @@ class ProjectLayout:
     def ensure_storage_dirs(self) -> None:
         self._migrate_storage_dir(self.storage_root / "indexes_v2", self.indexes_dir)
         self._migrate_storage_dir(self.storage_root / "document_cache_v2", self.document_cache_dir)
+        self._migrate_storage_dir(self.backend_dir / "knowledge", self.knowledge_storage_dir)
         for path in (
             self.storage_root,
             self.durable_memory_dir,
@@ -109,9 +129,15 @@ class ProjectLayout:
 
     @staticmethod
     def _migrate_storage_dir(source_path: Path, target_path: Path) -> None:
-        if target_path.exists() or not source_path.exists():
+        if not source_path.exists():
             return
         target_path.parent.mkdir(parents=True, exist_ok=True)
+        if not target_path.exists():
+            shutil.move(str(source_path), str(target_path))
+            return
+        if any(target_path.iterdir()):
+            return
+        shutil.rmtree(target_path)
         shutil.move(str(source_path), str(target_path))
 
 

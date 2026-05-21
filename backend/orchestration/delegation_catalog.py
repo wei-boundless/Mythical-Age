@@ -4,9 +4,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .agent_group_registry import AgentGroupRegistry
-from .agent_registry import AgentRegistry
-from .agent_runtime_registry import AgentRuntimeRegistry
+from agent_system import AgentGroupRegistry, AgentRegistry, AgentRuntimeRegistry
 
 
 _DEFAULT_CONTEXT_POLICY = {

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from memory_layout import durable_memory_layout_from_backend_dir
+from memory_system.layout import durable_memory_layout_from_backend_dir
 from project_layout import ProjectLayout
 
 
@@ -22,7 +22,7 @@ class CollectionConfig:
 def build_default_collections(base_dir: Path) -> dict[str, CollectionConfig]:
     layout = ProjectLayout.from_backend_dir(base_dir)
     indexes_dir = layout.storage_root / "indexes"
-    knowledge_dir = base_dir / "knowledge"
+    knowledge_dir = layout.knowledge_storage_dir
     benchmark_dir = base_dir / "knowledge-benchmark"
     durable_memory_layout = durable_memory_layout_from_backend_dir(base_dir)
     session_memory_dir = layout.session_memory_dir

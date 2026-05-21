@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
-SUPPORTED_LENGTH_BUDGET_SCOPES = {"graph", "volume", "batch", "node"}
+SUPPORTED_LENGTH_BUDGET_SCOPES = {"graph", "group", "batch", "node"}
 SUPPORTED_LENGTH_MEASUREMENT_MODES = {"tokens", "text_units", "hybrid"}
 DEFAULT_REPAIR_POLICY = {
     "mode": "expand_or_split",
@@ -85,7 +85,7 @@ def compile_length_budget(
     }
     issues: list[str] = diagnostics["issues"]
     budget_scope = _normalize_choice(
-        merged.get("budget_scope"),
+        _normalize_legacy_budget_scope(merged.get("budget_scope")),
         SUPPORTED_LENGTH_BUDGET_SCOPES,
         fallback="graph",
         issues=issues,
@@ -256,12 +256,21 @@ def _normalize_choice(
 
 def _default_unit_label(unit_kind: str) -> str:
     mapping = {
-        "chapter": "章节",
-        "volume": "卷",
+        "unit": "单元",
+        "item": "条目",
+        "record": "记录",
+        "group": "组",
         "batch": "批次",
         "node": "节点",
     }
     return mapping.get(str(unit_kind or "").strip(), "单元")
+
+
+def _normalize_legacy_budget_scope(value: Any) -> Any:
+    raw = str(value or "").strip()
+    if raw == "volume":
+        return "group"
+    return value
 
 
 def _optional_int(value: Any) -> int:

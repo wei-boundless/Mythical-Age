@@ -124,6 +124,7 @@ export function buildTaskGraphTimelineStandardModel(standardView: TaskGraphStand
       issueCount: 0,
       entryNodeId: "",
       outputNodeId: "",
+      runtimeSemantics: {} as Record<string, unknown>,
     };
   }
 
@@ -131,6 +132,9 @@ export function buildTaskGraphTimelineStandardModel(standardView: TaskGraphStand
   const temporalEdges = standardView.timeline?.temporal_edges ?? [];
   const loopFrames = standardView.timeline?.loop_frames ?? [];
   const timelineBlocks = standardView.timeline?.timeline_blocks ?? [];
+  const runtimeSpec = asRecord(standardView.diagnostics?.runtime_spec);
+  const runtimeSpecDiagnostics = asRecord(runtimeSpec.diagnostics);
+  const runtimeSemantics = asRecord(standardView.timeline?.runtime_semantics ?? runtimeSpecDiagnostics.runtime_semantics);
   const phaseNodeCounts = Object.fromEntries(
     phases.map((phase) => {
       const phaseId = String(phase.phase_id ?? phase.id ?? "").trim();
@@ -153,6 +157,7 @@ export function buildTaskGraphTimelineStandardModel(standardView: TaskGraphStand
     issueCount: standardView.issues.length,
     entryNodeId: standardView.timeline?.entry_node_id ?? "",
     outputNodeId: standardView.timeline?.output_node_id ?? "",
+    runtimeSemantics,
   };
 }
 

@@ -29,6 +29,8 @@ class SkillPolicyFrame:
                 "activation_policy": self.skill.activation_policy,
                 "context_mode": self.skill.context_mode,
                 "route_authority": self.skill.route_authority,
+                "requires_operations": list(self.skill.requires_operations),
+                "requires_capabilities": list(self.skill.requires_capabilities),
             },
             "reasons": list(self.reasons),
         }
@@ -100,6 +102,19 @@ class SkillPolicyResolver:
         if explicit_name:
             skill = self.registry.get_by_name(explicit_name)
             if skill is not None:
+                if skill.activation_policy == "disabled":
+                    return SkillPolicyInspection(
+                        candidates=(
+                            SkillPolicyCandidate(
+                                name=skill.name,
+                                title=skill.title,
+                                filtered=True,
+                                filter_reason="skill_disabled",
+                                reasons=("explicit_skill_name", "skill_disabled"),
+                            ),
+                        ),
+                        reasons=("explicit_skill_disabled",),
+                    )
                 frame = self._frame(skill, reasons=("explicit_skill_name",))
                 return SkillPolicyInspection(
                     selected=frame,
@@ -122,6 +137,26 @@ class SkillPolicyResolver:
         matches: list[_SkillMatch] = []
         candidate_views: list[SkillPolicyCandidate] = []
         for skill in skills:
+            if skill.activation_policy == "disabled":
+                candidate_views.append(
+                    SkillPolicyCandidate(
+                        name=skill.name,
+                        title=skill.title,
+                        filtered=True,
+                        filter_reason="skill_disabled",
+                    )
+                )
+                continue
+            if skill.activation_policy == "manual":
+                candidate_views.append(
+                    SkillPolicyCandidate(
+                        name=skill.name,
+                        title=skill.title,
+                        filtered=True,
+                        filter_reason="manual_activation_only",
+                    )
+                )
+                continue
             if self._is_forbidden(skill, task_frame):
                 candidate_views.append(
                     SkillPolicyCandidate(

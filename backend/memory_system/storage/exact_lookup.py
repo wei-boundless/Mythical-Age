@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 
-from memory_layout import DurableMemoryLayout
+from memory_system.layout import DurableMemoryLayout
 
 from .frontmatter import parse_frontmatter
 from .note_hygiene import is_runtime_noise_note

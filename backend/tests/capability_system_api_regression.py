@@ -188,6 +188,62 @@ def test_operation_catalog_includes_mcps_without_prompt_authorization_lists() ->
     assert "preview_only" not in text
 
 
+def test_capability_catalog_exposes_canonical_capability_units() -> None:
+    class _Runtime:
+        base_dir = ROOT
+
+        def __init__(self) -> None:
+            self.skill_registry = type("SkillRegistryStub", (), {"skills": []})()
+            self.tool_runtime = type("ToolRuntimeStub", (), {"definitions": []})()
+
+    catalog = build_capability_catalog(_Runtime())
+    units = {item["capability_id"]: item for item in catalog["capability_units"]}
+
+    assert "mcp:local:mcp:document:pdf:pdf" in units
+    assert units["mcp:local:mcp:document:pdf:pdf"]["operation_ids"] == ["op.mcp_pdf"]
+    assert units["mcp:local:mcp:document:pdf:pdf"]["provider_kind"] == "local"
+    assert units["mcp:local:mcp:document:pdf:pdf"]["model_visibility"] == "not_direct_model_tool"
+    assert catalog["summary"]["capability_unit_count"] == len(catalog["capability_units"])
+
+
+def test_capability_unit_projection_uses_skill_declared_operation_dependencies() -> None:
+    from capability_system.capability_units import build_capability_units
+
+    units = build_capability_units(
+        {
+            "skills": [
+                {
+                    "runtime": {
+                        "name": "skill-creator",
+                        "title": "Skill 创建顾问",
+                        "description": "Skill authoring workflow.",
+                        "path": "capability_system/units/skills/skill-creator/SKILL.md",
+                        "preferred_route": "capability_authoring",
+                        "activation_policy": "model_visible",
+                        "context_mode": "inline",
+                        "requires_operations": ["op.read_file", "op.write_file", "op.edit_file"],
+                        "requires_capabilities": ["tool:read_file", "tool:write_file", "tool:edit_file"],
+                    },
+                    "prompt_view": {"title": "Skill 创建顾问", "capability": "Skill authoring workflow."},
+                }
+            ],
+            "tools": [],
+            "mcp_management": {"servers": []},
+            "operations": [
+                {"operation_id": "op.read_file", "risk_tags": ["read_only"]},
+                {"operation_id": "op.write_file", "risk_tags": ["local_write"]},
+                {"operation_id": "op.edit_file", "risk_tags": ["local_write"]},
+            ],
+        }
+    )
+
+    unit = units[0]
+    assert unit["capability_id"] == "skill:skill-creator"
+    assert unit["operation_ids"] == ["op.read_file", "op.write_file", "op.edit_file"]
+    assert unit["display_facets"]["preferred_route"] == "capability_authoring"
+    assert unit["permission_view"]["reasons"] == ["skill_declares_operation_dependencies"]
+
+
 def test_capability_supply_package_filters_to_requested_operation_scope() -> None:
     package = build_capability_supply_package_from_catalog(
         {
@@ -200,6 +256,8 @@ def test_capability_supply_package_filters_to_requested_operation_scope() -> Non
                         "context_mode": "isolated",
                         "preferred_route": "pdf",
                         "capability_tags": ["document_analysis", "pdf"],
+                        "requires_operations": ["op.mcp_pdf"],
+                        "requires_capabilities": ["mcp:local:pdf"],
                     }
                 }
             ],
@@ -247,9 +305,48 @@ def test_capability_supply_package_filters_to_requested_operation_scope() -> Non
     assert [item.skill_name for item in package.skill_refs] == ["pdf-analysis"]
     assert package.skill_refs[0].preferred_route == "pdf"
     assert package.skill_refs[0].capability_tags == ("document_analysis", "pdf")
+    assert package.skill_refs[0].operation_ids == ("op.mcp_pdf",)
+    assert package.skill_refs[0].capability_ids == ("mcp:local:pdf",)
     assert [item.operation_id for item in package.mcp_refs] == ["op.mcp_pdf"]
-    assert package.capability_constraints["operation_scope"] == ["op.mcp_pdf"]
-    assert package.visibility_rules["agent_internal_tools"] == ["mcp_pdf"]
+
+
+def test_capability_supply_package_filters_skills_by_declared_operation_scope() -> None:
+    package = build_capability_supply_package_from_catalog(
+        {
+            "skills": [
+                {
+                    "runtime": {
+                        "name": "pdf-analysis",
+                        "title": "PDF 分析",
+                        "activation_policy": "model_visible",
+                        "context_mode": "isolated",
+                        "preferred_route": "pdf",
+                        "capability_tags": ["document_analysis", "pdf"],
+                        "requires_operations": ["op.mcp_pdf"],
+                    }
+                },
+                {
+                    "runtime": {
+                        "name": "web-summary",
+                        "title": "网页摘要",
+                        "activation_policy": "model_visible",
+                        "context_mode": "inline",
+                        "preferred_route": "realtime_network",
+                        "capability_tags": ["web"],
+                        "requires_operations": ["op.web_search"],
+                    }
+                },
+            ],
+            "tools": [],
+            "mcps": [],
+        },
+        task_id="task-web",
+        operation_scope=["op.web_search"],
+    )
+
+    assert [item.skill_name for item in package.skill_refs] == ["web-summary"]
+    assert package.skill_refs[0].operation_ids == ("op.web_search",)
+    assert package.capability_constraints["operation_scope"] == ["op.web_search"]
 
 
 def test_resource_policy_candidate_api_is_read_only_and_fail_closed() -> None:

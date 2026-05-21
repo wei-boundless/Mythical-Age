@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import fnmatch
 from pathlib import Path
 from typing import Any, Type
 
@@ -9,17 +8,17 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, Cal
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from capability_system.units.tools.workspace_paths import relative_workspace_path, resolve_workspace_path
+from capability_system.workspace_file_service import WorkspaceFileService
 
 
 class _WorkspacePathMixin:
-    _root_dir: Path
+    _files: WorkspaceFileService
 
     def _resolve_path(self, path: str = "") -> Path:
-        return resolve_workspace_path(self._root_dir, path)
+        return self._files.resolve(path)
 
     def _relative_path(self, path: Path) -> str:
-        return relative_workspace_path(self._root_dir, path)
+        return self._files.relative_path(path)
 
 
 class ListDirInput(BaseModel):
@@ -36,18 +35,17 @@ class ListDirTool(_WorkspacePathMixin, BaseTool):
 
     def __init__(self, root_dir: Path, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._root_dir = root_dir.resolve()
+        self._files = WorkspaceFileService(root_dir)
 
     def _run(self, path: str = ".", max_entries: int = 80, run_manager: CallbackManagerForToolRun | None = None) -> str:
         try:
-            directory = self._resolve_path(path)
+            entries = self._files.list_dir(path)
         except ValueError as exc:
             return f"List failed: {exc}"
-        if not directory.exists():
+        except FileNotFoundError:
             return "List failed: directory does not exist."
-        if not directory.is_dir():
+        except NotADirectoryError:
             return "List failed: path is not a directory."
-        entries = sorted(directory.iterdir(), key=lambda item: (not item.is_dir(), item.name.lower()))
         lines = []
         for item in entries[: max(1, min(int(max_entries or 80), 300))]:
             kind = "dir" if item.is_dir() else "file"
@@ -74,7 +72,7 @@ class StatPathTool(_WorkspacePathMixin, BaseTool):
 
     def __init__(self, root_dir: Path, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._root_dir = root_dir.resolve()
+        self._files = WorkspaceFileService(root_dir)
 
     def _run(self, path: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
         try:
@@ -112,7 +110,7 @@ class PathExistsTool(_WorkspacePathMixin, BaseTool):
 
     def __init__(self, root_dir: Path, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._root_dir = root_dir.resolve()
+        self._files = WorkspaceFileService(root_dir)
 
     def _run(self, path: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
         try:
@@ -139,31 +137,13 @@ class GlobPathsTool(_WorkspacePathMixin, BaseTool):
 
     def __init__(self, root_dir: Path, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._root_dir = root_dir.resolve()
+        self._files = WorkspaceFileService(root_dir)
 
     def _run(self, pattern: str, max_results: int = 80, run_manager: CallbackManagerForToolRun | None = None) -> str:
-        normalized = str(pattern or "").replace("\\", "/").strip()
-        if not normalized or normalized.startswith("/") or ".." in Path(normalized).parts:
+        try:
+            unique = self._files.glob_paths(pattern, max_results=max_results)
+        except ValueError:
             return "Glob failed: invalid pattern."
-        roots = [self._root_dir]
-        if self._root_dir.name == "backend":
-            roots.append(self._root_dir.parent.resolve())
-        matches: list[Path] = []
-        for root in roots:
-            for item in root.rglob("*"):
-                rel = str(item.relative_to(root)).replace("\\", "/")
-                if fnmatch.fnmatch(rel, normalized):
-                    matches.append(item)
-        unique = []
-        seen: set[str] = set()
-        for item in sorted(matches, key=lambda path: self._relative_path(path).lower()):
-            rel = self._relative_path(item)
-            if rel in seen:
-                continue
-            seen.add(rel)
-            unique.append(rel)
-            if len(unique) >= max(1, min(int(max_results or 80), 300)):
-                break
         return "\n".join(unique) or "No paths matched."
 
     async def _arun(self, pattern: str, max_results: int = 80, run_manager: AsyncCallbackManagerForToolRun | None = None) -> str:

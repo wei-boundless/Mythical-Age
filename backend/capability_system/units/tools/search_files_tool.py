@@ -10,15 +10,10 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, Cal
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-
-_DEFAULT_ROOTS = ("docs", "backend", "frontend", "knowledge", "backend/knowledge")
-_EXCLUDED_DIRS = (
-    ".git",
-    ".pytest_cache",
-    ".tmp-tests-runtime",
-    "__pycache__",
-    "node_modules",
-    "output",
+from capability_system.workspace_file_service import (
+    DEFAULT_EXCLUDED_DIRS,
+    DEFAULT_SEARCH_EXCLUDED_PATHS,
+    WorkspaceFileService,
 )
 
 
@@ -39,43 +34,6 @@ class SearchTextInput(BaseModel):
     )
     glob: str = Field(default="", description="可选 glob，例如 **/*.md 或 backend/**/*.py")
     max_results: int = Field(default=20, ge=1, le=100, description="最大返回条数")
-
-
-def _workspace_root(root_dir: Path) -> Path:
-    resolved = root_dir.resolve()
-    if resolved.name == "backend" and resolved.parent.exists():
-        return resolved.parent
-    return resolved
-
-
-def _safe_roots(workspace_root: Path, roots: list[str] | tuple[str, ...] | None) -> list[Path]:
-    requested = [str(item or "").strip().replace("\\", "/") for item in list(roots or [])]
-    if not requested:
-        requested = list(_DEFAULT_ROOTS)
-    safe: list[Path] = []
-    seen: set[Path] = set()
-    for item in requested:
-        if not item or item.startswith("-"):
-            continue
-        candidate = (workspace_root / item).resolve()
-        try:
-            candidate.relative_to(workspace_root)
-        except ValueError:
-            continue
-        if not candidate.exists() or candidate in seen:
-            continue
-        seen.add(candidate)
-        safe.append(candidate)
-    return safe
-
-
-def _relative_path(workspace_root: Path, path: Path) -> str:
-    return str(path.resolve().relative_to(workspace_root)).replace("\\", "/")
-
-
-def _is_excluded(path: Path) -> bool:
-    parts = {part.lower() for part in path.parts}
-    return any(excluded.lower() in parts for excluded in _EXCLUDED_DIRS)
 
 
 def _run_rg(args: list[str], *, cwd: Path, timeout: float = 8.0) -> subprocess.CompletedProcess[str] | None:
@@ -127,11 +85,11 @@ class SearchFilesTool(BaseTool):
     )
     args_schema: Type[BaseModel] = SearchFilesInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    _workspace_root: Path = PrivateAttr()
+    _files: WorkspaceFileService = PrivateAttr()
 
     def __init__(self, root_dir: Path, **kwargs) -> None:
         super().__init__(**kwargs)
-        self._workspace_root = _workspace_root(root_dir)
+        self._files = WorkspaceFileService(root_dir)
 
     def _run(
         self,
@@ -144,21 +102,28 @@ class SearchFilesTool(BaseTool):
         normalized_query = str(query or "").strip()
         if not normalized_query:
             return "Search failed: query is required."
-        safe_roots = _safe_roots(self._workspace_root, roots)
+        using_default_roots = not [str(item or "").strip() for item in list(roots or [])]
+        safe_roots = self._files.safe_roots(roots)
         if not safe_roots:
             return "Search failed: no safe search roots."
 
         limit = max(1, min(int(max_results or 20), 100))
-        root_args = [_relative_path(self._workspace_root, root) for root in safe_roots]
-        completed = _run_rg(["--files", *root_args], cwd=self._workspace_root)
+        root_args = [self._files.relative_path(root) for root in safe_roots]
+        completed = _run_rg(
+            ["--files", *_default_search_exclude_args(using_default_roots), *root_args],
+            cwd=self._files.workspace_root,
+        )
         paths: list[str] = []
         if completed is not None and completed.returncode in {0, 1}:
             paths = [line.strip().replace("\\", "/") for line in completed.stdout.splitlines() if line.strip()]
         else:
             for root in safe_roots:
                 for path in root.rglob("*"):
-                    if path.is_file() and not _is_excluded(path):
-                        paths.append(_relative_path(self._workspace_root, path))
+                    if path.is_file() and not self._files.is_excluded(
+                        path,
+                        include_default_search_excludes=using_default_roots,
+                    ):
+                        paths.append(self._files.relative_path(path))
 
         terms = _query_terms(normalized_query)
         matches = [path for path in paths if any(term in path.lower() for term in terms)]
@@ -185,11 +150,11 @@ class SearchTextTool(BaseTool):
     )
     args_schema: Type[BaseModel] = SearchTextInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    _workspace_root: Path = PrivateAttr()
+    _files: WorkspaceFileService = PrivateAttr()
 
     def __init__(self, root_dir: Path, **kwargs) -> None:
         super().__init__(**kwargs)
-        self._workspace_root = _workspace_root(root_dir)
+        self._files = WorkspaceFileService(root_dir)
 
     def _run(
         self,
@@ -203,7 +168,8 @@ class SearchTextTool(BaseTool):
         normalized_query = str(query or "").strip()
         if not normalized_query:
             return "Search failed: query is required."
-        safe_roots = _safe_roots(self._workspace_root, roots)
+        using_default_roots = not [str(item or "").strip() for item in list(roots or [])]
+        safe_roots = self._files.safe_roots(roots)
         if not safe_roots:
             return "Search failed: no safe search roots."
 
@@ -216,16 +182,23 @@ class SearchTextTool(BaseTool):
             "--max-count",
             str(limit),
         ]
-        for excluded in _EXCLUDED_DIRS:
+        for excluded in DEFAULT_EXCLUDED_DIRS:
             args.extend(["--glob", f"!**/{excluded}/**"])
+        args.extend(_default_search_exclude_args(using_default_roots))
         if str(glob or "").strip():
             args.extend(["--glob", str(glob).strip()])
         args.append(normalized_query)
-        args.extend(_relative_path(self._workspace_root, root) for root in safe_roots)
+        args.extend(self._files.relative_path(root) for root in safe_roots)
 
-        completed = _run_rg(args, cwd=self._workspace_root)
+        completed = _run_rg(args, cwd=self._files.workspace_root)
         if completed is None:
-            return self._fallback_search(normalized_query, safe_roots, glob=str(glob or ""), limit=limit)
+            return self._fallback_search(
+                normalized_query,
+                safe_roots,
+                glob=str(glob or ""),
+                limit=limit,
+                using_default_roots=using_default_roots,
+            )
         if completed.returncode not in {0, 1}:
             error = (completed.stderr or "").strip()
             return f"Search failed: {error[:300] or 'ripgrep returned an error.'}"
@@ -234,14 +207,25 @@ class SearchTextTool(BaseTool):
             return _format_no_results(normalized_query)
         return "\n".join(lines[:limit])
 
-    def _fallback_search(self, query: str, roots: list[Path], *, glob: str, limit: int) -> str:
+    def _fallback_search(
+        self,
+        query: str,
+        roots: list[Path],
+        *,
+        glob: str,
+        limit: int,
+        using_default_roots: bool,
+    ) -> str:
         matches: list[str] = []
         pattern = glob.strip() or "*"
         for root in roots:
             for path in root.rglob(pattern):
                 if len(matches) >= limit:
                     break
-                if not path.is_file() or _is_excluded(path):
+                if not path.is_file() or self._files.is_excluded(
+                    path,
+                    include_default_search_excludes=using_default_roots,
+                ):
                     continue
                 try:
                     text = path.read_text(encoding="utf-8", errors="ignore")
@@ -250,7 +234,7 @@ class SearchTextTool(BaseTool):
                 for line_number, line in enumerate(text.splitlines(), start=1):
                     if query.lower() not in line.lower():
                         continue
-                    rel = _relative_path(self._workspace_root, path)
+                    rel = self._files.relative_path(path)
                     matches.append(f"{rel}:{line_number}:1:{line[:240]}")
                     break
         if not matches:
@@ -266,3 +250,12 @@ class SearchTextTool(BaseTool):
         run_manager: AsyncCallbackManagerForToolRun | None = None,
     ) -> str:
         return await asyncio.to_thread(self._run, query, roots, glob, max_results, None)
+
+
+def _default_search_exclude_args(enabled: bool) -> list[str]:
+    if not enabled:
+        return []
+    args: list[str] = []
+    for excluded in DEFAULT_SEARCH_EXCLUDED_PATHS:
+        args.extend(["--glob", f"!{excluded}/**"])
+    return args

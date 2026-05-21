@@ -1,0 +1,205 @@
+{
+  "archive_id": "legacy_backend_root_20260522_runtime_data",
+  "created_at": "2026-05-22T05:44:35",
+  "policy": "Moved historical backend-root runtime/data directories to project storage. Backend root log files were moved when possible; api-server.log was copied and retained because an active writer held it open.",
+  "entries": [
+    {
+      "kind": "directory",
+      "name": ".tmp",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\.tmp",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\.tmp",
+      "files": 2,
+      "bytes": 78879,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "artifact_repository",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\artifact_repository",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\artifact_repository",
+      "files": 1,
+      "bytes": 28672,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "checkpoints",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\checkpoints",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\checkpoints",
+      "files": 1,
+      "bytes": 32508,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "coordination_checkpoints",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\coordination_checkpoints",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\coordination_checkpoints",
+      "files": 1,
+      "bytes": 2297406,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "events",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\events",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\events",
+      "files": 1,
+      "bytes": 107516,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "formal_memory",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\formal_memory",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\formal_memory",
+      "files": 1,
+      "bytes": 118784,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "output",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\output",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\output",
+      "files": 12,
+      "bytes": 2454869,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "runtime_objects",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\runtime_objects",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\runtime_objects",
+      "files": 5,
+      "bytes": 2069731,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "runtime_state",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\runtime_state",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\runtime_state",
+      "files": 891,
+      "bytes": 11939561,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "runtime_views",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\runtime_views",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\runtime_views",
+      "files": 1,
+      "bytes": 587,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "state_index",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\state_index",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\state_index",
+      "files": 32,
+      "bytes": 34017,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "storage",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\storage",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\storage",
+      "files": 1,
+      "bytes": 110592,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "timeline_ledgers",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\timeline_ledgers",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\timeline_ledgers",
+      "files": 1,
+      "bytes": 11685,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "directory",
+      "name": "working_memory",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\working_memory",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\working_memory",
+      "files": 1,
+      "bytes": 73728,
+      "archived_mode": "moved"
+    },
+    {
+      "kind": "file",
+      "name": "api-server.log",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\api-server.log",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\logs\\api-server.log",
+      "files": 1,
+      "bytes": 82404,
+      "archived_mode": "copied_source_retained_due_to_active_writer"
+    },
+    {
+      "kind": "file",
+      "name": "backend-dev-8002.err.log",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\backend-dev-8002.err.log",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\logs\\backend-dev-8002.err.log",
+      "files": 1,
+      "bytes": 22078,
+      "archived_mode": "moved_after_initial_copy",
+      "source_removed": true
+    },
+    {
+      "kind": "file",
+      "name": "backend-dev-8002.out.log",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\backend-dev-8002.out.log",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\logs\\backend-dev-8002.out.log",
+      "files": 1,
+      "bytes": 288702,
+      "archived_mode": "moved_after_initial_copy",
+      "source_removed": true
+    },
+    {
+      "kind": "file",
+      "name": "backend-live-8012.err.log",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\backend-live-8012.err.log",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\logs\\backend-live-8012.err.log",
+      "files": 1,
+      "bytes": 202,
+      "archived_mode": "moved_after_initial_copy",
+      "source_removed": true
+    },
+    {
+      "kind": "file",
+      "name": "backend-live-8012.out.log",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\backend-live-8012.out.log",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\logs\\backend-live-8012.out.log",
+      "files": 1,
+      "bytes": 3107,
+      "archived_mode": "moved_after_initial_copy",
+      "source_removed": true
+    },
+    {
+      "kind": "file",
+      "name": "backend-smoke-8012.err.log",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\backend-smoke-8012.err.log",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\logs\\backend-smoke-8012.err.log",
+      "files": 1,
+      "bytes": 202,
+      "archived_mode": "moved_after_initial_copy",
+      "source_removed": true
+    },
+    {
+      "kind": "file",
+      "name": "backend-smoke-8012.out.log",
+      "source": "D:\\AI应用\\langchain-agent\\backend\\backend-smoke-8012.out.log",
+      "target": "D:\\AI应用\\langchain-agent\\storage\\legacy_backend_root_20260522_runtime_data\\logs\\backend-smoke-8012.out.log",
+      "files": 1,
+      "bytes": 16040,
+      "archived_mode": "moved_after_initial_copy",
+      "source_removed": true
+    }
+  ],
+  "remaining_backend_root_residue": [
+    "api-server.log"
+  ]
+}

@@ -804,6 +804,7 @@ export type TaskGraphStandardTimelineSpec = {
   timeline_blocks?: Array<Record<string, unknown>>;
   phases: Array<Record<string, unknown>>;
   scheduler?: Record<string, unknown>;
+  runtime_semantics?: Record<string, unknown>;
 };
 
 export type TaskGraphRuntimeIsolationSpec = {
@@ -2340,6 +2341,46 @@ export type CapabilityEndpoint = {
   metadata: Record<string, unknown>;
 };
 
+export type CapabilityUnit = {
+  capability_id: string;
+  kind: "tool" | "skill" | "mcp" | "operation" | string;
+  title: string;
+  summary: string;
+  operation_ids: string[];
+  provider: string;
+  provider_kind: string;
+  transport: string;
+  runtime_visibility: string;
+  model_visibility: string;
+  risk: string[];
+  resource_policy: string;
+  status: string;
+  source_ref: string;
+  dependencies: Array<{
+    from_id: string;
+    to_id: string;
+    relation: string;
+  }>;
+  health: {
+    status: string;
+    reason: string;
+    diagnostics: Record<string, unknown>;
+  };
+  permission_view: {
+    capability_id: string;
+    operation_ids: string[];
+    profile_state: string;
+    adoption_state: string;
+    gate_state: string;
+    approval_state: string;
+    sandbox_state: string;
+    reasons: string[];
+    diagnostics: Record<string, unknown>;
+  } | null;
+  display_facets: Record<string, unknown>;
+  diagnostics: Record<string, unknown>;
+};
+
 export type OperationBindingGraph = {
   agent_nodes: Array<{
     agent_id: string;
@@ -2382,6 +2423,8 @@ export type CapabilitySystemCatalog = {
   tools: OperationTool[];
   mcps?: OperationMCP[];
   local_mcp_units?: Array<Record<string, unknown>>;
+  mcp_management?: Record<string, unknown>;
+  capability_units?: CapabilityUnit[];
   workers?: OperationWorker[];
   capability_endpoints?: CapabilityEndpoint[];
   operations?: OperationDescriptor[];
@@ -2427,6 +2470,8 @@ export type CapabilitySystemCatalog = {
     worker_count?: number;
     local_mcp_endpoint_count?: number;
     capability_endpoint_count?: number;
+    capability_unit_count?: number;
+    mcp_management_server_count?: number;
     model_visible_skills: number;
     tool_types: string[];
     tool_boundaries: Record<string, number>;

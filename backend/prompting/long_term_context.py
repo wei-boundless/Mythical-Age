@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Callable
 
 from memory_system.static_loader import load_static_context
-from memory_layout import durable_memory_layout_from_backend_dir
+from memory_system.layout import durable_memory_layout_from_backend_dir
 
 
 def _strip_leading_markdown_title(content: str) -> str:

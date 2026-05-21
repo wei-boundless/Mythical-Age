@@ -7,7 +7,6 @@ from capability_system.paths import CapabilitySystemPaths
 from capability_system.tool_definitions import (
     ToolDefinition,
     build_tool_registry_payload,
-    get_tool_definition_map,
     get_tool_definitions,
 )
 
@@ -29,7 +28,11 @@ class ToolRegistry:
     def get_by_name(self, name: str | None) -> ToolDefinition | None:
         if not name:
             return None
-        return get_tool_definition_map().get(name.strip())
+        target = name.strip().lower()
+        for tool in self._tools:
+            if tool.name.lower() == target:
+                return tool
+        return None
 
     def filter_names(self, names: list[str] | None, *, safe_only: bool = False) -> list[ToolDefinition]:
         if not names:

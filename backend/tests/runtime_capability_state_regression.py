@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from capability_system import build_default_operation_registry
-from orchestration.agent_runtime_models import AgentRuntimeProfile
+from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from runtime.shared.context_manager import RuntimeContextManager
 from runtime.shared.model_adoption import (
     build_model_response_runtime_adoption,

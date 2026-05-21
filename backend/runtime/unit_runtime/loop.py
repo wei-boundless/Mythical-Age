@@ -18,10 +18,11 @@ from capability_system.search_policy import (
     operation_allowed_by_search_policy,
     tool_allowed_by_search_policy,
 )
-from orchestration.agent_registry import AgentRegistry
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
-from orchestration.model_profile_resolver import ModelProfileResolver
-from orchestration.resource_gate import OperationGate, OperationGatePipelineContext
+from agent_system.registry.agent_registry import AgentRegistry
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
+from agent_system.models.model_profile_resolver import ModelProfileResolver
+from orchestration.resource_gate import ApprovalToken, OperationGate, OperationGatePipelineContext
+from orchestration.resource_policy import ResourceDecision, ResourcePolicy
 from project_layout import ProjectLayout
 from response_system.boundary.boundary import AssistantOutputBoundary
 from memory_system.runtime_services import MemoryRuntimeServices
@@ -59,7 +60,9 @@ from context_system.projection.projection import (
     projection_from_file_work,
 )
 from orchestration.commit_gate import build_assistant_session_message_commit_decision, build_task_run_final_commit_decision
+from orchestration.runtime_directive import RuntimeDirective
 from ..shared.action_request import (
+    RuntimeActionRequest,
     build_executor_error_observation,
     build_model_response_observation,
     build_tool_action_request,
@@ -143,8 +146,8 @@ from ..memory.trace_reader import RuntimeLoopTraceReader
 from ..execution.delegation_models import AgentDelegationRequest
 from ..shared.tool_adoption import build_tool_request_runtime_adoption
 from ..shared.tool_repetition_guard import ToolRepetitionGuard
-from orchestration.worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
-from orchestration.worker_agent_factory import WorkerAgentFactory
+from agent_system.registry.worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
+from agent_system.registry.worker_agent_factory import WorkerAgentFactory
 from evidence import MCPExecutionPlan, MCPRequest
 
 
@@ -193,10 +196,11 @@ class TaskRunLoop:
         operation_gate: OperationGate | None = None,
         limits: RuntimeLoopLimits | None = None,
         evidence_orchestrator: Any | None = None,
+        permission_mode_provider: Callable[[], str] | None = None,
     ) -> None:
         self.root_dir = Path(root_dir)
         if backend_dir is None:
-            self.backend_dir = ProjectLayout.from_backend_dir(self.root_dir).backend_dir
+            self.backend_dir = ProjectLayout.from_runtime_root(self.root_dir).backend_dir
         else:
             self.backend_dir = Path(backend_dir)
         self.event_log = RuntimeEventLog(self.root_dir)
@@ -214,6 +218,7 @@ class TaskRunLoop:
             self.timeline_ledger,
         )
         self.operation_gate = operation_gate or OperationGate(build_default_operation_registry())
+        self.permission_mode_provider = permission_mode_provider
         self.limits = limits or RuntimeLoopLimits()
         self.tool_authorization_index = self._build_tool_authorization_index()
         self.task_flow_registry = TaskFlowRegistry(self.backend_dir)
@@ -250,6 +255,17 @@ class TaskRunLoop:
             artifact_repository=artifact_repository,
         )
 
+    def _current_permission_mode(self) -> str:
+        provider = self.permission_mode_provider
+        if callable(provider):
+            try:
+                mode = str(provider() or "").strip()
+                if mode:
+                    return mode
+            except Exception:
+                return "default"
+        return "default"
+
     @staticmethod
     def _apply_observation_aggregation(
         aggregation: ObservationAggregation,
@@ -285,6 +301,195 @@ class TaskRunLoop:
             "project_progress_ledger": ledger.to_dict() if ledger is not None else None,
             "supervision_records": [item.to_dict() for item in self.state_index.list_project_supervision_records(project_id)[-50:]],
             "authority": "orchestration.project_runtime_status_view",
+        }
+
+    async def resolve_pending_approval(
+        self,
+        task_run_id: str,
+        *,
+        decision: str,
+        message: str = "",
+        tool_runtime_executor: Any | None = None,
+    ) -> dict[str, Any]:
+        task_run = self.state_index.get_task_run(task_run_id)
+        if task_run is None:
+            raise KeyError(task_run_id)
+        checkpoint = self.checkpoints.load_latest(task_run_id)
+        if checkpoint is None:
+            raise ValueError("TaskRun has no checkpoint to resolve approval from")
+        approval_state = dict(checkpoint.loop_state.pending_approval_state or {})
+        if str(approval_state.get("status") or "") != "pending":
+            raise ValueError("TaskRun has no pending approval")
+        normalized_decision = str(decision or "").strip().lower()
+        if normalized_decision not in {"approve", "approved", "reject", "rejected"}:
+            raise ValueError("approval decision must be approve or reject")
+        approved = normalized_decision in {"approve", "approved"}
+        operation_id = str(approval_state.get("operation_id") or "").strip()
+        directive_ref = str(approval_state.get("directive_ref") or "").strip()
+        if not operation_id or not directive_ref:
+            raise ValueError("pending approval is missing operation_id or directive_ref")
+        resolved_at = time.time()
+        resolution = {
+            "decision": "approved" if approved else "rejected",
+            "message": str(message or "").strip(),
+            "resolved_at": resolved_at,
+        }
+        token = ApprovalToken(
+            token_id=f"approval:{task_run_id}:{uuid.uuid4().hex[:8]}",
+            operation_id=operation_id,
+            directive_ref=directive_ref,
+            granted=approved,
+            source="runtime_approval_api",
+        )
+        next_approval_state = {
+            **approval_state,
+            "status": "approved" if approved else "rejected",
+            "resolution": resolution,
+            "approval_token": {
+                "token_id": token.token_id,
+                "operation_id": token.operation_id,
+                "directive_ref": token.directive_ref,
+                "granted": token.granted,
+                "source": token.source,
+            },
+        }
+        resumed_event = self.event_log.append(
+            task_run_id,
+            "approval_resumed",
+            payload={
+                "approval": next_approval_state,
+                "decision": resolution["decision"],
+                "operation_id": operation_id,
+                "directive_ref": directive_ref,
+            },
+            refs={
+                "operation_id": operation_id,
+                "directive_ref": directive_ref,
+                "approval_token_ref": token.token_id,
+            },
+        )
+        if approved:
+            resume_result = await self._execute_pending_approval_tool(
+                task_run_id,
+                approval_state=approval_state,
+                approval_token=token,
+                tool_runtime_executor=tool_runtime_executor,
+            )
+            next_approval_state = {
+                **next_approval_state,
+                "resume_result": resume_result,
+            }
+            final_status = "completed" if resume_result.get("executed") else "blocked"
+            terminal_reason = "completed" if resume_result.get("executed") else "blocked_by_gate"
+        else:
+            resume_result = {
+                "executed": False,
+                "rejected": True,
+                "reason": str(message or "").strip() or "approval rejected",
+            }
+            rejection_observation = build_tool_result_observation(
+                task_run_id=task_run_id,
+                request_ref=str(approval_state.get("action_request_ref") or ""),
+                directive_ref=directive_ref,
+                tool_name=str(approval_state.get("tool_name") or ""),
+                tool_call_id=str(approval_state.get("tool_call_id") or approval_state.get("action_request_ref") or ""),
+                tool_args=dict(approval_state.get("tool_args") or {}),
+                result=resume_result["reason"],
+            )
+            rejection_context = RuntimeContextManager(lambda **_kwargs: "").record_observation(rejection_observation)
+            self.event_log.append(
+                task_run_id,
+                "tool_result_received",
+                payload={
+                    "observation": rejection_observation.to_dict(),
+                    "context_record": rejection_context.to_dict(),
+                    "approval_resolution": resolution,
+                },
+                refs={
+                    "action_request_ref": str(approval_state.get("action_request_ref") or ""),
+                    "directive_ref": directive_ref,
+                    "observation_ref": rejection_observation.observation_id,
+                },
+            )
+            self.event_log.append(
+                task_run_id,
+                "executor_observation_received",
+                payload={
+                    "observation": rejection_observation.to_dict(),
+                    "context_record": rejection_context.to_dict(),
+                    "source": rejection_observation.source,
+                    "content_chars": rejection_observation.content_chars,
+                },
+                refs={
+                    "action_request_ref": str(approval_state.get("action_request_ref") or ""),
+                    "directive_ref": directive_ref,
+                    "observation_ref": rejection_observation.observation_id,
+                },
+            )
+            final_status = "blocked"
+            terminal_reason = "blocked_by_gate"
+        resolved_state = RuntimeLoopState(
+            task_run_id=checkpoint.loop_state.task_run_id,
+            status=final_status,  # type: ignore[arg-type]
+            turn_count=checkpoint.loop_state.turn_count,
+            step_count=checkpoint.loop_state.step_count,
+            current_step_id=checkpoint.loop_state.current_step_id,
+            agent_id=checkpoint.loop_state.agent_id,
+            agent_profile_id=checkpoint.loop_state.agent_profile_id,
+            runtime_lane=checkpoint.loop_state.runtime_lane,
+            task_agent_binding_ref=checkpoint.loop_state.task_agent_binding_ref,
+            task_template_id=checkpoint.loop_state.task_template_id,
+            task_spec_ref=checkpoint.loop_state.task_spec_ref,
+            task_result_ref=checkpoint.loop_state.task_result_ref,
+            skill_workflow_ref=checkpoint.loop_state.skill_workflow_ref,
+            health_issue_ref=checkpoint.loop_state.health_issue_ref,
+            transition="continue_after_approval",
+            terminal_reason=terminal_reason,  # type: ignore[arg-type]
+            messages_ref=checkpoint.loop_state.messages_ref,
+            context_snapshot_ref=checkpoint.loop_state.context_snapshot_ref,
+            memory_state_ref=checkpoint.loop_state.memory_state_ref,
+            projection_ref=checkpoint.loop_state.projection_ref,
+            prompt_manifest_ref=checkpoint.loop_state.prompt_manifest_ref,
+            pending_action_requests=(),
+            pending_approval_state=next_approval_state,
+            denial_tracking_state=checkpoint.loop_state.denial_tracking_state,
+            token_pressure=checkpoint.loop_state.token_pressure,
+            compaction_state=checkpoint.loop_state.compaction_state,
+            result_refs=tuple(
+                _dedupe_refs(
+                    [
+                        *list(checkpoint.loop_state.result_refs),
+                        *list(resume_result.get("result_refs") or []),
+                    ]
+                )
+            ),
+            commit_state=checkpoint.loop_state.commit_state,
+            diagnostics={
+                **dict(checkpoint.loop_state.diagnostics),
+                "approval_resolution": resolution,
+                "approval_resume_result": resume_result,
+            },
+        )
+        checkpoint_event = self._write_checkpoint_event(resolved_state, event_offset=resumed_event.offset)
+        self._upsert_task_run_runtime_state(
+            task_run=task_run,
+            status=final_status,
+            terminal_reason=terminal_reason,
+            latest_event_offset=checkpoint_event.offset,
+            latest_checkpoint_ref=str(checkpoint_event.refs.get("checkpoint_ref") or checkpoint.checkpoint_id),
+            diagnostics={
+                "pending_approval_state": next_approval_state,
+                "approval_resolution": resolution,
+                "approval_resume_result": resume_result,
+            },
+        )
+        return {
+            "authority": "orchestration.runtime_approval_resolution",
+            "task_run_id": task_run_id,
+            "decision": resolution["decision"],
+            "approval": next_approval_state,
+            "resume_result": resume_result,
+            "events": [resumed_event.to_dict(), checkpoint_event.to_dict()],
         }
 
     def evaluate_task_graph_monitor(
@@ -1717,6 +1922,7 @@ class TaskRunLoop:
             resource_policy=resource_policy,
             directive_ref=directive.directive_id,
             context=OperationGatePipelineContext(
+                permission_mode=self._current_permission_mode(),
                 operation_input={"operation_id": "op.model_response"},
                 validators=task_safety_validators,
             ),
@@ -2144,12 +2350,28 @@ class TaskRunLoop:
                                     result_refs=result_refs,
                                     diagnostics={"last_step_transition": "tool_result_received"},
                                 )
-                                checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
-                                yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+                            checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
+                            yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
                         elif observation.get("observation_type") == "executor_error":
                             terminal_reason = "executor_failed"
                     elif runtime_event.event_type == "loop_error":
                         terminal_reason = "executor_failed"
+                    elif runtime_event.event_type == "approval_waiting":
+                        approval_state = dict(runtime_event.payload.get("approval") or {})
+                        state, approval_event, checkpoint_event, _task_run = self._enter_waiting_approval(
+                            task_run_id=state.task_run_id,
+                            approval_state=approval_state,
+                            current_state=state,
+                            current_task_run=start.task_run,
+                        )
+                        yield {"type": "runtime_loop_event", "event": approval_event.to_dict()}
+                        yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+                        yield {
+                            "type": "approval_waiting",
+                            "approval": approval_state,
+                            "task_run_id": state.task_run_id,
+                        }
+                        return
                     elif runtime_event.event_type == "output_boundary_applied":
                         result_refs.append(f"output_boundary:{runtime_event.event_id}")
                     elif runtime_event.event_type == "commit_gate_checked":
@@ -2440,8 +2662,8 @@ class TaskRunLoop:
                                     result_refs=result_refs,
                                     diagnostics={"last_step_transition": "tool_result_received"},
                                 )
-                                checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
-                                yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+                            checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
+                            yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
                         elif observation.get("observation_type") == "executor_error":
                             terminal_reason = "executor_failed"
                             observation_payload = dict(observation.get("payload") or {})
@@ -2558,6 +2780,22 @@ class TaskRunLoop:
                             )
                             checkpoint_event = self._write_checkpoint_event(state, event_offset=ledger_event.offset)
                             yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+                    elif runtime_event.event_type == "approval_waiting":
+                        approval_state = dict(runtime_event.payload.get("approval") or {})
+                        state, approval_event, checkpoint_event, _task_run = self._enter_waiting_approval(
+                            task_run_id=state.task_run_id,
+                            approval_state=approval_state,
+                            current_state=state,
+                            current_task_run=start.task_run,
+                        )
+                        yield {"type": "runtime_loop_event", "event": approval_event.to_dict()}
+                        yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+                        yield {
+                            "type": "approval_waiting",
+                            "approval": approval_state,
+                            "task_run_id": state.task_run_id,
+                        }
+                        return
                     elif runtime_event.event_type == "output_boundary_applied":
                         result_refs.append(f"output_boundary:{runtime_event.event_id}")
                     elif runtime_event.event_type == "commit_gate_checked":
@@ -2829,6 +3067,22 @@ class TaskRunLoop:
                             result_refs.append(f"commit_gate:{commit_ref}")
                         elif runtime_event.event_type == "loop_error":
                             terminal_reason = "executor_failed"
+                        elif runtime_event.event_type == "approval_waiting":
+                            approval_state = dict(runtime_event.payload.get("approval") or {})
+                            state, approval_event, checkpoint_event, _task_run = self._enter_waiting_approval(
+                                task_run_id=state.task_run_id,
+                                approval_state=approval_state,
+                                current_state=state,
+                                current_task_run=start.task_run,
+                            )
+                            yield {"type": "runtime_loop_event", "event": approval_event.to_dict()}
+                            yield {"type": "runtime_loop_event", "event": checkpoint_event.to_dict()}
+                            yield {
+                                "type": "approval_waiting",
+                                "approval": approval_state,
+                                "task_run_id": state.task_run_id,
+                            }
+                            return
                         yield {"type": "runtime_loop_event", "event": runtime_event.to_dict()}
                     if event.get("type") == "done" and not repair_pending_tool_calls:
                         final_content = str(event.get("content") or final_content)
@@ -4080,6 +4334,313 @@ class TaskRunLoop:
     def _adoption_mode_allows_projection(adoption_mode: str) -> bool:
         return str(adoption_mode or "").strip() in {"adopt_with_projection", "spawn_worker_allowed"}
 
+    def _upsert_task_run_runtime_state(
+        self,
+        *,
+        task_run: TaskRun,
+        status: str,
+        terminal_reason: str = "",
+        latest_event_offset: int | None = None,
+        latest_checkpoint_ref: str = "",
+        diagnostics: dict[str, Any] | None = None,
+    ) -> None:
+        self.state_index.upsert_task_run(
+            TaskRun(
+                task_run_id=task_run.task_run_id,
+                session_id=task_run.session_id,
+                task_id=task_run.task_id,
+                task_contract_ref=task_run.task_contract_ref,
+                owner_agent_seat_id=task_run.owner_agent_seat_id,
+                agent_id=task_run.agent_id,
+                agent_profile_id=task_run.agent_profile_id,
+                runtime_lane=task_run.runtime_lane,
+                status=status,  # type: ignore[arg-type]
+                created_at=task_run.created_at,
+                updated_at=time.time(),
+                latest_event_offset=(
+                    int(latest_event_offset)
+                    if latest_event_offset is not None
+                    else task_run.latest_event_offset
+                ),
+                latest_checkpoint_ref=latest_checkpoint_ref or task_run.latest_checkpoint_ref,
+                terminal_reason=terminal_reason,  # type: ignore[arg-type]
+                diagnostics={
+                    **dict(task_run.diagnostics),
+                    **dict(diagnostics or {}),
+                },
+            )
+        )
+
+    def _build_pending_approval_state(
+        self,
+        *,
+        task_run_id: str,
+        action_request: RuntimeActionRequest,
+        directive: RuntimeDirective,
+        resource_policy: ResourcePolicy,
+        gate_result: Any,
+        descriptor: Any,
+        sandbox_policy: dict[str, Any] | None,
+        step_ref: str = "",
+    ) -> dict[str, Any]:
+        tool_call = dict(action_request.payload.get("tool_call") or {})
+        tool_args = dict(tool_call.get("args") or {})
+        risk_tags = tuple(getattr(descriptor, "risk_tags", ()) or ())
+        return {
+            "status": "pending",
+            "task_run_id": task_run_id,
+            "operation_id": str(gate_result.operation_id or ""),
+            "directive_ref": directive.directive_id,
+            "action_request_ref": action_request.request_id,
+            "tool_name": str(action_request.payload.get("tool_name") or ""),
+            "tool_call_id": str(tool_call.get("id") or action_request.request_id),
+            "tool_args": tool_args,
+            "tool_args_summary": _summarize_tool_args(tool_args),
+            "risk_tags": list(risk_tags),
+            "requires_user_interaction": bool(getattr(descriptor, "requires_user_interaction", False)),
+            "gate": gate_result.to_dict(),
+            "directive": directive.to_dict(),
+            "resource_policy": resource_policy.to_dict(),
+            "sandbox_policy": dict(sandbox_policy or {}),
+            "step_ref": step_ref,
+            "created_at": time.time(),
+            "resume_contract": {
+                "operation_id": str(gate_result.operation_id or ""),
+                "directive_ref": directive.directive_id,
+                "action_request_ref": action_request.request_id,
+                "token_binding": "operation_id+directive_ref",
+            },
+        }
+
+    def _enter_waiting_approval(
+        self,
+        *,
+        task_run_id: str,
+        approval_state: dict[str, Any],
+        current_state: RuntimeLoopState | None = None,
+        current_task_run: TaskRun | None = None,
+        event_offset: int | None = None,
+    ) -> tuple[RuntimeLoopState, Any, Any, TaskRun | None]:
+        base_state = current_state
+        if base_state is None:
+            checkpoint = self.checkpoints.load_latest(task_run_id)
+            base_state = checkpoint.loop_state if checkpoint is not None else None
+        if base_state is None:
+            base_state = RuntimeLoopState(task_run_id=task_run_id, status="running")
+        waiting_state = RuntimeLoopState(
+            task_run_id=base_state.task_run_id,
+            status="waiting_approval",
+            turn_count=base_state.turn_count,
+            step_count=base_state.step_count,
+            current_step_id=base_state.current_step_id,
+            agent_id=base_state.agent_id,
+            agent_profile_id=base_state.agent_profile_id,
+            runtime_lane=base_state.runtime_lane,
+            task_agent_binding_ref=base_state.task_agent_binding_ref,
+            task_template_id=base_state.task_template_id,
+            task_spec_ref=base_state.task_spec_ref,
+            task_result_ref=base_state.task_result_ref,
+            skill_workflow_ref=base_state.skill_workflow_ref,
+            health_issue_ref=base_state.health_issue_ref,
+            transition=base_state.transition,
+            terminal_reason="waiting_approval",
+            messages_ref=base_state.messages_ref,
+            context_snapshot_ref=base_state.context_snapshot_ref,
+            memory_state_ref=base_state.memory_state_ref,
+            projection_ref=base_state.projection_ref,
+            prompt_manifest_ref=base_state.prompt_manifest_ref,
+            pending_action_requests=(dict(approval_state),),
+            pending_approval_state=dict(approval_state),
+            denial_tracking_state=base_state.denial_tracking_state,
+            token_pressure=base_state.token_pressure,
+            compaction_state=base_state.compaction_state,
+            result_refs=base_state.result_refs,
+            commit_state=base_state.commit_state,
+            diagnostics={
+                **dict(base_state.diagnostics),
+                "pending_approval_state": dict(approval_state),
+            },
+        )
+        approval_event = self.event_log.append(
+            task_run_id,
+            "approval_waiting",
+            payload={"approval": dict(approval_state)},
+            refs={
+                "operation_id": str(approval_state.get("operation_id") or ""),
+                "directive_ref": str(approval_state.get("directive_ref") or ""),
+                "action_request_ref": str(approval_state.get("action_request_ref") or ""),
+            },
+        )
+        checkpoint_event = self._write_checkpoint_event(
+            waiting_state,
+            event_offset=approval_event.offset if event_offset is None else max(event_offset, approval_event.offset),
+        )
+        task_run = current_task_run or self.state_index.get_task_run(task_run_id)
+        if task_run is not None:
+            self._upsert_task_run_runtime_state(
+                task_run=task_run,
+                status="waiting_approval",
+                terminal_reason="waiting_approval",
+                latest_event_offset=checkpoint_event.offset,
+                latest_checkpoint_ref=str(checkpoint_event.refs.get("checkpoint_ref") or ""),
+                diagnostics={"pending_approval_state": dict(approval_state)},
+            )
+        return waiting_state, approval_event, checkpoint_event, task_run
+
+    async def _execute_pending_approval_tool(
+        self,
+        task_run_id: str,
+        *,
+        approval_state: dict[str, Any],
+        approval_token: ApprovalToken,
+        tool_runtime_executor: Any | None,
+    ) -> dict[str, Any]:
+        if tool_runtime_executor is None:
+            return {
+                "executed": False,
+                "reason": "tool runtime executor unavailable",
+                "result_refs": [],
+            }
+        operation_id = self.operation_gate.registry.normalize_id(str(approval_state.get("operation_id") or ""))
+        descriptor = self.operation_gate.registry.get_operation(operation_id)
+        action_request = _action_request_from_approval_state(task_run_id, approval_state)
+        directive = _runtime_directive_from_approval_state(approval_state)
+        resource_policy = _resource_policy_from_approval_state(approval_state)
+        gate_result = self.operation_gate.check(
+            operation_id,
+            resource_policy=resource_policy,
+            directive_ref=directive.directive_id,
+            context=OperationGatePipelineContext(
+                permission_mode=self._current_permission_mode(),
+                approval_token=approval_token,
+                operation_input={
+                    "operation_id": operation_id,
+                    **dict(action_request.payload.get("tool_call") or {}),
+                },
+                validators=build_task_safety_validators(
+                    root_dir=self.root_dir,
+                    safety_envelope={},
+                    sandbox_policy=dict(approval_state.get("sandbox_policy") or {}),
+                ),
+            ),
+        )
+        gate_event = self.event_log.append(
+            task_run_id,
+            "operation_gate_checked",
+            payload={
+                "gate": gate_result.to_dict(),
+                "approval_resume": True,
+                "dispatch_enabled": bool(gate_result.allowed),
+            },
+            refs={
+                "operation_id": gate_result.operation_id,
+                "directive_ref": directive.directive_id,
+                "action_request_ref": action_request.request_id,
+                "approval_token_ref": approval_token.token_id,
+            },
+        )
+        if not gate_result.allowed:
+            return {
+                "executed": False,
+                "reason": gate_result.reason,
+                "gate": gate_result.to_dict(),
+                "events": [gate_event.to_dict()],
+                "result_refs": [],
+            }
+        execution_record, execution_events, execution_decision = self._prepare_tool_execution(
+            task_run_id=task_run_id,
+            step_id=str(approval_state.get("step_ref") or ""),
+            action_request=action_request,
+            directive_ref=directive.directive_id,
+            operation_id=operation_id,
+            descriptor=descriptor,
+            tool_name=str(approval_state.get("tool_name") or ""),
+        )
+        events = [gate_event, *execution_events]
+        if execution_decision != "dispatch":
+            return {
+                "executed": False,
+                "reason": execution_decision,
+                "events": [event.to_dict() for event in events],
+                "result_refs": [],
+            }
+        events.append(
+            self._record_execution_event(
+                task_run_id,
+                event_type="execution_dispatch_started",
+                record=execution_record,
+                reason="tool_dispatch_started_after_approval",
+            )
+        )
+        execution_outcome = await tool_runtime_executor.run(
+            task_run_id=task_run_id,
+            action_request=action_request,
+            directive=directive,
+            execution_record=execution_record,
+            execution_store=self.execution_store,
+            max_result_size_chars=int(dict(gate_result.diagnostics or {}).get("max_result_size_chars") or 0),
+            sandbox_policy=dict(approval_state.get("sandbox_policy") or {}),
+        )
+        final_record = execution_outcome.get("execution_record")
+        if isinstance(final_record, OperationExecutionRecord):
+            events.append(
+                self._record_execution_event(
+                    task_run_id,
+                    event_type="execution_result_recorded",
+                    record=final_record,
+                    reason="tool_execution_finished_after_approval",
+                )
+            )
+        observation = execution_outcome.get("observation")
+        result_refs: list[str] = []
+        if observation is not None:
+            context_record = RuntimeContextManager(lambda **_kwargs: "").record_observation(observation)
+            observation_ref = str(getattr(observation, "observation_id", "") or "")
+            result_refs.append(observation_ref)
+            if getattr(observation, "observation_type", "") == "tool_result":
+                events.append(
+                    self.event_log.append(
+                        task_run_id,
+                        "tool_result_received",
+                        payload={
+                            "observation": observation.to_dict(),
+                            "context_record": context_record.to_dict(),
+                            "approval_resume": True,
+                        },
+                        refs={
+                            "action_request_ref": action_request.request_id,
+                            "directive_ref": directive.directive_id,
+                            "observation_ref": observation_ref,
+                            "execution_ref": str(getattr(final_record, "execution_id", "") or ""),
+                        },
+                    )
+                )
+            events.append(
+                self.event_log.append(
+                    task_run_id,
+                    "executor_observation_received",
+                    payload={
+                        "observation": observation.to_dict(),
+                        "context_record": context_record.to_dict(),
+                        "source": observation.source,
+                        "content_chars": observation.content_chars,
+                    },
+                    refs={
+                        "action_request_ref": action_request.request_id,
+                        "directive_ref": directive.directive_id,
+                        "observation_ref": observation_ref,
+                        "execution_ref": str(getattr(final_record, "execution_id", "") or ""),
+                    },
+                )
+            )
+        return {
+            "executed": bool(observation is not None and not execution_outcome.get("error")),
+            "reason": str(execution_outcome.get("error") or "approved tool executed"),
+            "gate": gate_result.to_dict(),
+            "events": [event.to_dict() for event in events],
+            "result_refs": result_refs,
+        }
+
     def _state_with_task_run_ledger(
         self,
         state: RuntimeLoopState,
@@ -4969,6 +5530,7 @@ class TaskRunLoop:
                 resource_policy=tool_policy,
                 directive_ref=tool_directive.directive_id,
                 context=OperationGatePipelineContext(
+                    permission_mode=self._current_permission_mode(),
                     operation_input={
                         "operation_id": operation_id,
                         **dict(action_request.payload.get("tool_call") or {}),
@@ -4999,6 +5561,31 @@ class TaskRunLoop:
                 },
             )
             events = [requested_event, directive_event, gate_event]
+            if gate_result.requires_approval:
+                approval_state = self._build_pending_approval_state(
+                    task_run_id=task_run_id,
+                    action_request=action_request,
+                    directive=tool_directive,
+                    resource_policy=tool_policy,
+                    gate_result=gate_result,
+                    descriptor=descriptor,
+                    sandbox_policy=sandbox_policy,
+                    step_ref=action_step_ref,
+                )
+                events.append(
+                    self.event_log.append(
+                        task_run_id,
+                        "approval_waiting",
+                        payload={"approval": approval_state},
+                        refs={
+                            "action_request_ref": action_request.request_id,
+                            "operation_id": gate_result.operation_id,
+                            "directive_ref": tool_directive.directive_id,
+                            "task_step_ref": action_step_ref,
+                        },
+                    )
+                )
+                return events
             if gate_result.allowed and tool_runtime_executor is not None:
                 step_id = action_step_ref
                 tool_name = str(action_request.payload.get("tool_name") or "")
@@ -6811,6 +7398,124 @@ def _commit_result_summary(result: Any) -> dict[str, Any]:
     return {"applied_count": 1, "result_type": type(result).__name__}
 
 
+def _summarize_tool_args(tool_args: dict[str, Any]) -> dict[str, Any]:
+    summary: dict[str, Any] = {}
+    for key, value in dict(tool_args or {}).items():
+        if isinstance(value, str):
+            summary[key] = value if len(value) <= 220 else f"{value[:220]}..."
+        elif isinstance(value, (int, float, bool)) or value is None:
+            summary[key] = value
+        elif isinstance(value, (list, tuple, set)):
+            summary[key] = {
+                "type": "array",
+                "count": len(list(value)),
+            }
+        elif isinstance(value, dict):
+            summary[key] = {
+                "type": "object",
+                "keys": sorted(str(item) for item in value.keys())[:20],
+            }
+        else:
+            summary[key] = type(value).__name__
+    return summary
+
+
+def _runtime_directive_from_approval_state(approval_state: dict[str, Any]) -> RuntimeDirective:
+    payload = dict(approval_state.get("directive") or {})
+    operation_id = str(approval_state.get("operation_id") or "").strip()
+    return RuntimeDirective(
+        directive_id=str(payload.get("directive_id") or approval_state.get("directive_ref") or ""),
+        task_id=str(payload.get("task_id") or approval_state.get("task_run_id") or ""),
+        plan_ref=str(payload.get("plan_ref") or "orchplan:approval-resume"),
+        stage_ref=str(payload.get("stage_ref") or "orchstage:approval-resume"),
+        executor_type=str(payload.get("executor_type") or "tool"),  # type: ignore[arg-type]
+        adopted_resource_policy_ref=str(
+            payload.get("adopted_resource_policy_ref")
+            or dict(approval_state.get("resource_policy") or {}).get("policy_id")
+            or "respol:approval-resume"
+        ),
+        operation_refs=tuple(
+            str(item)
+            for item in list(payload.get("operation_refs") or [operation_id])
+            if str(item)
+        ),
+        input_contract_ref=str(payload.get("input_contract_ref") or ""),
+        output_contract_ref=str(payload.get("output_contract_ref") or ""),
+        execution_graph_ref=str(payload.get("execution_graph_ref") or ""),
+        runtime_executable=True,
+        diagnostics=dict(payload.get("diagnostics") or {}),
+    )
+
+
+def _resource_policy_from_approval_state(approval_state: dict[str, Any]) -> ResourcePolicy:
+    payload = dict(approval_state.get("resource_policy") or {})
+    decisions = tuple(
+        ResourceDecision(
+            operation_id=str(item.get("operation_id") or ""),
+            decision=item.get("decision", "unknown"),
+            reason=str(item.get("reason") or ""),
+            risk_tags=tuple(str(tag) for tag in list(item.get("risk_tags") or [])),
+            requires_user_approval=bool(item.get("requires_user_approval") is True),
+            authorization_owner=str(item.get("authorization_owner") or "ResourcePolicy"),
+            approval_channel=str(item.get("approval_channel") or ""),
+            diagnostics=dict(item.get("diagnostics") or {}),
+        )
+        for item in list(payload.get("decisions") or [])
+        if isinstance(item, dict)
+    )
+    return ResourcePolicy(
+        policy_id=str(payload.get("policy_id") or "respol:approval-resume"),
+        task_id=str(payload.get("task_id") or approval_state.get("task_run_id") or ""),
+        allowed_operations=tuple(str(item) for item in list(payload.get("allowed_operations") or [])),
+        denied_operations=tuple(str(item) for item in list(payload.get("denied_operations") or [])),
+        requires_approval_operations=tuple(
+            str(item) for item in list(payload.get("requires_approval_operations") or [])
+        ),
+        not_executable_operations=tuple(str(item) for item in list(payload.get("not_executable_operations") or [])),
+        allowed_tools=tuple(str(item) for item in list(payload.get("allowed_tools") or [])),
+        denied_tools=tuple(str(item) for item in list(payload.get("denied_tools") or [])),
+        allowed_mcps=tuple(str(item) for item in list(payload.get("allowed_mcps") or [])),
+        denied_mcps=tuple(str(item) for item in list(payload.get("denied_mcps") or [])),
+        allowed_agents=tuple(str(item) for item in list(payload.get("allowed_agents") or [])),
+        denied_agents=tuple(str(item) for item in list(payload.get("denied_agents") or [])),
+        memory_read_scope=str(payload.get("memory_read_scope") or "none"),
+        memory_write_scope=str(payload.get("memory_write_scope") or "none"),
+        filesystem_scope=dict(payload.get("filesystem_scope") or {}),
+        network_scope=dict(payload.get("network_scope") or {}),
+        shell_scope=dict(payload.get("shell_scope") or {}),
+        approval_policy=str(payload.get("approval_policy") or "runtime_tool_dispatch"),
+        runtime_view_only=bool(payload.get("runtime_view_only") is True),
+        adopted=bool(payload.get("adopted") is True),
+        runtime_executable=bool(payload.get("runtime_executable") is True),
+        decisions=decisions,
+        diagnostics=dict(payload.get("diagnostics") or {}),
+    )
+
+
+def _action_request_from_approval_state(task_run_id: str, approval_state: dict[str, Any]) -> RuntimeActionRequest:
+    tool_name = str(approval_state.get("tool_name") or "").strip()
+    tool_call = {
+        "id": str(approval_state.get("tool_call_id") or approval_state.get("action_request_ref") or ""),
+        "name": tool_name,
+        "args": dict(approval_state.get("tool_args") or {}),
+        "type": "tool_call",
+    }
+    return RuntimeActionRequest(
+        request_id=str(approval_state.get("action_request_ref") or f"rtact:{task_run_id}:approval"),
+        task_run_id=task_run_id,
+        request_type="tool_call",
+        step_id=str(approval_state.get("step_ref") or ""),
+        directive_ref=str(approval_state.get("directive_ref") or ""),
+        operation_id=str(approval_state.get("operation_id") or ""),
+        payload={
+            "tool_name": tool_name,
+            "tool_call": tool_call,
+            "execution_state": "approved_for_dispatch",
+        },
+        created_at=float(approval_state.get("created_at") or time.time()),
+    )
+
+
 def _memory_commit_state_from_assistant_commit_result(result: Any) -> dict[str, Any]:
     if not isinstance(result, dict):
         return {
@@ -6954,3 +7659,4 @@ class _ContinuationAgentRuntimeChain:
         while isinstance(chain, _ContinuationAgentRuntimeChain):
             chain = chain._base
         return chain
+        

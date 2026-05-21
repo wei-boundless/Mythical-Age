@@ -10,28 +10,9 @@ from .contracts import ControlKernelCandidateContext, PolicyHint, TaskContract, 
 from .execution_graph import CommitCandidate, ExecutionGraph, ExecutionNode
 from .kernel import ControlKernel, ControlKernelResult
 from .monitor import summarize_runtime_loop_events, summarize_runtime_loop_trace
-from .agent_group_models import AgentGroup
-from .agent_group_registry import AgentGroupRegistry, default_agent_groups
-from .agent_models import AgentDescriptor, AgentLifecycleRecord
-from .agent_registry import AgentRegistry, default_agent_descriptors
-from .agent_runtime_models import AgentRuntimeProfile
-from .model_profile_models import AgentModelProfile, ModelRequirement, ResolvedModelSpec
-from .model_profile_resolver import ModelProfileResolver, build_provider_catalog
-from .agent_runtime_registry import AgentRuntimeRegistry, default_agent_runtime_profiles
-from .assembly_models import AgentRuntimeSpec, TaskBodyOrchestration
-from .body_models import (
-    AgentBodyProfile,
-    MemoryScopeProfile,
-    OutputBoundaryProfile,
-    PromptStructureProfile,
-    RuntimeLaneProfile,
-)
-from .body_registry import BodyProfileRegistry
 from .runtime_directive import RuntimeDirective
 from .execution_scheduler import BackgroundTaskManager, BackgroundTaskRecord, ExecutionDispatchDecision, resolve_execution_dispatch
 from .runtime_lane_registry import RuntimeLaneDescriptor, RuntimeLaneRegistry, default_runtime_lane_descriptors
-from .worker_agent_blueprints import WorkerAgentBlueprint, WorkerAgentSpawnRequest, WorkerAgentSpawnResult
-from .worker_agent_factory import ProvisionedWorkerAgent, WorkerAgentFactory, default_worker_agent_blueprints
 from .resource_gate import (
     ApprovalState,
     ApprovalToken,
@@ -46,18 +27,6 @@ from .resource_runtime_view import ResourceRuntimeView, build_resource_runtime_v
 from .unit_registry import BASE_UNIT_DESCRIPTORS, UnitCatalog, build_base_unit_catalog
 from capability_system import build_default_operation_registry
 from task_system.contracts.capability_requirements import OperationRequirement, build_operation_requirement
-
-
-def build_orchestration_runtime_bundle(*args, **kwargs):
-    from .assembly_builder import build_orchestration_runtime_bundle as _build
-
-    return _build(*args, **kwargs)
-
-
-def AgentRuntimeChainAssembler(*args, **kwargs):
-    from .agent_runtime_chain import AgentRuntimeChainAssembler as _assembler
-
-    return _assembler(*args, **kwargs)
 
 
 _RUNTIME_LOOP_EXPORTS = {
@@ -131,40 +100,20 @@ __all__ = [
     "ExecutionDispatchDecision",
     "PolicyHint",
     "RuntimeDirective",
-    "AgentModelProfile",
-    "AgentRuntimeProfile",
-    "AgentGroup",
-    "AgentGroupRegistry",
-    "AgentRuntimeChainAssembler",
-    "AgentBodyProfile",
-    "AgentDescriptor",
-    "AgentLifecycleRecord",
-    "AgentRegistry",
-    "AgentRuntimeSpec",
-    "AgentRuntimeRegistry",
-    "ModelRequirement",
-    "ModelProfileResolver",
     "ApprovalState",
     "ApprovalToken",
-    "MemoryScopeProfile",
     "DenialTrackingState",
     "OperationGate",
     "OperationGatePipelineContext",
     "OperationGateResult",
     "OperationRequirement",
-    "OutputBoundaryProfile",
-    "PromptStructureProfile",
     "ResourceDecision",
     "ResourcePolicy",
     "ResourceRuntimeView",
     "RuntimeApprovalContext",
     "RuntimeCommitGateDecision",
-    "ResolvedModelSpec",
-    "RuntimeLaneProfile",
     "RuntimeLaneDescriptor",
     "RuntimeLaneRegistry",
-    "BodyProfileRegistry",
-    "build_orchestration_runtime_bundle",
     "RuntimeActionRequest",
     "RuntimeActionRequestType",
     "RuntimeCheckpoint",
@@ -198,15 +147,9 @@ __all__ = [
     "summarize_runtime_loop_trace",
     "TaskRunLoop",
     "TaskRunLoopStartResult",
-    "TaskBodyOrchestration",
     "TaskContract",
     "UnitCatalog",
     "UnitDescriptor",
-    "WorkerAgentBlueprint",
-    "WorkerAgentFactory",
-    "WorkerAgentSpawnRequest",
-    "WorkerAgentSpawnResult",
-    "ProvisionedWorkerAgent",
     "build_assistant_session_message_commit_decision",
     "build_blocked_runtime_commit_gate",
     "build_resource_policy_candidate",
@@ -215,14 +158,9 @@ __all__ = [
     "build_user_message_commit_decision",
     "build_base_unit_catalog",
     "build_default_operation_registry",
-    "build_provider_catalog",
     "build_operation_requirement",
     "resolve_execution_dispatch",
-    "default_agent_descriptors",
-    "default_agent_groups",
-    "default_agent_runtime_profiles",
     "default_runtime_lane_descriptors",
-    "default_worker_agent_blueprints",
     "build_executor_error_observation",
     "build_execution_receipt",
     "build_idempotency_token",

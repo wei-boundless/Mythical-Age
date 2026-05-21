@@ -68,6 +68,12 @@ def test_task_run_loop_tool_filter_uses_tool_definition_operation_id() -> None:
     assert visible == []
 
 
+def test_task_run_loop_reads_permission_mode_from_provider() -> None:
+    loop = TaskRunLoop(Path("runtime-loop-test"), permission_mode_provider=lambda: "headless")
+
+    assert loop._current_permission_mode() == "headless"
+
+
 def test_text_metric_tool_is_schema_visible_as_read_only_operation() -> None:
     definitions = {definition.name: definition for definition in get_tool_definitions()}
 

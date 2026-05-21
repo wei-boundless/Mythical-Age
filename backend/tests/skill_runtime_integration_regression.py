@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from orchestration import AgentRuntimeChainAssembler
+from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
 from capability_system.skill_registry import SkillRegistry
 from capability_system.tool_registry import ToolRegistry
 

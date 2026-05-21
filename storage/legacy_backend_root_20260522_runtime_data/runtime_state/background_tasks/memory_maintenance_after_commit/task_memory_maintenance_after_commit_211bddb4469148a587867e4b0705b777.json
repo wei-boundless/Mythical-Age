@@ -1,0 +1,38 @@
+{
+  "task_id": "task:memory_maintenance_after_commit:211bddb4469148a587867e4b0705b777",
+  "task_kind": "memory_maintenance_after_commit",
+  "status": "running",
+  "payload": {
+    "session_id": "32f4c91240a9490c8dcdaadfc91793c4",
+    "messages": [
+      {
+        "role": "user",
+        "content": "请用专业模式排查 backend/tests/fixtures/professional_task_suite/ops_incident_snapshot.json 里的本地服务超时问题。你需要运行一个只读命令确认当前工作目录，再给出原因、修复建议和验证步骤。"
+      },
+      {
+        "role": "assistant",
+        "content": "证据已齐，直接收口。\n\n---\n\n## 排查结论\n\n当前工作目录：`D:\\AI应用\\langchain-agent\\output\\sandbox_runs\\taskrun_32f4c91240a9490c8dcdaadfc91793c4_taskinst_turn_32f4c91240a9490c8dcdaadfc91793c4...`\n\n### 原因\n\n`ops_incident_snapshot.json` 里记录的服务是 `local-workbench-api`，症状是 `GET /api/workbench/tasks` 在启动后超时。从材料里能直接定位到两个关键事实：\n\n1. 端口不匹配：服务日志显示它监听在 `:8000`，但端口清单里只有 `3000`（frontend 占用，状态 listening），没有 8000 端口的记录。请求打到 3000 上找不到对应服务，自然会超时。\n\n2. 启动阻塞风险：配置项 `task_cache_rebuild` 设为 `foreground`，意味着服务启动时会在前台重建任务缓存。如果缓存数据量大或重建逻辑慢，服务在重建完成前无法接受请求，也会表现为启动后一段时间内超时。\n\n### 修复建议\n\n- 修正端口配置：把 `local-workbench-api` 的监听端口统一为 3000，或者在端口清单里补充 8000 端口并确保前端/网关把 `/api/workbench/tasks` 路由到 8000。\n- 缓存重建改为后台：将 `task_cache_rebuild` 从 `foreground` 改为 `background`，让服务先完成端口监听和健康检查，再异步重建缓存。同时给 `/api/workbench/tasks` 加上缓存未就绪时的降级返回（如 503 + Retry-After），而不是直接超时。\n\n### 验证步骤\n\n1. 启动服务后立即执行 `netstat -ano | findstr \":8000\"` 和 `netstat -ano | findstr \":3000\"`，确认端口绑定与路由一致。\n2. 启动后 5 秒内连续请求 `GET /api/workbench/tasks`，观察是否返回正常响应或明确的降级状态码，而非超时。\n3. 检查日志中缓存重建完成的时间点，确认它不再阻塞请求处理。\n\n---\n\n依据来源：`backend/tests/fixtures/professional_task_suite/ops_incident_snapshot.json` 中的 `$.service`、`$.symptom`、`$.ports`、`$.recent_logs`、`$.config` 字段。",
+        "answer_channel": "answer_candidate",
+        "answer_source": "runtime_directive:model_response",
+        "answer_canonical_state": "stable_answer",
+        "answer_persist_policy": "persist_canonical",
+        "answer_finalization_policy": "none"
+      }
+    ],
+    "turn_id": "turn:32f4c91240a9490c8dcdaadfc91793c4:1",
+    "main_context": {},
+    "task_summary_refs": [],
+    "bundle_summary_refs": [],
+    "durable_lane_enabled": true
+  },
+  "result": {},
+  "error": "",
+  "source": "memory_system.facade",
+  "session_id": "32f4c91240a9490c8dcdaadfc91793c4",
+  "lane_id": "session_memory_maintenance",
+  "attempts": 1,
+  "queued_at": "2026-05-20T18:57:49+00:00",
+  "started_at": "2026-05-20T18:57:49+00:00",
+  "completed_at": "",
+  "receipt_path": "D:\\AI应用\\langchain-agent\\backend\\runtime_state\\background_tasks\\memory_maintenance_after_commit\\task_memory_maintenance_after_commit_211bddb4469148a587867e4b0705b777.json"
+}

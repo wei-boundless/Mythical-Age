@@ -37,6 +37,8 @@ class SkillRecord:
     context_mode: str = "inline"
     route_authority: str = "candidate_only"
     reference_paths: list[str] = field(default_factory=list)
+    requires_operations: list[str] = field(default_factory=list)
+    requires_capabilities: list[str] = field(default_factory=list)
     schema_version: int = 3
     validation_errors: list[str] = field(default_factory=list)
 
@@ -60,6 +62,8 @@ def _record_from_contract(contract: SkillContract) -> SkillRecord:
         context_mode=runtime.context_mode,
         route_authority=runtime.route_authority,
         reference_paths=list(runtime.reference_paths),
+        requires_operations=list(runtime.requires_operations),
+        requires_capabilities=list(runtime.requires_capabilities),
         validation_errors=list(contract.validation_errors),
     )
 
@@ -83,6 +87,8 @@ def _contract_from_record(record: SkillRecord, *, body: str = "") -> SkillContra
             context_mode=record.context_mode,
             route_authority=record.route_authority,
             reference_paths=record.reference_paths,
+            requires_operations=record.requires_operations,
+            requires_capabilities=record.requires_capabilities,
         ),
         body=body,
         use_when=_build_skill_use_when(record),
@@ -193,6 +199,8 @@ def scan_skills(base_dir: Path) -> list[SkillRecord]:
             context_mode=_coerce_str(_lookup(meta, "metadata.context_mode"), "inline") or "inline",
             route_authority=_coerce_str(_lookup(meta, "metadata.route_authority"), "candidate_only") or "candidate_only",
             reference_paths=_collect_reference_paths(base_dir, skill_dir),
+            requires_operations=_coerce_list(_lookup(meta, "metadata.requires_operations")),
+            requires_capabilities=_coerce_list(_lookup(meta, "metadata.requires_capabilities")),
         )
         records.append(_record_from_contract(_contract_from_record(record, body=body)))
     return records

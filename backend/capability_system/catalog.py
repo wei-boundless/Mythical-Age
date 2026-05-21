@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
+from capability_system.capability_units import build_capability_units
 from capability_system.local_mcp_registry import build_local_mcp_catalog, default_local_mcp_units
+from capability_system.mcp.management_service import MCPManagementService
 from capability_system.mcp_registry import build_mcp_catalog
 from capability_system.operation_registry import build_default_operation_registry
 from .endpoints import build_capability_endpoints
@@ -402,6 +404,7 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
     operations = [operation.to_dict() for operation in operation_registry.list_operations()]
     mcps = build_mcp_catalog(operation_registry)
     local_mcp_units = build_local_mcp_catalog()
+    unified_mcp = MCPManagementService(runtime.base_dir, include_external=True).build_catalog()
     bindings_by_agent = agent_tool_bindings(raw_tools)
     bound_agents_by_tool = tool_agent_bindings(bindings_by_agent)
     tools = []
@@ -427,6 +430,17 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
         boundary_counts[operation_metadata["tool_boundary"]] = boundary_counts.get(operation_metadata["tool_boundary"], 0) + 1
         source_counts[operation_metadata["source_class"]] = source_counts.get(operation_metadata["source_class"], 0) + 1
 
+    catalog_payload = {
+        "skills": skills,
+        "tools": tools,
+        "mcps": mcps,
+        "local_mcp_units": local_mcp_units,
+        "mcp_management": unified_mcp,
+        "capability_endpoints": capability_endpoints,
+        "operations": operations,
+    }
+    capability_units = build_capability_units(catalog_payload)
+
     validation_issues = validate_capability_catalog(
         skills=skills,
         tools=tools,
@@ -440,6 +454,8 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
         "tools": tools,
         "mcps": mcps,
         "local_mcp_units": local_mcp_units,
+        "mcp_management": unified_mcp,
+        "capability_units": capability_units,
         "capability_endpoints": capability_endpoints,
         "operations": operations,
         "binding_graph": build_binding_graph(skills, tools, bindings_by_agent, mcps).to_operation_payload(),
@@ -449,9 +465,11 @@ def build_capability_catalog(runtime, tool_overrides: dict[str, dict[str, Any]] 
             "skill_count": len(skills),
             "tool_count": len(tools),
             "mcp_count": len(mcps),
+            "mcp_management_server_count": unified_mcp["summary"]["server_count"],
             "local_mcp_unit_count": len(local_mcp_units),
             "local_mcp_endpoint_count": len(mcps),
             "capability_endpoint_count": len(capability_endpoints),
+            "capability_unit_count": len(capability_units),
             "model_visible_skills": sum(1 for item in skills if item["runtime"].get("activation_policy") == "model_visible"),
             "tool_types": sorted({tool["operation_metadata"]["tool_type"] for tool in tools}),
             "tool_boundaries": dict(sorted(boundary_counts.items())),
@@ -506,16 +524,17 @@ def build_orchestration_capability_items(catalog: dict[str, Any]) -> list[dict[s
         runtime = skill.get("runtime") if isinstance(skill.get("runtime"), dict) else {}
         prompt_view = skill.get("prompt_view") if isinstance(skill.get("prompt_view"), dict) else {}
         route = str(runtime.get("preferred_route") or "").strip()
-        operation_id = route if route.startswith("op.") else SKILL_ROUTE_OPERATION_MAP.get(route, "")
-        operation = operation_by_id.get(operation_id)
+        operation_ids = _skill_operation_ids(runtime)
+        primary_operation_id = operation_ids[0] if operation_ids else ""
+        operation = operation_by_id.get(primary_operation_id)
         risk = _capability_risk_from_operation(operation)
         items.append({
             "capability_id": f"skill:{str(runtime.get('name') or '').strip()}",
             "capability_kind": "skill",
             "title": str(prompt_view.get("title") or runtime.get("title") or runtime.get("name") or "").strip(),
-            "subtitle": f"依赖 {operation_id}" if operation_id else "未映射到运行操作",
+            "subtitle": f"依赖 {', '.join(operation_ids)}" if operation_ids else "未声明运行依赖",
             "description": str(prompt_view.get("capability") or runtime.get("description") or "未注册说明").strip(),
-            "operation_ids": [operation_id] if operation_id else [],
+            "operation_ids": operation_ids,
             "source_label": "任务能力 · 模型可见入口",
             "source_detail": f"调用路线：{capability_display_label(route)}；授权落到依赖的运行操作。",
             "risk_label": risk["risk_label"],
@@ -526,6 +545,7 @@ def build_orchestration_capability_items(catalog: dict[str, Any]) -> list[dict[s
                 {"label": "使用时机", "value": str(prompt_view.get("use_when") or "未注册 use_when").strip() or "未注册 use_when"},
                 {"label": "输出规则", "value": str(prompt_view.get("output_rule") or "未注册 output_rule").strip() or "未注册 output_rule"},
                 {"label": "上下文", "value": str(runtime.get("context_mode") or "未配置").strip() or "未配置"},
+                {"label": "依赖能力", "value": ", ".join(str(item) for item in list(runtime.get("requires_capabilities") or [])) or "未声明"},
             ],
         })
 
@@ -654,3 +674,18 @@ def _dedupe_texts(values: list[str]) -> list[str]:
         seen.add(item)
         result.append(item)
     return result
+
+
+def _skill_operation_ids(runtime: dict[str, Any]) -> list[str]:
+    explicit = [
+        str(item).strip()
+        for item in list(runtime.get("requires_operations") or [])
+        if str(item).strip()
+    ]
+    if explicit:
+        return explicit
+    route = str(runtime.get("preferred_route") or "").strip()
+    if route.startswith("op."):
+        return [route]
+    mapped = SKILL_ROUTE_OPERATION_MAP.get(route, "")
+    return [mapped] if mapped else []

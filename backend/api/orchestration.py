@@ -15,27 +15,26 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
+from agent_system.groups.registry import AgentGroupRegistry
+from agent_system.registry.agent_registry import AgentRegistry
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
+from agent_system.registry.worker_agent_factory import default_worker_agent_blueprints
+from agent_system.models.model_profile_resolver import build_provider_catalog
 from capability_system import build_default_operation_registry
 from capability_system import build_capability_catalog, build_orchestration_capability_items
 from orchestration import (
-    AgentGroupRegistry,
-    AgentRegistry,
-    AgentRuntimeRegistry,
     ControlKernel,
-    CoordinationRun,
     TaskContract,
-    default_worker_agent_blueprints,
     build_base_unit_catalog,
 )
 from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY, runtime_lane_option_payloads
-from orchestration.model_profile_resolver import build_provider_catalog
 from orchestration.resource_inventory import build_runtime_resource_inventory
 from runtime import TaskRun
 from runtime.coordination_runtime.review_gate_verdict import (
     extract_review_verdict,
     review_verdict_is_accepted,
 )
-from runtime.shared.models import AgentRun, CoordinationRun as RuntimeCoordinationRun
+from runtime.shared.models import AgentRun, CoordinationRun
 from runtime.coordination_runtime.runtime import LangGraphCoordinationRuntimeResult
 from runtime.shared.protocol_boundary import is_internal_protocol_input_key
 from orchestration.delegation_catalog import DelegationCatalogBuilder
@@ -841,6 +840,11 @@ class TaskRunStopRequest(BaseModel):
     reason: str = Field(default="user_aborted", max_length=120)
     message: str = Field(default="", max_length=500)
     coordination_run_id: str = Field(default="", max_length=180)
+
+
+class TaskRunApprovalRequest(BaseModel):
+    decision: str = Field(..., min_length=1, max_length=40)
+    message: str = Field(default="", max_length=500)
 
 
 class TaskGraphRunStartRequest(BaseModel):
@@ -2194,7 +2198,7 @@ def _mark_rewound_task_run_running(
     *,
     task_run_loop: Any,
     task_run: TaskRun,
-    coordination_run: RuntimeCoordinationRun,
+    coordination_run: CoordinationRun,
     checkpoint_ref: str,
     reason: str,
     stage_id: str,
@@ -2233,7 +2237,7 @@ def _mark_rewound_task_run_running(
     coordination_diagnostics.pop("stop_request", None)
     coordination_diagnostics["last_rewind_reactivated_task_run"] = diagnostics["last_rewind_reactivated_task_run"]
     task_run_loop.state_index.upsert_coordination_run(
-        RuntimeCoordinationRun(
+        CoordinationRun(
             coordination_run_id=coordination_run.coordination_run_id,
             task_run_id=coordination_run.task_run_id,
             graph_ref=coordination_run.graph_ref,
@@ -2256,7 +2260,7 @@ def _mark_rewound_task_run_running(
 def _mark_invalidated_stage_task_runs(
     *,
     task_run_loop: Any,
-    coordination_run: RuntimeCoordinationRun,
+    coordination_run: CoordinationRun,
     stage_ids: list[str],
     reason: str,
 ) -> list[dict[str, Any]]:

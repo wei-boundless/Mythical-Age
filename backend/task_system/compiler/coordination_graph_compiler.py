@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from bootstrap.settings import AppSettingsService
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
-from orchestration.model_profile_resolver import ModelProfileResolver
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
+from agent_system.models.model_profile_resolver import ModelProfileResolver
 from runtime.contracts.length_budget_compiler import compile_length_budget, compiled_length_budget_preview
 from task_system.compiler.coordination_graph_models import (
     TaskGraphModuleRuntimePlan,
@@ -20,6 +20,7 @@ from task_system.compiler.layered_graph_normalizer import normalize_task_graph_l
 from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphValidationIssue, validate_task_graph
 from task_system.planning.task_split_plan_builder import build_static_split_plans_for_graph, split_merge_runtime_issues
 from task_system.planning.task_split_merge_models import SplitMergeIssue
+from task_system.runtime_semantics import compile_runtime_semantics_manifest
 
 
 def compile_task_graph_definition_runtime_spec(
@@ -119,6 +120,7 @@ def compile_task_graph_definition_runtime_spec(
     ]
     if not edges and len(nodes) > 1:
         edges = _default_edges(nodes, default_mode=_default_communication_mode(graph, communication_protocol))
+    runtime_semantics = compile_runtime_semantics_manifest(graph)
     node_ids = [node.node_id for node in nodes]
     main_dependency_edges = _main_dependency_edges(nodes=nodes, edges=edges)
     node_order = {node.node_id: index for index, node in enumerate(nodes)}
@@ -188,6 +190,7 @@ def compile_task_graph_definition_runtime_spec(
     split_merge_issues = split_merge_runtime_issues(split_plans)
     validation_issues.extend(_runtime_issues_from_split_merge_issues(split_merge_issues))
     validation_issues.extend(_runtime_issues_from_length_budget(length_budget))
+    validation_issues.extend(_runtime_issues_from_runtime_semantics(runtime_semantics.to_dict()))
     return TaskGraphRuntimeSpec(
         graph_id=graph.graph_id,
         graph_ref=graph.graph_id,
@@ -226,6 +229,7 @@ def compile_task_graph_definition_runtime_spec(
             "timeline_policy": dict(graph_metadata.get("timeline_policy") or {}),
             "phase_definitions": list(graph_metadata.get("phase_definitions") or []),
             "scheduler_support": scheduler_support,
+            "runtime_semantics": runtime_semantics.to_dict(),
             "working_memory_resource_steps": working_memory_resource_steps,
             "layered_graph": layered_graph,
             "resource_node_ids_excluded_from_execution": sorted(resource_node_ids),
@@ -692,6 +696,28 @@ def _runtime_issues_from_length_budget(length_budget: Any) -> list[TaskGraphRunt
                 code=str(issue_code),
                 message=f"长度预算校验失败：{issue_code}",
                 severity="warning",
+            )
+        )
+    return issues
+
+
+def _runtime_issues_from_runtime_semantics(manifest: dict[str, Any]) -> list[TaskGraphRuntimeValidationIssue]:
+    issues: list[TaskGraphRuntimeValidationIssue] = []
+    for item in list(manifest.get("diagnostics") or []):
+        if not isinstance(item, dict):
+            continue
+        severity = str(item.get("severity") or "warning")
+        if severity != "error":
+            continue
+        scope = str(item.get("scope") or "")
+        ref_id = str(item.get("ref_id") or "")
+        issues.append(
+            TaskGraphRuntimeValidationIssue(
+                code=f"runtime_semantics_{item.get('code') or 'issue'}",
+                message=str(item.get("message") or "Runtime semantics issue"),
+                severity=severity,
+                node_id=ref_id if scope == "node" else "",
+                edge_id=ref_id if scope == "edge" else "",
             )
         )
     return issues

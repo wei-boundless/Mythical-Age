@@ -8,7 +8,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from orchestration.delegation_catalog import DelegationCatalogBuilder
 from runtime.execution.agent_delegation_executor import AgentDelegationExecutor
 from runtime.execution.delegation_models import AgentDelegationRequest

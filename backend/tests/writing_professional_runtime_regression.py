@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from prompting.strategy_prototypes import strategy_prototype_for_task_goal
 from task_system.registry.flow_registry import TaskFlowRegistry
 from tests.support.writing_fixtures import load_writing_modular_config_module, seed_writing_storage

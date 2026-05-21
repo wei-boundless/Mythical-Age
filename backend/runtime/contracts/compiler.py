@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from orchestration.agent_runtime_models import AgentRuntimeProfile
+from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from task_system.contracts.contract_definition_models import ContractSpec
 from task_system.registry.contract_registry import TaskContractRegistry
 from task_system.compiler.coordination_graph_models import TaskGraphRuntimeSpec

@@ -4,9 +4,9 @@ import asyncio
 import sys
 from pathlib import Path
 
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
+from agent_system.registry.agent_registry import AgentRegistry
 from health_system import HealthRegistry
-from orchestration import AgentRuntimeRegistry
-from orchestration import AgentRegistry
 from task_system import TaskFlowRegistry
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]

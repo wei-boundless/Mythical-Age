@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from langgraph.graph import END, START, StateGraph
 
 from memory_system.runtime_services import MemoryRuntimeServices

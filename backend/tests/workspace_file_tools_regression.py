@@ -8,6 +8,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from capability_system.units.tools.read_file_tool import ReadFileTool
+from capability_system.units.tools.file_system_tools import GlobPathsTool
+from capability_system.units.tools.search_files_tool import SearchFilesTool
 from capability_system.units.tools.write_file_tool import EditFileTool, WriteFileTool
 
 
@@ -57,3 +59,34 @@ def test_workspace_file_tools_reject_path_traversal_from_project_root(tmp_path: 
     assert "Path traversal detected" in reader.invoke({"path": "../outside.md"})
     assert "Path traversal detected" in writer.invoke({"path": "../outside.md", "content": "bad"})
     assert outside.read_text(encoding="utf-8") == "outside"
+
+
+def test_workspace_search_defaults_do_not_duplicate_backend_knowledge_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    backend_dir = workspace / "backend"
+    root_knowledge = workspace / "knowledge"
+    backend_knowledge = backend_dir / "knowledge"
+    root_knowledge.mkdir(parents=True)
+    backend_knowledge.mkdir(parents=True)
+    (root_knowledge / "shared-note.md").write_text("root", encoding="utf-8")
+    (backend_knowledge / "shared-note.md").write_text("backend", encoding="utf-8")
+
+    search = SearchFilesTool(root_dir=backend_dir)
+    result = search.invoke({"query": "shared-note", "max_results": 10})
+
+    assert "knowledge/shared-note.md" in result
+    assert "backend/knowledge/shared-note.md" not in result
+
+
+def test_workspace_glob_uses_single_project_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    backend_dir = workspace / "backend"
+    docs_dir = workspace / "docs"
+    docs_dir.mkdir(parents=True)
+    backend_dir.mkdir(parents=True)
+    (docs_dir / "plan.md").write_text("ok", encoding="utf-8")
+
+    globber = GlobPathsTool(root_dir=backend_dir)
+    result = globber.invoke({"pattern": "docs/**/*.md", "max_results": 10})
+
+    assert result.splitlines() == ["docs/plan.md"]

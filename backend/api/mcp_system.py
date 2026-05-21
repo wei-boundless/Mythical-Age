@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from capability_system.mcp.client import ExternalMCPManager, ExternalMCPServerConfig
+from capability_system.mcp.management_service import MCPManagementService
 
 router = APIRouter()
 
@@ -39,6 +40,11 @@ def _manager() -> ExternalMCPManager:
     return ExternalMCPManager(runtime.base_dir, permission_mode=runtime.permission_service.current_mode())
 
 
+def _management_service() -> MCPManagementService:
+    runtime = require_runtime()
+    return MCPManagementService(runtime.base_dir, permission_mode=runtime.permission_service.current_mode())
+
+
 def _request_to_config(payload: ExternalMCPServerRequest) -> ExternalMCPServerConfig:
     return ExternalMCPServerConfig(
         server_id=payload.server_id,
@@ -63,6 +69,19 @@ def _request_to_config(payload: ExternalMCPServerRequest) -> ExternalMCPServerCo
 @router.get("/mcp-system/catalog")
 async def mcp_system_catalog() -> dict[str, Any]:
     return await _manager().build_catalog()
+
+
+@router.get("/mcp-system/management/catalog")
+async def mcp_management_catalog() -> dict[str, Any]:
+    return _management_service().build_catalog()
+
+
+@router.post("/mcp-system/management/providers/{provider_id}/servers/{server_id}/inspect")
+async def inspect_mcp_management_server(provider_id: str, server_id: str) -> dict[str, Any]:
+    try:
+        return _management_service().inspect_server(provider_id, server_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Unknown MCP provider or server") from exc
 
 
 @router.post("/mcp-system/servers")

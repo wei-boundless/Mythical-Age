@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from capability_system.workspace_file_service import WorkspaceFileService
 from orchestration.resource_gate import OperationGateResult
 
 
@@ -30,9 +31,8 @@ def _filesystem_validator(
     safety_envelope: dict[str, Any],
     sandbox_policy: dict[str, Any],
 ):
-    workspace_root = Path(root_dir).resolve()
-    if workspace_root.name == "backend" and workspace_root.parent.exists():
-        workspace_root = workspace_root.parent.resolve()
+    workspace_files = WorkspaceFileService(root_dir)
+    workspace_root = workspace_files.workspace_root
     sandbox_root = (
         Path(str(sandbox_policy.get("sandbox_root") or "")).resolve()
         if sandbox_policy.get("enabled") is True and sandbox_policy.get("sandbox_root")
@@ -77,7 +77,10 @@ def _filesystem_validator(
             if sandbox_root is not None and (write_sensitive or operation_id in sandbox_operations)
             else workspace_root
         )
-        candidate = (effective_root / normalized).resolve()
+        try:
+            candidate = workspace_files.resolve(normalized) if effective_root == workspace_root else (effective_root / normalized).resolve()
+        except ValueError:
+            return False, "path traversal detected"
         if effective_root not in candidate.parents and candidate != effective_root:
             return False, "path traversal detected"
         normalized_candidate = candidate.relative_to(effective_root).as_posix()

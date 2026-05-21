@@ -6,6 +6,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from project_layout import ProjectLayout
+
 
 @dataclass(frozen=True, slots=True)
 class IntentDomainProfile:
@@ -110,7 +112,7 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
 
 
 def _profiles_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "storage" / "orchestration" / "intent_domain_profiles.json"
+    return ProjectLayout.from_backend_dir(Path(__file__).resolve().parents[1]).orchestration_dir / "intent_domain_profiles.json"
 
 
 def _builtin_profiles() -> tuple[IntentDomainProfile, ...]:

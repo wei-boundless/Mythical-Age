@@ -19,8 +19,8 @@ from capability_system import (
 )
 from capability_system.paths import CapabilitySystemPaths
 from config import runtime_config
+from agent_system.registry.agent_registry import AgentRegistry
 from orchestration import (
-    AgentRegistry,
     RuntimeApprovalContext,
     build_resource_policy_candidate,
     build_resource_runtime_views,

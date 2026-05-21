@@ -324,7 +324,16 @@ class OperationGate:
             return None
         validator = context.validators.get(descriptor.safety_validator_ref)
         if validator is None:
-            return None
+            return OperationGateResult(
+                operation_id=descriptor.operation_id,
+                decision="deny",
+                reason="operation safety validator is unavailable",
+                pipeline_stage="operation_specific_safety_validator",
+                diagnostics={
+                    "safety_validator_ref": descriptor.safety_validator_ref,
+                    "fail_closed": True,
+                },
+            )
         outcome = validator(context.operation_input)
         if isinstance(outcome, OperationGateResult):
             return outcome

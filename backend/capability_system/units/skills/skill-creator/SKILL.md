@@ -20,7 +20,15 @@ metadata:
     - prompt-contract
     - workflow-instructions
     - validation
-  preferred_route: rag
+  preferred_route: capability_authoring
+  requires_operations:
+    - op.read_file
+    - op.write_file
+    - op.edit_file
+  requires_capabilities:
+    - tool:read_file
+    - tool:write_file
+    - tool:edit_file
   forbidden_routes: []
   routing_hints:
     - 创建 skill
@@ -93,7 +101,7 @@ metadata:
     - workspace
   capability_tags:
     - tag
-  preferred_route: rag
+  preferred_route: capability_authoring
   forbidden_routes: []
   routing_hints:
     - 用户可能说的话

@@ -4,7 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from runtime.contracts.compiler import compile_coordination_contract_manifest
 from runtime.contracts.runtime_assembly_builder import build_node_runtime_assembly
 from api import task_system as tasks_api

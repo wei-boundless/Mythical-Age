@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from capability_system.operation_registry import OperationDescriptor, OperationRegistry
-from orchestration.agent_runtime_models import AgentRuntimeProfile
+from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from orchestration.resource_policy import ResourceDecision, ResourcePolicy
 from orchestration.resource_policy_builder import RuntimeApprovalContext
 from orchestration.resource_scope_mapping import map_operations_to_resource_scopes

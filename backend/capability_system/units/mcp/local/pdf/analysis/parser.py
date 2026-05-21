@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from pdf_runtime import suppress_pypdf_warnings
+from project_layout import ProjectLayout
 
 from .mineru_client import MinerUApiClient, MinerUBlock, MinerUParseResult, build_default_mineru_client
 
@@ -484,7 +485,7 @@ class PdfTextParser:
             return None
         key = self._file_cache_key(file_path)
         digest = hashlib.sha1("|".join(str(item) for item in key).encode("utf-8")).hexdigest()
-        cache_root = (self.root_dir / ".." / "storage" / "document_cache" / "pdf_ocr").resolve()
+        cache_root = ProjectLayout.from_backend_dir(self.root_dir).document_cache_dir / "pdf_ocr"
         return cache_root / digest / f"page_{page_number:04d}.txt"
 
     def _read_persisted_ocr_page(self, *, file_path: Path, page_number: int) -> str | None:

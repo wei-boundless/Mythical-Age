@@ -4,7 +4,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from orchestration import AgentRuntimeRegistry, build_orchestration_runtime_bundle
+from agent_system.assembly.runtime_bundle_builder import build_orchestration_runtime_bundle
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from task_system import TaskFlowRegistry
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 

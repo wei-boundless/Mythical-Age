@@ -21,7 +21,7 @@ export type TaskGraphTimelinePolicy = {
   phase_exit_policy?: string;
 };
 
-export type TaskGraphTimelineFrameType = "phase_frame" | "step_frame" | "parallel_frame" | "loop_frame" | "review_gate_frame";
+export type TaskGraphTimelineFrameType = "phase_frame" | "parallel_frame" | "loop_frame" | "review_gate_frame";
 
 export type TaskGraphTimelineFrame = {
   frame_id: string;
@@ -35,6 +35,7 @@ export type TaskGraphTimelineFrame = {
   review_gate_node_id?: string;
   loop_policy?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
+  source_frame_type?: string;
 };
 
 export type TaskGraphTimelineBlock = {
@@ -62,17 +63,20 @@ export type TaskGraphTimelineIssue = {
   phase_id?: string;
 };
 
-export type TaskGraphTimelineStep = {
-  step_key: string;
+export type TaskGraphLifecycleCoordinate = {
+  coordinate_key: string;
+  node_id: string;
+  phase_id: string;
   sequence_index: number;
-  timeline_group_id: string;
-  nodes: Array<Record<string, unknown>>;
+  legacy_timeline_group_id: string;
+  main_chain: boolean;
+  blocks_phase_exit: boolean;
 };
 
 export type TaskGraphTimelinePhase = {
   phase: TaskGraphPhaseDefinition;
   nodes: Array<Record<string, unknown>>;
-  steps: TaskGraphTimelineStep[];
+  node_coordinates: TaskGraphLifecycleCoordinate[];
   issues: TaskGraphTimelineIssue[];
 };
 
@@ -119,7 +123,7 @@ function asStringArray(value: unknown) {
 }
 
 function isTimelineFrameType(value: string): value is TaskGraphTimelineFrameType {
-  return ["phase_frame", "step_frame", "parallel_frame", "loop_frame", "review_gate_frame"].includes(value);
+  return ["phase_frame", "parallel_frame", "loop_frame", "review_gate_frame"].includes(value);
 }
 
 export function nodeIdOf(node: Record<string, unknown>, index = 0) {
@@ -203,6 +207,7 @@ export function coordinationTimelineFrames(metadata: Record<string, unknown> | u
         review_gate_node_id: String(item.review_gate_node_id ?? "").trim() || undefined,
         loop_policy: asRecord(item.loop_policy),
         metadata: asRecord(item.metadata),
+        source_frame_type: frameType,
       };
     })
     .filter((item) => item.frame_id);
@@ -272,30 +277,22 @@ export function buildTimelinePhases({
     const phaseNodes = nodes
       .filter((node) => nodePhaseId(node) === phase.phase_id)
       .sort((left, right) => nodeSequenceIndex(left) - nodeSequenceIndex(right) || nodeTitle(left).localeCompare(nodeTitle(right)));
-    const stepMap = new Map<string, TaskGraphTimelineStep>();
-    for (const node of phaseNodes) {
-      const sequenceIndex = nodeSequenceIndex(node);
-      const groupId = nodeTimelineGroupId(node);
+    const nodeCoordinates = phaseNodes.map((node): TaskGraphLifecycleCoordinate => {
       const nodeId = nodeIdOf(node);
-      const stepKey = groupId
-        ? `${phase.phase_id}:${groupId}:${sequenceIndex}:${nodeId}`
-        : `${phase.phase_id}:step:${sequenceIndex}:${nodeId}`;
-      const existing = stepMap.get(stepKey);
-      if (existing) {
-        existing.nodes.push(node);
-      } else {
-        stepMap.set(stepKey, {
-          step_key: stepKey,
-          sequence_index: sequenceIndex,
-          timeline_group_id: groupId,
-          nodes: [node],
-        });
-      }
-    }
+      return {
+        coordinate_key: `${phase.phase_id}:${nodeId}`,
+        node_id: nodeId,
+        phase_id: phase.phase_id,
+        sequence_index: nodeSequenceIndex(node),
+        legacy_timeline_group_id: nodeTimelineGroupId(node),
+        main_chain: nodeMainChain(node),
+        blocks_phase_exit: nodeBlocksPhaseExit(node),
+      };
+    });
     return {
       phase,
       nodes: phaseNodes,
-      steps: Array.from(stepMap.values()).sort((left, right) => left.sequence_index - right.sequence_index || left.step_key.localeCompare(right.step_key)),
+      node_coordinates: nodeCoordinates,
       issues: [],
     };
   });
@@ -326,8 +323,10 @@ function hasPath(edges: Array<Record<string, unknown>>, start: string, target: s
 function hasLoopStopCondition(policy: Record<string, unknown>) {
   return Boolean(
     Number(policy.max_attempts ?? 0) > 0
+    || Number(policy.target_units ?? 0) > 0
+    || Number(policy.target_count ?? 0) > 0
     || Number(policy.target_words ?? 0) > 0
-    || Number(policy.chapter_count ?? 0) > 0
+    || Number(policy.unit_count ?? 0) > 0
     || String(policy.exit_condition ?? "").trim()
     || String(policy.exit_stage_id ?? "").trim()
   );
@@ -378,6 +377,13 @@ export function buildTimelinePreflightIssues(
   }
 
   for (const frame of timelineFrames) {
+    if (frame.source_frame_type === "step_frame") {
+      issues.push({
+        code: "timeline_frame_step_frame_legacy",
+        message: `Frame ${frame.title || frame.frame_id} 使用了已废弃的 step_frame；编辑器不再把运行 step 作为可建模结构。`,
+        severity: "warning",
+      });
+    }
     if (!frame.node_ids.length) {
       issues.push({ code: "timeline_frame_empty", message: `时序 Frame ${frame.title || frame.frame_id} 没有包含节点。`, severity: "warning" });
     }
@@ -405,9 +411,6 @@ export function buildTimelinePreflightIssues(
     }
     if (frame.frame_type === "loop_frame" && !hasLoopStopCondition(asRecord(frame.loop_policy))) {
       issues.push({ code: "timeline_frame_loop_stop_missing", message: `循环 Frame ${frame.title || frame.frame_id} 缺少停止条件。`, severity: "error" });
-    }
-    if (frame.frame_type === "parallel_frame" && !frame.timeline_group_id) {
-      issues.push({ code: "timeline_frame_parallel_group_missing", message: `并行 Frame ${frame.title || frame.frame_id} 缺少 timeline_group_id。`, severity: "warning" });
     }
   }
 

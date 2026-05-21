@@ -9,10 +9,11 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from orchestration.agent_registry import AgentRegistry
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
-from orchestration import AgentRuntimeChainAssembler, StageProjectionCycle
+from agent_system.registry.agent_registry import AgentRegistry
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
+from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
 from query import QueryRuntime
+from runtime.shared.stage_projection import StageProjectionCycle
 from task_system import TaskFlowRegistry
 from tests.support.runtime_stubs import (
     DefaultPermissionStub,

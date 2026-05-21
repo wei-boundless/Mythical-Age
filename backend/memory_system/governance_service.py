@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from memory_layout import durable_memory_layout_from_backend_dir
+from memory_system.layout import durable_memory_layout_from_backend_dir
 from memory_system.storage.frontmatter import format_frontmatter, parse_frontmatter
 
 from .governance import MemoryGovernance

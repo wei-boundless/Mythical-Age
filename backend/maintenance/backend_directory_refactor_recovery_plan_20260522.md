@@ -72,7 +72,7 @@ Completion criteria:
 
 ## Slice 3: Classify Root Runtime/Data Directories
 
-Status: partially completed. New obvious writes were redirected through `ProjectLayout`; existing root data was classified, not deleted.
+Status: completed for backend-root runtime/data directories in this recovery pass.
 
 Target:
 
@@ -85,18 +85,73 @@ Completion criteria:
 - Runtime data roots have a single canonical path through `ProjectLayout`.
 - No code writes new memory data directly under backend root unless a migration fallback explicitly requires it.
 
+Additional completed items:
+
+- `knowledge/` was migrated from `backend/knowledge` to project-root `storage/knowledge`.
+- Retrieval collection configuration and PDF catalog lookup now use `ProjectLayout.knowledge_storage_dir`.
+- `soul.activity_service` now reads runtime events and state index records through `ProjectLayout.runtime_state_dir`.
+- Empty legacy root shells `capabilities/`, `operations/`, and `executions/` were removed after import checks.
+- `memory_layout.py` was moved under `memory_system/layout.py`.
+- `ProjectLayout.from_runtime_root()` now resolves `storage/runtime_state` back to the project layout instead of misclassifying it as a backend directory.
+- `TaskRunLoop` now uses `ProjectLayout.from_runtime_root()` when no explicit backend directory is supplied.
+- PDF OCR cache and local trace path helpers now resolve through `ProjectLayout` instead of hand-writing `../storage` or backend-relative output paths.
+- Historical backend-root runtime/data directories were archived under `storage/legacy_backend_root_20260522_runtime_data/` with `archive_manifest.json`.
+
+Remaining:
+
+- `backend/api-server.log` remains under the backend root because it is held by an active writer. It was copied into the archive, but the live source file could not be removed safely while the process owns it.
+- `__pycache__/` and `.pytest_cache/` are generated cache directories, not architecture surfaces.
+
 ## Slice 4: Agent System Cutover
+
+Status: completed in this recovery pass.
 
 Target:
 
 - Create `agent_system` as the owner of agent identity, registry, runtime profiles, groups, assembly, and worker blueprints.
-- Shrink `orchestration` to control-plane primitives only, or delete it if it no longer owns live behavior.
+- Shrink `orchestration` to control-plane primitives only.
+
+Implemented structure:
+
+```text
+backend/agent_system/
+  identity.py
+  assembly/
+    runtime_bundle_builder.py
+    runtime_chain.py
+    runtime_spec_models.py
+  groups/
+    models.py
+    registry.py
+  models/
+    agent_models.py
+    model_profile_models.py
+    model_profile_resolver.py
+  profiles/
+    body_models.py
+    body_registry.py
+    runtime_profile_models.py
+    runtime_profile_registry.py
+  registry/
+    agent_registry.py
+    worker_agent_blueprints.py
+    worker_agent_factory.py
+```
 
 Completion criteria:
 
-- New production imports use `agent_system.*` for agent concepts.
-- `orchestration` no longer contains agent registry/profile/assembly business logic.
-- Compatibility shims, if any, contain no business logic and are deleted after import cutover.
+- New production imports use `agent_system.*` for agent concepts: completed.
+- `orchestration` no longer contains agent registry/profile/assembly business logic: completed.
+- Root `orchestration.__init__` no longer re-exports agent-system objects: completed.
+- Deleted old source modules under `backend/orchestration/agent_*`, `body_*`, `assembly_*`, `worker_*`, and `model_profile_*`: completed.
+- Validation passed:
+  - `python -m compileall -q backend/agent_system backend/orchestration backend/runtime backend/task_system backend/api backend/query backend/health_system backend/bootstrap backend/tests`
+  - `python -m pytest backend/tests/orchestration_agent_management_regression.py backend/tests/orchestration_runtime_spec_regression.py backend/tests/orchestration_model_profile_regression.py backend/tests/orchestration_cutover_regression.py backend/tests/runtime_assembly_builder_test.py backend/tests/agent_delegation_permission_regression.py backend/tests/memory_runtime_route_regression.py backend/tests/query_runtime_runtime_loop_regression.py backend/tests/langgraph_coordination_runtime_regression.py`
+
+Notes:
+
+- Existing serialized `authority` strings such as `orchestration.agent_runtime_spec` were intentionally left unchanged because they are protocol identifiers, not Python package paths. Renaming those should be a separate protocol migration with storage compatibility handling.
+- `QueryRuntime` permission-mode wiring was corrected during validation: it now resolves through `permission_service.current_mode()` first, then `settings_service.get_permission_mode()`, then `default`.
 
 ## Slice 5: Final Backend Root Audit
 
@@ -109,4 +164,11 @@ Completion criteria:
 - The audit table is updated.
 - Obsolete directories are removed.
 - Compile and targeted regression tests pass.
+
+Current status:
+
+- Source-package residue is reduced.
+- Backend-root runtime/data directories have been archived to `storage/legacy_backend_root_20260522_runtime_data/`.
+- The only backend-root runtime residue observed after this pass is `api-server.log`, retained because it is actively written.
+- Validation is still required before declaring this recovery pass closed.
 

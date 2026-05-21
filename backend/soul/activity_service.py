@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from artifact_system.artifact_repository_service import ArtifactRepositoryService
+from project_layout import ProjectLayout
 
 from .contracts import SoulActivityEvent, SoulWorkLogView
 from .projection_store import load_projection_store
@@ -15,7 +16,9 @@ class SoulActivityService:
 
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
-        self.project_root = self.base_dir.resolve().parent
+        self.layout = ProjectLayout.from_backend_dir(self.base_dir)
+        self.project_root = self.layout.project_root
+        self.runtime_state_dir = self.layout.runtime_state_dir
 
     def work_log(self, soul_id: str, *, limit: int = 20) -> SoulWorkLogView:
         normalized_soul_id = str(soul_id or "").strip().lower()
@@ -102,7 +105,7 @@ class SoulActivityService:
         return self._projection_id_from_event_log(str(task_payload.get("task_run_id") or ""))
 
     def _projection_id_from_event_log(self, task_run_id: str) -> str:
-        path = self.base_dir / "events" / f"{self._safe_id(task_run_id)}.jsonl"
+        path = self.runtime_state_dir / "events" / f"{self._safe_id(task_run_id)}.jsonl"
         if not path.exists():
             return ""
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -154,10 +157,10 @@ class SoulActivityService:
         return runs[0] if runs else {}
 
     def _list_task_runs(self) -> list[dict[str, Any]]:
-        return self._read_json_records(self.base_dir / "state_index" / "task_runs")
+        return self._read_json_records(self.runtime_state_dir / "state_index" / "task_runs")
 
     def _list_agent_runs(self) -> list[dict[str, Any]]:
-        return self._read_json_records(self.base_dir / "state_index" / "agent_runs")
+        return self._read_json_records(self.runtime_state_dir / "state_index" / "agent_runs")
 
     def _read_json_records(self, directory: Path) -> list[dict[str, Any]]:
         if not directory.exists():
@@ -176,7 +179,7 @@ class SoulActivityService:
         refs = [f"state_index:task_runs/{task_run_id}"]
         if agent_run.get("agent_run_id"):
             refs.append(f"state_index:agent_runs/{agent_run['agent_run_id']}")
-        event_path = self.base_dir / "events" / f"{self._safe_id(task_run_id)}.jsonl"
+        event_path = self.runtime_state_dir / "events" / f"{self._safe_id(task_run_id)}.jsonl"
         if event_path.exists():
             refs.append(f"events:{event_path.name}")
         return refs

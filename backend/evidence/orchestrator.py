@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents.a2a_official_adapter import (
+from agent_system.a2a.official_adapter import (
     OFFICIAL_A2A_PROTOCOL_VERSION,
     build_official_task_from_request,
     build_official_task_from_result,

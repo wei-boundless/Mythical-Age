@@ -20,8 +20,8 @@ def test_length_budget_compiles_from_graph_contract_bindings() -> None:
                     "length_budget": {
                         "budget_scope": "batch",
                         "measurement_mode": "text_units",
-                        "unit_kind": "chapter",
-                        "unit_label_zh": "章节",
+                        "unit_kind": "record",
+                        "unit_label_zh": "记录",
                         "batch_unit_count": 10,
                         "target_units": 18000,
                         "min_units": 12000,
@@ -32,7 +32,7 @@ def test_length_budget_compiles_from_graph_contract_bindings() -> None:
             "nodes": [
                 {
                     "node_id": "draft",
-                    "title": "写作节点",
+                    "title": "处理节点",
                     "node_type": "agent_role",
                     "agent_id": "agent:0",
                 }
@@ -47,7 +47,7 @@ def test_length_budget_compiles_from_graph_contract_bindings() -> None:
     assert budget["budget_scope"] == "batch"
     assert budget["measurement_mode"] == "text_units"
     assert budget["target_units"] == 18000
-    assert runtime_spec.diagnostics["length_budget_preview"]["unit_label_zh"] == "章节"
+    assert runtime_spec.diagnostics["length_budget_preview"]["unit_label_zh"] == "记录"
 
 
 def test_length_budget_quality_gate_rejects_underfilled_text_units() -> None:
@@ -106,7 +106,7 @@ def test_length_budget_batch_count_alone_is_not_configured() -> None:
         explicit={
             "budget_scope": "batch",
             "measurement_mode": "text_units",
-            "unit_kind": "chapter",
+            "unit_kind": "record",
             "batch_unit_count": 10,
         },
         source_ref="draft",
@@ -126,6 +126,19 @@ def test_length_budget_batch_count_alone_is_not_configured() -> None:
 
     assert acceptance["accepted"] is True
     assert acceptance["policy"] == "technical_completion"
+
+
+def test_length_budget_normalizes_legacy_volume_scope_to_group() -> None:
+    budget = compile_length_budget(
+        explicit={
+            "budget_scope": "volume",
+            "target_units": 100,
+        },
+        source_ref="legacy",
+    ).to_dict()
+
+    assert budget["budget_scope"] == "group"
+    assert "length_budget_scope_invalid" not in budget["diagnostics"]["issues"]
 
 
 def test_stage_business_acceptance_rejects_pseudo_tool_output() -> None:

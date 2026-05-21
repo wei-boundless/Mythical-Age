@@ -1,0 +1,64 @@
+{
+  "task_id": "task:memory_maintenance_after_commit:c30e48f6979249bd9cf5fe535f21ab4c",
+  "task_kind": "memory_maintenance_after_commit",
+  "status": "queued",
+  "payload": {
+    "session_id": "a3c8c1ff39c54345b4ab0de598b3b335",
+    "messages": [
+      {
+        "role": "user",
+        "content": "如果我之后再问复杂问题，你应该先怎么回答？"
+      },
+      {
+        "role": "assistant",
+        "content": "根据我们之前的约定，你问复杂问题时，我会按这个顺序来：\n\n先给结论，再补依据。\n\n具体来说：\n\n1. 结论前置——先把最核心的判断直接说出来，不绕弯。\n2. 补充理由——用短句说明支撑结论的关键证据。\n3. 标注可靠程度——如果证据不够充分，我会明确告诉你这个判断的把握有多大。\n4. 指出缺口——信息不足时，不说\"再看看\"，而是直接告诉你缺哪类信息，以及优先补什么。\n\n另外，我会称呼你为\"岩\"。如果结论需要落地执行，我会尽量用行动动词压成可操作的建议。\n\n这个顺序你确认没问题的话，我就按这个来。",
+        "answer_channel": "answer_candidate",
+        "answer_source": "runtime_directive:model_response",
+        "answer_canonical_state": "stable_answer",
+        "answer_persist_policy": "persist_canonical",
+        "answer_finalization_policy": "none"
+      },
+      {
+        "role": "user",
+        "content": "你之后应该怎么称呼我？"
+      },
+      {
+        "role": "assistant",
+        "content": "岩。\n\n这是我们之前约定好的称呼，我会一直沿用。",
+        "answer_channel": "answer_candidate",
+        "answer_source": "runtime_directive:model_response",
+        "answer_canonical_state": "stable_answer",
+        "answer_persist_policy": "persist_canonical",
+        "answer_finalization_policy": "none"
+      },
+      {
+        "role": "user",
+        "content": "如果信息不足，你应该怎么处理？"
+      },
+      {
+        "role": "assistant",
+        "content": "三步走：\n\n1. 先明确缺口。 直接告诉你缺哪类信息，以及为什么缺它会影响判断。\n\n2. 基于已有证据给出最稳妥的判断。 不悬空，不一直停在\"再看看\"\"不好说\"。证据够就直接表态，证据不够就把当前最可能的结论说出来，同时标注可靠程度。\n\n3. 指出优先补充方向。 告诉你现在最该先确认什么、先补哪块信息，让下一步有明确落点。\n\n总结就是：不猜、不悬空、不把问题抛回给你——缺什么说清楚，能判断的先判断，该补的指出来。",
+        "answer_channel": "answer_candidate",
+        "answer_source": "runtime_directive:model_response",
+        "answer_canonical_state": "stable_answer",
+        "answer_persist_policy": "persist_canonical",
+        "answer_finalization_policy": "none"
+      }
+    ],
+    "turn_id": "turn:a3c8c1ff39c54345b4ab0de598b3b335:5",
+    "main_context": {},
+    "task_summary_refs": [],
+    "bundle_summary_refs": [],
+    "durable_lane_enabled": true
+  },
+  "result": {},
+  "error": "",
+  "source": "memory_system.facade",
+  "session_id": "a3c8c1ff39c54345b4ab0de598b3b335",
+  "lane_id": "session_memory_maintenance",
+  "attempts": 0,
+  "queued_at": "2026-05-20T13:37:09+00:00",
+  "started_at": "",
+  "completed_at": "",
+  "receipt_path": "D:\\AI应用\\langchain-agent\\backend\\runtime_state\\background_tasks\\memory_maintenance_after_commit\\task_memory_maintenance_after_commit_c30e48f6979249bd9cf5fe535f21ab4c.json"
+}

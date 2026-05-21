@@ -27,6 +27,10 @@ metadata:
     - aggregation
     - record-lookup
   preferred_route: structured_data
+  requires_operations:
+    - op.mcp_structured_data
+  requires_capabilities:
+    - mcp:local:structured_data
   activation_policy: model_visible
   context_mode: isolated
   route_authority: candidate_only

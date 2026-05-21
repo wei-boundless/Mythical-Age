@@ -10,8 +10,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
-from orchestration.model_profile_resolver import ModelProfileResolver
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
+from agent_system.models.model_profile_resolver import ModelProfileResolver
 
 
 class _SettingsService:

@@ -8,7 +8,7 @@ from api.souls import (
     SEED_PATHS,
     build_soul_catalog,
 )
-from orchestration.agent_registry import AgentRegistry
+from agent_system.registry.agent_registry import AgentRegistry
 from soul.projection_store import upsert_projection_card
 
 

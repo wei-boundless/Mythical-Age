@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
 
+from project_layout import ProjectLayout
+
 try:
     from langsmith import Client, tracing_context
     from langsmith.run_helpers import trace as langsmith_trace
@@ -108,7 +110,7 @@ def _local_trace_root() -> Path:
     explicit = _first_env("APP_TRACE_DIR", "LOCAL_TRACE_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    return Path(__file__).resolve().parents[2] / "output" / "local_traces"
+    return ProjectLayout.from_backend_dir(Path(__file__).resolve().parents[1]).project_root / "output" / "local_traces"
 
 
 @lru_cache(maxsize=1)

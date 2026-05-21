@@ -11,8 +11,9 @@ from evidence.output_policy import RAGEvidenceOutputPolicy
 from observability import build_debug_trace_event, start_turn_trace
 from context_system import RuntimeContextManager
 from runtime import ModelResponseRuntimeExecutor, ModelRuntimeError, TaskRunLoop, ToolRuntimeExecutor
+from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from orchestration import (
-    AgentRuntimeRegistry,
     build_base_unit_catalog,
     build_user_message_commit_decision,
 )
@@ -20,7 +21,6 @@ from project_layout import ProjectLayout
 from prompting import build_static_prompt, build_system_prompt
 from query.models import QueryRequest
 from understanding import analyze_memory_intent
-from orchestration import AgentRuntimeChainAssembler
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,10 @@ class QueryRuntime:
             ProjectLayout.from_backend_dir(base_dir).runtime_state_dir,
             backend_dir=base_dir,
             evidence_orchestrator=self.evidence_orchestrator,
+            permission_mode_provider=_permission_mode_provider(
+                permission_service=permission_service,
+                settings_service=settings_service,
+            ),
         )
 
         self.runtime_components = {
@@ -428,6 +432,23 @@ class QueryRuntime:
         if isinstance(exc, ModelRuntimeError):
             return str(exc)
         return "请求处理失败，运行时已按 fail-closed 策略停止。"
+
+
+def _permission_mode_provider(*, permission_service: Any | None, settings_service: Any | None):
+    def _current_mode() -> str:
+        service_mode = getattr(permission_service, "current_mode", None)
+        if callable(service_mode):
+            mode = str(service_mode() or "").strip()
+            if mode:
+                return mode
+        settings_mode = getattr(settings_service, "get_permission_mode", None)
+        if callable(settings_mode):
+            mode = str(settings_mode() or "").strip()
+            if mode:
+                return mode
+        return "default"
+
+    return _current_mode
 
 
 def _task_instance_suffix(task_selection: dict[str, Any]) -> str:

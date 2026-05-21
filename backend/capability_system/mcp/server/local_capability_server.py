@@ -8,6 +8,7 @@ from typing import Any
 from capability_system.local_mcp_registry import get_local_mcp_unit
 from capability_system.operation_registry import build_default_operation_registry
 from capability_system.tool_runtime import ToolRuntime
+from capability_system.validators import validate_filesystem_path
 from evidence import MCPExecutionPlan, MCPRequest
 from evidence.orchestrator import EvidenceOrchestrator
 from evidence.output_policy import RAGEvidenceOutputPolicy
@@ -70,16 +71,19 @@ class LocalCapabilityMCPExecutor:
             }
         gate_result = self.operation_gate.check(
             unit.operation_id,
-            resource_policy=self.resource_policy or _default_mcp_resource_policy(unit.operation_id),
+            resource_policy=self.resource_policy,
             directive_ref=f"standard-mcp:{unit.route}",
             context=OperationGatePipelineContext(
                 permission_mode=self.permission_mode,
                 operation_input={
+                    "operation_id": unit.operation_id,
                     "query": request.query,
                     "path": request.path,
                     "mode": request.mode,
                     "route": unit.route,
+                    "workspace_root": str(_workspace_root_for_mcp(self.backend_dir)),
                 },
+                validators={"filesystem_path": validate_filesystem_path},
             ),
         )
         if not gate_result.allowed:
@@ -186,16 +190,23 @@ class _MCPSettingsStub:
         return ""
 
 
-def _default_mcp_resource_policy(operation_id: str) -> ResourcePolicy:
+def build_local_mcp_resource_policy(operation_id: str, *, task_id: str = "standard-mcp") -> ResourcePolicy:
     return ResourcePolicy(
-        policy_id=f"respol:standard-mcp:{operation_id}",
-        task_id="standard-mcp",
+        policy_id=f"respol:{task_id}:{operation_id}",
+        task_id=task_id,
         allowed_operations=(operation_id,),
         runtime_view_only=False,
         adopted=True,
         runtime_executable=True,
         diagnostics={
-            "authority": "standard_mcp_server",
+            "authority": "local_mcp_explicit_resource_policy",
             "deny_first_enforced_by": "OperationGate",
         },
     )
+
+
+def _workspace_root_for_mcp(backend_dir: Path) -> Path:
+    resolved = Path(backend_dir).resolve()
+    if resolved.name == "backend" and resolved.parent.exists():
+        return resolved.parent.resolve()
+    return resolved

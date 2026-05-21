@@ -12,7 +12,10 @@ import { buildTimelinePhases, buildTimelinePreflightIssues, coordinationPhaseDef
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
 
-type TimelineFacet = "phases" | "sequence" | "edges" | "loops" | "revision";
+type TimelineFacet = "semantics" | "phases" | "coordinates" | "edges" | "loops" | "revision";
+
+const NODE_SEMANTIC_ROLE_OPTIONS = ["producer", "validator", "approver", "publisher", "aggregator", "router", "resource", "monitor"];
+const EDGE_SEMANTIC_ROLE_OPTIONS = ["activation", "data_input", "validation_input", "approval_input", "publish_input", "resource_read", "resource_write", "reference", "retry", "failure_route"];
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -32,6 +35,10 @@ function booleanValue(value: unknown, fallback = false) {
 
 function splitList(value: string) {
   return value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
+}
+
+function recordArray(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item)) : [];
 }
 
 export function TaskGraphTimelinePage({
@@ -55,13 +62,13 @@ export function TaskGraphTimelinePage({
   updateTaskGraphNode: (nodeId: string, patch: Record<string, unknown>) => void;
   updateTaskGraphEdge: (edgeId: string, patch: Record<string, unknown>) => void;
 }) {
-  const [facet, setFacet] = useState<TimelineFacet>("phases");
+  const [facet, setFacet] = useState<TimelineFacet>("semantics");
   useEffect(() => {
     if (editorFocus?.layer !== "timeline") return;
     if (editorFocus.facet === "revision") setFacet("revision");
     if (editorFocus.facet === "phase") setFacet("phases");
     if (editorFocus.facet === "edge_temporal") setFacet("edges");
-    if (editorFocus.facet === "clock") setFacet("sequence");
+    if (editorFocus.facet === "clock") setFacet("coordinates");
   }, [editorFocus?.facet, editorFocus?.layer]);
   const metadata = asRecord(taskGraphDraft.metadata);
   const phaseDefinitions = coordinationPhaseDefinitions(metadata, activeGraphNodes);
@@ -106,6 +113,36 @@ export function TaskGraphTimelinePage({
     const metadata = asRecord(edge.metadata);
     return String(edge.edge_type ?? edge.mode ?? "") === "temporal_dependency" || String(metadata.dependency_role ?? "").includes("temporal") || Object.keys(asRecord(metadata.temporal_semantics)).length > 0;
   });
+  const runtimeSemantics = asRecord(standardTimelineModel.runtimeSemantics);
+  const runtimeSemanticsSummary = asRecord(runtimeSemantics.summary);
+  const runtimeStepPolicy = asRecord(runtimeSemantics.step_policy);
+  const nodeSemantics = recordArray(runtimeSemantics.node_semantics);
+  const edgeSemantics = recordArray(runtimeSemantics.edge_semantics);
+  const runtimeSemanticsDiagnostics = recordArray(runtimeSemantics.diagnostics);
+  const legacyFields = recordArray(runtimeSemantics.legacy_fields);
+  const artifactLifecycleStateCount = Array.isArray(runtimeSemantics.artifact_lifecycle_states) ? runtimeSemantics.artifact_lifecycle_states.length : 0;
+  const semanticRoleByNodeId = new Map(nodeSemantics.map((item) => [String(item.node_id ?? ""), String(item.semantic_role ?? "")]));
+  const semanticRoleByEdgeId = new Map(edgeSemantics.map((item) => [String(item.edge_id ?? ""), String(item.semantic_role ?? "")]));
+
+  const patchNodeRuntimeSemanticRole = (node: Record<string, unknown>, nextRole: string) => {
+    const targetNodeId = nodeId(node);
+    if (!targetNodeId) return;
+    updateTaskGraphNode(targetNodeId, {
+      metadata: {
+        ...asRecord(node.metadata),
+        runtime_semantic_role: nextRole,
+      },
+    });
+  };
+
+  const patchEdgeRuntimeSemanticRole = (edge: Record<string, unknown>, edgeId: string, nextRole: string) => {
+    updateTaskGraphEdge(edgeId, {
+      metadata: {
+        ...asRecord(edge.metadata),
+        runtime_semantic_role: nextRole,
+      },
+    });
+  };
 
   const patchEdgeTemporalSemantics = (edge: Record<string, unknown>, edgeId: string, patch: Record<string, unknown>) => {
     const currentMetadata = asRecord(edge.metadata);
@@ -126,13 +163,13 @@ export function TaskGraphTimelinePage({
     <section className="task-graph-studio-page">
       <header className="task-graph-studio-page__head">
         <span>图工作台</span>
-        <strong>拓扑时序控制</strong>
-        <small>从主链、阶段、循环框、并发组和控制边编译节点激活窗口与执行许可。</small>
+        <strong>生命周期与运行语义</strong>
+        <small>用通用语义解释节点职责、边职责、生命周期坐标和运行记录；step 只属于运行监控。</small>
       </header>
 
       <section className="task-graph-form-grid">
         <article className="boundary-card task-graph-layer-explainer">
-          <header><strong>控制模型摘要</strong><span>由拓扑派生，不是业务数据库</span></header>
+          <header><strong>结构摘要</strong><span>由拓扑编译，不是业务模板</span></header>
           <div className="task-graph-mini-kv">
             <p><span>阶段</span><strong>{phaseDefinitions.length}</strong></p>
             <p><span>阶段图块</span><strong>{timelineBlocks.length}</strong></p>
@@ -144,40 +181,40 @@ export function TaskGraphTimelinePage({
           </div>
         </article>
         <article className="boundary-card task-graph-layer-explainer">
-          <header><strong>运行语义</strong><span>TaskGraph temporal coordinate</span></header>
+          <header><strong>运行语义</strong><span>{String(runtimeSemantics.authority ?? "等待编译")}</span></header>
           <div className="task-graph-note">
-            <strong>节点激活窗口决定谁此刻能运行</strong>
-            <span>调度器只会给当前合法窗口签发 execution permit；节点返回时必须带回 activation 和 permit，否则监控会把它视为越界运行。</span>
+            <strong>图编辑器不编辑 step</strong>
+            <span>step 是运行时 dispatch wave 和 checkpoint 边界；编辑器编辑节点、边、资源、生命周期坐标和通用语义。</span>
           </div>
           <div className="task-graph-note">
-            <strong>循环框是静态模板，迭代坐标运行时展开</strong>
-            <span>循环体内部仍按 step / wait / join 分层；LangGraph step 只是执行机制，不能替代 TaskGraph 的时序坐标。</span>
+            <strong>旧时序字段只做坐标</strong>
+            <span>phase 和 sequence 可以帮助展示与迁移，但通用依赖关系应由显式边和边语义表达。</span>
           </div>
         </article>
       </section>
 
       <section className="task-graph-standard-board" aria-label="时序标准对象摘要">
         <article className="boundary-card task-graph-standard-card">
-          <header><strong>标准时序对象</strong><span>{standardViewLoading ? "编译中" : `${standardTimelineModel.phases.length} phases`}</span></header>
+          <header><strong>标准生命周期对象</strong><span>{standardViewLoading ? "编译中" : `${standardTimelineModel.phases.length} phases`}</span></header>
           <div className="task-graph-mini-kv">
             <p><span>入口节点</span><strong>{standardTimelineModel.entryNodeId || "-"}</strong></p>
             <p><span>出口节点</span><strong>{standardTimelineModel.outputNodeId || "-"}</strong></p>
-            <p><span>显式时序边</span><strong>{standardTimelineModel.temporalEdges.length}</strong></p>
+            <p><span>时序边</span><strong>{standardTimelineModel.temporalEdges.length}</strong></p>
             <p><span>标准图块</span><strong>{standardTimelineModel.timelineBlocks.length}</strong></p>
             <p><span>循环框</span><strong>{standardTimelineModel.loopFrames.length}</strong></p>
           </div>
           <div className="task-graph-note">
-            <strong>时序来自拓扑编译</strong>
-            <span>这里显示后端对主链、phase、loop frame 和 temporal edge 的编译结果，不是业务计划表，也不是运行数据库。</span>
+            <strong>生命周期来自拓扑编译</strong>
+            <span>这里显示后端对 phase、loop frame 和 temporal edge 的编译结果；运行 step 在运行监控页查看。</span>
           </div>
         </article>
         <article className="boundary-card task-graph-standard-card">
-          <header><strong>运行提醒</strong><span>{standardTimelineModel.issueCount} issues</span></header>
+          <header><strong>运行语义摘要</strong><span>{String(runtimeSemanticsSummary.diagnostic_count ?? 0)} diagnostics</span></header>
           <div className="task-graph-mini-kv">
-            <p><span>异步节点</span><strong>{standardTimelineModel.asyncNodeCount}</strong></p>
-            <p><span>Phase 数</span><strong>{standardTimelineModel.phases.length}</strong></p>
-            <p><span>图块数</span><strong>{standardTimelineModel.timelineBlocks.length}</strong></p>
-            <p><span>Loop frame</span><strong>{standardTimelineModel.loopFrames.length}</strong></p>
+            <p><span>节点语义</span><strong>{String(runtimeSemanticsSummary.node_count ?? nodeSemantics.length)}</strong></p>
+            <p><span>边语义</span><strong>{String(runtimeSemanticsSummary.edge_count ?? edgeSemantics.length)}</strong></p>
+            <p><span>旧字段</span><strong>{String(runtimeSemanticsSummary.legacy_field_count ?? legacyFields.length)}</strong></p>
+            <p><span>Step 可编辑</span><strong>{runtimeStepPolicy.editor_visible ? "是" : "否"}</strong></p>
             <p><span>诊断问题</span><strong>{standardTimelineModel.issueCount}</strong></p>
           </div>
         </article>
@@ -185,9 +222,10 @@ export function TaskGraphTimelinePage({
 
       <section className="task-graph-facet-switch" aria-label="时序配置分面">
         {[
+          ["semantics", "运行语义", "node role / edge role"],
           ["phases", "主链阶段", "phase / exit / gate"],
-          ["sequence", "执行许可条件", "sequence / wait / join"],
-          ["edges", "边时序语义", "trigger / visibility / ack"],
+          ["coordinates", "激活坐标", "phase / legacy sequence"],
+          ["edges", "边生命周期", "trigger / visibility / ack"],
           ["loops", "循环框", "static frame / runtime iteration"],
           ["revision", "审核回退", "revise / fail / carry"],
         ].map(([id, title, desc]) => (
@@ -203,6 +241,91 @@ export function TaskGraphTimelinePage({
           <strong>来自发布诊断：{editorFocus.issue_id}</strong>
           <span>{editorFocus.edge_id ? `边 ${editorFocus.edge_id}` : editorFocus.node_id ? `节点 ${editorFocus.node_id}` : "请检查当前分面的时序配置。"} </span>
         </div>
+      ) : null}
+
+      {facet === "semantics" ? (
+        <>
+          <section className="boundary-card">
+            <header><strong>通用运行语义</strong><span>{String(runtimeSemantics.authority ?? "未编译")}</span></header>
+            <div className="task-graph-note">
+              <strong>这是底层图协议，不是领域模板</strong>
+              <span>节点职责、边职责和产物生命周期使用通用词；具体行业模板只能映射这些语义，不能改变底层协议。</span>
+            </div>
+            <div className="task-graph-mini-kv">
+              <p><span>节点语义</span><strong>{nodeSemantics.length}</strong></p>
+              <p><span>边语义</span><strong>{edgeSemantics.length}</strong></p>
+              <p><span>产物状态</span><strong>{artifactLifecycleStateCount}</strong></p>
+              <p><span>旧字段</span><strong>{legacyFields.length}</strong></p>
+              <p><span>Step 可编辑</span><strong>{runtimeStepPolicy.editor_visible ? "是" : "否"}</strong></p>
+            </div>
+          </section>
+          <div className="task-graph-form-grid">
+            <article className="boundary-card task-graph-layer-explainer">
+              <header><strong>节点职责</strong><span>{nodeSemantics.length} nodes</span></header>
+              <div className="task-graph-node-policy-list">
+                {activeGraphNodes.map((node, index) => {
+                  const currentNodeId = nodeId(node);
+                  const metadata = asRecord(node.metadata);
+                  const role = String(metadata.runtime_semantic_role ?? semanticRoleByNodeId.get(currentNodeId) ?? "producer");
+                  return (
+                  <article className="task-graph-node-policy-row" key={currentNodeId || `node_semantic_${index}`}>
+                    <div className="task-graph-node-policy-row__identity">
+                      <strong>{nodeTitle(node)}</strong>
+                      <span>{currentNodeId || "未命名节点"}</span>
+                    </div>
+                    <TaskSystemSelectField
+                      label="通用职责"
+                      onChange={(value) => patchNodeRuntimeSemanticRole(node, value)}
+                      options={NODE_SEMANTIC_ROLE_OPTIONS}
+                      value={role}
+                    />
+                  </article>
+                  );
+                })}
+              </div>
+            </article>
+            <article className="boundary-card task-graph-layer-explainer">
+              <header><strong>边职责</strong><span>{edgeSemantics.length} edges</span></header>
+              <div className="task-graph-node-policy-list">
+                {activeGraphEdges.map((edge, index) => {
+                  const edgeId = String(edge.edge_id ?? edge.id ?? `${String(edge.source_node_id ?? edge.from ?? "source")}-${String(edge.target_node_id ?? edge.to ?? "target")}-${index}`);
+                  const metadata = asRecord(edge.metadata);
+                  const role = String(metadata.runtime_semantic_role ?? semanticRoleByEdgeId.get(edgeId) ?? "data_input");
+                  return (
+                  <article className="task-graph-node-policy-row" key={edgeId}>
+                    <div className="task-graph-node-policy-row__identity">
+                      <strong>{String(edge.source_node_id ?? edge.from ?? "")} {"->"} {String(edge.target_node_id ?? edge.to ?? "")}</strong>
+                      <span>{edgeId}</span>
+                    </div>
+                    <TaskSystemSelectField
+                      label="通用职责"
+                      onChange={(value) => patchEdgeRuntimeSemanticRole(edge, edgeId, value)}
+                      options={EDGE_SEMANTIC_ROLE_OPTIONS}
+                      value={role}
+                    />
+                  </article>
+                  );
+                })}
+              </div>
+            </article>
+          </div>
+          {runtimeSemanticsDiagnostics.length ? (
+            <div className="task-graph-preflight-list">
+              {runtimeSemanticsDiagnostics.slice(0, 8).map((issue, index) => (
+                <article className="task-graph-preflight-row" key={`${String(issue.code ?? "runtime_semantics")}_${index}`}>
+                  <span className={`task-graph-preflight-row__severity task-graph-preflight-row__severity--${String(issue.severity ?? "warning")}`}>
+                    {String(issue.severity ?? "warning")}
+                  </span>
+                  <div>
+                    <strong>{String(issue.code ?? "runtime_semantics")}</strong>
+                    <span>{String(issue.message ?? "")}</span>
+                    <small>{String(issue.scope ?? "graph")} / {String(issue.ref_id ?? "-")} / {String(issue.field ?? "-")}</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       {facet === "phases" ? (
@@ -228,7 +351,7 @@ export function TaskGraphTimelinePage({
               </div>
               <div className="task-graph-note">
                 <strong>阶段是时序容器</strong>
-                <span>阶段和循环框定义拓扑 scope；运行时控制层打开节点窗口并签发执行许可，clock ledger 只记录已经发生的事件顺序。</span>
+                <span>阶段定义生命周期 scope；它不应该替代显式边，也不应该被当成运行 step。</span>
               </div>
             </article>
 
@@ -253,10 +376,10 @@ export function TaskGraphTimelinePage({
 
       {facet === "edges" ? (
         <section className="boundary-card">
-          <header><strong>边时序语义</strong><span>{activeGraphEdges.length} 条边</span></header>
+          <header><strong>边生命周期语义</strong><span>{activeGraphEdges.length} 条边</span></header>
           <div className="task-graph-note">
-            <strong>边不是执行端，但边必须有关系时序</strong>
-            <span>这里声明上游结果何时触发下游、何时可见、是否需要确认、如何传播，以及是否允许跨阶段。</span>
+            <strong>边不是执行端，但边决定依赖和可见性</strong>
+            <span>这里声明上游结果何时触发下游、何时可见、是否需要确认，以及失败后如何传播。</span>
           </div>
           <div className="task-graph-node-policy-list">
             {activeGraphEdges.map((edge, index) => {
@@ -323,12 +446,12 @@ export function TaskGraphTimelinePage({
         </section>
       ) : null}
 
-      {facet === "sequence" ? (
+      {facet === "coordinates" ? (
         <section className="boundary-card">
-          <header><strong>节点执行许可条件</strong><span>{temporalEdges.length} 条显式时序边</span></header>
+          <header><strong>节点激活坐标</strong><span>{temporalEdges.length} 条显式时序边</span></header>
           <div className="task-graph-note">
-            <strong>一个节点是否能启动，由拓扑位置和上游交接共同决定</strong>
-            <span>sequence、wait、join、phase 和显式时序边共同决定 permit 是否可签发；边本身不是一个时序点，但边的交接完成会改变下游节点是否满足条件。</span>
+            <strong>phase/sequence 是旧运行坐标，不是通用因果关系</strong>
+            <span>新图应通过显式边、边职责和产物状态表达启动条件；这里保留旧坐标用于迁移、展示和现有 scheduler 兼容。</span>
           </div>
           {standardTimelineModel.phases.length ? (
             <div className="task-graph-standard-list">
@@ -359,7 +482,7 @@ export function TaskGraphTimelinePage({
                       value={String(node.phase_id ?? "")}
                     />
                   </TaskSystemField>
-                  <TaskSystemField label="顺序">
+                  <TaskSystemField label="旧顺序坐标">
                     <input
                       min={0}
                       onChange={(event) => updateTaskGraphNode(nodeId, { sequence_index: Number(event.target.value || 0) })}

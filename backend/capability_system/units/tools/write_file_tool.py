@@ -8,7 +8,7 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, Cal
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from capability_system.units.tools.workspace_paths import relative_workspace_path, resolve_workspace_path, workspace_root_for_tool
+from capability_system.workspace_file_service import WorkspaceFileService
 
 
 class WriteFileInput(BaseModel):
@@ -23,19 +23,13 @@ class EditFileInput(BaseModel):
 
 
 class _WorkspacePathMixin:
-    _root_dir: Path = PrivateAttr()
-
-    def _workspace_root(self) -> Path:
-        return workspace_root_for_tool(self._root_dir)
+    _files: WorkspaceFileService = PrivateAttr()
 
     def _resolve_path(self, path: str) -> Path:
-        normalized = str(path or "").strip()
-        if not normalized:
-            raise ValueError("Path is required.")
-        return resolve_workspace_path(self._root_dir, normalized)
+        return self._files.resolve(path, require_path=True)
 
     def _display_path(self, path: Path) -> str:
-        return relative_workspace_path(self._root_dir, path)
+        return self._files.relative_path(path)
 
 
 class WriteFileTool(_WorkspacePathMixin, BaseTool):
@@ -46,7 +40,7 @@ class WriteFileTool(_WorkspacePathMixin, BaseTool):
 
     def __init__(self, root_dir: Path, **kwargs) -> None:
         super().__init__(**kwargs)
-        self._root_dir = root_dir.resolve()
+        self._files = WorkspaceFileService(root_dir)
 
     def _run(
         self,
@@ -55,9 +49,7 @@ class WriteFileTool(_WorkspacePathMixin, BaseTool):
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         try:
-            file_path = self._resolve_path(path)
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_path.write_text(str(content or ""), encoding="utf-8")
+            file_path = self._files.write_text(path, content)
         except Exception as exc:
             return f"Write failed: {exc}"
         return f"Write succeeded: {self._display_path(file_path)}"
@@ -79,7 +71,7 @@ class EditFileTool(_WorkspacePathMixin, BaseTool):
 
     def __init__(self, root_dir: Path, **kwargs) -> None:
         super().__init__(**kwargs)
-        self._root_dir = root_dir.resolve()
+        self._files = WorkspaceFileService(root_dir)
 
     def _run(
         self,
@@ -89,18 +81,15 @@ class EditFileTool(_WorkspacePathMixin, BaseTool):
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         try:
-            file_path = self._resolve_path(path)
-            if not file_path.exists():
-                return "Edit failed: file does not exist."
-            if file_path.is_dir():
-                return "Edit failed: path is a directory."
-            content = file_path.read_text(encoding="utf-8")
-            target = str(old_text or "")
-            if not target:
-                return "Edit failed: old_text is required."
-            if target not in content:
-                return "Edit failed: old_text not found."
-            file_path.write_text(content.replace(target, str(new_text or ""), 1), encoding="utf-8")
+            file_path = self._files.edit_text(path, old_text, new_text)
+        except FileNotFoundError:
+            return "Edit failed: file does not exist."
+        except IsADirectoryError:
+            return "Edit failed: path is a directory."
+        except LookupError:
+            return "Edit failed: old_text not found."
+        except ValueError as exc:
+            return f"Edit failed: {exc}"
         except Exception as exc:
             return f"Edit failed: {exc}"
         return f"Edit succeeded: {self._display_path(file_path)}"

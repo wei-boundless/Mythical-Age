@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 from typing import NamedTuple
 
-from memory_layout import DurableMemoryLayout
+from memory_system.layout import DurableMemoryLayout
 
 from .frontmatter import parse_frontmatter
 from .models import DEFAULT_DURABLE_SCHEMA_VERSION, MemoryNote

@@ -20,6 +20,10 @@ metadata:
     - longform-reading
     - page-grounded
   preferred_route: pdf
+  requires_operations:
+    - op.mcp_pdf
+  requires_capabilities:
+    - mcp:local:pdf
   activation_policy: model_visible
   context_mode: isolated
   route_authority: candidate_only

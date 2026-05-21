@@ -57,6 +57,12 @@
       "reference_paths": [
         "capability_system/units/skills/pdf-analysis/references/pdf_reading.md"
       ],
+      "requires_operations": [
+        "op.mcp_pdf"
+      ],
+      "requires_capabilities": [
+        "mcp:local:pdf"
+      ],
       "runtime": {
         "name": "pdf-analysis",
         "title": "PDF 阅读分析",
@@ -110,6 +116,12 @@
         "route_authority": "candidate_only",
         "reference_paths": [
           "capability_system/units/skills/pdf-analysis/references/pdf_reading.md"
+        ],
+        "requires_operations": [
+          "op.mcp_pdf"
+        ],
+        "requires_capabilities": [
+          "mcp:local:pdf"
         ]
       },
       "prompt": {
@@ -176,6 +188,12 @@
       "context_mode": "inline",
       "route_authority": "candidate_only",
       "reference_paths": [],
+      "requires_operations": [
+        "op.mcp_retrieval"
+      ],
+      "requires_capabilities": [
+        "mcp:local:retrieval"
+      ],
       "runtime": {
         "name": "rag-skill",
         "title": "知识库问答",
@@ -227,7 +245,13 @@
         "activation_policy": "model_visible",
         "context_mode": "inline",
         "route_authority": "candidate_only",
-        "reference_paths": []
+        "reference_paths": [],
+        "requires_operations": [
+          "op.mcp_retrieval"
+        ],
+        "requires_capabilities": [
+          "mcp:local:retrieval"
+        ]
       },
       "prompt": {
         "name": "rag-skill",
@@ -268,7 +292,7 @@
         "workflow-instructions",
         "validation"
       ],
-      "preferred_route": "rag",
+      "preferred_route": "capability_authoring",
       "forbidden_routes": [],
       "routing_hints": [
         "创建 skill",
@@ -290,6 +314,16 @@
       "context_mode": "inline",
       "route_authority": "candidate_only",
       "reference_paths": [],
+      "requires_operations": [
+        "op.read_file",
+        "op.write_file",
+        "op.edit_file"
+      ],
+      "requires_capabilities": [
+        "tool:read_file",
+        "tool:write_file",
+        "tool:edit_file"
+      ],
       "runtime": {
         "name": "skill-creator",
         "title": "Skill 创建顾问",
@@ -317,7 +351,7 @@
           "workflow-instructions",
           "validation"
         ],
-        "preferred_route": "rag",
+        "preferred_route": "capability_authoring",
         "forbidden_routes": [],
         "routing_hints": [
           "创建 skill",
@@ -338,7 +372,17 @@
         "activation_policy": "model_visible",
         "context_mode": "inline",
         "route_authority": "candidate_only",
-        "reference_paths": []
+        "reference_paths": [],
+        "requires_operations": [
+          "op.read_file",
+          "op.write_file",
+          "op.edit_file"
+        ],
+        "requires_capabilities": [
+          "tool:read_file",
+          "tool:write_file",
+          "tool:edit_file"
+        ]
       },
       "prompt": {
         "name": "skill-creator",
@@ -418,6 +462,12 @@
         "capability_system/units/skills/structured-data-analysis/references/excel_analysis.md",
         "capability_system/units/skills/structured-data-analysis/references/excel_reading.md"
       ],
+      "requires_operations": [
+        "op.mcp_structured_data"
+      ],
+      "requires_capabilities": [
+        "mcp:local:structured_data"
+      ],
       "runtime": {
         "name": "structured-data-analysis",
         "title": "结构化数据分析",
@@ -483,6 +533,12 @@
         "reference_paths": [
           "capability_system/units/skills/structured-data-analysis/references/excel_analysis.md",
           "capability_system/units/skills/structured-data-analysis/references/excel_reading.md"
+        ],
+        "requires_operations": [
+          "op.mcp_structured_data"
+        ],
+        "requires_capabilities": [
+          "mcp:local:structured_data"
         ]
       },
       "prompt": {

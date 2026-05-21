@@ -56,6 +56,8 @@ def build_capability_supply_package_from_base_dir(
                     "context_mode": skill.runtime.context_mode,
                     "preferred_route": skill.runtime.preferred_route,
                     "capability_tags": list(skill.runtime.capability_tags),
+                    "requires_operations": list(skill.runtime.requires_operations),
+                    "requires_capabilities": list(skill.runtime.requires_capabilities),
                 },
             }
             for skill in skill_registry.skills
@@ -92,7 +94,12 @@ def build_capability_supply_package_from_catalog(
         mcp for mcp in mcps
         if not normalized_scope or str(mcp.get("operation_id") or "").strip() in normalized_scope
     ]
-    filtered_skills = list(skills)
+    filtered_skills = [
+        skill for skill in skills
+        if not normalized_scope
+        or not _skill_operation_ids(skill)
+        or bool(set(_skill_operation_ids(skill)) & normalized_scope)
+    ]
 
     tool_refs = [
         CapabilitySupplyToolRef(
@@ -116,6 +123,12 @@ def build_capability_supply_package_from_catalog(
             capability_tags=tuple(
                 str(item)
                 for item in list(((skill.get("runtime") or {}) if isinstance(skill.get("runtime"), dict) else {}).get("capability_tags") or [])
+                if str(item)
+            ),
+            operation_ids=tuple(_skill_operation_ids(skill)),
+            capability_ids=tuple(
+                str(item)
+                for item in list(((skill.get("runtime") or {}) if isinstance(skill.get("runtime"), dict) else {}).get("requires_capabilities") or [])
                 if str(item)
             ),
         )
@@ -186,3 +199,24 @@ def _normalize_operation_scope(
         if value:
             normalized.add(value)
     return normalized
+
+
+def _skill_operation_ids(skill: dict[str, Any]) -> list[str]:
+    runtime = (skill.get("runtime") or {}) if isinstance(skill.get("runtime"), dict) else {}
+    explicit = [
+        str(item).strip()
+        for item in list(runtime.get("requires_operations") or [])
+        if str(item).strip()
+    ]
+    if explicit:
+        return explicit
+    route = str(runtime.get("preferred_route") or "").strip()
+    if route.startswith("op."):
+        return [route]
+    return {
+        "rag": ["op.mcp_retrieval"],
+        "retrieval": ["op.mcp_retrieval"],
+        "pdf": ["op.mcp_pdf"],
+        "structured_data": ["op.mcp_structured_data"],
+        "data": ["op.mcp_structured_data"],
+    }.get(route, [])

@@ -61,12 +61,12 @@ export function TaskGraphRootInspector({
   const formatNode = (value: string) => nodeTitle(activeGraphNodes.find((node) => stringValue(node.node_id) === value) ?? null, value);
   const loopInputs = resolvedTaskGraphRuntimeLoopInitialInputs(graphDraft);
   const loopFrames = taskGraphRuntimeLoopFrames(graphDraft);
-  const chaptersPerRound = taskGraphRuntimeLoopNumber(loopInputs.chapters_per_round ?? loopInputs.chapter_batch_size, 10);
-  const chaptersPerVolume = taskGraphRuntimeLoopNumber(loopInputs.chapters_per_volume, 100);
-  const targetVolumes = taskGraphRuntimeLoopNumber(loopInputs.target_volumes, 5);
-  const chapterTargetWords = taskGraphRuntimeLoopNumber(loopInputs.chapter_target_words, 2000);
-  const volumeTargetWords = taskGraphRuntimeLoopNumber(loopInputs.volume_target_words, chaptersPerVolume * chapterTargetWords);
-  const targetWords = taskGraphRuntimeLoopNumber(loopInputs.target_words, targetVolumes * volumeTargetWords);
+  const unitsPerBatch = taskGraphRuntimeLoopNumber(loopInputs.units_per_batch, 1);
+  const unitsPerGroup = taskGraphRuntimeLoopNumber(loopInputs.units_per_group, 1);
+  const targetGroupCount = taskGraphRuntimeLoopNumber(loopInputs.target_group_count, 1);
+  const unitTargetMeasure = taskGraphRuntimeLoopNumber(loopInputs.unit_target_measure, 0);
+  const groupTargetMeasure = taskGraphRuntimeLoopNumber(loopInputs.group_target_measure, unitsPerGroup * unitTargetMeasure);
+  const targetMeasureUnits = taskGraphRuntimeLoopNumber(loopInputs.target_measure_units, targetGroupCount * groupTargetMeasure);
   const lengthBudget = taskGraphRuntimeLoopRecord(taskGraphRuntimeLoopRecord(taskGraphRuntimeLoopRecord(graphDraft.contract_bindings).runtime).length_budget);
   const lengthBudgetRepairPolicy = taskGraphRuntimeLoopRecord(lengthBudget.repair_policy);
   const lengthBudgetAcceptancePolicy = taskGraphRuntimeLoopRecord(lengthBudget.acceptance_policy);
@@ -152,64 +152,64 @@ export function TaskGraphRootInspector({
       <TaskGraphInspectorSection icon={<RotateCw aria-hidden="true" size={15} />} title="循环与批次" aside="graph runtime">
         <div className="task-graph-batch-contract">
           <div className="task-graph-note">
-            <strong>{targetVolumes || 1} 卷 · 每卷 {chaptersPerVolume || 0} 章 · 每批 {chaptersPerRound || 0} 章</strong>
-            <span>这些是任务图级运行参数；节点只执行当前时序点，完整章节循环由图级帧和路由节点推进。</span>
+            <strong>{targetGroupCount || 1} 组 · 每组 {unitsPerGroup || 0} 单元 · 每批 {unitsPerBatch || 0} 单元</strong>
+            <span>这些是任务图级规模参数；节点只执行当前生命周期坐标，完整循环由图级帧和路由节点推进。</span>
           </div>
           <div className="boundary-form task-graph-composer-inspector-form">
-            <TaskSystemField label="目标卷数">
+            <TaskSystemField label="目标组数">
               <input
                 min={1}
-                onChange={(event) => updateRuntimeLoopInput("target_volumes", Number(event.target.value || 1))}
+                onChange={(event) => updateRuntimeLoopInput("target_group_count", Number(event.target.value || 1))}
                 type="number"
-                value={targetVolumes}
+                value={targetGroupCount}
               />
             </TaskSystemField>
-            <TaskSystemField label="每卷章节">
+            <TaskSystemField label="每组单元">
               <input
                 min={1}
                 onChange={(event) => {
                   const value = Number(event.target.value || 1);
-                  updateRuntimeLoopInput("chapters_per_volume", value);
+                  updateRuntimeLoopInput("units_per_group", value);
                 }}
                 type="number"
-                value={chaptersPerVolume}
+                value={unitsPerGroup}
               />
             </TaskSystemField>
-            <TaskSystemField label="每批章节">
+            <TaskSystemField label="每批单元">
               <input
                 min={1}
-                onChange={(event) => updateRuntimeLoopInput("chapters_per_round", Number(event.target.value || 1))}
+                onChange={(event) => updateRuntimeLoopInput("units_per_batch", Number(event.target.value || 1))}
                 type="number"
-                value={chaptersPerRound}
+                value={unitsPerBatch}
               />
             </TaskSystemField>
-            <TaskSystemField label="单章字数">
+            <TaskSystemField label="单元目标量">
               <input
-                min={1}
-                onChange={(event) => updateRuntimeLoopInput("chapter_target_words", Number(event.target.value || 1))}
+                min={0}
+                onChange={(event) => updateRuntimeLoopInput("unit_target_measure", Number(event.target.value || 0))}
                 type="number"
-                value={chapterTargetWords}
+                value={unitTargetMeasure}
               />
             </TaskSystemField>
-            <TaskSystemField label="本卷字数">
+            <TaskSystemField label="单组目标量">
               <input
-                min={1}
-                onChange={(event) => updateRuntimeLoopInput("volume_target_words", Number(event.target.value || 1))}
+                min={0}
+                onChange={(event) => updateRuntimeLoopInput("group_target_measure", Number(event.target.value || 0))}
                 type="number"
-                value={volumeTargetWords}
+                value={groupTargetMeasure}
               />
             </TaskSystemField>
-            <TaskSystemField label="本次字数">
+            <TaskSystemField label="总目标量">
               <input
-                min={1}
-                onChange={(event) => updateRuntimeLoopInput("target_words", Number(event.target.value || 1))}
+                min={0}
+                onChange={(event) => updateRuntimeLoopInput("target_measure_units", Number(event.target.value || 0))}
                 type="number"
-                value={targetWords}
+                value={targetMeasureUnits}
               />
             </TaskSystemField>
           </div>
           <div className="task-graph-note">
-            <strong>{String(lengthBudget.unit_label_zh ?? "章节")} 长度预算</strong>
+            <strong>{String(lengthBudget.unit_label_zh ?? "单元")} 长度预算</strong>
             <span>这里是业务契约，不是模型上限。它会进入 runtime.length_budget，并在运行时作为验收门使用。</span>
           </div>
           <div className="boundary-form task-graph-composer-inspector-form">
@@ -220,7 +220,7 @@ export function TaskGraphRootInspector({
             <TaskSystemSelectField
               label="预算范围"
               onChange={(value) => updateLengthBudget(["budget_scope"], value)}
-              options={["graph", "volume", "batch", "node"]}
+              options={["graph", "group", "batch", "node"]}
               value={String(lengthBudget.budget_scope ?? "graph")}
             />
             <TaskSystemSelectField
@@ -230,19 +230,19 @@ export function TaskGraphRootInspector({
               value={String(lengthBudget.measurement_mode ?? "text_units")}
             />
             <TaskSystemField label="目标长度">
-              <input min={1} onChange={(event) => updateLengthBudget(["target_units"], Number(event.target.value || 0))} type="number" value={Number(lengthBudget.target_units ?? targetWords)} />
+              <input min={1} onChange={(event) => updateLengthBudget(["target_units"], Number(event.target.value || 0))} type="number" value={Number(lengthBudget.target_units ?? targetMeasureUnits)} />
             </TaskSystemField>
             <TaskSystemField label="最小长度">
-              <input min={1} onChange={(event) => updateLengthBudget(["min_units"], Number(event.target.value || 0))} type="number" value={Number(lengthBudget.min_units ?? chapterTargetWords)} />
+              <input min={1} onChange={(event) => updateLengthBudget(["min_units"], Number(event.target.value || 0))} type="number" value={Number(lengthBudget.min_units ?? unitTargetMeasure)} />
             </TaskSystemField>
             <TaskSystemField label="最大长度">
-              <input min={1} onChange={(event) => updateLengthBudget(["max_units"], Number(event.target.value || 0))} type="number" value={Number(lengthBudget.max_units ?? targetWords)} />
+              <input min={1} onChange={(event) => updateLengthBudget(["max_units"], Number(event.target.value || 0))} type="number" value={Number(lengthBudget.max_units ?? targetMeasureUnits)} />
             </TaskSystemField>
             <TaskSystemField label="单元数量">
-              <input min={1} onChange={(event) => updateLengthBudget(["batch_unit_count"], Number(event.target.value || 0))} type="number" value={Number(lengthBudget.batch_unit_count ?? chaptersPerRound)} />
+              <input min={1} onChange={(event) => updateLengthBudget(["batch_unit_count"], Number(event.target.value || 0))} type="number" value={Number(lengthBudget.batch_unit_count ?? unitsPerBatch)} />
             </TaskSystemField>
             <TaskSystemField label="单元中文名">
-              <input onChange={(event) => updateLengthBudget(["unit_label_zh"], event.target.value)} value={String(lengthBudget.unit_label_zh ?? "章节")} />
+              <input onChange={(event) => updateLengthBudget(["unit_label_zh"], event.target.value)} value={String(lengthBudget.unit_label_zh ?? "单元")} />
             </TaskSystemField>
           </div>
           <div className="boundary-form task-graph-composer-inspector-form">

@@ -1006,66 +1006,482 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
     }
   }
 
-  return (
-    <div className={`workspace-view soul-system-console ${isHonghuangWorld ? "soul-system-console--honghuang" : "soul-system-console--plain"}`}>
-      {loading ? (
-        <div className="workspace-alert">
-          <Loader2 size={16} className="spin" />
-          正在加载灵魂设置...
-        </div>
-      ) : null}
-      {error ? <div className="workspace-alert workspace-alert--danger">{error}</div> : null}
-      {notice ? <div className="workspace-alert">{notice}</div> : null}
+  const activeMode = SOUL_MODES.find((item) => item.id === mode) ?? SOUL_MODES[0];
+  const stageTitle = isHonghuangWorld
+    ? selectedLore?.title ?? "古老灵魂的降临"
+    : "无背景工作场";
+  const stageSummary = isHonghuangWorld
+    ? selectedLore?.summary ?? "选择一个灵魂后，这里会显示它的背景设定与协作气质。"
+    : selectedWorld?.content || selectedWorld?.summary || "这个世界观不注入额外故事背景，适合纯工作 prompt 和低角色感任务。";
+  const selectedSeedLabel = selectedSeed?.name ?? catalog?.active_soul_name ?? "未选择灵魂";
+  const selectedLayerLabel = mode === "core" ? "共同契约" : mode === "projection" ? "工作投影" : "灵魂本体";
 
-      <section className="soul-worldview-entry">
-        <div className="soul-worldview-entry__head">
-          <div>
-            <span>Worldview Library</span>
-            <strong>先选择世界观，再选择灵魂</strong>
-          </div>
-          <p>世界观决定背景与故事层；灵魂负责本体设定；投影负责实际工作 prompt。</p>
+  function renderSoulRoster() {
+    if (!seedsForWorld.length) {
+      return (
+        <div className="soul-empty-state">
+          <strong>这个世界观暂未绑定灵魂</strong>
+          <p>这里会保留纯工作 prompt 与共同契约。以后在资源库绑定灵魂后，会从这个入口进入对应灵魂。</p>
         </div>
-        <div className="soul-world-index">
-          {worlds.map((world) => {
-            const worldCards = resourceCatalog?.cards.filter((card) => card.world_id === world.world_id) ?? [];
+      );
+    }
+
+    return (
+      <div className="soul-lineage" aria-label="灵魂列表">
+        {seedsForWorld.map((seed) => {
+          const isCustomSoul = seed.source === "user";
+          const isEnabled = seed.enabled !== false;
+          const projectionCount = (projectionCatalog?.cards ?? []).filter((card) => card.soul_id === seed.key || card.soul_name === seed.name).length;
+          const active = selectedSeed?.key === seed.key || seed.active;
+          return (
+            <div className={`soul-lineage__row ${active ? "soul-lineage__row--active" : ""}`} key={seed.key}>
+              <button
+                className="soul-lineage__main"
+                onClick={() => mode === "projection" ? enterProjectionSoul(seed) : chooseSoul(seed)}
+                type="button"
+              >
+                <span>{seed.active ? "正在使用" : isCustomSoul ? "自定义灵魂" : "可选灵魂"}</span>
+                <strong>{displayFileLabel(seed)}</strong>
+                <em>
+                  {mode === "projection"
+                    ? projectionCount ? `${projectionCount} 个投影` : "暂无投影"
+                    : seed.active
+                      ? "当前对话灵魂"
+                      : isCustomSoul
+                        ? (isEnabled ? "已召唤，可激活" : "已停用")
+                        : "可切换为当前灵魂"}
+                </em>
+              </button>
+              {mode === "contract" ? (
+                <div className="soul-lineage__tools">
+                  <button
+                    className={seed.active ? "soul-action soul-action--ghost soul-action--on" : "soul-action soul-action--ghost"}
+                    disabled={saving === seed.path || seed.active || activeSoulKey === seed.key || !isEnabled}
+                    onClick={() => void activateSeed(seed)}
+                    type="button"
+                  >
+                    {seed.active || activeSoulKey === seed.key ? "已激活" : "激活"}
+                  </button>
+                  {isCustomSoul ? (
+                    <>
+                      <button
+                        className="soul-action soul-action--ghost"
+                        disabled={saving === seed.path}
+                        onClick={() => void toggleCustomSoul(seed, !isEnabled)}
+                        type="button"
+                      >
+                        {isEnabled ? "停用" : "启用"}
+                      </button>
+                      <button
+                        className="soul-action soul-action--ghost"
+                        disabled={saving === seed.path || seed.active}
+                        onClick={() => void expelCustomSoul(seed)}
+                        type="button"
+                      >
+                        驱逐
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderCoreIndex() {
+    if (!coreFile) {
+      return (
+        <div className="soul-empty-state">
+          <strong>没有找到共同契约</strong>
+          <p>共同契约文件缺失，暂时无法编辑用户自定义 prompt。</p>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div className="soul-contract-create">
+          <input
+            value={newRuleTitle}
+            onChange={(event) => setNewRuleTitle(event.target.value)}
+            placeholder="新契约标题"
+          />
+          <button className="soul-action soul-action--primary" onClick={addCoreRuleCard} type="button">
+            <Plus size={16} />
+            添加
+          </button>
+        </div>
+        <div className="soul-contract-index" aria-label="共同契约目录">
+          {managedSections.map((section) => (
+            <button
+              className={`soul-contract-item ${section.id === selectedManagedSection?.id ? "soul-contract-item--active" : ""}`}
+              key={section.id}
+              onClick={() => setSelectedManagedSectionId(section.id)}
+              type="button"
+            >
+              <span>契约</span>
+              <strong>{section.title}</strong>
+            </button>
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  function renderManagedSurface() {
+    if (mode === "contract" && !selectedSeed) {
+      return (
+        <div className="soul-empty-state soul-empty-state--large">
+          <strong>当前世界观没有绑定灵魂</strong>
+          <p>这个入口适合纯工作模式。你可以切到共同契约维护用户定制 prompt，或选择洪荒时代进入灵魂名单。</p>
+        </div>
+      );
+    }
+
+    if (!selectedFile) {
+      return (
+        <div className="soul-empty-state soul-empty-state--large">
+          <strong>暂无可编辑内容</strong>
+          <p>先从世界观和灵魂列表中选择一个目标。</p>
+        </div>
+      );
+    }
+
+    const sectionsToRender = mode === "core" && selectedManagedSection ? [selectedManagedSection] : managedSections;
+
+    return (
+      <>
+        <div className="soul-writing-stack">
+          {sectionsToRender.map((section) => (
+            <article className={`soul-writing-block ${isEditing ? "soul-writing-block--editing" : ""}`} key={section.id}>
+              <div className="soul-writing-block__head">
+                {isEditing && mode === "core" ? (
+                  <input
+                    className="soul-title-input"
+                    value={section.title}
+                    onChange={(event) => setDraft(renameManagedSection(draft, mode, section.id, event.target.value))}
+                  />
+                ) : (
+                  <strong>{section.title}</strong>
+                )}
+              </div>
+              {isEditing ? (
+                <textarea
+                  value={section.content}
+                  onChange={(event) => setDraft(updateManagedSection(draft, mode, section.id, event.target.value))}
+                  spellCheck={false}
+                />
+              ) : (
+                <pre>{section.content || "暂无内容。"}</pre>
+              )}
+            </article>
+          ))}
+        </div>
+        <div className="soul-editor-actions">
+          {isEditing ? (
+            <>
+              <button className="soul-action soul-action--primary" disabled={saving === selectedFile.path || !hasUnsavedChanges} onClick={() => void saveSelectedFile()} type="button">
+                <Save size={16} />
+                {saving === selectedFile.path ? "保存中" : hasUnsavedChanges ? "保存修改" : "已保存"}
+              </button>
+              <button className="soul-action soul-action--ghost" disabled={!hasUnsavedChanges || saving === selectedFile.path} onClick={resetDraft} type="button">
+                <RotateCcw size={16} />
+                恢复
+              </button>
+              <button className="soul-action soul-action--ghost" disabled={saving === selectedFile.path} onClick={cancelEditing} type="button">
+                <X size={16} />
+                退出
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="soul-action soul-action--primary" onClick={() => setIsEditing(true)} type="button">
+                <PencilLine size={16} />
+                编辑设定
+              </button>
+              {mode === "core" && selectedManagedSection ? (
+                <button className="soul-action soul-action--danger" onClick={() => deleteCoreRuleCard(selectedManagedSection.id)} type="button">
+                  <X size={16} />
+                  删除契约
+                </button>
+              ) : null}
+            </>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  function renderProjectionSurface() {
+    if (!selectedSeed) {
+      return (
+        <div className="soul-empty-state soul-empty-state--large">
+          <strong>先选择一个灵魂</strong>
+          <p>投影是灵魂在工作时使用的 prompt。选择灵魂后，可以进入它的投影目录。</p>
+        </div>
+      );
+    }
+
+    if (projectionPanelPage === "catalog") {
+      return (
+        <div className="soul-projection-library">
+          <div className="soul-projection-library__head">
+            <div>
+              <span>Projection Library</span>
+              <strong>{selectedSeed.name} 的工作投影</strong>
+            </div>
+            <button className="soul-action soul-action--primary" onClick={() => newProjectionDraft(selectedSeed)} type="button">
+              <Plus size={16} />
+              新建投影
+            </button>
+          </div>
+          <div className="soul-projection-stream">
+            {selectedSeedProjectionCards.map((card) => (
+              <button
+                className={`soul-projection-entry ${card.projection_id === selectedProjectionId && !projectionDraft ? "soul-projection-entry--active" : ""}`}
+                key={card.projection_id}
+                onClick={() => {
+                  setProjectionDraft(null);
+                  setSelectedProjectionId(card.projection_id);
+                  setProjectionPanelPage("editor");
+                }}
+                type="button"
+              >
+                <span>{projectionBadgeLabel(card)}</span>
+                <strong>{card.title}</strong>
+                <em>{projectionSummaryText(card)}</em>
+              </button>
+            ))}
+            {!selectedSeedProjectionCards.length ? (
+              <button className="soul-projection-entry soul-projection-entry--create" onClick={() => newProjectionDraft(selectedSeed)} type="button">
+                <span>空目录</span>
+                <strong>创建第一个投影</strong>
+                <em>为这个灵魂建立实际工作 prompt。</em>
+              </button>
+            ) : null}
+          </div>
+        </div>
+      );
+    }
+
+    if (projectionDraft && projectionDraft.soul_id === selectedSeed.key) {
+      return (
+        <div className="soul-projection-editor">
+          <div className="soul-projection-editor__head">
+            <div>
+              <span>新专属投影</span>
+              <strong>{projectionDraft.projection_name || "未命名投影"}</strong>
+            </div>
+            <small>草稿</small>
+          </div>
+          <div className="soul-projection-editor__toolbar">
+            <button className="soul-action soul-action--ghost" onClick={() => setProjectionPanelPage("catalog")} type="button">
+              <ChevronLeft size={16} />
+              返回目录
+            </button>
+            <button className="soul-action soul-action--primary" disabled={projectionLoading} onClick={() => void saveProjectionDraft()} type="button">
+              {projectionLoading ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
+              保存
+            </button>
+            <button className="soul-action soul-action--ghost" onClick={() => {
+              setProjectionDraft(null);
+              setProjectionDraftNodes([]);
+              setProjectionPanelPage("catalog");
+            }} type="button">
+              <X size={16} />
+              放弃
+            </button>
+          </div>
+          <label className="soul-projection-form">
+            <span>投影名</span>
+            <input
+              value={projectionDraft.projection_name}
+              onChange={(event) => updateProjectionDraft("projection_name", event.target.value)}
+              placeholder={`${projectionDraft.soul_name} / 专属投影`}
+            />
+          </label>
+          <div className="soul-node-stack">
+            {projectionDraftNodes.map((node) => (
+              <article className="soul-node-editor" key={node.id}>
+                <div className="soul-node-editor__head">
+                  <input
+                    value={node.title}
+                    onChange={(event) => updateProjectionDraftNode(node.id, "title", event.target.value)}
+                  />
+                  <div className="soul-inline-tools">
+                    <button className="soul-icon-button" onClick={() => insertProjectionDraftNodeAfter(node.id)} type="button" aria-label="添加段落">
+                      <Plus size={16} />
+                    </button>
+                    <button className="soul-icon-button" disabled={projectionDraftNodes.length <= 1} onClick={() => deleteProjectionDraftNode(node.id)} type="button" aria-label="删除段落">
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  value={node.content}
+                  onChange={(event) => updateProjectionDraftNode(node.id, "content", event.target.value)}
+                  placeholder={node.type === "identity_anchor" ? "写清楚这个 Agent 的身份设定、职责边界、必须遵守的规则和禁止事项。" : ""}
+                  rows={6}
+                />
+              </article>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (selectedProjectionCard && selectedSeedProjectionCards.some((card) => card.projection_id === selectedProjectionCard.projection_id)) {
+      const editor = projectionEditorForCard(selectedProjectionCard);
+      const nodes = projectionNodesForCard(selectedProjectionCard);
+      return (
+        <div className="soul-projection-editor" key={selectedProjectionCard.projection_id}>
+          <div className="soul-projection-editor__head">
+            <div>
+              <span>{projectionBadgeLabel(selectedProjectionCard)}</span>
+              <strong>{selectedProjectionCard.title}</strong>
+            </div>
+            <small>{selectedProjectionCard.is_primary ? "原始投影" : "已保存"}</small>
+          </div>
+          <div className="soul-projection-editor__toolbar">
+            <button className="soul-action soul-action--ghost" onClick={() => setProjectionPanelPage("catalog")} type="button">
+              <ChevronLeft size={16} />
+              返回目录
+            </button>
+            <button className="soul-action soul-action--primary" disabled={projectionLoading} onClick={() => void saveExistingProjectionCard(selectedProjectionCard)} type="button">
+              {projectionLoading ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
+              保存
+            </button>
+            <button className="soul-action soul-action--ghost" onClick={() => resetProjectionEditor(selectedProjectionCard)} type="button">
+              <RotateCcw size={16} />
+              恢复
+            </button>
+            {!selectedProjectionCard.is_primary ? (
+              <button className="soul-action soul-action--danger" disabled={projectionLoading} onClick={() => void deleteProjectionCard(selectedProjectionCard)} type="button">
+                <X size={16} />
+                删除
+              </button>
+            ) : null}
+          </div>
+          <label className="soul-projection-form">
+            <span>投影名</span>
+            <input
+              value={editor.projection_name}
+              onChange={(event) => updateProjectionEditor(selectedProjectionCard, "projection_name", event.target.value)}
+              placeholder={`${editor.soul_name} / 投影`}
+            />
+          </label>
+          <div className="soul-node-stack">
+            {nodes.map((node) => (
+              <article className="soul-node-editor" key={node.id}>
+                <div className="soul-node-editor__head">
+                  <input
+                    value={node.title}
+                    onChange={(event) => updateProjectionCardNode(selectedProjectionCard, node.id, "title", event.target.value)}
+                  />
+                  <div className="soul-inline-tools">
+                    <button className="soul-icon-button" onClick={() => insertProjectionCardNodeAfter(selectedProjectionCard, node.id)} type="button" aria-label="添加段落">
+                      <Plus size={16} />
+                    </button>
+                    <button className="soul-icon-button" disabled={nodes.length <= 1} onClick={() => deleteProjectionCardNode(selectedProjectionCard, node.id)} type="button" aria-label="删除段落">
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  value={node.content}
+                  onChange={(event) => updateProjectionCardNode(selectedProjectionCard, node.id, "content", event.target.value)}
+                  rows={6}
+                />
+              </article>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="soul-empty-state soul-empty-state--large">
+        <strong>当前没有可编辑的投影</strong>
+        <p>返回投影目录选择一个投影，或新建一个工作投影。</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`workspace-view soul-studio ${isHonghuangWorld ? "soul-studio--honghuang" : "soul-studio--plain"}`}>
+      <div className="soul-studio__ambient" aria-hidden="true" />
+      <div className="soul-studio__alerts">
+        {loading ? (
+          <div className="soul-notice">
+            <Loader2 size={16} className="spin" />
+            正在加载灵魂系统...
+          </div>
+        ) : null}
+        {error ? <div className="soul-notice soul-notice--danger">{error}</div> : null}
+        {notice ? <div className="soul-notice">{notice}</div> : null}
+      </div>
+
+      <section className="soul-studio__worldfield" aria-label="世界观选择">
+        <div className="soul-worldfield__intro">
+          <span>Soul Studio</span>
+          <h2>世界观先打开，灵魂再降临</h2>
+          <p>第一层决定故事背景，第二层决定灵魂本体，第三层才进入实际工作 prompt。纯工作场不会注入额外身份。</p>
+        </div>
+        <div className="soul-worldfield__path">
+          {worlds.map((world, index) => {
             const active = selectedWorld?.world_id === world.world_id;
+            const worldCards = resourceCatalog?.cards.filter((card) => card.world_id === world.world_id) ?? [];
+            const honghuang = String(world.metadata?.theme ?? "") === "honghuang";
             return (
               <button
                 aria-pressed={active}
-                className={`soul-world-row ${active ? "soul-world-row--active" : ""} ${String(world.metadata?.theme ?? "") === "honghuang" ? "soul-world-row--honghuang" : ""}`}
+                className={`soul-world-node ${active ? "soul-world-node--active" : ""} ${honghuang ? "soul-world-node--honghuang" : ""}`}
                 key={world.world_id}
                 onClick={() => selectWorld(world.world_id)}
                 type="button"
               >
-                <span>{world.world_id}</span>
+                <span>{String(index + 1).padStart(2, "0")}</span>
                 <strong>{world.title}</strong>
-                <em>{world.summary || "暂无摘要"}</em>
-                <small>{worldCards.length ? `${worldCards.length} 个灵魂` : "无背景 / 工作组合"}</small>
+                <em>{world.summary || "无额外世界观注入"}</em>
+                <small>{worldCards.length ? `${worldCards.length} 个灵魂` : "纯工作场"}</small>
               </button>
             );
           })}
+          {!worlds.length ? (
+            <div className="soul-empty-state">
+              <strong>世界观库为空</strong>
+              <p>灵魂系统需要先加载世界观目录。</p>
+            </div>
+          ) : null}
         </div>
       </section>
 
-      {isHonghuangWorld ? (
-        <section className="soul-origin-banner">
-          <span>洪荒世界观组合</span>
-          <p>{SHARED_SOUL_LORE}</p>
-        </section>
-      ) : null}
-
-      <section className="soul-system-hero" aria-label="当前世界观与灵魂">
-        <div className="soul-lore-panel">
+      <section className="soul-studio__stage" aria-label="当前世界与灵魂舞台">
+        <div className="soul-stage__script">
           <span>{selectedWorld?.title ?? "未选择世界观"}</span>
-          <strong>{isHonghuangWorld ? selectedLore?.title ?? "古老灵魂的降临" : "无背景工作组合"}</strong>
-          <p>
-            {isHonghuangWorld
-              ? selectedLore?.summary ?? "选择一个灵魂后，这里会显示它的背景设定与协作气质。"
-              : selectedWorld?.content || "这个世界观不注入额外故事背景，适合纯工作 prompt 和低角色感任务。"}
-          </p>
+          <h2>{isHonghuangWorld ? selectedSeedLabel : "纯工作模式"}</h2>
+          <strong>{stageTitle}</strong>
+          <p>{stageSummary}</p>
+          {isHonghuangWorld ? (
+            <blockquote>{SHARED_SOUL_LORE}</blockquote>
+          ) : (
+            <div className="soul-stage__plain-note">
+              <Layers3 size={18} />
+              不加载故事背景与灵魂身份，只保留工作 prompt、共同契约和必要上下文。
+            </div>
+          )}
+          <div className="soul-stage__signals" aria-label="当前层级">
+            <span><small>世界层</small><b>{selectedWorld?.title ?? "未选择"}</b></span>
+            <span><small>灵魂层</small><b>{selectedSeed?.name ?? "无绑定"}</b></span>
+            <span><small>工作层</small><b>{selectedLayerLabel}</b></span>
+          </div>
         </div>
-        <div className="soul-portrait-manager">
-          <div className="soul-portrait-manager__stage">
+        <div className="soul-stage__visual">
+          <div className="soul-stage__aurora" aria-hidden="true" />
+          <div className="soul-stage__portrait">
             {isHonghuangWorld && portraitSrc ? (
               <Image
                 alt={`${selectedSeed?.name ?? "灵魂"}立绘`}
@@ -1076,476 +1492,91 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
                 width={1086}
               />
             ) : (
-              <div className="soul-plain-world-placeholder">
-                <Layers3 size={30} />
+              <div className="soul-stage__empty-visual">
+                <Layers3 size={32} />
                 <strong>{selectedWorld?.title ?? "世界观"}</strong>
-                <span>无立绘背景，保留工作 prompt 与共同契约。</span>
+                <span>无背景，无灵魂，专注工作。</span>
               </div>
             )}
           </div>
-          {isHonghuangWorld ? (
-          <div className="soul-portrait-manager__body">
-            <strong>{selectedSeed?.name ?? catalog?.active_soul_name ?? "未知灵魂"}</strong>
-            <button
-              className="action-button action-button--primary"
-              disabled={!selectedSeed || uploadingPortrait === selectedSeed?.key}
-              onClick={() => portraitInputRef.current?.click()}
-              type="button"
-            >
-              <ImageUp size={16} />
-              {uploadingPortrait === selectedSeed?.key ? "上传中" : "替换立绘"}
-            </button>
-            <input
-              accept="image/png"
-              hidden
-              onChange={(event) => void handlePortraitUpload(event.target.files?.[0] ?? null)}
-              ref={portraitInputRef}
-              type="file"
-            />
+          <div className="soul-stage__caption">
+            <span>{selectedSeed ? visibilityLabel(selectedSeed) : "工作场"}</span>
+            <strong>{selectedSeed?.name ?? "无绑定灵魂"}</strong>
+            {isHonghuangWorld ? (
+              <>
+                <button
+                  className="soul-action soul-action--primary"
+                  disabled={!selectedSeed || uploadingPortrait === selectedSeed?.key}
+                  onClick={() => portraitInputRef.current?.click()}
+                  type="button"
+                >
+                  <ImageUp size={16} />
+                  {uploadingPortrait === selectedSeed?.key ? "上传中" : "替换立绘"}
+                </button>
+                <input
+                  accept="image/png"
+                  hidden
+                  onChange={(event) => void handlePortraitUpload(event.target.files?.[0] ?? null)}
+                  ref={portraitInputRef}
+                  type="file"
+                />
+              </>
+            ) : null}
           </div>
-          ) : null}
         </div>
       </section>
 
-      <nav className="soul-mode-switcher" aria-label="灵魂系统管理模式">
-        {SOUL_MODES.map((item) => (
-          <button
-            className={`soul-mode-tab ${mode === item.id ? "soul-mode-tab--active" : ""}`}
-            key={item.id}
-            onClick={() => handleModeSwitch(item.id)}
-            type="button"
-          >
-            <strong>{item.label}</strong>
-            <em>{item.description}</em>
-          </button>
-        ))}
-      </nav>
-
-      <div className="soul-system-grid">
-        <section className="workspace-section soul-file-rail">
-          <div className="workspace-section__head">
-            <Sparkles size={18} />
-            <h3>{mode === "contract" ? "灵魂设定" : mode === "projection" ? "投影资源" : "共同契约"}</h3>
+      <section className="soul-studio__workbench" aria-label="灵魂工作层">
+        <div className="soul-workbench__header">
+          <div>
+            <span>Work Projection</span>
+            <h3>{activeMode.label}</h3>
+            <p>{activeMode.description}</p>
           </div>
+          <nav className="soul-mode-ribbon" aria-label="灵魂系统模式">
+            {SOUL_MODES.map((item) => (
+              <button
+                className={`soul-mode-choice ${mode === item.id ? "soul-mode-choice--active" : ""}`}
+                key={item.id}
+                onClick={() => handleModeSwitch(item.id)}
+                type="button"
+              >
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
 
-          {mode === "projection" ? (
-            <>
-              <div className="soul-projection-group">
-                <span>灵魂</span>
-                <div className="soul-seed-grid soul-seed-grid--compact">
-                  {seedsForWorld.map((seed) => {
-                    const count = (projectionCatalog?.cards ?? []).filter((card) => card.soul_id === seed.key || card.soul_name === seed.name).length;
-                    return (
-                      <article
-                        className={`soul-seed-row ${selectedSeed?.key === seed.key ? "soul-seed-row--active" : ""}`}
-                        key={seed.key}
-                      >
-                        <button className="soul-seed-card__main" onClick={() => enterProjectionSoul(seed)} type="button">
-                          <span>{seed.active ? "正在使用" : "可选灵魂"}</span>
-                          <strong>{displayFileLabel(seed)}</strong>
-                          <em>{count ? `${count} 个投影` : "暂无投影"}</em>
-                        </button>
-                      </article>
-                    );
-                  })}
-                  {!seedsForWorld.length ? (
-                    <div className="soul-empty-world">
-                      <strong>这个世界观暂未绑定灵魂</strong>
-                      <p>投影会跟随灵魂出现。当前世界观适合维护纯工作 prompt 和共同契约。</p>
-                    </div>
-                  ) : null}
-                </div>
+        <div className="soul-workbench__body">
+          <aside className="soul-workbench__rail" aria-label="当前层级目录">
+            <div className="soul-rail-head">
+              <Sparkles size={18} />
+              <div>
+                <span>{mode === "core" ? "Shared Contract" : mode === "projection" ? "Soul Projection" : "Soul Body"}</span>
+                <strong>{mode === "core" ? "共同契约目录" : mode === "projection" ? "选择投影所属灵魂" : "选择灵魂本体"}</strong>
               </div>
-            </>
-          ) : null}
-
-          {mode === "contract" ? (
-            <div className="soul-seed-grid">
-              {seedsForWorld.map((seed) => {
-                const isCustomSoul = seed.source === "user";
-                const isEnabled = seed.enabled !== false;
-                return (
-                  <article
-                    className={`soul-seed-row ${seed.active ? "soul-seed-row--active" : ""}`}
-                    key={seed.key}
-                  >
-                    <button onClick={() => chooseSoul(seed)} type="button">
-                      <span>{seed.active ? "正在使用" : isCustomSoul ? "自定义灵魂" : "可选"}</span>
-                      <strong>{displayFileLabel(seed)}</strong>
-                      <em>
-                        {seed.active
-                          ? "当前对话灵魂"
-                          : isCustomSoul
-                            ? (isEnabled ? "已召唤，可激活" : "已停用")
-                            : "可切换为当前灵魂"}
-                      </em>
-                    </button>
-                    <div className="soul-seed-card__actions">
-                      <button
-                        className={seed.active ? "agent-switch agent-switch--on" : "agent-switch"}
-                        disabled={saving === seed.path || seed.active || activeSoulKey === seed.key || !isEnabled}
-                        onClick={() => void activateSeed(seed)}
-                        type="button"
-                      >
-                        {seed.active || activeSoulKey === seed.key ? "已激活" : "激活"}
-                      </button>
-                      {isCustomSoul ? (
-                        <>
-                          <button
-                            className="action-button"
-                            disabled={saving === seed.path}
-                            onClick={() => void toggleCustomSoul(seed, !isEnabled)}
-                            type="button"
-                          >
-                            {isEnabled ? "停用" : "启用"}
-                          </button>
-                          <button
-                            className="action-button"
-                            disabled={saving === seed.path || seed.active}
-                            onClick={() => void expelCustomSoul(seed)}
-                            type="button"
-                          >
-                            驱逐灵魂
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-                  </article>
-                );
-              })}
-              {!seedsForWorld.length ? (
-                <div className="soul-empty-world">
-                  <strong>这个世界观暂未绑定灵魂</strong>
-                  <p>可以先维护工作 prompt 和共同契约；以后在资源库里把灵魂绑定到这个世界观。</p>
-                </div>
-              ) : null}
             </div>
-          ) : null}
+            {mode === "core" ? renderCoreIndex() : renderSoulRoster()}
+          </aside>
 
-          {mode === "core" && coreFile ? (
-            <>
-              <div className="soul-rule-create">
-                <input
-                  value={newRuleTitle}
-                  onChange={(event) => setNewRuleTitle(event.target.value)}
-                  placeholder="新契约卡标题"
-                />
-                <button className="action-button action-button--primary" onClick={addCoreRuleCard} type="button">
-                  <Sparkles size={16} />
-                  添加
-                </button>
+          <main className="soul-workbench__editor" aria-label="当前编辑区">
+            <div className="soul-editor-head">
+              <div className="soul-editor-head__icon">
+                {mode === "projection" ? <Boxes size={19} /> : <FilePenLine size={19} />}
               </div>
-              <div className="soul-section-nav">
-                {managedSections.map((section) => (
-                  <div className={section.id === selectedManagedSection?.id ? "soul-section-nav__row soul-section-nav__row--active" : "soul-section-nav__row"} key={section.id}>
-                    <button
-                      className="soul-section-nav__item"
-                      onClick={() => setSelectedManagedSectionId(section.id)}
-                      type="button"
-                    >
-                      <strong>{section.title}</strong>
-                    </button>
-                  </div>
-                ))}
+              <div>
+                <span>{mode === "projection" ? "投影管理" : isEditing ? "正在编辑" : "设定阅读"}</span>
+                <strong>
+                  {mode === "projection"
+                    ? `${selectedSeed?.name ?? "当前灵魂"}的工作投影`
+                    : displayFileLabel(selectedFile)}
+                </strong>
               </div>
-            </>
-          ) : null}
-
-        </section>
-
-        <section className="workspace-section soul-editor-panel">
-          <div className="workspace-section__head">
-            {mode === "projection" ? <Boxes size={18} /> : <FilePenLine size={18} />}
-            <h3>
-              {mode === "projection"
-                ? `${selectedSeed?.name ?? "当前灵魂"}的投影管理`
-                : isEditing ? "编辑设定" : "设定内容"}
-            </h3>
-          </div>
-          {mode === "projection" ? (
-            <div className="soul-projection-panel">
-              {selectedSeed ? (
-                projectionPanelPage === "catalog" ? (
-                  <div className="soul-projection-editor-list">
-                    <div className="soul-projection-rail-head">
-                      <div>
-                        <span>投影目录</span>
-                        <strong>{selectedSeed.name} 的投影目录</strong>
-                      </div>
-                    </div>
-
-                    <div className="soul-projection-card-list soul-projection-card-list--board">
-                      {selectedSeedProjectionCards.map((card) => (
-                        <button
-                          className={`soul-projection-card ${card.projection_id === selectedProjectionId && !projectionDraft ? "soul-projection-card--selected" : ""}`}
-                          key={card.projection_id}
-                          onClick={() => {
-                            setProjectionDraft(null);
-                            setSelectedProjectionId(card.projection_id);
-                            setProjectionPanelPage("editor");
-                          }}
-                          type="button"
-                        >
-                          <span>{projectionBadgeLabel(card)}</span>
-                          <strong>{card.title}</strong>
-                          <em>{projectionSummaryText(card)}</em>
-                        </button>
-                      ))}
-                      <button
-                        className={`soul-projection-card soul-projection-card--create ${projectionDraft?.isNew && projectionDraft.soul_id === selectedSeed.key ? "soul-projection-card--selected" : ""}`}
-                        onClick={() => newProjectionDraft(selectedSeed)}
-                        type="button"
-                      >
-                        <span>新建投影</span>
-                        <strong><Plus size={16} /> 新建</strong>
-                      </button>
-                    </div>
-
-                  </div>
-                ) : projectionDraft && projectionDraft.soul_id === selectedSeed.key ? (
-                    <div className="soul-projection-editor-card soul-projection-editor-card--draft">
-                      <div className="soul-projection-editor-card__head">
-                        <div>
-                          <span>新专属投影</span>
-                          <strong>{projectionDraft.projection_name || "未命名投影"}</strong>
-                        </div>
-                        <small>草稿</small>
-                      </div>
-
-                      <div className="soul-projection-pageback soul-projection-pageback--toolbar">
-                        <button className="action-button" onClick={() => setProjectionPanelPage("catalog")} type="button">
-                          <ChevronLeft size={16} />
-                          返回投影目录
-                        </button>
-                        <button className="action-button action-button--primary" disabled={projectionLoading} onClick={() => void saveProjectionDraft()} type="button">
-                          {projectionLoading ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
-                          保存
-                        </button>
-                        <button className="action-button" onClick={() => {
-                          setProjectionDraft(null);
-                          setProjectionDraftNodes([]);
-                          setProjectionPanelPage("catalog");
-                        }} type="button">
-                          <X size={16} />
-                          删除
-                        </button>
-                      </div>
-
-                      <div className="soul-projection-form-grid">
-                        <label>
-                          <small>投影名</small>
-                          <input
-                            value={projectionDraft.projection_name}
-                            onChange={(event) => updateProjectionDraft("projection_name", event.target.value)}
-                            placeholder={`${projectionDraft.soul_name} / 专属投影`}
-                          />
-                        </label>
-                      </div>
-
-                      <div className="soul-managed-sections">
-                        {projectionDraftNodes.map((node) => (
-                          <article className="soul-managed-section soul-managed-section--editing" key={node.id}>
-                            <div className="soul-managed-section__head">
-                              <div>
-                                <input
-                                  className="soul-managed-section__title-input"
-                                  value={node.title}
-                                  onChange={(event) => updateProjectionDraftNode(node.id, "title", event.target.value)}
-                                />
-                              </div>
-                              <div className="soul-section-inline-actions">
-                                <button className="action-button" onClick={() => insertProjectionDraftNodeAfter(node.id)} type="button">
-                                  <Plus size={16} />
-                                </button>
-                                <button className="action-button" disabled={projectionDraftNodes.length <= 1} onClick={() => deleteProjectionDraftNode(node.id)} type="button">
-                                  <X size={16} />
-                                </button>
-                              </div>
-                            </div>
-                            <textarea
-                              value={node.content}
-                              onChange={(event) => updateProjectionDraftNode(node.id, "content", event.target.value)}
-                              placeholder={node.type === "identity_anchor" ? "在这里写这个 Agent 的身份设定、职责边界、必须遵守的规则和禁止事项。" : ""}
-                              rows={6}
-                            />
-                          </article>
-                        ))}
-                      </div>
-
-                    </div>
-                ) : selectedProjectionCard && selectedSeedProjectionCards.some((card) => card.projection_id === selectedProjectionCard.projection_id) ? (() => {
-                    const editor = projectionEditorForCard(selectedProjectionCard);
-                    const nodes = projectionNodesForCard(selectedProjectionCard);
-                    return (
-                      <div className="soul-projection-editor-card" key={selectedProjectionCard.projection_id}>
-                      <div className="soul-projection-editor-card__head">
-                          <div>
-                            <span>{projectionBadgeLabel(selectedProjectionCard)}</span>
-                            <strong>{selectedProjectionCard.title}</strong>
-                          </div>
-                          <small>{selectedProjectionCard.is_primary ? "原始投影" : "已保存"}</small>
-                        </div>
-
-                        <div className="soul-projection-pageback soul-projection-pageback--toolbar">
-                          <button className="action-button" onClick={() => setProjectionPanelPage("catalog")} type="button">
-                            <ChevronLeft size={16} />
-                            返回投影目录
-                          </button>
-                          <button className="action-button action-button--primary" disabled={projectionLoading} onClick={() => void saveExistingProjectionCard(selectedProjectionCard)} type="button">
-                            {projectionLoading ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
-                            保存
-                          </button>
-                          <button className="action-button" onClick={() => resetProjectionEditor(selectedProjectionCard)} type="button">
-                            <RotateCcw size={16} />
-                            恢复
-                          </button>
-                          {!selectedProjectionCard.is_primary ? (
-                            <button
-                              className="action-button"
-                              disabled={projectionLoading}
-                              onClick={() => void deleteProjectionCard(selectedProjectionCard)}
-                              type="button"
-                            >
-                              <X size={16} />
-                              删除
-                            </button>
-                          ) : null}
-                        </div>
-
-                        <div className="soul-projection-form-grid">
-                            <label>
-                              <small>投影名</small>
-                              <input
-                                value={editor.projection_name}
-                                onChange={(event) => updateProjectionEditor(selectedProjectionCard, "projection_name", event.target.value)}
-                                placeholder={`${editor.soul_name} / 投影`}
-                            />
-                          </label>
-                        </div>
-
-                        <div className="soul-managed-sections">
-                          {nodes.map((node) => (
-                            <article className="soul-managed-section soul-managed-section--editing" key={node.id}>
-                              <div className="soul-managed-section__head">
-                                <div>
-                                  <input
-                                    className="soul-managed-section__title-input"
-                                    value={node.title}
-                                    onChange={(event) => updateProjectionCardNode(selectedProjectionCard, node.id, "title", event.target.value)}
-                                  />
-                                </div>
-                                <div className="soul-section-inline-actions">
-                                  <button className="action-button" onClick={() => insertProjectionCardNodeAfter(selectedProjectionCard, node.id)} type="button">
-                                    <Plus size={16} />
-                                  </button>
-                                  <button className="action-button" disabled={nodes.length <= 1} onClick={() => deleteProjectionCardNode(selectedProjectionCard, node.id)} type="button">
-                                    <X size={16} />
-                                  </button>
-                                </div>
-                              </div>
-                              <textarea
-                                value={node.content}
-                                onChange={(event) => updateProjectionCardNode(selectedProjectionCard, node.id, "content", event.target.value)}
-                                rows={6}
-                              />
-                            </article>
-                          ))}
-                        </div>
-
-                      </div>
-                    );
-                })() : (
-                    <div className="soul-reader">
-                      <pre>当前没有可编辑的投影，请先返回投影目录选择或新建。</pre>
-                    </div>
-                )
-              ) : (
-                <div className="soul-reader">
-                  <pre>先在左侧选择一个灵魂，再进入它的投影列表。</pre>
-                </div>
-              )}
             </div>
-          ) : mode === "contract" && !selectedSeed ? (
-            <div className="soul-empty-world soul-empty-world--editor">
-              <strong>当前世界观没有绑定灵魂</strong>
-              <p>这个入口适合后续放无背景工作 prompt。现在可以切到“共同契约”维护用户自定义契约，或选择洪荒时代进入灵魂名单。</p>
-            </div>
-          ) : selectedFile ? (
-            <>
-              {isEditing ? (
-                <div className="soul-managed-sections">
-                  {(mode === "core" && selectedManagedSection ? [selectedManagedSection] : managedSections).map((section) => (
-                    <article className="soul-managed-section soul-managed-section--editing" key={section.id}>
-                      <div className="soul-managed-section__head">
-                        <div>
-                          {mode === "core" ? (
-                            <input
-                              className="soul-managed-section__title-input"
-                              value={section.title}
-                              onChange={(event) => setDraft(renameManagedSection(draft, mode, section.id, event.target.value))}
-                            />
-                          ) : (
-                            <strong>{section.title}</strong>
-                          )}
-                        </div>
-                      </div>
-                      <textarea
-                        value={section.content}
-                        onChange={(event) => setDraft(updateManagedSection(draft, mode, section.id, event.target.value))}
-                        spellCheck={false}
-                      />
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="soul-managed-sections">
-                  {(mode === "core" && selectedManagedSection ? [selectedManagedSection] : managedSections).map((section) => (
-                    <article className="soul-managed-section" key={section.id}>
-                      <div>
-                        <strong>{section.title}</strong>
-                      </div>
-                      <pre>{section.content || "暂无内容。"}</pre>
-                    </article>
-                  ))}
-                </div>
-              )}
-              <div className="soul-editor-actions">
-                {isEditing ? (
-                  <>
-                    <button className="action-button action-button--primary" disabled={saving === selectedFile.path || !hasUnsavedChanges} onClick={() => void saveSelectedFile()} type="button">
-                      <Save size={16} />
-                      {saving === selectedFile.path ? "保存中" : hasUnsavedChanges ? "保存修改" : "已保存"}
-                    </button>
-                    <button className="action-button" disabled={!hasUnsavedChanges || saving === selectedFile.path} onClick={resetDraft} type="button">
-                      <RotateCcw size={16} />
-                      恢复上次保存
-                    </button>
-                    <button className="action-button action-button--muted" disabled={saving === selectedFile.path} onClick={cancelEditing} type="button">
-                      <X size={16} />
-                      退出编辑
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button className="action-button action-button--primary" onClick={() => setIsEditing(true)} type="button">
-                      <PencilLine size={16} />
-                      编辑设定
-                    </button>
-                    {mode === "core" && selectedManagedSection ? (
-                      <button className="action-button action-button--primary" onClick={() => deleteCoreRuleCard(selectedManagedSection.id)} type="button">
-                        <X size={16} />
-                        删除契约卡
-                      </button>
-                    ) : null}
-                  </>
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="workspace-copy">暂无可编辑内容。</p>
-          )}
-        </section>
-      </div>
+            {mode === "projection" ? renderProjectionSurface() : renderManagedSurface()}
+          </main>
+        </div>
+      </section>
     </div>
   );
 }

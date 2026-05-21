@@ -9,7 +9,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from orchestration.agent_registry import AgentRegistry
+from agent_system.registry.agent_registry import AgentRegistry
 from soul import SoulFacade
 from soul.registry import (
     ACTIVE_SEED_PATH,

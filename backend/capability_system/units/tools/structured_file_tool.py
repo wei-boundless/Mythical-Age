@@ -11,7 +11,7 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, Cal
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from capability_system.units.tools.workspace_paths import resolve_workspace_path
+from capability_system.workspace_file_service import WorkspaceFileService
 
 
 class ReadStructuredFileInput(BaseModel):
@@ -23,18 +23,15 @@ class ReadStructuredFileTool(BaseTool):
     description: str = "Parse a known JSON, YAML, or TOML config file and return a compact structural summary."
     args_schema: Type[BaseModel] = ReadStructuredFileInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    _root_dir: Path = PrivateAttr()
+    _files: WorkspaceFileService = PrivateAttr()
 
     def __init__(self, root_dir: Path, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._root_dir = root_dir.resolve()
-
-    def _resolve_path(self, path: str) -> Path:
-        return resolve_workspace_path(self._root_dir, path)
+        self._files = WorkspaceFileService(root_dir)
 
     def _run(self, path: str, run_manager: CallbackManagerForToolRun | None = None) -> str:
         try:
-            file_path = self._resolve_path(path)
+            file_path = self._files.resolve(path, require_path=True)
         except ValueError as exc:
             return f"Structured read failed: {exc}"
         if not file_path.exists():

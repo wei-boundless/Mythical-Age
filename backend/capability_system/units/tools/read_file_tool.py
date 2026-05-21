@@ -8,17 +8,7 @@ from langchain_core.callbacks.manager import AsyncCallbackManagerForToolRun, Cal
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from capability_system.units.tools.workspace_paths import resolve_workspace_path
-
-
-def _read_text_with_fallback(file_path: Path) -> str:
-    encodings = ("utf-8", "utf-8-sig", "gb18030", "gbk")
-    for encoding in encodings:
-        try:
-            return file_path.read_text(encoding=encoding)
-        except UnicodeDecodeError:
-            continue
-    return file_path.read_text(encoding="utf-8", errors="ignore")
+from capability_system.workspace_file_service import WorkspaceFileService
 
 
 class ReadFileInput(BaseModel):
@@ -30,14 +20,11 @@ class ReadFileTool(BaseTool):
     description: str = "Read a local file under the project/workspace root. Use search_files first if the exact path is uncertain."
     args_schema: Type[BaseModel] = ReadFileInput
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    _root_dir: Path = PrivateAttr()
+    _files: WorkspaceFileService = PrivateAttr()
 
     def __init__(self, root_dir: Path, **kwargs) -> None:
         super().__init__(**kwargs)
-        self._root_dir = root_dir.resolve()
-
-    def _resolve_path(self, path: str) -> Path:
-        return resolve_workspace_path(self._root_dir, path)
+        self._files = WorkspaceFileService(root_dir)
 
     def _run(
         self,
@@ -45,14 +32,14 @@ class ReadFileTool(BaseTool):
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
         try:
-            file_path = self._resolve_path(path)
+            file_path = self._files.resolve(path, require_path=True)
         except ValueError as exc:
             return f"Read failed: {exc}"
         if not file_path.exists():
             return "Read failed: file does not exist."
         if file_path.is_dir():
             return "Read failed: path is a directory."
-        return _read_text_with_fallback(file_path)[:10000]
+        return self._files.read_text(file_path, limit=10000)
 
     async def _arun(
         self,

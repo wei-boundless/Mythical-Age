@@ -19,8 +19,8 @@ from bootstrap.settings import AppSettingsService
 from runtime.tool_runtime.tool_call_policy import ToolCallBindingOptions
 
 if TYPE_CHECKING:
-    from agents.models import AgentDefinition
-    from orchestration.model_profile_models import ResolvedModelSpec
+    from agent_system.a2a.models import AgentDefinition
+    from agent_system.models.model_profile_models import ResolvedModelSpec
 
 logger = logging.getLogger(__name__)
 

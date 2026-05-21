@@ -1,0 +1,24 @@
+{
+  "ref": "rtobj:task_graph_initial_inputs:session_writing-smoke-20260521_task_writing_modular_novel_smoke_design_init_graph_writing_modular_novel_design_init",
+  "kind": "task_graph_initial_inputs",
+  "object_id": "session:writing-smoke-20260521:task.writing.modular_novel.smoke.design_init:graph.writing.modular_novel.design_init",
+  "payload": {
+    "session_id": "session:writing-smoke-20260521",
+    "task_id": "task.writing.modular_novel.smoke.design_init",
+    "graph_id": "graph.writing.modular_novel.design_init",
+    "initial_inputs": {
+      "project_id": "writing_smoke_20260521",
+      "project_title": "写作流程试跑",
+      "user_goal": "验证模块化写作任务图的协议装配、记忆边界、审核提交链路与首节点执行请求。",
+      "delivery_requirements": "本次只做初始化试跑，不执行真实长篇生成。",
+      "target_volumes": 1,
+      "chapters_per_volume": 2,
+      "chapters_per_round": 1,
+      "target_words": 4000,
+      "metric_label": "words",
+      "target_metric_total": 4000
+    }
+  },
+  "updated_at": 1779305962.5670395,
+  "authority": "orchestration.runtime_object_store"
+}

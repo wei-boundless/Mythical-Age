@@ -1,0 +1,66 @@
+{
+  "task_id": "task:memory_maintenance_after_commit:c3df4104899a444c8e69f4ee92fbcab3",
+  "task_kind": "memory_maintenance_after_commit",
+  "status": "succeeded",
+  "payload": {
+    "session_id": "7ba164d8edcb47ed94db27a759303c53",
+    "messages": [
+      {
+        "role": "user",
+        "content": "请用专业模式分析 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json，把失败归类，找出结构性根因，并给出应该补的回归测试。不要只复述表面失败项。"
+      },
+      {
+        "role": "assistant",
+        "content": "证据已完整读取。现在按语义契约推进：extract_failures → classify → infer root causes → map regression tests → synthesize。\n\n---\n\n## 最终回答：60-Turn 专业任务失败分析\n\n### 一、失败归类\n\n| 失败 Turn | 检查项 | 表面症状 | 归类系统层 |\n|-----------|--------|----------|------------|\n| 17 | `response.nonempty` | 工具观察后回答被截断，最终内容字符数为 0 | context / output boundary |\n| 18 | `runtime.timeout` | memory maintenance 阻塞前台响应，耗时 1800s | runtime checkpoint |\n| 31 | `main.active_dataset.nonempty` | 委派表格结果未写入 active_dataset，main_context 为空 | artifact / writeback |\n| 42 | `trace.artifact.contains` | write_file 请求了但 artifact ref 未提交 | artifact / writeback |\n\n四个失败项分布在三个系统层：context/output boundary、runtime checkpoint、artifact/writeback。\n\n---\n\n### 二、结构性根因\n\n这四个失败不是孤立事件，它们共享两条结构性根因链。\n\n根因 A：工具观察后的上下文收束机制缺失\n\nTurn 17 和 Turn 31 都指向同一个问题——Agent 在收到工具结果后，没有可靠地把结果沉淀为可继续使用的上下文。\n\n- Turn 17：工具结果收到了（`tool_result_received`），但最终回答内容为空。这说明 Agent 在工具返回后进入了某种\"等待/中断\"状态，没有完成\"观察→判断→输出\"的闭环。这不是单次截断，而是工具观察后的上下文收束逻辑没有兜底。\n- Turn 31：委派子 Agent 返回了表格结果，但 `active_dataset` 没有被写入，`main_context` 为空。这说明委派回传的 writeback 链路断了——子 Agent 的结果没有被主 Agent 正确吸收并写入上下文槽位。\n\n两条失败共享同一个结构缺陷：工具/委派回传 → 上下文沉淀 这一步没有强制保证。系统依赖 Agent 自己记得写入，但没有在协议层做校验或兜底。\n\n根因 B：后台维护任务与前台响应之间没有资源隔离\n\nTurn 18 的 1800 秒超时直接暴露了这个问题。memory maintenance 被触发后，占用了全部执行资源，前台响应被完全阻塞。这说明 memory maintenance 没有被设计为异步或可抢占的后台任务，而是和用户响应共享同一个执行通道。\n\nTurn 42 也与此相关：`write_file` 需要审批（`tool_requires_approval=true`），但 artifact ref 没有提交。这可能是审批流程在长任务中出现了状态丢失，而系统没有对\"已请求但未提交\"的 artifact 做超时检测或补偿。\n\n---\n\n### 三、应该补充的回归测试\n\n按根因链组织，不是按表面失败项组织。\n\n针对根因 A（工具回传→上下文沉淀）：\n\n1. 工具观察后非空响应回归测试：在任意工具调用返回后，验证 Agent 在下一轮必须产出非空响应。覆盖场景：单工具返回、多工具并行返回、工具返回空结果、工具返回超大结果（>100KB）。当前只有 Turn 17 一个点暴露了这个问题，需要系统化覆盖。\n\n2. 委派 writeback 完整性回归测试：委派子 Agent 后，验证 `active_dataset` / `main_context` 被正确写入。覆盖场景：表格委派、PDF 委派、RAG 委派、委派超时、委派返回空结果。Turn 31 只测了表格委派一个场景。\n\n3. 上下文槽位非空断言测试：在每次工具/委派回传后的下一轮，对关键上下文槽位（`active_dataset`、`main_context`、`artifact_refs`）做非空断言，而不是只检查最终输出。\n\n针对根因 B（后台任务资源隔离）：\n\n4. memory maintenance 不阻塞前台响应测试：在 memory maintenance 触发期间，验证前台响应仍在合理时间内（如 <60s）产出。需要模拟 memory 压力场景。\n\n5. 审批流程 artifact 提交超时检测测试：对 `tool_requires_approval=true` 的写操作，验证在审批未完成时系统有超时检测和状态回写，artifact ref 不会永久丢失。\n\n6. 长任务运行时检查点完整性测试：在 30/60/90 turn 的长任务中，验证 runtime checkpoint 不会因为后台任务而丢失前台状态。Turn 18 的 1800s 超时说明当前没有有效的检查点恢复机制。\n\n---\n\n### 四、证据边界\n\n已确认：\n- 4 个失败项来自同一份 60-turn 专业任务 fixture，run_id 为 `fixture-60-turn-professional-analysis`。\n- 56/60 通过，整体通过率 93.3%，说明系统在大多数 turn 上运行正常，失败集中在特定边界条件。\n\n仍需确认：\n- Turn 17 的截断是否可复现——fixture 只记录了一次发生，需要确认触发条件（工具返回内容大小？特定工具类型？）。\n- Turn 18 的 memory maintenance 触发条件——fixture 只记录了 `memory_maintenance_attempted=true`，没有记录触发阈值和 memory 压力来源。\n- Turn 31 的委派子 Agent 是否确实返回了有效结果——fixture 只记录了 writeback 失败，没有记录子 Agent 的原始回传内容。\n- Turn 42 的审批流程状态——`artifact_refs=[]` 是审批未完成还是审批完成后丢失，fixture 没有区分。\n\n建议下一步： 优先补上述 6 个回归测试中的第 1、2、4 项，这三项直接覆盖两条根因链的核心缺口。同时补充 fixture 的记录粒度，在工具回传、委派回传、后台任务触发三个关键节点增加状态快照。",
+        "answer_channel": "answer_candidate",
+        "answer_source": "runtime_directive:model_response",
+        "answer_canonical_state": "stable_answer",
+        "answer_persist_policy": "persist_canonical",
+        "answer_finalization_policy": "none"
+      }
+    ],
+    "turn_id": "turn:7ba164d8edcb47ed94db27a759303c53:1",
+    "main_context": {},
+    "task_summary_refs": [],
+    "bundle_summary_refs": [],
+    "durable_lane_enabled": true
+  },
+  "result": {
+    "run_id": "memory-maintenance:7ba164d8edcb47ed94db27a759303c53:2",
+    "session_id": "7ba164d8edcb47ed94db27a759303c53",
+    "turn_id": "turn:7ba164d8edcb47ed94db27a759303c53:1",
+    "agent_id": "agent:1",
+    "status": "succeeded",
+    "attempted": true,
+    "queued": false,
+    "session_memory_succeeded": true,
+    "durable_memory_succeeded": true,
+    "durable_write_count": 1,
+    "durable_skipped": false,
+    "durable_skip_reason": "",
+    "last_memory_message_index": 2,
+    "processed_message_count": 2,
+    "error": "",
+    "receipt_path": "D:\\AI应用\\langchain-agent\\storage\\runtime_state\\memory_maintenance\\7ba164d8edcb47ed94db27a759303c53\\memory-maintenance_7ba164d8edcb47ed94db27a759303c53_2.json",
+    "created_at": "2026-05-20T21:51:26+00:00",
+    "diagnostics": {
+      "response_keys": [
+        "durable_memory",
+        "session_memory"
+      ],
+      "agent_id": "agent:1",
+      "agent_profile_id": "memory_system_agent",
+      "durable_reasoning_summary": "本轮分析产出了对已有project记忆的实质性补充（根因链详细机制、6个回归测试具体内容、优先级排序、证据边界），更新现有note即可。无新的user/feedback/reference类型记忆需要创建。",
+      "durable_error": ""
+    }
+  },
+  "error": "",
+  "source": "memory_system.facade",
+  "session_id": "7ba164d8edcb47ed94db27a759303c53",
+  "lane_id": "session_memory_maintenance",
+  "attempts": 1,
+  "queued_at": "2026-05-20T21:50:40+00:00",
+  "started_at": "2026-05-20T21:50:40+00:00",
+  "completed_at": "2026-05-20T21:51:26+00:00",
+  "receipt_path": "D:\\AI应用\\langchain-agent\\backend\\runtime_state\\background_tasks\\memory_maintenance_after_commit\\task_memory_maintenance_after_commit_c3df4104899a444c8e69f4ee92fbcab3.json"
+}

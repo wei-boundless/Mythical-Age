@@ -111,7 +111,7 @@ from .tool_runtime import (
     normalize_tool_call_dicts,
     tool_calls_for_langchain_messages,
 )
-from orchestration.worker_agent_blueprints import WorkerAgentBlueprint, WorkerAgentSpawnRequest, WorkerAgentSpawnResult
+from agent_system.registry.worker_agent_blueprints import WorkerAgentBlueprint, WorkerAgentSpawnRequest, WorkerAgentSpawnResult
 
 _LAZY_EXPORTS = {
     "TaskRunLoop": (".unit_runtime.loop", "TaskRunLoop"),

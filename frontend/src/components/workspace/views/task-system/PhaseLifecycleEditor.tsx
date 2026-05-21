@@ -31,7 +31,7 @@ export function PhaseLifecycleEditor({
         <span>{phases.length} 个阶段</span>
       </header>
       <div className="task-graph-phase-grid">
-        {phases.map(({ phase, nodes, steps, issues }) => {
+        {phases.map(({ phase, nodes, node_coordinates, issues }) => {
           const exitPolicy = asRecord(phase.exit_policy);
           const loopPolicy = asRecord(phase.loop_policy);
           return (
@@ -41,10 +41,11 @@ export function PhaseLifecycleEditor({
                   <span>{phase.phase_id}</span>
                   <strong>{phase.title || phase.phase_id}</strong>
                 </div>
-                <em>{nodes.length} 节点 / {steps.length} 步</em>
+                <em>{nodes.length} 节点</em>
               </header>
               <div className="task-graph-mini-kv">
                 <p><span>问题</span><strong>{issues.length}</strong></p>
+                <p><span>坐标</span><strong>{node_coordinates.length}</strong></p>
                 <p><span>审核门</span><strong>{phase.review_gate_node_id || "未绑定"}</strong></p>
                 <p><span>循环</span><strong>{Object.keys(loopPolicy).length ? "已配置" : "未配置"}</strong></p>
               </div>

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from orchestration.agent_runtime_models import AgentRuntimeProfile
+from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from orchestration.resource_policy_builder import RuntimeApprovalContext
 from task_system.contracts.capability_requirements import build_operation_requirement
 

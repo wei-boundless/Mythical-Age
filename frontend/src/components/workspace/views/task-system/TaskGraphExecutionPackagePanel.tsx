@@ -46,6 +46,10 @@ export function TaskGraphExecutionPackagePanel({
   const runtimeDiagnostics = runtimeSpec?.diagnostics ?? {};
   const lengthBudget = recordValue(runtimeDiagnostics, "length_budget") as Record<string, unknown> | null | undefined;
   const lengthBudgetPreview = recordValue(runtimeDiagnostics, "length_budget_preview") as Record<string, unknown> | null | undefined;
+  const runtimeSemantics = recordValue(runtimeDiagnostics, "runtime_semantics") as Record<string, unknown> | null | undefined;
+  const runtimeSemanticsSummary = recordValue(runtimeSemantics, "summary") as Record<string, unknown> | null | undefined;
+  const runtimeStepPolicy = recordValue(runtimeSemantics, "step_policy") as Record<string, unknown> | null | undefined;
+  const runtimeSemanticDiagnostics = recordArrayValue(runtimeSemantics, "diagnostics");
   const splitLifecycleCount = Number(executionPackage?.summary.split_batch_lifecycle_plan_count ?? 0);
   const splitLifecycleStepCount = Number(executionPackage?.summary.split_batch_lifecycle_step_count ?? 0);
 
@@ -73,6 +77,38 @@ export function TaskGraphExecutionPackagePanel({
             <strong>{executionPackage.package_id}</strong>
             <span>这是一份发布前真实执行包：标准对象视图、契约清单、运行规格、调度影子态与节点装配来自同一份后端编译结果。</span>
           </div>
+          {runtimeSemantics ? (
+            <section className="task-graph-runtime-spec-panel">
+              <header><strong>通用运行语义</strong><span>{String(recordValue(runtimeSemantics, "authority") ?? "runtime_semantics")}</span></header>
+              <div className="task-graph-mini-kv">
+                <p><span>节点语义</span><strong>{String(recordValue(runtimeSemanticsSummary, "node_count") ?? 0)}</strong></p>
+                <p><span>边语义</span><strong>{String(recordValue(runtimeSemanticsSummary, "edge_count") ?? 0)}</strong></p>
+                <p><span>旧字段</span><strong>{String(recordValue(runtimeSemanticsSummary, "legacy_field_count") ?? 0)}</strong></p>
+                <p><span>诊断</span><strong>{String(recordValue(runtimeSemanticsSummary, "diagnostic_count") ?? runtimeSemanticDiagnostics.length)}</strong></p>
+                <p><span>Step 可编辑</span><strong>{recordValue(runtimeStepPolicy, "editor_visible") ? "是" : "否"}</strong></p>
+                <p><span>Step 角色</span><strong>{String(recordValue(runtimeStepPolicy, "runtime_role") ?? "-")}</strong></p>
+              </div>
+              {runtimeSemanticDiagnostics.length ? (
+                <div className="task-graph-preflight-list">
+                  {runtimeSemanticDiagnostics.slice(0, 5).map((item, index) => {
+                    const issue = item as Record<string, unknown>;
+                    return (
+                      <article className="task-graph-preflight-row" key={`${String(recordValue(issue, "code") ?? "runtime_semantics")}_${index}`}>
+                        <span className={`task-graph-preflight-row__severity task-graph-preflight-row__severity--${String(recordValue(issue, "severity") ?? "warning")}`}>
+                          {String(recordValue(issue, "severity") ?? "warning")}
+                        </span>
+                        <div>
+                          <strong>{String(recordValue(issue, "code") ?? "runtime_semantics")}</strong>
+                          <span>{String(recordValue(issue, "message") ?? "")}</span>
+                          <small>{String(recordValue(issue, "scope") ?? "graph")} / {String(recordValue(issue, "ref_id") ?? "-")} / {String(recordValue(issue, "field") ?? "-")}</small>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
           {lengthBudget && recordValue(lengthBudget, "configured") ? (
             <section className="task-graph-runtime-spec-panel">
               <header><strong>长度预算契约</strong><span>contract_bindings.runtime.length_budget</span></header>

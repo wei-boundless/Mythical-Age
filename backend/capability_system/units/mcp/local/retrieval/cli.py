@@ -4,8 +4,9 @@ import argparse
 import json
 from pathlib import Path
 
-from memory_layout import durable_memory_layout_from_backend_dir
+from memory_system.layout import durable_memory_layout_from_backend_dir
 from memory_system.storage import DurableMemoryConsolidator, MemoryManager
+from project_layout import ProjectLayout
 
 from .parser_adapter import MultimodalParserAdapter
 from .registry import RAGIndexRegistry
@@ -61,6 +62,7 @@ def main() -> int:
     args = parser.parse_args()
 
     base_dir = Path(__file__).resolve().parents[1]
+    layout = ProjectLayout.from_backend_dir(base_dir)
     durable_layout = durable_memory_layout_from_backend_dir(base_dir)
     adapter = MultimodalParserAdapter(repo_root=base_dir.parent, ocr_language=args.ocr_language)
     registry = RAGIndexRegistry(base_dir, ocr_language=args.ocr_language)
@@ -73,7 +75,7 @@ def main() -> int:
                     "configured": True,
                     "parser_available": adapter.parser_available(),
                     "capabilities": adapter.capabilities(),
-                    "knowledge_dir": str(base_dir / "knowledge"),
+                    "knowledge_dir": str(layout.knowledge_storage_dir),
                     "collections": registry.list_collections(),
                 },
                 ensure_ascii=False,

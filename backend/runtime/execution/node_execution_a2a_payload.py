@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents.a2a_official_adapter import build_a2a_preview_for_coordination
+from agent_system.a2a.official_adapter import build_a2a_preview_for_coordination
 
 
 OFFICIAL_A2A_PROTOCOL_VERSION = "0.3.0"

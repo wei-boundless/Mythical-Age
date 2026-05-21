@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestration.assembly_builder import build_orchestration_runtime_bundle
+from agent_system.assembly.runtime_bundle_builder import build_orchestration_runtime_bundle
 from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY
 from runtime.contracts.deliverable_validator import validate_deliverable
 from runtime.memory.evidence_packet import build_evidence_packet

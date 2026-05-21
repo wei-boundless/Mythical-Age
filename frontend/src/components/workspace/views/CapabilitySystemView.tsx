@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Wrench
@@ -24,13 +25,14 @@ import {
   saveCapabilitySystemSkill,
   updateCapabilitySystemSkillPromptView,
   updateCapabilitySystemTool,
+  type CapabilityUnit,
   type CapabilityEndpoint,
   type CapabilitySystemCatalog,
   type OperationSkill,
   type OperationTool
 } from "@/lib/api";
 
-type OperationPanel = "skills" | "tools" | "endpoints";
+type OperationPanel = "units" | "skills" | "tools" | "endpoints";
 type CapabilitySystemViewProps = {
   initialPanel?: OperationPanel;
 };
@@ -143,6 +145,24 @@ function endpointSearchText(endpoint: CapabilityEndpoint) {
   ].join(" ").toLowerCase();
 }
 
+function unitSearchText(unit: CapabilityUnit) {
+  return [
+    unit.capability_id,
+    unit.kind,
+    unit.title,
+    unit.summary,
+    unit.provider,
+    unit.provider_kind,
+    unit.transport,
+    unit.runtime_visibility,
+    unit.model_visibility,
+    unit.status,
+    unit.operation_ids.join(" "),
+    unit.risk.join(" "),
+    unit.source_ref
+  ].join(" ").toLowerCase();
+}
+
 function compactList(value: string[], fallback = "未配置") {
   return value.length ? value.join(" / ") : fallback;
 }
@@ -151,9 +171,20 @@ function toolDisplayName(tool: OperationTool) {
   return tool.display_name || tool.name;
 }
 
-export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySystemViewProps = {}) {
+function unitTone(unit: CapabilityUnit) {
+  if (unit.status === "unsupported" || unit.status === "failed" || unit.health?.status === "failed") {
+    return "operation-unit-card--blocked";
+  }
+  if (unit.permission_view?.approval_state === "pending" || unit.risk.some((item) => item.includes("write") || item.includes("execution"))) {
+    return "operation-unit-card--attention";
+  }
+  return "";
+}
+
+export function CapabilitySystemView({ initialPanel = "units" }: CapabilitySystemViewProps = {}) {
   const [catalog, setCatalog] = useState<CapabilitySystemCatalog | null>(null);
   const [activePanel, setActivePanel] = useState<OperationPanel>(initialPanel);
+  const [selectedUnitId, setSelectedUnitId] = useState("");
   const [selectedSkillName, setSelectedSkillName] = useState("");
   const [selectedToolName, setSelectedToolName] = useState("");
   const [selectedEndpointId, setSelectedEndpointId] = useState("");
@@ -182,6 +213,7 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
     try {
       const payload = refresh ? await refreshCapabilitySystemCatalog() : await getCapabilitySystemCatalog();
       setCatalog(payload);
+      setSelectedUnitId((current) => (payload.capability_units ?? []).some((unit) => unit.capability_id === current) ? current : payload.capability_units?.[0]?.capability_id ?? "");
       setSelectedSkillName((current) => payload.skills.some((skill) => skill.runtime.name === current) ? current : payload.skills[0]?.runtime.name ?? "");
       setSelectedToolName((current) => payload.tools.some((tool) => tool.name === current) ? current : payload.tools[0]?.name ?? "");
       setSelectedEndpointId((current) => (payload.capability_endpoints ?? []).some((endpoint) => endpoint.endpoint_id === current) ? current : payload.capability_endpoints?.[0]?.endpoint_id ?? "");
@@ -203,6 +235,10 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
   const visibleSkills = useMemo(
     () => (catalog?.skills ?? []).filter((skill) => !normalizedQuery || skillSearchText(skill).includes(normalizedQuery)),
     [catalog?.skills, normalizedQuery]
+  );
+  const visibleUnits = useMemo(
+    () => (catalog?.capability_units ?? []).filter((unit) => !normalizedQuery || unitSearchText(unit).includes(normalizedQuery)),
+    [catalog?.capability_units, normalizedQuery]
   );
   const toolBoundaryOptions = useMemo(
     () => ["全部边界", ...Object.keys(catalog?.summary.tool_boundaries ?? {})],
@@ -226,6 +262,7 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
     [catalog?.capability_endpoints, normalizedQuery]
   );
   const selectedSkill = (catalog?.skills ?? []).find((skill) => skill.runtime.name === selectedSkillName) ?? visibleSkills[0] ?? null;
+  const selectedUnit = (catalog?.capability_units ?? []).find((unit) => unit.capability_id === selectedUnitId) ?? visibleUnits[0] ?? null;
   const selectedTool = (catalog?.tools ?? []).find((tool) => tool.name === selectedToolName) ?? visibleTools[0] ?? null;
   const selectedEndpoint = (catalog?.capability_endpoints ?? []).find((endpoint) => endpoint.endpoint_id === selectedEndpointId) ?? visibleEndpoints[0] ?? null;
 
@@ -374,11 +411,11 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
       <header className="workspace-view__header">
         <div>
           <h2 className="workspace-view__title">能力系统</h2>
-          <p className="workspace-view__subtitle">管理 skills、工具和能力端点。</p>
+          <p className="workspace-view__subtitle">以能力单元为入口查看执行状态、operation、依赖、权限和来源。</p>
         </div>
         <div className="workspace-view__actions">
           <button className="action-button action-button--ghost" onClick={() => void loadCatalog(true)} type="button">
-            {loading ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />}
+          {loading ? <Loader2 className="animate-spin" size={15} /> : <RefreshCw size={15} />}
             刷新目录
           </button>
         </div>
@@ -389,6 +426,7 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
 
       <nav className="operation-switcher" aria-label="能力系统模块">
         {[
+          { id: "units", label: "能力单元", icon: Boxes },
           { id: "skills", label: "Skills", icon: Boxes },
           { id: "tools", label: "工具", icon: Wrench },
           { id: "endpoints", label: "端点", icon: PlugZap }
@@ -412,12 +450,111 @@ export function CapabilitySystemView({ initialPanel = "skills" }: CapabilitySyst
         <Search size={17} />
         <input
           onChange={(event) => setQuery(event.target.value)}
-          placeholder={activePanel === "skills" ? "搜索 skill" : activePanel === "tools" ? "搜索工具" : "搜索端点"}
+          placeholder={activePanel === "units" ? "搜索能力单元 / operation / provider" : activePanel === "skills" ? "搜索 skill" : activePanel === "tools" ? "搜索工具" : "搜索端点"}
           value={query}
         />
       </div>
 
-      {activePanel === "skills" ? (
+      {activePanel === "units" ? (
+        <section className="operation-layout operation-layout--units">
+          <div className="operation-list">
+            {visibleUnits.map((unit) => (
+              <button
+                className={`operation-unit-card ${selectedUnit?.capability_id === unit.capability_id ? "operation-unit-card--active" : ""} ${unitTone(unit)}`}
+                key={unit.capability_id}
+                onClick={() => setSelectedUnitId(unit.capability_id)}
+                type="button"
+              >
+                <span>{unit.kind} · {unit.provider_kind}</span>
+                <strong>{unit.title || unit.capability_id}</strong>
+                <p>{unit.operation_ids.join(" / ") || "未声明 operation"}</p>
+              </button>
+            ))}
+          </div>
+
+          <article className="operation-detail operation-detail--plain">
+            {selectedUnit ? (
+              <>
+                <div className="operation-detail__head">
+                  <div>
+                    <span>{selectedUnit.kind} · {selectedUnit.capability_id}</span>
+                    <h3>{selectedUnit.title || selectedUnit.capability_id}</h3>
+                    <p>{selectedUnit.summary || "暂无说明"}</p>
+                  </div>
+                  <div className={`operation-risk-badge ${selectedUnit.status === "active" ? "operation-risk--low" : "operation-risk--medium"}`}>
+                    <ShieldCheck size={16} />
+                    {selectedUnit.status || "unknown"}
+                  </div>
+                </div>
+
+                <div className="operation-unit-facts">
+                  <article>
+                    <span>Operations</span>
+                    <strong>{selectedUnit.operation_ids.join(" / ") || "未声明"}</strong>
+                  </article>
+                  <article>
+                    <span>Provider</span>
+                    <strong>{selectedUnit.provider}</strong>
+                  </article>
+                  <article>
+                    <span>Visibility</span>
+                    <strong>{selectedUnit.model_visibility || selectedUnit.runtime_visibility || "未配置"}</strong>
+                  </article>
+                  <article>
+                    <span>Health</span>
+                    <strong>{selectedUnit.health?.reason || selectedUnit.health?.status || "active"}</strong>
+                  </article>
+                </div>
+
+                <div className="operation-permission-strip">
+                  <article><span>Profile</span><strong>{selectedUnit.permission_view?.profile_state ?? "unknown"}</strong></article>
+                  <article><span>Turn</span><strong>{selectedUnit.permission_view?.adoption_state ?? "not_checked"}</strong></article>
+                  <article><span>Gate</span><strong>{selectedUnit.permission_view?.gate_state ?? "not_checked"}</strong></article>
+                  <article><span>Approval</span><strong>{selectedUnit.permission_view?.approval_state ?? "not_required"}</strong></article>
+                </div>
+
+                <div className="operation-tool-linked">
+                  <article>
+                    <strong>依赖</strong>
+                    {selectedUnit.dependencies.length ? (
+                      <div className="workspace-chip-row">
+                        {selectedUnit.dependencies.map((dependency) => (
+                          <span className="workspace-mini-chip" key={`${dependency.relation}:${dependency.to_id}`}>{dependency.relation}: {dependency.to_id}</span>
+                        ))}
+                      </div>
+                    ) : <p>没有声明依赖。</p>}
+                  </article>
+                  <article>
+                    <strong>风险标签</strong>
+                    <p>{selectedUnit.risk.join(" / ") || "未标注"}</p>
+                  </article>
+                  <article>
+                    <strong>源码来源</strong>
+                    <p>{selectedUnit.source_ref || "未配置"}</p>
+                  </article>
+                </div>
+
+                <div className="operation-contract-grid">
+                  <article>
+                    <strong>权限视图</strong>
+                    <pre>{jsonText(selectedUnit.permission_view)}</pre>
+                  </article>
+                  <article>
+                    <strong>健康诊断</strong>
+                    <pre>{jsonText(selectedUnit.health)}</pre>
+                  </article>
+                  <article>
+                    <strong>展示标签</strong>
+                    <pre>{jsonText(selectedUnit.display_facets)}</pre>
+                  </article>
+                </div>
+              </>
+            ) : (
+              <div className="workspace-alert">暂无能力单元。</div>
+            )}
+          </article>
+        </section>
+      ) : activePanel === "skills" ? (
         <section className="operation-layout">
           <div className="operation-list">
             <article className="operation-create-card">

@@ -83,6 +83,7 @@ class TaskGraphStandardTimelineSpec:
     timeline_blocks: tuple[dict[str, Any], ...] = ()
     phases: tuple[dict[str, Any], ...] = ()
     scheduler: dict[str, Any] = field(default_factory=dict)
+    runtime_semantics: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -93,6 +94,7 @@ class TaskGraphStandardTimelineSpec:
             "timeline_blocks": [dict(item) for item in self.timeline_blocks],
             "phases": [dict(item) for item in self.phases],
             "scheduler": dict(self.scheduler),
+            "runtime_semantics": dict(self.runtime_semantics),
         }
 
 
@@ -264,6 +266,7 @@ def build_task_graph_standard_view(
         timeline_blocks=tuple(dict(item) for item in list(layered.get("timeline_blocks") or []) if isinstance(item, dict)),
         phases=_phase_specs(graph),
         scheduler=dict(runtime_spec.diagnostics.get("scheduler_support") or {}),
+        runtime_semantics=dict(runtime_spec.diagnostics.get("runtime_semantics") or {}),
     )
     runtime_isolation = TaskGraphRuntimeIsolationSpec(
         task_run_scope_policy=str(dict(graph.runtime_policy or {}).get("task_run_scope_policy") or "isolated_per_task_run"),

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from orchestration.assembly_builder import build_orchestration_runtime_bundle
+from agent_system.assembly.runtime_bundle_builder import build_orchestration_runtime_bundle
 from task_system.services.assembly_builder import build_task_execution_assembly_bundle
 
 

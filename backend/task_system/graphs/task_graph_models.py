@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from orchestration.agent_identity import normalize_agent_id
-from orchestration.model_profile_models import contains_raw_secret, sanitize_model_profile_payload
+from agent_system.identity import normalize_agent_id
+from agent_system.models.model_profile_models import contains_raw_secret, sanitize_model_profile_payload
 
 
 TaskGraphKind = Literal["single_agent", "multi_agent", "coordination"]

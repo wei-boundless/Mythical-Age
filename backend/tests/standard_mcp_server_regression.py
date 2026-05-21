@@ -40,12 +40,25 @@ class _OrchestratorStub:
         }
 
 
+def _local_mcp_policy(*operations: str) -> ResourcePolicy:
+    allowed = tuple(operations or ("op.mcp_retrieval", "op.mcp_pdf", "op.mcp_structured_data"))
+    return ResourcePolicy(
+        policy_id="respol:test:local-mcp",
+        task_id="test",
+        allowed_operations=allowed,
+        runtime_view_only=False,
+        adopted=True,
+        runtime_executable=True,
+    )
+
+
 def test_standard_mcp_server_lists_tools() -> None:
     server = build_server(
         backend_dir=BACKEND_DIR,
         executor=LocalCapabilityMCPExecutor(
             backend_dir=BACKEND_DIR,
             orchestrator=_OrchestratorStub(),
+            resource_policy=_local_mcp_policy(),
         ),
     )
 
@@ -63,6 +76,7 @@ def test_standard_mcp_executor_routes_registered_units() -> None:
     executor = LocalCapabilityMCPExecutor(
         backend_dir=BACKEND_DIR,
         orchestrator=_OrchestratorStub(),
+        resource_policy=_local_mcp_policy("op.mcp_pdf"),
     )
 
     result = executor.execute_sync(
@@ -86,6 +100,7 @@ def test_standard_mcp_tool_call_executes_registered_unit() -> None:
         executor=LocalCapabilityMCPExecutor(
             backend_dir=BACKEND_DIR,
             orchestrator=_OrchestratorStub(),
+            resource_policy=_local_mcp_policy(),
         ),
     )
 
@@ -114,6 +129,7 @@ def test_standard_mcp_server_exposes_resources_and_prompts() -> None:
         executor=LocalCapabilityMCPExecutor(
             backend_dir=BACKEND_DIR,
             orchestrator=_OrchestratorStub(),
+            resource_policy=_local_mcp_policy(),
         ),
     )
 
@@ -151,6 +167,22 @@ def test_standard_mcp_executor_uses_operation_gate_fail_closed() -> None:
     assert result["status"] == "error"
     assert result["error"] == "operation_gate_denied"
     assert result["authorization"]["pipeline_stage"] == "deny_rule"
+
+
+def test_standard_mcp_executor_requires_explicit_resource_policy() -> None:
+    executor = LocalCapabilityMCPExecutor(
+        backend_dir=BACKEND_DIR,
+        orchestrator=_OrchestratorStub(),
+    )
+
+    result = executor.execute_sync(
+        LocalMCPToolRequest(route="pdf", query="总结", path="docs/example.pdf")
+    )
+
+    assert result["status"] == "error"
+    assert result["error"] == "operation_gate_denied"
+    assert result["authorization"]["pipeline_stage"] == "adopted_resource_policy_exists"
+    assert result["authorization"]["diagnostics"]["fail_closed"] is True
 
 
 def test_mcp_tool_pool_merges_builtin_and_mcp_tools_stably() -> None:

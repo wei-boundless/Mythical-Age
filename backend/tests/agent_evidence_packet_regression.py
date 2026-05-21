@@ -5,7 +5,7 @@ from pathlib import Path
 
 from evidence.agent_evidence_packet import build_agent_evidence_packet_from_mcp_payload, build_agent_evidence_packet_from_web_payload
 from evidence.mcp_models import MCPRequest
-from orchestration.agent_registry import default_agent_descriptors
+from agent_system.registry.agent_registry import default_agent_descriptors
 from runtime.execution.agent_delegation_executor import AgentDelegationExecutor
 from runtime.execution.agent_delegation_executor import _child_system_prompt
 from runtime.execution.child_agent_runtime_executor import ChildAgentRuntimeExecutor, _build_mcp_request

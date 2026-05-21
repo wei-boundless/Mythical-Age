@@ -7,8 +7,8 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from orchestration.agent_runtime_chain import AgentRuntimeChainAssembler
-from orchestration.agent_runtime_models import AgentRuntimeProfile
+from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
+from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from runtime.unit_runtime.loop import _task_operation_allows_context_retrieval
 from understanding.capability_resolution_view import capability_resolution_view
 

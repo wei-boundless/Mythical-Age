@@ -10,11 +10,11 @@ from typing import Any, Awaitable, Callable
 
 from capability_system.search_policy import agent_allowed_by_search_policy, normalize_search_policy
 from runtime.model_gateway.model_runtime import stringify_content
-from orchestration.agent_identity import normalize_agent_id
-from orchestration.agent_registry import AgentRegistry
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from agent_system.identity import normalize_agent_id
+from agent_system.registry.agent_registry import AgentRegistry
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from orchestration.delegation_protocol import default_expected_output_contract
-from orchestration.model_profile_resolver import ModelProfileResolver
+from agent_system.models.model_profile_resolver import ModelProfileResolver
 from soul.projection_store import get_projection_card
 
 from .child_agent_runtime_executor import ChildAgentRuntimeExecutor

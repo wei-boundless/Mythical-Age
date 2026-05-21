@@ -92,6 +92,77 @@ class CapabilityValidationIssue:
 
 
 @dataclass(frozen=True, slots=True)
+class CapabilityHealth:
+    status: str = "active"
+    reason: str = ""
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityPermissionView:
+    capability_id: str
+    operation_ids: tuple[str, ...] = ()
+    profile_state: str = "unknown"
+    adoption_state: str = "not_checked"
+    gate_state: str = "not_checked"
+    approval_state: str = "not_required"
+    sandbox_state: str = "none"
+    reasons: tuple[str, ...] = ()
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["operation_ids"] = list(self.operation_ids)
+        payload["reasons"] = list(self.reasons)
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityDependency:
+    from_id: str
+    to_id: str
+    relation: str
+
+    def to_dict(self) -> dict[str, str]:
+        return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityUnit:
+    capability_id: str
+    kind: str
+    title: str
+    summary: str
+    operation_ids: tuple[str, ...]
+    provider: str
+    provider_kind: str
+    transport: str = ""
+    runtime_visibility: str = ""
+    model_visibility: str = ""
+    risk: tuple[str, ...] = ()
+    resource_policy: str = ""
+    status: str = "active"
+    source_ref: str = ""
+    dependencies: tuple[CapabilityDependency, ...] = ()
+    health: CapabilityHealth = field(default_factory=CapabilityHealth)
+    permission_view: CapabilityPermissionView | None = None
+    display_facets: dict[str, Any] = field(default_factory=dict)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["operation_ids"] = list(self.operation_ids)
+        payload["risk"] = list(self.risk)
+        payload["dependencies"] = [dependency.to_dict() for dependency in self.dependencies]
+        payload["health"] = self.health.to_dict()
+        payload["permission_view"] = self.permission_view.to_dict() if self.permission_view is not None else None
+        return payload
+
+
+@dataclass(frozen=True, slots=True)
 class CapabilitySupplyToolRef:
     tool_name: str
     operation_id: str
@@ -113,10 +184,14 @@ class CapabilitySupplySkillRef:
     context_mode: str
     preferred_route: str = ""
     capability_tags: tuple[str, ...] = ()
+    operation_ids: tuple[str, ...] = ()
+    capability_ids: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["capability_tags"] = list(self.capability_tags)
+        payload["operation_ids"] = list(self.operation_ids)
+        payload["capability_ids"] = list(self.capability_ids)
         return payload
 
 

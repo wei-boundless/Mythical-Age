@@ -3,15 +3,15 @@ from __future__ import annotations
 import json
 import pytest
 
-from orchestration.agent_group_registry import AgentGroupRegistry
-from orchestration.agent_identity import agent_id_aliases, normalize_agent_id
-from orchestration.agent_registry import AgentRegistry
-from orchestration.agent_runtime_models import AgentRuntimeProfile
-from orchestration.agent_runtime_registry import AgentRuntimeRegistry
-from orchestration.assembly_builder import build_orchestration_runtime_bundle
+from agent_system.groups.registry import AgentGroupRegistry
+from agent_system.identity import agent_id_aliases, normalize_agent_id
+from agent_system.registry.agent_registry import AgentRegistry
+from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
+from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
+from agent_system.assembly.runtime_bundle_builder import build_orchestration_runtime_bundle
 from runtime.contracts.runtime_assembly_builder import build_single_agent_runtime_assembly
 from runtime.contracts.compiler_models import CompiledGlobalContract, ContractManifest
-from orchestration.worker_agent_factory import default_worker_agent_blueprints
+from agent_system.registry.worker_agent_factory import default_worker_agent_blueprints
 
 
 def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(tmp_path):

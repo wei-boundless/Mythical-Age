@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 
@@ -86,6 +87,11 @@ def main() -> None:
         route="agent",
         modality="general",
     ) == ["web_search"]
+
+    fake_tool = replace(runtime_registry.tools[0], name="dynamic_test_tool")
+    runtime_registry._tools = [fake_tool]
+    assert runtime_registry.get_by_name("dynamic_test_tool") is fake_tool
+    assert runtime_registry.get_by_name("web_search") is None
 
     print(f"ALL PASSED ({payload['tool_count']} tools)")
 

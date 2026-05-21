@@ -168,7 +168,7 @@ class AppSettingsService:
         }
 
     def model_provider_payload(self) -> dict[str, Any]:
-        from orchestration.model_profile_resolver import build_provider_catalog
+        from agent_system.models.model_profile_resolver import build_provider_catalog
 
         settings = self.static
         provider_catalog = build_provider_catalog(self)
