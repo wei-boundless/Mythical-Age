@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from capability_system.local_mcp_registry import get_local_mcp_unit_for_source_kind
+from intent.execution_obligation import build_execution_obligation
 from orchestration.delegation_protocol import build_agent_delegation_protocol, default_expected_output_contract
 from orchestration.interaction_mode_policy import build_runtime_interaction_mode_policy
 from continuation.profile_registry import profile_by_domain
@@ -112,6 +113,17 @@ def build_runtime_task_intent_contract(
             *_capability_requests_from_intent(current_turn),
         ]
     )
+    execution_obligation = build_execution_obligation(
+        session_id=session_id,
+        task_id=task_id,
+        user_goal=user_goal,
+        explicit_inputs=explicit_inputs,
+        current_turn_context=current_turn,
+    )
+    current_turn_with_obligation = {
+        **current_turn,
+        "execution_obligation": execution_obligation.to_dict(),
+    }
     followup_target_refs = _dedupe(
         [
             *[
@@ -131,14 +143,16 @@ def build_runtime_task_intent_contract(
         task_id=task_id,
         user_goal=user_goal,
         query_understanding=understanding,
-        current_turn_context=current_turn,
+        current_turn_context=current_turn_with_obligation,
         explicit_inputs=explicit_inputs,
+        execution_obligation=execution_obligation.to_dict(),
     )
     mode_policy = build_runtime_interaction_mode_policy(
         semantic_task_contract=semantic_contract.to_dict(),
         query_understanding=understanding,
-        current_turn_context=current_turn,
+        current_turn_context=current_turn_with_obligation,
         intent_decision=dict(current_turn.get("intent_decision") or {}),
+        execution_obligation=execution_obligation.to_dict(),
     )
     return TaskIntentContract(
         task_intent_id=f"task-intent:{session_id}:{task_id}",
@@ -171,6 +185,7 @@ def build_runtime_task_intent_contract(
         ),
         followup_target_refs=tuple(followup_target_refs),
         capability_requests=tuple(capability_requests),
+        execution_obligation=execution_obligation.to_dict(),
         semantic_task_contract=semantic_contract.to_dict(),
         mode_policy=mode_policy.to_dict(),
         diagnostics={
@@ -180,6 +195,13 @@ def build_runtime_task_intent_contract(
             "projection_strength": mode_policy.projection_strength,
             "semantic_task_type": semantic_contract.task_goal_type,
             "professional_profile_id": semantic_contract.professional_profile_id,
+            "execution_obligation": {
+                "required_reads": len(execution_obligation.required_reads),
+                "required_writes": len(execution_obligation.required_writes),
+                "required_commands": len(execution_obligation.required_commands),
+                "required_verifications": len(execution_obligation.required_verifications),
+                "forbidden_actions": list(execution_obligation.forbidden_actions),
+            },
             "bundle_item_count": len(bundle_items),
             "route_hint": str(understanding.get("route_hint") or ""),
             "preferred_skill": str(understanding.get("preferred_skill") or ""),

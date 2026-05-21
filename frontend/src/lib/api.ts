@@ -1835,10 +1835,27 @@ export type RuntimeLoopTaskRunLiveMonitor = {
   latest_checkpoint: Record<string, unknown> | null;
   loop_state: Record<string, unknown>;
   coordination_run: Record<string, unknown> | null;
+  professional_task_summary?: Record<string, unknown> | null;
   has_coordination: boolean;
   status: string;
   terminal_reason: string;
   updated_at: number;
+};
+
+export type RuntimeResourceInventoryItem = {
+  resource_id: string;
+  title: string;
+  authority_layer: string;
+  path: string;
+  runtime_consumer: string;
+  can_authorize_side_effects: boolean;
+  notes: string;
+};
+
+export type RuntimeResourceInventory = {
+  authority: string;
+  inventory_id: string;
+  items: RuntimeResourceInventoryItem[];
 };
 
 export type TaskGraphRunMonitorNode = {
@@ -3474,6 +3491,10 @@ export async function getOrchestrationRuntimeLoopSessionLiveMonitor(sessionId: s
   return request<RuntimeLoopSessionLiveMonitor>(
     `/orchestration/runtime-loop/sessions/${encodeURIComponent(sessionId)}/live-monitor`
   );
+}
+
+export async function getOrchestrationResourceInventory() {
+  return request<RuntimeResourceInventory>("/orchestration/resource-inventory");
 }
 
 export async function getOrchestrationRuntimeLoopTrace(

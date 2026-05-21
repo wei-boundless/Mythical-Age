@@ -413,67 +413,7 @@ def test_agent_group_members_must_be_existing_workers(tmp_path):
         )
 
 
-def test_retired_writing_agents_are_not_seeded_and_cannot_be_recreated(tmp_path):
-    agent_registry = AgentRegistry(tmp_path)
-    runtime_registry = AgentRuntimeRegistry(tmp_path)
-    agents = AgentRegistry(tmp_path).list_agents()
-    profiles = runtime_registry.list_profiles()
-    agent_ids = {item.agent_id for item in agents}
-    profile_ids = {item.agent_id for item in profiles}
-    retired_ids = {
-        "agent:chapter_planner",
-        "agent:character_designer_a",
-        "agent:character_designer_b",
-        "agent:character_judge",
-        "agent:memory_steward",
-        "agent:novel_quality_judge",
-        "agent:novel_writer_a",
-        "agent:novel_writer_b",
-        "agent:outline_designer_a",
-        "agent:outline_designer_b",
-        "agent:outline_judge",
-        "agent:world_designer_a",
-        "agent:world_designer_b",
-        "agent:world_judge",
-        "agent:writing_simple_creator",
-        "agent:writing_simple_reviewer",
-        "agent:writing_final_assembler",
-    }
-
-    assert retired_ids.isdisjoint(agent_ids)
-    assert retired_ids.isdisjoint(profile_ids)
-    task_graph_template_ids = {
-        "agent:writing_team_worker",
-        "agent:writing_simple_worker",
-        "agent:writing_memory_steward",
-        "agent:writing_runtime_monitor",
-    }
-    assert task_graph_template_ids.isdisjoint(agent_ids)
-    assert task_graph_template_ids.isdisjoint(profile_ids)
-    assert normalize_agent_id("agent:world_designer_a") == "agent:world_designer_a"
-    assert normalize_agent_id("agent:writing_simple_creator") == "agent:writing_simple_creator"
-    assert normalize_agent_id("agent:memory_steward") == "agent:memory_steward"
-    assert agent_registry.get_agent("agent:world_designer_a") is None
-    assert agent_registry.get_agent("agent:writing_team_worker") is None
-
-    for retired_agent_id in sorted(retired_ids | task_graph_template_ids):
-        with pytest.raises(ValueError, match="retired writing graph agent ids"):
-            agent_registry.upsert_agent(
-                agent_id=retired_agent_id,
-                agent_name="历史写作 Agent",
-                agent_category="custom_agent",
-                interface_target="task_graph_node_runtime",
-            )
-        with pytest.raises(ValueError, match="retired writing graph agent ids"):
-            runtime_registry.upsert_profile(
-                agent_id=retired_agent_id,
-                agent_profile_id=f"{retired_agent_id.removeprefix('agent:')}_runtime",
-                allowed_runtime_lanes=("coordination_task",),
-                allowed_operations=("op.model_response",),
-            )
-
-
-def test_deleted_task_graph_ordered_agent_does_not_resurrect_from_defaults(tmp_path):
+def test_deleted_custom_agent_does_not_resurrect_from_defaults(tmp_path):
     agent_registry = AgentRegistry(tmp_path)
     group_registry = AgentGroupRegistry(tmp_path)
     runtime_registry = AgentRuntimeRegistry(tmp_path)
@@ -486,12 +426,12 @@ def test_deleted_task_graph_ordered_agent_does_not_resurrect_from_defaults(tmp_p
             {
                 "agents": [
                     {
-                        "agent_id": "agent:writing_team_worker",
-                        "agent_name": "历史写作模板 Agent",
+                        "agent_id": "agent:custom_deleted_worker",
+                        "agent_name": "已删除测试 Agent",
                         "agent_category": "custom_agent",
-                        "interface_target": "task_graph_node_runtime",
+                        "interface_target": "worker_task_console",
                         "enabled": True,
-                        "metadata": {"definition_source": "task_graph_runtime_template"},
+                        "metadata": {"definition_source": "user_custom_agent"},
                     }
                 ]
             },
@@ -505,11 +445,11 @@ def test_deleted_task_graph_ordered_agent_does_not_resurrect_from_defaults(tmp_p
             {
                 "profiles": [
                     {
-                        "agent_profile_id": "writing_team_worker_runtime",
-                        "agent_id": "agent:writing_team_worker",
-                        "allowed_runtime_lanes": ["coordination_task"],
+                        "agent_profile_id": "custom_deleted_worker_runtime",
+                        "agent_id": "agent:custom_deleted_worker",
+                        "allowed_runtime_lanes": ["readonly_exploration"],
                         "allowed_operations": ["op.model_response"],
-                        "metadata": {"managed_by": "task_graph_runtime_template"},
+                        "metadata": {"managed_by": "orchestration_console"},
                     }
                 ]
             },
@@ -523,11 +463,11 @@ def test_deleted_task_graph_ordered_agent_does_not_resurrect_from_defaults(tmp_p
             {
                 "groups": [
                     {
-                        "group_id": "group.custom.writing",
-                        "title": "写作组",
+                        "group_id": "group.custom.deleted_worker",
+                        "title": "自定义 Agent 组",
                         "group_kind": "coordination_team",
                         "coordinator_agent_id": "",
-                        "member_agent_ids": ["agent:writing_team_worker"],
+                        "member_agent_ids": ["agent:custom_deleted_worker"],
                     }
                 ]
             },
@@ -537,13 +477,13 @@ def test_deleted_task_graph_ordered_agent_does_not_resurrect_from_defaults(tmp_p
         encoding="utf-8",
     )
 
-    assert agent_registry.get_agent("agent:writing_team_worker") is None
-    runtime_registry.delete_profile("agent:writing_team_worker")
-    group_registry.remove_agent_refs("agent:writing_team_worker")
+    agent_registry.delete_agent("agent:custom_deleted_worker")
+    runtime_registry.delete_profile("agent:custom_deleted_worker")
+    group_registry.remove_agent_refs("agent:custom_deleted_worker")
 
-    assert agent_registry.get_agent("agent:writing_team_worker") is None
-    assert runtime_registry.get_profile("agent:writing_team_worker") is None
-    assert group_registry.get_group("group.custom.writing").member_agent_ids == ()
+    assert agent_registry.get_agent("agent:custom_deleted_worker") is None
+    assert runtime_registry.get_profile("agent:custom_deleted_worker") is None
+    assert group_registry.get_group("group.custom.deleted_worker").member_agent_ids == ()
 
 
 def test_runtime_assembly_filters_context_sections_by_agent_profile():

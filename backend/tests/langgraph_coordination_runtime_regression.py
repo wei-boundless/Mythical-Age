@@ -6,12 +6,14 @@ from orchestration.runtime_loop.event_log import RuntimeEventLog
 from orchestration.runtime_loop.langgraph_coordination_runtime import (
     LangGraphCoordinationRuntime,
     _apply_loop_derived_fields,
+    _review_gate_event_is_accepted,
     _pending_inputs_for_stage_quality_retry,
     _stage_execution_message,
 )
 from orchestration.runtime_loop.models import CoordinationRun, TaskRun
 from orchestration.runtime_loop.node_execution_request import NodeResultReadyEvent
 from orchestration.runtime_loop.state_index import RuntimeStateIndex
+from orchestration.runtime_loop.task_run_loop import _render_standard_input_package_for_model
 from tasks import TaskContractRegistry
 from tasks.flow_models import CoordinationTaskDefinition, SpecificTaskRecord, TaskCommunicationProtocol, TopologyTemplate
 from tasks.task_graph_models import TaskGraphDefinition, TaskGraphEdgeDefinition, TaskGraphNodeDefinition
@@ -135,6 +137,47 @@ def test_quality_retry_pending_inputs_normalize_stale_loop_fields() -> None:
     assert "第6章" not in pending_inputs["runtime_loop_summary"]
 
 
+def test_review_gate_pass_verdict_overrides_missing_artifact_ref_technical_failure() -> None:
+    event = {
+        "accepted": False,
+        "diagnostics": {
+            "stage_business_acceptance": {
+                "accepted": False,
+                "base_accepted": False,
+                "business_accepted": True,
+                "artifact_ok": False,
+                "policy": "review_gate_verdict",
+                "verdict": "pass",
+            }
+        },
+    }
+    contract = {
+        "node_type": "review_gate",
+        "review_gate_policy": {"revision_stage_id": "world_design"},
+    }
+
+    assert _review_gate_event_is_accepted(event=event, contract=contract) is True
+
+
+def test_review_gate_revise_verdict_does_not_override_failure() -> None:
+    event = {
+        "accepted": False,
+        "diagnostics": {
+            "stage_business_acceptance": {
+                "business_accepted": False,
+                "policy": "review_gate_verdict",
+                "verdict": "revise",
+            }
+        },
+    }
+    contract = {
+        "node_type": "review_gate",
+        "review_gate_policy": {"revision_stage_id": "world_design"},
+    }
+
+    assert _review_gate_event_is_accepted(event=event, contract=contract) is False
+
+
 def test_rewind_refresh_uses_live_graph_loop_policy_instead_of_stale_snapshot(tmp_path) -> None:
     stale_fields = _chapter_loop_derived_fields_for_test()
     live_fields = [dict(item) for item in _chapter_loop_derived_fields_for_test()]
@@ -236,6 +279,92 @@ def test_stage_execution_message_declares_runtime_batch_boundary_over_stale_proj
     assert "本节点只允许处理第1章至第5章" in message
     assert "当前运行时每轮批次大小为 5 章" in message
     assert "以本运行时批次边界为准" in message
+
+
+def test_stage_execution_message_expands_revision_artifact_text(tmp_path) -> None:
+    previous = tmp_path / "previous_outline.md"
+    review = tmp_path / "outline_review.md"
+    previous.write_text("# 上一版大纲\n\n这里是上一版正文。", encoding="utf-8")
+    review.write_text("# 审核意见\n\n需要补强卷级推进和伏笔回收。", encoding="utf-8")
+
+    message = _stage_execution_message(
+        stage_id="outline_design",
+        task_ref="task.test.outline_design",
+        contract={"title": "大纲返修"},
+        explicit_inputs={},
+        revision_packet={
+            "review_verdict": "revise",
+            "required_changes": ["补强卷级推进"],
+            "review_result_refs": [f"artifact:{review}"],
+            "previous_candidate_artifact_refs": [f"artifact:{previous}"],
+        },
+    )
+
+    assert "审核报告正文" in message
+    assert "需要补强卷级推进和伏笔回收" in message
+    assert "上一版候选产物正文" in message
+    assert "这里是上一版正文" in message
+    assert "不要输出 read_file" in message
+
+
+def test_standard_input_package_materials_render_to_model_visible_text() -> None:
+    message = _render_standard_input_package_for_model(
+        {
+            "standard_input_package": {
+                "input_items": [
+                    {
+                        "input_key": "outline_review",
+                        "source_node_id": "outline_review",
+                        "content_type": "artifact_text",
+                        "usage_instruction": "作为大纲审核结论使用。",
+                        "content_preview": "预览不应覆盖全文。",
+                        "metadata": {"text": "# 大纲审核\n\n裁决：通过。伏笔与卷级推进成立。"},
+                    }
+                ]
+            }
+        }
+    )
+
+    assert "标准节点输入材料" in message
+    assert "outline_review" in message
+    assert "裁决：通过" in message
+    assert "伏笔与卷级推进成立" in message
+    assert "<read_file" not in message
+    assert "tool_call" not in message
+
+
+def test_standard_input_package_renderer_skips_internal_protocol_inputs() -> None:
+    message = _render_standard_input_package_for_model(
+        {
+            "standard_input_package": {
+                "input_items": [
+                    {
+                        "input_key": "parent_stage_execution_request",
+                        "content_type": "runtime_protocol",
+                        "content_preview": "父级调度协议不应进入模型。",
+                        "metadata": {"text": "parent protocol leak"},
+                    },
+                    {
+                        "input_key": "runtime_protocol.trace",
+                        "content_type": "runtime_protocol",
+                        "content_preview": "runtime protocol trace leak",
+                    },
+                    {
+                        "input_key": "user_goal",
+                        "content_type": "text",
+                        "content_preview": "启动子图并完成世界观设计。",
+                    },
+                ]
+            }
+        }
+    )
+
+    assert "标准节点输入材料" in message
+    assert "user_goal" in message
+    assert "启动子图并完成世界观设计" in message
+    assert "parent_stage_execution_request" not in message
+    assert "parent protocol leak" not in message
+    assert "runtime_protocol.trace" not in message
 
 
 def test_loop_derived_fields_use_runtime_batch_size_for_ten_chapter_request() -> None:

@@ -128,6 +128,22 @@ def test_length_budget_batch_count_alone_is_not_configured() -> None:
     assert acceptance["policy"] == "technical_completion"
 
 
+def test_stage_business_acceptance_rejects_pseudo_tool_output() -> None:
+    acceptance = _stage_business_acceptance(
+        stage_id="outline_design",
+        contract={},
+        explicit_inputs={},
+        final_content="<read_file>\n<path>outline_review.md</path>\n</read_file>",
+        output_refs=["artifact:output/outline.md"],
+        terminal_status="completed",
+        requires_file_artifact_refs=True,
+    )
+
+    assert acceptance["accepted"] is False
+    assert acceptance["policy"] == "protocol_boundary"
+    assert "protocol_boundary:pseudo_tool_output" in acceptance["issues"]
+
+
 def test_length_budget_tokens_mode_declares_text_units_fallback_until_token_meter_exists() -> None:
     budget = compile_length_budget(
         explicit={

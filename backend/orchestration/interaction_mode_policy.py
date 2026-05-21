@@ -44,11 +44,13 @@ def build_runtime_interaction_mode_policy(
     query_understanding: dict[str, Any] | None = None,
     current_turn_context: dict[str, Any] | None = None,
     intent_decision: dict[str, Any] | None = None,
+    execution_obligation: dict[str, Any] | None = None,
 ) -> RuntimeInteractionModePolicy:
     contract = dict(semantic_task_contract or {})
     understanding = dict(query_understanding or {})
     current_turn = dict(current_turn_context or {})
     intent = dict(intent_decision or current_turn.get("intent_decision") or {})
+    obligation = dict(execution_obligation or contract.get("execution_obligation") or current_turn.get("execution_obligation") or {})
     explicit_mode = _normalize_mode(
         current_turn.get("interaction_mode")
         or current_turn.get("runtime_interaction_mode")
@@ -56,12 +58,21 @@ def build_runtime_interaction_mode_policy(
         or dict(current_turn.get("runtime_mode_policy") or {}).get("interaction_mode")
         or intent.get("interaction_mode")
     )
+    if _obligation_requires_professional_mode(obligation):
+        return _policy_for_mode(
+            PROFESSIONAL_MODE,
+            mode_reason="execution_obligation:write_or_verify",
+            contract=contract,
+            understanding=understanding,
+            execution_obligation=obligation,
+        )
     if explicit_mode:
         return _policy_for_mode(
             explicit_mode,
             mode_reason="explicit_interaction_mode",
             contract=contract,
             understanding=understanding,
+            execution_obligation=obligation,
         )
     task_goal_type = str(contract.get("task_goal_type") or "").strip()
     strategy = str(
@@ -83,6 +94,7 @@ def build_runtime_interaction_mode_policy(
             mode_reason=f"semantic_task:{task_goal_type}",
             contract=contract,
             understanding=understanding,
+            execution_obligation=obligation,
         )
     if strategy == "professional_task_run":
         return _policy_for_mode(
@@ -90,6 +102,7 @@ def build_runtime_interaction_mode_policy(
             mode_reason=f"intent_strategy:{strategy}",
             contract=contract,
             understanding=understanding,
+            execution_obligation=obligation,
         )
     if task_goal_type in {"bounded_tool_task", "material_synthesis"}:
         return _policy_for_mode(
@@ -97,6 +110,7 @@ def build_runtime_interaction_mode_policy(
             mode_reason=f"semantic_task:{task_goal_type}",
             contract=contract,
             understanding=understanding,
+            execution_obligation=obligation,
         )
     if route in {"search", "realtime_network", "workspace_read", "workspace_path_search", "workspace_text_search", "tool"}:
         return _policy_for_mode(
@@ -104,6 +118,7 @@ def build_runtime_interaction_mode_policy(
             mode_reason=f"capability_route:{route}",
             contract=contract,
             understanding=understanding,
+            execution_obligation=obligation,
         )
     if posture in {"builtin_tool_lane", "direct_rag"}:
         return _policy_for_mode(
@@ -111,12 +126,14 @@ def build_runtime_interaction_mode_policy(
             mode_reason=f"execution_posture:{posture}",
             contract=contract,
             understanding=understanding,
+            execution_obligation=obligation,
         )
     return _policy_for_mode(
         ROLE_MODE,
         mode_reason=f"semantic_task:{task_goal_type or 'role_conversation'}",
         contract=contract,
         understanding=understanding,
+        execution_obligation=obligation,
     )
 
 
@@ -165,7 +182,9 @@ def _policy_for_mode(
     mode_reason: str,
     contract: dict[str, Any],
     understanding: dict[str, Any],
+    execution_obligation: dict[str, Any] | None = None,
 ) -> RuntimeInteractionModePolicy:
+    obligation = dict(execution_obligation or {})
     if interaction_mode == ROLE_MODE:
         return RuntimeInteractionModePolicy(
             interaction_mode=ROLE_MODE,
@@ -194,7 +213,7 @@ def _policy_for_mode(
                 "working_memory": False,
             },
             output_policy={"answer_boundary": "conversation", "deliverable_validator": False},
-            diagnostics=_diagnostics(contract, understanding),
+            diagnostics=_diagnostics(contract, understanding, obligation),
         )
     if interaction_mode == STANDARD_MODE:
         return RuntimeInteractionModePolicy(
@@ -247,7 +266,7 @@ def _policy_for_mode(
                 "working_memory": "light",
             },
             output_policy={"answer_boundary": "task", "deliverable_validator": "basic"},
-            diagnostics=_diagnostics(contract, understanding),
+            diagnostics=_diagnostics(contract, understanding, obligation),
         )
     return RuntimeInteractionModePolicy(
         interaction_mode=PROFESSIONAL_MODE,
@@ -340,14 +359,48 @@ def _policy_for_mode(
             "working_memory": "required",
         },
         output_policy={"answer_boundary": "professional_deliverable", "deliverable_validator": "strict"},
-        diagnostics=_diagnostics(contract, understanding),
+        diagnostics=_diagnostics(contract, understanding, obligation),
     )
 
 
-def _diagnostics(contract: dict[str, Any], understanding: dict[str, Any]) -> dict[str, Any]:
+def _diagnostics(contract: dict[str, Any], understanding: dict[str, Any], execution_obligation: dict[str, Any] | None = None) -> dict[str, Any]:
+    obligation = dict(execution_obligation or contract.get("execution_obligation") or {})
     return {
         "task_goal_type": str(contract.get("task_goal_type") or ""),
         "professional_profile_id": str(contract.get("professional_profile_id") or ""),
         "route": str(understanding.get("route") or understanding.get("route_hint") or ""),
         "execution_posture": str(understanding.get("execution_posture") or ""),
+        "execution_obligation": _obligation_summary(obligation),
+    }
+
+
+def _obligation_requires_professional_mode(obligation: dict[str, Any]) -> bool:
+    item = dict(obligation or {})
+    if _obligation_forbids_write(item):
+        return False
+    return bool(
+        list(item.get("required_writes") or [])
+        or list(item.get("required_commands") or [])
+        or list(item.get("required_verifications") or [])
+    )
+
+
+def _obligation_forbids_write(obligation: dict[str, Any]) -> bool:
+    forbidden = {
+        str(item).strip()
+        for item in list(dict(obligation or {}).get("forbidden_actions") or [])
+        if str(item).strip()
+    }
+    return bool(forbidden.intersection({"modify_code", "write_file", "edit_file"}))
+
+
+def _obligation_summary(obligation: dict[str, Any]) -> dict[str, Any]:
+    item = dict(obligation or {})
+    return {
+        "required_reads": len(list(item.get("required_reads") or [])),
+        "required_writes": len(list(item.get("required_writes") or [])),
+        "required_commands": len(list(item.get("required_commands") or [])),
+        "required_verifications": len(list(item.get("required_verifications") or [])),
+        "required_deliverables": list(item.get("required_deliverables") or []),
+        "forbidden_actions": list(item.get("forbidden_actions") or []),
     }

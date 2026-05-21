@@ -295,6 +295,46 @@ def _parse_checks(turn: TurnResult, checks: tuple[str, ...]) -> list[str]:
             if not any(expected in item for item in turn.trace_artifact_refs):
                 failures.append(f"{check} (actual={turn.trace_artifact_refs})")
             continue
+        if check.startswith("sandbox.file_exists="):
+            expected = check.split("=", 1)[1]
+            path = _sandbox_file_path(turn.sandbox_root, expected)
+            if path is None or not path.exists():
+                failures.append(f"{check} (actual={path})")
+            continue
+        if check.startswith("sandbox.file_contains="):
+            payload = check.split("=", 1)[1]
+            path_text, _, terms_text = payload.partition("::")
+            path = _sandbox_file_path(turn.sandbox_root, path_text)
+            terms = [item.strip() for item in terms_text.split("|") if item.strip()]
+            if path is None or not path.exists() or not path.is_file():
+                failures.append(f"{check} (actual={path})")
+                continue
+            try:
+                content = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                content = path.read_text(encoding="utf-8", errors="ignore")
+            missing = [term for term in terms if term not in content]
+            if missing:
+                failures.append(f"{check} (missing={missing}, actual={str(path)})")
+            continue
+        if check.startswith("sandbox.glob_count>="):
+            payload = check.split(">=", 1)[1]
+            pattern, _, count_text = payload.rpartition(":")
+            path_pattern = _sandbox_file_path(turn.sandbox_root, pattern)
+            try:
+                expected_count = int(count_text)
+            except ValueError:
+                failures.append(f"{check} (invalid_count={count_text})")
+                continue
+            if path_pattern is None:
+                failures.append(f"{check} (actual=None)")
+                continue
+            root = Path(turn.sandbox_root).resolve()
+            relative_pattern = str(pattern or "").replace("\\", "/").strip().lstrip("/")
+            matches = [path for path in root.glob(relative_pattern) if path.exists()]
+            if len(matches) < expected_count:
+                failures.append(f"{check} (actual={len(matches)}, matches={[str(item) for item in matches[:8]]})")
+            continue
         if check.startswith("trace.coordination_runs="):
             expected = int(check.split("=", 1)[1])
             if turn.trace_coordination_run_count != expected:
@@ -363,6 +403,20 @@ def _response_contains_semantic(response_text: str, expected: str) -> bool:
     equivalents = _CONTAINS_EQUIVALENTS.get(target, (target,))
     lower_text = text.lower()
     return any(str(item or "").lower() in lower_text for item in equivalents)
+
+
+def _sandbox_file_path(sandbox_root: str, relative_path: str) -> Path | None:
+    root_text = str(sandbox_root or "").strip()
+    relative_text = str(relative_path or "").replace("\\", "/").strip().lstrip("/")
+    if not root_text or not relative_text:
+        return None
+    root = Path(root_text).resolve()
+    target = (root / relative_text).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        return None
+    return target
 
 
 def _collect_quality_warnings(
@@ -633,12 +687,18 @@ def _infer_plan_fields_from_runtime(events: list[dict[str, Any]]) -> dict[str, A
     stage_projection = dict(projection_payload.get("stage_projection") or {})
     directive_operations = _runtime_operation_refs(events)
     tool_requests = _event_data(events, "tool_call_requested")
+    auto_write_events = _runtime_loop_payloads(events, "professional_task_artifact_auto_write_applied")
 
     tool_names = [
         str(item.get("tool_name") or dict(item.get("tool_call") or {}).get("name") or "").strip()
         for item in tool_requests
         if str(item.get("tool_name") or dict(item.get("tool_call") or {}).get("name") or "").strip()
     ]
+    for item in auto_write_events:
+        observation = dict(item.get("observation") or {})
+        name = str(observation.get("tool_name") or "").strip()
+        if name and name not in tool_names:
+            tool_names.append(name)
     if not tool_names:
         for operation_ref in directive_operations:
             if operation_ref.startswith("op.") and operation_ref != "op.model_response":

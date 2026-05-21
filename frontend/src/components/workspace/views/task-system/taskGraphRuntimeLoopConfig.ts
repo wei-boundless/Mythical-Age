@@ -122,7 +122,7 @@ export function buildTaskGraphRuntimeLoopInputPatch(
 ): Partial<TaskGraphDraftV2> {
   const metadata = taskGraphRuntimeLoopRecord(graphDraft.metadata);
   const runtimeLoopPolicy = taskGraphRuntimeLoopRecord(metadata.runtime_loop_policy);
-  const initialInputs = {
+  const initialInputs: Record<string, unknown> = {
     ...resolvedTaskGraphRuntimeLoopInitialInputs(graphDraft),
     [key]: value,
   };

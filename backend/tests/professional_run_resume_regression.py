@@ -1,0 +1,79 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+from orchestration.runtime_loop.professional_run_session import build_professional_run_session
+from orchestration.runtime_loop.resume_decision import decide_professional_run_resume
+
+
+def test_professional_resume_starts_new_without_checkpoint() -> None:
+    decision = decide_professional_run_resume(
+        task_run_id="taskrun:new",
+        checkpoint=None,
+        current_obligation={"required_reads": [{"path": "report.json"}]},
+        user_goal="继续分析",
+    )
+
+    assert decision.decision == "start_new"
+    assert decision.reason == "missing_checkpoint"
+    assert decision.resume_from_checkpoint_ref == ""
+    assert decision.current_obligation["required_reads"][0]["path"] == "report.json"
+
+
+def test_professional_resume_restarts_when_current_turn_requests_restart() -> None:
+    checkpoint = SimpleNamespace(
+        checkpoint_id="rtchk:taskrun:old:7",
+        event_offset=7,
+        loop_state=SimpleNamespace(status="running", terminal_reason=""),
+    )
+
+    decision = decide_professional_run_resume(
+        task_run_id="taskrun:old",
+        checkpoint=checkpoint,
+        current_obligation={"required_writes": [{"kind": "workspace_change"}]},
+        user_goal="从头重新开始，改另一个方向",
+    )
+
+    assert decision.decision == "restart"
+    assert decision.reason == "current_turn_requests_restart"
+    assert decision.resume_from_checkpoint_ref == "rtchk:taskrun:old:7"
+    assert decision.current_obligation["required_writes"]
+
+
+def test_professional_resume_reuses_completed_checkpoint_without_repeating_side_effects() -> None:
+    checkpoint = SimpleNamespace(
+        checkpoint_id="rtchk:taskrun:done:12",
+        event_offset=12,
+        loop_state=SimpleNamespace(status="completed", terminal_reason="completed"),
+    )
+
+    decision = decide_professional_run_resume(
+        task_run_id="taskrun:done",
+        checkpoint=checkpoint,
+        current_obligation={},
+        user_goal="看一下结果",
+    )
+
+    assert decision.decision == "reuse_completed"
+    assert decision.reason == "checkpoint_completed"
+    assert decision.checkpoint_summary["status"] == "completed"
+    assert decision.checkpoint_summary["event_offset"] == 12
+
+
+def test_professional_run_session_preserves_obligation_and_ledger_refs() -> None:
+    session = build_professional_run_session(
+        session_id="session:resume",
+        task_run_id="taskrun:resume",
+        interaction_mode="professional_mode",
+        state_ref="professional-run-state:taskrun:resume",
+        tool_observation_ledger_ref="tool-observation-ledger:taskrun:resume",
+        resume_decision={"decision": "continue"},
+        execution_obligation={"required_commands": [{"kind": "pytest"}]},
+    )
+    payload = session.to_dict()
+
+    assert payload["authority"] == "orchestration.professional_run_session"
+    assert payload["interaction_mode"] == "professional_mode"
+    assert payload["state_ref"] == "professional-run-state:taskrun:resume"
+    assert payload["tool_observation_ledger_ref"] == "tool-observation-ledger:taskrun:resume"
+    assert payload["execution_obligation"]["required_commands"][0]["kind"] == "pytest"

@@ -51,6 +51,7 @@ from tasks.spec_models import TaskSpec
 from tasks.step_models import StepInputBinding, TaskStepBlueprint
 from tasks.execution_recipe_models import ExecutionRecipe, TaskValidationRule
 from capability_system.tool_authorization import resolve_tool_operation_id
+from execution.provider_tool_call_adapter import tool_calls_for_langchain_messages
 from understanding.capability_resolution_view import capability_resolution_view
 
 from context_management.projection import (
@@ -106,6 +107,14 @@ from .task_graph_monitoring import (
 )
 from .timeline_ledger import TimelineLedgerStore
 from text_metric import count_text_units
+from .review_gate_verdict import (
+    extract_explicit_review_verdict as _shared_extract_explicit_review_verdict,
+    extract_review_verdict as _shared_extract_review_verdict,
+    review_verdict_is_accepted,
+    review_verdict_is_rejected,
+)
+from .deliverable_validator import _protocol_leak_detected
+from .protocol_boundary import is_internal_protocol_input_key
 from .model_adoption import build_model_response_runtime_adoption, build_runtime_capability_state
 from .models import (
     AgentDispatchPlan,
@@ -164,6 +173,30 @@ class FinishedTaskRunResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "continuation_payload", dict(self.continuation_payload or {}))
+
+
+@dataclass(frozen=True, slots=True)
+class CompletedCheckpointRecoveryResult:
+    recovered: bool
+    reason: str = ""
+    task_run_id: str = ""
+    final_content_chars: int = 0
+    events: tuple[Any, ...] = ()
+    continuation_payload: dict[str, Any] = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "continuation_payload", dict(self.continuation_payload or {}))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "authority": "orchestration.completed_checkpoint_recovery",
+            "recovered": self.recovered,
+            "reason": self.reason,
+            "task_run_id": self.task_run_id,
+            "final_content_chars": self.final_content_chars,
+            "event_count": len(self.events),
+            "continuation_payload": dict(self.continuation_payload),
+        }
 
 
 class TaskRunLoop:
@@ -2162,7 +2195,7 @@ class TaskRunLoop:
                 *list(context_snapshot.model_messages),
                 AIMessage(
                     content=assistant_tool_call_content,
-                    tool_calls=pending_tool_calls,
+                    tool_calls=tool_calls_for_langchain_messages(pending_tool_calls),
                     additional_kwargs=assistant_tool_call_kwargs,
                 ),
                 *tool_messages,
@@ -2610,7 +2643,7 @@ class TaskRunLoop:
                     *followup_messages,
                     AIMessage(
                         content=next_assistant_tool_call_content,
-                        tool_calls=next_pending_tool_calls,
+                        tool_calls=tool_calls_for_langchain_messages(next_pending_tool_calls),
                         additional_kwargs=next_assistant_tool_call_kwargs,
                     ),
                     *next_tool_messages,
@@ -2885,7 +2918,10 @@ class TaskRunLoop:
             terminal_reason=terminal_reason,
             diagnostics={"final_content_chars": len(final_content), "artifact_validation": artifact_validation},
         )
-        if current_bundle_items and final_content:
+        if current_bundle_items and final_content and not _suppress_bundle_projection_for_task_graph_node(
+            current_turn_context=dict(current_turn_context or {}),
+            selected_recipe_payload=selected_recipe_payload,
+        ):
             bundle_projection = projection_from_bundle_answer(
                 content=final_content,
                 bundle_items=current_bundle_items,
@@ -3419,6 +3455,11 @@ class TaskRunLoop:
             status="completed" if terminal_state.status == "completed" else "failed",
             output_ref=str(checkpoint_event.refs.get("checkpoint_ref") or ""),
             summary=final_content[:280],
+            artifact_refs=tuple(
+                ref
+                for ref in self._collect_task_result_output_refs(dict(task_result or {}))
+                if str(ref).startswith("artifact:")
+            ),
             created_at=time.time(),
             diagnostics={
                 "terminal_reason": terminal_state.terminal_reason,
@@ -3703,6 +3744,251 @@ class TaskRunLoop:
             events=tuple(events),
             continuation_payload=continuation_payload,
         )
+
+    def recover_completed_checkpoint_task_run(
+        self,
+        *,
+        task_run_id: str,
+        current_turn_context: dict[str, Any] | None = None,
+        user_message: str = "",
+    ) -> CompletedCheckpointRecoveryResult:
+        task_run = self.state_index.get_task_run(task_run_id)
+        if task_run is None:
+            return CompletedCheckpointRecoveryResult(
+                recovered=False,
+                reason="missing_task_run",
+                task_run_id=task_run_id,
+            )
+        if task_run.status in {"completed", "failed", "aborted"} and self.state_index.list_task_agent_run_results(task_run_id):
+            return CompletedCheckpointRecoveryResult(
+                recovered=False,
+                reason="already_finalized",
+                task_run_id=task_run_id,
+            )
+        checkpoint = self.checkpoints.load_latest(task_run_id)
+        if checkpoint is None:
+            return CompletedCheckpointRecoveryResult(
+                recovered=False,
+                reason="missing_checkpoint",
+                task_run_id=task_run_id,
+            )
+        terminal_state = checkpoint.loop_state
+        if terminal_state.status not in {"completed", "failed", "aborted"}:
+            return CompletedCheckpointRecoveryResult(
+                recovered=False,
+                reason="checkpoint_not_terminal",
+                task_run_id=task_run_id,
+            )
+        if str(terminal_state.terminal_reason or "") != "completed":
+            return CompletedCheckpointRecoveryResult(
+                recovered=False,
+                reason="checkpoint_terminal_reason_not_recoverable",
+                task_run_id=task_run_id,
+            )
+        existing_materialization = dict(dict(task_run.diagnostics or {}).get("artifact_materialization") or {})
+        if existing_materialization.get("artifact_refs") and self.state_index.list_task_agent_run_results(task_run_id):
+            return CompletedCheckpointRecoveryResult(
+                recovered=False,
+                reason="already_materialized",
+                task_run_id=task_run_id,
+            )
+        final_content = self._recover_final_content_from_events(task_run_id)
+        if not final_content.strip():
+            return CompletedCheckpointRecoveryResult(
+                recovered=False,
+                reason="missing_final_content",
+                task_run_id=task_run_id,
+            )
+        start_agent_run = self._recover_start_agent_run(task_run)
+        start_coordination_run = self._recover_coordination_run_for_checkpoint(
+            terminal_state,
+            current_turn_context=dict(current_turn_context or {}),
+        )
+        checkpoint_event = self._write_checkpoint_event(
+            terminal_state,
+            event_offset=max(checkpoint.event_offset, self.event_log.next_offset(task_run_id) - 1),
+        )
+        recovered_context = {
+            **self._recover_current_turn_context_for_checkpoint(
+                terminal_state,
+                current_turn_context=dict(current_turn_context or {}),
+            ),
+            "completed_checkpoint_recovery": True,
+        }
+        task_result = self._recover_task_result_from_checkpoint(
+            checkpoint=checkpoint,
+            task_run=task_run,
+            final_content=final_content,
+        )
+        finished = self._upsert_finished_task_run(
+            start_task_run=task_run,
+            start_agent_run=start_agent_run,
+            start_coordination_run=start_coordination_run,
+            task_contract_ref=task_run.task_contract_ref or task_run.task_id,
+            terminal_state=terminal_state,
+            checkpoint_event=checkpoint_event,
+            final_content=final_content,
+            task_result=task_result,
+            task_spec_payload={},
+            current_turn_context=recovered_context,
+            user_message=user_message,
+            diagnostics={
+                "final_content_chars": len(final_content),
+                "completed_checkpoint_recovery": True,
+            },
+        )
+        return CompletedCheckpointRecoveryResult(
+            recovered=True,
+            reason="recovered_completed_checkpoint",
+            task_run_id=task_run_id,
+            final_content_chars=len(final_content),
+            events=finished.events,
+            continuation_payload=finished.continuation_payload,
+        )
+
+    def _recover_start_agent_run(self, task_run: TaskRun) -> AgentRun:
+        existing = self.state_index.list_task_agent_runs(task_run.task_run_id)
+        if existing:
+            return existing[0]
+        return AgentRun(
+            agent_run_id=f"agrun:{task_run.task_run_id}:main",
+            task_run_id=task_run.task_run_id,
+            agent_id=task_run.agent_id,
+            agent_profile_id=task_run.agent_profile_id,
+            runtime_lane=task_run.runtime_lane,
+            status="running",
+            created_at=task_run.created_at,
+            updated_at=time.time(),
+            diagnostics={"created_by_completed_checkpoint_recovery": True},
+        )
+
+    def _recover_coordination_run_for_checkpoint(
+        self,
+        terminal_state: RuntimeLoopState,
+        *,
+        current_turn_context: dict[str, Any],
+    ) -> CoordinationRun | None:
+        coordination_run_id = str(
+            current_turn_context.get("coordination_run_id")
+            or dict(terminal_state.diagnostics or {}).get("coordination_run_id")
+            or ""
+        ).strip()
+        if not coordination_run_id:
+            return None
+        return self.state_index.get_coordination_run(coordination_run_id)
+
+    def _recover_current_turn_context_for_checkpoint(
+        self,
+        terminal_state: RuntimeLoopState,
+        *,
+        current_turn_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        recovered = dict(current_turn_context or {})
+        diagnostics = dict(terminal_state.diagnostics or {})
+        coordination_run_id = str(recovered.get("coordination_run_id") or diagnostics.get("coordination_run_id") or "")
+        if coordination_run_id:
+            recovered["coordination_run_id"] = coordination_run_id
+        stage_request = dict(recovered.get("stage_execution_request") or {})
+        if not stage_request and coordination_run_id:
+            coordination_state = self.langgraph_coordination_runtime.checkpoints.get_state(
+                thread_id=coordination_run_id,
+            ) or {}
+            active_stage_id = str(
+                diagnostics.get("stage_id")
+                or diagnostics.get("coordination_stage_id")
+                or coordination_state.get("active_stage_id")
+                or ""
+            ).strip()
+            candidate_request = dict(coordination_state.get("stage_execution_request") or {})
+            if active_stage_id and str(candidate_request.get("stage_id") or "").strip() == active_stage_id:
+                stage_request = candidate_request
+        if stage_request:
+            recovered["stage_execution_request"] = stage_request
+            recovered.setdefault("selected_task_id", str(stage_request.get("task_ref") or ""))
+            recovered.setdefault("task_id", str(stage_request.get("task_ref") or ""))
+            recovered.setdefault("explicit_inputs", dict(stage_request.get("explicit_inputs") or {}))
+            recovered.setdefault("agent_id", str(stage_request.get("agent_id") or ""))
+            runtime_assembly = dict(stage_request.get("runtime_assembly") or {})
+            projection_id = str(runtime_assembly.get("projection_id") or stage_request.get("projection_id") or "")
+            if projection_id:
+                recovered.setdefault("projection_id", projection_id)
+                recovered.setdefault("selected_projection_id", projection_id)
+        elif "explicit_inputs" not in recovered:
+            recovered["explicit_inputs"] = {}
+        return recovered
+
+    def _recover_final_content_from_events(self, task_run_id: str) -> str:
+        events = self.event_log.list_events(task_run_id)
+        for event in reversed(events):
+            if event.event_type != "output_boundary_applied":
+                continue
+            output = dict(event.payload.get("output") or {})
+            for key in ("canonical_answer", "visible_text", "content"):
+                value = str(output.get(key) or "").strip()
+                if value:
+                    return value
+        for event in reversed(events):
+            if event.event_type != "commit_gate_checked":
+                continue
+            commit_decision = dict(event.payload.get("commit_decision") or {})
+            candidate = dict(commit_decision.get("commit_candidate") or {})
+            payload = dict(candidate.get("payload") or {})
+            content = str(payload.get("content") or "").strip()
+            if content:
+                return content
+        return ""
+
+    def _recover_task_result_from_checkpoint(
+        self,
+        *,
+        checkpoint: RuntimeCheckpoint,
+        task_run: TaskRun,
+        final_content: str,
+    ) -> dict[str, Any]:
+        checkpoint_result = dict(dict(checkpoint.commit_state or {}).get("task_result") or {})
+        if checkpoint_result:
+            return checkpoint_result
+        ledger = self._recover_task_run_ledger_from_events(task_run.task_run_id)
+        if ledger is None:
+            return {
+                "result_id": f"taskresult:{task_run.task_run_id}",
+                "task_run_id": task_run.task_run_id,
+                "task_id": task_run.task_id,
+                "task_spec_ref": checkpoint.loop_state.task_spec_ref or task_run.task_contract_ref or task_run.task_id,
+                "template_id": checkpoint.loop_state.task_template_id,
+                "status": checkpoint.loop_state.status,
+                "terminal_reason": checkpoint.loop_state.terminal_reason,
+                "result_refs": list(checkpoint.loop_state.result_refs or ()),
+                "output_refs": [],
+                "final_outputs": {"final_answer": final_content},
+                "diagnostics": {
+                    "final_content_chars": len(final_content),
+                    "recovered_from_completed_checkpoint": True,
+                },
+            }
+        return project_task_result_from_ledger(
+            ledger,
+            result_id=f"taskresult:{task_run.task_run_id}",
+            status=checkpoint.loop_state.status,
+            terminal_reason=checkpoint.loop_state.terminal_reason,
+            result_refs=tuple(str(ref) for ref in checkpoint.loop_state.result_refs if str(ref)),
+            output_refs=(),
+            final_outputs={"final_answer": final_content},
+            diagnostics={
+                "final_content_chars": len(final_content),
+                "recovered_from_completed_checkpoint": True,
+            },
+        ).to_dict()
+
+    def _recover_task_run_ledger_from_events(self, task_run_id: str) -> TaskRunLedger | None:
+        for event in reversed(self.event_log.list_events(task_run_id)):
+            if event.event_type != "task_run_ledger_updated":
+                continue
+            ledger_payload = dict(event.payload.get("task_run_ledger") or {})
+            if not ledger_payload:
+                continue
+            return _task_run_ledger_from_payload(ledger_payload)
+        return None
 
     def _sync_task_graph_root_terminal_objects(
         self,
@@ -4733,6 +5019,9 @@ class TaskRunLoop:
             if stage_agent_runtime_profile is None:
                 raise ValueError(f"TaskGraph node agent has no runtime profile: {stage_agent_id}")
         stage_request = dict(next_turn_context.get("stage_execution_request") or continuation_payload.get("stage_execution_request") or {})
+        standard_input_materials = _render_standard_input_package_for_model(stage_request)
+        if standard_input_materials and standard_input_materials not in next_message:
+            next_message = f"{next_message}\n\n{standard_input_materials}"
         turn_marker = str(next_turn_context.get("turn_id") or "").strip() or _stable_stage_turn_id(
             session_id=session_id,
             task_ref=next_task_ref,
@@ -5570,6 +5859,21 @@ class TaskRunLoop:
                     },
                 )
             ]
+        if event_type == "model_protocol_violation":
+            return [
+                self.event_log.append(
+                    task_run_id,
+                    "model_protocol_violation",
+                    payload={
+                        "content": str(event.get("content") or ""),
+                        "protocol_leak": dict(event.get("protocol_leak") or {}),
+                        "answer_source": str(event.get("answer_source") or ""),
+                    },
+                    refs={
+                        "directive_ref": str(event.get("directive_ref") or ""),
+                    },
+                )
+            ]
         if event_type == "answer_candidate":
             observation = build_model_response_observation(task_run_id, event)
             context_record = runtime_context_manager.record_observation(observation)
@@ -5853,6 +6157,7 @@ class TaskRunLoop:
                             reused_previous_result=True,
                         ).to_dict(),
                         result_ref=str(execution_record.result_ref or ""),
+                        result_envelope=dict(reused_payload.get("result_envelope") or {}),
                     )
                     context_record = runtime_context_manager.record_observation(reused_observation)
                     tool_result_event = self.event_log.append(
@@ -6191,6 +6496,87 @@ def _recipe_allows_tool_observation_finalization(selected_recipe_payload: dict[s
         return True
     return not _recipe_requires_model_finalize(selected_recipe)
 
+
+def _suppress_bundle_projection_for_task_graph_node(
+    *,
+    current_turn_context: dict[str, Any],
+    selected_recipe_payload: dict[str, Any],
+) -> bool:
+    context = dict(current_turn_context or {})
+    if context.get("suppress_bundle_projection") is True:
+        return True
+    if dict(context.get("stage_execution_request") or {}):
+        return True
+    if str(context.get("source") or "").startswith("codex_rewind_"):
+        return True
+    metadata = dict(dict(selected_recipe_payload or {}).get("metadata") or {})
+    return bool(metadata.get("task_graph_node_runtime") is True or metadata.get("suppress_bundle_projection") is True)
+
+
+_STANDARD_INPUT_MODEL_TEXT_LIMIT = 120_000
+_STANDARD_INPUT_ITEM_TEXT_LIMIT = 24_000
+
+
+def _render_standard_input_package_for_model(stage_request: dict[str, Any]) -> str:
+    package = dict(dict(stage_request or {}).get("standard_input_package") or {})
+    items = [dict(item) for item in list(package.get("input_items") or []) if isinstance(item, dict)]
+    if not items:
+        return ""
+
+    rendered_items: list[str] = []
+    total_chars = 0
+    for item in items:
+        input_key = str(item.get("input_key") or "").strip() or "unnamed_input"
+        if is_internal_protocol_input_key(input_key):
+            continue
+        content_type = str(item.get("content_type") or "").strip()
+        usage_instruction = str(item.get("usage_instruction") or "").strip()
+        source_node_id = str(item.get("source_node_id") or "").strip()
+        metadata = dict(item.get("metadata") or {})
+        text = str(metadata.get("text") or "").strip()
+        if not text:
+            text = str(item.get("content_preview") or "").strip()
+        if not text:
+            continue
+        if _protocol_leak_detected(text):
+            text = re.sub(
+                r"<\s*/?\s*(?:tool_call|invoke|read_file|search_text|search_files|delegate_to_agent)[^>]*>",
+                "",
+                text,
+                flags=re.IGNORECASE,
+            ).strip()
+        if len(text) > _STANDARD_INPUT_ITEM_TEXT_LIMIT:
+            text = text[:_STANDARD_INPUT_ITEM_TEXT_LIMIT].rstrip() + "\n\n[上游材料因长度限制已截断，请只依据已展示内容继续。]"
+        header_bits = [f"输入键：{input_key}"]
+        if content_type:
+            header_bits.append(f"类型：{content_type}")
+        if source_node_id:
+            header_bits.append(f"来源节点：{source_node_id}")
+        if usage_instruction:
+            header_bits.append(f"用途：{usage_instruction}")
+        block = "\n".join(
+            [
+                "## " + "；".join(header_bits),
+                text,
+            ]
+        )
+        if total_chars + len(block) > _STANDARD_INPUT_MODEL_TEXT_LIMIT:
+            remaining = max(_STANDARD_INPUT_MODEL_TEXT_LIMIT - total_chars, 0)
+            if remaining <= 200:
+                break
+            block = block[:remaining].rstrip() + "\n\n[标准输入材料因总长度限制已截断。]"
+        rendered_items.append(block)
+        total_chars += len(block)
+
+    if not rendered_items:
+        return ""
+    return "\n".join(
+        [
+            "# 标准节点输入材料",
+            "以下内容由编排运行层预读取并展开，模型只能依据这些已展开材料工作；不得要求读取文件、调用工具或输出伪工具标签。",
+            *rendered_items,
+        ]
+    )
 
 def _recipe_requires_model_finalize(selected_recipe: ExecutionRecipe) -> bool:
     finalization_policy = dict(getattr(selected_recipe, "finalization_policy", {}) or {})
@@ -7800,6 +8186,51 @@ def _memory_commit_state_from_assistant_commit_result(result: Any) -> dict[str, 
     }
 
 
+def _task_run_ledger_from_payload(payload: dict[str, Any]) -> TaskRunLedger:
+    return TaskRunLedger(
+        ledger_id=str(payload.get("ledger_id") or ""),
+        task_run_id=str(payload.get("task_run_id") or ""),
+        task_id=str(payload.get("task_id") or ""),
+        task_spec_ref=str(payload.get("task_spec_ref") or ""),
+        template_id=str(payload.get("template_id") or ""),
+        status=payload.get("status", "created"),
+        current_step_id=str(payload.get("current_step_id") or ""),
+        requested_outputs=tuple(str(item) for item in list(payload.get("requested_outputs") or []) if str(item)),
+        step_runs=tuple(
+            _task_step_run_from_payload(dict(item))
+            for item in list(payload.get("step_runs") or [])
+            if isinstance(item, dict)
+        ),
+        refs=dict(payload.get("refs") or {}),
+        diagnostics=dict(payload.get("diagnostics") or {}),
+    )
+
+
+def _task_step_run_from_payload(payload: dict[str, Any]) -> TaskStepRun:
+    return TaskStepRun(
+        step_id=str(payload.get("step_id") or ""),
+        title=str(payload.get("title") or ""),
+        step_kind=str(payload.get("step_kind") or ""),
+        executor_type=str(payload.get("executor_type") or ""),
+        status=payload.get("status", "pending"),
+        required_operations=tuple(str(item) for item in list(payload.get("required_operations") or []) if str(item)),
+        optional_operations=tuple(str(item) for item in list(payload.get("optional_operations") or []) if str(item)),
+        input_refs=tuple(str(item) for item in list(payload.get("input_refs") or []) if str(item)),
+        output_contract_id=str(payload.get("output_contract_id") or ""),
+        stop_policy=str(payload.get("stop_policy") or "on_success"),
+        retry_policy=dict(payload.get("retry_policy") or {}),
+        observation_refs=tuple(str(item) for item in list(payload.get("observation_refs") or []) if str(item)),
+        output_refs=tuple(str(item) for item in list(payload.get("output_refs") or []) if str(item)),
+        entered_at=float(payload.get("entered_at") or 0.0),
+        completed_at=float(payload.get("completed_at") or 0.0),
+        attempt_count=int(payload.get("attempt_count") or 0),
+        failure_reason=str(payload.get("failure_reason") or ""),
+        step_result_ref=str(payload.get("step_result_ref") or ""),
+        executor_ref=str(payload.get("executor_ref") or ""),
+        diagnostics=dict(payload.get("diagnostics") or {}),
+    )
+
+
 def _working_memory_refs_from_assembly(assembly: dict[str, Any]) -> list[str]:
     refs: list[str] = []
     for section in list(dict(assembly or {}).get("context_sections") or []):
@@ -8306,6 +8737,19 @@ def _stage_business_acceptance(
 ) -> dict[str, Any]:
     artifact_ok = bool(output_refs) if requires_file_artifact_refs else True
     base_accepted = str(terminal_status or "") == "completed" and artifact_ok
+    protocol_leak = _protocol_leak_detected(final_content)
+    if protocol_leak:
+        return {
+            "accepted": False,
+            "base_accepted": base_accepted,
+            "business_accepted": False,
+            "artifact_ok": artifact_ok,
+            "stage_id": stage_id,
+            "policy": "protocol_boundary",
+            "issues": ["protocol_boundary:pseudo_tool_output"],
+            "protocol_leak_detected": True,
+            "authority": "orchestration.stage_business_acceptance",
+        }
     length_budget = dict(contract.get("length_budget") or {})
     quality_policy = dict(contract.get("quality_retry_policy") or {})
     accepted_policies = {str(item) for item in list(quality_policy.get("acceptance_policies") or []) if str(item)}
@@ -8365,9 +8809,9 @@ def _stage_business_acceptance(
         }
     verdict = _extract_review_verdict(final_content)
     allowed_to_commit = _extract_review_commit_permission(final_content)
-    if verdict in {"pass", "pass_with_notes"}:
+    if review_verdict_is_accepted(verdict):
         business_accepted = True
-    elif verdict in {"revise", "revise_volume", "revise_extension", "repair_canon", "fail_closed", "human_review_required", "reject", "blocker_found"}:
+    elif review_verdict_is_rejected(verdict):
         business_accepted = False
     elif allowed_to_commit is not None:
         business_accepted = allowed_to_commit
@@ -8437,58 +8881,11 @@ def _length_budget_quality_gate(
 
 
 def _extract_review_verdict(content: str) -> str:
-    text = str(content or "").strip()
-    if not text:
-        return ""
-    lowered = text.lower()
-    explicit_verdict = _extract_explicit_review_verdict(text)
-    if explicit_verdict:
-        return explicit_verdict
-    if "不允许写入" in text or "不允许批次写入" in text or "必须等正文" in text:
-        return "revise"
-    if "允许批次写入记忆：否" in text or "是否允许批次写入记忆：否" in text:
-        return "revise"
-    if re.search(r"\bfail[_ -]?closed\b", lowered):
-        return "fail_closed"
-    for verdict in ("repair_canon", "revise_volume", "revise_extension", "blocker_found", "reject", "human_review_required", "pass_with_notes"):
-        if verdict in lowered:
-            return "pass_with_notes" if verdict == "pass_with_notes" else ("revise" if verdict in {"repair_canon", "revise_volume", "revise_extension", "blocker_found", "reject"} else verdict)
-    return ""
+    return _shared_extract_review_verdict(content)
 
 
 def _extract_explicit_review_verdict(text: str) -> str:
-    verdict_map = {
-        "pass": "pass",
-        "approved": "pass",
-        "approve": "pass",
-        "通过": "pass",
-        "同意": "pass",
-        "revise": "revise",
-        "pass_with_notes": "pass",
-        "revision required": "revise",
-        "修订": "revise",
-        "修改": "revise",
-        "返工": "revise",
-        "不通过": "revise",
-        "repair_canon": "revise",
-        "revise_volume": "revise",
-        "revise_extension": "revise",
-        "blocker_found": "revise",
-        "reject": "revise",
-        "human_review_required": "human_review_required",
-        "fail_closed": "fail_closed",
-    }
-    patterns = (
-        r"^\s*[【\[]?\s*(?:裁决|结论|verdict)\s*[】\]]?\s*[:：-]?\s*([^\n\r]+)",
-        r"^\s*(?:裁决|结论|verdict)\s*[:：-]\s*([^\n\r]+)",
-    )
-    for pattern in patterns:
-        for match in re.finditer(pattern, text, re.IGNORECASE | re.MULTILINE):
-            value = str(match.group(1) or "").strip().lower()
-            for token, verdict in verdict_map.items():
-                if token in value:
-                    return verdict
-    return ""
+    return _shared_extract_explicit_review_verdict(text)
 
 
 def _extract_review_commit_permission(content: str) -> bool | None:

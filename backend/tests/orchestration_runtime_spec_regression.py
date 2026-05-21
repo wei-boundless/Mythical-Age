@@ -69,6 +69,32 @@ def test_orchestration_runtime_bundle_builds_formal_objects() -> None:
     assert orchestration["projection_ref"] == orchestration["projection_requirement"]["projection_id"] or not orchestration["projection_requirement"]["projection_id"]
 
 
+def test_professional_mode_overrides_registered_light_web_game_recipe() -> None:
+    task_bundle = build_task_execution_assembly_bundle(
+        session_id="session-professional-game",
+        task_id="taskinst:turn:session-professional-game:1:light_web_game",
+        user_goal="请用专业模式完成一个多文件网页贪吃蛇小游戏。",
+        source="test",
+        current_turn_context={
+            "authority": "context.current_turn",
+            "turn_id": "turn:session-professional-game:1",
+            "selected_task_id": "task.dev.light_web_game",
+            "interaction_mode": "professional_mode",
+            "intent_decision": {"execution_strategy": "professional_task_run", "interaction_mode": "professional_mode"},
+            "runtime_assembly_hint": {
+                "execution_strategy": "professional_task_run",
+                "runtime_mode": "professional_task",
+                "interaction_mode": "professional_mode",
+            },
+        },
+    )
+
+    shape = task_bundle["execution_shape"]
+    recipe = task_bundle["selected_recipe"]
+    assert shape["recipe_id"] == "runtime.recipe.professional_task"
+    assert recipe["metadata"]["runtime_driver"] == "professional_task_run"
+
+
 def test_orchestration_runtime_bundle_uses_selected_task_profiles() -> None:
     task_bundle = build_task_execution_assembly_bundle(
         session_id="session-orch-health",

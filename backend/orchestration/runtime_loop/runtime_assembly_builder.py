@@ -5,6 +5,8 @@ from typing import Any
 
 from orchestration.agent_runtime_models import AgentRuntimeProfile
 
+from orchestration.artifact_policy_view import artifact_policy_summary
+
 from .contract_compiler_models import ContractManifest
 from .runtime_assembly_models import (
     HandoffPacket,
@@ -116,6 +118,7 @@ def build_node_runtime_assembly(
     resolved_projection_id = node_projection_id or agent_default_projection_id
     context_assembly_policy = _context_assembly_policy_from_node(node)
     layered_context = _layered_node_context(manifest=manifest, node_id=node_id)
+    node_artifact_policy = dict(node.artifact_bindings.get("artifact_policy") or getattr(node, "artifact_policy", {}) or node.metadata.get("artifact_policy") or {})
     sections = (
         RuntimeContextSection(
             section_id="coordination_task_state",
@@ -141,6 +144,17 @@ def build_node_runtime_assembly(
             model_visible=True,
             metadata={"profile_context_section": "artifact_refs"},
         ),
+        RuntimeContextSection(
+            section_id="artifact_policy",
+            title="产物政策",
+            content_mode="structured",
+            source_ref=f"{manifest.graph_id}:{node_id}:artifact_policy",
+            model_visible=True,
+            metadata={
+                "profile_context_section": "runtime_contracts",
+                "artifact_policy": artifact_policy_summary(node_artifact_policy),
+            },
+        ),
         *_layered_context_sections(layered_context),
         *_working_memory_sections(working_memory_context),
         *_task_durable_memory_sections(task_durable_memory_context),
@@ -161,7 +175,6 @@ def build_node_runtime_assembly(
     node_dynamic_memory_read_policy = dict(
         node.memory_bindings.get("dynamic_memory_read_policy") or getattr(node, "dynamic_memory_read_policy", {}) or node.metadata.get("dynamic_memory_read_policy") or {}
     )
-    node_artifact_policy = dict(node.artifact_bindings.get("artifact_policy") or getattr(node, "artifact_policy", {}) or node.metadata.get("artifact_policy") or {})
     node_length_budget = dict(node.runtime_bindings.get("length_budget") or {})
     return NodeRuntimeAssembly(
         assembly_id=_stable_assembly_id("node", manifest.manifest_id, node_id, explicit_inputs or {}),
@@ -525,6 +538,7 @@ def _context_section_aliases(section_id: str, profile_key: str) -> set[str]:
         "task_inputs": {"task"},
         "coordination_task_state": {"task", "coordination_task_state"},
         "runtime_contracts": {"runtime_contracts"},
+        "artifact_policy": {"runtime_contracts", "artifact_refs"},
         "upstream_outputs": {"upstream_outputs", "handoff", "task"},
         "memory_snapshot": {"working_memory", "memory_runtime_view", "task"},
         "revision_context": {"upstream_outputs", "handoff", "task"},

@@ -967,6 +967,10 @@ def _subtask_refs_from_graph_payload(graph: TaskGraphDefinition) -> list[str]:
     metadata = dict(graph.metadata or {})
     refs = [
         *[str(value).strip() for value in list(metadata.get("subtask_refs") or []) if str(value).strip()],
-        *[str(node.task_id or "").strip() for node in graph.nodes if str(node.task_id or "").strip()],
+        *[
+            str(node.task_id or "").strip()
+            for node in graph.nodes
+            if str(node.node_type or "").strip() != "graph_unit" and str(node.task_id or "").strip()
+        ],
     ]
     return list(dict.fromkeys(value for value in refs if value.startswith("task.")))

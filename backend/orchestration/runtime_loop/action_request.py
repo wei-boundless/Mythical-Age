@@ -133,9 +133,28 @@ def build_tool_result_observation(
     truncated: bool = False,
     execution_receipt: dict[str, Any] | None = None,
     result_ref: str = "",
+    result_envelope: dict[str, Any] | None = None,
 ) -> RuntimeObservation:
     content = str(result or "")
     receipt = dict(execution_receipt or {})
+    envelope = dict(result_envelope or {})
+    structured_payload = dict(envelope.get("structured_payload") or {})
+    observed_paths = [
+        str(item).strip()
+        for item in list(envelope.get("observed_paths") or structured_payload.get("observed_paths") or [])
+        if str(item).strip()
+    ]
+    matched_paths = [
+        str(item).strip()
+        for item in list(envelope.get("matched_paths") or structured_payload.get("matched_paths") or [])
+        if str(item).strip()
+    ]
+    artifact_refs = [
+        dict(item)
+        for item in list(envelope.get("artifact_refs") or structured_payload.get("artifact_refs") or [])
+        if isinstance(item, dict)
+    ]
+    command_receipt = dict(envelope.get("command_receipt") or structured_payload.get("command_receipt") or {})
     return RuntimeObservation(
         observation_id=f"rtobs:{task_run_id}:{uuid.uuid4().hex[:8]}",
         task_run_id=task_run_id,
@@ -154,6 +173,12 @@ def build_tool_result_observation(
             "execution_receipt": receipt,
             "execution_id": str(receipt.get("execution_id") or ""),
             "result_ref": str(result_ref or receipt.get("result_ref") or ""),
+            "result_envelope": envelope,
+            "structured_payload": structured_payload,
+            "observed_paths": observed_paths,
+            "matched_paths": matched_paths,
+            "artifact_refs": artifact_refs,
+            "command_receipt": command_receipt,
         },
         needs_model_followup=True,
         created_at=time.time(),

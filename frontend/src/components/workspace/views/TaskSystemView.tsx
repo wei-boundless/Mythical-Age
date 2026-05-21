@@ -7,6 +7,8 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { contractSpecTitle } from "@/components/workspace/views/task-system/ContractLibraryPanel";
 import { TaskGraphWorkbench } from "@/components/workspace/views/task-system/TaskGraphWorkbench";
+import { ProfessionalRunSessionPage } from "@/components/workspace/views/task-system/ProfessionalRunSessionPage";
+import { ResourceAuthorityMapPage } from "@/components/workspace/views/task-system/ResourceAuthorityMapPage";
 import { TaskSystemShell } from "@/components/workspace/views/task-system/TaskSystemShell";
 import { TaskContractLibraryPage } from "@/components/workspace/views/task-system/library/TaskContractLibraryPage";
 import { TaskDefinitionLibraryPage } from "@/components/workspace/views/task-system/library/TaskDefinitionLibraryPage";
@@ -47,6 +49,7 @@ import {
   getArtifactRepositoryOverview,
   getFormalMemoryOverview,
   getOrchestrationAgents,
+  getOrchestrationResourceInventory,
   getOrchestrationRuntimeLoopTaskRunLiveMonitor,
   listOrchestrationRuntimeLoopTaskRuns,
   getSoulProjectionCards,
@@ -69,6 +72,7 @@ import {
   type ArtifactRepositoryOverview,
   type FormalMemoryOverview,
   type OrchestrationAgentRuntimeCatalog,
+  type RuntimeResourceInventory,
   type RuntimeLoopTaskRunLiveMonitor,
   type RuntimeLoopTaskRunSummary,
   type SoulProjectionCard,
@@ -90,7 +94,7 @@ import {
 import { useAppStore } from "@/lib/store";
 
 type TaskLayer = "management" | "editor";
-type TaskSystemLayer = "domains" | "tasks" | "graphs" | "contracts" | "orchestration" | "runtime";
+type TaskSystemLayer = "domains" | "tasks" | "graphs" | "contracts" | "resource-authority" | "professional-run" | "orchestration" | "runtime";
 type TaskConfigPanel = "definition";
 type ContractPanel = "library" | "templates";
 
@@ -754,6 +758,7 @@ export function TaskSystemView() {
   const [runtimeFormalOverview, setRuntimeFormalOverview] = useState<FormalMemoryOverview | null>(null);
   const [runtimeArtifactOverview, setRuntimeArtifactOverview] = useState<ArtifactRepositoryOverview | null>(null);
   const [runtimeLiveMonitor, setRuntimeLiveMonitor] = useState<RuntimeLoopTaskRunLiveMonitor | null>(null);
+  const [runtimeResourceInventory, setRuntimeResourceInventory] = useState<RuntimeResourceInventory | null>(null);
   const [runtimeLoading, setRuntimeLoading] = useState(false);
   const [runtimeError, setRuntimeError] = useState("");
   const selectedDomainIdRef = useRef("");
@@ -2050,6 +2055,8 @@ export function TaskSystemView() {
     return counts;
   }, [runtimeArtifactOverview?.artifacts]);
   const runtimePageActive = activeWorkspaceView === "task-system" && taskLayer === "management" && taskSystemLayer === "runtime";
+  const professionalRunPageActive = activeWorkspaceView === "task-system" && taskLayer === "management" && taskSystemLayer === "professional-run";
+  const resourceAuthorityPageActive = activeWorkspaceView === "task-system" && taskLayer === "management" && taskSystemLayer === "resource-authority";
   const loadRuntimeTaskRuns = useCallback(async () => {
     if (!currentSessionId) {
       setRuntimeTaskRuns([]);
@@ -2081,32 +2088,59 @@ export function TaskSystemView() {
       setRuntimeLoading(false);
     }
   }, [runtimeTaskRunId]);
+  const loadRuntimeResourceInventory = useCallback(async () => {
+    try {
+      setRuntimeResourceInventory(await getOrchestrationResourceInventory());
+    } catch (exc) {
+      setRuntimeError(exc instanceof Error ? `资源权威地图加载失败：${exc.message}` : "资源权威地图加载失败");
+    }
+  }, []);
   const refreshRuntimeManagement = useCallback(async () => {
     await Promise.all([
       loadRuntimeTaskRuns(),
       loadRuntimeStores(),
     ]);
   }, [loadRuntimeStores, loadRuntimeTaskRuns]);
+  const refreshProfessionalRun = useCallback(async () => {
+    await Promise.all([
+      loadRuntimeTaskRuns(),
+      loadRuntimeStores(),
+    ]);
+  }, [loadRuntimeStores, loadRuntimeTaskRuns]);
+  const refreshResourceAuthority = useCallback(async () => {
+    setRuntimeLoading(true);
+    setRuntimeError("");
+    try {
+      await loadRuntimeResourceInventory();
+    } finally {
+      setRuntimeLoading(false);
+    }
+  }, [loadRuntimeResourceInventory]);
 
   useEffect(() => {
-    if (!runtimePageActive) return;
+    if (!runtimePageActive && !professionalRunPageActive) return;
     void loadRuntimeTaskRuns();
-  }, [loadRuntimeTaskRuns, runtimePageActive]);
+  }, [loadRuntimeTaskRuns, professionalRunPageActive, runtimePageActive]);
 
   useEffect(() => {
-    if (!runtimePageActive || runtimeDefaultedRef.current || runtimeTaskRunId.trim()) return;
+    if ((!runtimePageActive && !professionalRunPageActive) || runtimeDefaultedRef.current || runtimeTaskRunId.trim()) return;
     const nextTaskRunId = runtimeBoundTaskRunId
       || getRuntimeTaskRunId(runtimeRunsForSelectedGraph[0])
       || getRuntimeTaskRunId(runtimeTaskRuns[0]);
     if (!nextTaskRunId) return;
     runtimeDefaultedRef.current = true;
     setRuntimeTaskRunId(nextTaskRunId);
-  }, [runtimeBoundTaskRunId, runtimePageActive, runtimeRunsForSelectedGraph, runtimeTaskRunId, runtimeTaskRuns]);
+  }, [professionalRunPageActive, runtimeBoundTaskRunId, runtimePageActive, runtimeRunsForSelectedGraph, runtimeTaskRunId, runtimeTaskRuns]);
 
   useEffect(() => {
-    if (!runtimePageActive) return;
+    if (!runtimePageActive && !professionalRunPageActive) return;
     void loadRuntimeStores();
-  }, [loadRuntimeStores, runtimePageActive]);
+  }, [loadRuntimeStores, professionalRunPageActive, runtimePageActive]);
+
+  useEffect(() => {
+    if (!resourceAuthorityPageActive) return;
+    void refreshResourceAuthority();
+  }, [refreshResourceAuthority, resourceAuthorityPageActive]);
 
   const taskSystemLayerItems: Array<LayerNavItem<TaskSystemLayer>> = [
     {
@@ -2134,6 +2168,18 @@ export function TaskSystemView() {
       detail: "管理任务域下的节点契约、边载荷契约和质量门模板",
     },
     {
+      value: "resource-authority",
+      label: "资源权威",
+      meta: `${runtimeResourceInventory?.items?.length ?? 0} 层资源`,
+      detail: "查看任务、编排、投影、状态与执行义务的运行权威层级",
+    },
+    {
+      value: "professional-run",
+      label: "专业运行",
+      meta: runtimeTaskRunId.trim() || "未选择 TaskRun",
+      detail: "查看长任务会话、状态机、执行义务和工具观察账本",
+    },
+    {
       value: "orchestration",
       label: "编排资源",
       meta: `${orchestrationAgentCatalog?.agents?.length ?? 0} Agent / ${projectionCards.length} Projection`,
@@ -2147,7 +2193,7 @@ export function TaskSystemView() {
     },
   ];
   const primaryTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["domains", "tasks", "graphs"].includes(item.value));
-  const supportingTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["contracts", "orchestration", "runtime"].includes(item.value));
+  const supportingTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["contracts", "resource-authority", "professional-run", "orchestration", "runtime"].includes(item.value));
   const taskConfigPanelItems: Array<LayerNavItem<TaskConfigPanel>> = [
     {
       value: "definition",
@@ -2437,6 +2483,30 @@ export function TaskSystemView() {
               orchestrationAgentCatalog={orchestrationAgentCatalog}
               projectionCards={projectionCards}
               selectedTaskGraphId={selectedTaskGraph?.graph_id}
+            />
+          ) : null}
+
+          {taskSystemLayer === "resource-authority" ? (
+            <ResourceAuthorityMapPage
+              inventory={runtimeResourceInventory}
+              loading={runtimeLoading}
+              onRefresh={() => void refreshResourceAuthority()}
+              selectedTaskGraphId={selectedTaskGraph?.graph_id}
+            />
+          ) : null}
+
+          {taskSystemLayer === "professional-run" ? (
+            <ProfessionalRunSessionPage
+              monitorForSelectedRun={runtimeMonitorForSelectedRun || null}
+              onRefresh={() => void refreshProfessionalRun()}
+              onTaskRunIdChange={(taskRunId) => {
+                runtimeDefaultedRef.current = true;
+                setRuntimeTaskRunId(taskRunId);
+              }}
+              runtimeLoading={runtimeLoading}
+              runtimeRunsForSelectedGraph={runtimeRunsForSelectedGraph}
+              runtimeTaskRunId={runtimeTaskRunId}
+              selectedRuntimeSummary={selectedRuntimeSummary}
             />
           ) : null}
 

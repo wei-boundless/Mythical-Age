@@ -478,8 +478,8 @@ def _subtask_refs_from_graph_nodes(nodes: tuple[dict[str, Any], ...]) -> tuple[s
         dict.fromkeys(
             str(node.get("task_id") or node.get("subtask_ref") or "").strip()
             for node in nodes
-            if str(node.get("task_id") or node.get("subtask_ref") or "").strip().startswith("task.")
-            or str(node.get("task_id") or node.get("subtask_ref") or "").strip().startswith("task_graph.node.")
+            if str(node.get("node_type") or "").strip() != "graph_unit"
+            and str(node.get("task_id") or node.get("subtask_ref") or "").strip().startswith("task.")
         )
     )
 

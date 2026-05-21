@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .protocol_boundary import is_internal_protocol_input_key
+
 
 def resolve_context_packets(
     *,
@@ -487,7 +489,9 @@ def _version_selector_for_record(ref: str, *, resolved_records: list[dict[str, A
 
 def _artifact_refs_from_explicit_inputs(explicit_inputs: dict[str, Any]) -> list[str]:
     refs: list[str] = []
-    for value in dict(explicit_inputs or {}).values():
+    for key, value in dict(explicit_inputs or {}).items():
+        if is_internal_protocol_input_key(str(key)):
+            continue
         refs.extend(_artifact_refs_from_value(value))
     return _dedupe(refs)
 

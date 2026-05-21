@@ -14,35 +14,6 @@ from soul import SoulFacade
 
 AGENT_CATEGORIES = {"main_agent", "builtin_agent", "custom_agent"}
 
-RETIRED_WRITING_AGENT_IDS = {
-    "agent:chapter_planner",
-    "agent:character_designer_a",
-    "agent:character_designer_b",
-    "agent:character_judge",
-    "agent:memory_steward",
-    "agent:novel_quality_judge",
-    "agent:novel_writer_a",
-    "agent:novel_writer_b",
-    "agent:outline_designer_a",
-    "agent:outline_designer_b",
-    "agent:outline_judge",
-    "agent:world_designer_a",
-    "agent:world_designer_b",
-    "agent:world_judge",
-    "agent:writing_simple_creator",
-    "agent:writing_simple_reviewer",
-    "agent:writing_final_assembler",
-    "agent:writing_simple_worker",
-    "agent:writing_memory_steward",
-    "agent:writing_runtime_monitor",
-    "agent:writing_team_worker",
-}
-
-RETIRED_WRITING_AGENT_ERROR = "retired writing graph agent ids cannot be recreated; use modular task graph agent ids"
-
-WRITING_AGENT_TEMPLATE_OVERRIDES = {
-}
-
 
 def _storage_root(base_dir: Path) -> Path:
     return ProjectLayout.from_backend_dir(base_dir).orchestration_dir
@@ -229,9 +200,9 @@ class AgentRegistry:
         default_payload = [item.to_dict() for item in default_agent_descriptors()]
         payload = _read_json(self.agents_path, {"agents": default_payload})
         stored_agents = [
-            item
-            for item in (_migrate_agent_payload(item) for item in list(payload.get("agents") or []) if isinstance(item, dict))
-            if str(item.get("agent_id") or "").strip() not in RETIRED_WRITING_AGENT_IDS
+            _migrate_agent_payload(item)
+            for item in list(payload.get("agents") or [])
+            if isinstance(item, dict)
         ]
         raw_agents = (
             default_payload
@@ -293,8 +264,6 @@ class AgentRegistry:
         target = normalize_agent_id(agent_id)
         if not target.startswith("agent:"):
             raise ValueError("agent_id must start with agent:")
-        if target in RETIRED_WRITING_AGENT_IDS:
-            raise ValueError(RETIRED_WRITING_AGENT_ERROR)
         normalized_category = _normalize_agent_category(agent_category or profile_type or "custom_agent")
         if normalized_category not in AGENT_CATEGORIES:
             raise ValueError("unsupported agent_category")
@@ -469,8 +438,6 @@ def _migrate_agent_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 metadata["agent_template_id"] = f"builtin.specialist.{canonical_agent_id.removeprefix('agent:')}"
         elif str(metadata.get("task_family") or "").strip():
             metadata["agent_template_id"] = f"task_graph.{str(metadata.get('task_family')).strip()}.node_agent"
-    if canonical_agent_id in WRITING_AGENT_TEMPLATE_OVERRIDES:
-        metadata["agent_template_id"] = WRITING_AGENT_TEMPLATE_OVERRIDES[canonical_agent_id]
     return {
         "agent_id": canonical_agent_id,
         "agent_name": display_name,

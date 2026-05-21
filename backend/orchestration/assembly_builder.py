@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from capability_system import build_default_operation_registry
+from orchestration.artifact_policy_view import render_artifact_policy_instructions
 from prompting.professional_profiles import get_professional_prompt_profile
 from soul import SoulFacade
 from soul.projection_store import get_projection_card
@@ -609,6 +610,15 @@ def _output_section(
         )
     output_contract = str(task_execution_assembly.get("output_contract_id") or "").strip()
     template_metadata = dict(task_execution_assembly.get("metadata") or {})
+    artifact_policy = dict(
+        task_execution_assembly.get("artifact_policy")
+        or template_metadata.get("artifact_policy")
+        or {}
+    )
+    artifact_policy_section = render_artifact_policy_instructions(
+        artifact_policy,
+        heading="Artifact policy",
+    )
     final_answer_requirements = [
         str(item).strip()
         for item in list(template_metadata.get("final_answer_requirements") or [])
@@ -625,6 +635,7 @@ def _output_section(
             f"Output should satisfy task mode: {task_mode or 'general_qa'}.",
             f"Requested outputs: {', '.join(requested_outputs) if requested_outputs else 'AssistantFinalAnswer'}.",
             f"Output contract: {output_contract}." if output_contract else "",
+            artifact_policy_section,
             f"Deliverable summary: {str(task_spec.get('summary') or '').strip()}" if str(task_spec.get("summary") or "").strip() else "",
             (
                 "Mandatory final answer requirements: "

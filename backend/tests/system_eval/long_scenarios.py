@@ -287,6 +287,189 @@ TASK_SYSTEM_LIGHT_WEB_GAME_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
 )
 
 
+PROFESSIONAL_GAME_MULTIFILE_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "请用专业模式在 sandbox overlay 中完成一个多文件网页贪吃蛇小游戏工程，目录必须是 "
+            "frontend/public/games/snake_plus/。不要做成单文件。必须写入 index.html、styles.css、game.js、README.md。"
+            "游戏至少包含开始、暂停、重新开始、分数、最高分、本局用时、简单/普通/困难难度、撞墙/撞自己结束。"
+            "完成后请用 terminal 验证四个文件存在，验证 index.html 引用了 styles.css 和 game.js，"
+            "并说明产物路径、验证结果和已知限制。"
+        ),
+        checks=(
+            "response.nonempty",
+            "response.contains_all=index.html|styles.css|game.js|README.md|验证",
+            "task_run.nonempty",
+            "event.tool=write_file",
+            "event.tool=terminal",
+            "trace.agent_run_results.nonempty",
+            "trace.artifact.contains=frontend/public/games/snake_plus",
+            "sandbox.enabled",
+            "sandbox.real_workspace_access=read_only",
+        ),
+        params={"task_selection": {"selected_task_id": "task.dev.light_web_game"}},
+        force_memory_sync=False,
+    ),
+)
+
+
+PROFESSIONAL_TASK_SELECTION: dict[str, Any] = {
+    "interaction_mode": "professional_mode",
+    "intent_decision": {"execution_strategy": "professional_task_run", "interaction_mode": "professional_mode"},
+    "runtime_assembly_hint": {
+        "execution_strategy": "professional_task_run",
+        "runtime_mode": "professional_task",
+        "interaction_mode": "professional_mode",
+    },
+}
+
+
+PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS: tuple[LongScenarioTurn, ...] = (
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "请用专业模式在 sandbox overlay 中完成一个多轮验收型浏览器小游戏工程，目录必须是 "
+            "frontend/public/games/arcane_dungeon_studio/。这不是一次性 demo，而是要能承受后续验收反馈的真实工程。"
+            "第一版必须写入 index.html、styles.css、game.js、README.md，并创建 assets/ 目录。"
+            "玩法要求：2D 地牢探索，玩家移动，至少两类敌人，金币，药水，生命值，胜负状态，暂停和重新开始。"
+            "完成后请用 terminal 验证核心文件存在、index.html 引用了 styles.css 和 game.js，并说明产物路径与验证结果。"
+        ),
+        checks=(
+            "response.nonempty",
+            "response.contains_all=index.html|styles.css|game.js|README.md|验证",
+            "task_run.nonempty",
+            "event=runtime_sandbox_prepared",
+            "event.tool=write_file",
+            "event.tool=terminal",
+            "trace.coordination_runs=0",
+            "sandbox.enabled",
+            "sandbox.root.contains=output/sandbox_runs",
+            "sandbox.real_workspace_access=read_only",
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/index.html",
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/styles.css",
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/game.js",
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/README.md",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/index.html::styles.css|game.js",
+        ),
+        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        force_memory_sync=False,
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "我验收第一版时发现：assets 目录虽然有，但看不出资源是否真的被游戏使用。"
+            "请继续在同一个专业模式任务上下文里修正：补齐至少 6 个可见资产文件，必须覆盖玩家、两类敌人、墙、地板、金币或药水；"
+            "game.js 必须真实加载或引用这些资产；README 要列出资产清单。"
+            "请读回相关文件后修改，再用 terminal 验证资产文件存在，并验证 game.js 或 index.html 中能找到这些资产路径。"
+        ),
+        checks=(
+            "response.nonempty",
+            "response.contains_any=资产|assets|player|enemy|coin|potion",
+            "task_run.nonempty",
+            "event=runtime_sandbox_prepared",
+            "event.tool=read_file",
+            "event.tool=terminal",
+            "trace.coordination_runs=0",
+            "sandbox.enabled",
+            "sandbox.root.contains=output/sandbox_runs",
+            "sandbox.real_workspace_access=read_only",
+            "sandbox.glob_count>=frontend/public/games/arcane_dungeon_studio/assets/*:6",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/game.js::assets/|player|coin",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/README.md::assets|player",
+        ),
+        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        force_memory_sync=False,
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "继续验收：现在我要把它从普通小游戏升级成带编辑器的小游戏。"
+            "请补一个地图编辑模式：可以切换墙、地板、玩家出生点、敌人、金币、药水六类笔刷；"
+            "可以从编辑模式进入试玩模式；支持导出地图 JSON 和导入 JSON 恢复地图。"
+            "不要推翻已有地牢探索玩法，要在原有文件上增量修改。完成后运行 terminal 验证核心文件仍存在，"
+            "并检查代码中包含 export/import、brush、editor、play/test mode 这些能力对应的实现痕迹。"
+        ),
+        checks=(
+            "response.nonempty",
+            "response.contains_any=编辑|editor|导入|导出|JSON",
+            "task_run.nonempty",
+            "event=runtime_sandbox_prepared",
+            "event.tool=read_file",
+            "event.tool=terminal",
+            "trace.coordination_runs=0",
+            "sandbox.enabled",
+            "sandbox.root.contains=output/sandbox_runs",
+            "sandbox.real_workspace_access=read_only",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/game.js::editor|brush|export|import",
+        ),
+        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        force_memory_sync=False,
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "再继续验收：我怀疑移动端和状态重置会出问题。请检查并修复这些边界："
+            "玩家死亡或胜利后不能继续移动；重新开始必须重置金币、生命、敌人和计时；"
+            "移动端需要有可点击方向按钮，按钮文字不能挤出容器。"
+            "请读回实现，修复后用 terminal 验证文件引用、关键状态字段和移动端控制代码存在。"
+        ),
+        checks=(
+            "response.nonempty",
+            "response.contains_any=重置|移动端|方向|验证|修复",
+            "task_run.nonempty",
+            "event=runtime_sandbox_prepared",
+            "event.tool=read_file",
+            "event.tool=terminal",
+            "trace.coordination_runs=0",
+            "sandbox.enabled",
+            "sandbox.root.contains=output/sandbox_runs",
+            "sandbox.real_workspace_access=read_only",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/game.js::restart|mobile|gameOver",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/styles.css::mobile-controls",
+        ),
+        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        force_memory_sync=False,
+    ),
+    LongScenarioTurn(
+        session="main",
+        speaker="user",
+        content=(
+            "最后做一次交付复盘。请不要新增大功能，只做收尾验证："
+            "列出 arcane_dungeon_studio 的最终文件树，验证 index.html、styles.css、game.js、README.md 和 assets 至少 6 个资源存在，"
+            "验证 HTML 引用、JS 中存在编辑器/试玩/导入导出/状态重置/移动端控制相关实现。"
+            "最终回答必须包含 changed files、验证结果、真实产物路径和仍未覆盖的限制。"
+        ),
+        checks=(
+            "response.nonempty",
+            "response.contains_all=changed files|验证|限制|arcane_dungeon_studio",
+            "task_run.nonempty",
+            "event=runtime_sandbox_prepared",
+            "event.tool=terminal",
+            "trace.artifact.contains=frontend/public/games/arcane_dungeon_studio",
+            "trace.coordination_runs=0",
+            "sandbox.enabled",
+            "sandbox.root.contains=output/sandbox_runs",
+            "sandbox.real_workspace_access=read_only",
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/index.html",
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/styles.css",
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/game.js",
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/README.md",
+            "sandbox.glob_count>=frontend/public/games/arcane_dungeon_studio/assets/*:6",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/index.html::styles.css|game.js",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/game.js::editor|brush|export|import|restart|mobile",
+        ),
+        params={"task_selection": PROFESSIONAL_TASK_SELECTION},
+        force_memory_sync=False,
+    ),
+)
+
+
 TASK_SYSTEM_SHORT_STORY_COORDINATION_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
     LongScenarioTurn(
         session="main",
@@ -406,17 +589,6 @@ SANDBOX_FILE_OPS_ACCEPTANCE_TURNS: tuple[LongScenarioTurn, ...] = (
         text="Verification marker: SANDBOX-FILE-OPS-READY",
     ),
 )
-
-
-PROFESSIONAL_TASK_SELECTION: dict[str, Any] = {
-    "interaction_mode": "professional_mode",
-    "intent_decision": {"execution_strategy": "professional_task_run", "interaction_mode": "professional_mode"},
-    "runtime_assembly_hint": {
-        "execution_strategy": "professional_task_run",
-        "runtime_mode": "professional_task",
-        "interaction_mode": "professional_mode",
-    },
-}
 
 
 PROFESSIONAL_CODE_FIX_TURNS: tuple[LongScenarioTurn, ...] = (
@@ -1065,6 +1237,20 @@ SCENARIOS: tuple[LongScenario, ...] = (
         turns=TASK_SYSTEM_LIGHT_WEB_GAME_ACCEPTANCE_TURNS,
     ),
     LongScenario(
+        id="professional-game-multifile-delivery",
+        title="专业模式多文件小游戏工程交付",
+        goal="验证主 Agent 能在专业模式中完成多文件前端小游戏工程、运行验证并留下真实产物引用。",
+        coverage=("professional_task", "development", "artifact_refs", "tool_route", "permissions", "sse"),
+        turns=PROFESSIONAL_GAME_MULTIFILE_DELIVERY_TURNS,
+    ),
+    LongScenario(
+        id="professional-iterative-game-delivery",
+        title="专业模式多轮反馈小游戏工程交付",
+        goal="验证主 Agent 能在用户连续验收反馈下持续读回、修改、验证并交付复杂浏览器小游戏工程。",
+        coverage=("professional_task", "development", "artifact_refs", "tool_route", "permissions", "iterative_feedback", "stress", "sse"),
+        turns=PROFESSIONAL_ITERATIVE_GAME_DELIVERY_TURNS,
+    ),
+    LongScenario(
         id="task-system-short-story-coordination-acceptance",
         title="任务系统多 Agent 小说协作验收",
         goal="验证多 Agent 协调任务能跑通创意、审核、编写、纠察、验收与修正循环。",
@@ -1179,6 +1365,7 @@ SCENARIO_SETS: dict[str, tuple[str, ...]] = {
     ),
     "task_acceptance": (
         "task-system-light-web-game-acceptance",
+        "professional-game-multifile-delivery",
         "task-system-short-story-coordination-acceptance",
     ),
     "sandbox": ("sandbox-file-ops-acceptance",),
@@ -1188,6 +1375,8 @@ SCENARIO_SETS: dict[str, tuple[str, ...]] = {
         "professional-doc-data-analysis",
         "professional-feature-slice-acceptance",
         "professional-ops-troubleshooting",
+        "professional-game-multifile-delivery",
+        "professional-iterative-game-delivery",
     ),
     "professional_deep": (
         "professional-deep-code-execution",

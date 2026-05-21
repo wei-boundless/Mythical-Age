@@ -281,9 +281,20 @@ def test_runtime_spec_merges_explicit_graph_unit_node_with_timeline_runtime(tmp_
                 "title": "显式子图节点",
                 "task_id": "task.test.graph_unit_child",
                 "agent_id": "agent:0",
+                "agent_group_id": "group.should_not_survive",
+                "work_posture": "graph_unit_runner",
+                "projection_id": "projection.should_not_survive",
                 "phase_id": "phase.child",
                 "sequence_index": 10,
                 "metadata": {"editor_node": True},
+                "contract_bindings": {
+                    "runtime": {
+                        "model_requirement": {
+                            "profile_ref": "should_not_survive",
+                            "preferred_output_tokens": 65536,
+                        }
+                    }
+                },
             },
         ),
         metadata={
@@ -312,11 +323,22 @@ def test_runtime_spec_merges_explicit_graph_unit_node_with_timeline_runtime(tmp_
 
     assert len(graph_unit_nodes) == 1
     assert len(spec["nested_runtime_plans"]) == 1
-    assert graph_unit_nodes[0]["task_id"] == "task.test.graph_unit_child"
+    assert graph_unit_nodes[0]["role"] == "nested_graph"
+    assert graph_unit_nodes[0]["agent_id"] == ""
+    assert graph_unit_nodes[0]["runtime_lane"] == ""
+    assert graph_unit_nodes[0]["projection_id"] == ""
+    assert graph_unit_nodes[0]["task_id"] == "task_graph.node.graph.test.explicit_graph_unit.graph_unit.child"
     assert graph_unit_nodes[0]["metadata"]["editor_node"] is True
     assert graph_unit_nodes[0]["metadata"]["explicit_graph_unit_node"] is True
+    assert graph_unit_nodes[0]["metadata"]["runtime_role"] == "graph_unit_container"
+    assert graph_unit_nodes[0]["metadata"]["model_visible"] is False
+    assert "agent_group_id" not in graph_unit_nodes[0]["metadata"]
+    assert "model_requirement" not in graph_unit_nodes[0]["metadata"]
+    assert "model_resolution" not in graph_unit_nodes[0]["metadata"]
+    assert "model_requirement" not in graph_unit_nodes[0]["metadata"]["contract_bindings"].get("runtime", {})
     assert graph_unit_nodes[0]["metadata"]["nested_runtime_plan_id"] == "nested.child"
     assert graph_unit_nodes[0]["executor_policy"]["subgraph_id"] == "graph.test.child"
+    assert spec["subtask_refs"] == ()
 
 
 def test_graph_unit_handoff_contract_binding_overrides_legacy_timeline_field(tmp_path: Path) -> None:

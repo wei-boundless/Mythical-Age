@@ -3,7 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
+
+from .protocol_boundary import is_internal_protocol_input_key
 
 
 EXECUTOR_TYPES = {"agent", "human", "tool", "subgraph", "graph_unit"}
@@ -349,6 +352,7 @@ def _explicit_input_items(explicit_inputs: dict[str, Any]) -> list[NodeInputItem
             metadata={"value": value},
         )
         for key, value in sorted(dict(explicit_inputs or {}).items(), key=lambda item: str(item[0]))
+        if not is_internal_protocol_input_key(str(key))
     ]
 
 
@@ -412,10 +416,11 @@ def _artifact_input_items(packet: dict[str, Any]) -> list[NodeInputItem]:
                 content_preview=_preview(text),
                 required=True,
                 usage_instruction="作为边映射指定的产物上下文使用。",
-                metadata={"artifact_refs": refs},
+                metadata={"artifact_refs": refs, "text": text, "expanded_by_runtime": True},
             )
         )
     for index, ref in enumerate(refs):
+        text = _read_artifact_ref_text(ref)
         items.append(
             NodeInputItem(
                 input_key=f"artifact_{index + 1}",
@@ -423,12 +428,17 @@ def _artifact_input_items(packet: dict[str, Any]) -> list[NodeInputItem]:
                 source_node_id=source_nodes[0] if source_nodes else "",
                 source_edge_id=edge_ids[0] if edge_ids else "",
                 source_ref=str(packet.get("packet_id") or ""),
-                content_type="artifact_ref",
+                content_type="artifact_text" if text else "artifact_ref",
                 content_ref=ref,
-                content_preview=ref,
+                content_preview=_preview(text) if text else ref,
                 required=not bool(expanded),
                 usage_instruction="作为上游产物引用使用。",
-                metadata={"packet_id": str(packet.get("packet_id") or "")},
+                metadata={
+                    "packet_id": str(packet.get("packet_id") or ""),
+                    "artifact_ref": ref,
+                    **({"text": text} if text else {}),
+                    "expanded_by_runtime": bool(text),
+                },
             )
         )
     return items
@@ -544,6 +554,28 @@ def _preview(value: Any, *, max_chars: int = 600) -> str:
         text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
     text = " ".join(text.split())
     return text[:max_chars]
+
+
+def _read_artifact_ref_text(ref: str) -> str:
+    raw = str(ref or "").strip()
+    if not raw.startswith("artifact:"):
+        return ""
+    rel = raw[len("artifact:") :]
+    candidates = [Path(rel)]
+    for parent in Path(__file__).resolve().parents:
+        candidates.append(parent / rel)
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            if path.exists() and path.is_file():
+                return path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+    return ""
 
 
 def _short_hash(payload: Any) -> str:

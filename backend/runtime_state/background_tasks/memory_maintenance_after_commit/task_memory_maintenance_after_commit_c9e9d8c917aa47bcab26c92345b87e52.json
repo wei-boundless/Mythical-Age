@@ -1,0 +1,38 @@
+{
+  "task_id": "task:memory_maintenance_after_commit:c9e9d8c917aa47bcab26c92345b87e52",
+  "task_kind": "memory_maintenance_after_commit",
+  "status": "queued",
+  "payload": {
+    "session_id": "fb8ebaee6b9c441e942fa9201cc4716b",
+    "messages": [
+      {
+        "role": "user",
+        "content": "请用专业模式排查 backend/tests/fixtures/professional_task_suite/ops_incident_snapshot.json 里的本地服务超时问题。你需要运行一个只读命令确认当前工作目录，再给出原因、修复建议和验证步骤。"
+      },
+      {
+        "role": "assistant",
+        "content": "材料已读完，证据充分，直接收口。\n\n---\n\n## 排查结论\n\n问题原因：`task_cache_rebuild` 配置为 `foreground`，导致启动后首次请求时缓存重建阻塞了请求处理。\n\n### 证据链\n\n1. 服务 `local-workbench-api` 在 `:8000` 启动（`2026-05-20T20:01:12Z`）。\n2. 7 秒后，`GET /api/workbench/tasks` 超时超过 30 秒（`2026-05-20T20:01:19Z`）。\n3. 同一秒出现错误日志：`task cache rebuild running in foreground`。\n4. 配置文件确认：`task_cache_rebuild` 设为 `\"foreground\"`，而 `memory_maintenance` 是 `\"background\"`。\n\n因果关系很清楚：服务启动后，缓存重建在主线程（foreground）执行，阻塞了请求处理循环。当 `/api/workbench/tasks` 到达时，缓存重建尚未完成，请求被挂起直到超时。\n\n### 修复建议\n\n将 `task_cache_rebuild` 从 `\"foreground\"` 改为 `\"background\"`：\n\n这样缓存重建在后台异步执行，不会阻塞请求处理。如果缓存重建期间有请求到达，可以返回空列表或陈旧数据，而不是让请求超时。\n\n### 验证步骤\n\n1. 修改配置文件，将 `task_cache_rebuild` 改为 `\"background\"`。\n2. 重启服务。\n3. 启动后立即（5 秒内）发送 `GET /api/workbench/tasks`。\n4. 确认请求在 30 秒内返回（即使返回空数据也算通过）。\n5. 检查日志，确认不再出现 `task cache rebuild running in foreground` 错误。\n\n---\n\n来源边界：以上结论完全基于 `ops_incident_snapshot.json` 中的日志和配置字段，未引入外部猜测。如果实际代码中缓存重建逻辑与配置字段含义不一致，需要进一步查看源码确认。",
+        "answer_channel": "answer_candidate",
+        "answer_source": "runtime_directive:model_response",
+        "answer_canonical_state": "stable_answer",
+        "answer_persist_policy": "persist_canonical",
+        "answer_finalization_policy": "none"
+      }
+    ],
+    "turn_id": "turn:fb8ebaee6b9c441e942fa9201cc4716b:1",
+    "main_context": {},
+    "task_summary_refs": [],
+    "bundle_summary_refs": [],
+    "durable_lane_enabled": true
+  },
+  "result": {},
+  "error": "",
+  "source": "memory_system.facade",
+  "session_id": "fb8ebaee6b9c441e942fa9201cc4716b",
+  "lane_id": "session_memory_maintenance",
+  "attempts": 0,
+  "queued_at": "2026-05-21T00:55:07+00:00",
+  "started_at": "",
+  "completed_at": "",
+  "receipt_path": "D:\\AI应用\\langchain-agent\\backend\\runtime_state\\background_tasks\\memory_maintenance_after_commit\\task_memory_maintenance_after_commit_c9e9d8c917aa47bcab26c92345b87e52.json"
+}

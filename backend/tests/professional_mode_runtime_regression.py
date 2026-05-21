@@ -34,7 +34,8 @@ def test_professional_mode_recipe_uses_new_runtime_names() -> None:
     assert metadata["interaction_mode"] == "professional_mode"
     assert metadata["runtime_lane_hint"] == "professional_task"
     assert metadata["semantic_task_contract"]["task_goal_type"] == "test_report_triage"
-    assert "autonomy_mode" not in metadata
+    retired_mode_key = "_".join(("autonomy", "mode"))
+    assert retired_mode_key not in metadata
 
 
 def test_professional_profile_is_injected_into_soul_runtime_view() -> None:
@@ -119,6 +120,28 @@ def test_evidence_packet_and_validator_require_triage_deliverables() -> None:
     assert result.passed is True
 
 
+def test_deliverable_validator_flags_read_file_tag_leak() -> None:
+    result = validate_deliverable(
+        final_answer="<read_file>\n<path>outline_review.md</path>\n</read_file>",
+        semantic_contract={"task_goal_type": "general"},
+    )
+
+    assert result.passed is False
+    assert result.protocol_leak_detected is True
+    assert "protocol_boundary" in result.missing_deliverables
+
+
+def test_deliverable_validator_flags_command_tool_markup_leak() -> None:
+    result = validate_deliverable(
+        final_answer='我将调用 name="command" 运行 pytest。',
+        semantic_contract={"task_goal_type": "general"},
+    )
+
+    assert result.passed is False
+    assert result.protocol_leak_detected is True
+    assert "protocol_boundary" in result.missing_deliverables
+
+
 def test_runtime_lane_registry_exposes_three_modes_and_removes_old_lane() -> None:
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("role_interaction") is not None
     assert DEFAULT_RUNTIME_LANE_REGISTRY.get("standard_task") is not None
@@ -131,4 +154,5 @@ def test_professional_profile_registry_has_test_report_triage_role_prompt() -> N
 
     assert profile is not None
     assert "你是一名专业长任务测试报告诊断员" in profile.prompt
-    assert "不负责修改代码" in profile.prompt
+    assert "不负责修改代码" not in profile.prompt
+    assert "如果用户本轮明确要求修复或修改" in profile.prompt

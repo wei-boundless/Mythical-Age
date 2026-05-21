@@ -13,33 +13,6 @@ from .model_profile_models import contains_raw_secret, parse_agent_model_profile
 from .runtime_lane_registry import normalize_runtime_lane_sequence
 
 
-RETIRED_WRITING_AGENT_IDS = {
-    "agent:chapter_planner",
-    "agent:character_designer_a",
-    "agent:character_designer_b",
-    "agent:character_judge",
-    "agent:memory_steward",
-    "agent:novel_quality_judge",
-    "agent:novel_writer_a",
-    "agent:novel_writer_b",
-    "agent:outline_designer_a",
-    "agent:outline_designer_b",
-    "agent:outline_judge",
-    "agent:world_designer_a",
-    "agent:world_designer_b",
-    "agent:world_judge",
-    "agent:writing_simple_creator",
-    "agent:writing_simple_reviewer",
-    "agent:writing_final_assembler",
-    "agent:writing_simple_worker",
-    "agent:writing_memory_steward",
-    "agent:writing_runtime_monitor",
-    "agent:writing_team_worker",
-}
-
-RETIRED_WRITING_AGENT_ERROR = "retired writing graph agent ids cannot receive runtime profiles; use modular task graph agent ids"
-
-
 def _storage_root(base_dir: Path) -> Path:
     return ProjectLayout.from_backend_dir(base_dir).orchestration_dir
 
@@ -314,9 +287,9 @@ class AgentRuntimeRegistry:
             {"profiles": default_payload},
         )
         stored_profiles = [
-            item
-            for item in (_migrate_profile_payload(item) for item in list(payload.get("profiles") or []) if isinstance(item, dict))
-            if str(item.get("agent_id") or "").strip() not in RETIRED_WRITING_AGENT_IDS
+            _migrate_profile_payload(item)
+            for item in list(payload.get("profiles") or [])
+            if isinstance(item, dict)
         ]
         default_agent_ids = set(default_by_agent)
         live_agent_ids = {agent.agent_id for agent in self.agent_registry.list_agents()}
@@ -372,8 +345,6 @@ class AgentRuntimeRegistry:
         target = normalize_agent_id(agent_id)
         if not target.startswith("agent:"):
             raise ValueError("agent_id must start with agent:")
-        if target in RETIRED_WRITING_AGENT_IDS:
-            raise ValueError(RETIRED_WRITING_AGENT_ERROR)
         if self.agent_registry.get_agent(target) is None:
             raise ValueError("unknown agent")
         if contains_raw_secret(model_profile):

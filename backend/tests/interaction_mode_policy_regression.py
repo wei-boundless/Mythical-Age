@@ -92,4 +92,53 @@ def test_draft_artifact_delivery_is_not_code_fix_execution() -> None:
     semantic = contract.semantic_task_contract
 
     assert semantic["task_goal_type"] == "artifact_delivery"
+    assert "apply_real_change" in semantic["required_actions"]
+    assert contract.execution_obligation["required_writes"]
+
+
+def test_failure_repair_with_pytest_is_obligation_driven_professional_mode() -> None:
+    contract = build_runtime_task_intent_contract(
+        session_id="session-obligation-policy",
+        task_id="task-repair-pytest",
+        user_goal=(
+            "追踪 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败原因，"
+            "修复代码，然后运行 pytest 验证。"
+        ),
+        query_understanding={"route": "workspace_read", "source_kind": "workspace"},
+        current_turn_context={},
+    )
+
+    semantic = contract.semantic_task_contract
+    policy = contract.mode_policy
+    obligation = contract.execution_obligation
+
+    assert obligation["required_writes"]
+    assert obligation["required_commands"]
+    assert obligation["required_verifications"]
+    assert "apply_real_change" in semantic["required_actions"]
+    assert "run_verification" in semantic["required_actions"]
+    assert "modify_code_without_request" not in semantic["forbidden_actions"]
+    assert policy["interaction_mode"] == "professional_mode"
+    assert policy["mode_reason"] == "execution_obligation:write_or_verify"
+    assert policy["projection_strength"] == "style_only"
+
+
+def test_analysis_only_goal_does_not_escalate_from_forbidden_write() -> None:
+    contract = build_runtime_task_intent_contract(
+        session_id="session-readonly-policy",
+        task_id="task-analysis-only",
+        user_goal=(
+            "先分析 backend/tests/fixtures/professional_task_suite/failing_sixty_turn_summary.json 的失败原因，"
+            "不要改代码。"
+        ),
+        query_understanding={"route": "workspace_read", "source_kind": "workspace"},
+        current_turn_context={},
+    )
+
+    semantic = contract.semantic_task_contract
+    policy = contract.mode_policy
+
+    assert contract.execution_obligation["forbidden_actions"]
+    assert not contract.execution_obligation["required_writes"]
     assert "apply_real_change" not in semantic["required_actions"]
+    assert policy["interaction_mode"] == "professional_mode"

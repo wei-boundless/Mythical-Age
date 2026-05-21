@@ -128,6 +128,41 @@ def test_formal_memory_candidate_commit_and_directed_read(tmp_path) -> None:
     assert after_visible["read_log_ids"]
 
 
+def test_formal_memory_syncs_repository_from_resource_nodes(tmp_path) -> None:
+    service = FormalMemoryService(tmp_path)
+    result = service.sync_graph_spec(
+        graph_id="graph:resource-layer",
+        task_run_id="taskrun:resource-layer",
+        graph_spec={
+            "nodes": [],
+            "resource_nodes": [
+                {
+                    "node_id": "memory.resource.world",
+                    "resource_type": "memory_repository",
+                    "title": "Resource Layer World Memory",
+                    "repository_id": "memory.resource.world",
+                    "metadata": {
+                        "memory_repository": {
+                            "repository_id": "memory.resource.world",
+                            "collections": [
+                                {
+                                    "collection_id": "world",
+                                    "record_kinds": ["world_bible"],
+                                }
+                            ],
+                        }
+                    },
+                }
+            ],
+        },
+    )
+
+    assert result["repository_count"] == 1
+    assert result["collection_count"] == 1
+    assert result["repositories"][0]["logical_repository_id"] == "memory.resource.world"
+    assert result["collections"][0]["collection_id"] == "world"
+
+
 def test_formal_memory_write_is_idempotent_by_node_edge_and_content(tmp_path) -> None:
     service = FormalMemoryService(tmp_path)
     edge = {

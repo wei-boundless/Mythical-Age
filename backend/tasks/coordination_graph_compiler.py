@@ -50,6 +50,16 @@ def compile_task_graph_definition_runtime_spec(
     backend_dir = Path(__file__).resolve().parents[1]
     model_resolver = ModelProfileResolver(AppSettingsService(backend_dir))
     runtime_registry = AgentRuntimeRegistry(backend_dir)
+    resource_node_ids = {
+        str(item.get("node_id") or "").strip()
+        for item in list(layered_graph.get("resource_nodes") or [])
+        if isinstance(item, dict) and str(item.get("node_id") or "").strip()
+    }
+    execution_graph_nodes = [
+        node
+        for node in graph.nodes
+        if str(getattr(node, "node_id", "") or "").strip() not in resource_node_ids
+    ]
     nodes = [
         _runtime_node_from_task_graph_node(
             raw_node=node,
@@ -65,7 +75,7 @@ def compile_task_graph_definition_runtime_spec(
             runtime_registry=runtime_registry,
             graph_model_requirement=_graph_model_requirement(graph),
         )
-        for node in graph.nodes
+        for node in execution_graph_nodes
     ]
     nodes = _merge_nested_runtime_nodes(
         explicit_nodes=nodes,
@@ -87,9 +97,20 @@ def compile_task_graph_definition_runtime_spec(
                 },
             )
         ]
+    layered_non_execution_edge_ids = {
+        str(item.get("edge_id") or "").strip()
+        for layer_key in ("memory_edges", "artifact_context_edges", "revision_edges")
+        for item in list(layered_graph.get(layer_key) or [])
+        if isinstance(item, dict) and str(item.get("edge_id") or "").strip()
+    }
     edges = [
         _runtime_edge_from_task_graph_edge(raw_edge=edge)
         for edge in graph.edges
+        if _is_execution_runtime_edge(
+            raw_edge=edge,
+            resource_node_ids=resource_node_ids,
+            non_execution_edge_ids=layered_non_execution_edge_ids,
+        )
     ]
     if not edges and len(nodes) > 1:
         edges = _default_edges(nodes, default_mode=_default_communication_mode(graph, communication_protocol))
@@ -122,10 +143,11 @@ def compile_task_graph_definition_runtime_spec(
         dict.fromkeys(
             [
                 *[str(value).strip() for value in list(graph_metadata.get("subtask_refs") or []) if str(value).strip()],
-                *[node.task_id for node in nodes if node.task_id],
+                *[node.task_id for node in nodes if node.task_id and node.node_type != "graph_unit"],
             ]
         )
     )
+    subtask_refs = tuple(ref for ref in subtask_refs if ref.startswith("task."))
     communication_modes = tuple(
         dict.fromkeys(
             value
@@ -201,11 +223,41 @@ def compile_task_graph_definition_runtime_spec(
             "scheduler_support": scheduler_support,
             "working_memory_resource_steps": working_memory_resource_steps,
             "layered_graph": layered_graph,
+            "resource_node_ids_excluded_from_execution": sorted(resource_node_ids),
+            "non_execution_edge_ids_excluded_from_execution": sorted(layered_non_execution_edge_ids),
             "nested_runtime_plans": [item.to_dict() for item in nested_runtime_plans],
             "split_plans": [item.to_dict() for item in split_plans],
             "split_merge_issues": [item.to_dict() for item in split_merge_issues],
         },
     )
+
+
+def _is_execution_runtime_edge(
+    *,
+    raw_edge: Any,
+    resource_node_ids: set[str],
+    non_execution_edge_ids: set[str],
+) -> bool:
+    edge_id = str(getattr(raw_edge, "edge_id", "") or "").strip()
+    source = str(getattr(raw_edge, "source_node_id", "") or "").strip()
+    target = str(getattr(raw_edge, "target_node_id", "") or "").strip()
+    edge_type = str(getattr(raw_edge, "edge_type", "") or "").strip()
+    if source in resource_node_ids or target in resource_node_ids:
+        return False
+    if edge_type in {
+        "memory_read",
+        "memory_write",
+        "memory_write_candidate",
+        "memory_commit",
+        "memory_handoff",
+        "artifact_read",
+        "artifact_write",
+        "artifact_context",
+    }:
+        return False
+    if edge_id in non_execution_edge_ids and edge_type not in {"handoff", "structured_handoff"}:
+        return False
+    return True
 
 
 def _runtime_node_from_task_graph_node(
@@ -224,11 +276,15 @@ def _runtime_node_from_task_graph_node(
     graph_model_requirement: dict[str, Any] | None = None,
 ) -> TaskGraphRuntimeNode:
     task = task_by_id.get(str(raw_node.task_id or "").strip())
-    node_agent_group_id = str(getattr(raw_node, "agent_group_id", "") or graph_agent_group_id).strip()
+    raw_node_type = str(getattr(raw_node, "node_type", "") or "agent").strip()
+    is_graph_unit = raw_node_type == "graph_unit" or bool(dict(getattr(raw_node, "metadata", {}) or {}).get("graph_unit"))
+    node_agent_group_id = "" if is_graph_unit else str(getattr(raw_node, "agent_group_id", "") or graph_agent_group_id).strip()
     agent_id = str(getattr(raw_node, "agent_id", "") or "").strip()
-    if not agent_id and str(getattr(raw_node, "work_posture", "") or "") == "coordinator":
+    if is_graph_unit:
+        agent_id = ""
+    if not is_graph_unit and not agent_id and str(getattr(raw_node, "work_posture", "") or "") == "coordinator":
         agent_id = coordinator_agent_id
-    if not agent_id and not node_agent_group_id:
+    if not is_graph_unit and not agent_id and not node_agent_group_id:
         agent_id = coordinator_agent_id
     raw_execution_mode = str(getattr(raw_node, "execution_mode", "") or "").strip()
     raw_wait_policy = str(getattr(raw_node, "wait_policy", "") or "").strip()
@@ -244,11 +300,15 @@ def _runtime_node_from_task_graph_node(
     if artifact_target and "artifact_target" not in artifact_policy:
         artifact_policy["artifact_target"] = artifact_target
     contract_bindings = dict(getattr(raw_node, "contract_bindings", {}) or {})
+    if is_graph_unit:
+        contract_bindings = _graph_unit_container_contract_bindings(contract_bindings)
     runtime_bindings = dict(contract_bindings.get("runtime") or {})
     model_requirement = {
         **dict(graph_model_requirement or {}),
         **dict(runtime_bindings.get("model_requirement") or {}),
     }
+    if is_graph_unit:
+        model_requirement = {}
     model_resolution = _model_resolution_for_node(
         agent_id=agent_id,
         runtime_lane=str(raw_node.runtime_lane or "").strip(),
@@ -259,12 +319,12 @@ def _runtime_node_from_task_graph_node(
     return TaskGraphRuntimeNode(
         node_id=str(raw_node.node_id or "").strip(),
         title=str(raw_node.title or raw_node.node_id or "").strip(),
-        node_type=str(raw_node.node_type or "agent").strip(),
-        role=str(raw_node.work_posture or node_metadata.get("role") or ("coordinator" if agent_id == coordinator_agent_id else "participant")).strip(),
+        node_type=raw_node_type,
+        role=("nested_graph" if is_graph_unit else str(raw_node.work_posture or node_metadata.get("role") or ("coordinator" if agent_id == coordinator_agent_id else "participant")).strip()),
         agent_id=agent_id,
-        runtime_lane=str(raw_node.runtime_lane or "").strip(),
-        projection_id=str(raw_node.projection_id or raw_node.projection_overlay_id or "").strip(),
-        task_id=str(raw_node.task_id or "").strip(),
+        runtime_lane="" if is_graph_unit else str(raw_node.runtime_lane or "").strip(),
+        projection_id="" if is_graph_unit else str(raw_node.projection_id or raw_node.projection_overlay_id or "").strip(),
+        task_id="" if is_graph_unit else str(raw_node.task_id or "").strip(),
         task_family=str(getattr(raw_node, "task_family", "") or getattr(task, "task_family", "") or graph_task_family).strip(),
         executor_policy=dict(getattr(raw_node, "executor_policy", {}) or node_metadata.get("executor_policy") or {}),
         execution_mode=execution_mode,
@@ -294,13 +354,13 @@ def _runtime_node_from_task_graph_node(
             "revision_context_policy": dict(getattr(raw_node, "revision_context_policy", {}) or node_metadata.get("revision_context_policy") or {}),
             "quality_retry_policy": dict(getattr(raw_node, "quality_retry_policy", {}) or node_metadata.get("quality_retry_policy") or {}),
             "progress_commit_policy": dict(getattr(raw_node, "progress_commit_policy", {}) or node_metadata.get("progress_commit_policy") or {}),
-            "agent_group_id": node_agent_group_id,
+            **({"runtime_role": "graph_unit_container", "model_visible": False} if is_graph_unit else {}),
+            **({} if is_graph_unit else {"agent_group_id": node_agent_group_id}),
             "node_contract_id": str(raw_node.node_contract_id or "").strip(),
             "input_contract_id": str(raw_node.input_contract_id or "").strip(),
             "output_contract_id": str(raw_node.output_contract_id or "").strip(),
             "contract_bindings": contract_bindings,
-            "model_requirement": model_requirement,
-            "model_resolution": model_resolution,
+            **({} if is_graph_unit else {"model_requirement": model_requirement, "model_resolution": model_resolution}),
             "executor_policy": dict(getattr(raw_node, "executor_policy", {}) or node_metadata.get("executor_policy") or {}),
             "failure_policy": dict(raw_node.failure_policy or {}),
             "human_gate_policy": dict(raw_node.human_gate_policy or {}),
@@ -308,13 +368,29 @@ def _runtime_node_from_task_graph_node(
             "notification_policy": dict(raw_node.notification_policy or {}),
             "resource_lifecycle_policy": dict(raw_node.resource_lifecycle_policy or {}),
             "effective_policy_sources": {
-                "agent_id": "node.agent_id" if str(getattr(raw_node, "agent_id", "") or "").strip() else "graph.runtime_policy.coordinator_agent_id",
+                "agent_id": "graph_unit_container" if is_graph_unit else ("node.agent_id" if str(getattr(raw_node, "agent_id", "") or "").strip() else "graph.runtime_policy.coordinator_agent_id"),
                 "execution_mode": "node.execution_mode" if raw_execution_mode and raw_execution_mode != "sync" else "graph.runtime_policy.default_execution_mode",
                 "wait_policy": "node.wait_policy" if raw_wait_policy and raw_wait_policy != "wait_all_upstream_completed" else "graph.runtime_policy.default_wait_policy",
                 "join_policy": "node.join_policy" if raw_join_policy and raw_join_policy != "all_success" else "graph.runtime_policy.default_join_policy",
             },
         },
     )
+
+
+def _graph_unit_container_contract_bindings(bindings: dict[str, Any]) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
+    for key, value in dict(bindings or {}).items():
+        if not isinstance(value, dict):
+            normalized[key] = value
+            continue
+        normalized[key] = dict(value)
+    runtime = dict(normalized.get("runtime") or {})
+    runtime.pop("model_requirement", None)
+    if runtime:
+        normalized["runtime"] = runtime
+    else:
+        normalized.pop("runtime", None)
+    return normalized
 
 
 def _runtime_edge_from_task_graph_edge(*, raw_edge: Any) -> TaskGraphRuntimeEdge:
@@ -511,12 +587,20 @@ def _merge_explicit_graph_unit_node(
 ) -> TaskGraphRuntimeNode:
     explicit_metadata = dict(explicit.metadata or {})
     nested_metadata = dict(nested.metadata or {})
+    definition_metadata = {
+        key: value
+        for key, value in explicit_metadata.items()
+        if key not in {"agent_group_id", "model_requirement", "model_resolution"}
+    }
     return replace(
         explicit,
         title=explicit.title or nested.title,
         node_type="graph_unit",
-        role=explicit.role or nested.role,
-        task_id=explicit.task_id or nested.task_id,
+        role="nested_graph",
+        agent_id="",
+        runtime_lane="",
+        projection_id="",
+        task_id=nested.task_id,
         task_family=explicit.task_family or nested.task_family,
         executor_policy={
             **dict(explicit.executor_policy or {}),
@@ -538,13 +622,17 @@ def _merge_explicit_graph_unit_node(
             **dict(nested.artifact_policy or {}),
         },
         metadata={
-            **explicit_metadata,
+            **definition_metadata,
             **nested_metadata,
             "explicit_graph_unit_node": True,
-            "definition_node_metadata": explicit_metadata,
+            "runtime_role": "graph_unit_container",
+            "model_visible": False,
+            "definition_node_metadata": definition_metadata,
             "effective_policy_sources": {
                 **dict(explicit_metadata.get("effective_policy_sources") or {}),
                 **dict(nested_metadata.get("effective_policy_sources") or {}),
+                "agent_id": "graph_unit_container",
+                "projection_id": "graph_unit_container",
                 "graph_unit_merge": "graph.nodes[] + graph.metadata.timeline_blocks[]",
             },
         },

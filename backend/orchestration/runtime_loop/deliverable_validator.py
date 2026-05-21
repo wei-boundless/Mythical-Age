@@ -1,8 +1,9 @@
 from __future__ import annotations
-
 import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
+
+from .protocol_boundary import has_protocol_leak
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +30,7 @@ def validate_deliverable(
     semantic_contract: dict[str, Any] | None,
     evidence_packet: dict[str, Any] | None = None,
     strict: bool = False,
+    required_output_paths: list[str] | tuple[str, ...] | None = None,
 ) -> DeliverableValidationResult:
     contract = dict(semantic_contract or {})
     task_goal_type = str(contract.get("task_goal_type") or "general").strip()
@@ -56,6 +58,7 @@ def validate_deliverable(
             semantic_contract=contract,
             evidence_packet=dict(evidence_packet or {}),
             protocol_leak_detected=protocol_leak,
+            required_output_paths=required_output_paths,
         )
     if task_goal_type == "material_synthesis":
         return _validate_material_synthesis(
@@ -131,6 +134,7 @@ def _validate_artifact_delivery(
     semantic_contract: dict[str, Any],
     evidence_packet: dict[str, Any],
     protocol_leak_detected: bool,
+    required_output_paths: list[str] | tuple[str, ...] | None = None,
 ) -> DeliverableValidationResult:
     required = [str(item) for item in list(semantic_contract.get("deliverables") or []) if str(item).strip()]
     facts = [dict(item) for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
@@ -138,12 +142,21 @@ def _validate_artifact_delivery(
         _contains_any(str(fact.get("preview") or fact.get("summary") or ""), ("write succeeded", "edit succeeded", "写入成功", "已写入"))
         for fact in facts
     )
+    observed_paths = _artifact_write_paths_from_facts(facts)
+    required_paths = _dedupe([str(item).replace("\\", "/").strip() for item in list(required_output_paths or [])])
+    missing_required_paths = [
+        path for path in required_paths if not any(_path_matches(path, observed) for observed in observed_paths)
+    ]
     checks = {
         "artifact_refs": has_write_evidence and _contains_any(final_answer, ("文件", "路径", "产物", "artifact", ".md", ".json", ".txt")),
         "completion_status": _contains_any(final_answer, ("已完成", "已写入", "完成", "修改", "交付", "生成")),
         "limitations": _contains_any(final_answer, ("limitations", "limitation", "限制", "边界", "未运行", "未执行", "没有运行", "证据")),
+        "change_summary": _contains_any(final_answer, ("修改", "变更", "change", "已完成", "已写入", "交付")),
+        "changed_files": _contains_any(final_answer, ("文件", "路径", ".html", ".css", ".js", ".md")),
+        "verification_result_or_limitation": _contains_any(final_answer, ("验证", "terminal", "命令", "未运行", "未执行", "限制")),
     }
     missing = [item for item in required if not checks.get(item, _generic_deliverable_present(final_answer, item))]
+    missing.extend(f"output_path:{path}" for path in missing_required_paths)
     if protocol_leak_detected:
         missing.append("protocol_boundary")
     return DeliverableValidationResult(
@@ -156,6 +169,9 @@ def _validate_artifact_delivery(
             "mode": "artifact_write_evidence",
             "fact_count": len(facts),
             "has_write_evidence": bool(has_write_evidence),
+            "required_output_paths": required_paths,
+            "observed_output_paths": observed_paths,
+            "missing_required_output_paths": missing_required_paths,
         },
         diagnostics={"section_checks": checks},
     )
@@ -168,7 +184,17 @@ def _validate_material_synthesis(
     evidence_packet: dict[str, Any],
     protocol_leak_detected: bool,
 ) -> DeliverableValidationResult:
-    required = [str(item) for item in list(semantic_contract.get("deliverables") or []) if str(item).strip()]
+    material_deliverables = {
+        "material_findings",
+        "cross_material_conclusions",
+        "limitations",
+        "evidence_limits",
+    }
+    required = [
+        str(item)
+        for item in list(semantic_contract.get("deliverables") or [])
+        if str(item).strip() in material_deliverables
+    ]
     facts = [dict(item) for item in list(evidence_packet.get("facts") or []) if isinstance(item, dict)]
     checks = {
         "material_findings": _contains_any(final_answer, ("治理", "库存", "材料", "发现", "风险")),
@@ -202,6 +228,7 @@ def _generic_deliverable_present(text: str, deliverable: str) -> bool:
         "material_findings": ("治理", "库存", "材料", "发现", "风险"),
         "cross_material_conclusions": ("行动", "优先", "建议", "综合", "负责人"),
         "limitations": ("limitations", "limitation", "限制", "边界", "不足"),
+        "tool_grounded_answer": ("原因", "依据", "工具", "验证步骤", "修复建议", "结论", "tool grounded answer", "terminal"),
     }
     return _contains_any(text, markers.get(normalized, (normalized.replace("_", " "), normalized.replace("_", ""))))
 
@@ -211,14 +238,39 @@ def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
     return any(str(marker).lower() in lowered for marker in markers)
 
 
-def _protocol_leak_detected(text: str) -> bool:
-    return bool(
-        re.search(
-            r"<\s*(?:tool_call|invoke|｜｜DSML)|tool_calls|name=\"(?:read_file|search_text|search_files|delegate_to_agent)\"",
-            str(text or ""),
-            flags=re.IGNORECASE,
-        )
+def _artifact_write_paths_from_facts(facts: list[dict[str, Any]]) -> list[str]:
+    paths: list[str] = []
+    path_pattern = re.compile(
+        r"(?P<path>(?:[\w.\-\u4e00-\u9fff]+[\\/])+[\w.\-\u4e00-\u9fff ()（）]+\.[A-Za-z0-9]+)",
+        flags=re.IGNORECASE,
     )
+    for fact in facts:
+        for key in ("path", "artifact_ref"):
+            value = str(fact.get(key) or "").replace("\\", "/").strip()
+            if value:
+                paths.append(value.removeprefix("artifact:"))
+        text = str(fact.get("preview") or fact.get("summary") or "").replace("\\", "/")
+        paths.extend(match.group("path").strip() for match in path_pattern.finditer(text))
+    return _dedupe(paths)
+
+
+def _path_matches(target: str, candidate: str) -> bool:
+    normalized_target = str(target or "").replace("\\", "/").strip().strip("`'\"“”‘’").lower()
+    normalized_candidate = str(candidate or "").replace("\\", "/").strip().strip("`'\"“”‘’").lower()
+    if not normalized_target or not normalized_candidate:
+        return False
+    target_base = normalized_target.rsplit("/", 1)[-1]
+    candidate_base = normalized_candidate.rsplit("/", 1)[-1]
+    return (
+        normalized_candidate == normalized_target
+        or normalized_candidate.endswith("/" + normalized_target)
+        or normalized_target.endswith("/" + normalized_candidate)
+        or bool(target_base and target_base == candidate_base)
+    )
+
+
+def _protocol_leak_detected(text: str) -> bool:
+    return has_protocol_leak(text)
 
 
 def _dedupe(values: list[str]) -> list[str]:

@@ -1,0 +1,388 @@
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from .obligation_models import ExecutionObligation
+
+
+_PATH_RE = re.compile(
+    r"(?P<path>(?:[A-Za-z]:)?(?:[./\\]?[\w\u4e00-\u9fff @()：:（），,\-]+[\\/])+[\w\u4e00-\u9fff @()：:（），,.\-]+"
+    r"|[\w\u4e00-\u9fff @()\-./\\]+?\.(?:json|py|md|txt|log|csv|tsv|xlsx|pdf|yaml|yml|toml|ts|tsx|js|jsx))",
+    flags=re.IGNORECASE,
+)
+
+_FORBID_WRITE_MARKERS = (
+    "先分析不要改",
+    "先分析，不要改",
+    "不要改",
+    "不要修改",
+    "不用改",
+    "别改",
+    "只分析",
+    "不要动代码",
+    "先不要改",
+    "do not modify",
+    "don't modify",
+    "read only",
+    "readonly",
+)
+_WRITE_MARKERS = (
+    "写入",
+    "生成文件",
+    "产出",
+    "实现",
+    "修改文件",
+    "修改相关文件",
+    "改文件",
+    "改代码",
+    "修改代码",
+    "修复代码",
+    "修复",
+    "修正",
+    "补丁",
+    "创建文件",
+    "新建文件",
+    "apply",
+    "patch",
+    "fix",
+    "implement",
+)
+_VERIFY_MARKERS = (
+    "运行测试",
+    "跑测试",
+    "测试通过",
+    "验证通过",
+    "运行 pytest",
+    "pytest",
+    "运行命令",
+    "命令验证",
+    "run tests",
+    "run pytest",
+    "verify",
+)
+_DELIVER_MARKERS = (
+    "交付",
+    "产物",
+    "计划书",
+    "方案",
+    "报告",
+    "总结",
+    "列出",
+    "写成",
+)
+
+
+def build_execution_obligation(
+    *,
+    session_id: str,
+    task_id: str,
+    user_goal: str,
+    explicit_inputs: dict[str, Any] | None = None,
+    current_turn_context: dict[str, Any] | None = None,
+) -> ExecutionObligation:
+    text = str(user_goal or "").strip()
+    lowered = text.lower()
+    current_turn = dict(current_turn_context or {})
+    inputs = {
+        **dict(explicit_inputs or {}),
+        **dict(current_turn.get("explicit_inputs") or {}),
+    }
+    reads = _collect_required_reads(text=text, explicit_inputs=inputs, current_turn=current_turn)
+    forbid_write = _has_any(lowered, _FORBID_WRITE_MARKERS)
+    write_required = _requires_real_write(lowered) and not forbid_write
+    verify_required = _has_any(lowered, _VERIFY_MARKERS)
+    required_writes = tuple(_build_write_requirements(text=text, explicit_inputs=inputs)) if write_required else ()
+    required_commands = tuple(_build_command_requirements(text=text)) if verify_required else ()
+    required_verifications = tuple(_build_verification_requirements(text=text)) if verify_required else ()
+    required_deliverables = tuple(_infer_required_deliverables(lowered, write_required=write_required, verify_required=verify_required))
+    forbidden_actions = ("modify_code", "write_file", "edit_file") if forbid_write else ()
+    signals = {
+        "read_paths": [item["path"] for item in reads if item.get("path")],
+        "write_required": write_required,
+        "verify_required": verify_required,
+        "forbid_write": forbid_write,
+        "deliverable_markers": [marker for marker in _DELIVER_MARKERS if marker in lowered],
+    }
+    confidence = 0.35
+    if reads:
+        confidence += 0.15
+    if write_required:
+        confidence += 0.2
+    if verify_required:
+        confidence += 0.15
+    if forbid_write:
+        confidence += 0.15
+    return ExecutionObligation(
+        obligation_id=f"execution-obligation:{session_id}:{task_id}",
+        user_goal=text,
+        required_reads=tuple(reads),
+        required_writes=required_writes,
+        required_commands=required_commands,
+        required_deliverables=required_deliverables,
+        required_verifications=required_verifications,
+        forbidden_actions=forbidden_actions,
+        confidence=min(confidence, 0.98),
+        extraction_evidence=signals,
+    )
+
+
+def _collect_required_reads(
+    *,
+    text: str,
+    explicit_inputs: dict[str, Any],
+    current_turn: dict[str, Any],
+) -> list[dict[str, Any]]:
+    reads: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(path: str, *, role: str = "material", required: bool = True) -> None:
+        value = _normalize_path(path)
+        if not value or value in seen:
+            return
+        seen.add(value)
+        reads.append({"path": value, "kind": _kind_from_path(value), "role": role, "required": required})
+
+    for key, role in (
+        ("explicit_json_path", "failure_report"),
+        ("explicit_dataset_path", "dataset"),
+        ("explicit_pdf_path", "document"),
+        ("path", "material"),
+        ("file_path", "material"),
+        ("target_path", "target"),
+    ):
+        value = explicit_inputs.get(key) or current_turn.get(key)
+        if isinstance(value, str):
+            add(value, role=role)
+    for key in ("material_paths", "input_paths", "paths", "files"):
+        for value in list(explicit_inputs.get(key) or current_turn.get(key) or []):
+            if isinstance(value, str):
+                add(value)
+            elif isinstance(value, dict):
+                add(str(value.get("path") or ""), role=str(value.get("role") or "material"), required=value.get("required") is not False)
+    for match in _PATH_RE.finditer(text):
+        path = _complete_partial_known_root_path(
+            _normalize_path(match.group("path")),
+            text=text,
+            start=match.start(),
+        )
+        if _path_looks_like_command_argument(text=text, start=match.start(), path=path):
+            continue
+        if not _path_looks_like_required_input(text=text, start=match.start(), path=path):
+            continue
+        role = "failure_report" if path.lower().endswith(".json") and _has_any(text.lower(), ("失败", "fail", "测试报告")) else "material"
+        add(path, role=role)
+    return reads
+
+
+def _build_write_requirements(*, text: str, explicit_inputs: dict[str, Any]) -> list[dict[str, Any]]:
+    output_paths = _extract_output_paths(text)
+    explicit_output = str(
+        explicit_inputs.get("output_path")
+        or explicit_inputs.get("artifact_path")
+        or explicit_inputs.get("target_output_path")
+        or ""
+    ).strip()
+    if explicit_output:
+        output_paths = _dedupe([explicit_output, *output_paths])
+    if output_paths:
+        return [
+            {"kind": "file_write", "path": path, "required": True, "source": "user_goal"}
+            for path in output_paths
+        ]
+    return [{"kind": "workspace_change", "required": True, "source": "user_goal"}]
+
+
+def _build_command_requirements(*, text: str) -> list[dict[str, Any]]:
+    lowered = str(text or "").lower()
+    if "pytest" in lowered:
+        return [{"kind": "test_command", "command_hint": "pytest", "required": True}]
+    return [{"kind": "verification_command", "required": True}]
+
+
+def _build_verification_requirements(*, text: str) -> list[dict[str, Any]]:
+    lowered = str(text or "").lower()
+    if "pytest" in lowered:
+        return [{"kind": "pytest", "required": True}]
+    return [{"kind": "command_output", "required": True}]
+
+
+def _infer_required_deliverables(lowered: str, *, write_required: bool, verify_required: bool) -> list[str]:
+    deliverables: list[str] = []
+    if write_required:
+        deliverables.extend(["change_summary", "changed_files"])
+    if verify_required:
+        deliverables.append("verification_result_or_limitation")
+    failure_report_context = any(marker in lowered for marker in ("失败", "根因", "fail", "failure", "测试报告")) or (
+        "回归" in lowered and "测试" in lowered
+    )
+    if not write_required and failure_report_context:
+        deliverables.extend(["failure_classification", "structural_root_causes", "regression_test_plan", "evidence_limits"])
+    return _dedupe(deliverables)
+
+
+def _extract_output_paths(text: str) -> list[str]:
+    output_paths: list[str] = _expand_output_directory_file_lists(text)
+    for match in _PATH_RE.finditer(text):
+        prefix = str(text or "")[max(0, match.start() - 24) : match.start()]
+        if any(marker in prefix for marker in ("写入", "保存", "生成", "产出", "输出到", "落到", "创建", "新建")):
+            output_paths.append(_normalize_path(match.group("path")))
+    return _dedupe(output_paths)
+
+
+def _expand_output_directory_file_lists(text: str) -> list[str]:
+    normalized = str(text or "").replace("\\", "/")
+    output_dirs: list[str] = []
+    dir_pattern = re.compile(
+        r"(?P<dir>(?:[\w.\-\u4e00-\u9fff]+/)+[\w.\-\u4e00-\u9fff]+/)",
+        re.IGNORECASE,
+    )
+    for match in dir_pattern.finditer(normalized):
+        directory = _normalize_path(str(match.group("dir") or "")).strip("/")
+        context = normalized[max(0, match.start() - 24) : match.end() + 24]
+        if directory and (
+            any(marker in context for marker in ("写入", "保存", "生成", "产出", "输出到", "落到", "创建", "新建"))
+            or any(marker in context for marker in ("目录", "工程", "项目", "sandbox overlay"))
+        ):
+            output_dirs.append(directory)
+    if not output_dirs:
+        return []
+    file_pattern = re.compile(
+        r"(?<![\w/\\.-])(?P<file>[\w.\-\u4e00-\u9fff]+?\.(?:html|css|js|jsx|ts|tsx|py|json|md|txt|csv|yaml|yml|toml))(?![\w/\\.-])",
+        re.IGNORECASE,
+    )
+    files = [_normalize_path(str(match.group("file") or "")) for match in file_pattern.finditer(normalized)]
+    return _dedupe(
+        [
+            f"{directory}/{filename}"
+            for directory in output_dirs
+            for filename in files
+            if filename and "/" not in filename
+        ]
+    )
+
+
+def _normalize_path(path: str) -> str:
+    value = _trim_path_to_known_suffix(str(path or "").strip().strip("'\"`，,。；;").replace("\\", "/"))
+    if not value:
+        return ""
+    suffix_re = r"(?:json|py|md|txt|log|csv|tsv|xlsx|pdf|yaml|yml|toml|ts|tsx|js|jsx)"
+    known_root_match = re.search(
+        rf"(?i)(?:(?<=^)|(?<=[\s:：]))((?:\.{{0,2}}/)?(?:backend|frontend|docs|storage|tests|scripts|output|src|app|packages|knowledge)/[^，。；;\n\r]*?\.{suffix_re})",
+        value,
+    )
+    if known_root_match:
+        return known_root_match.group(1).strip().strip("'\"`，,。；;")
+    absolute_match = re.search(rf"(?i)([A-Za-z]:/[^，,。；;\n\r]*?\.{suffix_re})", value)
+    if absolute_match:
+        return absolute_match.group(1).strip().strip("'\"`，,。；;")
+    return value
+
+
+def _trim_path_to_known_suffix(value: str) -> str:
+    text = str(value or "").strip()
+    suffix_re = r"(?:json|py|md|txt|log|csv|tsv|xlsx|pdf|yaml|yml|toml|ts|tsx|js|jsx)"
+    match = re.search(rf"(?i)^(.+?\.{suffix_re})(?=$|[\s，,。；;:：、])", text)
+    if match:
+        return match.group(1).strip().strip("'\"`，,。；;")
+    fallback = re.search(rf"(?i)^(.+?\.{suffix_re})", text)
+    if fallback:
+        return fallback.group(1).strip().strip("'\"`，,。；;")
+    return text
+
+
+def _complete_partial_known_root_path(path: str, *, text: str, start: int) -> str:
+    value = str(path or "")
+    if not value.startswith("/") or value.startswith("//"):
+        return value
+    prefix = str(text or "")[: max(0, start)].rstrip()
+    match = re.search(r"(?i)(backend|frontend|docs|storage|tests|scripts|output|src|app|packages|knowledge)\s*$", prefix)
+    if match:
+        return f"{match.group(1)}{value}"
+    return value
+
+
+def _path_looks_like_command_argument(*, text: str, start: int, path: str) -> bool:
+    prefix = str(text or "")[max(0, start - 40) : start].lower()
+    suffix = str(path or "").rsplit(".", 1)[-1].lower() if "." in str(path or "") else ""
+    if suffix not in {"py", "js", "ts", "tsx", "jsx"}:
+        return False
+    return any(marker in prefix for marker in ("pytest ", "python ", "node ", "npm ", "pnpm ", "yarn "))
+
+
+def _path_looks_like_required_input(*, text: str, start: int, path: str) -> bool:
+    normalized_path = str(path or "").replace("\\", "/").strip()
+    if not normalized_path:
+        return False
+    prefix = str(text or "")[max(0, start - 36) : start]
+    suffix = str(text or "")[start : start + len(str(path or "")) + 24]
+    context = f"{prefix}{suffix}"
+    if any(marker in context for marker in ("写入", "保存", "生成", "产出", "输出到", "落到", "创建", "新建", "必须是", "目录")):
+        return False
+    if any(marker in context for marker in ("读取", "打开", "查看", "分析", "追踪", "结合", "基于", "根据", "参考", "从", "载入", "检查")):
+        return True
+    if normalized_path.startswith(("backend/", "docs/", "tests/", "knowledge/", "storage/")):
+        return True
+    return False
+
+
+def _kind_from_path(path: str) -> str:
+    suffix = str(path or "").rsplit(".", 1)[-1].lower() if "." in str(path or "") else ""
+    if suffix in {"json", "yaml", "yml", "toml"}:
+        return "json" if suffix == "json" else "structured_text"
+    if suffix in {"csv", "tsv", "xlsx"}:
+        return "dataset"
+    if suffix == "pdf":
+        return "pdf"
+    if suffix in {"py", "ts", "tsx", "js", "jsx"}:
+        return "code"
+    if suffix in {"md", "txt", "log"}:
+        return "text"
+    return "unknown"
+
+
+def _has_any(text: str, markers: tuple[str, ...]) -> bool:
+    return any(marker.lower() in str(text or "").lower() for marker in markers)
+
+
+def _requires_real_write(lowered: str) -> bool:
+    text = str(lowered or "").lower()
+    explicit_markers = (
+        "写入",
+        "生成文件",
+        "产出",
+        "实现",
+        "修改文件",
+        "修改相关文件",
+        "改文件",
+        "改代码",
+        "修改代码",
+        "修复代码",
+        "修正代码",
+        "补丁",
+        "创建文件",
+        "新建文件",
+        "apply",
+        "patch",
+        "implement",
+    )
+    if any(marker in text for marker in explicit_markers):
+        return True
+    advisory_context = any(marker in text for marker in ("修复建议", "验证步骤", "排查", "建议", "怎么修", "如何修"))
+    if advisory_context:
+        return False
+    if re.search(r"\bfix(?:e[ds]|ing)?\b", text) and not any(marker in text for marker in ("fix advice", "fix suggestion", "how to fix")):
+        return True
+    return any(marker in text for marker in ("修复", "修正"))
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result

@@ -606,3 +606,35 @@ def test_scheduler_does_not_schedule_conditional_repair_or_failure_routes_by_def
     assert failure.upstream_node_ids == ()
     assert "repair" in state.diagnostics["optional_node_ids"]
     assert "fail_closed" in state.diagnostics["optional_node_ids"]
+
+
+def test_scheduler_excludes_resource_nodes_from_execution_queue() -> None:
+    spec = TaskGraphRuntimeSpec(
+        graph_id="graph.test.resource_nodes",
+        domain_id="domain.test",
+        task_family="test",
+        coordinator_agent_id="agent:0",
+        nodes=(
+            TaskGraphRuntimeNode(node_id="draft", title="Draft", node_type="agent", role="writer"),
+            TaskGraphRuntimeNode(node_id="memory.writing.mutable", title="Mutable Memory", node_type="memory_repository", role="resource"),
+        ),
+        edges=(
+            TaskGraphRuntimeEdge(
+                edge_id="edge.memory_commit.draft.mutable",
+                source_node_id="draft",
+                target_node_id="memory.writing.mutable",
+                mode="memory_commit",
+            ),
+        ),
+        start_node_ids=("draft",),
+        terminal_node_ids=("draft",),
+    )
+
+    state = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={"draft": "completed", "memory.writing.mutable": "pending"},
+    )
+
+    assert state.ready_node_ids == ()
+    assert "memory.writing.mutable" not in state.blocked_node_ids
+    assert state.diagnostics["resource_node_ids_excluded_from_schedule"] == ["memory.writing.mutable"]

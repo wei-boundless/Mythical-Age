@@ -22,22 +22,18 @@ class FormalMemoryService:
         graph = dict(graph_spec or {})
         repositories: list[FormalMemoryRepository] = []
         collections: list[FormalMemoryCollection] = []
-        for raw_node in list(graph.get("nodes") or []):
-            if not isinstance(raw_node, dict):
-                continue
-            node = dict(raw_node)
-            if not _is_memory_repository_node(node):
-                continue
+        for node in _memory_repository_nodes_from_graph(graph):
             metadata = dict(node.get("metadata") or {})
             repo_config = dict(metadata.get("memory_repository") or {})
             node_id = str(node.get("node_id") or node.get("id") or "").strip()
             repository_id = str(repo_config.get("repository_id") or metadata.get("repository_id") or node_id).strip()
             if not repository_id:
                 continue
+            lifecycle_policy = _repository_lifecycle_policy(node=node, repo_config=repo_config)
             scope = self.resolve_repository_scope(
                 logical_repository_id=repository_id,
                 task_run_id=task_run_id,
-                lifecycle_policy=dict(node.get("resource_lifecycle_policy") or repo_config.get("lifecycle_policy") or {}),
+                lifecycle_policy=lifecycle_policy,
             )
             self._scope_policies_by_logical_repository[repository_id] = dict(scope)
             repository = self.store.upsert_repository(
@@ -52,7 +48,7 @@ class FormalMemoryService:
                     node_id=node_id,
                     title=str(repo_config.get("title") or node.get("title") or node.get("label") or repository_id),
                     repository_kind=str(repo_config.get("repository_kind") or "formal_memory"),
-                    lifecycle_policy=dict(node.get("resource_lifecycle_policy") or repo_config.get("lifecycle_policy") or {}),
+                    lifecycle_policy=lifecycle_policy,
                 )
             )
             repositories.append(repository)
@@ -398,16 +394,66 @@ def _record_payload(*, version: FormalMemoryRecordVersion, edge: dict[str, Any],
     }
 
 
+def _memory_repository_nodes_from_graph(graph: dict[str, Any]) -> list[dict[str, Any]]:
+    nodes_by_id: dict[str, dict[str, Any]] = {}
+    ordered_ids: list[str] = []
+    raw_nodes = [
+        *[item for item in list(graph.get("nodes") or []) if isinstance(item, dict)],
+        *[item for item in list(graph.get("resource_nodes") or []) if isinstance(item, dict)],
+    ]
+    for index, raw_node in enumerate(raw_nodes):
+        node = dict(raw_node)
+        if not _is_memory_repository_node(node):
+            continue
+        node_id = str(node.get("node_id") or node.get("id") or "").strip()
+        node_key = node_id or f"anonymous_memory_repository_{index}"
+        if node_key in nodes_by_id:
+            existing = nodes_by_id[node_key]
+            nodes_by_id[node_key] = {
+                **existing,
+                **node,
+                "metadata": {
+                    **dict(existing.get("metadata") or {}),
+                    **dict(node.get("metadata") or {}),
+                },
+            }
+            continue
+        nodes_by_id[node_key] = node
+        ordered_ids.append(node_key)
+    return [nodes_by_id[node_id] for node_id in ordered_ids]
+
+
+def _repository_lifecycle_policy(*, node: dict[str, Any], repo_config: dict[str, Any]) -> dict[str, Any]:
+    return dict(
+        node.get("resource_lifecycle_policy")
+        or node.get("lifecycle_policy")
+        or repo_config.get("lifecycle_policy")
+        or {}
+    )
+
+
 def _is_memory_repository_node(node: dict[str, Any]) -> bool:
-    node_type = str(node.get("node_type") or "").strip()
+    node_type = str(node.get("node_type") or node.get("resource_type") or "").strip()
     node_id = str(node.get("node_id") or node.get("id") or "").strip()
-    work_posture = str(node.get("work_posture") or "").strip()
+    work_posture = str(node.get("work_posture") or node.get("role") or "").strip()
+    metadata = dict(node.get("metadata") or {})
+    has_repository_config = bool(metadata.get("memory_repository") or metadata.get("repository_id") or node.get("repository_id"))
     if node_type == "artifact_repository":
         return False
     return (
-        node_type in {"memory_repository", "working_memory_store", "runtime_state_store", "thread_ledger", "progress_ledger", "issue_ledger"}
+        node_type in {
+            "memory_repository",
+            "working_memory_store",
+            "runtime_state_store",
+            "thread_ledger",
+            "progress_ledger",
+            "issue_ledger",
+            "memory_resource",
+            "memory",
+        }
         or (node_type.endswith("repository") and "artifact" not in node_type)
         or (work_posture == "resource" and node_id.startswith("memory."))
+        or (has_repository_config and node_id.startswith("memory."))
     )
 
 

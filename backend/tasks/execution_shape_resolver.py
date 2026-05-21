@@ -57,6 +57,7 @@ def resolve_execution_shape(
     capability_requests = set(task_intent_contract.capability_requests)
     diagnostics_payload = dict(task_intent_contract.diagnostics or {})
     semantic_contract = dict(task_intent_contract.semantic_task_contract or {})
+    execution_obligation = dict(task_intent_contract.execution_obligation or semantic_contract.get("execution_obligation") or {})
     mode_policy = dict(task_intent_contract.mode_policy or {})
     interaction_mode = str(mode_policy.get("interaction_mode") or diagnostics_payload.get("interaction_mode") or "").strip()
     task_goal_type = str(semantic_contract.get("task_goal_type") or diagnostics_payload.get("semantic_task_type") or "").strip()
@@ -134,7 +135,11 @@ def resolve_execution_shape(
         registered_task_mode = str((registered_task or {}).get("task_mode") or "").strip()
         if registered_task_mode in {"bounded_patch", "workspace_patch", "light_web_game", "arcade_game_bundle"}:
             reasons.append("registered_task_mode")
-            recipe_id = "runtime.recipe.light_web_game" if registered_task_mode == "light_web_game" else "runtime.recipe.workspace_patch"
+            if interaction_mode in {"role_mode", "standard_mode", "professional_mode"}:
+                reasons.append(f"interaction_mode_overrides_registered_task:{interaction_mode}")
+                recipe_id = str(mode_policy.get("recipe_id") or "runtime.recipe.professional_task")
+            else:
+                recipe_id = "runtime.recipe.light_web_game" if registered_task_mode == "light_web_game" else "runtime.recipe.workspace_patch"
             return _shape_from_recipe_id(
                 recipe_id,
                 source_kind=source_kind or "workspace",
@@ -192,6 +197,7 @@ def resolve_execution_shape(
                 "professional_profile_id": str(semantic_contract.get("professional_profile_id") or ""),
                 "mode_policy": mode_policy,
                 "semantic_task_contract": semantic_contract,
+                "execution_obligation": execution_obligation,
             },
         )
     if task_intent_contract.execution_intent == "bundle_task":

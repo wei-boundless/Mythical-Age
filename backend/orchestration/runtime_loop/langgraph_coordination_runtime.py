@@ -41,11 +41,13 @@ from .continuation_policy import (
 )
 from .coordination_trace_adapter import CoordinationTraceAdapter
 from .context_packet_resolver import build_revision_packet_from_review, resolve_context_packets
+from .review_gate_verdict import review_verdict_is_accepted, review_verdict_is_rejected
 from .langgraph_checkpoint_adapter import LangGraphCheckpointStoreAdapter
 from .langgraph_runtime_kernel import LangGraphRuntimeKernel
 from .runtime_object_store import RuntimeObjectStore
 from .models import AgentHandoffEnvelope, CoordinationRun
 from .runtime_assembly_builder import build_node_runtime_assembly
+from orchestration.artifact_policy_view import render_artifact_policy_instructions
 from .node_execution_request import NodeExecutionRequest, NodeResultReadyEvent
 from .task_graph_batch_runtime import (
     apply_batch_to_pending_inputs,
@@ -68,6 +70,7 @@ from .task_graph_batch_runtime import (
 from .task_graph_scheduler import bootstrap_scheduler_state
 from .timeline_ledger import TimelineEvent, TimelineLedgerStore
 from .timeline_result_record import build_timeline_result_record
+from .protocol_boundary import is_internal_protocol_input_key
 from .node_handoff_protocol import (
     build_node_executor_binding,
     build_standard_node_input_package,
@@ -304,10 +307,20 @@ class LangGraphCoordinationRuntime:
             return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_coordination_task"})
         state = self._load_or_bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
         if inherited_inputs:
-            state["pending_inputs"] = {**dict(state.get("pending_inputs") or {}), **dict(inherited_inputs)}
+            business_inherited_inputs = {
+                str(key): value
+                for key, value in dict(inherited_inputs).items()
+                if not is_internal_protocol_input_key(str(key))
+            }
+            state["pending_inputs"] = {**dict(state.get("pending_inputs") or {}), **business_inherited_inputs}
             state["diagnostics"] = {
                 **dict(state.get("diagnostics") or {}),
-                "inherited_input_keys": sorted(str(key) for key in dict(inherited_inputs).keys()),
+                "inherited_input_keys": sorted(str(key) for key in business_inherited_inputs.keys()),
+                "filtered_internal_protocol_input_keys": sorted(
+                    str(key)
+                    for key in dict(inherited_inputs).keys()
+                    if is_internal_protocol_input_key(str(key))
+                ),
             }
         self._append_timeline_event(
             state,
@@ -1120,11 +1133,14 @@ class LangGraphCoordinationRuntime:
             **_structured_outputs_from_output_bundle(output_bundle),
             **mapped_outputs,
         }
-        accepted = bool(event.get("accepted") is True) and _required_artifact_outputs_satisfied(
+        required_artifact_outputs_satisfied = _required_artifact_outputs_satisfied(
             output_mappings,
             artifact_refs,
             requires_file_artifact_refs=requires_file_artifact_refs,
         )
+        accepted = bool(event.get("accepted") is True) and required_artifact_outputs_satisfied
+        if _review_gate_event_is_accepted(event=event, contract=contract):
+            accepted = True
         stage_scope = self._stage_scope(state=state, stage_id=stage_id, contract=contract)
         result_request_payload = _stage_result_request_payload(
             state=state,
@@ -1303,8 +1319,8 @@ class LangGraphCoordinationRuntime:
             memory_write_candidate_refs=created_memory_refs,
             memory_commit_refs=committed_memory_refs,
             validation_result={
-                "required_artifact_outputs_satisfied": accepted
-                if bool(event.get("accepted") is True)
+                "required_artifact_outputs_satisfied": required_artifact_outputs_satisfied
+                if bool(event.get("accepted") is True) or _review_gate_event_is_accepted(event=event, contract=contract)
                 else not _contract_has_required_artifact_outputs(output_mappings, requires_file_artifact_refs=requires_file_artifact_refs),
                 "requires_file_artifact_refs": requires_file_artifact_refs,
             },
@@ -3653,16 +3669,29 @@ def _graph_memory_edge_descriptors(
     graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
     nodes_by_id = {
         str(item.get("node_id") or item.get("id") or "").strip(): dict(item)
-        for item in list(graph_spec.get("nodes") or [])
+        for item in [
+            *[raw for raw in list(graph_spec.get("nodes") or []) if isinstance(raw, dict)],
+            *[raw for raw in list(graph_spec.get("resource_nodes") or []) if isinstance(raw, dict)],
+        ]
         if isinstance(item, dict) and str(item.get("node_id") or item.get("id") or "").strip()
     }
     descriptors: list[dict[str, Any]] = []
-    for raw in list(graph_spec.get("edges") or []):
+    raw_edges = [
+        *[dict(item) for item in list(graph_spec.get("memory_edges") or []) if isinstance(item, dict)],
+        *[dict(item) for item in list(graph_spec.get("edges") or []) if isinstance(item, dict)],
+    ]
+    seen_edges: set[str] = set()
+    for raw in raw_edges:
         if not isinstance(raw, dict):
             continue
         edge = dict(raw)
+        edge_id = str(edge.get("edge_id") or "").strip()
+        if edge_id and edge_id in seen_edges:
+            continue
+        if edge_id:
+            seen_edges.add(edge_id)
         edge_type = str(edge.get("edge_type") or edge.get("mode") or "").strip()
-        metadata = dict(edge.get("metadata") or {})
+        metadata = {**edge, **dict(edge.get("metadata") or {})}
         memory_edge_type = str(metadata.get("memory_edge_type") or "").strip()
         normalized_memory_edge_type = memory_edge_type or (edge_type.replace("memory_", "") if edge_type.startswith("memory_") else "")
         source = str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "").strip()
@@ -4446,6 +4475,26 @@ def _review_revision_target(*, contract: dict[str, Any], stage_id: str) -> str:
     return explicit
 
 
+def _review_gate_event_is_accepted(*, event: dict[str, Any], contract: dict[str, Any]) -> bool:
+    node_type = str(contract.get("node_type") or "").strip()
+    gate_policy = str(contract.get("gate_policy") or "").strip()
+    review_policy = dict(contract.get("review_gate_policy") or {})
+    if node_type != "review_gate" and gate_policy != "review_gate" and not review_policy:
+        return False
+    diagnostics = dict(event.get("diagnostics") or {})
+    acceptance = dict(diagnostics.get("stage_business_acceptance") or {})
+    verdict = str(
+        acceptance.get("verdict")
+        or acceptance.get("review_verdict")
+        or diagnostics.get("verdict")
+        or diagnostics.get("review_verdict")
+        or ""
+    ).strip()
+    if review_verdict_is_rejected(verdict):
+        return False
+    return review_verdict_is_accepted(verdict)
+
+
 def _stage_quality_retry_target(*, contract: dict[str, Any], stage_id: str, event: dict[str, Any]) -> str:
     policy = dict(contract.get("quality_retry_policy") or {})
     if policy.get("enabled") is not True:
@@ -4783,6 +4832,9 @@ def _stage_execution_message(
         lines.append(original_request)
     if artifact_paths:
         lines.append("目标文本：" + "、".join(artifact_paths) + "。")
+    artifact_policy_instruction = render_artifact_policy_instructions(contract.get("artifact_policy"))
+    if artifact_policy_instruction:
+        lines.append(artifact_policy_instruction)
     readable_artifacts = _readable_artifact_context_for_stage(
         contract=contract,
         explicit_inputs=explicit_inputs,
@@ -4996,11 +5048,46 @@ def _readable_revision_packet_sections(revision_packet: dict[str, Any]) -> list[
     if not revision_packet:
         return []
     lines = ["返修交接包："]
-    for key in ("review_verdict", "required_changes", "review_result_refs", "previous_candidate_artifact_refs"):
+    lines.append("请只使用本交接包中已经展开的文本与当前上下文完成返修；不要输出 read_file、search_text、工具调用标签或任何内部协议片段。")
+    for key in ("review_verdict", "required_changes"):
+        value = revision_packet.get(key)
+        if value not in ("", None, [], {}):
+            lines.append(f"- {key}: {value}")
+    _append_revision_ref_texts(
+        lines,
+        title="审核报告正文",
+        refs=_artifact_refs_from_value(revision_packet.get("review_result_refs")),
+        max_chars=12000,
+    )
+    _append_revision_ref_texts(
+        lines,
+        title="上一版候选产物正文",
+        refs=_artifact_refs_from_value(revision_packet.get("previous_candidate_artifact_refs")),
+        max_chars=30000,
+    )
+    for key in ("review_result_refs", "previous_candidate_artifact_refs"):
         value = revision_packet.get(key)
         if value not in ("", None, [], {}):
             lines.append(f"- {key}: {value}")
     return lines
+
+
+def _append_revision_ref_texts(lines: list[str], *, title: str, refs: list[str], max_chars: int) -> None:
+    if not refs:
+        return
+    appended = False
+    for ref in refs[:3]:
+        if "/debug/" in str(ref).replace("\\", "/"):
+            continue
+        content = _read_artifact_ref_text(ref)
+        text = str(content or "").strip()
+        if not text:
+            continue
+        if not appended:
+            lines.append(f"{title}：")
+            appended = True
+        lines.append(f"--- {ref} ---")
+        lines.append(text[:max_chars])
 
 
 def _resolve_artifact_context_value(item: dict[str, Any], *, explicit_inputs: dict[str, Any]) -> Any:
@@ -5686,6 +5773,8 @@ def _downstream_stage_ids(*, state: dict[str, Any], stage_id: str, include_self:
             if next_stage not in visited:
                 queue.append(next_stage)
     ordered = [item for item in order if item in visited]
+    if len(ordered) <= 1 and target in order:
+        ordered = order[order.index(target) :]
     if include_self and target not in ordered:
         ordered.insert(0, target)
     if not include_self:

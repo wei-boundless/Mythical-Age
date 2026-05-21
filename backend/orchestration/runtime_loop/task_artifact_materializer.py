@@ -49,8 +49,9 @@ def materialize_task_artifacts(
     if not artifact_policy.get("enabled"):
         return MaterializedTaskArtifacts(enabled=False)
 
+    explicit_artifact_root = str(explicit_inputs.get("artifact_root") or "").strip()
     root_value = str(
-        explicit_inputs.get("artifact_root")
+        explicit_artifact_root
         or artifact_policy.get("artifact_root")
         or artifact_policy.get("default_artifact_root")
         or ""
@@ -64,16 +65,17 @@ def materialize_task_artifacts(
     workspace = Path(workspace_root).resolve()
     subdir_template = str(artifact_policy.get("subdir_template") or "").strip()
     if subdir_template:
-        root_value = _join_artifact_root(
-            root_value,
-            _render_subdir_template(
-                subdir_template,
-                task_run_id=task_run_id,
-                session_id=session_id,
-                task_ref=task_ref,
-                explicit_inputs=explicit_inputs,
-            ),
-        )
+        if not explicit_artifact_root:
+            root_value = _join_artifact_root(
+                root_value,
+                _render_subdir_template(
+                    subdir_template,
+                    task_run_id=task_run_id,
+                    session_id=session_id,
+                    task_ref=task_ref,
+                    explicit_inputs=explicit_inputs,
+                ),
+            )
     artifact_root = _resolve_artifact_root(workspace, root_value)
     rejected_output = str(acceptance_status or "").strip().lower() == "rejected"
     visible_artifact_root = artifact_root
@@ -94,13 +96,6 @@ def materialize_task_artifacts(
     skipped: list[str] = []
 
     artifact_specs = _artifact_specs(artifact_policy)
-    if _should_materialize_project_brief(task_ref=task_ref, artifact_specs=artifact_specs):
-        project_brief = _project_brief_markdown(explicit_inputs=explicit_inputs, user_message=user_message)
-        if project_brief.strip():
-            target = _write_text_preserving_existing(artifact_root / "00_project_brief.md", project_brief)
-            created.append(_relative_or_absolute(target, artifact_root))
-        else:
-            skipped.append("00_project_brief.md")
 
     for spec in artifact_specs:
         relative_path = _render_artifact_path(str(spec.get("path") or "").strip(), explicit_inputs)
@@ -241,12 +236,14 @@ def _render_subdir_template(
     explicit_inputs: dict[str, Any],
 ) -> str:
     title = str(explicit_inputs.get("title") or explicit_inputs.get("project_title") or "").strip()
+    project_id = str(explicit_inputs.get("project_id") or "").strip()
     values = {
         "task_slug": _safe_slug(task_ref or "task"),
         "task_id": _safe_slug(task_ref or "task"),
         "run_slug": _safe_slug(task_run_id.split(":")[-1] or task_run_id or str(int(time.time()))),
         "task_run_id": _safe_slug(task_run_id),
         "session_id": _safe_slug(session_id),
+        "project_id": _safe_slug(project_id or title or task_ref or "project"),
         "title": _safe_slug(title or task_ref or "task"),
     }
     rendered = str(template or "")

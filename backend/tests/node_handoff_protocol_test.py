@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from orchestration.runtime_loop.node_handoff_protocol import (
     build_node_executor_binding,
     build_standard_node_input_package,
@@ -59,6 +61,68 @@ def test_standard_node_input_package_merges_edge_backed_materials() -> None:
     assert by_key["chapter_outline"].source_edge_id == "edge:outline_to_writer"
     assert by_key["worldview"].source_edge_id == "edge:world_to_writer"
     assert package.output_contract["required_output_keys"] == ["chapter_body"]
+
+
+def test_standard_node_input_package_expands_artifact_refs_for_text_artifact_runtime_agents(tmp_path: Path) -> None:
+    artifact = tmp_path / "outline_review.md"
+    artifact.write_text("# 细纲审核\n\n裁决：通过。可以提交基准库。", encoding="utf-8")
+
+    package = build_standard_node_input_package(
+        coordination_run_id="coordrun:1",
+        stage_id="baseline_memory_seed",
+        node_id="baseline_memory_seed",
+        contract={
+            "title": "基准库初始化",
+            "required_inputs": ["上游交接包"],
+            "output_mappings": [{"output_key": "baseline_commit", "required": True}],
+        },
+        explicit_inputs={},
+        dispatch_context={"activation_id": "activation:baseline:1", "execution_permit_id": "permit:baseline:1"},
+        memory_snapshot={},
+        artifact_context_packet={
+            "packet_id": "artctx:baseline",
+            "edge_ids": ["edge.outline_review.baseline"],
+            "source_node_ids": ["outline_review"],
+            "artifact_refs": [f"artifact:{artifact}"],
+        },
+        revision_packet={},
+        handoff_packets=[],
+    )
+
+    artifact_item = next(item for item in package.input_items if item.content_ref == f"artifact:{artifact}")
+    assert artifact_item.content_type == "artifact_text"
+    assert "裁决：通过" in artifact_item.content_preview
+    assert artifact_item.metadata["text"].startswith("# 细纲审核")
+    assert artifact_item.metadata["expanded_by_runtime"] is True
+
+
+def test_standard_node_input_package_filters_internal_protocol_inputs() -> None:
+    package = build_standard_node_input_package(
+        coordination_run_id="coordrun:1",
+        stage_id="child_node",
+        node_id="child_node",
+        contract={
+            "title": "子图节点",
+            "required_inputs": ["user_goal"],
+            "output_mappings": [{"output_key": "result", "required": True}],
+        },
+        explicit_inputs={
+            "user_goal": "启动子图",
+            "parent_graph_unit_runtime_handle": {"linked_graph_id": "graph.child"},
+            "parent_stage_execution_request": {"stage_id": "graph_unit.block.child"},
+            "parent_standard_input_package": {"input_items": [{"input_key": "polluted"}]},
+            "runtime_protocol.debug": {"artifact_refs": ["artifact:debug/should_not_leak.md"]},
+        },
+        dispatch_context={"activation_id": "activation:child:1", "execution_permit_id": "permit:child:1"},
+        memory_snapshot={},
+        artifact_context_packet={},
+        revision_packet={},
+        handoff_packets=[],
+    )
+
+    input_keys = {item.input_key for item in package.input_items}
+    assert input_keys == {"user_goal"}
+    assert package.diagnostics["missing_required_input_keys"] == []
 
 
 def test_human_executor_uses_same_package_as_work_packet() -> None:

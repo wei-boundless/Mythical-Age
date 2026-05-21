@@ -45,12 +45,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.memory_baseline_baseline_commit_md",
-          "title_zh": "memory/baseline/baseline_commit.md",
+          "requirement_id": "artifact.memory_baseline_baseline_commit_round__round_index_03d__md",
+          "title_zh": "memory/baseline/baseline_commit_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "memory/baseline/baseline_commit.md",
+          "naming_rule": "memory/baseline/baseline_commit_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -152,12 +152,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.volume__volume_index_padded__chapters_chapter__batch_chapter_range__chapter_commit_md",
-          "title_zh": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/chapter_commit.md",
+          "requirement_id": "artifact.volume__volume_index_padded__chapters_chapter__batch_chapter_range__chapter_commit_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/chapter_commit_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/chapter_commit.md",
+          "naming_rule": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/chapter_commit_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -871,12 +871,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.design_character_design_md",
-          "title_zh": "design/character_design.md",
+          "requirement_id": "artifact.design_character_design_round__round_index_03d__md",
+          "title_zh": "design/character_design_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "design/character_design.md",
+          "naming_rule": "design/character_design_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -978,12 +978,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.design_design_alignment_md",
-          "title_zh": "design/design_alignment.md",
+          "requirement_id": "artifact.design_design_alignment_round__round_index_03d__md",
+          "title_zh": "design/design_alignment_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "design/design_alignment.md",
+          "naming_rule": "design/design_alignment_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -1224,12 +1224,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.volume__volume_index_padded__extension_commit_md",
-          "title_zh": "volume_{volume_index_padded}/extension_commit.md",
+          "requirement_id": "artifact.volume__volume_index_padded__extension_commit_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/extension_commit_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "volume_{volume_index_padded}/extension_commit.md",
+          "naming_rule": "volume_{volume_index_padded}/extension_commit_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -1331,12 +1331,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.volume__volume_index_padded__extension_proposal_md",
-          "title_zh": "volume_{volume_index_padded}/extension_proposal.md",
+          "requirement_id": "artifact.volume__volume_index_padded__extension_proposal_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/extension_proposal_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "volume_{volume_index_padded}/extension_proposal.md",
+          "naming_rule": "volume_{volume_index_padded}/extension_proposal_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -1438,12 +1438,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.volume__volume_index_padded__extension_review_md",
-          "title_zh": "volume_{volume_index_padded}/extension_review.md",
+          "requirement_id": "artifact.volume__volume_index_padded__extension_review_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/extension_review_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "volume_{volume_index_padded}/extension_review.md",
+          "naming_rule": "volume_{volume_index_padded}/extension_review_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -1801,12 +1801,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.final_memory_finalize_md",
-          "title_zh": "final/memory_finalize.md",
+          "requirement_id": "artifact.final_memory_finalize_round__round_index_03d__md",
+          "title_zh": "final/memory_finalize_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "final/memory_finalize.md",
+          "naming_rule": "final/memory_finalize_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -1908,12 +1908,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.final_final_review_md",
-          "title_zh": "final/final_review.md",
+          "requirement_id": "artifact.final_final_review_round__round_index_03d__md",
+          "title_zh": "final/final_review_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "final/final_review.md",
+          "naming_rule": "final/final_review_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -2390,12 +2390,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.outline_outline_design_md",
-          "title_zh": "outline/outline_design.md",
+          "requirement_id": "artifact.outline_outline_design_round__round_index_03d__md",
+          "title_zh": "outline/outline_design_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "outline/outline_design.md",
+          "naming_rule": "outline/outline_design_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -2497,12 +2497,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.outline_outline_review_md",
-          "title_zh": "outline/outline_review.md",
+          "requirement_id": "artifact.outline_outline_review_round__round_index_03d__md",
+          "title_zh": "outline/outline_review_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "outline/outline_review.md",
+          "naming_rule": "outline/outline_review_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -2604,12 +2604,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.design_plot_design_md",
-          "title_zh": "design/plot_design.md",
+          "requirement_id": "artifact.design_plot_design_round__round_index_03d__md",
+          "title_zh": "design/plot_design_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "design/plot_design.md",
+          "naming_rule": "design/plot_design_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -2711,12 +2711,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.volume__volume_index_padded__chapters_chapter__batch_chapter_range__progress_route_md",
-          "title_zh": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/progress_route.md",
+          "requirement_id": "artifact.volume__volume_index_padded__chapters_chapter__batch_chapter_range__progress_route_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/progress_route_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/progress_route.md",
+          "naming_rule": "volume_{volume_index_padded}/chapters/chapter_{batch_chapter_range}/progress_route_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -2913,12 +2913,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.volume__volume_index_padded__volume_commit_md",
-          "title_zh": "volume_{volume_index_padded}/volume_commit.md",
+          "requirement_id": "artifact.volume__volume_index_padded__volume_commit_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/volume_commit_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "volume_{volume_index_padded}/volume_commit.md",
+          "naming_rule": "volume_{volume_index_padded}/volume_commit_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -3008,12 +3008,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.volume__volume_index_padded__volume_plan_md",
-          "title_zh": "volume_{volume_index_padded}/volume_plan.md",
+          "requirement_id": "artifact.volume__volume_index_padded__volume_plan_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/volume_plan_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "volume_{volume_index_padded}/volume_plan.md",
+          "naming_rule": "volume_{volume_index_padded}/volume_plan_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -3115,12 +3115,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.volume__volume_index_padded__volume_postmortem_md",
-          "title_zh": "volume_{volume_index_padded}/volume_postmortem.md",
+          "requirement_id": "artifact.volume__volume_index_padded__volume_postmortem_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/volume_postmortem_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "volume_{volume_index_padded}/volume_postmortem.md",
+          "naming_rule": "volume_{volume_index_padded}/volume_postmortem_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -3222,12 +3222,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.volume__volume_index_padded__volume_review_md",
-          "title_zh": "volume_{volume_index_padded}/volume_review.md",
+          "requirement_id": "artifact.volume__volume_index_padded__volume_review_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/volume_review_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "volume_{volume_index_padded}/volume_review.md",
+          "naming_rule": "volume_{volume_index_padded}/volume_review_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -3329,12 +3329,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.volume__volume_index_padded__next_volume_route_md",
-          "title_zh": "volume_{volume_index_padded}/next_volume_route.md",
+          "requirement_id": "artifact.volume__volume_index_padded__next_volume_route_round__round_index_03d__md",
+          "title_zh": "volume_{volume_index_padded}/next_volume_route_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "volume_{volume_index_padded}/next_volume_route.md",
+          "naming_rule": "volume_{volume_index_padded}/next_volume_route_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -3436,12 +3436,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.world_world_candidate_md",
-          "title_zh": "world/world_candidate.md",
+          "requirement_id": "artifact.world_world_candidate_round__round_index_03d__md",
+          "title_zh": "world/world_candidate_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "world/world_candidate.md",
+          "naming_rule": "world/world_candidate_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -3543,12 +3543,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.memory_world_world_commit_md",
-          "title_zh": "memory/world/world_commit.md",
+          "requirement_id": "artifact.memory_world_world_commit_round__round_index_03d__md",
+          "title_zh": "memory/world/world_commit_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "memory/world/world_commit.md",
+          "naming_rule": "memory/world/world_commit_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }
@@ -3650,12 +3650,12 @@
       ],
       "artifact_requirements": [
         {
-          "requirement_id": "artifact.world_world_review_md",
-          "title_zh": "world/world_review.md",
+          "requirement_id": "artifact.world_world_review_round__round_index_03d__md",
+          "title_zh": "world/world_review_round_{round_index:03d}.md",
           "artifact_type": "markdown",
           "required": true,
           "description": "",
-          "naming_rule": "world/world_review.md",
+          "naming_rule": "world/world_review_round_{round_index:03d}.md",
           "storage_policy": "artifact_ref",
           "metadata": {}
         }

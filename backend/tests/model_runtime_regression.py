@@ -13,6 +13,8 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from execution.model_runtime import ModelRuntime, ModelRuntimeError, ModelSpec
+from execution.provider_tool_call_adapter import normalize_tool_call_dicts, tool_calls_for_langchain_messages
+from execution.model_response import ModelResponseRuntimeExecutor
 from execution.tool_call_policy import ToolCallBindingOptions
 
 MAIN_AGENT = SimpleNamespace(agent_id="agent:main:test")
@@ -416,6 +418,142 @@ def test_model_runtime_passes_native_tool_choice_options(monkeypatch: pytest.Mon
         "strict": False,
         "parallel_tool_calls": False,
     }
+
+
+def test_provider_tool_call_adapter_reads_additional_kwargs_tool_calls() -> None:
+    response = SimpleNamespace(
+        content="",
+        additional_kwargs={
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": '{"path":"backend/app.py"}',
+                    },
+                }
+            ]
+        },
+    )
+
+    calls = normalize_tool_call_dicts(response, provider="deepseek")
+
+    assert calls == [
+        {
+            "id": "call-1",
+            "name": "read_file",
+            "args": {"path": "backend/app.py"},
+            "type": "tool_call",
+            "source": "native_tool_call",
+        }
+    ]
+
+
+def test_provider_tool_call_adapter_reads_function_call_payload() -> None:
+    response = SimpleNamespace(
+        content="",
+        additional_kwargs={
+            "function_call": {
+                "name": "terminal",
+                "arguments": '{"command":"pytest -q"}',
+                "type": "function_call",
+            }
+        },
+    )
+
+    calls = normalize_tool_call_dicts(response, provider="deepseek")
+
+    assert calls[0]["name"] == "terminal"
+    assert calls[0]["args"] == {"command": "pytest -q"}
+
+
+def test_provider_tool_call_adapter_converts_deepseek_dsml_tool_call() -> None:
+    response = SimpleNamespace(
+        content=(
+            '<｜｜DSML｜｜invoke name="edit_file">'
+            '<｜｜DSML｜｜parameter name="path" string="true">backend/order_pipeline.py</｜｜DSML｜｜parameter>'
+            '<｜｜DSML｜｜parameter name="old_text" string="true">return 0</｜｜DSML｜｜parameter>'
+            '<｜｜DSML｜｜parameter name="new_text" string="true">return sum(values)</｜｜DSML｜｜parameter>'
+            '</｜｜DSML｜｜invoke>'
+        ),
+        additional_kwargs={"provider": "deepseek"},
+    )
+
+    calls = normalize_tool_call_dicts(response, provider="deepseek")
+
+    assert calls == [
+        {
+            "id": "dsml-tool-call-1",
+            "name": "edit_file",
+            "args": {
+                "path": "backend/order_pipeline.py",
+                "old_text": "return 0",
+                "new_text": "return sum(values)",
+            },
+            "type": "tool_call",
+            "source": "provider_dsml_tool_call",
+        }
+    ]
+
+
+def test_model_response_does_not_execute_dsml_when_no_tools_are_bound() -> None:
+    class _DsmlModelRuntime:
+        async def invoke_messages(self, _messages, **_kwargs):
+            return SimpleNamespace(
+                content=(
+                    '<｜｜DSML｜｜invoke name="write_file">'
+                    '<｜｜DSML｜｜parameter name="path" string="true">output/x.md</｜｜DSML｜｜parameter>'
+                    '<｜｜DSML｜｜parameter name="content" string="true">x</｜｜DSML｜｜parameter>'
+                    '</｜｜DSML｜｜invoke>'
+                ),
+                additional_kwargs={"provider": "deepseek"},
+            )
+
+    executor = ModelResponseRuntimeExecutor(model_runtime=_DsmlModelRuntime())
+
+    async def _collect():
+        events = []
+        async for event in executor.stream(
+            user_message="close out",
+            model_messages=[],
+            directive=SimpleNamespace(
+                executor_type="model",
+                directive_id="directive:test",
+                task_id="task:test",
+                plan_ref="plan:test",
+                execution_graph_ref="graph:test",
+            ),
+            tool_instances=[],
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert [event["type"] for event in events] == ["model_protocol_violation"]
+
+
+def test_provider_tool_call_adapter_strips_metadata_for_langchain_messages() -> None:
+    calls = tool_calls_for_langchain_messages(
+        [
+            {
+                "id": "call-1",
+                "name": "read_file",
+                "args": {"path": "backend/app.py"},
+                "type": "tool_call",
+                "source": "native_tool_call",
+            }
+        ]
+    )
+
+    assert calls == [
+        {
+            "id": "call-1",
+            "name": "read_file",
+            "args": {"path": "backend/app.py"},
+            "type": "tool_call",
+        }
+    ]
 
 
 def test_deepseek_payload_replays_reasoning_content_for_tool_roundtrip() -> None:

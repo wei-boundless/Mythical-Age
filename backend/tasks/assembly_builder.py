@@ -179,6 +179,34 @@ def build_task_execution_assembly_bundle(
             for operation in skill_operations
             if operation in allowed_operations
         ]
+    if _profile_is_text_artifact_runtime_agent(agent_runtime_profile):
+        text_runtime_allowed = _text_artifact_runtime_allowed_operations(agent_runtime_profile)
+        default_operations = [
+            operation
+            for operation in default_operations
+            if operation == "op.model_response" or operation in text_runtime_allowed
+        ]
+        skill_operations = [
+            operation
+            for operation in skill_operations
+            if operation in text_runtime_allowed
+        ]
+        policy_denied_operations = _dedupe(
+            [
+                *policy_denied_operations,
+                "op.read_file",
+                "op.search_files",
+                "op.search_text",
+                "op.read_structured_file",
+                "op.web_search",
+                "op.fetch_url",
+                "op.delegate_to_agent",
+                "op.write_file",
+                "op.edit_file",
+                "op.shell",
+                "op.python_repl",
+            ]
+        )
     operation_requirement = build_operation_requirement(
         task_id=task_contract.task_id,
         source="task_binding",
@@ -300,6 +328,7 @@ def build_task_execution_assembly_bundle(
         execution_chain_type = "coordination_chain"
     graph_ref = str(getattr(task_graph, "graph_id", "") or "").strip()
     task_graph_record = flow_registry.get_task_graph(graph_ref) if graph_ref.startswith("graph.") else None
+    task_policy = dict((registered_task or {}).get("task_policy") or {})
     assembly = TaskExecutionAssembly(
         assembly_id=f"taskasm:{task_id}",
         task_id=task_contract.task_id,
@@ -329,7 +358,8 @@ def build_task_execution_assembly_bundle(
         task_constraints=dict(task_spec.constraints or {}),
         requested_outputs=tuple(task_spec.requested_outputs),
         metadata={
-            "stream_policy": dict(dict((registered_task or {}).get("task_policy") or {}).get("stream_policy") or {}),
+            "stream_policy": dict(task_policy.get("stream_policy") or {}),
+            "artifact_policy": dict(task_policy.get("artifact_policy") or {}),
             "recipe_id": selected_recipe.recipe_id,
             "execution_kind": selected_recipe.execution_kind,
             "source_kind": selected_recipe.source_kind,
@@ -396,6 +426,30 @@ def build_task_execution_assembly_bundle(
         "_operation_requirement_obj": operation_requirement,
         "_projection_selection_obj": projection_selection,
     }
+
+
+def _profile_is_text_artifact_runtime_agent(agent_runtime_profile: AgentRuntimeProfile | None) -> bool:
+    metadata = dict(getattr(agent_runtime_profile, "metadata", {}) or {}) if agent_runtime_profile is not None else {}
+    return str(metadata.get("agent_mode") or metadata.get("runtime_mode") or "").strip() in {
+        "text_artifact_worker",
+        "text_artifact_runtime",
+    } or bool(metadata.get("text_artifact_runtime") is True)
+
+
+def _text_artifact_runtime_allowed_operations(agent_runtime_profile: AgentRuntimeProfile | None) -> set[str]:
+    if agent_runtime_profile is None:
+        return {"op.model_response"}
+    allowed = {
+        str(item or "").strip()
+        for item in tuple(getattr(agent_runtime_profile, "allowed_operations", ()) or ())
+        if str(item or "").strip()
+    }
+    blocked = {
+        str(item or "").strip()
+        for item in tuple(getattr(agent_runtime_profile, "blocked_operations", ()) or ())
+        if str(item or "").strip()
+    }
+    return {item for item in allowed if item not in blocked and item in {"op.model_response", "op.memory_read", "op.text_metric"}}
 
 
 def _resolve_runtime_recipe_operations(

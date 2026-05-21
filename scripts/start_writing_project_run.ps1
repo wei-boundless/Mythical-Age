@@ -32,7 +32,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectBrief)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ArtifactRoot)) {
-    $ArtifactRoot = "output/novel_artifacts/modular_novel/runs/$SessionId"
+    $ArtifactRoot = "output/novel_artifacts/modular_novel/runs/$([Regex]::Replace($ProjectId, '[^0-9A-Za-z\u4e00-\u9fff]+', '-').Trim('-').ToLower())"
 }
 
 $Payload = @{

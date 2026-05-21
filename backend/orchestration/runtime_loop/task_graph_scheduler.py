@@ -30,13 +30,14 @@ def bootstrap_scheduler_state(
     terminal_status: str = "",
     mode: str = "shadow",
 ) -> TaskGraphSchedulerState:
-    raw_statuses = _initial_node_statuses(runtime_spec=runtime_spec, node_statuses=node_statuses)
+    execution_nodes = _execution_nodes(runtime_spec.nodes)
+    raw_statuses = _initial_node_statuses(nodes=execution_nodes, start_node_ids=runtime_spec.start_node_ids, node_statuses=node_statuses)
     statuses, failure_propagation = _apply_failure_propagation(
-        nodes=runtime_spec.nodes,
+        nodes=execution_nodes,
         edges=runtime_spec.edges,
         statuses=raw_statuses,
     )
-    incoming, outgoing = _node_adjacency(runtime_spec.nodes, runtime_spec.edges, runtime_spec.temporal_edges)
+    incoming, outgoing = _node_adjacency(execution_nodes, runtime_spec.edges, runtime_spec.temporal_edges)
     incoming_edges = _incoming_edges_by_target(runtime_spec.edges, runtime_spec.temporal_edges)
     optional_node_ids = _optional_feedback_subgraph_nodes(runtime_spec.nodes, runtime_spec.edges)
     temporal_gate_enabled = bool(result_record_index is not None or accepted_result_records_by_scope is not None)
@@ -48,15 +49,15 @@ def bootstrap_scheduler_state(
     running = {node_id for node_id, status in statuses.items() if status in ACTIVE_STATUSES}
     waiting = {node_id for node_id, status in statuses.items() if status in WAITING_STATUSES}
     start_node_ids = set(runtime_spec.start_node_ids or ())
-    phase_order = _phase_order(runtime_spec.nodes)
+    phase_order = _phase_order(execution_nodes)
     active_phase_ids = _active_phase_ids(
-        nodes=runtime_spec.nodes,
+        nodes=execution_nodes,
         statuses=statuses,
         phase_order=phase_order,
         optional_node_ids=optional_node_ids,
     )
     active_sequence_by_phase = _active_sequence_by_phase(
-        nodes=runtime_spec.nodes,
+        nodes=execution_nodes,
         statuses=statuses,
         active_phase_ids=active_phase_ids,
     )
@@ -68,7 +69,7 @@ def bootstrap_scheduler_state(
     completed_node_ids: list[str] = []
     failed_node_ids: list[str] = []
 
-    for node in runtime_spec.nodes:
+    for node in execution_nodes:
         status = statuses.get(node.node_id, "pending")
         blocked_reasons: list[str] = []
         if status in {"pending", "ready"}:
@@ -179,7 +180,7 @@ def bootstrap_scheduler_state(
         )
         for edge in runtime_spec.edges
     ]
-    phase_states = _phase_states(runtime_spec.nodes, node_states)
+    phase_states = _phase_states(execution_nodes, node_states)
     resolved_terminal = terminal_status or _terminal_status(
         runtime_spec=runtime_spec,
         completed=set(completed_node_ids),
@@ -203,7 +204,11 @@ def bootstrap_scheduler_state(
         diagnostics={
             "runtime_spec_source": str(dict(runtime_spec.diagnostics or {}).get("source") or ""),
             "scheduler_phase": "runtime_bootstrap" if mode == "active" else "shadow_bootstrap",
-            "node_count": len(runtime_spec.nodes),
+            "node_count": len(execution_nodes),
+            "resource_node_count": len(runtime_spec.nodes) - len(execution_nodes),
+            "resource_node_ids_excluded_from_schedule": [
+                node.node_id for node in runtime_spec.nodes if not _is_execution_node(node)
+            ],
             "edge_count": len(runtime_spec.edges),
             "temporal_edge_count": len(runtime_spec.temporal_edges),
             "blocking_temporal_edge_count": len(_blocking_temporal_edges(runtime_spec.temporal_edges)),
@@ -236,20 +241,44 @@ def bootstrap_scheduler_state(
 
 def _initial_node_statuses(
     *,
-    runtime_spec: TaskGraphRuntimeSpec,
+    nodes: tuple[TaskGraphRuntimeNode, ...],
+    start_node_ids: tuple[str, ...],
     node_statuses: dict[str, str] | None,
 ) -> dict[str, str]:
     provided = {str(key): str(value) for key, value in dict(node_statuses or {}).items() if str(key)}
     if provided:
         return {
             node.node_id: provided.get(node.node_id, "pending")
-            for node in runtime_spec.nodes
+            for node in nodes
         }
-    start_ids = set(runtime_spec.start_node_ids or ())
+    start_ids = set(start_node_ids or ())
     return {
         node.node_id: "ready" if node.node_id in start_ids else "pending"
-        for node in runtime_spec.nodes
+        for node in nodes
     }
+
+
+def _execution_nodes(nodes: tuple[TaskGraphRuntimeNode, ...]) -> tuple[TaskGraphRuntimeNode, ...]:
+    return tuple(node for node in nodes if _is_execution_node(node))
+
+
+def _is_execution_node(node: TaskGraphRuntimeNode) -> bool:
+    node_type = str(node.node_type or "").strip()
+    node_id = str(node.node_id or "").strip()
+    if node_type in {
+        "memory",
+        "memory_resource",
+        "memory_repository",
+        "memory_collection",
+        "artifact_repository",
+        "thread_ledger",
+        "progress_ledger",
+        "issue_ledger",
+        "runtime_state_store",
+        "working_memory_store",
+    }:
+        return False
+    return not node_id.startswith(("memory.", "artifact.", "thread.", "progress.", "issue."))
 
 
 def _apply_failure_propagation(

@@ -692,12 +692,17 @@
         "op.text_metric"
       ],
       "blocked_operations": [
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.read_structured_file",
         "op.write_file",
         "op.edit_file",
         "op.shell",
         "op.python_repl",
         "op.delegate_to_agent",
-        "op.web_search"
+        "op.web_search",
+        "op.fetch_url"
       ],
       "allowed_memory_scopes": [
         "writing_modular_novel",
@@ -746,10 +751,185 @@
           "graph.writing.modular_novel.finalize"
         ],
         "runtime_template_id": "task_graph.writing.modular_novel.worker",
+        "agent_mode": "text_artifact_worker",
+        "interaction_mode": "role_mode",
+        "runtime_mode": "text_artifact_runtime",
+        "text_artifact_runtime": true,
+        "preexpanded_context_required": true,
+        "pseudo_tool_output_forbidden": true,
+        "model_may_not_request_file_reads": true,
+        "file_and_memory_side_effects_owned_by": "orchestration_runtime",
         "generic_length_metric_tool_enabled": true,
         "allow_unregistered_runtime_lanes": true
       },
       "runtime_template_id": "task_graph.writing.modular_novel.worker"
+    },
+    {
+      "agent_profile_id": "writing_modular_creator_runtime",
+      "agent_id": "agent:writing_modular_creator",
+      "allowed_runtime_lanes": [
+        "coordination_task"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read",
+        "op.text_metric"
+      ],
+      "blocked_operations": [
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.read_structured_file",
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.delegate_to_agent",
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "allowed_memory_scopes": [
+        "writing_modular_novel",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "max_delegate_calls_per_turn": 0,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "task_family": "writing_modular_novel",
+        "source_task_graph_refs": [
+          "graph.writing.modular_novel.master",
+          "graph.writing.modular_novel.design_init",
+          "graph.writing.modular_novel.chapter_cycle",
+          "graph.writing.modular_novel.finalize"
+        ],
+        "runtime_template_id": "task_graph.writing.modular_novel.creator",
+        "agent_mode": "text_artifact_worker",
+        "interaction_mode": "role_mode",
+        "runtime_mode": "text_artifact_runtime",
+        "text_artifact_runtime": true,
+        "preexpanded_context_required": true,
+        "pseudo_tool_output_forbidden": true,
+        "model_may_not_request_file_reads": true,
+        "file_and_memory_side_effects_owned_by": "orchestration_runtime",
+        "generic_length_metric_tool_enabled": true,
+        "allow_unregistered_runtime_lanes": true
+      },
+      "runtime_template_id": "task_graph.writing.modular_novel.creator"
+    },
+    {
+      "agent_profile_id": "writing_modular_reviewer_runtime",
+      "agent_id": "agent:writing_modular_reviewer",
+      "allowed_runtime_lanes": [
+        "coordination_task"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.read_structured_file",
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.delegate_to_agent",
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "allowed_memory_scopes": [
+        "writing_modular_novel",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "max_delegate_calls_per_turn": 0,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "task_graph_managed",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "task_family": "writing_modular_novel",
+        "source_task_graph_refs": [
+          "graph.writing.modular_novel.master",
+          "graph.writing.modular_novel.design_init",
+          "graph.writing.modular_novel.chapter_cycle",
+          "graph.writing.modular_novel.finalize"
+        ],
+        "runtime_template_id": "task_graph.writing.modular_novel.reviewer",
+        "agent_mode": "text_artifact_worker",
+        "interaction_mode": "role_mode",
+        "runtime_mode": "text_artifact_runtime",
+        "text_artifact_runtime": true,
+        "preexpanded_context_required": true,
+        "pseudo_tool_output_forbidden": true,
+        "model_may_not_request_file_reads": true,
+        "file_and_memory_side_effects_owned_by": "orchestration_runtime",
+        "generic_length_metric_tool_enabled": false,
+        "allow_unregistered_runtime_lanes": true
+      },
+      "runtime_template_id": "task_graph.writing.modular_novel.reviewer"
     },
     {
       "agent_profile_id": "writing_modular_memory_steward_runtime",
@@ -763,12 +943,17 @@
         "op.memory_read"
       ],
       "blocked_operations": [
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.read_structured_file",
         "op.write_file",
         "op.edit_file",
         "op.shell",
         "op.python_repl",
         "op.delegate_to_agent",
-        "op.web_search"
+        "op.web_search",
+        "op.fetch_url"
       ],
       "allowed_memory_scopes": [
         "writing_modular_novel",
@@ -817,6 +1002,14 @@
           "graph.writing.modular_novel.finalize"
         ],
         "runtime_template_id": "task_graph.writing.modular_novel.memory_steward",
+        "agent_mode": "text_artifact_worker",
+        "interaction_mode": "role_mode",
+        "runtime_mode": "text_artifact_runtime",
+        "text_artifact_runtime": true,
+        "preexpanded_context_required": true,
+        "pseudo_tool_output_forbidden": true,
+        "model_may_not_request_file_reads": true,
+        "file_and_memory_side_effects_owned_by": "orchestration_runtime",
         "generic_length_metric_tool_enabled": false,
         "allow_unregistered_runtime_lanes": true
       },
@@ -833,12 +1026,17 @@
         "op.memory_read"
       ],
       "blocked_operations": [
+        "op.read_file",
+        "op.search_files",
+        "op.search_text",
+        "op.read_structured_file",
         "op.write_file",
         "op.edit_file",
         "op.shell",
         "op.python_repl",
         "op.delegate_to_agent",
-        "op.web_search"
+        "op.web_search",
+        "op.fetch_url"
       ],
       "allowed_memory_scopes": [
         "writing_modular_novel",
@@ -888,6 +1086,14 @@
           "graph.writing.modular_novel.finalize"
         ],
         "runtime_template_id": "task_graph.writing.modular_novel.runtime_monitor",
+        "agent_mode": "text_artifact_worker",
+        "interaction_mode": "role_mode",
+        "runtime_mode": "text_artifact_runtime",
+        "text_artifact_runtime": true,
+        "preexpanded_context_required": true,
+        "pseudo_tool_output_forbidden": true,
+        "model_may_not_request_file_reads": true,
+        "file_and_memory_side_effects_owned_by": "orchestration_runtime",
         "generic_length_metric_tool_enabled": false,
         "allow_unregistered_runtime_lanes": true
       },

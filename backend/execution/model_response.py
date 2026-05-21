@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 
+from execution.provider_tool_call_adapter import normalize_tool_call_dicts
 from execution.model_runtime import ModelRuntimeError, stringify_content
+from orchestration.runtime_loop.protocol_boundary import detect_protocol_leak
 from orchestration import RuntimeDirective, build_blocked_runtime_commit_gate
 from output_boundary.boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
 
@@ -56,6 +59,11 @@ class ModelResponseRuntimeExecutor:
         tool_streamer = getattr(self.model_runtime, "astream_messages_with_tools", None)
         stream_policy = dict(model_stream_policy or {})
         stream_enabled = bool(stream_policy.get("enabled") is True)
+        response_timeout_seconds = _model_response_timeout_seconds(
+            self.model_runtime,
+            model_spec=model_spec,
+            policy=stream_policy,
+        )
         delta_index = 0
         response: Any = None
         try:
@@ -102,15 +110,21 @@ class ModelResponseRuntimeExecutor:
                     }
                 response = raw_content
             elif tools and callable(tool_invoker):
-                response = await _call_invoker_with_optional_model_spec(
-                    tool_invoker,
-                    model_messages,
-                    tools,
-                    model_spec=model_spec,
-                    tool_call_options=tool_call_options,
+                response = await _await_with_hard_timeout(
+                    _call_invoker_with_optional_model_spec(
+                        tool_invoker,
+                        model_messages,
+                        tools,
+                        model_spec=model_spec,
+                        tool_call_options=tool_call_options,
+                    ),
+                    timeout_seconds=response_timeout_seconds,
                 )
             else:
-                response = await _call_invoker_with_optional_model_spec(invoker, model_messages, model_spec=model_spec)
+                response = await _await_with_hard_timeout(
+                    _call_invoker_with_optional_model_spec(invoker, model_messages, model_spec=model_spec),
+                    timeout_seconds=response_timeout_seconds,
+                )
         except ModelRuntimeError as exc:
             if stream_enabled and exc.retryable and _stream_recovery_enabled(stream_policy):
                 fallback_timeout_seconds = _stream_recovery_timeout_seconds(stream_policy)
@@ -231,6 +245,20 @@ class ModelResponseRuntimeExecutor:
                     "answer_source": "runtime_directive_executor",
                 }
                 return
+        except asyncio.TimeoutError:
+            yield {
+                "type": "error",
+                "error": "model_response_timeout",
+                "content": "模型响应超过节点执行时限，本节点未产出有效结果，请从当前节点断点重跑。",
+                "code": "timeout",
+                "provider": str(getattr(model_spec, "provider", "") or ""),
+                "model": str(getattr(model_spec, "model", "") or ""),
+                "detail": f"model response exceeded {response_timeout_seconds:g}s",
+                "timeout_seconds": response_timeout_seconds,
+                "answer_channel": "orchestration_fail_closed",
+                "answer_source": "runtime_directive_executor",
+            }
+            return
         except Exception as exc:
             yield {
                 "type": "error",
@@ -241,8 +269,11 @@ class ModelResponseRuntimeExecutor:
             }
             return
         raw_content = stringify_content(getattr(response, "content", response))
-        tool_calls = _normalize_tool_calls(getattr(response, "tool_calls", None))
         additional_kwargs = dict(getattr(response, "additional_kwargs", {}) or {})
+        tool_calls = normalize_tool_call_dicts(
+            response,
+            provider=str(additional_kwargs.get("provider") or getattr(response, "provider", "") or ""),
+        )
         reasoning_content = str(additional_kwargs.get("reasoning_content") or "").strip()
         stream_preview_text = ""
         if stream_enabled and delta_index <= 0:
@@ -257,7 +288,7 @@ class ModelResponseRuntimeExecutor:
                 "stream_ref": directive.directive_id,
                 "is_final_chunk": bool(tool_calls),
             }
-        if tool_calls:
+        if tool_calls and tools:
             for tool_call in tool_calls:
                 tool_name = str(tool_call.get("name") or "")
                 operation_id = self._operation_id_for_tool(tool_name)
@@ -270,6 +301,31 @@ class ModelResponseRuntimeExecutor:
                     "assistant_content": raw_content,
                     "assistant_additional_kwargs": {"reasoning_content": reasoning_content} if reasoning_content else {},
                 }
+            return
+        if tool_calls and not tools:
+            yield {
+                "type": "model_protocol_violation",
+                "content": raw_content,
+                "directive_ref": directive.directive_id,
+                "protocol_leak": {
+                    "detected": True,
+                    "markers": ["provider_tool_call_without_bound_tools"],
+                    "authority": "orchestration.protocol_boundary",
+                },
+                "answer_channel": "orchestration_fail_closed",
+                "answer_source": "runtime_directive:model_response",
+            }
+            return
+        protocol_leak = detect_protocol_leak(raw_content)
+        if protocol_leak.detected and tools:
+            yield {
+                "type": "model_protocol_violation",
+                "content": raw_content,
+                "directive_ref": directive.directive_id,
+                "protocol_leak": protocol_leak.to_dict(),
+                "answer_channel": "orchestration_fail_closed",
+                "answer_source": "runtime_directive:model_response",
+            }
             return
         if _should_auto_delegate_model_answer(directive=directive, model_messages=model_messages):
             yield {
@@ -484,6 +540,54 @@ async def _call_invoker_with_optional_model_spec(
         if "model_spec" not in str(exc):
             raise
         return await invoker(*args)
+
+
+async def _await_with_hard_timeout(awaitable: Any, *, timeout_seconds: float) -> Any:
+    timeout = max(0.01, float(timeout_seconds or 0.01))
+    task = asyncio.create_task(awaitable)
+    done, _pending = await asyncio.wait({task}, timeout=timeout)
+    if task in done:
+        return task.result()
+    task.cancel()
+    task.add_done_callback(_discard_task_exception)
+    raise asyncio.TimeoutError
+
+
+def _discard_task_exception(task: asyncio.Task[Any]) -> None:
+    with contextlib.suppress(BaseException):
+        task.exception()
+
+
+def _model_response_timeout_seconds(model_runtime: Any, *, model_spec: Any | None, policy: dict[str, Any]) -> float:
+    for key in (
+        "model_response_timeout_seconds",
+        "model_timeout_seconds",
+        "request_timeout_seconds",
+    ):
+        if key not in policy:
+            continue
+        try:
+            value = float(policy.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+
+    resolver = getattr(model_runtime, "_model_call_timeout_seconds_for_spec", None)
+    if callable(resolver) and model_spec is not None:
+        try:
+            return max(0.01, float(resolver(model_spec) or 0.01))
+        except Exception:
+            pass
+
+    for attr_name in ("model_call_timeout_seconds", "long_output_timeout_seconds", "request_timeout_seconds"):
+        try:
+            value = float(getattr(model_runtime, attr_name) or 0)
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return 180.0
 
 
 def _call_streamer_with_optional_model_spec(

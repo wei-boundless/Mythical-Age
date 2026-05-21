@@ -390,7 +390,19 @@ def test_graph_unit_stage_scheduler_starts_and_reuses_child_task_graph_run(tmp_p
                 "linked_graph_id": "graph.test.graph_unit_child_run",
                 "nested_runtime_plan_id": "nested.block.child",
                 "handoff_contract_id": "contract.test.graph_unit.handoff",
-                "explicit_inputs": {"user_goal": "启动子图"},
+                "standard_input_package": {
+                    "input_items": [
+                        {
+                            "input_key": "world_design",
+                            "content_type": "artifact_text",
+                            "metadata": {"text": "父级标准输入包只允许留在诊断中。"},
+                        }
+                    ]
+                },
+                "explicit_inputs": {
+                    "user_goal": "启动子图",
+                    "parent_stage_execution_request": {"artifact_refs": ["artifact:debug/should_not_be_visible.md"]},
+                },
                 "executor_policy": {"auto_start_child_initial_stage": False},
             },
         },
@@ -407,7 +419,19 @@ def test_graph_unit_stage_scheduler_starts_and_reuses_child_task_graph_run(tmp_p
                 "linked_graph_id": "graph.test.graph_unit_child_run",
                 "nested_runtime_plan_id": "nested.block.child",
                 "handoff_contract_id": "contract.test.graph_unit.handoff",
-                "explicit_inputs": {"user_goal": "启动子图"},
+                "standard_input_package": {
+                    "input_items": [
+                        {
+                            "input_key": "world_design",
+                            "content_type": "artifact_text",
+                            "metadata": {"text": "父级标准输入包只允许留在诊断中。"},
+                        }
+                    ]
+                },
+                "explicit_inputs": {
+                    "user_goal": "启动子图",
+                    "parent_stage_execution_request": {"artifact_refs": ["artifact:debug/should_not_be_visible.md"]},
+                },
                 "executor_policy": {"auto_start_child_initial_stage": False},
             },
         },
@@ -436,6 +460,37 @@ def test_graph_unit_stage_scheduler_starts_and_reuses_child_task_graph_run(tmp_p
     assert child.diagnostics["parent_coordination_run_id"] == "coordrun:parent"
     assert child.diagnostics["parent_stage_id"] == "graph_unit.block.child"
     assert child.diagnostics["stage_idempotency_key"] == request.idempotency_key
+    assert child.diagnostics["parent_graph_unit_runtime_handle"]["linked_graph_id"] == "graph.test.graph_unit_child_run"
+    assert child.diagnostics["parent_stage_execution_request"]["request_id"] == "nodeexec:graph-unit"
+    assert child.diagnostics["parent_standard_input_package"]["input_items"][0]["input_key"] == "world_design"
+    initial_inputs_ref = str(child.diagnostics["task_graph_initial_inputs_ref"])
+    child_initial_inputs = dict(loop.runtime_objects.get_object(initial_inputs_ref)["initial_inputs"])
+    assert child_initial_inputs == {"user_goal": "启动子图"}
+    child_coordination_run_id = str(child.diagnostics["child_coordination_run_id"])
+    child_state = loop.langgraph_coordination_runtime.checkpoints.get_state(thread_id=child_coordination_run_id)
+    assert child_state["pending_inputs"]["user_goal"] == "启动子图"
+    for protocol_key in (
+        "parent_graph_unit_runtime_handle",
+        "parent_stage_execution_request",
+        "parent_standard_input_package",
+        "graph_unit_runtime_handle",
+    ):
+        assert protocol_key not in child_state["pending_inputs"]
+    assert child_state["diagnostics"]["filtered_internal_protocol_input_keys"] == []
+    child_request = child_state["stage_execution_request"]
+    child_explicit_inputs = dict(child_request["explicit_inputs"])
+    assert child_explicit_inputs["user_goal"] == "启动子图"
+    assert "parent_stage_execution_request" not in child_explicit_inputs
+    assert "parent_standard_input_package" not in child_explicit_inputs
+    child_input_keys = {
+        item["input_key"]
+        for item in child_request["standard_input_package"]["input_items"]
+    }
+    assert "user_goal" in child_input_keys
+    assert "parent_stage_execution_request" not in child_input_keys
+    assert "parent_standard_input_package" not in child_input_keys
+    assert "parent_graph_unit_runtime_handle" not in child_input_keys
+    assert child_request["artifact_context_packet"]["artifact_refs"] == []
 
     reused = orchestration_api._schedule_stage_execution_background(
         runtime=runtime,
@@ -655,6 +710,9 @@ def test_graph_unit_child_completion_commits_output_packet_and_releases_parent(t
     assert payload["consumed_task_run_id"] == child_run.task_run_id
     assert payload["packet_ref"].startswith("rtobj:graph_unit_output_packets:")
     assert payload["stage_execution_request"]["stage_id"] == "after_child"
+    packet = loop.runtime_objects.get_object(payload["packet_ref"])
+    assert packet["artifact_refs_by_stage"]["child_node"] == ["artifact:child/final.md"]
+    assert packet["core_artifact_refs"] == ["artifact:child/final.md"]
     parent_state_after = loop.langgraph_coordination_runtime.checkpoints.get_state(
         thread_id=parent_coordination_run.coordination_run_id,
     )
@@ -668,6 +726,26 @@ def test_graph_unit_child_completion_commits_output_packet_and_releases_parent(t
     assert committed_child.diagnostics["graph_unit_output_packet_committed"]["packet_ref"] == payload["packet_ref"]
     assert second["mode"] in {"replayed_active_stage_request", "resumed_from_task_result"}
     assert loop.state_index.get_task_run(child_run.task_run_id).diagnostics["graph_unit_output_packet_committed"]["packet_ref"] == payload["packet_ref"]  # type: ignore[union-attr]
+
+
+def test_graph_unit_core_artifact_refs_exclude_debug_reports() -> None:
+    refs = orchestration_api._graph_unit_core_artifact_refs(
+        artifact_refs_by_stage={
+            "project_brief": [
+                "artifact:run/project_brief.md",
+                "artifact:run/debug/run_report_task-writing.md",
+            ],
+            "outline_design": ["artifact:run/outline/outline_design.md"],
+            "baseline_memory_seed": ["artifact:run/memory/baseline/baseline_commit.md"],
+        },
+        all_artifact_refs=[],
+    )
+
+    assert refs == [
+        "artifact:run/project_brief.md",
+        "artifact:run/outline/outline_design.md",
+        "artifact:run/memory/baseline/baseline_commit.md",
+    ]
 
 
 def test_graph_unit_child_result_waits_until_child_completed(tmp_path: Path) -> None:

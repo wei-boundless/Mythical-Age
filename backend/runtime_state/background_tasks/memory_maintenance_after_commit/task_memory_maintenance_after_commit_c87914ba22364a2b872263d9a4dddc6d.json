@@ -1,0 +1,38 @@
+{
+  "task_id": "task:memory_maintenance_after_commit:c87914ba22364a2b872263d9a4dddc6d",
+  "task_kind": "memory_maintenance_after_commit",
+  "status": "queued",
+  "payload": {
+    "session_id": "37aa01c466884193bec9a29f9355a4ff",
+    "messages": [
+      {
+        "role": "user",
+        "content": "请用专业模式根据 backend/tests/fixtures/professional_task_suite/node_status_filter_contract.json，在 sandbox overlay 中完成一个最小端到端功能草案：后端筛选接口说明、前端状态筛选交互、以及至少两个测试点。需要写入一份实施草案文件并说明验证结果。"
+      },
+      {
+        "role": "assistant",
+        "content": "文件已写入。现在基于真实材料观察和产物收口。\n\n---\n\n## 目标理解\n\n根据 `node_status_filter_contract.json`，需要完成一个最小端到端功能草案，覆盖三个面：后端筛选接口说明、前端状态筛选交互、至少两个测试点。契约本身已经给出了这三面的规格骨架，我的工作是把它展开为可实施的草案并写入文件。\n\n## 运行计划\n\n1. 读取契约文件，抽取后端、前端、测试三块规格。\n2. 基于规格展开为可落地的草案内容。\n3. 写入 `sandbox/overlay/professional_artifact_delivery_draft.md`。\n4. 收口说明完成状态和限制。\n\n## 当前结论\n\n草案文件已写入 `sandbox/overlay/professional_artifact_delivery_draft.md`。以下按三个维度说明草案内容：\n\n### 后端筛选接口说明\n\n- 端点：`GET /api/task-graphs/{graph_id}/nodes?status={status}`\n- 允许的状态值：`pending`、`running`、`completed`、`failed`、`blocked`\n- 行为：按精确状态匹配筛选节点列表；传入不在允许列表中的状态值时返回 `400` 并附带校验错误消息。\n- 实现要点：在控制器层做参数白名单校验，不依赖数据库层兜底；校验失败时返回结构化错误体 `{ \"error\": \"invalid_status\", \"message\": \"...\" }`。\n\n### 前端状态筛选交互\n\n- 位置：TaskGraphTopologyPage 的筛选栏（filter rail）。\n- 交互方式：以状态标签（chip）展示五种允许状态，点击某个标签即触发筛选，前端向上述后端端点发起带 `status` 查询参数的请求，仅展示匹配节点。\n- 清除筛选：提供\"全部\"或清除按钮，移除 `status` 参数后重新请求，恢复展示全部节点。\n- 空态处理：当筛选结果为空时，展示\"当前状态下无节点\"的空态提示，而非空白页面。\n\n### 测试点（两个）\n\n1. 后端按精确状态筛选节点：构造包含多种状态节点的测试数据，调用 `GET /api/task-graphs/{graph_id}/nodes?status=running`，断言返回结果中所有节点的 `status` 字段均为 `running`，且不包含其他状态的节点。\n2. 前端清除筛选后恢复全部节点可见：在前端筛选栏点击某个状态标签使列表过滤，然后点击清除按钮，断言页面重新展示全部节点，且不再携带 `status` 查询参数。\n\n## 验证结果\n\n- 材料对齐：草案的三块内容直接来源于契约文件中的 `backend`、`frontend`、`tests` 字段，未添加契约之外的假设。\n- 产物完整性：草案文件已真实写入 `sandbox/overlay/professional_artifact_delivery_draft.md`。\n- 未执行端到端运行：本草案是规格层面的展开，未在真实后端/前端环境中跑通完整链路。测试点给出了断言逻辑，但未产出可执行的测试代码。\n\n## 限制\n\n- 未运行真实端到端测试，测试点仅停留在规格描述层面。\n- 未产出后端路由注册、前端组件代码等实现细节，仅给出接口说明和交互描述。\n- 契约本身未定义认证、分页、排序等附加行为，草案也未扩展这些内容。\n\n## 交付物\n\n- artifact_refs：`sandbox/overlay/professional_artifact_delivery_draft.md`\n- completion_status：`partial` — 草案已产出，但未执行端到端验证\n- limitations：未运行真实测试；未产出可执行代码\n- change_summary：基于契约文件展开后端接口说明、前端交互描述、两个测试点，写入草案文件\n- changed_files：`sandbox/overlay/professional_artifact_delivery_draft.md`（新建）",
+        "answer_channel": "answer_candidate",
+        "answer_source": "runtime_directive:model_response",
+        "answer_canonical_state": "stable_answer",
+        "answer_persist_policy": "persist_canonical",
+        "answer_finalization_policy": "none"
+      }
+    ],
+    "turn_id": "turn:37aa01c466884193bec9a29f9355a4ff:1",
+    "main_context": {},
+    "task_summary_refs": [],
+    "bundle_summary_refs": [],
+    "durable_lane_enabled": true
+  },
+  "result": {},
+  "error": "",
+  "source": "memory_system.facade",
+  "session_id": "37aa01c466884193bec9a29f9355a4ff",
+  "lane_id": "session_memory_maintenance",
+  "attempts": 0,
+  "queued_at": "2026-05-21T00:54:20+00:00",
+  "started_at": "",
+  "completed_at": "",
+  "receipt_path": "D:\\AI应用\\langchain-agent\\backend\\runtime_state\\background_tasks\\memory_maintenance_after_commit\\task_memory_maintenance_after_commit_c87914ba22364a2b872263d9a4dddc6d.json"
+}

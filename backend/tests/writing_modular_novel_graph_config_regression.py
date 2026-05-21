@@ -171,6 +171,11 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
     design_graph = graphs["graph.writing.modular_novel.design_init"]
     world_design = next(node for node in design_graph.nodes if node.node_id == "world_design")
     world_review = next(node for node in design_graph.nodes if node.node_id == "world_review")
+    world_artifact_policy = world_design.contract_bindings["artifact"]["artifact_policy"]
+    assert world_artifact_policy["subdir_template"] == "{project_id}"
+    assert "{task_run_id}" not in json.dumps(world_artifact_policy, ensure_ascii=False)
+    assert world_artifact_policy["artifacts"][0]["path"] == "world/world_candidate_round_{round_index:03d}.md"
+    assert world_review.contract_bindings["artifact"]["artifact_policy"]["artifacts"][0]["path"] == "world/world_review_round_{round_index:03d}.md"
     world_prompt = world_design.metadata["role_prompt"]
     review_prompt = world_review.metadata["role_prompt"]
     assert "名家级中文商业网文世界架构师" in world_prompt
@@ -186,12 +191,56 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
     assert "商业化追读钩子" in world_prompt
     assert "世界设定 Bible" in review_prompt
     assert "商业化承载" in review_prompt
+    assert "只要报告中存在阻塞问题" in review_prompt
+    assert "裁决必须是返修或拒绝" in review_prompt
+    memory_commit_world = next(node for node in design_graph.nodes if node.node_id == "memory_commit_world")
+    world_commit_prompt = memory_commit_world.metadata["role_prompt"]
+    assert "没有阻塞问题" in world_commit_prompt
+    assert "你必须拒绝提交" in world_commit_prompt
 
     workflows = {item.workflow_id: item for item in registry.workflow_registry.list_workflows()}
     assert workflows["workflow.writing.modular_novel.node.world_design"].prompt == world_prompt
     assert workflows["workflow.writing.modular_novel.node.chapter_draft"].prompt == chapter_draft.metadata["role_prompt"]
+    wrapper_task_ids = {
+        "task.writing.modular_novel.master",
+        "task.writing.modular_novel.design_init",
+        "task.writing.modular_novel.chapter_cycle",
+        "task.writing.modular_novel.finalize",
+    }
+    assert wrapper_task_ids.isdisjoint({item.task_id for item in registry.list_specific_task_records()})
+    assert wrapper_task_ids.isdisjoint({item.task_id for item in registry.list_task_assignments()})
+    assert wrapper_task_ids.isdisjoint({item.task_id for item in registry.list_projection_bindings()})
+    assert not any(
+        item.workflow_id in {
+            "workflow.writing.modular_novel.master",
+            "workflow.writing.modular_novel.design_init",
+            "workflow.writing.modular_novel.chapter_cycle",
+            "workflow.writing.modular_novel.finalize",
+        }
+        for item in workflows.values()
+    )
 
     master_graph = graphs["graph.writing.modular_novel.master"]
+    assert "model_requirement" not in master_graph.contract_bindings.get("runtime", {})
+    assert "subtask_refs" not in master_graph.metadata
+    assert master_graph.metadata["graph_unit_refs"] == [
+        "graph.writing.modular_novel.design_init",
+        "graph.writing.modular_novel.chapter_cycle",
+        "graph.writing.modular_novel.finalize",
+    ]
+    for node in master_graph.nodes:
+        assert node.node_type == "graph_unit"
+        assert node.task_id == ""
+        assert node.agent_id == ""
+        assert node.agent_group_id == ""
+        assert node.work_posture == ""
+        assert node.projection_id == ""
+        assert node.projection_overlay_id == ""
+        assert "role_prompt" not in node.metadata
+        assert "model_requirement" not in node.contract_bindings.get("runtime", {})
+        assert node.contract_bindings["runtime"]["nested_runtime"]["linked_graph_id"] == node.metadata["linked_graph_id"]
+        assert node.executor_policy["default_executor"] == "graph_unit"
+        assert node.executor_policy["allowed_executors"] == ["graph_unit"]
     master_spec = compile_task_graph_definition_runtime_spec(
         graph=master_graph,
         specific_tasks=tuple(registry.list_specific_task_records()),
@@ -209,6 +258,20 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
         "graph_unit.finalize",
     ]
     assert all(node.metadata.get("explicit_graph_unit_node") is True for node in master_spec.nodes)
+    assert master_spec.subtask_refs == ()
+    for node in master_spec.nodes:
+        assert node.node_type == "graph_unit"
+        assert node.role == "nested_graph"
+        assert node.agent_id == ""
+        assert node.runtime_lane == ""
+        assert node.projection_id == ""
+        assert node.task_id.startswith("task_graph.node.graph.writing.modular_novel.master.graph_unit.")
+        assert node.metadata["runtime_role"] == "graph_unit_container"
+        assert node.metadata["model_visible"] is False
+        assert "agent_group_id" not in node.metadata
+        assert "model_requirement" not in node.metadata
+        assert "model_resolution" not in node.metadata
+        assert "model_requirement" not in node.metadata["contract_bindings"].get("runtime", {})
 
     original = tasks_api.require_runtime
     tasks_api.require_runtime = lambda: _RuntimeStub(base_dir)  # type: ignore[assignment]
@@ -226,6 +289,9 @@ def test_modular_writing_graph_config_compiles_graph_units_and_chapter_batches(t
     assert master_package["summary"]["graph_unit_count"] == 3
     assert master_package["summary"]["graph_unit_execution_plan_count"] == 3
     assert master_package["summary"]["graph_unit_execution_plan_issue_count"] == 0
+    assert master_package["summary"]["assembly_count"] == 0
+    assert master_package["runtime_spec"]["subtask_refs"] == ()
+    assert master_package["node_runtime_assemblies"] == []
     assert [plan["linked_graph_id"] for plan in master_package["graph_unit_execution_plans"]] == [
         "graph.writing.modular_novel.design_init",
         "graph.writing.modular_novel.chapter_cycle",
@@ -264,11 +330,13 @@ def test_modular_writing_memory_context_is_visible_to_runtime_profiles(tmp_path:
         specific_tasks=tuple(registry.list_specific_task_records()),
         communication_protocol=registry.get_task_communication_protocol(graph.default_protocol_id),
         agent_profiles=tuple(
-            profile
-            for profile in (
-                runtime_registry.get_profile("agent:writing_modular_worker"),
-                runtime_registry.get_profile("agent:writing_modular_memory_steward"),
-            )
+                profile
+                for profile in (
+                    runtime_registry.get_profile("agent:writing_modular_creator"),
+                    runtime_registry.get_profile("agent:writing_modular_reviewer"),
+                    runtime_registry.get_profile("agent:writing_modular_worker"),
+                    runtime_registry.get_profile("agent:writing_modular_memory_steward"),
+                )
             if profile is not None
         ),
     )
@@ -284,9 +352,12 @@ def test_modular_writing_memory_context_is_visible_to_runtime_profiles(tmp_path:
         visible_section_ids = {item["section_id"] for item in assembly["context_sections"]}
 
         assert assembly["diagnostics"]["layered_context"]["memory_read_edge_count"] > 0
+        assert "artifact_policy" in visible_section_ids
         assert "memory_snapshot" in visible_section_ids
         assert "memory_snapshot" not in assembly["diagnostics"]["context_sections_hidden_by_profile"]
         assert assembly["metadata"]["layered_context"]["memory_reads"]
+        artifact_section = next(item for item in assembly["context_sections"] if item["section_id"] == "artifact_policy")
+        assert artifact_section["metadata"]["artifact_policy"]["target_paths"]
 
     chapter_draft_revision_target = build_node_runtime_assembly(
         manifest=manifest,
@@ -294,6 +365,57 @@ def test_modular_writing_memory_context_is_visible_to_runtime_profiles(tmp_path:
         agent_profile=runtime_registry.get_profile("agent:writing_modular_worker"),
     ).to_dict()
     assert "revision_context" in {item["section_id"] for item in chapter_draft_revision_target["context_sections"]}
+
+
+def test_modular_writing_profiles_use_text_artifact_runtime_boundary(tmp_path: Path) -> None:
+    base_dir = _seed_storage(tmp_path)
+    config = _load_config_module()
+    config.configure(base_dir)
+
+    runtime_registry = AgentRuntimeRegistry(base_dir)
+    worker = runtime_registry.get_profile("agent:writing_modular_worker")
+    memory = runtime_registry.get_profile("agent:writing_modular_memory_steward")
+
+    assert worker is not None
+    assert memory is not None
+    for profile in (worker, memory):
+        metadata = profile.metadata
+        assert metadata["agent_mode"] == "text_artifact_worker"
+        assert metadata["runtime_mode"] == "text_artifact_runtime"
+        assert metadata["preexpanded_context_required"] is True
+        assert metadata["pseudo_tool_output_forbidden"] is True
+        assert metadata["file_and_memory_side_effects_owned_by"] == "orchestration_runtime"
+        assert "op.read_file" not in profile.allowed_operations
+        assert "op.search_text" not in profile.allowed_operations
+        assert "op.search_files" not in profile.allowed_operations
+        assert "op.delegate_to_agent" not in profile.allowed_operations
+        assert "op.write_file" not in profile.allowed_operations
+        assert "op.read_file" in profile.blocked_operations
+        assert "op.search_text" in profile.blocked_operations
+        assert "op.search_files" in profile.blocked_operations
+
+
+def test_writing_runtime_spec_excludes_memory_repositories_from_execution_nodes(tmp_path: Path) -> None:
+    base_dir = _seed_storage(tmp_path)
+    config = _load_config_module()
+    config.configure(base_dir)
+
+    registry = TaskFlowRegistry(base_dir)
+    graph = registry.get_task_graph("graph.writing.modular_novel.design_init")
+    assert graph is not None
+
+    runtime_spec = compile_task_graph_definition_runtime_spec(graph=graph)
+
+    node_ids = {node.node_id for node in runtime_spec.nodes}
+    assert "memory.writing.baseline" not in node_ids
+    assert "memory.writing.mutable" not in node_ids
+    assert "memory.writing.issue_ledger" not in node_ids
+    assert "memory.writing.artifact_index" not in node_ids
+    assert all(edge.target_node_id not in {"memory.writing.baseline", "memory.writing.mutable"} for edge in runtime_spec.edges)
+    assert set(runtime_spec.diagnostics["resource_node_ids_excluded_from_execution"]) >= {
+        "memory.writing.baseline",
+        "memory.writing.mutable",
+    }
 
 
 def test_modular_writing_review_and_commit_memory_boundaries(tmp_path: Path) -> None:

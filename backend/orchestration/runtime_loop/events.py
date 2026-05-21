@@ -86,6 +86,8 @@ RuntimeEventType = Literal[
     "professional_task_budget_closeout_started",
     "professional_task_deliverable_repair_started",
     "professional_task_deliverable_validation_checked",
+    "professional_tool_observation_ledger_updated",
+    "professional_run_session_updated",
 ]
 
 

@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from execution.tool_result_envelope import build_tool_result_envelope
 from orchestration import RuntimeActionRequest, RuntimeDirective, build_tool_result_observation
 from orchestration.runtime_loop.action_request import build_tool_execution_error_observation
 from orchestration.runtime_loop.execution_record import (
@@ -119,6 +120,15 @@ class ToolRuntimeExecutor:
         if truncated:
             text = text[:limit]
         result_ref = f"execution-result:{current_record.execution_id}"
+        envelope = build_tool_result_envelope(
+            tool_name=tool_name,
+            tool_args=tool_args,
+            result=text,
+            execution_receipt=build_execution_receipt(current_record).to_dict(),
+            result_ref=result_ref,
+            truncated=truncated,
+            sandbox=sandbox_context,
+        )
         if execution_store is not None:
             result_payload = {
                 "tool_name": tool_name,
@@ -127,6 +137,12 @@ class ToolRuntimeExecutor:
                 "result": text,
                 "result_chars": len(text),
                 "truncated": truncated,
+                "result_envelope": envelope.to_dict(),
+                "structured_payload": dict(envelope.structured_payload),
+                "observed_paths": list(envelope.observed_paths),
+                "matched_paths": list(envelope.matched_paths),
+                "artifact_refs": [dict(item) for item in envelope.artifact_refs],
+                "command_receipt": dict(envelope.command_receipt),
             }
             if sandbox_context:
                 result_payload["sandbox"] = dict(sandbox_context)
@@ -146,6 +162,7 @@ class ToolRuntimeExecutor:
             truncated=truncated,
             execution_receipt=build_execution_receipt(current_record).to_dict(),
             result_ref=result_ref,
+            result_envelope=envelope.to_dict(),
         )
         return {
             "observation": observation,

@@ -9,7 +9,7 @@ def _base_policy(target: str) -> dict:
             "enabled": True,
             "required": True,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "artifact_target": target,
             "artifacts": [
                 {
@@ -29,7 +29,7 @@ def _draft_policy(target: str) -> dict:
             "enabled": True,
             "required": True,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "artifacts": [
                 {
                     "path": target,
@@ -51,7 +51,7 @@ def _draft_policy(target: str) -> dict:
     }
 
 
-def test_project_brief_stage_materializes_brief_and_target_artifact(tmp_path: Path) -> None:
+def test_project_brief_stage_materializes_only_target_artifact(tmp_path: Path) -> None:
     result = materialize_task_artifacts(
         workspace_root=tmp_path,
         task_run_id="taskrun:test:project_brief:0001",
@@ -60,14 +60,14 @@ def test_project_brief_stage_materializes_brief_and_target_artifact(tmp_path: Pa
         coordination_run_id="coordrun:test",
         final_content="# 项目启动包\n\n这是启动包正文。",
         user_message="请生成项目启动包。",
-        explicit_inputs={"title": "洪荒时代"},
+        explicit_inputs={"title": "洪荒时代", "project_id": "project:test-honghuang"},
         task_policy=_base_policy("project_brief.md"),
     )
 
-    artifact_root = tmp_path / "output" / "novel_artifacts" / "modular_novel" / "runs" / "session-brief"
-    assert (artifact_root / "00_project_brief.md").exists()
+    artifact_root = tmp_path / "output" / "novel_artifacts" / "modular_novel" / "runs" / "project-test-honghuang"
+    assert not (artifact_root / "00_project_brief.md").exists()
     assert (artifact_root / "project_brief.md").exists()
-    assert "00_project_brief.md" in result.created_files
+    assert all(not item.startswith("00_project_brief") for item in result.created_files)
     assert "project_brief.md" in result.created_files
 
 
@@ -80,11 +80,11 @@ def test_non_project_brief_stage_does_not_emit_brief_versions(tmp_path: Path) ->
         coordination_run_id="coordrun:test",
         final_content="# 世界观候选\n\n这是世界观正文。",
         user_message="请生成世界观候选。",
-        explicit_inputs={"title": "洪荒时代"},
+        explicit_inputs={"title": "洪荒时代", "project_id": "project:test-honghuang"},
         task_policy=_base_policy("world/world_candidate.md"),
     )
 
-    artifact_root = tmp_path / "output" / "novel_artifacts" / "modular_novel" / "runs" / "session-world"
+    artifact_root = tmp_path / "output" / "novel_artifacts" / "modular_novel" / "runs" / "project-test-honghuang"
     assert not (artifact_root / "00_project_brief.md").exists()
     assert not any(artifact_root.glob("00_project_brief_v*.md"))
     assert (artifact_root / "world" / "world_candidate.md").exists()
@@ -102,6 +102,7 @@ def test_artifact_root_does_not_append_session_twice(tmp_path: Path) -> None:
         user_message="请生成章节。",
         explicit_inputs={
             "artifact_root": "output/novel_artifacts/modular_novel/runs/session-chapters",
+            "project_id": "project:test-honghuang",
             "batch_index": 2,
             "batch_start_index": 11,
             "batch_end_index": 20,
@@ -115,6 +116,44 @@ def test_artifact_root_does_not_append_session_twice(tmp_path: Path) -> None:
     assert not (artifact_root / "session-chapters").exists()
 
 
+def test_explicit_artifact_root_is_stable_across_reruns(tmp_path: Path) -> None:
+    explicit_root = "output/novel_artifacts/modular_novel/runs/project-test-honghuang"
+    policy = _base_policy("world/world_candidate_round_{round_index:03d}.md")
+
+    first = materialize_task_artifacts(
+        workspace_root=tmp_path,
+        task_run_id="taskrun:test:world_design:first",
+        session_id="session-stable",
+        task_ref="task.writing.modular_novel.node.world_design",
+        coordination_run_id="coordrun:test",
+        final_content="# 世界观候选\n\n第一版。",
+        user_message="请生成世界观候选。",
+        explicit_inputs={"artifact_root": explicit_root, "project_id": "project:test-honghuang", "round_index": 1},
+        task_policy=policy,
+        task_status="completed",
+    )
+    second = materialize_task_artifacts(
+        workspace_root=tmp_path,
+        task_run_id="taskrun:test:world_design:revision",
+        session_id="session-stable",
+        task_ref="task.writing.modular_novel.node.world_design",
+        coordination_run_id="coordrun:test",
+        final_content="# 世界观候选\n\n返修版。",
+        user_message="请返修世界观候选。",
+        explicit_inputs={"artifact_root": explicit_root, "project_id": "project:test-honghuang", "round_index": 2},
+        task_policy=policy,
+        task_status="completed",
+    )
+
+    artifact_root = tmp_path / "output" / "novel_artifacts" / "modular_novel" / "runs" / "project-test-honghuang"
+    assert first.artifact_root == explicit_root
+    assert second.artifact_root == explicit_root
+    assert (artifact_root / "world" / "world_candidate_round_001.md").exists()
+    assert (artifact_root / "world" / "world_candidate_round_002.md").exists()
+    assert not (artifact_root / "world" / "world_candidate.md").exists()
+    assert not any(path.name.startswith("taskrun-test-world-design") for path in artifact_root.iterdir())
+
+
 def test_failed_empty_stage_does_not_create_misleading_required_artifact(tmp_path: Path) -> None:
     result = materialize_task_artifacts(
         workspace_root=tmp_path,
@@ -124,7 +163,7 @@ def test_failed_empty_stage_does_not_create_misleading_required_artifact(tmp_pat
         coordination_run_id="coordrun:test",
         final_content="",
         user_message="请生成大纲候选。",
-        explicit_inputs={"title": "洪荒时代"},
+        explicit_inputs={"title": "洪荒时代", "project_id": "project:test-honghuang"},
         task_policy=_base_policy("outline/outline_candidate.md"),
         task_status="failed",
         terminal_reason="executor_failed",
@@ -137,7 +176,7 @@ def test_failed_empty_stage_does_not_create_misleading_required_artifact(tmp_pat
         },
     )
 
-    artifact_root = tmp_path / "output" / "novel_artifacts" / "modular_novel" / "runs" / "session-outline-failed"
+    artifact_root = tmp_path / "output" / "novel_artifacts" / "modular_novel" / "runs" / "project-test-honghuang"
     assert not (artifact_root / "outline" / "outline_candidate.md").exists()
     assert "outline/outline_candidate.md" in result.skipped_files
     report_path = artifact_root / "debug" / "run_report_task-writing-modular-novel-node-outline-design.md"
@@ -158,6 +197,7 @@ def test_rejected_stage_artifact_is_isolated_from_official_output(tmp_path: Path
         user_message="写第1-10章。",
         explicit_inputs={
             "artifact_root": "output/novel_artifacts/modular_novel/runs/session-rejected",
+            "project_id": "project:test-honghuang",
             "batch_start_index": 1,
             "batch_end_index": 10,
             "round_index": 6,
@@ -205,6 +245,7 @@ def test_chapter_draft_artifact_splits_bracket_sections_without_debug_wrapper(tm
         final_content=final_content,
         user_message="写第1-2章。",
         explicit_inputs={
+            "project_id": "project:test-honghuang",
             "batch_start_index": 1,
             "batch_end_index": 2,
         },
@@ -212,7 +253,7 @@ def test_chapter_draft_artifact_splits_bracket_sections_without_debug_wrapper(tm
         task_status="completed",
     )
 
-    artifact_root = tmp_path / "output" / "novel_artifacts" / "modular_novel" / "runs" / "session-split"
+    artifact_root = tmp_path / "output" / "novel_artifacts" / "modular_novel" / "runs" / "project-test-honghuang"
     draft_path = artifact_root / "volume_001" / "chapters" / "chapter_001_002" / "draft_round_001.md"
     manifest_path = artifact_root / "volume_001" / "chapters" / "chapter_001_002" / "draft_manifest_round_001.md"
     assert draft_path.exists()

@@ -29,9 +29,15 @@ from orchestration import (
 )
 from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY, runtime_lane_option_payloads
 from orchestration.model_profile_resolver import build_provider_catalog
+from orchestration.resource_inventory import build_runtime_resource_inventory
 from orchestration.runtime_loop import TaskRun
+from orchestration.runtime_loop.review_gate_verdict import (
+    extract_review_verdict,
+    review_verdict_is_accepted,
+)
 from orchestration.runtime_loop.models import AgentRun, CoordinationRun as RuntimeCoordinationRun
 from orchestration.runtime_loop.langgraph_coordination_runtime import LangGraphCoordinationRuntimeResult
+from orchestration.runtime_loop.protocol_boundary import is_internal_protocol_input_key
 from orchestration.delegation_catalog import DelegationCatalogBuilder
 from understanding import analyze_memory_intent
 from tasks.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
@@ -283,29 +289,27 @@ def _start_graph_unit_stage_request(
     blocking_issues = [issue.to_dict() for issue in runtime_spec.issues if issue.severity == "error"]
     if blocking_issues:
         raise ValueError(f"GraphUnit child runtime spec has blocking issues: {blocking_issues}")
+    parent_runtime_handle = {
+        key: value
+        for key, value in dict(handle).items()
+        if key not in {"explicit_inputs", "standard_input_package"}
+    }
     child_initial_inputs = {
-        **dict(handle.get("explicit_inputs") or {}),
-        "parent_graph_unit_runtime_handle": {
-            key: value
-            for key, value in dict(handle).items()
-            if key not in {"explicit_inputs", "standard_input_package"}
-        },
+        str(key): value
+        for key, value in dict(handle.get("explicit_inputs") or {}).items()
+        if not is_internal_protocol_input_key(str(key))
+    }
+    diagnostics = {
+        "source": "orchestration.graph_unit_stage_request",
+        "graph_unit_child_run": True,
+        "graph_unit_runtime_handle_id": str(handle.get("handle_id") or ""),
+        "parent_graph_unit_runtime_handle": parent_runtime_handle,
         "parent_stage_execution_request": request_payload,
         "parent_standard_input_package": dict(
             handle.get("standard_input_package")
             or request_payload.get("standard_input_package")
             or {}
         ),
-    }
-    diagnostics = {
-        "source": "orchestration.graph_unit_stage_request",
-        "graph_unit_child_run": True,
-        "graph_unit_runtime_handle_id": str(handle.get("handle_id") or ""),
-        "parent_graph_unit_runtime_handle": {
-            key: value
-            for key, value in dict(handle).items()
-            if key not in {"explicit_inputs", "standard_input_package"}
-        },
         "linked_graph_id": linked_graph_id,
         "parent_graph_id": str(handle.get("parent_graph_id") or ""),
         "parent_coordination_run_id": str(handle.get("parent_coordination_run_id") or identity.get("coordination_run_id") or ""),
@@ -1263,6 +1267,12 @@ async def orchestration_capability_items() -> dict[str, Any]:
     }
 
 
+@router.get("/orchestration/resource-inventory")
+async def orchestration_resource_inventory() -> dict[str, Any]:
+    runtime = require_runtime()
+    return build_runtime_resource_inventory(runtime.base_dir).to_dict()
+
+
 @router.get("/orchestration/agents/next-worker-id")
 async def next_orchestration_worker_agent_id() -> dict[str, str]:
     runtime = require_runtime()
@@ -1839,6 +1849,46 @@ async def continue_coordination_current_stage(
             "consumed_task_run_id": str(graph_unit_child_result.get("task_run_id") or ""),
             "packet_ref": str(graph_unit_child_result.get("packet_ref") or ""),
         }
+    recovered_stage_result = _recover_active_stage_completed_checkpoint(
+        runtime=runtime,
+        session_id=session_id,
+        state=state,
+        active_stage_id=active_stage_id,
+        coordination_run_id=coordination_run_id,
+        current_turn_context=dict(payload.current_turn_context or {}),
+    )
+    if recovered_stage_result.get("recovered"):
+        continuation_payload = dict(recovered_stage_result.get("continuation_payload") or {})
+        request_payload = dict(continuation_payload.get("stage_execution_request") or {})
+        request = NodeExecutionRequest.from_dict(request_payload) if request_payload else None
+        schedule_result: dict[str, Any] = {}
+        if request is not None:
+            schedule_result = _schedule_stage_execution_background(
+                runtime=runtime,
+                session_id=session_id,
+                source=payload.source or "orchestration.coordination_run_continue_api:completed_checkpoint_recovery",
+                stage_execution_request=request,
+                current_turn_context={
+                    "authority": "context.coordination_run_continue",
+                    "coordination_run_id": coordination_run_id,
+                    "task_graph_id": coordination_run.graph_ref,
+                    "selected_graph_id": coordination_run.graph_ref,
+                    **dict(continuation_payload.get("current_turn_context") or {}),
+                    **dict(payload.current_turn_context or {}),
+                },
+            )
+        return {
+            "authority": "orchestration.coordination_run_continue_current_stage",
+            "coordination_run_id": coordination_run_id,
+            "task_run_id": coordination_run.task_run_id,
+            "session_id": session_id,
+            "stage_execution_request": request.to_dict() if request is not None else None,
+            "background_started": bool(schedule_result.get("background_started")),
+            "stage_execution_schedule": schedule_result,
+            "mode": "recovered_completed_checkpoint_stage_task_run",
+            "consumed_task_run_id": str(recovered_stage_result.get("task_run_id") or ""),
+            "recovery": recovered_stage_result,
+        }
     latest_unconsumed_stage_result = (
         {}
         if current_event_is_active_stage_result
@@ -2355,6 +2405,8 @@ def _coordination_downstream_stage_ids(
         edge = dict(raw_edge or {})
         source = str(edge.get("source_node_id") or edge.get("from") or edge.get("source") or "").strip()
         next_stage = str(edge.get("target_node_id") or edge.get("to") or edge.get("target") or "").strip()
+        if source in known and next_stage in known and order_index.get(next_stage, -1) < order_index.get(source, -1):
+            source, next_stage = next_stage, source
         if (
             source in known
             and next_stage in known
@@ -2373,6 +2425,9 @@ def _coordination_downstream_stage_ids(
             if next_stage not in visited:
                 queue.append(next_stage)
     ordered = [item for item in order if item in visited]
+    if len(ordered) <= 1 and target in order:
+        start = order.index(target)
+        return order[start:]
     return ordered if ordered else [target]
 
 
@@ -2612,6 +2667,65 @@ def _latest_unconsumed_stage_task_result(
             "diagnostics": acceptance_diagnostics,
         },
     }
+
+
+def _recover_active_stage_completed_checkpoint(
+    *,
+    runtime: Any,
+    session_id: str,
+    state: dict[str, Any],
+    active_stage_id: str,
+    coordination_run_id: str,
+    current_turn_context: dict[str, Any],
+) -> dict[str, Any]:
+    if not active_stage_id:
+        return {}
+    stage_results = dict(state.get("stage_results") or {})
+    already_consumed_task_run_id = str(dict(stage_results.get(active_stage_id) or {}).get("task_run_id") or "")
+    contracts = dict(state.get("stage_contracts") or {})
+    contract = dict(contracts.get(active_stage_id) or {})
+    active_task_ref = str(contract.get("task_ref") or state.get("active_task_ref") or "").strip()
+    candidates = []
+    task_run_loop = runtime.query_runtime.task_run_loop
+    for task_run in task_run_loop.state_index.list_session_task_runs(session_id):
+        if str(task_run.task_run_id or "") == already_consumed_task_run_id:
+            continue
+        if str(task_run.status or "") in {"completed", "failed", "aborted"}:
+            continue
+        task_id = str(task_run.task_id or "")
+        task_contract_ref = str(task_run.task_contract_ref or "")
+        exact_task_match = bool(active_task_ref and active_task_ref in {task_id, task_contract_ref})
+        stage_suffix_match = bool(
+            task_id.endswith(f":{active_stage_id}")
+            or task_contract_ref.endswith(f":{active_stage_id}")
+        )
+        if not exact_task_match and not stage_suffix_match:
+            continue
+        checkpoint = task_run_loop.checkpoints.load_latest(task_run.task_run_id)
+        if checkpoint is None:
+            continue
+        if str(checkpoint.loop_state.status or "") != "completed":
+            continue
+        if str(checkpoint.loop_state.terminal_reason or "") != "completed":
+            continue
+        candidates.append((float(task_run.updated_at or task_run.created_at or 0.0), task_run))
+    if not candidates:
+        return {}
+    _updated_at, task_run = sorted(candidates, key=lambda item: item[0], reverse=True)[0]
+    recovered = task_run_loop.recover_completed_checkpoint_task_run(
+        task_run_id=task_run.task_run_id,
+        current_turn_context={
+            "coordination_run_id": coordination_run_id,
+            "task_graph_id": str(state.get("graph_id") or ""),
+            "selected_graph_id": str(state.get("graph_id") or ""),
+            "stage_execution_request": dict(state.get("stage_execution_request") or {}),
+            "explicit_inputs": dict(state.get("pending_inputs") or {}),
+            **dict(current_turn_context or {}),
+        },
+    )
+    payload = recovered.to_dict()
+    payload["task_run_id"] = task_run.task_run_id
+    return payload
 
 
 def _latest_unconsumed_graph_unit_child_result(
@@ -2854,6 +2968,18 @@ def _graph_unit_child_completion_packet(
         }
         for stage_id, result in stage_results.items()
     ]
+    artifact_refs_by_stage = {
+        str(stage_id): [
+            str(ref)
+            for ref in list(result.get("artifact_refs") or [])
+            if str(ref).startswith("artifact:")
+        ]
+        for stage_id, result in stage_results.items()
+    }
+    core_artifact_refs = _graph_unit_core_artifact_refs(
+        artifact_refs_by_stage=artifact_refs_by_stage,
+        all_artifact_refs=artifact_refs,
+    )
     handle = dict(diagnostics.get("parent_graph_unit_runtime_handle") or {})
     if not handle:
         handle = {
@@ -2894,6 +3020,8 @@ def _graph_unit_child_completion_packet(
         "final_result_ref": final_result_ref,
         "merge_result_ref": str(getattr(merge_result, "merge_result_id", "") or ""),
         "artifact_refs": artifact_refs,
+        "artifact_refs_by_stage": artifact_refs_by_stage,
+        "core_artifact_refs": core_artifact_refs,
         "output_refs": output_refs,
         "result_refs": result_refs,
         "outputs": {
@@ -2904,6 +3032,8 @@ def _graph_unit_child_completion_packet(
             "final_result_ref": final_result_ref,
             "merge_result_ref": str(getattr(merge_result, "merge_result_id", "") or ""),
             "artifact_refs": artifact_refs,
+            "artifact_refs_by_stage": artifact_refs_by_stage,
+            "core_artifact_refs": core_artifact_refs,
             "output_refs": output_refs,
         },
         "child_summary": {
@@ -3098,6 +3228,51 @@ def _dedupe_strings(values: list[Any]) -> list[str]:
     return result
 
 
+def _graph_unit_core_artifact_refs(
+    *,
+    artifact_refs_by_stage: dict[str, list[str]],
+    all_artifact_refs: list[str],
+) -> list[str]:
+    priority_stage_ids = [
+        "project_brief",
+        "world_design",
+        "world_review",
+        "memory_commit_world",
+        "character_design",
+        "plot_design",
+        "design_sync",
+        "outline_design",
+        "outline_review",
+        "baseline_memory_seed",
+        "volume_plan",
+        "chapter_outline",
+        "chapter_draft",
+        "chapter_review",
+        "memory_commit_chapter",
+        "volume_review",
+        "volume_commit",
+    ]
+    selected: list[str] = []
+    for stage_id in priority_stage_ids:
+        selected.extend(
+            ref
+            for ref in list(artifact_refs_by_stage.get(stage_id) or [])
+            if _graph_unit_core_artifact_ref(ref)
+        )
+    if not selected:
+        selected.extend(ref for ref in all_artifact_refs if _graph_unit_core_artifact_ref(ref))
+    return _dedupe_strings(selected)
+
+
+def _graph_unit_core_artifact_ref(ref: str) -> bool:
+    normalized = str(ref or "").replace("\\", "/").lower()
+    if not normalized.startswith("artifact:"):
+        return False
+    if "/debug/" in normalized or "run_report_" in normalized:
+        return False
+    return normalized.endswith(".md")
+
+
 def _hash_payload(payload: Any) -> str:
     text = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
@@ -3143,68 +3318,20 @@ def _is_review_gate_contract(contract: dict[str, Any]) -> bool:
 
 def _review_gate_recovery_quality_gate(content: str) -> dict[str, Any]:
     text = str(content or "").strip()
-    verdict = _extract_explicit_review_verdict(text)
-    if not verdict:
-        lowered = text.lower()
-        if "不允许写入" in text or "不允许批次写入" in text or "必须等正文" in text:
-            verdict = "revise"
-        elif "允许批次写入记忆：否" in text or "是否允许批次写入记忆：否" in text:
-            verdict = "revise"
-        elif re.search(r"\bfail[_ -]?closed\b", lowered):
-            verdict = "fail_closed"
-        elif any(item in lowered for item in ("repair_world", "repair_outline", "repair_character", "human_review_required")):
-            for item in ("repair_world", "repair_outline", "repair_character", "human_review_required"):
-                if item in lowered:
-                    verdict = item
-                    break
-        elif re.search(r"\b(revise|revision required)\b", lowered):
-            verdict = "revise"
-        elif re.search(r"\b(pass|approved|approve)\b", lowered):
-            verdict = "pass"
+    verdict = extract_review_verdict(text)
+    accepted = review_verdict_is_accepted(verdict)
     return {
-        "accepted": verdict == "pass",
+        "accepted": accepted,
         "stage_business_acceptance": {
-            "accepted": verdict == "pass",
+            "accepted": accepted,
             "policy": "review_gate_verdict_recovery",
             "verdict": verdict,
             "authority": "orchestration.stage_business_acceptance",
         },
         "review_verdict": verdict,
-        "accepted_by_recovery_quality_gate": verdict == "pass",
+        "accepted_by_recovery_quality_gate": accepted,
         "recovered_from_completed_stage_task_run": True,
     }
-
-
-def _extract_explicit_review_verdict(text: str) -> str:
-    verdict_map = {
-        "pass": "pass",
-        "approved": "pass",
-        "approve": "pass",
-        "通过": "pass",
-        "同意": "pass",
-        "revise": "revise",
-        "revision required": "revise",
-        "修订": "revise",
-        "修改": "revise",
-        "返工": "revise",
-        "不通过": "revise",
-        "repair_world": "repair_world",
-        "repair_outline": "repair_outline",
-        "repair_character": "repair_character",
-        "human_review_required": "human_review_required",
-        "fail_closed": "fail_closed",
-    }
-    patterns = (
-        r"^\s*[【\[]?\s*(?:裁决|结论|verdict)\s*[】\]]?\s*[:：-]?\s*([^\n\r]+)",
-        r"^\s*(?:裁决|结论|verdict)\s*[:：-]\s*([^\n\r]+)",
-    )
-    for pattern in patterns:
-        for match in re.finditer(pattern, str(text or ""), re.IGNORECASE | re.MULTILINE):
-            value = str(match.group(1) or "").strip().lower()
-            for token, verdict in verdict_map.items():
-                if token in value:
-                    return verdict
-    return ""
 
 
 def _chapter_draft_recovery_quality_gate(content: str, *, explicit_inputs: dict[str, Any]) -> dict[str, Any]:

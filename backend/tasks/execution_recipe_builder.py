@@ -92,6 +92,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
         sandbox_policy = dict(mode_policy.get("sandbox_policy") or {})
         context_policy = dict(mode_policy.get("context_policy") or {})
         output_policy = dict(mode_policy.get("output_policy") or {})
+        execution_obligation = dict(semantic_contract.get("execution_obligation") or execution_shape.diagnostics.get("execution_obligation") or {})
         strict = bool(verification_policy.get("strict") is True)
         standard_or_professional = interaction_mode in {"standard_mode", "professional_mode"}
         professional = interaction_mode == "professional_mode"
@@ -125,6 +126,7 @@ def _recipe_profile(execution_shape: ExecutionShape) -> dict[str, Any]:
                 "interaction_mode": interaction_mode,
                 "mode_policy": mode_policy,
                 "semantic_task_contract": semantic_contract,
+                "execution_obligation": execution_obligation,
                 "semantic_task_type": str(semantic_contract.get("task_goal_type") or ""),
                 "professional_profile_id": str(semantic_contract.get("professional_profile_id") or ""),
                 "projection_strength": str(mode_policy.get("projection_strength") or ""),

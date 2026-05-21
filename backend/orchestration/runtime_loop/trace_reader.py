@@ -481,6 +481,8 @@ def _professional_task_summary(
     started_event = _latest_runtime_event(events, "professional_task_started")
     plan_event = _latest_runtime_event(events, "professional_task_semantic_plan_drafted")
     state_event = _latest_runtime_event(events, "professional_task_state_changed")
+    ledger_event = _latest_runtime_event(events, "professional_tool_observation_ledger_updated")
+    session_event = _latest_runtime_event(events, "professional_run_session_updated")
     verification_event = _latest_runtime_event(events, "professional_task_deliverable_validation_checked")
     diagnostics = dict(loop_state.get("diagnostics") or {})
     is_professional_task = bool(
@@ -506,6 +508,19 @@ def _professional_task_summary(
         or ""
     )
     verification = _professional_verification_summary(verification_event)
+    professional_run_state = _professional_run_state_summary(
+        session_event=session_event,
+        ledger_event=ledger_event,
+        verification_event=verification_event,
+        state_payload=state_payload,
+        diagnostics=diagnostics,
+    )
+    tool_observation_ledger = _professional_tool_observation_ledger_summary(
+        ledger_event=ledger_event,
+        session_event=session_event,
+        verification_event=verification_event,
+    )
+    professional_run_session = _professional_run_session_summary(session_event)
     observation = _professional_observation_summary(events)
     return {
         "available": True,
@@ -524,7 +539,12 @@ def _professional_task_summary(
             or ""
         ),
         "goal": str(started_payload.get("goal") or ""),
-        "state": str(state_payload.get("to_state") or diagnostics.get("professional_state") or ""),
+        "state": str(
+            professional_run_state.get("state")
+            or state_payload.get("to_state")
+            or diagnostics.get("professional_state")
+            or ""
+        ),
         "transition": {
             "from_state": str(state_payload.get("from_state") or ""),
             "to_state": str(state_payload.get("to_state") or ""),
@@ -546,6 +566,9 @@ def _professional_task_summary(
         "progress": _professional_ledger_progress(ledger, current_step_id=current_step_id),
         "observation": observation,
         "verification": verification,
+        "professional_run_state": professional_run_state,
+        "professional_run_session": professional_run_session,
+        "tool_observation_ledger": tool_observation_ledger,
         "blocker": _professional_task_blocker(
             task_run=task_run,
             loop_state=loop_state,
@@ -589,6 +612,173 @@ def _latest_task_run_ledger_from_events(events: list[RuntimeEvent]) -> dict[str,
         if ledger:
             return ledger
     return {}
+
+
+def _professional_run_state_summary(
+    *,
+    session_event: RuntimeEvent | None,
+    ledger_event: RuntimeEvent | None,
+    verification_event: RuntimeEvent | None,
+    state_payload: dict[str, Any],
+    diagnostics: dict[str, Any],
+) -> dict[str, Any]:
+    state = _first_record_payload(
+        (
+            session_event,
+            "professional_run_state",
+        ),
+        (
+            ledger_event,
+            "professional_run_state",
+        ),
+        (
+            verification_event,
+            "verification.professional_run_state",
+        ),
+    )
+    transitions = [
+        dict(item)
+        for item in list(state.get("transitions") or [])
+        if isinstance(item, dict)
+    ]
+    latest_transition = transitions[-1] if transitions else {}
+    return {
+        "run_state_id": str(state.get("run_state_id") or ""),
+        "task_run_id": str(state.get("task_run_id") or ""),
+        "state": str(
+            state.get("state")
+            or state_payload.get("to_state")
+            or diagnostics.get("professional_state")
+            or ""
+        ),
+        "transition_count": len(transitions),
+        "latest_transition": {
+            "from_state": str(latest_transition.get("from_state") or ""),
+            "to_state": str(latest_transition.get("to_state") or ""),
+            "reason": str(latest_transition.get("reason") or ""),
+            "evidence_refs": [
+                str(item)
+                for item in list(latest_transition.get("evidence_refs") or [])
+                if str(item)
+            ],
+        } if latest_transition else {},
+        "unsatisfied_obligations": [
+            str(item)
+            for item in list(state.get("unsatisfied_obligations") or [])
+            if str(item)
+        ],
+        "blocked_reason": str(state.get("blocked_reason") or ""),
+        "diagnostics": dict(state.get("diagnostics") or {}),
+        "authority": str(state.get("authority") or "orchestration.professional_run_state"),
+    }
+
+
+def _professional_tool_observation_ledger_summary(
+    *,
+    ledger_event: RuntimeEvent | None,
+    session_event: RuntimeEvent | None,
+    verification_event: RuntimeEvent | None,
+) -> dict[str, Any]:
+    ledger_payload = _first_record_payload(
+        (
+            ledger_event,
+            "tool_observation_ledger",
+        ),
+        (
+            session_event,
+            "tool_observation_ledger",
+        ),
+        (
+            verification_event,
+            "verification.tool_observation_ledger",
+        ),
+    )
+    event_summary = _first_record_payload(
+        (
+            ledger_event,
+            "summary",
+        ),
+    )
+    records = [
+        dict(item)
+        for item in list(ledger_payload.get("records") or [])
+        if isinstance(item, dict)
+    ]
+    computed_summary = {
+        "record_count": len(records),
+        "read_count": sum(1 for item in records if str(item.get("side_effect_kind") or "") == "read"),
+        "write_count": sum(1 for item in records if str(item.get("side_effect_kind") or "") == "write"),
+        "verification_count": sum(1 for item in records if str(item.get("side_effect_kind") or "") == "verification"),
+        "delegation_count": sum(1 for item in records if str(item.get("side_effect_kind") or "") == "delegation"),
+        "satisfied_obligations": sorted(
+            {
+                str(obligation)
+                for item in records
+                for obligation in list(item.get("satisfies") or [])
+                if str(obligation)
+            }
+        ),
+    }
+    summary = {**computed_summary, **event_summary}
+    latest_record = records[-1] if records else {}
+    return {
+        "ledger_id": str(ledger_payload.get("ledger_id") or ""),
+        "task_run_id": str(ledger_payload.get("task_run_id") or ""),
+        "summary": summary,
+        "latest_record": _tool_observation_record_summary(latest_record) if latest_record else {},
+        "authority": str(ledger_payload.get("authority") or "orchestration.tool_observation_ledger"),
+    }
+
+
+def _tool_observation_record_summary(record: dict[str, Any]) -> dict[str, Any]:
+    args = dict(record.get("tool_args") or {})
+    return {
+        "observation_ref": str(record.get("observation_ref") or ""),
+        "tool_name": str(record.get("tool_name") or ""),
+        "side_effect_kind": str(record.get("side_effect_kind") or ""),
+        "satisfies": [
+            str(item)
+            for item in list(record.get("satisfies") or [])
+            if str(item)
+        ],
+        "side_effect_hash": str(record.get("side_effect_hash") or ""),
+        "tool_args_keys": sorted(str(key) for key in args.keys()),
+        "result_preview": str(record.get("result_preview") or "")[:240],
+        "authority": str(record.get("authority") or "orchestration.tool_observation_record"),
+    }
+
+
+def _professional_run_session_summary(session_event: RuntimeEvent | None) -> dict[str, Any]:
+    session = _first_record_payload((session_event, "professional_run_session"))
+    if not session:
+        return {}
+    return {
+        "session_id": str(session.get("session_id") or ""),
+        "task_run_id": str(session.get("task_run_id") or ""),
+        "interaction_mode": str(session.get("interaction_mode") or ""),
+        "state_ref": str(session.get("state_ref") or ""),
+        "tool_observation_ledger_ref": str(session.get("tool_observation_ledger_ref") or ""),
+        "resume_decision": dict(session.get("resume_decision") or {}),
+        "execution_obligation": dict(session.get("execution_obligation") or {}),
+        "authority": str(session.get("authority") or "orchestration.professional_run_session"),
+    }
+
+
+def _first_record_payload(*candidates: tuple[RuntimeEvent | None, str]) -> dict[str, Any]:
+    for event, dotted_key in candidates:
+        payload = _payload_by_dotted_key(dict(event.payload or {}) if event is not None else {}, dotted_key)
+        if payload:
+            return payload
+    return {}
+
+
+def _payload_by_dotted_key(payload: dict[str, Any], dotted_key: str) -> dict[str, Any]:
+    current: Any = payload
+    for part in [item for item in str(dotted_key or "").split(".") if item]:
+        if not isinstance(current, dict):
+            return {}
+        current = current.get(part)
+    return dict(current or {}) if isinstance(current, dict) else {}
 
 
 def _professional_ledger_progress(ledger: dict[str, Any], *, current_step_id: str) -> dict[str, Any]:

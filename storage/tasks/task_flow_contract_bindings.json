@@ -49,58 +49,6 @@
       "authority": "task_system.task_flow_contract_binding"
     },
     {
-      "binding_id": "taskflowbind:task.writing.modular_novel.master",
-      "task_id": "task.writing.modular_novel.master",
-      "flow_contract_id": "flow.writing.modular_novel.master",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "node_id": ""
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.modular_novel.design_init",
-      "task_id": "task.writing.modular_novel.design_init",
-      "flow_contract_id": "flow.writing.modular_novel.design_init",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "node_id": ""
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.modular_novel.chapter_cycle",
-      "task_id": "task.writing.modular_novel.chapter_cycle",
-      "flow_contract_id": "flow.writing.modular_novel.chapter_cycle",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "node_id": ""
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
-      "binding_id": "taskflowbind:task.writing.modular_novel.finalize",
-      "task_id": "task.writing.modular_novel.finalize",
-      "flow_contract_id": "flow.writing.modular_novel.finalize",
-      "override_policy": "task_default",
-      "verification_gate_profile": "",
-      "fallback_policy": "fail_closed",
-      "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "node_id": ""
-      },
-      "authority": "task_system.task_flow_contract_binding"
-    },
-    {
       "binding_id": "taskflowbind:task.writing.modular_novel.node.project_brief",
       "task_id": "task.writing.modular_novel.node.project_brief",
       "flow_contract_id": "flow.writing.modular_novel.node.project_brief",

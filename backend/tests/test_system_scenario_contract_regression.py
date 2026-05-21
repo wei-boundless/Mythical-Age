@@ -349,3 +349,45 @@ def test_long_runner_turn_filter_replays_prefix_but_only_grades_target(monkeypat
     assert result.details["rerun_skipped_turns"] == [3]
     assert result.details["turn_results"][0]["passed"] is True
     assert result.details["turn_results"][1]["passed"] is False
+
+
+def test_long_runner_supports_sandbox_artifact_file_checks(tmp_path: Path) -> None:
+    from tests.system_eval import long_runner
+
+    root = tmp_path / "sandbox" / "workspace"
+    game_dir = root / "frontend" / "public" / "games" / "arcane_dungeon_studio"
+    assets_dir = game_dir / "assets"
+    assets_dir.mkdir(parents=True)
+    (game_dir / "index.html").write_text('<link href="styles.css"><script src="game.js"></script>', encoding="utf-8")
+    (game_dir / "game.js").write_text("const mode = 'editor brush export import restart mobile';", encoding="utf-8")
+    for index in range(6):
+        (assets_dir / f"asset-{index}.svg").write_text("<svg></svg>", encoding="utf-8")
+
+    turn = long_runner.TurnResult(
+        index=1,
+        session_alias="main",
+        session_id="session",
+        message="",
+        plan_route="tool",
+        plan_tool="write_file",
+        plan_mcp="",
+        plan_skill="",
+        subquery_count=0,
+        event_types=[],
+        tool_names=[],
+        mcp_names=[],
+        response_text="",
+        sandbox_root=str(root),
+    )
+
+    failures = long_runner._parse_checks(
+        turn,
+        (
+            "sandbox.file_exists=frontend/public/games/arcane_dungeon_studio/index.html",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/index.html::styles.css|game.js",
+            "sandbox.file_contains=frontend/public/games/arcane_dungeon_studio/game.js::editor|brush|export|import|restart|mobile",
+            "sandbox.glob_count>=frontend/public/games/arcane_dungeon_studio/assets/*:6",
+        ),
+    )
+
+    assert failures == []

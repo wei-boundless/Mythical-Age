@@ -141,6 +141,54 @@ def test_node_runtime_assembly_hides_main_history_and_links_handoff_packet() -> 
     assert payload["handoff_packets"][0]["contract_refs"] == ["contract.test.handoff"]
 
 
+def test_node_runtime_assembly_exposes_artifact_policy_as_runtime_contract_section() -> None:
+    manifest = ContractManifest(
+        manifest_id="contract-manifest:artifact-policy",
+        manifest_kind="coordination",
+        task_ref="graph.test",
+        workflow_id="workflow.test",
+        graph_id="graph.test",
+        node_contracts=(
+            CompiledNodeContract(
+                node_id="writer",
+                title="写作节点",
+                node_type="agent",
+                task_id="task.test.writer",
+                agent_id="agent:test",
+                artifact_bindings={
+                    "artifact_policy": {
+                        "enabled": True,
+                        "required": True,
+                        "default_artifact_root": "output/demo",
+                        "artifacts": [
+                            {
+                                "path": "chapter.md",
+                                "required": True,
+                                "content_source": "final_content",
+                                "fallback_to_full_content": True,
+                            }
+                        ],
+                    }
+                },
+            ),
+        ),
+    )
+
+    assembly = build_node_runtime_assembly(
+        manifest=manifest,
+        node_id="writer",
+        agent_profile=AgentRuntimeProfile(
+            agent_profile_id="test_profile",
+            agent_id="agent:test",
+            allowed_context_sections=("task", "runtime_contracts"),
+        ),
+    ).to_dict()
+
+    policy_section = next(item for item in assembly["context_sections"] if item["section_id"] == "artifact_policy")
+    assert policy_section["metadata"]["artifact_policy"]["target_paths"] == ["chapter.md"]
+    assert policy_section["metadata"]["artifact_policy"]["runtime_rule"] == "required_final_content_materialized_to_configured_files"
+
+
 def test_node_runtime_assembly_exposes_layered_context_sections() -> None:
     manifest = ContractManifest(
         manifest_id="contract-manifest:layered",

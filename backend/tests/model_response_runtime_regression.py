@@ -60,6 +60,12 @@ class _HangingRecoveryRuntime:
         return SimpleNamespace(content="late recovered content")
 
 
+class _HangingRuntime:
+    async def invoke_messages(self, _messages):
+        await asyncio.sleep(10)
+        return SimpleNamespace(content="late content")
+
+
 def test_stream_retryable_error_falls_back_to_real_non_stream_invoke() -> None:
     executor = ModelResponseRuntimeExecutor(model_runtime=_RecoveringRuntime())
 
@@ -115,6 +121,27 @@ def test_stream_recovery_fails_fast_when_non_stream_fallback_times_out() -> None
     )
     assert events[-1]["type"] == "error"
     assert events[-1]["error"] == "model_stream_recovery_timeout"
+    assert events[-1]["answer_channel"] == "orchestration_fail_closed"
+
+
+def test_non_stream_model_response_has_hard_timeout() -> None:
+    executor = ModelResponseRuntimeExecutor(model_runtime=_HangingRuntime())
+
+    async def _collect():
+        events = []
+        async for event in executor.stream(
+            user_message="run",
+            model_messages=[{"role": "user", "content": "run"}],
+            directive=_directive(),
+            model_stream_policy={"model_response_timeout_seconds": 0.01},
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert events[-1]["type"] == "error"
+    assert events[-1]["error"] == "model_response_timeout"
     assert events[-1]["answer_channel"] == "orchestration_fail_closed"
 
 
