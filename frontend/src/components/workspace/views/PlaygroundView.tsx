@@ -1025,14 +1025,14 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
           </div>
           <p>世界观决定背景与故事层；灵魂负责本体设定；投影负责实际工作 prompt。</p>
         </div>
-        <div className="soul-world-grid">
+        <div className="soul-world-index">
           {worlds.map((world) => {
             const worldCards = resourceCatalog?.cards.filter((card) => card.world_id === world.world_id) ?? [];
             const active = selectedWorld?.world_id === world.world_id;
             return (
               <button
                 aria-pressed={active}
-                className={`soul-world-card ${active ? "soul-world-card--active" : ""} ${String(world.metadata?.theme ?? "") === "honghuang" ? "soul-world-card--honghuang" : ""}`}
+                className={`soul-world-row ${active ? "soul-world-row--active" : ""} ${String(world.metadata?.theme ?? "") === "honghuang" ? "soul-world-row--honghuang" : ""}`}
                 key={world.world_id}
                 onClick={() => selectWorld(world.world_id)}
                 type="button"
@@ -1110,7 +1110,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
       <nav className="soul-mode-switcher" aria-label="灵魂系统管理模式">
         {SOUL_MODES.map((item) => (
           <button
-            className={`soul-mode-card ${mode === item.id ? "soul-mode-card--active" : ""}`}
+            className={`soul-mode-tab ${mode === item.id ? "soul-mode-tab--active" : ""}`}
             key={item.id}
             onClick={() => handleModeSwitch(item.id)}
             type="button"
@@ -1137,7 +1137,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
                     const count = (projectionCatalog?.cards ?? []).filter((card) => card.soul_id === seed.key || card.soul_name === seed.name).length;
                     return (
                       <article
-                        className={`soul-seed-card ${selectedSeed?.key === seed.key ? "soul-seed-card--active" : ""}`}
+                        className={`soul-seed-row ${selectedSeed?.key === seed.key ? "soul-seed-row--active" : ""}`}
                         key={seed.key}
                       >
                         <button className="soul-seed-card__main" onClick={() => enterProjectionSoul(seed)} type="button">
@@ -1151,7 +1151,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
                   {!seedsForWorld.length ? (
                     <div className="soul-empty-world">
                       <strong>这个世界观暂未绑定灵魂</strong>
-                      <p>投影会跟随灵魂卡片出现。当前世界观适合维护纯工作 prompt 和共同契约。</p>
+                      <p>投影会跟随灵魂出现。当前世界观适合维护纯工作 prompt 和共同契约。</p>
                     </div>
                   ) : null}
                 </div>
@@ -1166,7 +1166,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
                 const isEnabled = seed.enabled !== false;
                 return (
                   <article
-                    className={`soul-seed-card ${seed.active ? "soul-seed-card--active" : ""}`}
+                    className={`soul-seed-row ${seed.active ? "soul-seed-row--active" : ""}`}
                     key={seed.key}
                   >
                     <button onClick={() => chooseSoul(seed)} type="button">
@@ -1216,7 +1216,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
               {!seedsForWorld.length ? (
                 <div className="soul-empty-world">
                   <strong>这个世界观暂未绑定灵魂</strong>
-                  <p>可以先维护工作 prompt 和共同契约；以后在资源库里把灵魂卡片绑定到这个世界观。</p>
+                  <p>可以先维护工作 prompt 和共同契约；以后在资源库里把灵魂绑定到这个世界观。</p>
                 </div>
               ) : null}
             </div>
@@ -1270,7 +1270,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
                     <div className="soul-projection-rail-head">
                       <div>
                         <span>投影目录</span>
-                        <strong>{selectedSeed.name} 的投影卡片</strong>
+                        <strong>{selectedSeed.name} 的投影目录</strong>
                       </div>
                     </div>
 
@@ -1468,7 +1468,7 @@ function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
           ) : mode === "contract" && !selectedSeed ? (
             <div className="soul-empty-world soul-empty-world--editor">
               <strong>当前世界观没有绑定灵魂</strong>
-              <p>这个入口适合后续放无背景工作 prompt。现在可以切到“共同契约”维护用户自定义契约，或选择洪荒时代进入灵魂卡片。</p>
+              <p>这个入口适合后续放无背景工作 prompt。现在可以切到“共同契约”维护用户自定义契约，或选择洪荒时代进入灵魂名单。</p>
             </div>
           ) : selectedFile ? (
             <>

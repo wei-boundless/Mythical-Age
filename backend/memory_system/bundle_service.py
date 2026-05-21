@@ -181,11 +181,15 @@ class MemoryBundleService:
         long_term_token_cap: int | None = None,
     ):
         budget = self._context_budget()
+        effective_memory_request_profile = self._context_package_memory_profile(
+            memory_request_profile,
+            has_relevant_notes=bool(relevant_notes),
+        )
         memory_view = self.build_memory_runtime_view(
             session_id=session_id,
             query=query,
             memory_intent=memory_intent,
-            memory_request_profile=memory_request_profile,
+            memory_request_profile=effective_memory_request_profile,
             relevant_notes=relevant_notes,
             note_limit=note_limit,
         )
@@ -416,3 +420,23 @@ class MemoryBundleService:
             except Exception:
                 pass
         return get_context_budget_preset("deepseek_1m").to_dict()
+
+    @staticmethod
+    def _context_package_memory_profile(
+        memory_request_profile: dict[str, Any] | None,
+        *,
+        has_relevant_notes: bool,
+    ) -> dict[str, Any]:
+        profile = dict(memory_request_profile or {})
+        requested_layers = [
+            str(item).strip()
+            for item in list(profile.get("requested_memory_layers") or [])
+            if str(item).strip()
+        ]
+        if not requested_layers:
+            requested_layers = ["state"]
+            if has_relevant_notes:
+                requested_layers.append("long_term")
+                profile["allow_long_term_memory"] = True
+        profile["requested_memory_layers"] = requested_layers
+        return profile

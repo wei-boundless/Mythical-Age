@@ -42,6 +42,7 @@ def default_agent_runtime_profiles() -> tuple[AgentRuntimeProfile, ...]:
             agent_profile_id="main_interactive_agent",
             agent_id="agent:0",
             allowed_runtime_lanes=(
+                "full_interactive",
                 "game_delivery",
                 "role_interaction",
                 "standard_task",

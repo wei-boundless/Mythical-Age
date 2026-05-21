@@ -16,6 +16,8 @@ Reason:
 
 ## Slice 1: Fold Structured Memory Under Memory System
 
+Status: completed in this recovery pass.
+
 Target structure:
 
 ```text
@@ -48,11 +50,13 @@ Rules:
 Completion criteria:
 
 - `backend/structured_memory/` no longer exists.
-- `rg "from structured_memory|import memory_system.storage" backend` returns no production/test code hits.
+- `rg "from structured_memory|import structured_memory" backend` returns no production/test code hits.
 - `python -m compileall -q backend/memory_system backend/context_system backend/bootstrap backend/capability_system backend/tests` passes.
 - Focused memory/context tests pass.
 
 ## Slice 2: Centralize Memory Service Construction
+
+Status: completed for working/formal/task durable runtime services in this recovery pass.
 
 Target:
 
@@ -67,6 +71,8 @@ Completion criteria:
 - Existing runtime and memory tests pass.
 
 ## Slice 3: Classify Root Runtime/Data Directories
+
+Status: partially completed. New obvious writes were redirected through `ProjectLayout`; existing root data was classified, not deleted.
 
 Target:
 

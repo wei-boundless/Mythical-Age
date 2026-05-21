@@ -24,7 +24,7 @@ from orchestration.model_profile_resolver import ModelProfileResolver
 from orchestration.resource_gate import OperationGate, OperationGatePipelineContext
 from project_layout import ProjectLayout
 from response_system.boundary.boundary import AssistantOutputBoundary
-from memory_system import WorkingMemoryFinalizer, WorkingMemoryService
+from memory_system.runtime_services import MemoryRuntimeServices
 from artifact_system import ArtifactRepositoryService
 from task_system.registry.flow_registry import TaskFlowRegistry
 from task_system.compiler.coordination_graph_models import TaskGraphRuntimeSpec
@@ -89,7 +89,6 @@ from .artifact_paths import (
     _required_artifact_target_path,
     _requires_write_file_artifact,
     _validate_required_artifact_file,
-    _working_memory_root_for_loop,
     _workspace_root_from_runtime_root,
 )
 from ..shared.artifact_refs import ArtifactRefIndex
@@ -236,8 +235,9 @@ class TaskRunLoop:
         )
         self.artifact_ref_index = ArtifactRefIndex(self.state_index, self, artifact_repository=artifact_repository)
         self.evidence_orchestrator = evidence_orchestrator
-        self.working_memory = WorkingMemoryService(_working_memory_root_for_loop(self.root_dir))
-        self.working_memory_finalizer = WorkingMemoryFinalizer(self.working_memory)
+        self.memory_runtime_services = MemoryRuntimeServices.from_runtime_root(self.root_dir)
+        self.working_memory = self.memory_runtime_services.working_memory
+        self.working_memory_finalizer = self.memory_runtime_services.working_memory_finalizer
         self.task_run_finalizer = TaskRunFinalizer(
             root_dir=self.root_dir,
             state_index=self.state_index,

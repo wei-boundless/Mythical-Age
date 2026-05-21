@@ -1,7 +1,7 @@
 "use client";
 
 import { Activity, ChevronRight, Minimize2, Network, RefreshCw, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { TaskGraphRunMonitorPanel } from "@/components/task-graph-monitor/TaskGraphRunMonitorPanel";
 import { useAppStore } from "@/lib/store";
@@ -22,6 +22,21 @@ export function TaskMonitorDock() {
   const [collapsed, setCollapsed] = useState(false);
   const monitor = taskGraphBoundRunMonitor ?? taskGraphRunMonitor ?? null;
   const hasSignal = Boolean(monitor || taskGraphLiveMonitor || taskGraphMonitorBinding);
+
+  useEffect(() => {
+    const collapseQuery = window.matchMedia("(max-width: 1260px)");
+    if (collapseQuery.matches) {
+      setCollapsed(true);
+    }
+    const collapseOnNarrow = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        setCollapsed(true);
+      }
+    };
+    collapseQuery.addEventListener("change", collapseOnNarrow);
+    return () => collapseQuery.removeEventListener("change", collapseOnNarrow);
+  }, []);
+
   const statusText = useMemo(() => {
     if (taskGraphMonitorLoading) return "同步中";
     if (monitor) return "运行监控";

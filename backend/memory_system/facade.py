@@ -14,11 +14,9 @@ from .maintenance_agent import MemoryMaintenanceAgent
 from .maintenance_coordinator import MemoryMaintenanceCoordinator
 from .messages import MemoryMessageAdapter
 from .request_service import MemoryRequestService
+from .runtime_services import MemoryRuntimeServices
 from .session import SessionMemoryLayer
 from .state_memory import StateMemoryStoreAdapter
-from .task_durable_memory_service import TaskDurableMemoryService
-from .working_memory_service import WorkingMemoryService
-from .working_memory_finalizer import WorkingMemoryFinalizer
 
 
 class MemoryFacade:
@@ -46,9 +44,11 @@ class MemoryFacade:
         self.state_memory = StateMemoryStoreAdapter(self.session_root)
         self.long_term_memory = LongTermMemoryStoreAdapter(self.memory_manager.root_dir)
         layout = ProjectLayout.from_backend_dir(base_dir)
-        self.working_memory = WorkingMemoryService(layout.working_memory_dir)
-        self.task_durable_memory = TaskDurableMemoryService(layout.task_durable_memory_dir)
-        self.working_memory_finalizer = WorkingMemoryFinalizer(self.working_memory)
+        self.runtime_services = MemoryRuntimeServices(layout.storage_root)
+        self.working_memory = self.runtime_services.working_memory
+        self.task_durable_memory = self.runtime_services.task_durable_memory
+        self.formal_memory = self.runtime_services.formal_memory
+        self.working_memory_finalizer = self.runtime_services.working_memory_finalizer
         self.request_service = MemoryRequestService()
         self.bundle_service = MemoryBundleService(
             session_memory=self.session_memory,

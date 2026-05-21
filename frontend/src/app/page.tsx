@@ -41,7 +41,7 @@ const MAIN_LAYERS: Array<{
   {
     icon: Sparkles,
     label: "灵魂系统",
-    description: "世界观、灵魂卡片、投影与共同契约",
+    description: "世界观、灵魂、投影与共同契约",
     view: "playground",
   },
 ];

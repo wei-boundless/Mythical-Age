@@ -1,710 +1,619 @@
-# Task Graph 时序系统成熟化设计报告
+# Task Graph 运行边界系统成熟化设计报告与实施计划
 
 日期：2026-05-22
 
-## 1. 结论
+## 1. 核心结论
 
-当前时序系统已经具备一批正确的底层零件：`phase_id`、`sequence_index`、`timeline_group_id`、`join_policy`、`barrier`、`timeline_result_record`、`timeline_ledger`、checkpoint、批次并发运行态等。但这些零件还没有收束成一个后端权威的“时序计划”。因此现在的问题不是缺字段，而是缺一个稳定的时序内核。
+这次优化不应该围绕“时序还是 step”展开。真正要修的是图任务运行时的边界能力。
 
-推荐方向是：保留业务时序层，不直接用 LangGraph step 替代；新增后端一等对象 `TimelinePlan`，把业务阶段编译成运行时 super-step/barrier/checkpoint 计划。编辑器负责编辑业务时序，运行时只消费编译后的时序计划。
+当前任务图最大的不稳定，不是缺少某个执行概念，而是四类边界没有成为统一协议：
 
-目标模型：
+1. **启动边界**：节点什么时候允许开始。
+2. **读取边界**：节点能读哪些上游结果，不能读哪些半成品。
+3. **提交边界**：哪些结果可以成为后续事实和长期记忆。
+4. **续跑边界**：修改、失败、重跑时，哪些产物失效，哪些产物保留。
 
-```text
-业务图节点/边
-  -> TimelinePlan 编译
-  -> StepPlan / ParallelSet / BarrierPlan
-  -> 调度器按 step 选择一组 ready 节点
-  -> 结果先进入 pending result
-  -> barrier/review 通过后提交 timeline_result_record
-  -> 下游只读 committed/accepted 结果
-```
+因此，时序系统要保留，但职责要收窄。它不再是节点排队系统，也不承担运行调度波次。它应该成为 **任务生命周期与边界账本**，记录阶段、批次、轮次、审核、提交、失效和恢复坐标。
 
-这比旧的“主链按节点排队”成熟，也比直接暴露 LangGraph step 更适合你的写作长任务系统。
+节点能不能启动，应由依赖边、上游结果状态、审核/提交边界共同决定；运行时一次派发几个 ready 节点，是调度策略，不应该成为图编辑器的主概念。
 
-## 1A. 优化/劣化自审
+## 2. 对时序与 step 的本质判断
 
-这份方案只有在满足下面条件时才是优化；否则就是把系统复杂度推高的劣化。
+### 2.1 时序的本质
 
-### 1A.1 它为什么可能是优化
+时序不是“节点排列顺序”，而是任务生命周期中的业务坐标和边界记录。
 
-当前系统的核心不稳定来自“语义分散”：
+它回答这些问题：
 
-- 前端有 timeline frame 和预检。
-- RuntimeSpec 保留 phase/sequence/group。
-- Scheduler 按 phase/sequence 计算 ready。
-- CoordinationRuntime 仍按单 `ready[0]` 推进。
-- BatchRuntime 有自己的一套 step/merge。
-- BarrierState 存在，但只在局部 dispatch plan 中使用。
+- 当前任务处于哪个业务阶段。
+- 当前是哪个卷、哪个章节批次、哪个返修轮次。
+- 哪些候选已经审核通过。
+- 哪些结果已经提交为下游可读事实。
+- 哪个阶段已经关闭，不能再被旧结果污染。
+- 断点续跑应该回到哪个业务边界。
 
-这些能力方向都对，但权威不统一。`TimelinePlan` 的价值不是“再加一层”，而是把这些分散语义收束成一个后端可验证、可回放、可续跑的计划对象。它应减少下面这些问题：
+对长篇写作任务来说，时序必须存在。因为写作图不是普通 DAG，它有设计期、创作期、卷审、批次、返修、记忆提交、设定冻结和动态推进。如果没有时序账本，运行时可以跑完节点，但很难知道“哪些东西已经成为作品事实”。
 
-1. 同一并发关系在前端、后端、运行时有不同解释。
-2. 节点完成了，但下游到底能不能读产物依赖隐式判断。
-3. 断点续跑不知道该按节点、批次、阶段还是产物状态恢复。
-4. 失败重跑时只能粗暴重启，不能按 step frontier 局部失效。
+### 2.2 step 的本质
 
-如果 `TimelinePlan` 只是新增字段，不成为调度、产物可见性、断点恢复的共同依据，那它不是优化。
+step 只是运行时的一次调度波次。
 
-### 1A.2 它为什么可能劣化
+它回答这些问题：
 
-风险必须正视：
+- 当前有哪些节点 ready。
+- 运行资源允许这次派发几个。
+- 哪些 request_id 属于同一轮派发。
+- checkpoint 记录这次派发到什么状态。
 
-1. **概念膨胀**：如果 `Phase / Step / Group / Barrier / Gate / Frame` 同时可编辑且互相覆盖，编辑器会更难用。
-2. **双权威**：如果旧拓扑调度和新 TimelinePlan 同时决定 ready，运行结果会更不可预测。
-3. **迁移误伤**：现有图大量依赖 `phase_id / sequence_index`，直接切换可能让旧图无法续跑。
-4. **并发扩大副作用**：把 `ready_nodes` 全部派发出去，可能冲击现有 artifact 写入、request_id、checkpoint、result_record 的幂等逻辑。
-5. **写作任务被过度工程化**：如果每个小节点都要求配置 barrier，用户配置成本会增加。
+step 不应该成为编辑器里的业务概念。因为同一张图在不同资源、不同模型队列、不同恢复场景下，实际派发波次可能不同。把 step 画进业务图，会把运行资源策略误绑定为业务流程。
 
-所以本方案不能以“大重构”方式落地。正确落地方式必须是影子计划、只读验证、小范围切换、指标证明。
+### 2.3 设计判断
 
-### 1A.3 判断是否优化的硬指标
+任务图应该表达：
 
-推进每一阶段前必须检查这些指标：
+- 因果依赖。
+- 可并发的无序关系。
+- 汇合审查。
+- 审核裁决。
+- 提交边界。
+- 记忆可见性。
+- 失败返修和失效范围。
 
-1. 普通图在不配置显式 TimelinePlan 时，仍能从现有 phase/sequence 推导出等价运行计划。
-2. 同一 phase/sequence/group 的节点，在前端和后端得到同一个 step_id。
-3. 新 plan 不改变旧图的单链执行结果，除非图显式声明同 step 并发。
-4. 多节点 dispatch 后，每个节点有独立 request_id、dispatch_event_id、result_record_id。
-5. 一个分支完成不会提前释放下游 barrier。
-6. 失败分支重跑不会覆盖成功分支产物。
-7. 断点续跑仍使用同一 task_run_id、coordination_run_id、run folder。
-8. run monitor 能解释“为什么现在 blocked/ready”，而不是只显示状态。
+运行时自己决定：
 
-只要这些指标有一条做不到，就不能进入切换阶段。
+- 这次派发哪些 ready 节点。
+- 是否因为资源限制分批派发。
+- 如何记录 checkpoint 和 request。
 
-### 1A.4 更保守的执行原则
+所以后续设计中，不新增用户可见的 `StepPlan` 作为核心对象。可以保留运行时内部 dispatch wave，但它只是运行记录，不是图语义。
 
-因此，真实实施顺序要比“新增 TimelinePlan 后立刻接管运行”更保守：
+## 3. 当前系统证据
 
-1. 先做 `TimelinePlan` 影子编译，只产出 diagnostics 和 monitor 展示。
-2. 先修正前端 step 聚合，让视图不误导用户。
-3. 再让 scheduler 同时输出旧 ready_nodes 和新 ready_dispatch_sets，做一致性对比。
-4. 只对显式声明 `timeline_policy.runtime_authority = "timeline_plan"` 的图启用新调度。
-5. 写作图先作为试点，但不能写写作专用 runtime shortcut。
-6. 新调度稳定后，旧 phase/sequence 直推逻辑才降级为编译输入。
-
-这能避免“为了成熟化而把当前能跑的系统打碎”。
-
-## 2. 当前问题定义
-
-### 2.1 真实故障模式
-
-用户提出的典型场景是：
-
-```text
-人设设计师 与 剧情设计师 同时设计
-  -> 统筹审查必须等两个都完成
-  -> 通过后才能写入记忆并进入下一时序
-```
-
-这个场景要求系统同时满足五个性质：
-
-1. 同一时序点可以发起多个节点。
-2. 后续节点必须等待所有必要分支完成。
-3. 失败分支可以单独重跑，成功分支不被污染。
-4. 下游只能读取通过 barrier/review 的产物。
-5. 断点续跑必须回到同一个任务运行与同一个时序坐标。
-
-当前系统可以表达其中一部分，但没有统一保证。
-
-### 2.2 深层架构原因
-
-旧“主链”如果指一串节点顺序，就天然不适合并发；如果指一串业务阶段，又缺少阶段内部 step/barrier 的正式对象。于是系统容易出现两种摇摆：
-
-- 前端能画出并行组，但运行时仍按单节点推进。
-- 后端能算出多个 ready 节点，但主运行入口一次只挑一个执行。
-
-正确修复不是继续给节点补字段，而是把“时序点、并发集合、汇合门、提交边界”升级为运行时一等对象。
-
-## 3. 当前代码证据
-
-### 3.1 已有可复用能力
+### 3.1 已有能力
 
 `backend/task_system/graphs/task_graph_models.py`
 
-- `TaskGraphNodeDefinition` 已有 `phase_id`、`sequence_index`、`timeline_group_id`、`blocks_phase_exit`。
-- 节点执行模式已有 `sync / async / parallel / background / barrier / manual_gate`。
-- join policy 已有 `all_success / any_success / quorum / coordinator_decides / allow_partial_with_issues / fail_on_any_error`。
-- barrier 节点已有基本校验：不能 `fire_and_continue`，必须存在上游。
+- 节点已有 `wait_policy`、`join_policy`、`review_gate_policy`、`memory_writeback_policy`、`artifact_policy`。
+- 边已有 `wait_policy`、`ack_policy`、`failure_propagation_policy`、`result_delivery_policy`。
+- 这些字段已经接近“边界协议”，但还没有被统一命名和验证。
 
 `backend/task_system/compiler/coordination_graph_models.py`
 
-- `TaskGraphRuntimeNode` 已保留 phase、sequence、timeline group、join policy。
-- `TaskGraphRuntimeSpec` 已保留 `temporal_edges`、`loop_frames`、`graph_module_runtime_plans`。
+- RuntimeSpec 已保留节点的执行、等待、汇合、记忆、产物、审核策略。
+- 说明后端已经具备把图语义传给运行层的通道。
 
 `backend/runtime/graph_runtime/scheduler.py`
 
-- `bootstrap_scheduler_state` 已能按 active phase 与 active sequence 计算 ready/blocked。
-- 同一 phase、同一 sequence 的多个节点可以同时 ready。
-- timeline result gate 已接入：下游可以被 `timeline_result_missing`、`timeline_result_not_accepted`、`timeline_result_not_effective` 阻塞。
-- `allow_partial_with_issues / coordinator_decides` 已有部分汇合语义。
-
-`backend/runtime/shared/models.py`
-
-- 已有 `CoordinationBarrierState`，字段包括 `barrier_id`、`waiting_for_node_ids`、`completed_node_ids`、`failed_node_ids`、`join_policy`。
-- 已有 `AgentDispatchPlan`，可以携带 `barrier_states`、`ready_node_ids`、`blocked_node_ids`、`dispatch_groups`。
-
-`backend/runtime/graph_runtime/batch_runtime.py`
-
-- 批次运行已有 `step_states`、`merge_states`、并发批次数限制、批次级修复与 commit。
-- 这说明项目里已经有“批次内 super-step + merge”的局部经验，可以抽象回通用任务图时序。
-
-### 3.2 关键缺口
-
-`backend/task_system/compiler/coordination_graph_compiler.py`
-
-- 诊断里明确写着：`metadata.timeline_policy` 仍是 unsupported，当前 LangGraph runtime 仍按拓扑依赖推进。
-- `phase_definitions` 是 partial，阶段定义进入 RuntimeSpec diagnostics 和前端预检，但 phase exit policy 没有成为运行调度权威。
-- `timeline_group_id` 是 partial，运行调度尚未按 `timeline_group_id` 同步启动。
+- 当前 scheduler 已能根据上游完成、失败传播、timeline result gate、handoff ack 判断 ready/blocked。
+- 但它仍混入 active phase / sequence gate，这让“业务生命周期”和“节点排队”纠缠在一起。
 
 `backend/runtime/coordination_runtime/runtime.py`
 
-- `_scheduler_node_sets` 会返回 `ready_nodes`。
-- 但 `_route_next` 当前取 `ready[0]` 作为 `next_stage`，一次只派发一个节点。
-- 这意味着普通图节点的并行 ready 还没有成为主运行链的一组 dispatch，只有 batch runtime 的专用分发可以做到多请求。
+- 运行态已有 `timeline_result_records`、`accepted_result_records_by_scope`、`result_record_index`。
+- `_route_next` 当前仍取 `ready[0]`，说明主运行链没有真正把“多个 ready 节点”当成可调度集合。
+- `resume_from_task_result` 已能记录 result record 和 timeline ledger，但结果状态仍需要更明确地区分 candidate、accepted、committed、superseded。
 
-`frontend/src/components/workspace/views/task-system/taskGraphTimeline.ts`
+`backend/runtime/memory/timeline_result_record.py`
 
-- `buildTimelinePhases` 的 step key 包含 `nodeId`：
+- 已有 `TimelineResultRecord`，这是正确方向。
+- 但它目前更像“节点结果事实记录”，还不是完整的提交边界协议。
+
+`backend/runtime/graph_runtime/batch_runtime.py`
+
+- 批次运行已有批次状态、修复轮次、merge readiness。
+- 这说明系统已经局部证明：长任务不能只靠节点完成状态，必须有批次、审核、提交、修复状态。
+
+`frontend/src/components/workspace/views/task-system`
+
+- 已有 phase lifecycle、timeline page、edge handoff、standard view。
+- 但前端仍容易把 phase/sequence/timeline group 展示成排队结构，而不是边界结构。
+
+### 3.2 主要缺口
+
+1. 节点类型没有明确区分生产、审核、提交、路由、资源、监测。
+2. 边类型没有明确区分启动依赖、候选输入、审核输入、提交输入、记忆读取、失败返修、非阻塞参考。
+3. 候选产物、审核意见、正式提交产物之间的状态边界不够硬。
+4. 时序字段承担了过多调度责任，`sequence_index` 容易把本应无序并发的节点排成链。
+5. 断点续跑更多依赖运行快照，缺少以业务边界为核心的失效与恢复模型。
+
+## 4. 目标模型：运行边界系统
+
+### 4.1 四层职责
+
+目标架构分四层：
 
 ```text
-phase:group:sequence:nodeId
-phase:step:sequence:nodeId
+图语义层
+  定义节点职责、边职责、资源职责
+
+边界判定层
+  判断节点能否启动、能读什么、能提交什么
+
+生命周期账本层
+  记录阶段、批次、轮次、审核、提交、失效、恢复坐标
+
+运行调度层
+  从 ready 节点中实际派发请求，并记录 checkpoint
 ```
 
-- 这会导致同一 phase、同一 sequence、同一 group 的节点在前端也被拆成多个 step，而不是一个 super-step。
-- 如果目标是“一个时序点内并发”，step key 应按 `phase + sequence + group` 聚合，节点列表放在同一个 step 内。
+这四层不能互相抢职责。
 
-`backend/runtime/unit_runtime/dispatch_plan_compiler.py`
+- 图语义层不决定一次派发几个节点。
+- 调度层不决定候选是否变成事实。
+- 生命周期账本不强行给节点排队。
+- 边界判定层必须是下游可见性的唯一门。
 
-- 只在 `mode == "barrier"` 时创建 `CoordinationBarrierState`。
-- timeline group / same sequence 没有自动形成 barrier。
-- 这是 dispatch plan 层的局部能力，没有和主 coordination runtime 的调度闭环统一。
+### 4.2 节点职责模型
 
-## 4. 本地设计原则约束
+建议把节点职责明确成以下几类：
 
-从现有设计文档提炼出的约束如下。
+| 职责 | 作用 | 典型写作节点 |
+|---|---|---|
+| `producer` | 生产候选产物 | 世界观设计、人设设计、剧情设计、章节细纲、章节正文 |
+| `reviewer` | 审核候选并给出裁决 | 世界观审核、设计统筹审查、章节审稿 |
+| `committer` | 将已通过结果提交为事实或记忆 | 世界观提交、设计提交、章节记忆提交 |
+| `router` | 根据状态决定下一阶段或返修 | 批次推进、卷推进、返修路由 |
+| `resource` | 提供记忆、产物库、账本 | 基准库、动态库、线程账本 |
+| `monitor` | 观测运行状态，不改变事实 | 运行监测、质量监测 |
 
-`docs/系统规划/168-写作任务设计文件夹-20260519/06-图模板与协议复用.md`
+这比单纯区分 `agent/review_gate/memory` 更有用，因为它直接决定运行边界。
 
-- 完整流程不是一条统一时序的单链路，而是正式流程目录。
-- 不同阶段的时序差异是常态。
-- 图模板本质是可复用闭环，不是固定业务节点串。
+### 4.3 边职责模型
 
-`docs/系统规划/168-写作任务设计文件夹-20260519/08-三阶段任务图拆分.md`
+边也不能只是连线。建议建立边职责：
 
-- 设计、创作、收尾应拆成不同任务图。
-- 协议可以复用，但时序不能混用。
-- 前端不应把不同层级混在一页。
+| 边职责 | 含义 |
+|---|---|
+| `activation_dependency` | 目标节点启动前，源节点必须到达指定状态 |
+| `candidate_input` | 目标读取源节点候选产物，但不得视为事实 |
+| `review_input` | 审核节点读取候选与问题上下文 |
+| `commit_input` | 提交节点读取已通过审核的结果 |
+| `memory_read` | 从指定记忆库读取已提交事实 |
+| `memory_commit` | 将结果写入指定记忆库 |
+| `revision_return` | 审核失败后回到返修节点 |
+| `non_blocking_reference` | 只作为参考，不阻塞启动，不产生事实依赖 |
+| `failure_route` | 失败后的隔离、终止或人工处理路线 |
 
-`docs/系统规划/208-写作任务流程记忆防污染与持续运行优化方案-20260521.md`
+运行时 ready 判断应主要消费边职责和上游结果状态，而不是靠 sequence 排队。
 
-- 下游只消费 `accepted / committed`。
-- `candidate / review` 只能用于本轮返修，不得直接外溢。
-- 伏笔和悬念的剧情事实应由大纲结构表达，运行层只能生成派生追踪视图。
+### 4.4 产物状态模型
 
-`docs/系统规划/211-现有资源统筹与专业长任务持久运行优化设计书-20260521.md`
+每个节点产物必须有生命周期状态：
 
-- 状态机负责长任务时序、恢复、阻塞和收口。
-- 投影和 profile 不应覆盖执行义务。
-- 不应保留无用旧链路作为兼容分支。
+| 状态 | 可读范围 | 是否可成为事实 |
+|---|---|---|
+| `candidate` | 审核节点、返修节点 | 否 |
+| `under_review` | 审核节点 | 否 |
+| `accepted` | 提交节点、受控下游 | 还不是长期事实 |
+| `committed` | 后续正式节点 | 是 |
+| `rejected` | 返修参考 | 否 |
+| `superseded` | 审计可见，运行不可读 | 否 |
+| `isolated` | 问题隔离区 | 否 |
 
-这些原则共同指向一个结论：时序系统必须是结构化的运行协议，不是 prompt 约束，也不是编辑器里的展示字段。
+写作任务里最重要的一条规则是：**下游正式创作只能读 committed；审核和返修可以读 candidate/accepted，但必须带范围。**
 
-## 5. LangGraph Step 可借鉴但不可直接替代
+### 4.5 时序系统的新职责
 
-LangGraph 的 Pregel/graph runtime 思想可以借鉴三个点：
-
-1. super-step：一个运行 tick 内可以执行多个 ready 节点。
-2. barrier：下一个 tick 只看上一 tick 已提交的状态。
-3. checkpoint：step 边界天然适合作为断点续跑边界。
-
-但不建议把 LangGraph step 直接暴露成你的编辑器主概念。原因是你的系统比 LangGraph 原始 step 多了业务层含义：
-
-- 设计阶段、创作阶段、收尾阶段。
-- 审核门、提交门、记忆可见性。
-- 卷、章节批次、返修轮次。
-- 产物路径、任务文件夹、断点续跑隔离。
-- 商业网文写作流程中的候选、审核、提交和长期事实边界。
-
-因此正确关系应该是：
-
-```text
-业务 TimelinePlan
-  编译为
-运行时 SuperStepPlan
-  再由
-LangGraph/checkpoint/runtime 调度执行
-```
-
-也就是说，借 LangGraph 的执行不变量，不借它替代业务时序模型。
-
-## 6. 推荐目标架构
-
-### 6.1 新增一等对象：TimelinePlan
-
-后端需要新增 canonical timeline schema，不能只依赖节点 metadata。
-
-建议对象：
+保留时序系统，但改成生命周期与边界账本：
 
 ```text
-TimelinePlan
-TimelinePhaseSpec
-TimelineStepSpec
-TimelineParallelGroupSpec
-TimelineBarrierSpec
-TimelineTransitionSpec
-TimelineMemoryCommitGateSpec
-TimelineLoopFrameSpec
-```
-
-其中 `TimelineStepSpec` 是核心：
-
-```text
-step_id
 phase_id
-sequence_index
-dispatch_node_ids
-parallel_group_id
-barrier_id
-join_policy
+volume_index
+chapter_batch_range
+revision_round
+attempt_index
+boundary_status
+opened_at_clock
+closed_at_clock
+committed_result_refs
+invalidated_result_refs
+```
+
+时序系统负责记录：
+
+- 设计阶段是否完成。
+- 当前卷和当前章节批次。
+- 当前返修轮次。
+- 哪些候选已通过审核。
+- 哪些结果已提交。
+- 哪些结果因重跑失效。
+
+时序系统不负责：
+
+- 给所有节点排队。
+- 决定同一批 ready 节点是否一起派发。
+- 替代依赖边判断。
+- 把 candidate 自动升级为 committed。
+
+## 5. 写作图中的真实应用
+
+### 5.1 世界观流程
+
+不是：
+
+```text
+world_design -> world_review -> world_commit
+```
+
+这么简单的线性节点链。
+
+真实语义应该是：
+
+- `world_design` 生产 `world_candidate`。
+- `world_review` 读取 `world_candidate`，输出 verdict 和 issue list。
+- verdict 为 pass 时，`world_commit` 才能读取 accepted candidate。
+- `world_commit` 写入基准库后，后续人设、剧情、大纲才可以正式读取世界观事实。
+- verdict 为 revise 时，只允许 `world_design` 读取 review issue 进行返修。
+
+这解决之前“只有 review 落盘、design 不落盘”或“审核意见被误当设定”的问题。
+
+### 5.2 人设与剧情并行
+
+不是表达成“同一个 step”。
+
+真实语义是：
+
+- `character_design` 与 `plot_design` 之间没有因果依赖。
+- 二者都依赖已 committed 的世界观。
+- `design_sync_review` 同时依赖两份 accepted 或 candidate-for-review 结果。
+- 只要其中一个缺失、失败、被隔离，`design_sync_review` 就不能启动。
+- 其中一个失败重跑，不影响另一个成功候选，但成功候选在统筹提交前不能成为长期事实。
+
+这才是任务图与真实运行相关的并发设计。
+
+### 5.3 章节批次
+
+章节正文节点不是普通 producer，它还受批次边界约束：
+
+- 只能写当前批次章节。
+- 只能读取当前批次允许的已提交记忆、上批承接摘要、当前章纲。
+- 审稿失败时，返修只能修改当前批次产物。
+- 章节提交后，章节事实、伏笔推进、人物状态才进入后续可读记忆。
+
+这类约束必须写进边界系统，不能靠 prompt 提醒。
+
+## 6. 推荐数据模型
+
+### 6.1 新增 Boundary Manifest
+
+不建议新增以 step 为核心的模型。建议新增：
+
+```text
+TaskGraphBoundaryManifest
+NodeBoundarySpec
+EdgeBoundarySpec
+ResultLifecycleSpec
+CommitBoundarySpec
+LifecycleCoordinateSpec
+InvalidationRuleSpec
+```
+
+### 6.2 NodeBoundarySpec
+
+核心字段：
+
+```text
+node_id
+boundary_role
+produces_result_kind
+required_input_states
+read_visibility
+write_visibility
+review_policy_ref
+commit_policy_ref
+retry_policy_ref
+```
+
+### 6.3 EdgeBoundarySpec
+
+核心字段：
+
+```text
+edge_id
+source_node_id
+target_node_id
+boundary_role
+required_source_state
+target_input_key
+blocks_activation
 failure_policy
 visibility_policy
-checkpoint_policy
-commit_policy
 ```
 
-`TimelineBarrierSpec` 负责汇合：
+### 6.4 ResultLifecycleSpec
+
+核心字段：
 
 ```text
-barrier_id
-wait_for_node_ids
-join_policy
-required_result_state
-on_success_step_id
-on_failure_step_id
-retry_scope
-commit_scope
-```
-
-### 6.2 主链的新定义
-
-主链不再是节点链，而是 phase/step 链：
-
-```text
-Phase 1
-  Step 1: input
-  Step 2: world_design
-  Step 3: world_review
-  Step 4: memory_commit
-
-Phase 2
-  Step 1: character_design + plot_design
-  Step 2: design_sync_review
-  Step 3: outline_design
-```
-
-同一 step 内的节点可以并发，step 出口由 barrier/review/commit policy 裁决。
-
-### 6.3 运行时调度规则
-
-调度器每次不应返回单个 `next_stage`，而应返回 `StepDispatchSet`：
-
-```text
-step_id
-dispatches[]
-barrier_id
-checkpoint_id
-resume_token
-```
-
-执行规则：
-
-1. 只有当前 active step 的节点可以 ready。
-2. 同一 step 内所有 ready 且 blocking 的节点一起进入 dispatch set。
-3. step 内节点产物先进入 pending result。
-4. barrier 达成后，结果升级为 accepted timeline result。
-5. review gate 通过后，才能 memory commit。
-6. 下一 step 只能读取 accepted/committed 的结果。
-
-### 6.4 Artifact 与 Memory 可见性
-
-每个节点输出应有明确状态：
-
-```text
-candidate
-pending_review
-accepted
-committed
-rejected
-isolated
-superseded
-```
-
-并行 step 内，分支结果不能互相读半成品。下游只能读：
-
-- 本 step barrier 通过后的 accepted。
-- memory commit 后的 committed。
-- 显式允许的 diagnostic/review issue。
-
-这样才能减少行为污染和记忆偏移。
-
-### 6.5 断点续跑与重跑
-
-断点续跑的锚点应该是：
-
-```text
-task_run_id
-coordination_run_id
-timeline_plan_version
+result_ref
+node_id
+run_id
 phase_id
-step_id
-barrier_id
+coordinate
+state
 attempt_index
-accepted_result_record_ids
-invalidated_result_record_ids
+supersedes_ref
+visible_to_node_ids
+committed_memory_refs
 ```
 
-重跑不应默认创建新任务文件夹。正确策略：
+### 6.5 Lifecycle Ledger
 
-- 同一业务任务继续使用同一 run folder。
-- 有问题的产物移动到 isolated/superseded 状态或隔离目录。
-- 新产物写入同一任务 run 下的新 round/attempt。
-- 下游缓存按 invalidation frontier 清除，而不是清空全任务。
-
-## 7. 并发问题的标准解法
-
-以“人设设计 + 剧情设计并行，统筹审查汇合”为例：
+当前 timeline ledger 可以继续存在，但要从“事件流水”升级为边界账本视图：
 
 ```text
-Phase: design_architecture
-
-Step 10:
-  dispatch:
-    - character_design
-    - plot_design
-  barrier:
-    id: barrier.design_architecture.design_branches
-    join_policy: all_success
-    result_state: accepted_candidate
-
-Step 20:
-  dispatch:
-    - design_sync_review
-  reads:
-    - accepted candidate from character_design
-    - accepted candidate from plot_design
-
-Step 30:
-  dispatch:
-    - architecture_memory_commit
-  gate:
-    design_sync_review verdict == pass
+lifecycle_coordinate
+boundary_events
+open_boundaries
+closed_boundaries
+accepted_results
+committed_results
+invalidated_results
+active_retry_scope
 ```
 
-如果 `plot_design` 失败：
+## 7. 实施计划
 
-- `character_design` 保持 completed/pending_commit，不重跑。
-- barrier 状态为 waiting/failed_partial。
-- 只派发 `plot_design` 的 retry attempt。
-- `design_sync_review` 不可 ready。
-- 下游不能读 `character_design` 的结果作为正式记忆，只能在 retry context 内作为 pending sibling result。
+### 阶段一：边界影子模型
 
-这就是成熟时序系统需要保证的语义。
-
-## 8. 编辑器设计方向
-
-编辑器可见层要取消“父图是一种特殊节点”的主概念，改成“导入模块展开为可编辑的子图结构”。但运行时仍可以有模块实例、版本锚点和隔离作用域。
-
-页面层级建议：
-
-1. Phase Chain View：只看阶段链和阶段出口。
-2. Step Plan View：看每个 phase 内的 step、并发组、barrier。
-3. Parallel Group Editor：编辑同一 step 内的并发分支。
-4. Barrier / Review Gate Inspector：编辑 join policy、失败策略、返修路由。
-5. Runtime Monitor View：看当前 active step、running dispatches、barrier 状态、checkpoint。
-
-不要把节点、资源、时序、模块、运行监测全部塞进同一个画布。切换层级应用明确入口。
-
-## 9. 数据模型与 API 变更
-
-### 9.1 后端新增模块
-
-建议新增：
-
-```text
-backend/task_system/timeline/timeline_models.py
-backend/task_system/timeline/timeline_compiler.py
-backend/task_system/timeline/timeline_validator.py
-backend/runtime/graph_runtime/step_scheduler.py
-```
-
-### 9.2 RuntimeSpec 增强
-
-`TaskGraphRuntimeSpec` 新增：
-
-```text
-timeline_plan: dict[str, Any]
-step_plans: tuple[dict[str, Any], ...]
-barrier_plans: tuple[dict[str, Any], ...]
-```
-
-迁移期仍保留 `phase_id / sequence_index / timeline_group_id` 字段，但它们不再是运行时唯一事实源，而是编译输入。
-
-### 9.3 SchedulerState 增强
-
-`TaskGraphSchedulerState` 新增：
-
-```text
-active_step_id
-ready_step_ids
-step_states
-barrier_states
-dispatch_sets
-invalidated_result_record_ids
-```
-
-### 9.4 CoordinationRuntime 改造
-
-`_route_next` 从：
-
-```text
-ready = [...]
-next_stage = ready[0]
-```
-
-改为：
-
-```text
-dispatch_set = scheduler.next_dispatch_set()
-dispatch all nodes in dispatch_set, subject to concurrency limits
-checkpoint step dispatch
-wait for barrier/result events
-```
-
-### 9.5 前端 Timeline 修正
-
-`buildTimelinePhases` 的 step 聚合从：
-
-```text
-phase + group + sequence + nodeId
-```
-
-改为：
-
-```text
-phase + sequence + group
-```
-
-无 group 的节点按 `phase + sequence` 归入默认 step。是否允许无 group 节点同 step 并发，由 `timeline_policy.parallel_group_policy` 决定。
-
-## 10. 迁移计划
-
-### 阶段一：影子 TimelinePlan
-
-目标：不改变运行行为，先编译出 canonical timeline plan。
+目标：不改变运行行为，先从现有图编译出 Boundary Manifest。
 
 改动：
 
-- 新增 timeline models/compiler/validator。
-- 从现有 `phase_id / sequence_index / timeline_group_id / edges` 推导 step/barrier。
-- RuntimeSpec diagnostics 输出 timeline plan。
-- 前端标准视图读取 timeline plan 展示。
+- 新增 `backend/task_system/boundaries/boundary_models.py`。
+- 新增 `backend/task_system/boundaries/boundary_compiler.py`。
+- 从现有 `node_type`、`review_gate_policy`、`memory_writeback_policy`、`artifact_policy`、`wait_policy`、`join_policy`、边 metadata 推导 boundary manifest。
+- RuntimeSpec diagnostics 输出 boundary manifest summary。
 
 完成标准：
 
-- 现有测试不破。
-- 写作图能编译出 design/chapter/finalize 的 step plan。
-- 同一 sequence 并发节点在 plan 中同 step。
+- 现有图不需要新配置也能生成 boundary manifest。
+- 世界观设计、审核、提交能被识别为 producer/reviewer/committer。
+- 人设设计与剧情设计能被识别为无互相依赖的 producer。
 
 禁止：
 
-- 不在本阶段改 `_route_next` 派发行为。
-- 不写写作专用特判。
+- 不改变 `_route_next`。
+- 不删除现有 phase/sequence 字段。
+- 不引入用户可见 step 概念。
 
-### 阶段二：Scheduler 消费 TimelinePlan
+### 阶段二：结果生命周期硬化
 
-目标：ready/blocked 由 step plan 决定。
-
-改动：
-
-- `bootstrap_scheduler_state` 接入 step/barrier 计算。
-- 增加 `StepRunState`、`BarrierRunState`。
-- join policy 支持至少 `all_success`、`allow_partial_with_issues`、`coordinator_decides`。
-- `timeline_group_id` 从展示字段升级为 step dispatch group。
-
-完成标准：
-
-- 同一 step 多节点同时 ready。
-- 下游 step 在 barrier 未通过前 blocked。
-- 失败分支能被标记为 retryable，成功分支不失效。
-
-### 阶段三：CoordinationRuntime 多节点派发
-
-目标：普通图节点也能真正并发，不只批次节点并发。
+目标：把候选、审核、提交、失效做成真实状态。
 
 改动：
 
-- `_route_next` 返回 dispatch set。
-- 新增 `dispatch_ready_step_requests`，复用现有 batch dispatcher 的执行实例思想。
-- checkpoint 记录 step dispatch set 与每个 node request。
-- `resume_from_task_result` 更新 barrier 状态，而不是直接推进单节点链。
+- 扩展 `TimelineResultRecord` 或新增 `TaskGraphResultRecord`。
+- 增加 `state`：candidate、accepted、committed、rejected、superseded、isolated。
+- `accepted_result_records_by_scope` 改造成更明确的 visibility index。
+- review gate 只产生 verdict，不允许把审核员新增内容直接当被审事实提交。
+- commit 节点只能读取 accepted result。
 
 完成标准：
 
-- 两个同 step 节点可同时产生 execution request。
-- 任意一个完成不会提前触发下游 review。
-- 两个都完成且 accepted 后，下游 review 才 ready。
+- candidate 不会进入正式下游上下文。
+- review 未通过时 commit 不会 ready。
+- 被 superseded 的结果不会再被 context resolver 读取。
 
-### 阶段四：Artifact/Memory Commit Gate 收束
+### 阶段三：Scheduler 消费边界
 
-目标：解决行为污染和记忆污染。
+目标：节点 ready 由依赖边和结果状态决定，时序只提供生命周期限制。
 
 改动：
 
-- timeline result 状态区分 candidate/pending/accepted/committed。
-- memory commit 节点只读 accepted result。
-- review 节点不能把自己的补写内容当成被审对象提交。
-- run monitor 增加 step/barrier/result visibility 检查。
+- `scheduler.py` 从“phase/sequence gate”为主，改为“boundary readiness”为主。
+- `sequence_index` 降级为编辑器排序和迁移输入，不作为默认阻塞条件。
+- `wait_policy` 与边职责合并成明确 activation rules。
+- 保留 phase open/closed 检查，防止已关闭阶段被旧结果唤醒。
 
 完成标准：
 
-- candidate 不进入下游事实上下文。
-- review 未通过时 memory commit 不 ready。
-- 断点重跑只隔离失效 attempt，不新开任务文件夹。
+- 两个互不依赖节点可以同时 ready。
+- 有共同下游的审核节点必须等所有 required input 到达指定状态。
+- 资源受限时运行可串行派发，但业务 ready 状态不变。
 
-### 阶段五：编辑器重构
+### 阶段四：运行派发与 checkpoint 调整
 
-目标：编辑器从“节点字段面板”升级为“时序计划工作台”。
+目标：运行时可以处理多个 ready 节点，但不把 dispatch wave 暴露成图语义。
 
 改动：
 
-- Phase Chain View。
-- Step Plan View。
-- Parallel Group Editor。
-- Barrier Inspector。
-- Runtime Monitor View。
-- 删除无用父图可见概念，模块导入直接展开为图结构。
+- `_route_next` 不再固定取 `ready[0]` 作为唯一可能路径。
+- 新增 ready dispatch queue，按资源策略派发一个或多个节点。
+- 每个派发请求有独立 `request_id`、`dispatch_event_id`、`result_record_id`。
+- checkpoint 记录 dispatch queue 和 in-flight requests。
 
 完成标准：
 
-- 用户能一眼看到哪个 step 并发、哪个 barrier 汇合、哪个 commit 门控。
-- 不同层级不混在一页。
-- 标准视图与运行时 monitor 对同一 timeline plan 展示一致。
+- 普通图可以同时持有多个 running 节点。
+- 一个节点完成不会提前释放需要多输入的审核节点。
+- 服务重启后可以恢复 in-flight、completed、pending boundary 状态。
 
-## 11. 文件级执行清单
+### 阶段五：续跑与失效边界
+
+目标：断点续跑不新建任务，不全量清空，只按边界失效。
+
+改动：
+
+- 新增 invalidation planner。
+- 以 result dependency graph 计算失效范围。
+- 同一任务继续使用同一 `task_run_id`、`coordination_run_id`、run folder。
+- 旧产物标记 `superseded/isolated`，不删除审计记录。
+- 下游只重跑依赖失效结果的节点。
+
+完成标准：
+
+- 修改世界观候选后，人设/剧情/大纲中依赖旧世界观的结果失效。
+- 无关成功产物保留。
+- 产物目录仍属于同一个任务 run。
+
+### 阶段六：编辑器重构
+
+目标：编辑器展示真实任务边界，不展示 runtime step。
+
+改动：
+
+- 节点面板显示 boundary role。
+- 边面板显示 edge boundary role。
+- 新增“边界视图”：候选、审核、提交、返修、记忆读取。
+- 时序页改为“生命周期账本”：阶段、批次、轮次、提交、失效。
+- 运行监测页显示 ready/running/blocked 的边界原因。
+
+完成标准：
+
+- 用户能看懂为什么节点 blocked。
+- 用户能看懂哪些产物已成为正式事实。
+- 用户能看懂重跑会影响哪些下游。
+- 不把不同层级混在一个页面。
+
+### 阶段七：写作图迁移
+
+目标：用边界模型重配写作图。
+
+改动：
+
+- 世界观、人设、剧情、大纲、章节正文统一标成 producer。
+- 各审核节点标成 reviewer。
+- 各记忆提交节点标成 committer。
+- 章节推进、卷推进标成 router。
+- 明确世界观 committed 后，人设/剧情/大纲才能正式读取。
+- 明确章节 committed 后，人物状态、伏笔推进、情节事实才进入后续批次。
+
+完成标准：
+
+- 跑一卷时，候选、审核、提交产物路径和状态清楚。
+- 断点续跑使用同一任务目录。
+- 修改后续跑只隔离失效产物，不重启全任务。
+
+## 8. 文件级清单
 
 `backend/task_system/graphs/task_graph_models.py`
 
-- 保留节点时序字段作为编译输入。
-- 增加校验：同一 phase/sequence 的节点必须能编译进 step。
-- barrier/review/memory commit 的关系要能被 validator 检出。
-
-`backend/task_system/compiler/coordination_graph_models.py`
-
-- 增加 runtime spec 的 timeline plan 字段。
-- 保留旧字段作为迁移输入。
+- 增加 boundary role 字段或通过 contract bindings 表达。
+- 增加边职责字段。
+- 校验 producer/reviewer/committer 的必要策略。
 
 `backend/task_system/compiler/coordination_graph_compiler.py`
 
-- 调用 timeline compiler。
-- diagnostics 不再把 `timeline_policy` 标为 unsupported；至少进入 shadow/supporting 状态。
-- `timeline_group_id` 支持状态从 partial 推进到 supported。
+- 编译 Boundary Manifest。
+- diagnostics 输出边界支持状态。
+- 降低 `timeline_policy` 对调度的权重，强化边界协议。
 
 `backend/task_system/compiler/layered_graph_normalizer.py`
 
-- 不再只派生相邻 sequence 的 temporal edge。
-- 改为派生 step 与 phase barrier，temporal edge 成为兼容投影。
+- 不再把 phase/sequence 派生为强制节点链。
+- 将 memory/artifact/revision/temporal 边统一归入边界分类。
 
 `backend/runtime/graph_runtime/scheduler.py`
 
-- 从 active phase/active sequence 升级为 active step。
-- 输出 `ready_dispatch_sets`。
-- 输出 barrier state。
-
-`backend/runtime/graph_runtime/scheduler_models.py`
-
-- 新增 `TaskGraphStepState`、`TaskGraphBarrierState`、`TaskGraphDispatchSetState`。
-
-`backend/runtime/shared/models.py`
-
-- 扩展或迁移 `CoordinationBarrierState`，增加 `step_id`、`phase_id`、`attempt_index`、`retry_scope`、`visibility_state`。
+- ready 判断消费 Boundary Manifest。
+- phase 只作为 lifecycle open/closed 约束。
+- 输出 blocked boundary reasons。
 
 `backend/runtime/coordination_runtime/runtime.py`
 
-- `_route_next` 消费 dispatch set。
-- `resume_from_task_result` 更新 step/barrier，而非只推进单 stage。
-- rewinding/invalidation 按 step frontier 处理。
+- 结果写入时明确 result lifecycle state。
+- `_route_next` 支持 ready dispatch queue。
+- `resume_from_task_result` 更新结果状态、边界状态、失效范围。
 
-`backend/runtime/graph_runtime/batch_runtime.py`
+`backend/runtime/memory/timeline_result_record.py`
 
-- 将批次 `step_states / merge_states` 的通用思想抽象给 timeline step，不做写作特判。
+- 增加 result state、attempt、supersedes、visibility。
+- 或迁移为新的 task graph result record。
 
-`frontend/src/components/workspace/views/task-system/taskGraphTimeline.ts`
+`backend/runtime/coordination_runtime/context_packet_resolver.py`
 
-- 修正 step 聚合 key。
-- 增加 barrier/step plan 类型。
-- preflight 检查 step/barrier 缺失。
+- 只允许正式下游读取 committed。
+- 审核/返修节点按边界读取 candidate/accepted。
+
+`backend/runtime/graph_runtime/run_monitor.py`
+
+- 展示 boundary health。
+- 展示 result lifecycle。
+- 展示 invalidation frontier。
 
 `frontend/src/components/workspace/views/task-system/TaskGraphTimelinePage.tsx`
 
-- 拆成 phase、step、parallel group、barrier inspector 分层视图。
+- 改为生命周期账本与边界状态页。
+- 不再把 step 作为主展示对象。
+
+`frontend/src/components/workspace/views/task-system/EdgeHandoffCard.tsx`
+
+- 增加边职责编辑。
+- 明确启动依赖、审核输入、提交输入、记忆读取、返修路线。
 
 `scripts/configure_writing_modular_novel_graph.py`
 
-- 写作图配置不再把所有节点统一塞到 `timeline_group_id = phase_id`。
-- 明确设计阶段哪些节点同 step 并发，哪些节点是 review/commit barrier。
+- 重配写作图节点职责与边职责。
+- 移除 `timeline_group_id = phase_id` 这类容易误导的配置。
+- 明确 candidate/review/commit 的产物和记忆策略。
 
-`backend/tests/task_graph_scheduler_regression.py`
+## 9. 验证矩阵
 
-- 增加同 step 并发、barrier 未满足、分支失败局部重跑测试。
+必须覆盖：
 
-`backend/tests/langgraph_coordination_runtime_regression.py`
+1. 世界观设计产物为 candidate，不能被正式下游读取。
+2. 世界观审核通过后，提交节点才能读取 accepted candidate。
+3. 世界观提交后，人设/剧情/大纲才能读取 committed world。
+4. 人设设计与剧情设计互不依赖时可同时 ready。
+5. 统筹审查缺任一 required input 时 blocked。
+6. 审核失败时只返修失败范围，不提交记忆。
+7. 修改世界观候选后，依赖旧候选的下游结果被 superseded。
+8. 无关成功产物不被清空。
+9. 断点续跑保持同一 run folder。
+10. 运行资源串行派发时，业务并发语义不变。
+11. 已关闭阶段不会被旧结果重新唤醒。
+12. run monitor 能说明 blocked 的具体边界原因。
 
-- 增加普通图多节点并发 dispatch、server restart 后 step resume 测试。
+## 10. 迁移和切换规则
 
-`frontend/src/components/workspace/views/task-system/taskGraphTimeline.test.ts`
+### 10.1 旧字段处理
 
-- 增加同 phase/sequence/group 聚合为一个 step 的测试。
+- `phase_id` 保留，作为生命周期坐标。
+- `sequence_index` 保留为编辑排序和旧图迁移输入，不默认作为强制阻塞。
+- `timeline_group_id` 不再作为并发语义主字段；并发来自“无互相依赖 + 共同汇合边界”。
+- `join_policy` 保留，但归入 reviewer/committer/aggregator 的边界规则。
 
-## 12. 验证矩阵
+### 10.2 切换策略
 
-必须覆盖这些场景：
+先 shadow，后 enforcement。
 
-1. 同 phase 同 sequence 的两个 agent 同时 ready。
-2. `_route_next` 不再只派发 `ready[0]`。
-3. 一个并发分支完成时，下游 review 仍 blocked。
-4. 两个并发分支都 accepted 后，review ready。
-5. 一个分支 failed，另一个 completed，系统只重跑 failed 分支。
-6. failed 分支重跑成功后，barrier 通过。
-7. review 未通过时，memory commit 不 ready。
-8. memory commit 只读取 accepted result，不读取 candidate。
-9. 断点续跑保持同一个 `task_run_id / coordination_run_id / run folder`。
-10. 重跑隔离旧产物，不新建任务总文件夹。
-11. 服务器重启后可从 active step checkpoint 恢复。
-12. 编辑器 step 视图和运行 monitor 对同一个 timeline plan 展示一致。
+1. Shadow：只生成 Boundary Manifest，不改变运行。
+2. Warn：发现候选直读、审核绕提交、sequence 误阻塞时报警。
+3. Enforce：写作图先启用边界强校验。
+4. Cutover：普通图逐步切换。
+5. Cleanup：删除无用旧时序排队逻辑。
 
-## 13. 禁止的捷径
+### 10.3 回滚策略
 
-1. 不允许用 prompt 要求 agent “等另一个节点完成”来替代 barrier。
-2. 不允许用节点标题或节点顺序猜并发关系。
-3. 不允许让 review 节点补写设定后直接提交为事实。
-4. 不允许新开 run folder 伪装断点重跑。
-5. 不允许把 `timeline_group_id = phase_id` 当作通用并发组。
-6. 不允许只修前端展示，不改后端调度权威。
-7. 不允许保留无用旧父图概念作为编辑器主概念。
-8. 不允许为写作图写专用 runtime shortcut。
+任何阶段出现以下问题，立即回滚到旧调度：
 
-## 14. 最终状态
+- committed 结果无法被下游读取。
+- candidate 泄漏进正式下游。
+- 断点续跑新建任务目录。
+- 无关产物被错误失效。
+- run monitor 无法解释 blocked 原因。
 
-成熟后的时序系统应该满足：
+## 11. 禁止事项
 
-- 主链是业务 phase/step 链，不是节点单链。
-- 并发是 step 内 dispatch set，不是旁路批次特例。
-- barrier 是运行时状态对象，不是一个可有可无的节点字段。
-- checkpoint 绑定 step/barrier/attempt，而不是只绑定最后 active node。
-- 下游只读 accepted/committed，记忆写入只发生在 commit gate 后。
-- 编辑器能清楚表达阶段、时序点、并发组、汇合门和运行状态。
+1. 不用 prompt 要求 agent 自己遵守边界。
+2. 不用 step 作为用户配置的主概念。
+3. 不用 `sequence_index` 强行表达所有依赖。
+4. 不把 review 文本当 committed 事实。
+5. 不为写作图写 runtime 特判。
+6. 不在断点续跑时新建任务总目录。
+7. 不同时保留两套互相竞争的 ready 规则。
 
-这样才能支撑一卷、五卷、一百万字这种长任务：不是每次靠人工盯产物，而是让流程本身具备抗偏移、可续跑、可返修、可审计的能力。
+## 12. 最终目标
+
+优化完成后，图任务系统应该具备以下能力：
+
+- 图表达的是业务因果和边界，不是运行排队。
+- 时序系统记录生命周期、提交、失效和恢复坐标。
+- 调度器根据依赖与结果状态决定 ready。
+- 运行层可并发派发，但并发是资源策略，不污染图语义。
+- 候选、审核、提交、记忆有硬边界。
+- 续跑能在同一任务内精确隔离失效产物。
+- 编辑器能让用户看清真实流程，而不是看一串伪时序节点。
+
+这才是对当前写作任务图真正有用的成熟化方向。

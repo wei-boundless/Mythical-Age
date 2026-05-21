@@ -17,20 +17,6 @@ from .result_helpers import (
 from .runtime_payloads import _safe_int
 
 
-def _working_memory_root_for_runtime(root_dir: Any) -> Path:
-    runtime_root = Path(root_dir).resolve()
-    if runtime_root.name == "runtime_state":
-        return runtime_root.parent / "working_memory"
-    return runtime_root / "working_memory"
-
-
-def _formal_memory_root_for_runtime(root_dir: Any) -> Path:
-    runtime_root = Path(root_dir).resolve()
-    if runtime_root.name == "runtime_state":
-        return runtime_root.parent / "formal_memory"
-    return runtime_root / "formal_memory"
-
-
 def _artifact_repository_root_for_runtime(root_dir: Any) -> Path:
     runtime_root = Path(root_dir).resolve()
     if runtime_root.name == "runtime_state":

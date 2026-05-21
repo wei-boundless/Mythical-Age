@@ -21,9 +21,112 @@
 - 本轮授权事实：ResourcePolicy 实际采用了哪些 operations。
 - 执行闸门结果：OperationGate 对每次调用的 allow / deny / requires_approval 结果和原因。
 
-## 2. 当前设计缺口
+## 2. 前置架构判断
 
-### 2.1 工具层
+这次改造是否是优化，不能用“模型更统一”来判断。统一只是工具，真正判断标准是：Agent 是否更可靠、更可控、更好调试，同时低风险日常能力不能变慢、变重、变啰嗦。
+
+结论：
+
+- 这是一次有必要的优化，但优化点不是把 tools、skills、MCP、permission 全塞进同一个大壳。
+- 真正的优化点是把执行权限收敛到 `OperationGate + ResourcePolicy`，把能力展示收敛到 `CapabilityUnit` 投影，把本地/外部 MCP 收敛到统一 provider 管理面。
+- 如果实施时只做统一 catalog，而不先修权限权威、审批闭环和本地 MCP 自授权，那么这次改造会劣化。
+
+### 2.1 为什么当前需要优化
+
+当前系统的核心风险不是能力少，而是四件事混在一起：
+
+- 能力存在：系统注册了某个 tool / skill / MCP。
+- 模型可见：这项能力是否进入当前 prompt/tool schema。
+- 当前授权：本轮 `ResourcePolicy` 是否允许对应 operation。
+- 实际执行：这次调用是否被 `OperationGate` 放行、拒绝或转入审批。
+
+这些状态混在一起会导致：
+
+- 前端看到“工具可用”，但当前 turn 实际不能执行。
+- Skill 被选中，但它依赖的 operation 没有被授权。
+- 本地 MCP 因为 in-process 执行而绕开统一授权语义。
+- `permission_mode` 看起来可切换，但主运行时不一定按它执行。
+- `requires_approval` 被记录为 gate 结果，却没有稳定恢复原调用的闭环。
+
+因此，计划必须先修“执行权威”和“状态解释”，再修“展示统一”。
+
+### 2.2 什么算优化
+
+满足以下条件才算优化：
+
+- `OperationGate + ResourcePolicy` 是唯一运行时执行权威。
+- `CapabilityUnit` 只是统一投影，不替代 ToolDefinition、SkillContract、MCP provider、OperationRegistry 的源码权威。
+- 低风险只读能力保持顺畅，不因为重构引入无意义审批。
+- 高风险能力的拒绝、审批、沙箱原因能被前端和监控面板解释。
+- Skill 只声明工作方法和 operation 依赖，不直接授予工具权限。
+- 本地 MCP 和外部 MCP 同面管理，但本地 MCP 不获得默认自授权特权。
+- 现有 retrieval/pdf/structured_data 任务图路径继续可用。
+
+### 2.3 什么算劣化
+
+出现以下情况即视为劣化，应暂停当前阶段：
+
+- 为了统一模型，把 `CapabilityUnit` 做成新的全能注册表，反而复制所有权威源。
+- `read_file`、`search_text`、`list_dir`、`glob_paths` 这类只读能力频繁要求审批。
+- 权限状态变成更多标签，但用户仍不知道为什么能执行或不能执行。
+- 本地 MCP 取消默认自授权后，核心任务图无法稳定调用 retrieval/pdf/structured_data。
+- approve/reject 只是 UI 状态，不能恢复同一个 directive。
+- `permission_mode` 语义变复杂，却不能稳定影响真实 `OperationGate`。
+- 为兼容保留两套管理面、两套权限判断、两套 MCP 调用入口，导致认知负担更大。
+
+### 2.4 固定决策
+
+本计划采用以下固定决策：
+
+- 先收敛权限权威，再做统一 catalog。
+- 先保证低风险能力不被审批污染，再做高风险审批闭环。
+- 先把本地 MCP 接入统一 ResourcePolicy/Gate，再取消默认自授权。
+- 先 shadow 新字段并验证一致性，再删除旧字段。
+- 前端只展示后端给出的 profile ceiling、turn adoption、gate result，不自行推断执行权限。
+
+### 2.5 挑剔审查结论
+
+这一轮审查的判断比较直接：当前系统不是“没有能力”，而是有不少信息设计在重复包装同一件事，却没有回答最重要的问题：当前能不能执行、为什么不能执行、失败后怎么恢复。这类信息如果继续放大，会让能力系统显得丰富，但实际降低可判断性。
+
+需要保留并强化的部分：
+
+- `ToolDefinition`、`OperationDescriptor`、`ResourcePolicy`、`OperationGate` 是真正有工程价值的骨架。
+- `rag-skill`、`pdf-analysis`、`structured-data-analysis` 的正文大体是 Agent 可执行的任务协议，不是空泛宣传文案。
+- 本地 retrieval/pdf/structured_data 作为专业能力端点是有价值的，问题是管理和授权边界不清，不是能力本身无用。
+- 右侧任务监控面板方向正确，但应该服务于“当前运行、审批、失败、产物”，不能变成状态字段展览。
+
+应该降级、删除或重做的信息噪声：
+
+- `operation_metadata.tool_type`、`tool_boundary`、`adapter_type`、`risk_level`、`visibility_label`、`runtime_policy`、`ownership_label`、`governance_hints` 目前多数是 `catalog.py` 的展示推导，不是运行时事实。它们可以作为筛选标签，但不能作为能力详情的核心信息。
+- `authorized=true/false` 这类布尔值太粗，会把 allowed、requires_approval、denied、unsupported、not_checked 混成一个状态。能力管理面不应继续以它作为主状态。
+- `local_mcp_units`、`mcps`、`capability_endpoints`、`binding_graph.mcp_nodes`、`mcp_tool_pool` 多处重复描述同一批本地 MCP，属于认知噪声。迁移完成后只能保留一套 canonical MCP provider view。
+- `agent_tool_bindings()` 当前等价于“主 Agent 持有所有 main_runtime 工具”，更像展示假设，不是授权事实。这个图如果不接入 profile/turn/gate，就应该从主能力管理视图降级到调试诊断。
+- 前端允许编辑工具类型、治理备注、LLM 调用描述，但这些字段不改变真实 `ToolDefinition`、schema、权限或执行边界。除非明确标注为“管理备注”，否则会误导用户以为改了工具能力。
+- 单独的外部 MCP 页面和能力系统端点页会把“统一 MCP 管理”拆回两层。最终前端不应再用“本地能力端点 / 外部 MCP 控制面”作为两个管理入口。
+
+Skill 的挑剔结论：
+
+- 现有主要 Skill 正文不是最糟糕的问题；真正的问题是运行时只注入 `prompt_block`，而 `prompt_block` 来自 `skill_scanner.py` 的硬编码摘要，不是完整 `SKILL.md` 正文。也就是说，正文写得再好，实际注入给 Agent 的可能只是压缩后的通用说明。
+- `skill_scanner.py` 按 skill name 硬编码 delegation/return protocol，这让 Skill 变成“写了文件但由代码替它解释”。这是表面能力，不是可扩展能力。
+- `skill-creator` 的 `preferred_route: rag` 是不严谨信号。创建/审查 Skill 不是知识检索任务，不应该借用 RAG route；它需要自己的 authoring/workflow operation 或至少显式声明只影响提示与文件编辑流程。
+- `activation_policy=manual/disabled` 没有在 `SkillPolicyResolver` 中真正阻止自动选择，属于配置看似存在、行为没有兑现。
+- 所有 Skill 都缺少 `requires_operations` / `requires_capabilities`，所以前端无法判断一个 Skill 是否真的可执行，只能显示“可能适用”。
+
+代码严谨性结论：
+
+- `OperationGate._check_operation_safety()` 在 operation 声明了 `safety_validator_ref` 但 context 没有 validator 时直接放行，这是 P0 级结构漏洞。
+- `LocalCapabilityMCPExecutor` 在缺少 `ResourcePolicy` 时创建 `_default_mcp_resource_policy()` 自授权，这是本地 MCP 特权通道，和统一权限模型冲突。
+- 主运行时 `OperationGatePipelineContext` 没有稳定传入当前 `permission_mode`，前端切换权限模式后不一定影响真实 gate。
+- 审批 token、approval state、`waiting_approval` 状态已经有雏形，但工具执行路径仍容易把 `requires_approval` 当成普通未放行结果处理，缺少“暂停、保存同一 directive、批准后恢复”的闭环。
+- `ToolRuntime.get_definition()` 和 `ToolRegistry.get_by_name()` 仍回到静态 `get_tool_definition_map()`，将来引入动态 registry 会出现“列表和查询不是同一来源”的错觉。
+- 文件工具已经修过 workspace root，但 `SearchFilesTool`、`GlobPathsTool`、`ReadFileTool`、`WriteFileTool`、`TextMetricTool` 仍各有路径、编码、默认根逻辑。继续这样扩展会形成一堆相似但不完全一致的文件能力。
+- `terminal` 和 `python_repl` 的字符串黑名单只能算临时防护，不是 sandbox。它们必须保持 `agent_internal`，且所有执行必须由 operation gate、approval、sandbox 共同约束。
+
+因此，本计划的第一优先级不是“让管理页看起来统一”，而是先删除噪声权威、补红线测试、修掉伪授权和伪审批。只有这些成立后，`CapabilityUnit` 才是优化；否则它只是新壳。
+
+## 3. 当前设计缺口
+
+### 3.1 工具层
 
 源码依据：
 
@@ -44,7 +147,7 @@
 - `ToolDefinition` 是注册源，但 catalog/supply 又把很多展示字段临时推导，导致前端看到的是“展示聚合”，不是稳定能力模型。
 - `terminal`、`python_repl` 等高风险工具已经隐藏在 `agent_internal`，但权限预览和前端说明仍不够直观。
 
-### 2.2 Skill 层
+### 3.2 Skill 层
 
 源码依据：
 
@@ -65,7 +168,7 @@
 - Skill 的能力依赖没有显式声明为 operation requirements，导致前端很难判断某个 Skill 实际需要哪些工具/MCP/资源授权。
 - Skill 质量检查现在主要依赖扫描和测试，缺少“prompt 是否写成 Agent 可执行角色说明”的系统级校验。
 
-### 2.3 本地 MCP 层
+### 3.3 本地 MCP 层
 
 源码依据：
 
@@ -86,7 +189,7 @@
 - 本地 MCP 实际更像“内部专业能力端点”，不是需要 spawn/连接的外部服务；但管理面不应单独拆层，应作为统一 MCP provider 的 `local` 实现呈现。
 - route、operation、skill_refs、resource_kinds 之间缺少统一 lifecycle 状态，也缺少和外部 MCP 共享的 inspect / catalog / call / permission preview 接口。
 
-### 2.4 外部 MCP 层
+### 3.4 外部 MCP 层
 
 源码依据：
 
@@ -108,7 +211,7 @@
 - 外部 MCP tool pool 是单独入口，没有进入统一 MCP provider 生命周期，也没有和本地 MCP 使用同一套 catalog/supply 投影。
 - 缺少连接快照缓存、失败诊断分级、按 server/tool 的授权预览。
 
-### 2.5 Catalog / Supply 层
+### 3.5 Catalog / Supply 层
 
 源码依据：
 
@@ -129,7 +232,7 @@
 - supply 仍输出 `tool_refs`、`skill_refs`、`mcp_refs` 三套引用，运行时和前端仍需理解三种分支。
 - 缺少一个可持久快照的 canonical `CapabilityUnit`，导致前端能力管理只能做展示，难做启用、禁用、授权预览和健康检查。
 
-### 2.6 权限与审批层
+### 3.6 权限与审批层
 
 源码依据：
 
@@ -162,7 +265,7 @@
 - 本地 MCP 在缺少外部传入 ResourcePolicy 时会生成默认允许策略，这和“统一 MCP 管理 + OperationGate 唯一闸门”的目标冲突。
 - 前端暴露的 approval policy 名称和运行时真实识别的策略不完全一致，部分策略目前更像标签，不是严格执行策略。
 
-## 3. 本地原则与参考模式
+## 4. 本地原则与参考模式
 
 本项目现有设计原则文档已经给出可迁移约束：
 
@@ -181,9 +284,9 @@
 - 不借鉴把大量外部工具直接塞进模型 prompt；本项目应保持 operation/supply gate 为主。
 - 不借鉴把 permission mode 当成纯 UI 开关；用户看到的权限状态必须能追溯到实际 `OperationGate` 输入和输出。
 
-## 4. 推荐设计
+## 5. 推荐设计
 
-### 4.1 Canonical CapabilityUnit
+### 5.1 Canonical CapabilityUnit
 
 新增统一能力模型，作为 catalog、supply、前端管理、验证的共同输入。
 
@@ -216,7 +319,35 @@ dependencies         skills/tools/mcps/resources 之间的结构依赖
 - ExternalMCPServerConfig + snapshot 继续是外部 MCP 权威。
 - `CapabilityUnit` 是统一投影，不反向覆盖源码权威。
 
-### 4.2 WorkspaceFileService
+### 5.1.1 信息保留与删除准则
+
+能力管理页只能优先展示能改变判断的信息。凡是不能改变“是否可执行、为何可执行、由谁授权、失败如何恢复”的字段，默认降级为折叠诊断或删除。
+
+必须保留在主视图的信息：
+
+- `capability_id`、`kind`、`provider`、`source_ref`
+- `operation_ids`
+- `profile_state`、`adoption_state`、`gate_state`、`approval_state`
+- `status`、`health.reason`
+- 依赖关系：skill -> operation、tool -> operation、mcp provider -> tool -> operation
+- 最近一次失败原因和可操作下一步
+
+只允许放入次级诊断的信息：
+
+- 展示分类，例如工具类型、中文边界标签、适配器标签。
+- 风险摘要的派生文案。
+- 旧字段兼容计数。
+- 调试图和 raw JSON。
+
+应该删除或停止作为主信息的信息：
+
+- 没有真实授权含义的 `authorized` 布尔值。
+- 没有 profile/turn/gate 输入的“Agent 绑定工具”。
+- 由前端或 catalog 临时推导、但不被 runtime 消费的治理建议。
+- 两套 MCP 列表对同一端点的重复描述。
+- 只证明“系统里有这个字段”，不能帮助用户采取行动的状态徽章。
+
+### 5.2 WorkspaceFileService
 
 把文件路径解析、读写、结构化读取、glob/list/stat/path_exists、文本计量中的路径部分统一下沉：
 
@@ -239,7 +370,7 @@ WorkspaceFileService
 - 路径安全、工作区根、显示相对路径只在 service 内决定。
 - 写入授权仍由 operation gate 决定，service 不替代权限系统。
 
-### 4.3 Skill 优化
+### 5.3 Skill 优化
 
 Skill 应升级为“工作方法合同”，而不是“隐形工具”：
 
@@ -249,7 +380,23 @@ Skill 应升级为“工作方法合同”，而不是“隐形工具”：
 - Skill prompt 质量检查加入 Agent 角色语义规则：要写成“你是一名...你负责...你不负责...你需要输出...”，不能写成开发说明。
 - 运行时仍只注入 active skill，不把完整 registry 注入主 prompt。
 
-### 4.4 MCP 统一管理优化
+Skill 质量分级：
+
+- A 级：触发边界清楚；不适用场景清楚；有委派输入、回传结构、主 Agent 收口方式；声明依赖 operation/capability；正文能直接指导 Agent 处理失败和限制。
+- B 级：正文可用，但依赖、失败边界或回传结构不完整；可以保留，但必须补合同字段。
+- C 级：只有用途说明和标签，缺少执行步骤、边界和输出合同；不得自动触发，只能作为草稿。
+- D 级：写成开发说明、节点说明、宣传文案，或声明不存在的工具/权限；必须删除或重写。
+
+当前 Skill 初判：
+
+- `rag-skill`：B+。正文可用，证据边界明确；缺少 `requires_operations=["op.mcp_retrieval"]`，运行时注入摘要和正文脱节。
+- `pdf-analysis`：B+。文档阅读边界较清晰；缺少 `requires_operations=["op.mcp_pdf"]`，页级/OCR 失败处理需要机器可校验字段。
+- `structured-data-analysis`：B+。可计算任务边界清楚；缺少 `requires_operations=["op.mcp_structured_data"]` 和结果子集依赖字段。
+- `skill-creator`：B-。正文方向正确，但 `preferred_route: rag` 是错误路由信号；应改成 authoring/workflow 能力，不应伪装成知识检索。
+
+Skill 系统的主要问题不是“文案差”，而是“正文、frontmatter、运行时注入、权限依赖”四者没有形成同一个合同。
+
+### 5.4 MCP 统一管理优化
 
 MCP 只保留一个管理平面，不再拆成本地 MCP 管理和外部 MCP 管理。差异只存在于 provider 适配层：
 
@@ -286,7 +433,7 @@ preview_permission(server_id, tool_name, arguments)
 - 增加连接状态枚举：disabled、unsupported、failed、connected、not_inspected。
 - 后续再实现 streamable HTTP，不在当前阶段用假可用状态掩盖。
 
-### 4.5 Catalog / Supply / Runtime 固定流
+### 5.5 Catalog / Supply / Runtime 固定流
 
 固定执行流：
 
@@ -321,7 +468,7 @@ preview_permission(server_id, tool_name, arguments)
 - MCP 工具不绕过 operation gate；本地 MCP 不因 in_process 传输获得特权。
 - 文件工具不把业务目录写死进工具实现。
 
-### 4.6 权限系统统一治理
+### 5.6 权限系统统一治理
 
 权限系统目标是把“能力可见性”和“执行授权”彻底分开：
 
@@ -396,41 +543,7 @@ OperationGate -> requires_approval
 - `authorized` 只能用于“当前可执行事实”，不能用于“这个能力存在”。
 - `requires_approval` 要作为独立状态显示，不能混入 deny。
 
-### 4.7 优化/劣化判定
-
-这次重构不是为了“更统一”而统一。统一只是手段，真正目标是让 Agent 更可靠、更可控、更好调试，同时不降低日常使用效率。
-
-判定为优化的条件：
-
-- 能力存在、能力可见、当前授权、实际执行四件事能被清楚区分。
-- 用户和前端能解释一次工具/MCP 调用为什么可用、为什么被拒绝、为什么等待审批。
-- 文件工具从特定目录能力升级为通用 workspace 能力，同时路径安全没有放松。
-- Skill 能告诉系统“我需要什么能力”，但不能越权授予能力。
-- 本地 MCP 和外部 MCP 进入同一管理面，但本地 in-process 执行不获得隐形特权。
-- 高风险能力的阻断原因明确，不再表现为页面挂起或模型含糊失败。
-- 日常只读任务不因为审批和权限改造变慢、变啰嗦。
-
-判定为劣化的信号：
-
-- 为了统一模型，导致 read/search/list 这类低风险能力也频繁要求审批。
-- 前端比以前更难看懂能力是否可用，只是多了更多状态标签。
-- `CapabilityUnit` 成为新的“大而全壳”，但运行时仍旧绕回旧 refs 和旧权限。
-- 本地 MCP 因为取消默认自授权后无法在任务图中稳定运行。
-- 审批状态能展示，但 approve/reject 后不能恢复同一 directive。
-- `permission_mode` 语义变得更复杂，却无法稳定影响真实 `OperationGate`。
-- 为了兼容保留两套管理面、两套权限判断、两套 MCP 调用入口，造成更大的认知负担。
-
-设计取舍：
-
-- 不追求一次删除所有旧字段；先 shadow 新字段，验证一致后删除旧分支。
-- 不把所有能力都塞进一个运行时抽象；源码权威仍保留在 ToolDefinition、SkillContract、MCP provider、OperationRegistry，`CapabilityUnit` 只是统一投影。
-- 不让权限系统管 prompt 细节；权限只管 operation/resource/approval，Skill 只管工作方法。
-- 不让审批污染低风险任务；只读、本地搜索、目录查看应保持顺畅。
-- 不让前端自行拼权限结论；前端展示后端给出的 profile/adoption/gate 三层事实。
-
-如果实施中出现“统一后更难用”的迹象，应暂停当前阶段，优先回到这组判定标准，而不是继续堆兼容分支。
-
-## 5. 数据模型变更
+## 6. 数据模型变更
 
 新增：
 
@@ -475,9 +588,33 @@ CapabilityPermissionView
 
 这个模型只用于展示和调试，不替代 `ResourcePolicy` 与 `OperationGate`。
 
-## 6. 分阶段实施计划
+## 7. 分阶段实施计划
 
-### Phase 0：稳住文件能力边界
+### Phase 0：红线测试与伪权威冻结
+
+目标：先用测试锁住“不允许劣化”的底线，冻结会误导用户和运行时的伪权威字段。没有通过 Phase 0，不进入任何统一 catalog 或前端重做。
+
+文件：
+
+- `backend/orchestration/resource_gate.py`
+- `backend/runtime/unit_runtime/loop.py`
+- `backend/capability_system/mcp/server/local_capability_server.py`
+- `backend/capability_system/catalog.py`
+- `backend/capability_system/skill_policy.py`
+- `backend/tests/*permission*`
+- `backend/tests/*capability*`
+- `backend/tests/*skill*`
+
+完成标准：
+
+- 新增 regression：operation 声明 `safety_validator_ref` 但 context 缺少 validator 时必须 deny。
+- 新增 regression：本地 MCP 没有当前 `ResourcePolicy` 时不能执行真实任务调用，只能返回管理/预检状态。
+- 新增 regression：主运行时 gate event 必须回显当前 `permission_mode`，且 `dont_ask/headless` 对审批 operation 生效。
+- 新增 regression：`activation_policy=manual/disabled` 不会被自动 resolver 选中，显式指定 disabled skill 也必须拒绝或返回不可用诊断。
+- 新增 regression：只读 `read_file/search_text/search_files/list_dir/stat_path/path_exists/glob_paths` 不因为权限收敛进入审批。
+- 在 catalog 中把 `operation_metadata`、`authorized`、`binding_graph` 标为展示/兼容字段，不再让前端把它们解释成执行授权。
+
+### Phase 1：稳住文件能力边界
 
 目标：所有文件工具默认面向项目工作区根。
 
@@ -497,7 +634,7 @@ CapabilityPermissionView
 - `backend/knowledge/x` 不会被误当作默认知识库根。
 - 写操作仍只在 workspace 内，路径穿越被拒绝。
 
-### Phase 1：抽出 WorkspaceFileService
+### Phase 2：抽出 WorkspaceFileService
 
 目标：移除文件工具内重复路径逻辑。
 
@@ -511,8 +648,10 @@ CapabilityPermissionView
 
 - 路径解析、相对显示、编码 fallback、写入目录创建都走 service。
 - 文件工具只处理参数和输出格式。
+- `SearchFilesTool` 的默认根不再包含过时的 `backend/knowledge` 特例；默认搜索根来自 service 的 workspace policy。
+- `GlobPathsTool` 不再同时遍历 backend root 和 workspace root 造成重复候选。
 
-### Phase 2：收敛权限权威链路
+### Phase 3：收敛权限权威链路
 
 目标：把 `OperationGate + ResourcePolicy` 固定为运行时唯一授权权威，旧工具名权限只做兼容展示。
 
@@ -538,8 +677,11 @@ CapabilityPermissionView
 - `OperationGate` 在 operation 声明 `safety_validator_ref` 但缺少 validator 时 fail-closed。
 - `PermissionService` 不再被描述为执行授权权威，只输出兼容 tool-name view。
 - 前端 runtime options 只展示运行时真实实现的 approval policy。
+- 只读 search/read/list/stat/glob 不因为权限收敛新增无意义审批。
+- `ToolRuntime.get_definition()` 和 `ToolRegistry.get_by_name()` 只能从同一个 registry 实例读取，不能绕回静态 map。
+- `terminal` / `python_repl` 的黑名单不被视为权限系统，只作为最后一层输入校验；执行授权必须来自 gate/approval/sandbox。
 
-### Phase 3：补齐审批闭环
+### Phase 4：补齐审批闭环
 
 目标：`requires_approval` 从“被记录的 gate 结果”变成可恢复、可审计、可拒绝的运行状态。
 
@@ -562,8 +704,10 @@ CapabilityPermissionView
 - UI approve/reject 后生成或拒绝 `ApprovalToken`。
 - approve 后恢复同一 directive 并再次经过 `OperationGate`；reject 后形成明确观察和监控事件。
 - 审批 token 必须绑定 operation_id + directive_ref，不能跨工具调用复用。
+- 审批恢复不能重新规划成另一个工具调用来掩盖原调用失败。
+- 前端右侧监控面板显示 pending operation、directive、风险摘要、approve/reject 结果，不只显示“人工门控”。
 
-### Phase 4：引入 CapabilityUnit 投影层
+### Phase 5：引入 CapabilityUnit 投影层
 
 目标：统一 tools/skills/local MCP/external MCP 的 catalog 输入，并把权限预览作为投影字段而不是运行决策。
 
@@ -582,8 +726,11 @@ CapabilityPermissionView
 - validation 基于 `CapabilityUnit` 做主要一致性检查。
 - 每个 capability unit 能展示 operation 依赖、profile ceiling、turn adoption、最近 gate 结果或 `not_checked`。
 - catalog 不直接授予运行权限。
+- 新投影不得替代源码权威；不能为了统一展示而丢失工具、Skill、MCP 的专有诊断。
+- `operation_metadata` 中由前端展示偏好产生的字段迁移到 `display_facets`，和 `permission_view`、`source_ref` 分开。
+- `binding_graph` 只保留真实依赖边：skill -> operation、tool -> operation、mcp tool -> operation、provider -> tool；删除“主 Agent 持有所有 main_runtime 工具”的伪绑定。
 
-### Phase 5：重做 Supply Package
+### Phase 6：重做 Supply Package
 
 目标：运行时能力包从三套 refs 收束为一套 refs，并只承载当前 turn 已授权能力。
 
@@ -601,8 +748,9 @@ CapabilityPermissionView
 - 输出 `capability_refs`，兼容输出旧 refs。
 - Runtime 只使用通过 scope 和 gate 的能力。
 - supply 中区分 `visible_to_model`、`runtime_executable`、`requires_approval`。
+- Skill refs 必须带依赖 operation 状态，不能在 operation 被拒绝时仍显示为可执行技能。
 
-### Phase 6：Skill 合同升级
+### Phase 7：Skill 合同升级
 
 目标：Skill 变成可审计工作方法，声明依赖但不授予权限。
 
@@ -621,8 +769,11 @@ CapabilityPermissionView
 - `activation_policy=manual/disabled` 真正影响自动选择。
 - Skill prompt 校验禁止开发说明式内容。
 - Skill 选中后只影响 OperationRequirement 和提示，不直接扩大工具权限。
+- 移除 `skill_scanner.py` 中按 skill name 硬编码 delegation/return protocol 的做法，协议应来自 `SKILL.md` 或结构化 frontmatter。
+- `skill-creator` 不再使用 `preferred_route: rag`；改为明确的 authoring/workflow route 或显式无执行 route。
+- 运行时注入的 active skill 必须可追溯：使用的是完整正文、结构化摘要，还是压缩 prompt block，不能让前端误以为完整 `SKILL.md` 已被注入。
 
-### Phase 7：统一 MCP 管理升级
+### Phase 8：统一 MCP 管理升级
 
 目标：本地 MCP 和外部 MCP 进入同一套管理接口、同一套快照、同一套授权预览、同一套 `CapabilityUnit(kind=mcp)` 投影。
 
@@ -652,8 +803,11 @@ CapabilityPermissionView
 - 本地 MCP 不再使用默认自授权策略；没有当前 ResourcePolicy 时只能做管理检查，不能执行真实任务调用。
 - 本地/外部 MCP call 都经过同一套 `OperationGate`、permission mode、safety validator。
 - 前端能看到每个 MCP tool 对应 operation、授权状态和失败原因。
+- 现有任务图调用本地 retrieval/pdf/structured_data 的路径必须继续可用，不能为了统一管理牺牲核心任务执行。
+- 删除或降级重复 MCP 展示源：`local_mcp_units`、`mcps`、`capability_endpoints`、`tool_pool` 最终只能由同一 provider snapshot 派生。
+- 外部 MCP catalog 不能每次普通页面加载都真实 spawn/连接所有 server；必须使用 snapshot cache 和手动 inspect。
 
-### Phase 8：前端能力与权限管理接入
+### Phase 9：前端能力与权限管理接入
 
 目标：能力系统成为实用工作台的一个清晰管理面板。
 
@@ -670,8 +824,11 @@ CapabilityPermissionView
 - 前端不再自己推断风险和绑定关系，全部使用后端 catalog。
 - 右侧监控面板显示能力调用、授权、失败诊断。
 - `authorized`、`requires_approval`、`denied`、`unsupported`、`not_checked` 使用不同状态，不混在一个布尔值里。
+- 删除把展示备注伪装成工具能力的交互；工具类型、治理备注、LLM 说明只能放在“管理备注”区，不进入执行事实区。
+- 能力页的默认详情顺序改为：执行状态、operation、依赖、权限视图、健康诊断、源码来源，展示标签放最后。
+- MCP 不再单独作为“外部 MCP 控制面”主入口；统一放进能力系统的 MCP provider 页。
 
-## 7. 文件级清单
+## 8. 文件级清单
 
 | 文件 | 当前职责 | 行动 | 完成条件 |
 | --- | --- | --- | --- |
@@ -703,7 +860,7 @@ CapabilityPermissionView
 | `backend/tests/*capability*` | 能力回归 | 增加统一 unit 测试 | 结构迁移不破坏运行 |
 | `backend/tests/*permission*` | 权限回归 | 增加 permission mode/gate/approval 测试 | 无误放行、无假授权 |
 
-## 8. 验证矩阵
+## 9. 验证矩阵
 
 - 文件工具：读、写、编辑、结构化读、glob、stat、path_exists、路径穿越。
 - 工具授权：main runtime 只见 schema 工具，高风险工具需要 gate。
@@ -719,7 +876,7 @@ CapabilityPermissionView
 - Supply：operation_scope 能过滤 tools/local MCP/external MCP，Skill 只随任务方法进入，不能扩大权限。
 - 前端：能力分类入口、权限详情、审批状态、诊断、监控面板不自行推断后端事实。
 
-## 9. 切换与回滚规则
+## 10. 切换与回滚规则
 
 迁移期保留旧输出字段：
 
@@ -768,7 +925,7 @@ CapabilityPermissionView
 - 测试覆盖新模型所有核心路径。
 - `PermissionService` 不再参与真实执行授权，或已被删除/改名为兼容视图服务。
 
-## 10. 禁止捷径
+## 11. 禁止捷径
 
 - 不把工具限制写死到业务文件夹里。
 - 不让 Skill 直接携带工具授权。
@@ -781,7 +938,7 @@ CapabilityPermissionView
 - 不用假 snapshot 或假测试结果证明连接可用。
 - 不把 Agent prompt 写成开发说明，要写成角色、职责、边界、输出裁决。
 
-## 11. 预期收益
+## 12. 预期收益
 
 - 能力系统从“多个列表合并展示”变成“统一能力模型 + 分层权威来源”。
 - 权限系统从“工具名权限、operation gate、MCP 包装权限并行”变成“OperationGate + ResourcePolicy 唯一执行权威”。

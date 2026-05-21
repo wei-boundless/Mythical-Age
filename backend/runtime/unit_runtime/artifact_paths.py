@@ -241,13 +241,6 @@ def _workspace_root_from_runtime_root(root_dir: Path) -> Path:
     return root
 
 
-def _working_memory_root_for_loop(root_dir: Path) -> Path:
-    runtime_root = Path(root_dir).resolve()
-    if runtime_root.name == "runtime_state":
-        return runtime_root.parent / "working_memory"
-    return runtime_root / "working_memory"
-
-
 def _artifact_repository_root_for_loop(root_dir: Path) -> Path:
     runtime_root = Path(root_dir).resolve()
     if runtime_root.name == "runtime_state":

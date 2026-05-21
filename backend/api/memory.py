@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from api.deps import require_runtime
 from artifact_system import ArtifactRepositoryService
 from memory_system import MemoryHeader
-from memory_system.formal_memory_service import FormalMemoryService
+from memory_system.runtime_services import MemoryRuntimeServices
 from project_layout import ProjectLayout
 from understanding.memory_intent import analyze_memory_intent
 
@@ -52,9 +52,16 @@ def _layout_from_runtime(runtime: Any) -> ProjectLayout:
     return ProjectLayout.from_backend_dir(runtime.base_dir)
 
 
-def _formal_memory_service(runtime: Any) -> FormalMemoryService:
+def _memory_runtime_services(runtime: Any) -> MemoryRuntimeServices:
     layout = _layout_from_runtime(runtime)
-    return FormalMemoryService(layout.storage_root / "formal_memory")
+    facade_services = getattr(getattr(runtime, "memory_facade", None), "runtime_services", None)
+    if isinstance(facade_services, MemoryRuntimeServices):
+        return facade_services
+    return MemoryRuntimeServices(layout.storage_root)
+
+
+def _formal_memory_service(runtime: Any):
+    return _memory_runtime_services(runtime).formal_memory
 
 
 def _artifact_repository_service(runtime: Any) -> ArtifactRepositoryService:

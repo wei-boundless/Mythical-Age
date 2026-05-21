@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal
 from uuid import uuid4
 
+from project_layout import ProjectLayout
+
 
 DispatchMode = Literal["sync", "async", "background", "parallel", "barrier", "manual_gate"]
 TaskStatus = Literal["queued", "running", "succeeded", "failed", "skipped"]
@@ -155,7 +157,7 @@ class BackgroundTaskRecord:
 class BackgroundTaskStore:
     def __init__(self, base_dir: Path) -> None:
         self.base_dir = Path(base_dir)
-        self.runtime_dir = self.base_dir / "runtime_state" / "background_tasks"
+        self.runtime_dir = ProjectLayout.from_backend_dir(self.base_dir).runtime_state_dir / "background_tasks"
         self.runtime_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
 

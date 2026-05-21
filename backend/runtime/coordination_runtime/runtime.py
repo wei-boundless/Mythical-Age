@@ -9,9 +9,7 @@ from typing import Annotated, Any, TypedDict
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
 from langgraph.graph import END, START, StateGraph
 
-from memory_system.formal_memory_service import FormalMemoryService
-from memory_system.working_memory_finalizer import WorkingMemoryFinalizer
-from memory_system.working_memory_service import WorkingMemoryService
+from memory_system.runtime_services import MemoryRuntimeServices
 from artifact_system import ArtifactRepositoryService
 from task_system import TaskContractRegistry
 from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
@@ -37,7 +35,6 @@ from .memory_helpers import (
     _formal_memory_acknowledgement,
     _formal_memory_commit_requests,
     _formal_memory_only_context,
-    _formal_memory_root_for_runtime,
     _formal_memory_write_records,
     _graph_edges,
     _graph_memory_edge_descriptors,
@@ -46,7 +43,6 @@ from .memory_helpers import (
     _working_memory_context_from_selection,
     _working_memory_read_operation_from_context,
     _working_memory_refs_from_context,
-    _working_memory_root_for_runtime,
     _workspace_root_from_runtime_root,
 )
 from .result_helpers import (
@@ -298,9 +294,10 @@ class LangGraphCoordinationRuntime:
         self.checkpoints = LangGraphCheckpointStoreAdapter(root_dir)
         self.runtime_objects = RuntimeObjectStore(root_dir)
         self.trace_adapter = CoordinationTraceAdapter(state_index=state_index, event_log=event_log)
-        self.working_memory = WorkingMemoryService(_working_memory_root_for_runtime(root_dir))
-        self.working_memory_finalizer = WorkingMemoryFinalizer(self.working_memory)
-        self.formal_memory = FormalMemoryService(_formal_memory_root_for_runtime(root_dir))
+        self.memory_runtime_services = MemoryRuntimeServices.from_runtime_root(root_dir)
+        self.working_memory = self.memory_runtime_services.working_memory
+        self.working_memory_finalizer = self.memory_runtime_services.working_memory_finalizer
+        self.formal_memory = self.memory_runtime_services.formal_memory
         self.timeline_ledger = TimelineLedgerStore(root_dir)
         self._app = self._build_app()
         self.kernel = LangGraphRuntimeKernel(app=self._app, checkpoints=self.checkpoints)

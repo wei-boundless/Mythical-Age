@@ -28011,7 +28011,7 @@ button:hover {
 
 @media (max-width: 1260px) {
   .practical-workspace {
-    grid-template-columns: 196px minmax(0, 1fr);
+    grid-template-columns: 196px minmax(0, 1fr) 52px;
   }
 
   .task-monitor-dock {
@@ -28024,6 +28024,9 @@ button:hover {
   }
 
   .task-monitor-dock--collapsed {
+    position: static;
+    width: 52px;
+    min-width: 52px;
     box-shadow: none;
   }
 }
@@ -28032,6 +28035,43 @@ button:hover {
   .practical-workspace {
     grid-template-columns: 1fr;
     overflow: auto;
+  }
+
+  .task-monitor-dock {
+    top: 0.65rem;
+    right: 0.65rem;
+    bottom: 0.65rem;
+    width: min(360px, calc(100vw - 1.3rem));
+  }
+
+  .task-monitor-dock--collapsed {
+    position: fixed;
+    top: auto;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    z-index: 38;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    max-height: 44px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 12px 28px rgba(42, 111, 174, 0.16);
+  }
+
+  .task-monitor-dock--collapsed .task-monitor-dock__head {
+    display: none;
+  }
+
+  .task-monitor-dock--collapsed .task-monitor-dock__rail {
+    min-height: 44px;
+    padding: 0;
+    writing-mode: horizontal-tb;
+  }
+
+  .task-monitor-dock--collapsed .task-monitor-dock__rail span {
+    display: none;
   }
 
   .practical-sidebar {
@@ -28342,5 +28382,477 @@ html[data-soul] {
 
   .soul-world-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Soul system de-carded workspace */
+.soul-system-console {
+  gap: 1rem;
+}
+
+.soul-worldview-entry {
+  position: relative;
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(90deg, rgba(36, 111, 177, 0.08), transparent 54%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.22));
+  border-bottom: 1px solid rgba(142, 183, 223, 0.62);
+  box-shadow: none;
+  padding: 1.05rem 0.25rem 1rem;
+}
+
+.soul-worldview-entry__head {
+  align-items: end;
+  padding-inline: 0.15rem;
+}
+
+.soul-worldview-entry__head strong {
+  font-size: clamp(1.28rem, 2.4vw, 2rem);
+  letter-spacing: 0;
+}
+
+.soul-worldview-entry__head p {
+  max-width: 33rem;
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.soul-world-index {
+  display: grid;
+  gap: 0;
+  margin-top: 0.82rem;
+  border-top: 1px solid rgba(142, 183, 223, 0.5);
+}
+
+.soul-world-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 8.8rem minmax(8rem, 0.6fr) minmax(0, 1fr) auto;
+  gap: 0.7rem;
+  align-items: baseline;
+  min-width: 0;
+  min-height: 3.8rem;
+  border: 0;
+  border-bottom: 1px solid rgba(142, 183, 223, 0.38);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0.78rem 0.15rem 0.78rem 1rem;
+  text-align: left;
+}
+
+.soul-world-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.72rem;
+  bottom: 0.72rem;
+  width: 3px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.soul-world-row:hover {
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.soul-world-row--active::before {
+  background: #246fb1;
+}
+
+.soul-world-row--active {
+  background:
+    linear-gradient(90deg, rgba(36, 111, 177, 0.13), rgba(255, 255, 255, 0.18));
+}
+
+.soul-world-row--honghuang.soul-world-row--active::before {
+  background: #b78b36;
+}
+
+.soul-world-row span {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.soul-world-row strong {
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.soul-world-row em,
+.soul-world-row small {
+  color: var(--color-text-soft);
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.soul-world-row em {
+  font-size: 0.8rem;
+}
+
+.soul-world-row small {
+  justify-self: end;
+  white-space: nowrap;
+  font-size: 0.72rem;
+}
+
+.soul-origin-banner {
+  grid-template-columns: auto minmax(0, 1fr);
+  border: 0;
+  border-left: 3px solid #b78b36;
+  border-radius: 0;
+  background: linear-gradient(90deg, rgba(216, 183, 101, 0.2), transparent 70%);
+  padding: 0.72rem 0.2rem 0.72rem 0.85rem;
+}
+
+.soul-origin-banner span {
+  border: 0;
+  background: rgba(216, 183, 101, 0.18);
+}
+
+.soul-system-hero {
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.16)),
+    linear-gradient(90deg, rgba(47, 127, 198, 0.08), transparent 62%);
+  border-bottom: 1px solid rgba(142, 183, 223, 0.62);
+  box-shadow: none;
+  padding: 1rem 0.2rem 1.12rem;
+}
+
+.soul-system-console--honghuang .soul-system-hero {
+  background:
+    radial-gradient(circle at 74% 20%, rgba(216, 183, 101, 0.18), transparent 32%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.76), rgba(255, 250, 237, 0.42));
+}
+
+.soul-lore-panel {
+  min-height: 230px;
+  border-radius: 0;
+  background: transparent !important;
+  padding: 1rem 1rem 1rem 0.3rem;
+}
+
+.soul-lore-panel::before,
+.soul-portrait-manager::before {
+  display: none;
+}
+
+.soul-portrait-manager {
+  min-height: 320px;
+  border: 0;
+  border-radius: 0;
+  background:
+    linear-gradient(90deg, transparent, rgba(16, 32, 51, 0.08)),
+    rgba(255, 255, 255, 0.22);
+}
+
+.soul-portrait-manager__stage {
+  border-radius: 0;
+  background:
+    radial-gradient(ellipse at 50% 18%, rgba(216, 183, 101, 0.22), transparent 44%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.28), transparent 58%);
+}
+
+.soul-plain-world-placeholder {
+  min-height: 14rem;
+}
+
+.soul-mode-switcher {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid rgba(142, 183, 223, 0.62);
+}
+
+.soul-mode-tab {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 4.6rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  cursor: pointer;
+  padding: 0.72rem 0.8rem 0.82rem;
+  text-align: left;
+}
+
+.soul-mode-tab::after {
+  content: "";
+  position: absolute;
+  left: 0.8rem;
+  right: 0.8rem;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 999px 999px 0 0;
+  background: transparent;
+}
+
+.soul-mode-tab:hover {
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.soul-mode-tab--active::after {
+  background: #246fb1;
+}
+
+.soul-mode-tab strong {
+  display: block;
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.soul-mode-tab em {
+  display: block;
+  margin-top: 0.24rem;
+  color: var(--color-text-soft);
+  font-size: 0.74rem;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.soul-system-grid {
+  grid-template-columns: minmax(260px, 0.7fr) minmax(0, 1.3fr);
+  gap: 1.15rem;
+}
+
+.soul-system-console .workspace-section,
+.soul-system-console .soul-file-rail,
+.soul-system-console .soul-editor-panel {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.soul-system-console .workspace-section__head {
+  border-bottom: 1px solid rgba(142, 183, 223, 0.54);
+  padding: 0.2rem 0 0.58rem;
+}
+
+.soul-seed-grid {
+  gap: 0;
+  margin-top: 0.45rem;
+  border-top: 1px solid rgba(142, 183, 223, 0.42);
+}
+
+.soul-seed-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: center;
+  border-bottom: 1px solid rgba(142, 183, 223, 0.34);
+  background: transparent;
+  padding: 0.74rem 0;
+}
+
+.soul-seed-row--active {
+  background: linear-gradient(90deg, rgba(36, 111, 177, 0.08), transparent);
+}
+
+.soul-seed-row > button:first-child,
+.soul-seed-row .soul-seed-card__main {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 0 0 0.7rem;
+  text-align: left;
+  position: relative;
+}
+
+.soul-seed-row > button:first-child {
+  position: relative;
+}
+
+.soul-seed-row > button:first-child::before,
+.soul-seed-row .soul-seed-card__main::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.12rem;
+  bottom: 0.12rem;
+  width: 2px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.soul-seed-row--active > button:first-child::before,
+.soul-seed-row--active .soul-seed-card__main::before {
+  background: #246fb1;
+}
+
+.soul-seed-row span,
+.soul-editor-panel__meta span {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.soul-seed-row strong {
+  display: block;
+  margin: 0.14rem 0;
+  color: var(--color-text);
+  font-size: 1rem;
+}
+
+.soul-seed-row em {
+  color: var(--color-text-soft);
+  font-size: 0.74rem;
+  font-style: normal;
+}
+
+.soul-seed-card__actions {
+  gap: 0.32rem;
+}
+
+.agent-switch,
+.soul-seed-card__actions .action-button {
+  min-height: 1.95rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+}
+
+.soul-empty-world {
+  border: 0;
+  border-left: 3px solid rgba(142, 183, 223, 0.85);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.34);
+  padding: 0.85rem 0 0.85rem 0.85rem;
+}
+
+.soul-empty-world--editor {
+  min-height: 18rem;
+}
+
+.soul-managed-sections {
+  gap: 0;
+}
+
+.soul-managed-section,
+.soul-system-console .soul-managed-section {
+  border: 0;
+  border-bottom: 1px solid rgba(142, 183, 223, 0.46);
+  border-radius: 0;
+  background: transparent;
+  padding: 1rem 0;
+}
+
+.soul-managed-section > div {
+  margin-bottom: 0.35rem;
+}
+
+.soul-managed-section strong {
+  font-size: 1.02rem;
+}
+
+.soul-managed-section pre {
+  padding: 0;
+  background: transparent;
+  white-space: pre-wrap;
+}
+
+.soul-managed-section textarea,
+.soul-managed-section__title-input,
+.soul-projection-form-grid input,
+.soul-rule-create input {
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.soul-projection-card-list--board {
+  grid-template-columns: 1fr;
+}
+
+.soul-projection-card,
+.soul-system-console .soul-projection-card {
+  border: 0;
+  border-bottom: 1px solid rgba(142, 183, 223, 0.4);
+  border-radius: 0;
+  background: transparent;
+  padding: 0.82rem 0.15rem;
+}
+
+.soul-projection-card:hover,
+.soul-projection-card--selected {
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.soul-projection-editor-card,
+.soul-system-console .soul-projection-editor-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.soul-system-console .soul-file-card,
+.soul-system-console .soul-seed-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.soul-system-console .soul-mode-card--active,
+.soul-system-console .soul-seed-card--active {
+  box-shadow: none;
+}
+
+@media (max-width: 960px) {
+  .soul-worldview-entry__head {
+    align-items: start;
+  }
+
+  .soul-worldview-entry__head p {
+    text-align: left;
+  }
+
+  .soul-world-index {
+    border-top: 1px solid rgba(142, 183, 223, 0.5);
+  }
+
+  .soul-world-row {
+    grid-template-columns: 1fr;
+    gap: 0.22rem;
+    padding-block: 0.82rem;
+  }
+
+  .soul-world-row small {
+    justify-self: start;
+  }
+
+  .soul-system-hero,
+  .soul-system-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .soul-mode-switcher {
+    overflow-x: auto;
+  }
+
+  .soul-mode-tab {
+    min-width: 12rem;
+  }
+
+  .soul-seed-row {
+    grid-template-columns: 1fr;
+  }
+
+  .soul-seed-card__actions {
+    justify-content: flex-start;
+    padding-left: 0.7rem;
   }
 }
