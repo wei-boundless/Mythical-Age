@@ -608,7 +608,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -1072,7 +1072,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -1288,7 +1288,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -1843,7 +1843,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -2055,7 +2055,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -2550,7 +2550,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -4681,7 +4681,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -5145,7 +5145,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -5361,7 +5361,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -5916,7 +5916,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -6128,7 +6128,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -6623,7 +6623,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -9730,7 +9730,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -10184,7 +10184,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -10386,7 +10386,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -10858,7 +10858,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -10882,7 +10882,7 @@
           "metadata": {
             "managed_by": "codex_writing_modular_novel_graph_20260521_native",
             "node_spec_source": "native_modular_writing_graph",
-            "role_prompt": "你是一名名家级中文商业网文章节批次细纲师。你只负责当前运行时批次允许的十章细纲。\n\n你的细纲要达到头部连载作品的生产标准：每一章都有读者承诺、人物欲望、场景目标、阻碍压力、局势转折、情绪兑现、信息释放、代价余波和章末牵引；每一批十章还要形成小高潮、小回收和新的追读压力。\n\n你必须读取基准库、当前卷计划、上一批提交摘要和动态连续性记录，为写手给出逐章目标、场景顺序、冲突升级、角色状态变化、资源或线索流转、伏笔布设与回收、信息揭示、爽点兑现、章末牵引、前后文承接点和禁改边界。\n\n每章细纲都要能直接指导名家级正文创作，并给出这一章最适合的阅读情绪、商业爽点和追读钩子，但不能替写手写成完整正文。若发现上游计划不足以支撑当前批次，必须提出返修或风险说明，不能用临时设定硬补。",
+            "role_prompt": "你是一名名家级中文商业网文章节批次细纲师。你只负责当前运行时批次允许的十章细纲。\n\n你的细纲必须是专业中文网文的小说细纲，不是分镜表、舞台说明、场景清单或人物走位表。你要写的是章内叙事推进：起势、推进、碰撞、反应、回收、余韵和章末钩子，而不是把一章拆成镜头化条目。\n\n你的细纲要达到头部连载作品的生产标准：每一章都有当章目标、人物欲望、冲突压力、情节转折、信息释放、情绪兑现、代价余波和追读牵引；每一批十章还要形成小高潮、小回收和新的压力源。你必须让读者能看见这一批章为什么要这样走，而不是只看到场景编号。\n\n你必须读取基准库、当前卷计划、上一批提交摘要和动态连续性记录，为写手给出逐章叙事目标、关键冲突、角色状态变化、资源或线索流转、伏笔布设与回收、信息揭示、爽点兑现、章末牵引、前后文承接点和禁改边界。表达方式要像资深中文网文编辑在交付可写的章纲，而不是像舞台剧导演在分配调度。\n\n每章细纲都要能直接指导名家级正文创作，并明确这一章的叙事重心、阅读情绪、商业爽点和追读钩子，但不能替写手写成完整正文，也不能把细纲写成报表。若发现上游计划不足以支撑当前批次，必须提出返修或风险说明，不能用临时设定硬补。",
             "resolved_agent_id": "agent:writing_modular_creator",
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
@@ -11068,7 +11068,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -11614,7 +11614,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -11638,7 +11638,7 @@
           "metadata": {
             "managed_by": "codex_writing_modular_novel_graph_20260521_native",
             "node_spec_source": "native_modular_writing_graph",
-            "role_prompt": "你是一名名家级中文商业网文长篇写手。你只负责当前运行时批次允许的十章正文创作。\n\n你的正文目标是头部中文商业网文的连载质感：语言自然、有现场感和节奏弹性，叙述像有经验的人类作者在调度场景、人物和信息；人物有清晰欲望、当下情绪、关系立场和选择压力，冲突通过行动、对话、试探、代价和后果推进。\n\n你可以学习名家级网文作品在节奏、场景张力、人物欲望、爽点兑现、情绪回报和章末牵引上的共性能力，但不能复刻任何具体作者的可识别文风、句式、口癖、桥段模板或专属设定。\n\n每个场景都要有目标、阻碍、转折和结果；设定信息要融入场景、利益争夺、人物判断、物件细节和环境反馈里释放。对白要承担关系变化、信息交换、压迫试探或情绪爆发，内心活动要服务选择和行动。\n\n每章都要服务商业连载阅读体验：开局有承接和当章目标，中段有阻碍、反应和推进，结尾形成自然的章末牵引，留下新的压力、期待、反转、奖励或疑问。爽点要以铺垫、触发、出手、代价、反馈和余波形成兑现，来源可以是角色选择、实力变化、身份反差、资源获得、局势翻盘或认知揭示。\n\n你必须读取基准库完整设定、动态记忆库承接信息、当前卷计划和当前批次细纲。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以运行时批次边界为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。",
+            "role_prompt": "你是一名名家级中文商业网文长篇写手。你只负责当前运行时批次允许的十章正文创作。\n\n你的正文目标是头部中文商业网文的连载质感：语言自然、有现场感和节奏弹性，叙述像有经验的人类作者在铺陈情势、递进冲突和安放伏笔；人物有清晰欲望、当下情绪、关系立场和选择压力，冲突通过行动、对话、试探、代价和后果推进。\n\n你可以学习名家级网文作品在节奏、场景张力、人物欲望、爽点兑现、情绪回报和章末牵引上的共性能力，但不能复刻任何具体作者的可识别文风、句式、口癖、桥段模板或专属设定。\n\n你的文风要走中文网文里古朴大气、又不失细腻的路子：叙述要娓娓道来，句子要有呼吸感，画面要清楚但不堆砌术语，语言要质朴而有余味，情绪要落在人物动作、神情、语气和环境反馈里。避免说明腔、流水账、AI腔和机械化列项，也避免过度华丽、过度抒情或舞台台词化。\n\n每个场景都要有目标、阻碍、转折和结果；设定信息要融入动作、对话、观察、利益争夺、人物判断、物件细节和环境反馈里释放。对白要承担关系变化、信息交换、压迫试探或情绪爆发，内心活动要服务选择和行动，不要写成旁白讲解。\n\n每章都要服务商业连载阅读体验：开局有承接和当章目标，中段有阻碍、反应和推进，结尾形成自然的章末牵引，留下新的压力、期待、反转、奖励或疑问。爽点要以铺垫、触发、出手、代价、反馈和余波形成兑现，来源可以是角色选择、实力变化、身份反差、资源获得、局势翻盘或认知揭示。\n\n你必须读取基准库完整设定、动态记忆库承接信息、当前卷计划和当前批次细纲。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以运行时批次边界为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。",
             "resolved_agent_id": "agent:writing_modular_creator",
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
@@ -11824,7 +11824,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -12428,7 +12428,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -12452,7 +12452,7 @@
           "metadata": {
             "managed_by": "codex_writing_modular_novel_graph_20260521_native",
             "node_spec_source": "native_modular_writing_graph",
-            "role_prompt": "你是一名名家级中文商业网文章节总审。你只负责审核当前十章正文是否满足批次细纲、基准设定、连续性、正文量、角色推进、场景完成度、商业节奏和伏笔推进要求。\n\n你需要以头部连载作品的阅读体验做裁决：章节开局是否承接有力，当章目标是否明确，场景是否有画面、行动、阻碍和转折，人物是否有欲望、压力、立场和选择，设定是否通过情境自然释放，爽点是否完成铺垫和兑现，章末是否形成下一章追读牵引。\n\n你还需要像资深责编一样检查世界规则、角色动机、前后文承接、伏笔状态、批次目标、字数规模、语言自然度、情绪回报和商业卖点是否真实达标。问题必须定位到章节、场景和影响范围。\n\n你不能替写手补写正文。你必须给出通过、带备注通过、返修或拒绝裁决，并把连续性问题、风格目标差距和返修要求登记清楚。",
+            "role_prompt": "你是一名名家级中文商业网文章节总审。你只负责审核当前十章正文是否满足批次细纲、基准设定、连续性、正文量、角色推进、场景完成度、商业节奏和伏笔推进要求。\n\n你需要以头部连载作品的阅读体验做裁决：章节开局是否承接有力，当章目标是否明确，叙事是否像小说而不是说明书，场景是否有画面、行动、阻碍和转折，人物是否有欲望、压力、立场和选择，设定是否通过情境自然释放，爽点是否完成铺垫和兑现，章末是否形成下一章追读牵引。\n\n你还需要像资深责编一样检查世界规则、角色动机、前后文承接、伏笔状态、批次目标、字数规模、语言自然度、情绪回报和商业卖点是否真实达标。问题必须定位到章节、场景和影响范围。\n\n你不能替写手补写正文。你必须给出通过、带备注通过、返修或拒绝裁决，并把连续性问题、风格目标差距和返修要求登记清楚。",
             "resolved_agent_id": "agent:writing_modular_reviewer",
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
@@ -12640,7 +12640,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -13167,7 +13167,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -13404,7 +13404,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -13930,7 +13930,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -14240,7 +14240,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -14807,7 +14807,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -15019,7 +15019,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -15526,7 +15526,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -15755,7 +15755,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -16197,7 +16197,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -16399,7 +16399,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -16859,7 +16859,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -17069,7 +17069,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -17628,7 +17628,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -17840,7 +17840,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -18341,7 +18341,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -18570,7 +18570,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -19093,7 +19093,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -25704,7 +25704,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -26158,7 +26158,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -26360,7 +26360,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -26832,7 +26832,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -26856,7 +26856,7 @@
           "metadata": {
             "managed_by": "codex_writing_modular_novel_graph_20260521_native",
             "node_spec_source": "native_modular_writing_graph",
-            "role_prompt": "你是一名名家级中文商业网文章节批次细纲师。你只负责当前运行时批次允许的十章细纲。\n\n你的细纲要达到头部连载作品的生产标准：每一章都有读者承诺、人物欲望、场景目标、阻碍压力、局势转折、情绪兑现、信息释放、代价余波和章末牵引；每一批十章还要形成小高潮、小回收和新的追读压力。\n\n你必须读取基准库、当前卷计划、上一批提交摘要和动态连续性记录，为写手给出逐章目标、场景顺序、冲突升级、角色状态变化、资源或线索流转、伏笔布设与回收、信息揭示、爽点兑现、章末牵引、前后文承接点和禁改边界。\n\n每章细纲都要能直接指导名家级正文创作，并给出这一章最适合的阅读情绪、商业爽点和追读钩子，但不能替写手写成完整正文。若发现上游计划不足以支撑当前批次，必须提出返修或风险说明，不能用临时设定硬补。",
+            "role_prompt": "你是一名名家级中文商业网文章节批次细纲师。你只负责当前运行时批次允许的十章细纲。\n\n你的细纲必须是专业中文网文的小说细纲，不是分镜表、舞台说明、场景清单或人物走位表。你要写的是章内叙事推进：起势、推进、碰撞、反应、回收、余韵和章末钩子，而不是把一章拆成镜头化条目。\n\n你的细纲要达到头部连载作品的生产标准：每一章都有当章目标、人物欲望、冲突压力、情节转折、信息释放、情绪兑现、代价余波和追读牵引；每一批十章还要形成小高潮、小回收和新的压力源。你必须让读者能看见这一批章为什么要这样走，而不是只看到场景编号。\n\n你必须读取基准库、当前卷计划、上一批提交摘要和动态连续性记录，为写手给出逐章叙事目标、关键冲突、角色状态变化、资源或线索流转、伏笔布设与回收、信息揭示、爽点兑现、章末牵引、前后文承接点和禁改边界。表达方式要像资深中文网文编辑在交付可写的章纲，而不是像舞台剧导演在分配调度。\n\n每章细纲都要能直接指导名家级正文创作，并明确这一章的叙事重心、阅读情绪、商业爽点和追读钩子，但不能替写手写成完整正文，也不能把细纲写成报表。若发现上游计划不足以支撑当前批次，必须提出返修或风险说明，不能用临时设定硬补。",
             "resolved_agent_id": "agent:writing_modular_creator",
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
@@ -27042,7 +27042,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -27588,7 +27588,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -27612,7 +27612,7 @@
           "metadata": {
             "managed_by": "codex_writing_modular_novel_graph_20260521_native",
             "node_spec_source": "native_modular_writing_graph",
-            "role_prompt": "你是一名名家级中文商业网文长篇写手。你只负责当前运行时批次允许的十章正文创作。\n\n你的正文目标是头部中文商业网文的连载质感：语言自然、有现场感和节奏弹性，叙述像有经验的人类作者在调度场景、人物和信息；人物有清晰欲望、当下情绪、关系立场和选择压力，冲突通过行动、对话、试探、代价和后果推进。\n\n你可以学习名家级网文作品在节奏、场景张力、人物欲望、爽点兑现、情绪回报和章末牵引上的共性能力，但不能复刻任何具体作者的可识别文风、句式、口癖、桥段模板或专属设定。\n\n每个场景都要有目标、阻碍、转折和结果；设定信息要融入场景、利益争夺、人物判断、物件细节和环境反馈里释放。对白要承担关系变化、信息交换、压迫试探或情绪爆发，内心活动要服务选择和行动。\n\n每章都要服务商业连载阅读体验：开局有承接和当章目标，中段有阻碍、反应和推进，结尾形成自然的章末牵引，留下新的压力、期待、反转、奖励或疑问。爽点要以铺垫、触发、出手、代价、反馈和余波形成兑现，来源可以是角色选择、实力变化、身份反差、资源获得、局势翻盘或认知揭示。\n\n你必须读取基准库完整设定、动态记忆库承接信息、当前卷计划和当前批次细纲。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以运行时批次边界为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。",
+            "role_prompt": "你是一名名家级中文商业网文长篇写手。你只负责当前运行时批次允许的十章正文创作。\n\n你的正文目标是头部中文商业网文的连载质感：语言自然、有现场感和节奏弹性，叙述像有经验的人类作者在铺陈情势、递进冲突和安放伏笔；人物有清晰欲望、当下情绪、关系立场和选择压力，冲突通过行动、对话、试探、代价和后果推进。\n\n你可以学习名家级网文作品在节奏、场景张力、人物欲望、爽点兑现、情绪回报和章末牵引上的共性能力，但不能复刻任何具体作者的可识别文风、句式、口癖、桥段模板或专属设定。\n\n你的文风要走中文网文里古朴大气、又不失细腻的路子：叙述要娓娓道来，句子要有呼吸感，画面要清楚但不堆砌术语，语言要质朴而有余味，情绪要落在人物动作、神情、语气和环境反馈里。避免说明腔、流水账、AI腔和机械化列项，也避免过度华丽、过度抒情或舞台台词化。\n\n每个场景都要有目标、阻碍、转折和结果；设定信息要融入动作、对话、观察、利益争夺、人物判断、物件细节和环境反馈里释放。对白要承担关系变化、信息交换、压迫试探或情绪爆发，内心活动要服务选择和行动，不要写成旁白讲解。\n\n每章都要服务商业连载阅读体验：开局有承接和当章目标，中段有阻碍、反应和推进，结尾形成自然的章末牵引，留下新的压力、期待、反转、奖励或疑问。爽点要以铺垫、触发、出手、代价、反馈和余波形成兑现，来源可以是角色选择、实力变化、身份反差、资源获得、局势翻盘或认知揭示。\n\n你必须读取基准库完整设定、动态记忆库承接信息、当前卷计划和当前批次细纲。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以运行时批次边界为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。",
             "resolved_agent_id": "agent:writing_modular_creator",
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
@@ -27798,7 +27798,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -28402,7 +28402,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -28426,7 +28426,7 @@
           "metadata": {
             "managed_by": "codex_writing_modular_novel_graph_20260521_native",
             "node_spec_source": "native_modular_writing_graph",
-            "role_prompt": "你是一名名家级中文商业网文章节总审。你只负责审核当前十章正文是否满足批次细纲、基准设定、连续性、正文量、角色推进、场景完成度、商业节奏和伏笔推进要求。\n\n你需要以头部连载作品的阅读体验做裁决：章节开局是否承接有力，当章目标是否明确，场景是否有画面、行动、阻碍和转折，人物是否有欲望、压力、立场和选择，设定是否通过情境自然释放，爽点是否完成铺垫和兑现，章末是否形成下一章追读牵引。\n\n你还需要像资深责编一样检查世界规则、角色动机、前后文承接、伏笔状态、批次目标、字数规模、语言自然度、情绪回报和商业卖点是否真实达标。问题必须定位到章节、场景和影响范围。\n\n你不能替写手补写正文。你必须给出通过、带备注通过、返修或拒绝裁决，并把连续性问题、风格目标差距和返修要求登记清楚。",
+            "role_prompt": "你是一名名家级中文商业网文章节总审。你只负责审核当前十章正文是否满足批次细纲、基准设定、连续性、正文量、角色推进、场景完成度、商业节奏和伏笔推进要求。\n\n你需要以头部连载作品的阅读体验做裁决：章节开局是否承接有力，当章目标是否明确，叙事是否像小说而不是说明书，场景是否有画面、行动、阻碍和转折，人物是否有欲望、压力、立场和选择，设定是否通过情境自然释放，爽点是否完成铺垫和兑现，章末是否形成下一章追读牵引。\n\n你还需要像资深责编一样检查世界规则、角色动机、前后文承接、伏笔状态、批次目标、字数规模、语言自然度、情绪回报和商业卖点是否真实达标。问题必须定位到章节、场景和影响范围。\n\n你不能替写手补写正文。你必须给出通过、带备注通过、返修或拒绝裁决，并把连续性问题、风格目标差距和返修要求登记清楚。",
             "resolved_agent_id": "agent:writing_modular_reviewer",
             "runtime_interaction_mode": "role_mode",
             "interaction_mode": "role_mode",
@@ -28614,7 +28614,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -29141,7 +29141,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -29378,7 +29378,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -29904,7 +29904,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -30214,7 +30214,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -30781,7 +30781,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -30993,7 +30993,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -31500,7 +31500,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -31729,7 +31729,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -32171,7 +32171,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -32373,7 +32373,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -32833,7 +32833,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -33043,7 +33043,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -33602,7 +33602,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -33814,7 +33814,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -34315,7 +34315,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -34544,7 +34544,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -35067,7 +35067,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -41250,7 +41250,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -41562,7 +41562,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -41692,7 +41692,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -42034,7 +42034,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -42181,7 +42181,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -42622,7 +42622,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -42771,7 +42771,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -43165,7 +43165,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -43336,7 +43336,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -43350,7 +43350,7 @@
               "artifact_context_policy": {
                 "mode": "explicit_model_visible_inputs",
                 "default_max_chars": 30000,
-                "max_items": 1,
+                "max_items": 2,
                 "items": [
                   {
                     "input_key": "上游交接包",
@@ -43359,6 +43359,14 @@
                     "max_refs": 8,
                     "max_chars": 30000,
                     "required": true
+                  },
+                  {
+                    "input_key": "返修交接包",
+                    "label": "返修交接包",
+                    "source": "input_key",
+                    "max_refs": 8,
+                    "max_chars": 30000,
+                    "required": false
                   }
                 ]
               }
@@ -43477,8 +43485,8 @@
                   "resolved_records_required_for_read_edges": false
                 },
                 "revision_context": {
-                  "visible_when_revision_target": false,
-                  "on_hidden": "ignore"
+                  "visible_when_revision_target": true,
+                  "on_hidden": "fail_closed"
                 },
                 "artifact_context": {
                   "explicit_model_visible_inputs_only": true,
@@ -43643,7 +43651,7 @@
           "artifact_context_policy": {
             "mode": "explicit_model_visible_inputs",
             "default_max_chars": 30000,
-            "max_items": 1,
+            "max_items": 2,
             "items": [
               {
                 "input_key": "上游交接包",
@@ -43652,6 +43660,14 @@
                 "max_refs": 8,
                 "max_chars": 30000,
                 "required": true
+              },
+              {
+                "input_key": "返修交接包",
+                "label": "返修交接包",
+                "source": "input_key",
+                "max_refs": 8,
+                "max_chars": 30000,
+                "required": false
               }
             ]
           },
@@ -43662,7 +43678,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -43697,7 +43713,7 @@
             "artifact_context_policy": {
               "mode": "explicit_model_visible_inputs",
               "default_max_chars": 30000,
-              "max_items": 1,
+              "max_items": 2,
               "items": [
                 {
                   "input_key": "上游交接包",
@@ -43706,6 +43722,14 @@
                   "max_refs": 8,
                   "max_chars": 30000,
                   "required": true
+                },
+                {
+                  "input_key": "返修交接包",
+                  "label": "返修交接包",
+                  "source": "input_key",
+                  "max_refs": 8,
+                  "max_chars": 30000,
+                  "required": false
                 }
               ]
             },
@@ -43777,6 +43801,598 @@
           }
         },
         {
+          "node_id": "character_review",
+          "node_type": "review_gate",
+          "title": "人设与关系审核",
+          "task_id": "task.writing.modular_novel.node.character_review",
+          "agent_id": "agent:writing_modular_reviewer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "group.writing.modular_novel",
+          "work_posture": "reviewer",
+          "node_contract_id": "contract.writing.modular_novel.character_review",
+          "input_contract_id": "contract.user_request.basic",
+          "output_contract_id": "contract.writing.modular_novel.character_review",
+          "contract_bindings": {
+            "schema": {
+              "input_contract_id": "contract.user_request.basic",
+              "output_contract_id": "contract.writing.modular_novel.character_review"
+            },
+            "execution": {
+              "node_contract_id": "contract.writing.modular_novel.character_review"
+            },
+            "artifact": {
+              "artifact_policy": {
+                "enabled": true,
+                "required": true,
+                "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
+                "subdir_template": "{project_id}",
+                "source": "native_modular_writing_graph.node_spec",
+                "artifacts": [
+                  {
+                    "path": "design/character_review_round_{round_index:03d}.md",
+                    "required": true,
+                    "content_source": "final_content",
+                    "fallback_to_full_content": true
+                  }
+                ]
+              },
+              "artifact_context_policy": {
+                "mode": "explicit_model_visible_inputs",
+                "default_max_chars": 30000,
+                "max_items": 1,
+                "items": [
+                  {
+                    "input_key": "上游交接包",
+                    "label": "上游交接包",
+                    "source": "input_key",
+                    "max_refs": 8,
+                    "max_chars": 30000,
+                    "required": true
+                  }
+                ]
+              }
+            },
+            "acceptance": {
+              "review_gate_policy": {
+                "allowed_verdicts": [
+                  "pass",
+                  "pass_with_notes",
+                  "revise",
+                  "blocker_found",
+                  "reject",
+                  "fail_closed"
+                ],
+                "revision_stage_id": "character_design",
+                "result_delivery_policy": "contract_payload_and_refs",
+                "approved_slice_schema": {
+                  "packet_kind": "WritingReviewApprovedSlices",
+                  "required_fields": [
+                    "source_candidate_ref",
+                    "approved_slices",
+                    "conditional_notes",
+                    "rejected_slices",
+                    "must_not_commit_sections",
+                    "artifact_refs"
+                  ],
+                  "verdicts_allowing_commit": [
+                    "pass",
+                    "pass_with_notes"
+                  ]
+                },
+                "revision_packet_schema": {
+                  "packet_kind": "WritingRevisionRequest",
+                  "required_fields": [
+                    "target_revision_stage_id",
+                    "source_candidate_ref",
+                    "blocking_issues",
+                    "revision_requirements",
+                    "affected_scope",
+                    "artifact_refs"
+                  ],
+                  "required_when_verdicts": [
+                    "revise",
+                    "blocker_found",
+                    "reject",
+                    "fail_closed"
+                  ]
+                },
+                "memory_write_permission": {
+                  "allowed_write_targets": [
+                    "memory.writing.issue_ledger",
+                    "memory.writing.artifact_index"
+                  ],
+                  "forbid_baseline_write": true,
+                  "forbid_mutable_write": true
+                }
+              }
+            },
+            "memory": {
+              "memory_read_policy": {
+                "mode": "memory_pack_required",
+                "access_model": "edge_based_repository_read",
+                "memory_scope": "writing_modular_novel",
+                "topics": [
+                  "world_commit_ref",
+                  "character_design_ref",
+                  "project_brief"
+                ],
+                "required_topics": [],
+                "forbidden_topics": [
+                  "raw_conversation_history"
+                ],
+                "readable_repositories": [],
+                "readable_scopes": [
+                  "writing_modular_novel",
+                  "project_state",
+                  "node_scope"
+                ],
+                "summary_only": false,
+                "prefer_canonical_text": true,
+                "allow_artifact_text_expansion": true,
+                "enabled": true,
+                "required_visibility": true,
+                "on_hidden": "fail_closed",
+                "snapshot_contract": {
+                  "packet_kind": "WritingMemorySnapshot",
+                  "visible_to_agent_required": true,
+                  "version_selector": "latest_committed_before_stage_start",
+                  "read_edge_ids_required": false,
+                  "raw_conversation_history": "forbidden"
+                },
+                "token_budget": 20000
+              },
+              "dynamic_memory_read_policy": {
+                "enabled": false,
+                "memory_scope": "writing_modular_novel",
+                "repository_node_id": "memory.writing.mutable",
+                "version_selector": "latest_committed_before_stage_start",
+                "summary_only": false,
+                "prefer_canonical_text": true,
+                "allow_artifact_text_expansion": true,
+                "max_dynamic_reads_per_node_run": 4,
+                "max_temporal_neighbors": 2
+              },
+              "memory_writeback_policy": {
+                "mode": "review_and_issue_ledger",
+                "access_model": "edge_based_repository_write",
+                "memory_scope": "writing_modular_novel",
+                "capture_artifact_refs": true,
+                "allowed_write_targets": [
+                  "memory.writing.issue_ledger",
+                  "memory.writing.artifact_index"
+                ],
+                "source_review_required": false,
+                "source_review_node_id": "",
+                "source_candidate_node_id": "",
+                "approved_slices_required": false,
+                "commit_packet_schema": {},
+                "writable_scopes": [
+                  "writing_modular_novel",
+                  "project_state",
+                  "node_scope"
+                ],
+                "write_scope_guard": {
+                  "baseline_memory_mutable": false,
+                  "mutable_memory_mutable": false,
+                  "forbid_frozen_character_rewrite": true,
+                  "forbid_frozen_relationship_rewrite": true,
+                  "requires_outline_review_before_baseline": false,
+                  "review_verdict_required_before_commit": false,
+                  "forbid_unreviewed_candidate_commit": false,
+                  "on_guard_failure": "fail_closed"
+                }
+              }
+            },
+            "runtime": {
+              "runtime_lane": "coordination_task",
+              "execution_mode": "sync",
+              "wait_policy": "wait_all_upstream_completed",
+              "join_policy": "all_success",
+              "model_requirement": {
+                "profile_ref": "llm.deepseek.long_output_65536",
+                "provider_family": "deepseek",
+                "model_family": "deepseek-v4",
+                "capability_tags": [
+                  "long_output",
+                  "structured_artifact_refs",
+                  "creative_writing"
+                ],
+                "min_context_tokens": 200000,
+                "min_output_tokens": 8192,
+                "preferred_output_tokens": 16384,
+                "streaming_required": true,
+                "fallback_allowed": true,
+                "metadata": {
+                  "configured_by": "codex_writing_modular_novel_graph_20260521_native",
+                  "node_id": "character_review"
+                }
+              },
+              "stage_packet_policy": {
+                "authority": "task_graph.stage_packet_contract",
+                "handoff_packet": {
+                  "raw_dialogue_handoff": "forbidden",
+                  "artifact_refs_required_for_long_outputs": true,
+                  "contract_payload_required": true
+                },
+                "memory_snapshot": {
+                  "required_visibility": true,
+                  "on_hidden": "fail_closed",
+                  "version_selector": "latest_committed_before_stage_start",
+                  "resolved_records_required_for_read_edges": false
+                },
+                "revision_context": {
+                  "visible_when_revision_target": false,
+                  "on_hidden": "ignore"
+                },
+                "artifact_context": {
+                  "explicit_model_visible_inputs_only": true,
+                  "authorized_text_expansion_only": true
+                },
+                "outline_thread_index": {}
+              }
+            },
+            "governance": {
+              "no_writing_specific_backend_shortcut": true,
+              "prompt_is_role_natural_language": true,
+              "state_boundary": {
+                "state_kind": "review_gate",
+                "candidate_state": "model_output_candidate",
+                "review_state": "approved_slice_or_revision_request",
+                "committed_state": "memory_commit_receipt",
+                "allowed_read_states": [
+                  "committed_memory",
+                  "structured_handoff",
+                  "artifact_refs",
+                  "candidate_artifact",
+                  "candidate_handoff"
+                ],
+                "allowed_write_states": [
+                  "review_verdict",
+                  "approved_slices",
+                  "revision_request",
+                  "issue_ledger_entry",
+                  "artifact_refs"
+                ],
+                "candidate_visibility": "upstream_handoff_only_until_review",
+                "committed_visibility": "after_memory_commit_receipt",
+                "raw_dialogue_visibility": "forbidden",
+                "on_boundary_violation": "fail_closed"
+              },
+              "write_permission_matrix": {
+                "mode": "review_and_issue_ledger",
+                "allowed_write_targets": [
+                  "memory.writing.issue_ledger",
+                  "memory.writing.artifact_index"
+                ],
+                "forbidden_write_targets": [
+                  "memory.writing.baseline",
+                  "memory.writing.mutable"
+                ],
+                "artifact_index_write": true,
+                "issue_ledger_write": true,
+                "baseline_memory_write": false,
+                "mutable_memory_write": false,
+                "candidate_archive_write": false,
+                "on_forbidden_write": "fail_closed"
+              },
+              "commit_guard": {
+                "enabled": false
+              },
+              "review_guard": {
+                "enabled": true,
+                "review_target_node_id": "character_design",
+                "review_cannot_mutate_candidate": true,
+                "review_cannot_write_canon": true,
+                "approved_slices_required_for_commit": true,
+                "revision_packet_required_when_not_passed": true,
+                "issue_ledger_write_only": true
+              },
+              "memory_pollution_guard": {
+                "authority": "task_graph.contract_bound_memory_governance",
+                "raw_conversation_history": "forbidden",
+                "candidate_artifacts_are_not_committed_memory": true,
+                "review_feedback_is_not_canon": true,
+                "commit_nodes_are_the_only_memory_authority": true,
+                "unreviewed_supplement_cannot_become_fact": true
+              }
+            }
+          },
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {
+            "shared_context_policy": "explicit_refs_only",
+            "memory_sharing_policy": "memory_pack_only",
+            "conversation_memory": "hidden",
+            "suppress_conversation_memory": true
+          },
+          "projection_id": "projection.writing.modular_novel.character_reviewer",
+          "projection_overlay_id": "projection.writing.modular_novel.character_reviewer",
+          "executor_policy": {},
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "mode": "memory_pack_required",
+            "access_model": "edge_based_repository_read",
+            "memory_scope": "writing_modular_novel",
+            "topics": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "required_topics": [],
+            "forbidden_topics": [
+              "raw_conversation_history"
+            ],
+            "readable_repositories": [],
+            "readable_scopes": [
+              "writing_modular_novel",
+              "project_state",
+              "node_scope"
+            ],
+            "summary_only": false,
+            "prefer_canonical_text": true,
+            "allow_artifact_text_expansion": true,
+            "enabled": true,
+            "required_visibility": true,
+            "on_hidden": "fail_closed",
+            "snapshot_contract": {
+              "packet_kind": "WritingMemorySnapshot",
+              "visible_to_agent_required": true,
+              "version_selector": "latest_committed_before_stage_start",
+              "read_edge_ids_required": false,
+              "raw_conversation_history": "forbidden"
+            },
+            "token_budget": 20000
+          },
+          "memory_writeback_policy": {
+            "mode": "review_and_issue_ledger",
+            "access_model": "edge_based_repository_write",
+            "memory_scope": "writing_modular_novel",
+            "capture_artifact_refs": true,
+            "allowed_write_targets": [
+              "memory.writing.issue_ledger",
+              "memory.writing.artifact_index"
+            ],
+            "source_review_required": false,
+            "source_review_node_id": "",
+            "source_candidate_node_id": "",
+            "approved_slices_required": false,
+            "commit_packet_schema": {},
+            "writable_scopes": [
+              "writing_modular_novel",
+              "project_state",
+              "node_scope"
+            ],
+            "write_scope_guard": {
+              "baseline_memory_mutable": false,
+              "mutable_memory_mutable": false,
+              "forbid_frozen_character_rewrite": true,
+              "forbid_frozen_relationship_rewrite": true,
+              "requires_outline_review_before_baseline": false,
+              "review_verdict_required_before_commit": false,
+              "forbid_unreviewed_candidate_commit": false,
+              "on_guard_failure": "fail_closed"
+            }
+          },
+          "dynamic_memory_read_policy": {
+            "enabled": false,
+            "memory_scope": "writing_modular_novel",
+            "repository_node_id": "memory.writing.mutable",
+            "version_selector": "latest_committed_before_stage_start",
+            "summary_only": false,
+            "prefer_canonical_text": true,
+            "allow_artifact_text_expansion": true,
+            "max_dynamic_reads_per_node_run": 4,
+            "max_temporal_neighbors": 2
+          },
+          "phase_id": "phase.modular.design_init.design",
+          "sequence_index": 55,
+          "timeline_group_id": "phase.modular.design_init.design",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "loop_kind": "",
+          "loop_scope_id": "",
+          "title_template": "",
+          "loop_route_policy": {},
+          "review_gate_policy": {
+            "allowed_verdicts": [
+              "pass",
+              "pass_with_notes",
+              "revise",
+              "blocker_found",
+              "reject",
+              "fail_closed"
+            ],
+            "revision_stage_id": "character_design",
+            "result_delivery_policy": "contract_payload_and_refs",
+            "approved_slice_schema": {
+              "packet_kind": "WritingReviewApprovedSlices",
+              "required_fields": [
+                "source_candidate_ref",
+                "approved_slices",
+                "conditional_notes",
+                "rejected_slices",
+                "must_not_commit_sections",
+                "artifact_refs"
+              ],
+              "verdicts_allowing_commit": [
+                "pass",
+                "pass_with_notes"
+              ]
+            },
+            "revision_packet_schema": {
+              "packet_kind": "WritingRevisionRequest",
+              "required_fields": [
+                "target_revision_stage_id",
+                "source_candidate_ref",
+                "blocking_issues",
+                "revision_requirements",
+                "affected_scope",
+                "artifact_refs"
+              ],
+              "required_when_verdicts": [
+                "revise",
+                "blocker_found",
+                "reject",
+                "fail_closed"
+              ]
+            },
+            "memory_write_permission": {
+              "allowed_write_targets": [
+                "memory.writing.issue_ledger",
+                "memory.writing.artifact_index"
+              ],
+              "forbid_baseline_write": true,
+              "forbid_mutable_write": true
+            }
+          },
+          "artifact_context_policy": {
+            "mode": "explicit_model_visible_inputs",
+            "default_max_chars": 30000,
+            "max_items": 1,
+            "items": [
+              {
+                "input_key": "上游交接包",
+                "label": "上游交接包",
+                "source": "input_key",
+                "max_refs": 8,
+                "max_chars": 30000,
+                "required": true
+              }
+            ]
+          },
+          "revision_context_policy": {},
+          "quality_retry_policy": {},
+          "progress_commit_policy": {},
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
+            "subdir_template": "{project_id}",
+            "source": "native_modular_writing_graph.node_spec",
+            "artifacts": [
+              {
+                "path": "design/character_review_round_{round_index:03d}.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          },
+          "stream_policy": {},
+          "artifact_target": "",
+          "output_path": "",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+            "node_spec_source": "native_modular_writing_graph",
+            "role_prompt": "你是一名名家级中文商业网文人设审核员。你只负责审核角色与关系设计是否足够专业、可写、可信，能否进入后续剧情与全书细纲阶段。\n\n你需要检查核心视角人物、关键关系人物、对抗角色、合作角色、守护者、盟友和群体关系是否都从已冻结世界观中长出来，是否存在身份空泛、动机虚弱、关系功能化、角色之间缺少压力链的问题。\n\n你要以头部商业网文标准裁决：主角欲望是否明确，角色弧线是否能持续推进，关系网络是否能制造误会、合作、冲突、亏欠、反转和情绪回报，角色设定是否会污染世界边界或偷塞未冻结类型模板。\n\n你不能替设计师补写角色正文，也不能把自己的补充设定写成事实。裁决只能是通过、带备注通过、返修或拒绝；未通过时必须明确指出返修范围和影响到的下游节点。",
+            "resolved_agent_id": "agent:writing_modular_reviewer",
+            "runtime_interaction_mode": "role_mode",
+            "interaction_mode": "role_mode",
+            "execution_mode": "single",
+            "suppress_bundle_projection": true,
+            "model_profile_ref": "llm.deepseek.long_output_65536",
+            "task_graph_node_runtime": true,
+            "artifact_context_policy": {
+              "mode": "explicit_model_visible_inputs",
+              "default_max_chars": 30000,
+              "max_items": 1,
+              "items": [
+                {
+                  "input_key": "上游交接包",
+                  "label": "上游交接包",
+                  "source": "input_key",
+                  "max_refs": 8,
+                  "max_chars": 30000,
+                  "required": true
+                }
+              ]
+            },
+            "governance_policy": {
+              "no_writing_specific_backend_shortcut": true,
+              "prompt_is_role_natural_language": true,
+              "state_boundary": {
+                "state_kind": "review_gate",
+                "candidate_state": "model_output_candidate",
+                "review_state": "approved_slice_or_revision_request",
+                "committed_state": "memory_commit_receipt",
+                "allowed_read_states": [
+                  "committed_memory",
+                  "structured_handoff",
+                  "artifact_refs",
+                  "candidate_artifact",
+                  "candidate_handoff"
+                ],
+                "allowed_write_states": [
+                  "review_verdict",
+                  "approved_slices",
+                  "revision_request",
+                  "issue_ledger_entry",
+                  "artifact_refs"
+                ],
+                "candidate_visibility": "upstream_handoff_only_until_review",
+                "committed_visibility": "after_memory_commit_receipt",
+                "raw_dialogue_visibility": "forbidden",
+                "on_boundary_violation": "fail_closed"
+              },
+              "write_permission_matrix": {
+                "mode": "review_and_issue_ledger",
+                "allowed_write_targets": [
+                  "memory.writing.issue_ledger",
+                  "memory.writing.artifact_index"
+                ],
+                "forbidden_write_targets": [
+                  "memory.writing.baseline",
+                  "memory.writing.mutable"
+                ],
+                "artifact_index_write": true,
+                "issue_ledger_write": true,
+                "baseline_memory_write": false,
+                "mutable_memory_write": false,
+                "candidate_archive_write": false,
+                "on_forbidden_write": "fail_closed"
+              },
+              "commit_guard": {
+                "enabled": false
+              },
+              "review_guard": {
+                "enabled": true,
+                "review_target_node_id": "character_design",
+                "review_cannot_mutate_candidate": true,
+                "review_cannot_write_canon": true,
+                "approved_slices_required_for_commit": true,
+                "revision_packet_required_when_not_passed": true,
+                "issue_ledger_write_only": true
+              },
+              "memory_pollution_guard": {
+                "authority": "task_graph.contract_bound_memory_governance",
+                "raw_conversation_history": "forbidden",
+                "candidate_artifacts_are_not_committed_memory": true,
+                "review_feedback_is_not_canon": true,
+                "commit_nodes_are_the_only_memory_authority": true,
+                "unreviewed_supplement_cannot_become_fact": true
+              },
+              "outline_thread_policy": {}
+            },
+            "outline_thread_policy": {},
+            "loop_route_policy": {},
+            "loop_scope_id": "",
+            "title_template": "",
+            "legacy_contract_fields": {
+              "input_contract_id": "contract.user_request.basic",
+              "output_contract_id": "contract.writing.modular_novel.character_review",
+              "node_contract_id": "contract.writing.modular_novel.character_review"
+            }
+          }
+        },
+        {
           "node_id": "plot_design",
           "node_type": "agent_role",
           "title": "剧情与伏笔设计",
@@ -43801,7 +44417,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -43836,7 +44452,8 @@
                 "topics": [
                   "project_brief",
                   "world_commit_ref",
-                  "character_design_ref"
+                  "character_design_ref",
+                  "character_review_ref"
                 ],
                 "required_topics": [],
                 "forbidden_topics": [
@@ -44027,7 +44644,8 @@
             "topics": [
               "project_brief",
               "world_commit_ref",
-              "character_design_ref"
+              "character_design_ref",
+              "character_review_ref"
             ],
             "required_topics": [],
             "forbidden_topics": [
@@ -44127,7 +44745,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -44266,7 +44884,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -44301,6 +44919,7 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "conflict_ledger"
                 ],
@@ -44494,6 +45113,7 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
@@ -44596,7 +45216,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -44735,7 +45355,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -44778,6 +45398,7 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "project_brief"
@@ -45043,6 +45664,7 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "project_brief"
@@ -45153,7 +45775,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -45347,7 +45969,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -45436,6 +46058,7 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "outline_design_ref"
@@ -45712,6 +46335,7 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -45866,7 +46490,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -46062,7 +46686,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -46100,6 +46724,7 @@
                   "outline_review_ref",
                   "outline_design_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref"
                 ],
@@ -46444,6 +47069,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -46566,7 +47192,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -47539,9 +48165,9 @@
           }
         },
         {
-          "edge_id": "edge.character.plot",
+          "edge_id": "edge.character.review",
           "source_node_id": "character_design",
-          "target_node_id": "plot_design",
+          "target_node_id": "character_review",
           "edge_type": "structured_handoff",
           "a2a_message_type": "message/send",
           "payload_contract_id": "contract.writing.modular_novel.character_design",
@@ -47579,7 +48205,7 @@
             "context_mode": "refs_and_authorized_text",
             "source_output_key": "contract.writing.modular_novel.character_design:artifact_refs",
             "target_input_key": "上游交接包",
-            "usage_instruction": "把角色和关系候选交给剧情设计师。",
+            "usage_instruction": "把角色和关系候选交给人设审核员。",
             "max_chars": 30000
           },
           "working_memory_handoff_policy": {},
@@ -47592,7 +48218,7 @@
           "failure_policy": {},
           "metadata": {
             "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-            "handoff_summary": "把角色和关系候选交给剧情设计师。",
+            "handoff_summary": "把角色和关系候选交给人设审核员。",
             "packet_kind": "HandoffPacket",
             "input_alias": "上游交接包",
             "model_visible_label": "上游交接包",
@@ -47605,15 +48231,15 @@
           }
         },
         {
-          "edge_id": "edge.character.sync",
-          "source_node_id": "character_design",
-          "target_node_id": "design_sync",
+          "edge_id": "edge.character_review.plot",
+          "source_node_id": "character_review",
+          "target_node_id": "plot_design",
           "edge_type": "structured_handoff",
           "a2a_message_type": "message/send",
-          "payload_contract_id": "contract.writing.modular_novel.character_design",
+          "payload_contract_id": "contract.writing.modular_novel.character_review",
           "contract_bindings": {
             "schema": {
-              "payload_contract_id": "contract.writing.modular_novel.character_design"
+              "payload_contract_id": "contract.writing.modular_novel.character_review"
             },
             "handoff": {
               "ack_required": true,
@@ -47643,9 +48269,9 @@
             "required_for_long_outputs": true,
             "prefer_refs_over_text": false,
             "context_mode": "refs_and_authorized_text",
-            "source_output_key": "contract.writing.modular_novel.character_design:artifact_refs",
+            "source_output_key": "contract.writing.modular_novel.character_review:artifact_refs",
             "target_input_key": "上游交接包",
-            "usage_instruction": "把人设候选交给创作架构对齐节点。",
+            "usage_instruction": "把通过审核的人设与关系交给剧情设计师。",
             "max_chars": 30000
           },
           "working_memory_handoff_policy": {},
@@ -47658,7 +48284,7 @@
           "failure_policy": {},
           "metadata": {
             "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-            "handoff_summary": "把人设候选交给创作架构对齐节点。",
+            "handoff_summary": "把通过审核的人设与关系交给剧情设计师。",
             "packet_kind": "HandoffPacket",
             "input_alias": "上游交接包",
             "model_visible_label": "上游交接包",
@@ -47666,7 +48292,73 @@
             "on_missing": "block",
             "expand_strategy": "refs_and_authorized_text",
             "legacy_contract_fields": {
-              "payload_contract_id": "contract.writing.modular_novel.character_design"
+              "payload_contract_id": "contract.writing.modular_novel.character_review"
+            }
+          }
+        },
+        {
+          "edge_id": "edge.character.sync",
+          "source_node_id": "character_review",
+          "target_node_id": "design_sync",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing.modular_novel.character_review",
+          "contract_bindings": {
+            "schema": {
+              "payload_contract_id": "contract.writing.modular_novel.character_review"
+            },
+            "handoff": {
+              "ack_required": true,
+              "ack_policy": "explicit_ack",
+              "timeout_policy": "fail_closed",
+              "failure_propagation_policy": "fail_downstream",
+              "result_delivery_policy": "contract_payload_and_refs",
+              "context_filter_policy": {
+                "mode": "explicit_refs_only",
+                "raw_dialogue_handoff": "forbidden"
+              }
+            },
+            "artifact": {
+              "artifact_ref_policy": {
+                "required_for_long_outputs": true,
+                "context_mode": "refs_and_authorized_text",
+                "target_input_key": "上游交接包",
+                "max_chars": 30000
+              }
+            }
+          },
+          "context_filter_policy": {
+            "mode": "explicit_refs_only",
+            "raw_dialogue_handoff": "forbidden"
+          },
+          "artifact_ref_policy": {
+            "required_for_long_outputs": true,
+            "prefer_refs_over_text": false,
+            "context_mode": "refs_and_authorized_text",
+            "source_output_key": "contract.writing.modular_novel.character_review:artifact_refs",
+            "target_input_key": "上游交接包",
+            "usage_instruction": "把通过审核的人设交给创作架构对齐节点。",
+            "max_chars": 30000
+          },
+          "working_memory_handoff_policy": {},
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+            "handoff_summary": "把通过审核的人设交给创作架构对齐节点。",
+            "packet_kind": "HandoffPacket",
+            "input_alias": "上游交接包",
+            "model_visible_label": "上游交接包",
+            "must_use": true,
+            "on_missing": "block",
+            "expand_strategy": "refs_and_authorized_text",
+            "legacy_contract_fields": {
+              "payload_contract_id": "contract.writing.modular_novel.character_review"
             }
           }
         },
@@ -48663,6 +49355,218 @@
           }
         },
         {
+          "edge_id": "edge.issue_commit.character_review",
+          "source_node_id": "character_review",
+          "target_node_id": "memory.writing.issue_ledger",
+          "edge_type": "memory_commit",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing.modular_novel.memory_packet",
+          "contract_bindings": {
+            "schema": {
+              "payload_contract_id": "contract.writing.modular_novel.memory_packet"
+            },
+            "handoff": {
+              "ack_required": true,
+              "ack_policy": "explicit_ack",
+              "timeout_policy": "fail_closed",
+              "failure_propagation_policy": "fail_downstream",
+              "result_delivery_policy": "contract_payload_and_refs"
+            },
+            "memory": {
+              "working_memory_handoff_policy": {
+                "operation": "commit",
+                "repository_node_id": "memory.writing.issue_ledger",
+                "collection": "issues",
+                "topics": [
+                  "world_commit_ref",
+                  "character_design_ref",
+                  "project_brief"
+                ],
+                "carry_kinds": [
+                  "world_commit_ref",
+                  "character_design_ref",
+                  "project_brief"
+                ],
+                "carry_scopes": [
+                  "writing_modular_novel",
+                  "issues"
+                ],
+                "model_visible_label": "问题台账"
+              },
+              "operation": "commit",
+              "repository_node_id": "memory.writing.issue_ledger",
+              "collection": "issues",
+              "topics": [
+                "world_commit_ref",
+                "character_design_ref",
+                "project_brief"
+              ],
+              "carry_kinds": [
+                "world_commit_ref",
+                "character_design_ref",
+                "project_brief"
+              ],
+              "carry_scopes": [
+                "writing_modular_novel",
+                "issues"
+              ],
+              "model_visible_label": "问题台账"
+            }
+          },
+          "context_filter_policy": {},
+          "artifact_ref_policy": {},
+          "working_memory_handoff_policy": {
+            "operation": "commit",
+            "repository_node_id": "memory.writing.issue_ledger",
+            "collection": "issues",
+            "topics": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "carry_kinds": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "carry_scopes": [
+              "writing_modular_novel",
+              "issues"
+            ],
+            "model_visible_label": "问题台账"
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+            "memory_edge_type": "commit",
+            "repository": "memory.writing.issue_ledger",
+            "collection": "issues",
+            "record_kinds": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "model_visible_label": "问题台账",
+            "usage_instruction": "读取或提交问题台账，必须按节点契约使用。",
+            "on_missing": "warn",
+            "legacy_contract_fields": {
+              "payload_contract_id": "contract.writing.modular_novel.memory_packet"
+            }
+          }
+        },
+        {
+          "edge_id": "edge.artifact_index.character_review",
+          "source_node_id": "character_review",
+          "target_node_id": "memory.writing.artifact_index",
+          "edge_type": "memory_commit",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing.modular_novel.memory_packet",
+          "contract_bindings": {
+            "schema": {
+              "payload_contract_id": "contract.writing.modular_novel.memory_packet"
+            },
+            "handoff": {
+              "ack_required": true,
+              "ack_policy": "explicit_ack",
+              "timeout_policy": "fail_closed",
+              "failure_propagation_policy": "fail_downstream",
+              "result_delivery_policy": "contract_payload_and_refs"
+            },
+            "memory": {
+              "working_memory_handoff_policy": {
+                "operation": "commit",
+                "repository_node_id": "memory.writing.artifact_index",
+                "collection": "artifact_refs",
+                "topics": [
+                  "world_commit_ref",
+                  "character_design_ref",
+                  "project_brief"
+                ],
+                "carry_kinds": [
+                  "world_commit_ref",
+                  "character_design_ref",
+                  "project_brief"
+                ],
+                "carry_scopes": [
+                  "writing_modular_novel",
+                  "artifact_refs"
+                ],
+                "model_visible_label": "产物索引"
+              },
+              "operation": "commit",
+              "repository_node_id": "memory.writing.artifact_index",
+              "collection": "artifact_refs",
+              "topics": [
+                "world_commit_ref",
+                "character_design_ref",
+                "project_brief"
+              ],
+              "carry_kinds": [
+                "world_commit_ref",
+                "character_design_ref",
+                "project_brief"
+              ],
+              "carry_scopes": [
+                "writing_modular_novel",
+                "artifact_refs"
+              ],
+              "model_visible_label": "产物索引"
+            }
+          },
+          "context_filter_policy": {},
+          "artifact_ref_policy": {},
+          "working_memory_handoff_policy": {
+            "operation": "commit",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "artifact_refs",
+            "topics": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "carry_kinds": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "carry_scopes": [
+              "writing_modular_novel",
+              "artifact_refs"
+            ],
+            "model_visible_label": "产物索引"
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+            "memory_edge_type": "commit",
+            "repository": "memory.writing.artifact_index",
+            "collection": "artifact_refs",
+            "record_kinds": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "model_visible_label": "产物索引",
+            "usage_instruction": "读取或提交产物索引，必须按节点契约使用。",
+            "on_missing": "warn",
+            "legacy_contract_fields": {
+              "payload_contract_id": "contract.writing.modular_novel.memory_packet"
+            }
+          }
+        },
+        {
           "edge_id": "edge.artifact_index.plot_design",
           "source_node_id": "plot_design",
           "target_node_id": "memory.writing.artifact_index",
@@ -48688,12 +49592,14 @@
                 "topics": [
                   "project_brief",
                   "world_commit_ref",
-                  "character_design_ref"
+                  "character_design_ref",
+                  "character_review_ref"
                 ],
                 "carry_kinds": [
                   "project_brief",
                   "world_commit_ref",
-                  "character_design_ref"
+                  "character_design_ref",
+                  "character_review_ref"
                 ],
                 "carry_scopes": [
                   "writing_modular_novel",
@@ -48707,12 +49613,14 @@
               "topics": [
                 "project_brief",
                 "world_commit_ref",
-                "character_design_ref"
+                "character_design_ref",
+                "character_review_ref"
               ],
               "carry_kinds": [
                 "project_brief",
                 "world_commit_ref",
-                "character_design_ref"
+                "character_design_ref",
+                "character_review_ref"
               ],
               "carry_scopes": [
                 "writing_modular_novel",
@@ -48730,12 +49638,14 @@
             "topics": [
               "project_brief",
               "world_commit_ref",
-              "character_design_ref"
+              "character_design_ref",
+              "character_review_ref"
             ],
             "carry_kinds": [
               "project_brief",
               "world_commit_ref",
-              "character_design_ref"
+              "character_design_ref",
+              "character_review_ref"
             ],
             "carry_scopes": [
               "writing_modular_novel",
@@ -48758,7 +49668,8 @@
             "record_kinds": [
               "project_brief",
               "world_commit_ref",
-              "character_design_ref"
+              "character_design_ref",
+              "character_review_ref"
             ],
             "model_visible_label": "产物索引",
             "usage_instruction": "读取或提交产物索引，必须按节点契约使用。",
@@ -48794,12 +49705,14 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "conflict_ledger"
                 ],
                 "carry_kinds": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "conflict_ledger"
                 ],
@@ -48815,12 +49728,14 @@
               "topics": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "conflict_ledger"
               ],
               "carry_kinds": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "conflict_ledger"
               ],
@@ -48840,12 +49755,14 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
             "carry_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
@@ -48870,6 +49787,7 @@
             "record_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
@@ -48907,12 +49825,14 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "conflict_ledger"
                 ],
                 "carry_kinds": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "conflict_ledger"
                 ],
@@ -48928,12 +49848,14 @@
               "topics": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "conflict_ledger"
               ],
               "carry_kinds": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "conflict_ledger"
               ],
@@ -48953,12 +49875,14 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
             "carry_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
@@ -48983,6 +49907,7 @@
             "record_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
@@ -49020,6 +49945,7 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "project_brief"
@@ -49027,6 +49953,7 @@
                 "carry_kinds": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "project_brief"
@@ -49043,6 +49970,7 @@
               "topics": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref",
                 "project_brief"
@@ -49050,6 +49978,7 @@
               "carry_kinds": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref",
                 "project_brief"
@@ -49070,6 +49999,7 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "project_brief"
@@ -49077,6 +50007,7 @@
             "carry_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "project_brief"
@@ -49102,6 +50033,7 @@
             "record_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "project_brief"
@@ -49140,6 +50072,7 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "outline_design_ref"
@@ -49147,6 +50080,7 @@
                 "carry_kinds": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "outline_design_ref"
@@ -49163,6 +50097,7 @@
               "topics": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref",
                 "outline_design_ref"
@@ -49170,6 +50105,7 @@
               "carry_kinds": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref",
                 "outline_design_ref"
@@ -49190,6 +50126,7 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -49197,6 +50134,7 @@
             "carry_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -49222,6 +50160,7 @@
             "record_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -49260,6 +50199,7 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "outline_design_ref"
@@ -49267,6 +50207,7 @@
                 "carry_kinds": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "outline_design_ref"
@@ -49283,6 +50224,7 @@
               "topics": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref",
                 "outline_design_ref"
@@ -49290,6 +50232,7 @@
               "carry_kinds": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref",
                 "outline_design_ref"
@@ -49310,6 +50253,7 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -49317,6 +50261,7 @@
             "carry_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -49342,6 +50287,7 @@
             "record_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -49383,6 +50329,7 @@
                   "outline_review_ref",
                   "outline_design_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref"
                 ],
@@ -49392,6 +50339,7 @@
                   "outline_review_ref",
                   "outline_design_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref"
                 ],
@@ -49410,6 +50358,7 @@
                 "outline_review_ref",
                 "outline_design_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref"
               ],
@@ -49419,6 +50368,7 @@
                 "outline_review_ref",
                 "outline_design_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref"
               ],
@@ -49441,6 +50391,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -49450,6 +50401,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -49477,6 +50429,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -49517,6 +50470,7 @@
                   "outline_review_ref",
                   "outline_design_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref"
                 ],
@@ -49526,6 +50480,7 @@
                   "outline_review_ref",
                   "outline_design_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref"
                 ],
@@ -49544,6 +50499,7 @@
                 "outline_review_ref",
                 "outline_design_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref"
               ],
@@ -49553,6 +50509,7 @@
                 "outline_review_ref",
                 "outline_design_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref"
               ],
@@ -49575,6 +50532,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -49584,6 +50542,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -49611,6 +50570,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -49685,6 +50645,72 @@
             "model_visible_label": "返修交接包",
             "legacy_contract_fields": {
               "payload_contract_id": "contract.writing.modular_novel.world_review"
+            }
+          }
+        },
+        {
+          "edge_id": "edge.revision.character_review.character_design",
+          "source_node_id": "character_review",
+          "target_node_id": "character_design",
+          "edge_type": "revision_request",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing.modular_novel.character_review",
+          "contract_bindings": {
+            "schema": {
+              "payload_contract_id": "contract.writing.modular_novel.character_review"
+            },
+            "handoff": {
+              "ack_required": true,
+              "ack_policy": "explicit_ack",
+              "timeout_policy": "fail_closed",
+              "failure_propagation_policy": "fail_downstream",
+              "result_delivery_policy": "contract_payload_and_refs"
+            },
+            "artifact": {
+              "artifact_ref_policy": {
+                "required_for_long_outputs": true,
+                "context_mode": "refs_and_authorized_text",
+                "target_input_key": "返修交接包",
+                "max_chars": 30000
+              }
+            }
+          },
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "required_for_long_outputs": true,
+            "context_mode": "refs_and_authorized_text",
+            "target_input_key": "返修交接包",
+            "max_chars": 30000
+          },
+          "working_memory_handoff_policy": {},
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+            "dependency_role": "repair_feedback",
+            "trigger": {
+              "verdict": "revise"
+            },
+            "carry": [
+              {
+                "input_key": "返修交接包",
+                "source": "current_review"
+              },
+              {
+                "input_key": "previous_candidate_ref",
+                "source": "inherited_input",
+                "from_key": "上游交接包"
+              }
+            ],
+            "clear_input_keys": [],
+            "model_visible_label": "返修交接包",
+            "legacy_contract_fields": {
+              "payload_contract_id": "contract.writing.modular_novel.character_review"
             }
           }
         },
@@ -49925,6 +50951,7 @@
           "task.writing.modular_novel.node.world_review",
           "task.writing.modular_novel.node.memory_commit_world",
           "task.writing.modular_novel.node.character_design",
+          "task.writing.modular_novel.node.character_review",
           "task.writing.modular_novel.node.plot_design",
           "task.writing.modular_novel.node.design_sync",
           "task.writing.modular_novel.node.outline_design",
@@ -49964,7 +50991,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -50276,7 +51303,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -50406,7 +51433,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -50748,7 +51775,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -50895,7 +51922,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -51336,7 +52363,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -51485,7 +52512,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -51879,7 +52906,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -52050,7 +53077,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -52064,7 +53091,7 @@
               "artifact_context_policy": {
                 "mode": "explicit_model_visible_inputs",
                 "default_max_chars": 30000,
-                "max_items": 1,
+                "max_items": 2,
                 "items": [
                   {
                     "input_key": "上游交接包",
@@ -52073,6 +53100,14 @@
                     "max_refs": 8,
                     "max_chars": 30000,
                     "required": true
+                  },
+                  {
+                    "input_key": "返修交接包",
+                    "label": "返修交接包",
+                    "source": "input_key",
+                    "max_refs": 8,
+                    "max_chars": 30000,
+                    "required": false
                   }
                 ]
               }
@@ -52191,8 +53226,8 @@
                   "resolved_records_required_for_read_edges": false
                 },
                 "revision_context": {
-                  "visible_when_revision_target": false,
-                  "on_hidden": "ignore"
+                  "visible_when_revision_target": true,
+                  "on_hidden": "fail_closed"
                 },
                 "artifact_context": {
                   "explicit_model_visible_inputs_only": true,
@@ -52357,7 +53392,7 @@
           "artifact_context_policy": {
             "mode": "explicit_model_visible_inputs",
             "default_max_chars": 30000,
-            "max_items": 1,
+            "max_items": 2,
             "items": [
               {
                 "input_key": "上游交接包",
@@ -52366,6 +53401,14 @@
                 "max_refs": 8,
                 "max_chars": 30000,
                 "required": true
+              },
+              {
+                "input_key": "返修交接包",
+                "label": "返修交接包",
+                "source": "input_key",
+                "max_refs": 8,
+                "max_chars": 30000,
+                "required": false
               }
             ]
           },
@@ -52376,7 +53419,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -52411,7 +53454,7 @@
             "artifact_context_policy": {
               "mode": "explicit_model_visible_inputs",
               "default_max_chars": 30000,
-              "max_items": 1,
+              "max_items": 2,
               "items": [
                 {
                   "input_key": "上游交接包",
@@ -52420,6 +53463,14 @@
                   "max_refs": 8,
                   "max_chars": 30000,
                   "required": true
+                },
+                {
+                  "input_key": "返修交接包",
+                  "label": "返修交接包",
+                  "source": "input_key",
+                  "max_refs": 8,
+                  "max_chars": 30000,
+                  "required": false
                 }
               ]
             },
@@ -52491,6 +53542,598 @@
           }
         },
         {
+          "node_id": "character_review",
+          "node_type": "review_gate",
+          "title": "人设与关系审核",
+          "task_id": "task.writing.modular_novel.node.character_review",
+          "agent_id": "agent:writing_modular_reviewer",
+          "agent_selection_policy": "explicit_agent",
+          "agent_group_id": "group.writing.modular_novel",
+          "work_posture": "reviewer",
+          "node_contract_id": "contract.writing.modular_novel.character_review",
+          "input_contract_id": "contract.user_request.basic",
+          "output_contract_id": "contract.writing.modular_novel.character_review",
+          "contract_bindings": {
+            "schema": {
+              "input_contract_id": "contract.user_request.basic",
+              "output_contract_id": "contract.writing.modular_novel.character_review"
+            },
+            "execution": {
+              "node_contract_id": "contract.writing.modular_novel.character_review"
+            },
+            "artifact": {
+              "artifact_policy": {
+                "enabled": true,
+                "required": true,
+                "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
+                "subdir_template": "{project_id}",
+                "source": "native_modular_writing_graph.node_spec",
+                "artifacts": [
+                  {
+                    "path": "design/character_review_round_{round_index:03d}.md",
+                    "required": true,
+                    "content_source": "final_content",
+                    "fallback_to_full_content": true
+                  }
+                ]
+              },
+              "artifact_context_policy": {
+                "mode": "explicit_model_visible_inputs",
+                "default_max_chars": 30000,
+                "max_items": 1,
+                "items": [
+                  {
+                    "input_key": "上游交接包",
+                    "label": "上游交接包",
+                    "source": "input_key",
+                    "max_refs": 8,
+                    "max_chars": 30000,
+                    "required": true
+                  }
+                ]
+              }
+            },
+            "acceptance": {
+              "review_gate_policy": {
+                "allowed_verdicts": [
+                  "pass",
+                  "pass_with_notes",
+                  "revise",
+                  "blocker_found",
+                  "reject",
+                  "fail_closed"
+                ],
+                "revision_stage_id": "character_design",
+                "result_delivery_policy": "contract_payload_and_refs",
+                "approved_slice_schema": {
+                  "packet_kind": "WritingReviewApprovedSlices",
+                  "required_fields": [
+                    "source_candidate_ref",
+                    "approved_slices",
+                    "conditional_notes",
+                    "rejected_slices",
+                    "must_not_commit_sections",
+                    "artifact_refs"
+                  ],
+                  "verdicts_allowing_commit": [
+                    "pass",
+                    "pass_with_notes"
+                  ]
+                },
+                "revision_packet_schema": {
+                  "packet_kind": "WritingRevisionRequest",
+                  "required_fields": [
+                    "target_revision_stage_id",
+                    "source_candidate_ref",
+                    "blocking_issues",
+                    "revision_requirements",
+                    "affected_scope",
+                    "artifact_refs"
+                  ],
+                  "required_when_verdicts": [
+                    "revise",
+                    "blocker_found",
+                    "reject",
+                    "fail_closed"
+                  ]
+                },
+                "memory_write_permission": {
+                  "allowed_write_targets": [
+                    "memory.writing.issue_ledger",
+                    "memory.writing.artifact_index"
+                  ],
+                  "forbid_baseline_write": true,
+                  "forbid_mutable_write": true
+                }
+              }
+            },
+            "memory": {
+              "memory_read_policy": {
+                "mode": "memory_pack_required",
+                "access_model": "edge_based_repository_read",
+                "memory_scope": "writing_modular_novel",
+                "topics": [
+                  "world_commit_ref",
+                  "character_design_ref",
+                  "project_brief"
+                ],
+                "required_topics": [],
+                "forbidden_topics": [
+                  "raw_conversation_history"
+                ],
+                "readable_repositories": [],
+                "readable_scopes": [
+                  "writing_modular_novel",
+                  "project_state",
+                  "node_scope"
+                ],
+                "summary_only": false,
+                "prefer_canonical_text": true,
+                "allow_artifact_text_expansion": true,
+                "enabled": true,
+                "required_visibility": true,
+                "on_hidden": "fail_closed",
+                "snapshot_contract": {
+                  "packet_kind": "WritingMemorySnapshot",
+                  "visible_to_agent_required": true,
+                  "version_selector": "latest_committed_before_stage_start",
+                  "read_edge_ids_required": false,
+                  "raw_conversation_history": "forbidden"
+                },
+                "token_budget": 20000
+              },
+              "dynamic_memory_read_policy": {
+                "enabled": false,
+                "memory_scope": "writing_modular_novel",
+                "repository_node_id": "memory.writing.mutable",
+                "version_selector": "latest_committed_before_stage_start",
+                "summary_only": false,
+                "prefer_canonical_text": true,
+                "allow_artifact_text_expansion": true,
+                "max_dynamic_reads_per_node_run": 4,
+                "max_temporal_neighbors": 2
+              },
+              "memory_writeback_policy": {
+                "mode": "review_and_issue_ledger",
+                "access_model": "edge_based_repository_write",
+                "memory_scope": "writing_modular_novel",
+                "capture_artifact_refs": true,
+                "allowed_write_targets": [
+                  "memory.writing.issue_ledger",
+                  "memory.writing.artifact_index"
+                ],
+                "source_review_required": false,
+                "source_review_node_id": "",
+                "source_candidate_node_id": "",
+                "approved_slices_required": false,
+                "commit_packet_schema": {},
+                "writable_scopes": [
+                  "writing_modular_novel",
+                  "project_state",
+                  "node_scope"
+                ],
+                "write_scope_guard": {
+                  "baseline_memory_mutable": false,
+                  "mutable_memory_mutable": false,
+                  "forbid_frozen_character_rewrite": true,
+                  "forbid_frozen_relationship_rewrite": true,
+                  "requires_outline_review_before_baseline": false,
+                  "review_verdict_required_before_commit": false,
+                  "forbid_unreviewed_candidate_commit": false,
+                  "on_guard_failure": "fail_closed"
+                }
+              }
+            },
+            "runtime": {
+              "runtime_lane": "coordination_task",
+              "execution_mode": "sync",
+              "wait_policy": "wait_all_upstream_completed",
+              "join_policy": "all_success",
+              "model_requirement": {
+                "profile_ref": "llm.deepseek.long_output_65536",
+                "provider_family": "deepseek",
+                "model_family": "deepseek-v4",
+                "capability_tags": [
+                  "long_output",
+                  "structured_artifact_refs",
+                  "creative_writing"
+                ],
+                "min_context_tokens": 200000,
+                "min_output_tokens": 8192,
+                "preferred_output_tokens": 16384,
+                "streaming_required": true,
+                "fallback_allowed": true,
+                "metadata": {
+                  "configured_by": "codex_writing_modular_novel_graph_20260521_native",
+                  "node_id": "character_review"
+                }
+              },
+              "stage_packet_policy": {
+                "authority": "task_graph.stage_packet_contract",
+                "handoff_packet": {
+                  "raw_dialogue_handoff": "forbidden",
+                  "artifact_refs_required_for_long_outputs": true,
+                  "contract_payload_required": true
+                },
+                "memory_snapshot": {
+                  "required_visibility": true,
+                  "on_hidden": "fail_closed",
+                  "version_selector": "latest_committed_before_stage_start",
+                  "resolved_records_required_for_read_edges": false
+                },
+                "revision_context": {
+                  "visible_when_revision_target": false,
+                  "on_hidden": "ignore"
+                },
+                "artifact_context": {
+                  "explicit_model_visible_inputs_only": true,
+                  "authorized_text_expansion_only": true
+                },
+                "outline_thread_index": {}
+              }
+            },
+            "governance": {
+              "no_writing_specific_backend_shortcut": true,
+              "prompt_is_role_natural_language": true,
+              "state_boundary": {
+                "state_kind": "review_gate",
+                "candidate_state": "model_output_candidate",
+                "review_state": "approved_slice_or_revision_request",
+                "committed_state": "memory_commit_receipt",
+                "allowed_read_states": [
+                  "committed_memory",
+                  "structured_handoff",
+                  "artifact_refs",
+                  "candidate_artifact",
+                  "candidate_handoff"
+                ],
+                "allowed_write_states": [
+                  "review_verdict",
+                  "approved_slices",
+                  "revision_request",
+                  "issue_ledger_entry",
+                  "artifact_refs"
+                ],
+                "candidate_visibility": "upstream_handoff_only_until_review",
+                "committed_visibility": "after_memory_commit_receipt",
+                "raw_dialogue_visibility": "forbidden",
+                "on_boundary_violation": "fail_closed"
+              },
+              "write_permission_matrix": {
+                "mode": "review_and_issue_ledger",
+                "allowed_write_targets": [
+                  "memory.writing.issue_ledger",
+                  "memory.writing.artifact_index"
+                ],
+                "forbidden_write_targets": [
+                  "memory.writing.baseline",
+                  "memory.writing.mutable"
+                ],
+                "artifact_index_write": true,
+                "issue_ledger_write": true,
+                "baseline_memory_write": false,
+                "mutable_memory_write": false,
+                "candidate_archive_write": false,
+                "on_forbidden_write": "fail_closed"
+              },
+              "commit_guard": {
+                "enabled": false
+              },
+              "review_guard": {
+                "enabled": true,
+                "review_target_node_id": "character_design",
+                "review_cannot_mutate_candidate": true,
+                "review_cannot_write_canon": true,
+                "approved_slices_required_for_commit": true,
+                "revision_packet_required_when_not_passed": true,
+                "issue_ledger_write_only": true
+              },
+              "memory_pollution_guard": {
+                "authority": "task_graph.contract_bound_memory_governance",
+                "raw_conversation_history": "forbidden",
+                "candidate_artifacts_are_not_committed_memory": true,
+                "review_feedback_is_not_canon": true,
+                "commit_nodes_are_the_only_memory_authority": true,
+                "unreviewed_supplement_cannot_become_fact": true
+              }
+            }
+          },
+          "runtime_lane": "coordination_task",
+          "context_visibility_policy": {
+            "shared_context_policy": "explicit_refs_only",
+            "memory_sharing_policy": "memory_pack_only",
+            "conversation_memory": "hidden",
+            "suppress_conversation_memory": true
+          },
+          "projection_id": "projection.writing.modular_novel.character_reviewer",
+          "projection_overlay_id": "projection.writing.modular_novel.character_reviewer",
+          "executor_policy": {},
+          "failure_policy": {},
+          "human_gate_policy": {},
+          "memory_read_policy": {
+            "mode": "memory_pack_required",
+            "access_model": "edge_based_repository_read",
+            "memory_scope": "writing_modular_novel",
+            "topics": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "required_topics": [],
+            "forbidden_topics": [
+              "raw_conversation_history"
+            ],
+            "readable_repositories": [],
+            "readable_scopes": [
+              "writing_modular_novel",
+              "project_state",
+              "node_scope"
+            ],
+            "summary_only": false,
+            "prefer_canonical_text": true,
+            "allow_artifact_text_expansion": true,
+            "enabled": true,
+            "required_visibility": true,
+            "on_hidden": "fail_closed",
+            "snapshot_contract": {
+              "packet_kind": "WritingMemorySnapshot",
+              "visible_to_agent_required": true,
+              "version_selector": "latest_committed_before_stage_start",
+              "read_edge_ids_required": false,
+              "raw_conversation_history": "forbidden"
+            },
+            "token_budget": 20000
+          },
+          "memory_writeback_policy": {
+            "mode": "review_and_issue_ledger",
+            "access_model": "edge_based_repository_write",
+            "memory_scope": "writing_modular_novel",
+            "capture_artifact_refs": true,
+            "allowed_write_targets": [
+              "memory.writing.issue_ledger",
+              "memory.writing.artifact_index"
+            ],
+            "source_review_required": false,
+            "source_review_node_id": "",
+            "source_candidate_node_id": "",
+            "approved_slices_required": false,
+            "commit_packet_schema": {},
+            "writable_scopes": [
+              "writing_modular_novel",
+              "project_state",
+              "node_scope"
+            ],
+            "write_scope_guard": {
+              "baseline_memory_mutable": false,
+              "mutable_memory_mutable": false,
+              "forbid_frozen_character_rewrite": true,
+              "forbid_frozen_relationship_rewrite": true,
+              "requires_outline_review_before_baseline": false,
+              "review_verdict_required_before_commit": false,
+              "forbid_unreviewed_candidate_commit": false,
+              "on_guard_failure": "fail_closed"
+            }
+          },
+          "dynamic_memory_read_policy": {
+            "enabled": false,
+            "memory_scope": "writing_modular_novel",
+            "repository_node_id": "memory.writing.mutable",
+            "version_selector": "latest_committed_before_stage_start",
+            "summary_only": false,
+            "prefer_canonical_text": true,
+            "allow_artifact_text_expansion": true,
+            "max_dynamic_reads_per_node_run": 4,
+            "max_temporal_neighbors": 2
+          },
+          "phase_id": "phase.modular.design_init.design",
+          "sequence_index": 55,
+          "timeline_group_id": "phase.modular.design_init.design",
+          "main_chain": true,
+          "blocks_phase_exit": true,
+          "loop_policy": {},
+          "loop_kind": "",
+          "loop_scope_id": "",
+          "title_template": "",
+          "loop_route_policy": {},
+          "review_gate_policy": {
+            "allowed_verdicts": [
+              "pass",
+              "pass_with_notes",
+              "revise",
+              "blocker_found",
+              "reject",
+              "fail_closed"
+            ],
+            "revision_stage_id": "character_design",
+            "result_delivery_policy": "contract_payload_and_refs",
+            "approved_slice_schema": {
+              "packet_kind": "WritingReviewApprovedSlices",
+              "required_fields": [
+                "source_candidate_ref",
+                "approved_slices",
+                "conditional_notes",
+                "rejected_slices",
+                "must_not_commit_sections",
+                "artifact_refs"
+              ],
+              "verdicts_allowing_commit": [
+                "pass",
+                "pass_with_notes"
+              ]
+            },
+            "revision_packet_schema": {
+              "packet_kind": "WritingRevisionRequest",
+              "required_fields": [
+                "target_revision_stage_id",
+                "source_candidate_ref",
+                "blocking_issues",
+                "revision_requirements",
+                "affected_scope",
+                "artifact_refs"
+              ],
+              "required_when_verdicts": [
+                "revise",
+                "blocker_found",
+                "reject",
+                "fail_closed"
+              ]
+            },
+            "memory_write_permission": {
+              "allowed_write_targets": [
+                "memory.writing.issue_ledger",
+                "memory.writing.artifact_index"
+              ],
+              "forbid_baseline_write": true,
+              "forbid_mutable_write": true
+            }
+          },
+          "artifact_context_policy": {
+            "mode": "explicit_model_visible_inputs",
+            "default_max_chars": 30000,
+            "max_items": 1,
+            "items": [
+              {
+                "input_key": "上游交接包",
+                "label": "上游交接包",
+                "source": "input_key",
+                "max_refs": 8,
+                "max_chars": 30000,
+                "required": true
+              }
+            ]
+          },
+          "revision_context_policy": {},
+          "quality_retry_policy": {},
+          "progress_commit_policy": {},
+          "artifact_policy": {
+            "enabled": true,
+            "required": true,
+            "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
+            "subdir_template": "{project_id}",
+            "source": "native_modular_writing_graph.node_spec",
+            "artifacts": [
+              {
+                "path": "design/character_review_round_{round_index:03d}.md",
+                "required": true,
+                "content_source": "final_content",
+                "fallback_to_full_content": true
+              }
+            ]
+          },
+          "stream_policy": {},
+          "artifact_target": "",
+          "output_path": "",
+          "execution_mode": "sync",
+          "dispatch_group": "",
+          "wait_policy": "wait_all_upstream_completed",
+          "join_policy": "all_success",
+          "background_policy": {},
+          "notification_policy": {},
+          "resource_lifecycle_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+            "node_spec_source": "native_modular_writing_graph",
+            "role_prompt": "你是一名名家级中文商业网文人设审核员。你只负责审核角色与关系设计是否足够专业、可写、可信，能否进入后续剧情与全书细纲阶段。\n\n你需要检查核心视角人物、关键关系人物、对抗角色、合作角色、守护者、盟友和群体关系是否都从已冻结世界观中长出来，是否存在身份空泛、动机虚弱、关系功能化、角色之间缺少压力链的问题。\n\n你要以头部商业网文标准裁决：主角欲望是否明确，角色弧线是否能持续推进，关系网络是否能制造误会、合作、冲突、亏欠、反转和情绪回报，角色设定是否会污染世界边界或偷塞未冻结类型模板。\n\n你不能替设计师补写角色正文，也不能把自己的补充设定写成事实。裁决只能是通过、带备注通过、返修或拒绝；未通过时必须明确指出返修范围和影响到的下游节点。",
+            "resolved_agent_id": "agent:writing_modular_reviewer",
+            "runtime_interaction_mode": "role_mode",
+            "interaction_mode": "role_mode",
+            "execution_mode": "single",
+            "suppress_bundle_projection": true,
+            "model_profile_ref": "llm.deepseek.long_output_65536",
+            "task_graph_node_runtime": true,
+            "artifact_context_policy": {
+              "mode": "explicit_model_visible_inputs",
+              "default_max_chars": 30000,
+              "max_items": 1,
+              "items": [
+                {
+                  "input_key": "上游交接包",
+                  "label": "上游交接包",
+                  "source": "input_key",
+                  "max_refs": 8,
+                  "max_chars": 30000,
+                  "required": true
+                }
+              ]
+            },
+            "governance_policy": {
+              "no_writing_specific_backend_shortcut": true,
+              "prompt_is_role_natural_language": true,
+              "state_boundary": {
+                "state_kind": "review_gate",
+                "candidate_state": "model_output_candidate",
+                "review_state": "approved_slice_or_revision_request",
+                "committed_state": "memory_commit_receipt",
+                "allowed_read_states": [
+                  "committed_memory",
+                  "structured_handoff",
+                  "artifact_refs",
+                  "candidate_artifact",
+                  "candidate_handoff"
+                ],
+                "allowed_write_states": [
+                  "review_verdict",
+                  "approved_slices",
+                  "revision_request",
+                  "issue_ledger_entry",
+                  "artifact_refs"
+                ],
+                "candidate_visibility": "upstream_handoff_only_until_review",
+                "committed_visibility": "after_memory_commit_receipt",
+                "raw_dialogue_visibility": "forbidden",
+                "on_boundary_violation": "fail_closed"
+              },
+              "write_permission_matrix": {
+                "mode": "review_and_issue_ledger",
+                "allowed_write_targets": [
+                  "memory.writing.issue_ledger",
+                  "memory.writing.artifact_index"
+                ],
+                "forbidden_write_targets": [
+                  "memory.writing.baseline",
+                  "memory.writing.mutable"
+                ],
+                "artifact_index_write": true,
+                "issue_ledger_write": true,
+                "baseline_memory_write": false,
+                "mutable_memory_write": false,
+                "candidate_archive_write": false,
+                "on_forbidden_write": "fail_closed"
+              },
+              "commit_guard": {
+                "enabled": false
+              },
+              "review_guard": {
+                "enabled": true,
+                "review_target_node_id": "character_design",
+                "review_cannot_mutate_candidate": true,
+                "review_cannot_write_canon": true,
+                "approved_slices_required_for_commit": true,
+                "revision_packet_required_when_not_passed": true,
+                "issue_ledger_write_only": true
+              },
+              "memory_pollution_guard": {
+                "authority": "task_graph.contract_bound_memory_governance",
+                "raw_conversation_history": "forbidden",
+                "candidate_artifacts_are_not_committed_memory": true,
+                "review_feedback_is_not_canon": true,
+                "commit_nodes_are_the_only_memory_authority": true,
+                "unreviewed_supplement_cannot_become_fact": true
+              },
+              "outline_thread_policy": {}
+            },
+            "outline_thread_policy": {},
+            "loop_route_policy": {},
+            "loop_scope_id": "",
+            "title_template": "",
+            "legacy_contract_fields": {
+              "input_contract_id": "contract.user_request.basic",
+              "output_contract_id": "contract.writing.modular_novel.character_review",
+              "node_contract_id": "contract.writing.modular_novel.character_review"
+            }
+          }
+        },
+        {
           "node_id": "plot_design",
           "node_type": "agent_role",
           "title": "剧情与伏笔设计",
@@ -52515,7 +54158,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -52550,7 +54193,8 @@
                 "topics": [
                   "project_brief",
                   "world_commit_ref",
-                  "character_design_ref"
+                  "character_design_ref",
+                  "character_review_ref"
                 ],
                 "required_topics": [],
                 "forbidden_topics": [
@@ -52741,7 +54385,8 @@
             "topics": [
               "project_brief",
               "world_commit_ref",
-              "character_design_ref"
+              "character_design_ref",
+              "character_review_ref"
             ],
             "required_topics": [],
             "forbidden_topics": [
@@ -52841,7 +54486,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -52980,7 +54625,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -53015,6 +54660,7 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "conflict_ledger"
                 ],
@@ -53208,6 +54854,7 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
@@ -53310,7 +54957,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -53449,7 +55096,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -53492,6 +55139,7 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "project_brief"
@@ -53757,6 +55405,7 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "project_brief"
@@ -53867,7 +55516,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -54061,7 +55710,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -54150,6 +55799,7 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "outline_design_ref"
@@ -54426,6 +56076,7 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -54580,7 +56231,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -54776,7 +56427,7 @@
                 "enabled": true,
                 "required": true,
                 "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-                "subdir_template": "{session_id}",
+                "subdir_template": "{project_id}",
                 "source": "native_modular_writing_graph.node_spec",
                 "artifacts": [
                   {
@@ -54814,6 +56465,7 @@
                   "outline_review_ref",
                   "outline_design_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref"
                 ],
@@ -55158,6 +56810,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -55280,7 +56933,7 @@
             "enabled": true,
             "required": true,
             "default_artifact_root": "output/novel_artifacts/modular_novel/runs",
-            "subdir_template": "{session_id}",
+            "subdir_template": "{project_id}",
             "source": "native_modular_writing_graph.node_spec",
             "artifacts": [
               {
@@ -56253,9 +57906,9 @@
           }
         },
         {
-          "edge_id": "edge.character.plot",
+          "edge_id": "edge.character.review",
           "source_node_id": "character_design",
-          "target_node_id": "plot_design",
+          "target_node_id": "character_review",
           "edge_type": "structured_handoff",
           "a2a_message_type": "message/send",
           "payload_contract_id": "contract.writing.modular_novel.character_design",
@@ -56293,7 +57946,7 @@
             "context_mode": "refs_and_authorized_text",
             "source_output_key": "contract.writing.modular_novel.character_design:artifact_refs",
             "target_input_key": "上游交接包",
-            "usage_instruction": "把角色和关系候选交给剧情设计师。",
+            "usage_instruction": "把角色和关系候选交给人设审核员。",
             "max_chars": 30000
           },
           "working_memory_handoff_policy": {},
@@ -56306,7 +57959,7 @@
           "failure_policy": {},
           "metadata": {
             "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-            "handoff_summary": "把角色和关系候选交给剧情设计师。",
+            "handoff_summary": "把角色和关系候选交给人设审核员。",
             "packet_kind": "HandoffPacket",
             "input_alias": "上游交接包",
             "model_visible_label": "上游交接包",
@@ -56319,15 +57972,15 @@
           }
         },
         {
-          "edge_id": "edge.character.sync",
-          "source_node_id": "character_design",
-          "target_node_id": "design_sync",
+          "edge_id": "edge.character_review.plot",
+          "source_node_id": "character_review",
+          "target_node_id": "plot_design",
           "edge_type": "structured_handoff",
           "a2a_message_type": "message/send",
-          "payload_contract_id": "contract.writing.modular_novel.character_design",
+          "payload_contract_id": "contract.writing.modular_novel.character_review",
           "contract_bindings": {
             "schema": {
-              "payload_contract_id": "contract.writing.modular_novel.character_design"
+              "payload_contract_id": "contract.writing.modular_novel.character_review"
             },
             "handoff": {
               "ack_required": true,
@@ -56357,9 +58010,9 @@
             "required_for_long_outputs": true,
             "prefer_refs_over_text": false,
             "context_mode": "refs_and_authorized_text",
-            "source_output_key": "contract.writing.modular_novel.character_design:artifact_refs",
+            "source_output_key": "contract.writing.modular_novel.character_review:artifact_refs",
             "target_input_key": "上游交接包",
-            "usage_instruction": "把人设候选交给创作架构对齐节点。",
+            "usage_instruction": "把通过审核的人设与关系交给剧情设计师。",
             "max_chars": 30000
           },
           "working_memory_handoff_policy": {},
@@ -56372,7 +58025,7 @@
           "failure_policy": {},
           "metadata": {
             "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-            "handoff_summary": "把人设候选交给创作架构对齐节点。",
+            "handoff_summary": "把通过审核的人设与关系交给剧情设计师。",
             "packet_kind": "HandoffPacket",
             "input_alias": "上游交接包",
             "model_visible_label": "上游交接包",
@@ -56380,7 +58033,73 @@
             "on_missing": "block",
             "expand_strategy": "refs_and_authorized_text",
             "legacy_contract_fields": {
-              "payload_contract_id": "contract.writing.modular_novel.character_design"
+              "payload_contract_id": "contract.writing.modular_novel.character_review"
+            }
+          }
+        },
+        {
+          "edge_id": "edge.character.sync",
+          "source_node_id": "character_review",
+          "target_node_id": "design_sync",
+          "edge_type": "structured_handoff",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing.modular_novel.character_review",
+          "contract_bindings": {
+            "schema": {
+              "payload_contract_id": "contract.writing.modular_novel.character_review"
+            },
+            "handoff": {
+              "ack_required": true,
+              "ack_policy": "explicit_ack",
+              "timeout_policy": "fail_closed",
+              "failure_propagation_policy": "fail_downstream",
+              "result_delivery_policy": "contract_payload_and_refs",
+              "context_filter_policy": {
+                "mode": "explicit_refs_only",
+                "raw_dialogue_handoff": "forbidden"
+              }
+            },
+            "artifact": {
+              "artifact_ref_policy": {
+                "required_for_long_outputs": true,
+                "context_mode": "refs_and_authorized_text",
+                "target_input_key": "上游交接包",
+                "max_chars": 30000
+              }
+            }
+          },
+          "context_filter_policy": {
+            "mode": "explicit_refs_only",
+            "raw_dialogue_handoff": "forbidden"
+          },
+          "artifact_ref_policy": {
+            "required_for_long_outputs": true,
+            "prefer_refs_over_text": false,
+            "context_mode": "refs_and_authorized_text",
+            "source_output_key": "contract.writing.modular_novel.character_review:artifact_refs",
+            "target_input_key": "上游交接包",
+            "usage_instruction": "把通过审核的人设交给创作架构对齐节点。",
+            "max_chars": 30000
+          },
+          "working_memory_handoff_policy": {},
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+            "handoff_summary": "把通过审核的人设交给创作架构对齐节点。",
+            "packet_kind": "HandoffPacket",
+            "input_alias": "上游交接包",
+            "model_visible_label": "上游交接包",
+            "must_use": true,
+            "on_missing": "block",
+            "expand_strategy": "refs_and_authorized_text",
+            "legacy_contract_fields": {
+              "payload_contract_id": "contract.writing.modular_novel.character_review"
             }
           }
         },
@@ -57377,6 +59096,218 @@
           }
         },
         {
+          "edge_id": "edge.issue_commit.character_review",
+          "source_node_id": "character_review",
+          "target_node_id": "memory.writing.issue_ledger",
+          "edge_type": "memory_commit",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing.modular_novel.memory_packet",
+          "contract_bindings": {
+            "schema": {
+              "payload_contract_id": "contract.writing.modular_novel.memory_packet"
+            },
+            "handoff": {
+              "ack_required": true,
+              "ack_policy": "explicit_ack",
+              "timeout_policy": "fail_closed",
+              "failure_propagation_policy": "fail_downstream",
+              "result_delivery_policy": "contract_payload_and_refs"
+            },
+            "memory": {
+              "working_memory_handoff_policy": {
+                "operation": "commit",
+                "repository_node_id": "memory.writing.issue_ledger",
+                "collection": "issues",
+                "topics": [
+                  "world_commit_ref",
+                  "character_design_ref",
+                  "project_brief"
+                ],
+                "carry_kinds": [
+                  "world_commit_ref",
+                  "character_design_ref",
+                  "project_brief"
+                ],
+                "carry_scopes": [
+                  "writing_modular_novel",
+                  "issues"
+                ],
+                "model_visible_label": "问题台账"
+              },
+              "operation": "commit",
+              "repository_node_id": "memory.writing.issue_ledger",
+              "collection": "issues",
+              "topics": [
+                "world_commit_ref",
+                "character_design_ref",
+                "project_brief"
+              ],
+              "carry_kinds": [
+                "world_commit_ref",
+                "character_design_ref",
+                "project_brief"
+              ],
+              "carry_scopes": [
+                "writing_modular_novel",
+                "issues"
+              ],
+              "model_visible_label": "问题台账"
+            }
+          },
+          "context_filter_policy": {},
+          "artifact_ref_policy": {},
+          "working_memory_handoff_policy": {
+            "operation": "commit",
+            "repository_node_id": "memory.writing.issue_ledger",
+            "collection": "issues",
+            "topics": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "carry_kinds": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "carry_scopes": [
+              "writing_modular_novel",
+              "issues"
+            ],
+            "model_visible_label": "问题台账"
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+            "memory_edge_type": "commit",
+            "repository": "memory.writing.issue_ledger",
+            "collection": "issues",
+            "record_kinds": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "model_visible_label": "问题台账",
+            "usage_instruction": "读取或提交问题台账，必须按节点契约使用。",
+            "on_missing": "warn",
+            "legacy_contract_fields": {
+              "payload_contract_id": "contract.writing.modular_novel.memory_packet"
+            }
+          }
+        },
+        {
+          "edge_id": "edge.artifact_index.character_review",
+          "source_node_id": "character_review",
+          "target_node_id": "memory.writing.artifact_index",
+          "edge_type": "memory_commit",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing.modular_novel.memory_packet",
+          "contract_bindings": {
+            "schema": {
+              "payload_contract_id": "contract.writing.modular_novel.memory_packet"
+            },
+            "handoff": {
+              "ack_required": true,
+              "ack_policy": "explicit_ack",
+              "timeout_policy": "fail_closed",
+              "failure_propagation_policy": "fail_downstream",
+              "result_delivery_policy": "contract_payload_and_refs"
+            },
+            "memory": {
+              "working_memory_handoff_policy": {
+                "operation": "commit",
+                "repository_node_id": "memory.writing.artifact_index",
+                "collection": "artifact_refs",
+                "topics": [
+                  "world_commit_ref",
+                  "character_design_ref",
+                  "project_brief"
+                ],
+                "carry_kinds": [
+                  "world_commit_ref",
+                  "character_design_ref",
+                  "project_brief"
+                ],
+                "carry_scopes": [
+                  "writing_modular_novel",
+                  "artifact_refs"
+                ],
+                "model_visible_label": "产物索引"
+              },
+              "operation": "commit",
+              "repository_node_id": "memory.writing.artifact_index",
+              "collection": "artifact_refs",
+              "topics": [
+                "world_commit_ref",
+                "character_design_ref",
+                "project_brief"
+              ],
+              "carry_kinds": [
+                "world_commit_ref",
+                "character_design_ref",
+                "project_brief"
+              ],
+              "carry_scopes": [
+                "writing_modular_novel",
+                "artifact_refs"
+              ],
+              "model_visible_label": "产物索引"
+            }
+          },
+          "context_filter_policy": {},
+          "artifact_ref_policy": {},
+          "working_memory_handoff_policy": {
+            "operation": "commit",
+            "repository_node_id": "memory.writing.artifact_index",
+            "collection": "artifact_refs",
+            "topics": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "carry_kinds": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "carry_scopes": [
+              "writing_modular_novel",
+              "artifact_refs"
+            ],
+            "model_visible_label": "产物索引"
+          },
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+            "memory_edge_type": "commit",
+            "repository": "memory.writing.artifact_index",
+            "collection": "artifact_refs",
+            "record_kinds": [
+              "world_commit_ref",
+              "character_design_ref",
+              "project_brief"
+            ],
+            "model_visible_label": "产物索引",
+            "usage_instruction": "读取或提交产物索引，必须按节点契约使用。",
+            "on_missing": "warn",
+            "legacy_contract_fields": {
+              "payload_contract_id": "contract.writing.modular_novel.memory_packet"
+            }
+          }
+        },
+        {
           "edge_id": "edge.artifact_index.plot_design",
           "source_node_id": "plot_design",
           "target_node_id": "memory.writing.artifact_index",
@@ -57402,12 +59333,14 @@
                 "topics": [
                   "project_brief",
                   "world_commit_ref",
-                  "character_design_ref"
+                  "character_design_ref",
+                  "character_review_ref"
                 ],
                 "carry_kinds": [
                   "project_brief",
                   "world_commit_ref",
-                  "character_design_ref"
+                  "character_design_ref",
+                  "character_review_ref"
                 ],
                 "carry_scopes": [
                   "writing_modular_novel",
@@ -57421,12 +59354,14 @@
               "topics": [
                 "project_brief",
                 "world_commit_ref",
-                "character_design_ref"
+                "character_design_ref",
+                "character_review_ref"
               ],
               "carry_kinds": [
                 "project_brief",
                 "world_commit_ref",
-                "character_design_ref"
+                "character_design_ref",
+                "character_review_ref"
               ],
               "carry_scopes": [
                 "writing_modular_novel",
@@ -57444,12 +59379,14 @@
             "topics": [
               "project_brief",
               "world_commit_ref",
-              "character_design_ref"
+              "character_design_ref",
+              "character_review_ref"
             ],
             "carry_kinds": [
               "project_brief",
               "world_commit_ref",
-              "character_design_ref"
+              "character_design_ref",
+              "character_review_ref"
             ],
             "carry_scopes": [
               "writing_modular_novel",
@@ -57472,7 +59409,8 @@
             "record_kinds": [
               "project_brief",
               "world_commit_ref",
-              "character_design_ref"
+              "character_design_ref",
+              "character_review_ref"
             ],
             "model_visible_label": "产物索引",
             "usage_instruction": "读取或提交产物索引，必须按节点契约使用。",
@@ -57508,12 +59446,14 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "conflict_ledger"
                 ],
                 "carry_kinds": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "conflict_ledger"
                 ],
@@ -57529,12 +59469,14 @@
               "topics": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "conflict_ledger"
               ],
               "carry_kinds": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "conflict_ledger"
               ],
@@ -57554,12 +59496,14 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
             "carry_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
@@ -57584,6 +59528,7 @@
             "record_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
@@ -57621,12 +59566,14 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "conflict_ledger"
                 ],
                 "carry_kinds": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "conflict_ledger"
                 ],
@@ -57642,12 +59589,14 @@
               "topics": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "conflict_ledger"
               ],
               "carry_kinds": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "conflict_ledger"
               ],
@@ -57667,12 +59616,14 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
             "carry_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
@@ -57697,6 +59648,7 @@
             "record_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "conflict_ledger"
             ],
@@ -57734,6 +59686,7 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "project_brief"
@@ -57741,6 +59694,7 @@
                 "carry_kinds": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "project_brief"
@@ -57757,6 +59711,7 @@
               "topics": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref",
                 "project_brief"
@@ -57764,6 +59719,7 @@
               "carry_kinds": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref",
                 "project_brief"
@@ -57784,6 +59740,7 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "project_brief"
@@ -57791,6 +59748,7 @@
             "carry_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "project_brief"
@@ -57816,6 +59774,7 @@
             "record_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "project_brief"
@@ -57854,6 +59813,7 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "outline_design_ref"
@@ -57861,6 +59821,7 @@
                 "carry_kinds": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "outline_design_ref"
@@ -57877,6 +59838,7 @@
               "topics": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref",
                 "outline_design_ref"
@@ -57884,6 +59846,7 @@
               "carry_kinds": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref",
                 "outline_design_ref"
@@ -57904,6 +59867,7 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -57911,6 +59875,7 @@
             "carry_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -57936,6 +59901,7 @@
             "record_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -57974,6 +59940,7 @@
                 "topics": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "outline_design_ref"
@@ -57981,6 +59948,7 @@
                 "carry_kinds": [
                   "world_commit_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref",
                   "outline_design_ref"
@@ -57997,6 +59965,7 @@
               "topics": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref",
                 "outline_design_ref"
@@ -58004,6 +59973,7 @@
               "carry_kinds": [
                 "world_commit_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref",
                 "outline_design_ref"
@@ -58024,6 +59994,7 @@
             "topics": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -58031,6 +60002,7 @@
             "carry_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -58056,6 +60028,7 @@
             "record_kinds": [
               "world_commit_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref",
               "outline_design_ref"
@@ -58097,6 +60070,7 @@
                   "outline_review_ref",
                   "outline_design_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref"
                 ],
@@ -58106,6 +60080,7 @@
                   "outline_review_ref",
                   "outline_design_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref"
                 ],
@@ -58124,6 +60099,7 @@
                 "outline_review_ref",
                 "outline_design_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref"
               ],
@@ -58133,6 +60109,7 @@
                 "outline_review_ref",
                 "outline_design_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref"
               ],
@@ -58155,6 +60132,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -58164,6 +60142,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -58191,6 +60170,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -58231,6 +60211,7 @@
                   "outline_review_ref",
                   "outline_design_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref"
                 ],
@@ -58240,6 +60221,7 @@
                   "outline_review_ref",
                   "outline_design_ref",
                   "character_design_ref",
+                  "character_review_ref",
                   "plot_design_ref",
                   "design_sync_ref"
                 ],
@@ -58258,6 +60240,7 @@
                 "outline_review_ref",
                 "outline_design_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref"
               ],
@@ -58267,6 +60250,7 @@
                 "outline_review_ref",
                 "outline_design_ref",
                 "character_design_ref",
+                "character_review_ref",
                 "plot_design_ref",
                 "design_sync_ref"
               ],
@@ -58289,6 +60273,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -58298,6 +60283,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -58325,6 +60311,7 @@
               "outline_review_ref",
               "outline_design_ref",
               "character_design_ref",
+              "character_review_ref",
               "plot_design_ref",
               "design_sync_ref"
             ],
@@ -58403,6 +60390,72 @@
           }
         },
         {
+          "edge_id": "edge.revision.character_review.character_design",
+          "source_node_id": "character_review",
+          "target_node_id": "character_design",
+          "edge_type": "revision_request",
+          "a2a_message_type": "message/send",
+          "payload_contract_id": "contract.writing.modular_novel.character_review",
+          "contract_bindings": {
+            "schema": {
+              "payload_contract_id": "contract.writing.modular_novel.character_review"
+            },
+            "handoff": {
+              "ack_required": true,
+              "ack_policy": "explicit_ack",
+              "timeout_policy": "fail_closed",
+              "failure_propagation_policy": "fail_downstream",
+              "result_delivery_policy": "contract_payload_and_refs"
+            },
+            "artifact": {
+              "artifact_ref_policy": {
+                "required_for_long_outputs": true,
+                "context_mode": "refs_and_authorized_text",
+                "target_input_key": "返修交接包",
+                "max_chars": 30000
+              }
+            }
+          },
+          "context_filter_policy": {},
+          "artifact_ref_policy": {
+            "required_for_long_outputs": true,
+            "context_mode": "refs_and_authorized_text",
+            "target_input_key": "返修交接包",
+            "max_chars": 30000
+          },
+          "working_memory_handoff_policy": {},
+          "ack_policy": "explicit_ack",
+          "timeout_policy": "fail_closed",
+          "wait_policy": "",
+          "ack_required": true,
+          "failure_propagation_policy": "fail_downstream",
+          "result_delivery_policy": "contract_payload_and_refs",
+          "failure_policy": {},
+          "metadata": {
+            "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+            "dependency_role": "repair_feedback",
+            "trigger": {
+              "verdict": "revise"
+            },
+            "carry": [
+              {
+                "input_key": "返修交接包",
+                "source": "current_review"
+              },
+              {
+                "input_key": "previous_candidate_ref",
+                "source": "inherited_input",
+                "from_key": "上游交接包"
+              }
+            ],
+            "clear_input_keys": [],
+            "model_visible_label": "返修交接包",
+            "legacy_contract_fields": {
+              "payload_contract_id": "contract.writing.modular_novel.character_review"
+            }
+          }
+        },
+        {
           "edge_id": "edge.revision.outline_review.outline_design",
           "source_node_id": "outline_review",
           "target_node_id": "outline_design",
@@ -58477,6 +60530,7 @@
         "task.writing.modular_novel.node.world_review",
         "task.writing.modular_novel.node.memory_commit_world",
         "task.writing.modular_novel.node.character_design",
+        "task.writing.modular_novel.node.character_review",
         "task.writing.modular_novel.node.plot_design",
         "task.writing.modular_novel.node.design_sync",
         "task.writing.modular_novel.node.outline_design",

@@ -84,7 +84,7 @@ def _collect_evidence(
     explicit_dataset = _DATASET_PATH_RE.search(text) is not None
     # "这份 PDF/报告" is a deictic continuation, not an explicit new target.
     explicit_pdf = _PDF_PATH_RE.search(text) is not None or _contains_any(lowered, ("打开 .pdf",))
-    page_or_section = bool(re.search(r"(第\s*[零一二三四五六七八九十百千两\d]+\s*(?:页|部分|章|节)|page\s*\d+)", text, re.I))
+    page_or_section = _looks_like_document_page_or_section(text)
     dataset_profile = profiles.get("dataset") or _empty_profile("dataset")
     pdf_profile = profiles.get("pdf") or _empty_profile("pdf")
     knowledge_profile = profiles.get("knowledge") or _empty_profile("knowledge")
@@ -252,6 +252,49 @@ def _execution_strategy_candidates(evidence: dict[str, Any]) -> list[str]:
 
 def _contains_any(text: str, markers: tuple[str, ...]) -> bool:
     return any(marker in text for marker in markers)
+
+
+def _looks_like_document_page_or_section(text: str) -> bool:
+    normalized = str(text or "")
+    if re.search(r"page\s*\d+", normalized, re.I):
+        return True
+    if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:页|部分)", normalized):
+        return True
+    if not re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:章|节)", normalized):
+        return False
+    lowered = normalized.lower()
+    document_markers = (
+        "pdf",
+        ".pdf",
+        "报告",
+        "白皮书",
+        "文档",
+        "文件",
+        "材料",
+        "这份",
+        "这个pdf",
+        "这个 pdf",
+        "阅读",
+        "抽取",
+        "页码",
+        "目录",
+    )
+    creative_writing_markers = (
+        "小说",
+        "网文",
+        "写作",
+        "章节",
+        "正文",
+        "细纲",
+        "大纲",
+        "卷",
+        "章至",
+        "第1章",
+        "第 1 章",
+    )
+    return any(marker in lowered for marker in document_markers) and not any(
+        marker in lowered for marker in creative_writing_markers
+    )
 
 
 def _context_candidates_reference_work_object(candidates: list[dict[str, Any]]) -> bool:

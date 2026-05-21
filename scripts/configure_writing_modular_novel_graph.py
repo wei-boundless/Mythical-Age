@@ -14,6 +14,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from orchestration.agent_registry import AgentRegistry
 from orchestration.agent_runtime_registry import AgentRuntimeRegistry
+from orchestration.model_profile_models import AgentModelProfile, parse_agent_model_profile
 from tasks.contract_definition_models import AcceptanceRule, ArtifactRequirement, ContractField, ContractSpec
 from tasks.contract_registry import TaskContractRegistry
 from tasks.flow_registry import TaskFlowRegistry
@@ -372,6 +373,27 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         ),
     ),
     NodeSpec(
+        node_id="character_review",
+        title="人设与关系审核",
+        node_type="review_gate",
+        role="reviewer",
+        projection_id="projection.writing.modular_novel.character_reviewer",
+        phase_id="phase.modular.design_init.design",
+        sequence_index=55,
+        output_contract_id="contract.writing.modular_novel.character_review",
+        required_inputs=("上游交接包",),
+        memory_topics=("world_commit_ref", "character_design_ref", "project_brief"),
+        artifact_paths=("design/character_review_round_{round_index:03d}.md",),
+        review_revision_stage_id="character_design",
+        write_mode="review_and_issue_ledger",
+        prompt=_role_prompt(
+            "你是一名名家级中文商业网文人设审核员。你只负责审核角色与关系设计是否足够专业、可写、可信，能否进入后续剧情与全书细纲阶段。",
+            "你需要检查核心视角人物、关键关系人物、对抗角色、合作角色、守护者、盟友和群体关系是否都从已冻结世界观中长出来，是否存在身份空泛、动机虚弱、关系功能化、角色之间缺少压力链的问题。",
+            "你要以头部商业网文标准裁决：主角欲望是否明确，角色弧线是否能持续推进，关系网络是否能制造误会、合作、冲突、亏欠、反转和情绪回报，角色设定是否会污染世界边界或偷塞未冻结类型模板。",
+            "你不能替设计师补写角色正文，也不能把自己的补充设定写成事实。裁决只能是通过、带备注通过、返修或拒绝；未通过时必须明确指出返修范围和影响到的下游节点。",
+        ),
+    ),
+    NodeSpec(
         node_id="plot_design",
         title="剧情与伏笔设计",
         node_type="agent_role",
@@ -381,7 +403,7 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         sequence_index=60,
         output_contract_id="contract.writing.modular_novel.plot_design",
         required_inputs=("上游交接包",),
-        memory_topics=("project_brief", "world_commit_ref", "character_design_ref"),
+        memory_topics=("project_brief", "world_commit_ref", "character_design_ref", "character_review_ref"),
         artifact_paths=("design/plot_design_round_{round_index:03d}.md",),
         prompt=_role_prompt(
             "你是一名名家级中文商业网文剧情与伏笔设计师。你只负责根据世界观提交和人设候选设计主线推进、阶段冲突、对抗压力、秘密揭示节奏、伏笔链和长期悬念。",
@@ -401,7 +423,7 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         sequence_index=70,
         output_contract_id="contract.writing.modular_novel.design_alignment",
         required_inputs=("上游交接包",),
-        memory_topics=("world_commit_ref", "character_design_ref", "plot_design_ref", "conflict_ledger"),
+        memory_topics=("world_commit_ref", "character_design_ref", "character_review_ref", "plot_design_ref", "conflict_ledger"),
         artifact_paths=("design/design_alignment_round_{round_index:03d}.md",),
         write_mode="review_and_issue_ledger",
         prompt=_role_prompt(
@@ -422,7 +444,7 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         sequence_index=80,
         output_contract_id="contract.writing.modular_novel.outline_design",
         required_inputs=("上游交接包",),
-        memory_topics=("world_commit_ref", "character_design_ref", "plot_design_ref", "design_sync_ref", "project_brief"),
+        memory_topics=("world_commit_ref", "character_design_ref", "character_review_ref", "plot_design_ref", "design_sync_ref", "project_brief"),
         artifact_paths=("outline/outline_design_round_{round_index:03d}.md",),
         prompt=_role_prompt(
             "你是一名名家级中文商业网文全书细纲设计师。你只负责把已提交世界观、人设候选、剧情候选和对齐包汇总成可执行的长篇细纲。",
@@ -441,7 +463,7 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         sequence_index=90,
         output_contract_id="contract.writing.modular_novel.outline_review",
         required_inputs=("上游交接包",),
-        memory_topics=("world_commit_ref", "character_design_ref", "plot_design_ref", "design_sync_ref", "outline_design_ref"),
+        memory_topics=("world_commit_ref", "character_design_ref", "character_review_ref", "plot_design_ref", "design_sync_ref", "outline_design_ref"),
         artifact_paths=("outline/outline_review_round_{round_index:03d}.md",),
         review_revision_stage_id="outline_design",
         write_mode="review_and_issue_ledger",
@@ -463,7 +485,7 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         sequence_index=100,
         output_contract_id="contract.writing.modular_novel.baseline_commit",
         required_inputs=("上游交接包",),
-        memory_topics=("project_brief", "world_commit_ref", "outline_review_ref", "outline_design_ref", "character_design_ref", "plot_design_ref", "design_sync_ref"),
+        memory_topics=("project_brief", "world_commit_ref", "outline_review_ref", "outline_design_ref", "character_design_ref", "character_review_ref", "plot_design_ref", "design_sync_ref"),
         artifact_paths=("memory/baseline/baseline_commit_round_{round_index:03d}.md",),
         write_mode="baseline_commit",
         prompt=_role_prompt(
@@ -517,9 +539,10 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         title_template="{batch_label}章节批次细纲",
         prompt=_role_prompt(
             "你是一名名家级中文商业网文章节批次细纲师。你只负责当前运行时批次允许的十章细纲。",
-            "你的细纲要达到头部连载作品的生产标准：每一章都有读者承诺、人物欲望、场景目标、阻碍压力、局势转折、情绪兑现、信息释放、代价余波和章末牵引；每一批十章还要形成小高潮、小回收和新的追读压力。",
-            "你必须读取基准库、当前卷计划、上一批提交摘要和动态连续性记录，为写手给出逐章目标、场景顺序、冲突升级、角色状态变化、资源或线索流转、伏笔布设与回收、信息揭示、爽点兑现、章末牵引、前后文承接点和禁改边界。",
-            "每章细纲都要能直接指导名家级正文创作，并给出这一章最适合的阅读情绪、商业爽点和追读钩子，但不能替写手写成完整正文。若发现上游计划不足以支撑当前批次，必须提出返修或风险说明，不能用临时设定硬补。",
+            "你的细纲必须是专业中文网文的小说细纲，不是分镜表、舞台说明、场景清单或人物走位表。你要写的是章内叙事推进：起势、推进、碰撞、反应、回收、余韵和章末钩子，而不是把一章拆成镜头化条目。",
+            "你的细纲要达到头部连载作品的生产标准：每一章都有当章目标、人物欲望、冲突压力、情节转折、信息释放、情绪兑现、代价余波和追读牵引；每一批十章还要形成小高潮、小回收和新的压力源。你必须让读者能看见这一批章为什么要这样走，而不是只看到场景编号。",
+            "你必须读取基准库、当前卷计划、上一批提交摘要和动态连续性记录，为写手给出逐章叙事目标、关键冲突、角色状态变化、资源或线索流转、伏笔布设与回收、信息揭示、爽点兑现、章末牵引、前后文承接点和禁改边界。表达方式要像资深中文网文编辑在交付可写的章纲，而不是像舞台剧导演在分配调度。",
+            "每章细纲都要能直接指导名家级正文创作，并明确这一章的叙事重心、阅读情绪、商业爽点和追读钩子，但不能替写手写成完整正文，也不能把细纲写成报表。若发现上游计划不足以支撑当前批次，必须提出返修或风险说明，不能用临时设定硬补。",
         ),
     ),
     NodeSpec(
@@ -562,9 +585,10 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         },
         prompt=_role_prompt(
             "你是一名名家级中文商业网文长篇写手。你只负责当前运行时批次允许的十章正文创作。",
-            "你的正文目标是头部中文商业网文的连载质感：语言自然、有现场感和节奏弹性，叙述像有经验的人类作者在调度场景、人物和信息；人物有清晰欲望、当下情绪、关系立场和选择压力，冲突通过行动、对话、试探、代价和后果推进。",
+            "你的正文目标是头部中文商业网文的连载质感：语言自然、有现场感和节奏弹性，叙述像有经验的人类作者在铺陈情势、递进冲突和安放伏笔；人物有清晰欲望、当下情绪、关系立场和选择压力，冲突通过行动、对话、试探、代价和后果推进。",
             "你可以学习名家级网文作品在节奏、场景张力、人物欲望、爽点兑现、情绪回报和章末牵引上的共性能力，但不能复刻任何具体作者的可识别文风、句式、口癖、桥段模板或专属设定。",
-            "每个场景都要有目标、阻碍、转折和结果；设定信息要融入场景、利益争夺、人物判断、物件细节和环境反馈里释放。对白要承担关系变化、信息交换、压迫试探或情绪爆发，内心活动要服务选择和行动。",
+            "你的文风要走中文网文里古朴大气、又不失细腻的路子：叙述要娓娓道来，句子要有呼吸感，画面要清楚但不堆砌术语，语言要质朴而有余味，情绪要落在人物动作、神情、语气和环境反馈里。避免说明腔、流水账、AI腔和机械化列项，也避免过度华丽、过度抒情或舞台台词化。",
+            "每个场景都要有目标、阻碍、转折和结果；设定信息要融入动作、对话、观察、利益争夺、人物判断、物件细节和环境反馈里释放。对白要承担关系变化、信息交换、压迫试探或情绪爆发，内心活动要服务选择和行动，不要写成旁白讲解。",
             "每章都要服务商业连载阅读体验：开局有承接和当章目标，中段有阻碍、反应和推进，结尾形成自然的章末牵引，留下新的压力、期待、反转、奖励或疑问。爽点要以铺垫、触发、出手、代价、反馈和余波形成兑现，来源可以是角色选择、实力变化、身份反差、资源获得、局势翻盘或认知揭示。",
             "你必须读取基准库完整设定、动态记忆库承接信息、当前卷计划和当前批次细纲。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以运行时批次边界为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。",
         ),
@@ -591,7 +615,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
         write_mode="review_and_issue_ledger",
         prompt=_role_prompt(
             "你是一名名家级中文商业网文章节总审。你只负责审核当前十章正文是否满足批次细纲、基准设定、连续性、正文量、角色推进、场景完成度、商业节奏和伏笔推进要求。",
-            "你需要以头部连载作品的阅读体验做裁决：章节开局是否承接有力，当章目标是否明确，场景是否有画面、行动、阻碍和转折，人物是否有欲望、压力、立场和选择，设定是否通过情境自然释放，爽点是否完成铺垫和兑现，章末是否形成下一章追读牵引。",
+            "你需要以头部连载作品的阅读体验做裁决：章节开局是否承接有力，当章目标是否明确，叙事是否像小说而不是说明书，场景是否有画面、行动、阻碍和转折，人物是否有欲望、压力、立场和选择，设定是否通过情境自然释放，爽点是否完成铺垫和兑现，章末是否形成下一章追读牵引。",
             "你还需要像资深责编一样检查世界规则、角色动机、前后文承接、伏笔状态、批次目标、字数规模、语言自然度、情绪回报和商业卖点是否真实达标。问题必须定位到章节、场景和影响范围。",
             "你不能替写手补写正文。你必须给出通过、带备注通过、返修或拒绝裁决，并把连续性问题、风格目标差距和返修要求登记清楚。",
         ),
@@ -885,8 +909,9 @@ DESIGN_BUSINESS_EDGES = (
     ("edge.world_review.commit", "world_review", "memory_commit_world", "contract.writing.modular_novel.world_review", "把世界观审核结果交给基准记忆管理员。"),
     ("edge.world_commit.character_design", "memory_commit_world", "character_design", "contract.writing.modular_novel.world_commit", "把已提交世界观交给人设与关系设计师。"),
     ("edge.world_commit.plot_design", "memory_commit_world", "plot_design", "contract.writing.modular_novel.world_commit", "把已提交世界观交给剧情与伏笔设计师。"),
-    ("edge.character.plot", "character_design", "plot_design", "contract.writing.modular_novel.character_design", "把角色和关系候选交给剧情设计师。"),
-    ("edge.character.sync", "character_design", "design_sync", "contract.writing.modular_novel.character_design", "把人设候选交给创作架构对齐节点。"),
+    ("edge.character.review", "character_design", "character_review", "contract.writing.modular_novel.character_design", "把角色和关系候选交给人设审核员。"),
+    ("edge.character_review.plot", "character_review", "plot_design", "contract.writing.modular_novel.character_review", "把通过审核的人设与关系交给剧情设计师。"),
+    ("edge.character.sync", "character_review", "design_sync", "contract.writing.modular_novel.character_review", "把通过审核的人设交给创作架构对齐节点。"),
     ("edge.plot.sync", "plot_design", "design_sync", "contract.writing.modular_novel.plot_design", "把剧情与伏笔候选交给创作架构对齐节点。"),
     ("edge.sync.outline", "design_sync", "outline_design", "contract.writing.modular_novel.design_alignment", "把对齐包交给全书细纲设计师。"),
     ("edge.outline.review", "outline_design", "outline_review", "contract.writing.modular_novel.outline_design", "把全书细纲交给细纲审核员。"),
@@ -1029,6 +1054,28 @@ def _upsert_agents(backend_dir: Path) -> None:
         ),
     ):
         current = runtime_registry.get_profile(agent_id)
+        current_model_profile = getattr(current, "model_profile", None)
+        writing_model_profile = parse_agent_model_profile(
+            current_model_profile.to_dict() if current_model_profile is not None else {}
+        )
+        writing_model_profile = AgentModelProfile(
+            profile_id=writing_model_profile.profile_id,
+            display_name=writing_model_profile.display_name,
+            provider=writing_model_profile.provider,
+            model=writing_model_profile.model,
+            credential_ref=writing_model_profile.credential_ref,
+            max_output_tokens=max(int(writing_model_profile.max_output_tokens or 0), 32768),
+            timeout_seconds=max(float(writing_model_profile.timeout_seconds or 0), 180.0),
+            long_output_timeout_seconds=max(float(writing_model_profile.long_output_timeout_seconds or 0), 600.0),
+            max_retries=max(int(writing_model_profile.max_retries or 0), 2),
+            temperature=writing_model_profile.temperature,
+            thinking_mode=writing_model_profile.thinking_mode,
+            reasoning_effort=writing_model_profile.reasoning_effort,
+            stream_policy=dict(writing_model_profile.stream_policy),
+            fallback_profile_ref=writing_model_profile.fallback_profile_ref,
+            capability_tags=tuple(writing_model_profile.capability_tags),
+            metadata=dict(writing_model_profile.metadata),
+        )
         runtime_registry.upsert_profile(
             agent_id=agent_id,
             agent_profile_id=str(getattr(current, "agent_profile_id", "") or f"{agent_id.removeprefix('agent:')}_runtime"),
@@ -1057,7 +1104,7 @@ def _upsert_agents(backend_dir: Path) -> None:
             approval_policy="read_only_first",
             trace_policy="runtime_event_log",
             lifecycle_policy="task_graph_managed",
-            model_profile=(getattr(current, "model_profile", None).to_dict() if current is not None else {}),
+            model_profile=writing_model_profile.to_dict(),
             metadata={
                 "managed_by": MANAGED_BY,
                 "task_family": TASK_FAMILY,

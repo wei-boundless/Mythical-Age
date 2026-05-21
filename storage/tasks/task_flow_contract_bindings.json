@@ -114,6 +114,19 @@
       "authority": "task_system.task_flow_contract_binding"
     },
     {
+      "binding_id": "taskflowbind:task.writing.modular_novel.node.character_review",
+      "task_id": "task.writing.modular_novel.node.character_review",
+      "flow_contract_id": "flow.writing.modular_novel.node.character_review",
+      "override_policy": "task_default",
+      "verification_gate_profile": "",
+      "fallback_policy": "fail_closed",
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "character_review"
+      },
+      "authority": "task_system.task_flow_contract_binding"
+    },
+    {
       "binding_id": "taskflowbind:task.writing.modular_novel.node.plot_design",
       "task_id": "task.writing.modular_novel.node.plot_design",
       "flow_contract_id": "flow.writing.modular_novel.node.plot_design",

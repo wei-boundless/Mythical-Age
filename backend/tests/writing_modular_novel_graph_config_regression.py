@@ -374,11 +374,13 @@ def test_modular_writing_profiles_use_text_artifact_runtime_boundary(tmp_path: P
 
     runtime_registry = AgentRuntimeRegistry(base_dir)
     worker = runtime_registry.get_profile("agent:writing_modular_worker")
+    creator = runtime_registry.get_profile("agent:writing_modular_creator")
     memory = runtime_registry.get_profile("agent:writing_modular_memory_steward")
 
     assert worker is not None
+    assert creator is not None
     assert memory is not None
-    for profile in (worker, memory):
+    for profile in (worker, creator, memory):
         metadata = profile.metadata
         assert metadata["agent_mode"] == "text_artifact_worker"
         assert metadata["runtime_mode"] == "text_artifact_runtime"
@@ -393,6 +395,9 @@ def test_modular_writing_profiles_use_text_artifact_runtime_boundary(tmp_path: P
         assert "op.read_file" in profile.blocked_operations
         assert "op.search_text" in profile.blocked_operations
         assert "op.search_files" in profile.blocked_operations
+        assert profile.model_profile.timeout_seconds >= 180.0
+        assert profile.model_profile.long_output_timeout_seconds >= 600.0
+        assert profile.model_profile.max_output_tokens >= 32768
 
 
 def test_writing_runtime_spec_excludes_memory_repositories_from_execution_nodes(tmp_path: Path) -> None:

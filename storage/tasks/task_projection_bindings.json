@@ -133,6 +133,22 @@
       "authority": "task_system.task_projection_binding"
     },
     {
+      "binding_id": "taskprojbind:task.writing.modular_novel.node.character_review",
+      "task_id": "task.writing.modular_novel.node.character_review",
+      "projection_selection_mode": "fixed_projection",
+      "allowed_projection_ids": [
+        "projection.writing.modular_novel.character_reviewer"
+      ],
+      "default_projection_id": "projection.writing.modular_novel.character_reviewer",
+      "projection_required": true,
+      "notes": "模块化写作任务图原生配置生成。",
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "character_review"
+      },
+      "authority": "task_system.task_projection_binding"
+    },
+    {
       "binding_id": "taskprojbind:task.writing.modular_novel.node.plot_design",
       "task_id": "task.writing.modular_novel.node.plot_design",
       "projection_selection_mode": "fixed_projection",

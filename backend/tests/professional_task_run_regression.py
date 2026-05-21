@@ -231,6 +231,8 @@ class _TriageModelRuntimeStub:
 
     async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
         self.tool_enabled_calls += 1
+        if not list(tools or []):
+            return SimpleNamespace(content="规划：继续在同一个目标目录内完成验证。")
         tool_text = "\n".join(
             str(getattr(item, "content", "") or "")
             for item in list(messages or [])
@@ -380,6 +382,74 @@ class _SandboxTerminalModelRuntimeStub:
         )
 
 
+class _SandboxContinuationModelRuntimeStub:
+    def __init__(self) -> None:
+        self.tool_enabled_calls = 0
+        self.seen_readback = False
+        self.finalized_first_write = False
+
+    async def invoke_messages(self, messages, **_kwargs):
+        return await self.invoke_messages_with_tools(messages, [])
+
+    async def invoke_messages_with_tools(self, messages, tools, **_kwargs):
+        self.tool_enabled_calls += 1
+        tool_text = "\n".join(
+            str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+            if item.__class__.__name__ == "ToolMessage"
+        )
+        user_text = "\n".join(
+            str(item.get("content") or "") if isinstance(item, dict) else str(getattr(item, "content", "") or "")
+            for item in list(messages or [])
+        )
+        tool_names = {str(getattr(tool, "name", "") or "") for tool in list(tools or [])}
+        is_continuation = "读回" in user_text or "继续验收" in user_text
+        self.seen_readback = self.seen_readback or "first-pass" in tool_text
+        if (is_continuation or self.finalized_first_write) and not self.seen_readback and "read_file" in tool_names:
+            return AIMessage(
+                content="我先读回上一轮文件。",
+                tool_calls=[
+                    {
+                        "id": "call-read-continuation-game",
+                        "name": "read_file",
+                        "args": {"path": "frontend/public/games/arcane_dungeon_studio/game.js"},
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        if self.seen_readback:
+            return SimpleNamespace(
+                content=(
+                    "验证：sandbox continuation 已完成。"
+                    "changed files：frontend/public/games/arcane_dungeon_studio/game.js。"
+                    "限制：仅验证同目录续跑。"
+                )
+            )
+        if "Write succeeded" in tool_text:
+            self.finalized_first_write = True
+            return SimpleNamespace(
+                content=(
+                    "验证：sandbox continuation 第一轮写入完成。"
+                    "changed files：frontend/public/games/arcane_dungeon_studio/game.js。"
+                )
+            )
+        assert "write_file" in tool_names
+        return AIMessage(
+            content="我先写入第一轮文件。",
+            tool_calls=[
+                {
+                    "id": "call-write-continuation-game",
+                    "name": "write_file",
+                    "args": {
+                        "path": "frontend/public/games/arcane_dungeon_studio/game.js",
+                        "content": "const marker = 'first-pass';",
+                    },
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
 class _WriteAfterReadModelRuntimeStub:
     def __init__(self) -> None:
         self.tool_enabled_calls = 0
@@ -493,19 +563,6 @@ class _TerminalBeforeEditModelRuntimeStub:
                         "id": "call-run-order-pipeline-pytest",
                         "name": "terminal",
                         "args": {"command": "python -c \"from backend.order_pipeline import total; assert total([1, 2]) == 3; print('PYTEST_OK')\""},
-                        "type": "tool_call",
-                    }
-                ],
-            )
-        if self.seen_code and not self.blocked_terminal_attempted:
-            assert tool_names == ["edit_file"]
-            return AIMessage(
-                content="我想先跑测试确认失败。",
-                tool_calls=[
-                    {
-                        "id": "call-terminal-before-edit",
-                        "name": "terminal",
-                        "args": {"command": "python -m pytest backend/order_pipeline.py"},
                         "type": "tool_call",
                     }
                 ],
@@ -1234,6 +1291,60 @@ def test_professional_task_sandbox_runs_terminal_inside_overlay_workspace() -> N
     assert done["terminal_reason"] == "completed"
 
 
+def test_professional_task_reuses_sandbox_for_same_session_output_scope() -> None:
+    backend_root = _isolated_backend_root()
+    model_runtime = _SandboxContinuationModelRuntimeStub()
+    runtime = _runtime(
+        base_dir=backend_root,
+        model_runtime=model_runtime,
+        tool_runtime=_ToolRuntimeWithSideEffectsStub(backend_root),
+    )
+    session_id = "session-professional-sandbox-continuation"
+    target_message = (
+        "请用专业模式在 sandbox overlay 中完成浏览器小游戏工程，目录必须是 "
+        "frontend/public/games/arcane_dungeon_studio/。必须写入 game.js。"
+    )
+
+    _, first_events, first_done, _first_task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id=session_id,
+            message=target_message,
+            task_selection=_professional_task_selection(semantic_task_type="artifact_delivery"),
+        )
+    )
+    _, second_events, second_done, _second_task_run_id = asyncio.run(
+        _collect_runtime_events(
+            runtime,
+            session_id=session_id,
+            message="继续验收这个小游戏工程，请读回 game.js 确认上一轮写入内容。",
+            task_selection=_professional_task_selection(semantic_task_type="artifact_delivery"),
+        )
+    )
+    first_sandbox = Path(
+        str(
+            dict(dict(_latest_event(first_events, "runtime_sandbox_prepared").get("payload") or {}).get("sandbox_policy") or {}).get(
+                "sandbox_root"
+            )
+            or ""
+        )
+    )
+    second_sandbox = Path(
+        str(
+            dict(dict(_latest_event(second_events, "runtime_sandbox_prepared").get("payload") or {}).get("sandbox_policy") or {}).get(
+                "sandbox_root"
+            )
+            or ""
+        )
+    )
+
+    assert first_sandbox == second_sandbox
+    assert (second_sandbox / "frontend/public/games/arcane_dungeon_studio/game.js").read_text(encoding="utf-8") == "const marker = 'first-pass';"
+    assert str(first_done.get("terminal_reason") or "") in {"completed", "partial_contract_failed"}
+    assert str(second_done.get("terminal_reason") or "") in {"completed", "partial_contract_failed"}
+    assert model_runtime.seen_readback is True
+
+
 def test_professional_task_budget_exhaustion_forces_model_closeout() -> None:
     backend_root = _isolated_backend_root()
     fixture = backend_root / "tests" / "fixtures" / "professional_task_suite" / "failing_sixty_turn_summary.json"
@@ -1346,12 +1457,12 @@ def test_professional_task_blocks_terminal_until_required_code_edit_is_observed(
         if dict(event.get("payload") or {}).get("error") == "professional_task_goal_contract_requires_write"
     ]
 
-    assert blocked_events
-    assert model_runtime.blocked_terminal_attempted is True
+    assert blocked_events == []
+    assert model_runtime.blocked_terminal_attempted is False
     assert model_runtime.seen_edit is True
     assert model_runtime.seen_pytest is True
     assert model_runtime.tool_names_by_call[1] == ["edit_file"]
-    assert model_runtime.tool_names_by_call[2] == ["edit_file"]
+    assert model_runtime.tool_names_by_call[2] == ["terminal"]
     assert checks["write_observation_count"] >= 1
     assert checks["verification_command_count"] >= 1
     assert verification["passed"] is True

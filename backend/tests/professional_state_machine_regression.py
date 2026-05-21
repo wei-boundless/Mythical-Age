@@ -106,6 +106,25 @@ def test_professional_state_machine_allows_repeated_artifact_writes_for_multifil
     ]
 
 
+def test_professional_state_machine_allows_readback_after_artifact_write() -> None:
+    state = initial_professional_run_state("taskrun:write-readback")
+    state = state.advance("mode_policy_bound", reason="mode")
+    state = state.advance("obligation_bound", reason="obligation")
+    state = state.advance("prototype_bound", reason="prototype")
+    state = state.advance("plan_drafted", reason="plan")
+    state = state.advance("action_dispatched", reason="action")
+    state = state.advance("artifact_written", reason="write game", evidence_refs=("obs:write",))
+    state = state.advance("tool_observed", reason="read back game", evidence_refs=("obs:read",))
+    state = state.advance("deliverable_validating", reason="validate")
+
+    assert state.state == "deliverable_validating"
+    assert [transition.to_state for transition in state.transitions[-3:]] == [
+        "artifact_written",
+        "tool_observed",
+        "deliverable_validating",
+    ]
+
+
 def test_unsatisfied_obligations_from_verification_deduplicates_missing_items() -> None:
     assert unsatisfied_obligations_from_verification(
         {

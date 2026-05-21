@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from context_management import ContextResolver
+from intent.signal_collector import collect_intent_frame
 
 
 def test_context_resolver_builds_bundle_items_for_compound_request() -> None:
@@ -98,6 +99,26 @@ def test_context_resolver_does_not_split_priority_word_as_sequence_marker() -> N
     assert context.bundle_items == ()
     assert context.explicit_inputs["explicit_dataset_path"] == "inventory.xlsx"
     assert context.explicit_inputs["explicit_dataset_path"] == "inventory.xlsx"
+
+
+def test_chapter_writing_runtime_packet_is_not_treated_as_pdf_bundle() -> None:
+    message = (
+        "本轮工作：第1章至第10章章节批次细纲。\n"
+        "当前批次：第1章至第10章；本批允许范围：第1章、第2章、第3章。\n"
+        "请依据小说写作节点产出章节细纲。"
+    )
+
+    intent_frame = collect_intent_frame(message)
+    context = ContextResolver().resolve(
+        session_id="writing-test",
+        task_id="task.writing.modular_novel.node.chapter_outline",
+        user_message=message,
+        query_understanding={},
+    )
+
+    assert "pdf" not in intent_frame.target_domain_hints
+    assert context.execution_mode == "single"
+    assert context.bundle_items == ()
 
 
 def test_context_resolver_keeps_state_pdf_as_recall_candidate_not_binding() -> None:

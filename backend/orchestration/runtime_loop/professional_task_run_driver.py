@@ -2970,6 +2970,7 @@ def _with_professional_task_instruction(
             write_guidance = (
                 "如果用户明确要求写入、保存、产出草案文件或在 sandbox overlay 中交付文件，"
                 "在读到核心材料后应尽快调用 write_file 产出文件；不要把工具预算耗尽在泛化搜索上。"
+                "如果目标列出多个文件，你需要逐个文件真实写入，每次工具调用写一个完整文件，直到缺失路径全部补齐。"
             )
         tool_line = (
             "当前模式已开放预算受控的真实工具观察；只能基于真实工具结果写结论。"
@@ -3208,6 +3209,8 @@ def _write_tool_priority(
     available_write_tools: tuple[str, ...],
 ) -> tuple[str, ...]:
     available = tuple(name for name in available_write_tools if name)
+    if "write_file" in available and goal_contract.required_output_paths:
+        return ("write_file",)
     if "edit_file" in available and _goal_contract_targets_code_edit(goal_contract):
         return ("edit_file",)
     return available
@@ -3238,15 +3241,23 @@ def _contract_repair_instruction(
         return gate_decision.repair_instruction
     required_tools = tuple(next_required_tool_names or _next_required_tools(goal_contract, tool_observation_ledger))
     if "write_file" in required_tools or "edit_file" in required_tools:
+        missing_paths = _missing_required_output_paths(goal_contract, tool_observation_ledger)
+        next_missing_path = missing_paths[0] if missing_paths else ""
         output_hint = (
-            "目标路径：" + "、".join(goal_contract.required_output_paths)
+            "缺失目标路径：" + "、".join(missing_paths)
+            if missing_paths
+            else "目标路径：" + "、".join(goal_contract.required_output_paths)
             if goal_contract.required_output_paths
             else "请在 sandbox overlay 中选择清晰的输出路径。"
         )
+        next_path_hint = f"本轮优先写入：{next_missing_path}。" if next_missing_path else ""
         return (
             "上一轮请求已被目标契约拦截。用户目标要求真实产出文件或修改。"
             f"{output_hint}"
+            f"{next_path_hint}"
             f"下一步只能使用 {' 或 '.join(required_tools)}；不要再请求 read_file、search_files、search_text、terminal 或委派。"
+            "如果存在多个缺失路径，本轮只写一个完整文件，下一轮再继续补齐。"
+            "文件内容必须完整可验收，不能写占位说明。"
             "如果确实无法写入，请只用普通中文说明阻塞原因，不要伪造工具调用。"
         )
     if "terminal" in required_tools:
@@ -3280,6 +3291,8 @@ def _next_required_tools(
         and not _required_writes_satisfied(goal_contract, tool_observation_ledger)
         and _material_review_satisfied(goal_contract, tool_observation_ledger)
     ):
+        if goal_contract.required_output_paths:
+            return ("write_file", "edit_file")
         if _goal_contract_targets_code_edit(goal_contract):
             return ("edit_file",)
         return ("write_file", "edit_file")
@@ -3348,6 +3361,7 @@ def _compact_professional_recovery_messages(
 ) -> list[Any]:
     written_paths = _observation_paths_for_satisfaction(tool_observation_ledger, "write_output")
     missing_paths = _missing_required_output_paths(goal_contract, tool_observation_ledger)
+    next_missing_path = missing_paths[0] if missing_paths else ""
     latest_observations = [
         {
             "tool_name": str(item.get("tool_name") or ""),
@@ -3365,8 +3379,10 @@ def _compact_professional_recovery_messages(
                 "不要重复已经成功写入的文件；不要输出解释、DSML、工具参数文本或最终总结。"
                 f"下一步只能使用这些真实工具：{'、'.join(next_required_tools) or '按目标契约继续'}。"
                 f"必须补齐的输出路径：{'、'.join(missing_paths) if missing_paths else '无'}。"
+                f"本轮优先补齐路径：{next_missing_path or '无'}。"
                 f"已经写入的路径：{'、'.join(written_paths) if written_paths else '无'}。"
-                "如果需要写多个剩余文件，请逐轮每次写一个完整文件。"
+                "如果需要写多个剩余文件，请逐轮每次只写一个完整文件，先写本轮优先路径。"
+                "文件内容必须是可运行或可验收的完整内容，不能写占位说明。"
             ),
         },
         {"role": "user", "content": str(user_message or "")},

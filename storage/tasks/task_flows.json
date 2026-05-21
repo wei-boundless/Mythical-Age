@@ -190,6 +190,31 @@
       }
     },
     {
+      "flow_id": "flow.writing.modular_novel.node.character_review",
+      "task_family": "writing_modular_novel",
+      "title": "人设与关系审核",
+      "input_contract_id": "contract.user_request.basic",
+      "output_contract_id": "contract.writing.modular_novel.character_review",
+      "default_agent_id": "agent:writing_modular_reviewer",
+      "default_workflow_id": "workflow.writing.modular_novel.node.character_review",
+      "default_runtime_lane": "coordination_task",
+      "default_memory_scope": "writing_modular_novel",
+      "enabled": true,
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "domain_id": "domain.writing.modular_novel",
+        "projection_id": "projection.writing.modular_novel.character_reviewer",
+        "node_id": "character_review",
+        "package_template": "writing_modular_novel",
+        "runtime_interaction_mode": "role_mode",
+        "interaction_mode": "role_mode",
+        "execution_mode": "single",
+        "suppress_bundle_projection": true,
+        "task_graph_node_runtime": true,
+        "task_assignment_id": "task.writing.modular_novel.node.character_review"
+      }
+    },
+    {
       "flow_id": "flow.writing.modular_novel.node.plot_design",
       "task_family": "writing_modular_novel",
       "title": "剧情与伏笔设计",

@@ -288,11 +288,13 @@ class ContextResolver:
 
 def _looks_compound(message: str) -> bool:
     lowered = message.lower()
+    if _looks_like_creative_writing_runtime_packet(lowered):
+        return False
     markers = len(re.findall(r"(?<!优)先|再|然后|最后|并且|以及", lowered))
     domains = sum(
         1
         for matched in (
-            any(item in lowered for item in ("pdf", ".pdf", "报告", "第")),
+            any(item in lowered for item in ("pdf", ".pdf", "报告")) or _looks_like_document_scope(lowered),
             any(item in lowered for item in (".xlsx", ".csv", "表", "仓库", "缺货")),
             any(item in lowered for item in ("天气", "weather")),
             any(item in lowered for item in ("黄金", "金价", "gold")),
@@ -304,7 +306,10 @@ def _looks_compound(message: str) -> bool:
 
 def _capability_for_text(text: str) -> tuple[str, str]:
     lowered = text.lower()
-    if any(item in lowered for item in ("pdf", ".pdf", "报告", "第")) and not any(item in lowered for item in ("天气", "黄金", "金价")):
+    if (
+        (any(item in lowered for item in ("pdf", ".pdf", "报告")) or _looks_like_document_scope(lowered))
+        and not any(item in lowered for item in ("天气", "黄金", "金价"))
+    ):
         return "pdf", ""
     if any(item in lowered for item in (".xlsx", ".csv", "表", "仓库", "缺货", "库存")):
         return "structured_data", ""
@@ -313,6 +318,24 @@ def _capability_for_text(text: str) -> tuple[str, str]:
     if any(item in lowered for item in ("黄金", "金价", "gold")):
         return "realtime_network", "web_search"
     return "", ""
+
+
+def _looks_like_creative_writing_runtime_packet(text: str) -> bool:
+    return any(marker in text for marker in ("网文", "小说", "章节", "正文", "细纲", "大纲", "第1章", "第 1 章")) and any(
+        marker in text for marker in ("本轮工作", "当前批次", "本节点", "产物政策", "卷")
+    )
+
+
+def _looks_like_document_scope(text: str) -> bool:
+    if re.search(r"page\s*\d+", text, re.I):
+        return True
+    if re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:页|部分)", text):
+        return True
+    if not re.search(r"第\s*[零一二三四五六七八九十百千两\d]+\s*(?:章|节)", text):
+        return False
+    if _looks_like_creative_writing_runtime_packet(text):
+        return False
+    return any(marker in text for marker in ("pdf", ".pdf", "报告", "文档", "文件", "材料", "阅读", "抽取", "页码", "目录"))
 
 
 def _source_kind_for_capability(capability: str) -> str:

@@ -942,6 +942,85 @@ class TaskRunLoop:
                     return restored
         return {}
 
+    def _prepare_runtime_sandbox_policy_for_turn(
+        self,
+        *,
+        root_dir: Path,
+        session_id: str,
+        task_run_id: str,
+        task_contract: dict[str, Any] | None,
+        user_message: str,
+        selected_recipe_payload: dict[str, Any],
+        task_selection: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        inherited_workspace_key = self._resolve_inherited_sandbox_workspace_key(
+            session_id=session_id,
+            current_task_run_id=task_run_id,
+            task_contract=dict(task_contract or {}),
+            user_message=user_message,
+            task_selection=dict(task_selection or {}),
+        )
+        effective_selection = dict(task_selection or {})
+        if inherited_workspace_key:
+            effective_selection["sandbox_policy"] = {
+                **dict(effective_selection.get("sandbox_policy") or {}),
+                "workspace_key": inherited_workspace_key,
+            }
+        return _prepare_runtime_sandbox_policy(
+            root_dir=root_dir,
+            session_id=session_id,
+            task_run_id=task_run_id,
+            task_contract=task_contract,
+            user_message=user_message,
+            selected_recipe_payload=selected_recipe_payload,
+            task_selection=effective_selection,
+        )
+
+    def _resolve_inherited_sandbox_workspace_key(
+        self,
+        *,
+        session_id: str,
+        current_task_run_id: str,
+        task_contract: dict[str, Any],
+        user_message: str,
+        task_selection: dict[str, Any],
+    ) -> str:
+        if str(dict(task_selection.get("sandbox_policy") or {}).get("workspace_key") or "").strip():
+            return ""
+        if str(task_selection.get("interaction_mode") or "").strip() != "professional_mode":
+            return ""
+        previous_policy = self._latest_session_sandbox_policy(
+            session_id=session_id,
+            exclude_task_run_id=current_task_run_id,
+        )
+        previous_key = str(previous_policy.get("workspace_key") or "").strip()
+        if not previous_key:
+            return ""
+        previous_scope = _sandbox_scope_from_workspace_key(previous_key)
+        current_scope = _sandbox_output_scope(task_contract=task_contract, user_message=user_message)
+        if current_scope:
+            return previous_key if _sandbox_scopes_overlap(current_scope, previous_scope) else ""
+        return previous_key if _is_sandbox_continuation_message(user_message, previous_scope=previous_scope) else ""
+
+    def _latest_session_sandbox_policy(self, *, session_id: str, exclude_task_run_id: str) -> dict[str, Any]:
+        task_runs = sorted(
+            (
+                task_run
+                for task_run in self.state_index.list_session_task_runs(session_id)
+                if str(task_run.task_run_id or "") != str(exclude_task_run_id or "")
+            ),
+            key=lambda item: float(item.updated_at or item.created_at or 0.0),
+            reverse=True,
+        )
+        for task_run in task_runs:
+            for event in reversed(self.event_log.list_events(task_run.task_run_id)):
+                if event.event_type != "runtime_sandbox_prepared":
+                    continue
+                policy = dict(dict(event.payload or {}).get("sandbox_policy") or {})
+                if policy.get("enabled") is True and str(policy.get("workspace_key") or "").strip():
+                    return policy
+        return {}
+
     def submit_working_memory_candidates(
         self,
         *,
@@ -1122,9 +1201,12 @@ class TaskRunLoop:
             },
         )
         state = start.loop_state
-        sandbox_policy = _prepare_runtime_sandbox_policy(
+        sandbox_policy = self._prepare_runtime_sandbox_policy_for_turn(
             root_dir=self.root_dir,
+            session_id=session_id,
             task_run_id=state.task_run_id,
+            task_contract=task_contract,
+            user_message=user_message,
             selected_recipe_payload=selected_recipe_payload,
             task_selection=dict(task_selection or {}),
         )
@@ -1335,6 +1417,18 @@ class TaskRunLoop:
             task_execution_assembly_payload,
             current_turn_context=current_turn_context,
         )
+        if _is_professional_task_run_recipe(selected_recipe_payload):
+            model_stream_policy = {
+                **model_stream_policy,
+                "model_response_timeout_seconds": max(
+                    float(model_stream_policy.get("model_response_timeout_seconds") or 0),
+                    240.0,
+                ),
+                "non_stream_fallback_timeout_seconds": max(
+                    float(model_stream_policy.get("non_stream_fallback_timeout_seconds") or 0),
+                    240.0,
+                ),
+            }
         artifact_policy_for_validation = _artifact_policy_from_task_execution_assembly(
             selected_recipe_payload=selected_recipe_payload,
             task_execution_assembly=task_execution_assembly_payload,
@@ -8011,7 +8105,10 @@ def _stage_execution_request_diagnostics(selection: dict[str, Any]) -> dict[str,
 def _prepare_runtime_sandbox_policy(
     *,
     root_dir: Path,
+    session_id: str,
     task_run_id: str,
+    task_contract: dict[str, Any] | None = None,
+    user_message: str = "",
     selected_recipe_payload: dict[str, Any],
     task_selection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -8036,12 +8133,123 @@ def _prepare_runtime_sandbox_policy(
     side_effect_root = Path(str(policy.get("side_effect_root") or "output/sandbox_runs"))
     if not side_effect_root.is_absolute():
         side_effect_root = workspace_root / side_effect_root
-    sandbox_root = side_effect_root / _safe_path_component(task_run_id) / str(policy.get("workspace_dir_name") or "workspace")
+    workspace_key = str(policy.get("workspace_key") or "").strip()
+    if not workspace_key:
+        workspace_key = _sandbox_workspace_key(
+            session_id=session_id,
+            task_run_id=task_run_id,
+            task_contract=dict(task_contract or {}),
+            user_message=user_message,
+        )
+    sandbox_root = side_effect_root / _safe_path_component(workspace_key) / str(policy.get("workspace_dir_name") or "workspace")
     sandbox_root.mkdir(parents=True, exist_ok=True)
     policy["sandbox_root"] = str(sandbox_root.resolve())
     policy["side_effect_root"] = str(side_effect_root.resolve())
     policy["workspace_root"] = str(workspace_root)
+    policy["workspace_key"] = workspace_key
     return policy
+
+
+def _sandbox_workspace_key(
+    *,
+    session_id: str,
+    task_run_id: str,
+    task_contract: dict[str, Any],
+    user_message: str,
+) -> str:
+    output_scope = _sandbox_output_scope(task_contract=task_contract, user_message=user_message)
+    if output_scope:
+        return f"session:{session_id}:scope:{output_scope}"
+    return task_run_id
+
+
+def _sandbox_scope_from_workspace_key(workspace_key: str) -> str:
+    marker = ":scope:"
+    value = str(workspace_key or "").strip()
+    if marker not in value:
+        return ""
+    return value.rsplit(marker, 1)[-1].strip()
+
+
+def _sandbox_scopes_overlap(left: str, right: str) -> bool:
+    left_norm = str(left or "").replace("\\", "/").strip("/")
+    right_norm = str(right or "").replace("\\", "/").strip("/")
+    if not left_norm or not right_norm:
+        return False
+    return left_norm == right_norm or left_norm.startswith(right_norm + "/") or right_norm.startswith(left_norm + "/")
+
+
+def _is_sandbox_continuation_message(message: str, *, previous_scope: str) -> bool:
+    text = str(message or "").replace("\\", "/").strip().lower()
+    if not text:
+        return False
+    continuation_markers = (
+        "继续",
+        "接着",
+        "上一轮",
+        "上次",
+        "读回",
+        "验收",
+        "修正",
+        "修改",
+        "补上",
+        "完善",
+        "确认",
+        "检查",
+        "test",
+        "verify",
+        "continue",
+        "read back",
+        "fix",
+        "update",
+    )
+    if any(marker in text for marker in continuation_markers):
+        return True
+    scope_tail = str(previous_scope or "").replace("\\", "/").strip("/").rsplit("/", 1)[-1].lower()
+    if scope_tail and scope_tail in text:
+        return True
+    return any(token in text for token in ("game.js", "index.html", "readme", "assets", "产物", "项目", "工程"))
+
+
+def _sandbox_output_scope(*, task_contract: dict[str, Any], user_message: str) -> str:
+    candidates: list[str] = []
+    semantic_contract = dict(task_contract.get("semantic_task_contract") or {})
+    execution_obligation = dict(semantic_contract.get("execution_obligation") or {})
+    for key in ("required_writes", "required_outputs", "required_output_paths"):
+        for item in list(execution_obligation.get(key) or semantic_contract.get(key) or []):
+            if isinstance(item, dict):
+                value = str(item.get("path") or item.get("output_path") or "")
+            else:
+                value = str(item or "")
+            if value.strip():
+                candidates.append(value)
+    candidates.extend(_extract_workspace_path_scopes(user_message))
+    for candidate in candidates:
+        normalized = str(candidate or "").replace("\\", "/").strip()
+        if not normalized:
+            continue
+        if normalized.endswith("/"):
+            return normalized.strip("/")
+        suffix = "/" + normalized.rsplit("/", 1)[-1]
+        if "." in suffix:
+            parent = normalized.rsplit("/", 1)[0] if "/" in normalized else ""
+            if parent:
+                return parent.strip("/")
+        if normalized.startswith(("frontend/public/games/", "output/")):
+            return normalized.strip("/")
+    return ""
+
+
+def _extract_workspace_path_scopes(text: str) -> list[str]:
+    import re
+
+    values: list[str] = []
+    pattern = re.compile(r"((?:frontend|backend|output|docs|storage|scripts|tests)/[^\s，。；;：:]+)")
+    for match in pattern.finditer(str(text or "").replace("\\", "/")):
+        value = match.group(1).strip().strip("。,.，；;：:")
+        if value:
+            values.append(value)
+    return values
 
 
 def _workspace_root_for_runtime(root_dir: Path) -> Path:
@@ -8618,6 +8826,7 @@ def _model_stream_policy_from_task_execution_assembly(
         "preview_char_limit": _safe_int(policy.get("preview_char_limit")),
         "persist_full_stream_text": bool(policy.get("persist_full_stream_text") is True),
         "fallback_to_non_stream_on_error": bool(policy.get("fallback_to_non_stream_on_error", True) is not False),
+        "model_response_timeout_seconds": float(policy.get("model_response_timeout_seconds") or 0),
         "non_stream_fallback_timeout_seconds": float(policy.get("non_stream_fallback_timeout_seconds") or 0),
         "stream_recovery_timeout_seconds": float(policy.get("stream_recovery_timeout_seconds") or 0),
         "fallback_timeout_seconds": float(policy.get("fallback_timeout_seconds") or 0),

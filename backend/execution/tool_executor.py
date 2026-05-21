@@ -173,19 +173,33 @@ class ToolRuntimeExecutor:
 
 
 DEFAULT_SIDE_EFFECT_TOOL_NAMES = {"write_file", "edit_file", "terminal", "python_repl"}
+DEFAULT_OVERLAY_TOOL_NAMES = {
+    "read_file",
+    "read_structured_file",
+    "stat_path",
+    "path_exists",
+    "glob_paths",
+    "search_files",
+    "search_text",
+    "write_file",
+    "edit_file",
+    "terminal",
+    "python_repl",
+}
 OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"edit_file"}
+OVERLAY_COPY_ON_READ_TOOL_NAMES = {"read_file", "read_structured_file"}
 
 
 def _sandbox_context_for_tool(tool_name: str, sandbox_policy: dict[str, Any] | None) -> dict[str, Any]:
     policy = dict(sandbox_policy or {})
     if policy.get("enabled") is not True:
         return {}
-    side_effect_tools = {
+    overlay_tools = {
         str(item or "").strip()
-        for item in list(policy.get("side_effect_tools") or DEFAULT_SIDE_EFFECT_TOOL_NAMES)
+        for item in list(policy.get("overlay_tools") or DEFAULT_OVERLAY_TOOL_NAMES)
         if str(item or "").strip()
     }
-    if str(tool_name or "").strip() not in side_effect_tools:
+    if str(tool_name or "").strip() not in overlay_tools:
         return {}
     sandbox_root = Path(str(policy.get("sandbox_root") or "")).resolve() if policy.get("sandbox_root") else None
     if sandbox_root is None:
@@ -210,7 +224,8 @@ def _prepare_sandbox_overlay_for_tool(
 ) -> None:
     if not bool(sandbox_context.get("overlay_copy_on_write") is True):
         return
-    if str(tool_name or "").strip() not in OVERLAY_COPY_ON_WRITE_TOOL_NAMES:
+    effective_tool_name = str(tool_name or "").strip()
+    if effective_tool_name not in OVERLAY_COPY_ON_WRITE_TOOL_NAMES and effective_tool_name not in OVERLAY_COPY_ON_READ_TOOL_NAMES:
         return
     relative_path = _normalize_relative_path(tool_args.get("path"))
     if not relative_path:

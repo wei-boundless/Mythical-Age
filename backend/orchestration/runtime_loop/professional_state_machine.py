@@ -47,6 +47,7 @@ _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     },
     "artifact_written": {
         "action_dispatched",
+        "tool_observed",
         "artifact_written",
         "verification_observed",
         "deliverable_validating",
