@@ -1,20 +1,13 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useMemo, useRef } from "react";
 
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessage } from "@/components/chat/ChatMessage";
 import { SessionActivityBar } from "@/components/chat/SessionActivityBar";
-import { CHAT_VISUAL_MODE_LABELS, SOUL_CHAT_VISUAL_MODES, isSoulChatVisualMode, type ChatVisualMode } from "@/lib/chatVisualModes";
 import { useAppStore } from "@/lib/store";
 
-type ChatPanelProps = {
-  visualMode?: ChatVisualMode;
-  onVisualModeChange?: (mode: ChatVisualMode) => void;
-};
-
-export function ChatPanel({ visualMode = "default", onVisualModeChange }: ChatPanelProps) {
+export function ChatPanel() {
   const {
     messages,
     sendMessage,
@@ -23,8 +16,6 @@ export function ChatPanel({ visualMode = "default", onVisualModeChange }: ChatPa
     activeStreamSessionIds,
     sessionActivity,
     currentSessionId,
-    activeSoulKey,
-    soulOptions,
     modelProviderConfig,
     soulImageAssetConfig,
     selectedChatModelId,
@@ -36,9 +27,6 @@ export function ChatPanel({ visualMode = "default", onVisualModeChange }: ChatPa
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
   const currentSessionStreaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
-  const visualSoulKey = isSoulChatVisualMode(visualMode) ? visualMode : activeSoulKey ?? "hebo";
-  const visualSoul = soulOptions.find((soul) => soul.key === visualSoulKey) ?? soulOptions[0] ?? null;
-  const visualModes: ChatVisualMode[] = ["hebo", ...SOUL_CHAT_VISUAL_MODES.filter((mode) => mode !== "hebo")];
   const lastEditableUserMessageId = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
@@ -56,32 +44,11 @@ export function ChatPanel({ visualMode = "default", onVisualModeChange }: ChatPa
   return (
     <section className="chat-panel-shell grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden">
       <div className="chat-thread flex min-h-0 min-w-0 flex-col overflow-hidden">
-        <header className="chat-thread__head">
-          <span>主会话</span>
-          {onVisualModeChange ? (
-            <div className="chat-visual-switch" aria-label="主会话外观模式">
-              {visualModes.map((mode) => (
-                <button
-                  className={visualMode === mode ? "chat-visual-switch__item chat-visual-switch__item--active" : "chat-visual-switch__item"}
-                  key={mode}
-                  onClick={() => onVisualModeChange(mode)}
-                  type="button"
-                >
-                  {CHAT_VISUAL_MODE_LABELS[mode]}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </header>
-
         <div className="chat-thread__messages flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
           {!messages.length ? (
-            <div className={isSoulChatVisualMode(visualMode) ? "chat-thread__empty chat-thread__empty--soul" : "chat-thread__empty"}>
-              {isSoulChatVisualMode(visualMode) && visualSoul ? (
-                <Image alt={`${visualSoul.name}立绘`} height={288} src={visualSoul.portraitPath} unoptimized width={240} />
-              ) : null}
+            <div className="chat-thread__empty">
               <div>
-                <strong>{visualSoul ? `${visualSoul.name}，等待你的下一句话。` : "等待你的下一句话。"}</strong>
+                <strong>等待你的下一句话。</strong>
                 <span>可以直接开始对话，也可以把任务交给当前会话。</span>
               </div>
             </div>
@@ -89,7 +56,7 @@ export function ChatPanel({ visualMode = "default", onVisualModeChange }: ChatPa
 
           {messages.map((message) => (
             <ChatMessage
-              assistantName={visualSoul?.name ?? "助手"}
+              assistantName="助手"
               canEdit={!currentSessionStreaming && message.id === lastEditableUserMessageId}
               content={message.content}
               id={message.id}

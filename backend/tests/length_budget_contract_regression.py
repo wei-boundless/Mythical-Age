@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from runtime.contracts.length_budget_compiler import compile_length_budget
 from runtime.contracts.continuation_policy import derive_stage_contracts_from_graph, parse_stage_contracts
-from runtime.unit_runtime.quality_gates import _count_text_units, _length_budget_quality_gate, _stage_business_acceptance
+from task_system.runtime_semantics.length_budget import compile_length_budget
+from task_system.runtime_semantics.quality_gates import (
+    count_text_units_for_quality_gate,
+    length_budget_quality_gate,
+    stage_business_acceptance,
+)
 from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from task_system.graphs.task_graph_models import task_graph_from_dict
 from text_metric import count_text_units
@@ -62,7 +66,7 @@ def test_length_budget_quality_gate_rejects_underfilled_text_units() -> None:
         source_ref="draft",
     ).to_dict()
 
-    result = _length_budget_quality_gate(
+    result = length_budget_quality_gate(
         "第一章 太短",
         explicit_inputs={},
         length_budget=budget,
@@ -84,7 +88,7 @@ def test_length_budget_quality_gate_accepts_chinese_text_units() -> None:
         source_ref="draft",
     ).to_dict()
 
-    result = _length_budget_quality_gate(
+    result = length_budget_quality_gate(
         "天地初开灵光流转",
         explicit_inputs={},
         length_budget=budget,
@@ -98,7 +102,7 @@ def test_runtime_quality_gate_uses_shared_text_metric_counter() -> None:
     content = "天地玄黄 alpha beta"
 
     assert count_text_units(content) == 6
-    assert _count_text_units(content) == count_text_units(content)
+    assert count_text_units_for_quality_gate(content) == count_text_units(content)
 
 
 def test_length_budget_batch_count_alone_is_not_configured() -> None:
@@ -114,7 +118,7 @@ def test_length_budget_batch_count_alone_is_not_configured() -> None:
 
     assert budget["configured"] is False
 
-    acceptance = _stage_business_acceptance(
+    acceptance = stage_business_acceptance(
         stage_id="draft",
         contract={"length_budget": budget},
         explicit_inputs={},
@@ -142,7 +146,7 @@ def test_length_budget_normalizes_legacy_volume_scope_to_group() -> None:
 
 
 def test_stage_business_acceptance_rejects_pseudo_tool_output() -> None:
-    acceptance = _stage_business_acceptance(
+    acceptance = stage_business_acceptance(
         stage_id="outline_design",
         contract={},
         explicit_inputs={},
@@ -167,7 +171,7 @@ def test_length_budget_tokens_mode_declares_text_units_fallback_until_token_mete
         source_ref="draft",
     ).to_dict()
 
-    result = _length_budget_quality_gate(
+    result = length_budget_quality_gate(
         "天地玄黄",
         explicit_inputs={},
         length_budget=budget,

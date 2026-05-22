@@ -7,8 +7,9 @@ from types import SimpleNamespace
 from api import orchestration as orchestration_api
 from api import orchestration_catalog as orchestration_catalog_api
 from api import task_system as tasks_api
-from orchestration import coordination_recovery, coordination_rewind, coordination_scheduler
+from orchestration import coordination_rewind, coordination_scheduler
 from runtime.execution.node_execution_request import NodeExecutionRequest
+from runtime.subruntime import graph_module_core_artifact_refs, latest_unconsumed_graph_module_imported_result
 from runtime.shared.models import AgentRun, CoordinationRun, TaskRun
 from runtime.coordination_runtime.trace_adapter import CoordinationTraceAdapter
 from runtime.memory.state_index import RuntimeStateIndex
@@ -346,6 +347,83 @@ def test_stage_execution_scheduler_ignores_rewind_invalidated_completed_run(tmp_
     ) is None
 
 
+def test_stage_execution_scheduler_invalidates_stale_running_task_run(tmp_path: Path) -> None:
+    state_index = RuntimeStateIndex(tmp_path / "runtime_state")
+    request = NodeExecutionRequest(
+        request_id="nodeexec:draft",
+        coordination_run_id="coordrun:root",
+        thread_id="coordrun:root",
+        root_task_run_id="taskrun:root",
+        stage_id="chapter_draft",
+        node_id="chapter_draft",
+        task_ref="task.test.chapter_draft",
+        explicit_inputs={"outline_ref": "artifact:outline.md"},
+    )
+    old_timestamp = 1000.0
+    stale = TaskRun(
+        task_run_id="taskrun:session:test:taskinst:turn:stable:chapter_draft:aaaa1111",
+        session_id="session:test",
+        task_id="taskinst:turn:stable:chapter_draft",
+        status="running",
+        created_at=old_timestamp,
+        updated_at=old_timestamp,
+        diagnostics={
+            "coordination_run_id": request.coordination_run_id,
+            "stage_id": request.stage_id,
+            "stage_request_id": request.request_id,
+            "stage_idempotency_key": request.idempotency_key,
+            "effective_loop_limits": {"max_runtime_seconds": 300},
+        },
+    )
+    state_index.upsert_task_run(stale)
+    state_index.upsert_agent_run(
+        AgentRun(
+            agent_run_id="agrun:stale",
+            task_run_id=stale.task_run_id,
+            agent_id="agent:test",
+            agent_profile_id="profile:test",
+            status="running",
+            created_at=old_timestamp,
+            updated_at=old_timestamp,
+        )
+    )
+    events: list[tuple[str, dict]] = []
+
+    event_log = SimpleNamespace(
+        list_events=lambda _task_run_id: [],
+        append=lambda _task_run_id, event_type, payload=None, refs=None: events.append((event_type, payload or {})),
+    )
+    loop = SimpleNamespace(state_index=state_index, event_log=event_log)
+    identity = coordination_scheduler._stage_execution_schedule_identity(request)
+
+    reason = coordination_scheduler._stale_running_task_run_reason(
+        task_run_loop=loop,
+        task_run=stale,
+    )
+    assert reason == "running_task_exceeded_runtime_limit_without_trace_progress"
+
+    coordination_scheduler._invalidate_stale_stage_execution_task_run(
+        task_run_loop=loop,
+        task_run=stale,
+        identity=identity,
+        source="test",
+    )
+
+    invalidated = state_index.get_task_run(stale.task_run_id)
+    assert invalidated is not None
+    assert invalidated.status == "failed"
+    assert invalidated.terminal_reason == "internal_error"
+    assert invalidated.diagnostics["invalidated_by_stage_scheduler"]["stage_id"] == "chapter_draft"
+    agent_run = state_index.list_task_agent_runs(stale.task_run_id)[0]
+    assert agent_run.status == "failed"
+    assert coordination_scheduler._matching_stage_execution_task_run(
+        task_run_loop=loop,
+        session_id="session:test",
+        identity=identity,
+    ) is None
+    assert events[-1][0] == "coordination_stage_background_execution_invalidated"
+
+
 def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_dir = tmp_path / "runtime_state"
@@ -381,7 +459,7 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
         executor_binding={
             "selected_executor": "graph_module",
             "graph_module_runtime_handle": {
-                "authority": "orchestration.graph_module_runtime_handle",
+                "authority": "runtime.subruntime.graph_module_runtime_handle",
                 "handle_id": "graphmodrun:test",
                 "importing_graph_id": "graph.test.importing",
                 "importing_coordination_run_id": "coordrun:importing",
@@ -408,9 +486,9 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
             },
         },
         runtime_assembly={
-            "authority": "orchestration.graph_module_runtime_assembly",
+            "authority": "runtime.subruntime.graph_module_runtime_assembly",
             "graph_module_runtime_handle": {
-                "authority": "orchestration.graph_module_runtime_handle",
+                "authority": "runtime.subruntime.graph_module_runtime_handle",
                 "handle_id": "graphmodrun:test",
                 "importing_graph_id": "graph.test.importing",
                 "importing_coordination_run_id": "coordrun:importing",
@@ -723,15 +801,16 @@ def test_graph_module_imported_completion_commits_output_packet_and_releases_imp
     stage_result = parent_state_after["stage_results"]["graph_module.block.child"]
     assert stage_result["task_result_ref"] == payload["packet_ref"]
     assert stage_result["standard_result_package"]["authority"] == "task_graph.standard_node_result_package"
-    committed_child = loop.state_index.get_task_run(imported_run.task_run_id)
-    assert committed_child is not None
-    assert committed_child.diagnostics["graph_module_output_packet_committed"]["packet_ref"] == payload["packet_ref"]
+    assert payload["packet_consumption_ref"].startswith("rtobj:graph_module_packet_consumptions:")
+    consumption = loop.runtime_objects.get_object(payload["packet_consumption_ref"])
+    assert consumption["packet_ref"] == payload["packet_ref"]
+    assert consumption["imported_coordination_run_id"] == imported_coordination_run_id
     assert second["mode"] in {"replayed_active_stage_request", "resumed_from_task_result"}
-    assert loop.state_index.get_task_run(imported_run.task_run_id).diagnostics["graph_module_output_packet_committed"]["packet_ref"] == payload["packet_ref"]  # type: ignore[union-attr]
+    assert loop.runtime_objects.get_object(payload["packet_consumption_ref"])["packet_ref"] == payload["packet_ref"]
 
 
 def test_graph_module_core_artifact_refs_exclude_debug_reports() -> None:
-    refs = coordination_recovery._graph_module_core_artifact_refs(
+    refs = graph_module_core_artifact_refs(
         artifact_refs_by_stage={
             "project_brief": [
                 "artifact:run/project_brief.md",
@@ -777,7 +856,7 @@ def test_graph_module_imported_result_waits_until_imported_graph_completed(tmp_p
         ),
     )
     runtime = SimpleNamespace(query_runtime=SimpleNamespace(task_run_loop=loop))
-    result = coordination_recovery._latest_unconsumed_graph_module_imported_result(
+    result = latest_unconsumed_graph_module_imported_result(
         runtime=runtime,
         session_id="session:test",
         state={
@@ -988,9 +1067,10 @@ def test_graph_module_imported_failure_commits_failure_packet_and_uses_importing
     assert parent_state_after["node_statuses"]["after_child"] == "failed"
     scheduler_state = dict(dict(parent_state_after["diagnostics"]).get("task_graph_scheduler_state") or {})
     assert scheduler_state["diagnostics"]["failure_propagated_node_ids"] == ["after_child"]
-    committed_child = loop.state_index.get_task_run(imported_run.task_run_id)
-    assert committed_child is not None
-    assert committed_child.diagnostics["graph_module_failure_packet_committed"]["packet_ref"] == payload["packet_ref"]
+    assert payload["packet_consumption_ref"].startswith("rtobj:graph_module_packet_consumptions:")
+    consumption = loop.runtime_objects.get_object(payload["packet_consumption_ref"])
+    assert consumption["packet_ref"] == payload["packet_ref"]
+    assert consumption["accepted"] is False
 
 
 def test_task_system_overview_exposes_formal_task_management_layers(tmp_path: Path) -> None:

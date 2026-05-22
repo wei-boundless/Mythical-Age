@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
+from .formal_memory_content import (
+    formal_memory_content_requirement_from_payloads,
+    formal_memory_content_requirement_satisfied,
+    formal_memory_content_state,
+    formal_memory_content_warnings,
+)
 from .formal_memory_models import (
     FormalMemoryCollection,
     FormalMemoryRecordVersion,
@@ -84,7 +89,19 @@ class FormalMemoryService:
                         record_kinds=tuple(_strings(collection_payload.get("record_kinds") or collection_payload.get("kinds"))),
                         key_strategy=str(collection_payload.get("key_strategy") or "stable_key"),
                         default_version_selector=str(collection_payload.get("default_version_selector") or "latest_committed_before_clock"),
-                        retention_policy=dict(collection_payload.get("retention_policy") or {}),
+                        retention_policy={
+                            **dict(collection_payload.get("retention_policy") or {}),
+                            **(
+                                {"content_requirement": dict(collection_payload.get("content_requirement") or {})}
+                                if isinstance(collection_payload.get("content_requirement"), dict)
+                                else {}
+                            ),
+                            **(
+                                {"snapshot_budget": dict(collection_payload.get("snapshot_budget") or {})}
+                                if isinstance(collection_payload.get("snapshot_budget"), dict)
+                                else {}
+                            ),
+                        },
                     )
                 )
                 collections.append(collection)
@@ -177,6 +194,24 @@ class FormalMemoryService:
             or ""
         ).strip()
         summary = str(candidate.get("summary") or canonical_text or candidate.get("title") or "").strip()
+        content_requirement = self._content_requirement(
+            repository_id=repository_id,
+            collection_id=collection_id,
+            edge=edge,
+            candidate=candidate,
+        )
+        if not formal_memory_content_requirement_satisfied(
+            canonical_text=canonical_text,
+            summary=summary,
+            artifact_refs=candidate_artifact_refs,
+            requirement=content_requirement,
+        ):
+            raise ValueError(
+                "formal memory candidate does not satisfy content requirement: "
+                f"repository={repository_id}, collection={collection_id}, record_key={record_key}, "
+                f"content_state={formal_memory_content_state(canonical_text=canonical_text, artifact_refs=candidate_artifact_refs)}, "
+                f"requirement={content_requirement}"
+            )
         idempotency_key = str(
             candidate.get("idempotency_key")
             or f"{task_run_id}:{node_run_id}:{edge.get('edge_id')}:{repository_id}:{collection_id}:{record_key}"
@@ -216,6 +251,27 @@ class FormalMemoryService:
     ) -> tuple[FormalMemoryRecordVersion, FormalMemoryTransaction]:
         required = str(required_verdict or edge.get("required_verdict") or "").strip()
         reject = bool(required and verdict and verdict != required)
+        current = self.store.get_version(candidate_version_id)
+        if current is None:
+            raise KeyError(f"Unknown formal memory candidate version: {candidate_version_id}")
+        content_requirement = self._content_requirement(
+            repository_id=current.repository_id,
+            collection_id=current.collection_id,
+            edge=edge,
+            candidate={"payload": dict(current.payload)},
+        )
+        if not formal_memory_content_requirement_satisfied(
+            canonical_text=current.canonical_text,
+            summary=current.summary,
+            artifact_refs=list(current.artifact_refs),
+            requirement=content_requirement,
+        ):
+            raise ValueError(
+                "formal memory candidate cannot be committed because content requirement is not satisfied: "
+                f"repository={current.repository_id}, collection={current.collection_id}, record_key={current.record_key}, "
+                f"content_state={formal_memory_content_state(canonical_text=current.canonical_text, artifact_refs=list(current.artifact_refs))}, "
+                f"requirement={content_requirement}"
+            )
         commit_visibility_policy = dict(edge.get("commit_visibility_policy") or edge.get("visibility_policy") or {})
         visible_after_clock, visible_after_clock_seq = _visible_after_clock(
             source_clock=source_clock,
@@ -279,7 +335,36 @@ class FormalMemoryService:
                 limit=limit,
             )
             read_logs.append(read_log.to_dict())
-            if not versions and str(edge.get("on_missing") or selector.get("on_missing") or "") in {"block", "required", "fail_closed"}:
+            content_requirement = self._content_requirement(
+                repository_id=repository_id,
+                collection_id=collection_id,
+                edge=edge,
+            )
+            usable_versions: list[FormalMemoryRecordVersion] = []
+            rejected_versions: list[dict[str, Any]] = []
+            for version in versions:
+                if formal_memory_content_requirement_satisfied(
+                    canonical_text=version.canonical_text,
+                    summary=version.summary,
+                    artifact_refs=list(version.artifact_refs),
+                    requirement=content_requirement,
+                ):
+                    usable_versions.append(version)
+                    continue
+                rejected_versions.append(
+                    {
+                        "version_id": version.version_id,
+                        "record_id": version.record_id,
+                        "record_key": version.record_key,
+                        "content_state": formal_memory_content_state(
+                            canonical_text=version.canonical_text,
+                            artifact_refs=list(version.artifact_refs),
+                        ),
+                        "reason": "content_requirement_not_satisfied",
+                    }
+                )
+            required_missing = str(edge.get("on_missing") or selector.get("on_missing") or "") in {"block", "required", "fail_closed"}
+            if not usable_versions and required_missing:
                 missing.append(
                     {
                         "edge_id": str(edge.get("edge_id") or ""),
@@ -288,10 +373,20 @@ class FormalMemoryService:
                         "collection": collection_id,
                         "selector": selector,
                         "on_missing": str(edge.get("on_missing") or selector.get("on_missing") or ""),
+                        "content_requirement": content_requirement,
+                        "rejected_versions": rejected_versions,
+                        "reason": "no_versions_selected" if not versions else "content_requirement_not_satisfied",
                     }
                 )
-            for version in versions:
-                records.append(_record_payload(version=version, edge=edge, read_log_id=read_log.read_log_id))
+            for version in usable_versions:
+                records.append(
+                    _record_payload(
+                        version=version,
+                        edge=edge,
+                        read_log_id=read_log.read_log_id,
+                        content_requirement=content_requirement,
+                    )
+                )
         return {
             "required_records": records,
             "read_logs": read_logs,
@@ -307,6 +402,24 @@ class FormalMemoryService:
 
     def get_version(self, version_id: str) -> FormalMemoryRecordVersion | None:
         return self.store.get_version(version_id)
+
+    def _content_requirement(
+        self,
+        *,
+        repository_id: str,
+        collection_id: str,
+        edge: dict[str, Any] | None = None,
+        candidate: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        edge_payload = dict(edge or {})
+        candidate_payload = dict(candidate or {})
+        collection = self.store.get_collection(repository_id, collection_id)
+        retention_policy = dict(getattr(collection, "retention_policy", {}) or {})
+        return formal_memory_content_requirement_from_payloads(
+            edge=edge_payload,
+            candidate=candidate_payload,
+            collection_requirement=dict(retention_policy.get("content_requirement") or {}),
+        )
 
     def overview(self, *, task_run_id: str = "", repository_id: str = "", collection_id: str = "", limit: int = 500) -> dict[str, Any]:
         repositories = [item.to_dict() for item in self.store.list_repositories()]
@@ -364,7 +477,15 @@ class FormalMemoryService:
         }
 
 
-def _record_payload(*, version: FormalMemoryRecordVersion, edge: dict[str, Any], read_log_id: str) -> dict[str, Any]:
+def _record_payload(
+    *,
+    version: FormalMemoryRecordVersion,
+    edge: dict[str, Any],
+    read_log_id: str,
+    content_requirement: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    artifact_refs = list(version.artifact_refs)
+    requirement = dict(content_requirement or {})
     return {
         "record_id": version.record_id,
         "version_id": version.version_id,
@@ -377,7 +498,14 @@ def _record_payload(*, version: FormalMemoryRecordVersion, edge: dict[str, Any],
         "payload": dict(version.payload),
         "canonical_text": version.canonical_text,
         "summary": version.summary,
-        "artifact_refs": list(version.artifact_refs),
+        "artifact_refs": artifact_refs,
+        "content_state": formal_memory_content_state(canonical_text=version.canonical_text, artifact_refs=artifact_refs),
+        "content_requirement": requirement,
+        "content_warnings": formal_memory_content_warnings(
+            canonical_text=version.canonical_text,
+            artifact_refs=artifact_refs,
+            requirement=requirement,
+        ),
         "source_node_id": version.source_node_id,
         "source_edge_id": version.source_edge_id,
         "source_node_run_id": version.source_node_run_id,
@@ -392,7 +520,6 @@ def _record_payload(*, version: FormalMemoryRecordVersion, edge: dict[str, Any],
         "usage_instruction": str(edge.get("usage_instruction") or ""),
         "authority": "formal_memory.resolved_record",
     }
-
 
 def _memory_repository_nodes_from_graph(graph: dict[str, Any]) -> list[dict[str, Any]]:
     nodes_by_id: dict[str, dict[str, Any]] = {}
@@ -477,16 +604,6 @@ def _strings(values: Any) -> list[str]:
     if isinstance(values, str):
         return [values.strip()] if values.strip() else []
     return [str(item).strip() for item in list(values or []) if str(item).strip()]
-
-
-def _loads_json(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return dict(value)
-    try:
-        payload = json.loads(str(value or "{}"))
-    except json.JSONDecodeError:
-        return {}
-    return dict(payload) if isinstance(payload, dict) else {}
 
 
 def _safe_scope_id(value: str) -> str:

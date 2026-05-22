@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Iterable
+from typing import Any, Callable
 
 from langchain_core.messages import AIMessage, ToolMessage
 
@@ -81,7 +81,6 @@ from ..memory.tool_observation_ledger import ToolObservationLedger, build_tool_o
 
 
 RuntimeEventBuilder = Callable[..., Any]
-ExecutorEventAdapter = Callable[..., Awaitable[Iterable[Any]]]
 StateWithLedger = Callable[..., RuntimeLoopState]
 
 
@@ -110,14 +109,14 @@ class ProfessionalTaskRunDriver:
         self,
         *,
         event_log: Any,
-        events_from_executor_event: ExecutorEventAdapter,
+        execution_engine: Any,
         record_task_run_step_event: RuntimeEventBuilder,
         record_task_run_ledger_updated: RuntimeEventBuilder,
         state_with_task_run_ledger: StateWithLedger,
         write_checkpoint_event: Callable[..., Any],
     ) -> None:
         self.event_log = event_log
-        self.events_from_executor_event = events_from_executor_event
+        self.execution_engine = execution_engine
         self.record_task_run_step_event = record_task_run_step_event
         self.record_task_run_ledger_updated = record_task_run_ledger_updated
         self.state_with_task_run_ledger = state_with_task_run_ledger
@@ -500,8 +499,9 @@ class ProfessionalTaskRunDriver:
                 required_next_tools=required_next_tools,
                 max_tool_calls=max_tool_calls,
             )
-            async for event in model_response_executor.stream(
+            async for event in self.execution_engine.stream_raw_model_events(
                 user_message=user_message,
+                model_response_executor=model_response_executor,
                 model_messages=conversation_messages,
                 directive=safe_directive,
                 tool_instances=round_model_tool_instances,
@@ -625,8 +625,8 @@ class ProfessionalTaskRunDriver:
                     event_kwargs = dict(event.get("assistant_additional_kwargs") or {})
                     if event_kwargs:
                         assistant_tool_call_kwargs.update(event_kwargs)
-                runtime_events = await self.events_from_executor_event(
-                    task_run_id,
+                runtime_events = await self.execution_engine.translate_event(
+                    task_run_id=task_run_id,
                     user_message=user_message,
                     task_id=task_id,
                     task_operation=task_operation,
@@ -1138,8 +1138,9 @@ class ProfessionalTaskRunDriver:
                 },
             ]
             outcome.model_call_count += 1
-            async for event in model_response_executor.stream(
+            async for event in self.execution_engine.stream_raw_model_events(
                 user_message=user_message,
+                model_response_executor=model_response_executor,
                 model_messages=closeout_messages,
                 directive=_model_only_directive(safe_directive, mode=interaction_mode),
                 tool_instances=[],
@@ -1148,8 +1149,8 @@ class ProfessionalTaskRunDriver:
             ):
                 if _event_protocol_leak_detected(event):
                     closeout_protocol_leak_detected = True
-                runtime_events = await self.events_from_executor_event(
-                    task_run_id,
+                runtime_events = await self.execution_engine.translate_event(
+                    task_run_id=task_run_id,
                     user_message=user_message,
                     task_id=task_id,
                     task_operation=task_operation,
@@ -1522,16 +1523,17 @@ class ProfessionalTaskRunDriver:
                 },
             ]
             outcome.model_call_count += 1
-            async for event in model_response_executor.stream(
+            async for event in self.execution_engine.stream_raw_model_events(
                 user_message=user_message,
+                model_response_executor=model_response_executor,
                 model_messages=repair_messages,
                 directive=_model_only_directive(safe_directive, mode=interaction_mode),
                 tool_instances=[],
                 model_stream_policy=model_stream_policy,
                 model_spec=resolved_model_spec,
             ):
-                runtime_events = await self.events_from_executor_event(
-                    task_run_id,
+                runtime_events = await self.execution_engine.translate_event(
+                    task_run_id=task_run_id,
                     user_message=user_message,
                     task_id=task_id,
                     task_operation=task_operation,
@@ -2295,8 +2297,6 @@ class ProfessionalTaskRunDriver:
         checkpoint_event = self.write_checkpoint_event(state, event_offset=ledger_event.offset)
         self._ledger_transition_events.append(checkpoint_event)
         return state, ledger
-
-
 
 
 

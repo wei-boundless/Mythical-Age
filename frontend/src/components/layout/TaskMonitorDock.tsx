@@ -3,69 +3,56 @@
 import { Activity, AlertTriangle, CheckCircle2, ChevronRight, Clock3, Minimize2, Network, PauseCircle, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { TaskGraphRunMonitorPanel } from "@/components/task-graph-monitor/TaskGraphRunMonitorPanel";
-import type { GlobalRuntimeMonitorItem } from "@/lib/api";
 import { useAppStore } from "@/lib/store";
-
-const ACTIVE_STATUSES = new Set(["created", "running", "waiting_approval", "blocked"]);
-const WAITING_STATUSES = new Set(["waiting_approval", "blocked"]);
-
-function statusLabel(status: string) {
-  if (status === "running" || status === "created") return "进行中";
-  if (status === "waiting_approval") return "等待审批";
-  if (status === "blocked") return "受阻";
-  if (status === "completed" || status === "success") return "已完成";
-  if (status === "failed") return "失败";
-  if (status === "aborted") return "已停止";
-  return status || "未知";
-}
+import {
+  isWaitingStatus,
+  formatTime,
+  monitorStatusLabel,
+  monitorTimeLabel,
+  taskTitle,
+} from "@/components/layout/runtimeMonitorFormat";
 
 function statusIcon(status: string) {
-  if (WAITING_STATUSES.has(status)) return <PauseCircle size={14} />;
+  if (isWaitingStatus(status)) return <PauseCircle size={14} />;
   if (status === "completed" || status === "success") return <CheckCircle2 size={14} />;
   if (status === "failed" || status === "aborted") return <AlertTriangle size={14} />;
   return <Activity size={14} />;
 }
 
-function formatDuration(seconds: number) {
-  const safe = Math.max(0, Math.floor(seconds || 0));
-  const hours = Math.floor(safe / 3600);
-  const minutes = Math.floor((safe % 3600) / 60);
-  const secs = safe % 60;
-  if (hours) return `${hours}h ${minutes}m`;
-  if (minutes) return `${minutes}m ${secs}s`;
-  return `${secs}s`;
-}
-
-function formatTime(timestamp: number) {
-  if (!timestamp) return "-";
-  return new Date(timestamp * 1000).toLocaleTimeString();
-}
-
-function taskTitle(item: GlobalRuntimeMonitorItem) {
-  return item.project_title || item.title || item.task_id || item.task_run_id;
-}
-
-export function TaskMonitorDock() {
+export function TaskMonitorDock({
+  embedded = false,
+  onOpenTaskDetail,
+}: {
+  embedded?: boolean;
+  onOpenTaskDetail?: () => void;
+}) {
   const {
     globalRuntimeMonitor,
     globalRuntimeMonitorError,
     globalRuntimeMonitorLoading,
-    globalRuntimeMonitorSelectedGraphMonitor,
-    globalRuntimeMonitorSelectedLiveMonitor,
+    globalRuntimeMonitorLastEvent,
     globalRuntimeMonitorSelectedTaskRunId,
+    globalRuntimeMonitorStreamStatus,
     refreshGlobalRuntimeMonitor,
     selectGlobalRuntimeMonitorTaskRun,
   } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
+  const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
   const tasks = useMemo(() => globalRuntimeMonitor?.task_runs ?? [], [globalRuntimeMonitor?.task_runs]);
   const summary = globalRuntimeMonitor?.summary ?? { total: 0, running: 0, waiting: 0, completed: 0, failed: 0 };
   const selectedTask = useMemo(
     () => tasks.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId) ?? tasks[0] ?? null,
     [globalRuntimeMonitorSelectedTaskRunId, tasks]
   );
-  const hasActiveSignal = tasks.some((item) => ACTIVE_STATUSES.has(item.status));
+  const hasActiveSignal = tasks.some((item) => item.is_live || item.display_bucket === "live");
   const hasSignal = tasks.length > 0;
+  const streamLabel = globalRuntimeMonitorStreamStatus === "connected"
+    ? "事件流"
+    : globalRuntimeMonitorStreamStatus === "connecting"
+      ? "连接中"
+      : globalRuntimeMonitorStreamStatus === "fallback"
+        ? "快照兜底"
+        : "未连接";
 
   useEffect(() => {
     const collapseQuery = window.matchMedia("(max-width: 1260px)");
@@ -81,16 +68,32 @@ export function TaskMonitorDock() {
     return () => collapseQuery.removeEventListener("change", collapseOnNarrow);
   }, []);
 
+  useEffect(() => {
+    if (!hasActiveSignal) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => setNowSeconds(Date.now() / 1000), 1000);
+    return () => window.clearInterval(timer);
+  }, [hasActiveSignal]);
+
   const statusText = useMemo(() => {
     if (globalRuntimeMonitorLoading && !globalRuntimeMonitor) return "同步中";
     if (summary.waiting) return "等待处理";
     if (summary.running) return `${summary.running} 运行中`;
+    if (summary.stale) return `${summary.stale} 个停滞`;
+    if (summary.recent) return `${summary.recent} 个刚结束`;
     if (summary.total) return `${summary.total} 个任务`;
     return "待命";
-  }, [globalRuntimeMonitor, globalRuntimeMonitorLoading, summary.running, summary.total, summary.waiting]);
+  }, [globalRuntimeMonitor, globalRuntimeMonitorLoading, summary.recent, summary.running, summary.stale, summary.total, summary.waiting]);
 
   return (
-    <aside className={collapsed ? "task-monitor-dock task-monitor-dock--collapsed" : "task-monitor-dock"} aria-label="全局运行监控">
+    <aside
+      className={[
+        collapsed ? "task-monitor-dock task-monitor-dock--collapsed" : "task-monitor-dock",
+        embedded ? "task-monitor-dock--embedded" : "",
+      ].filter(Boolean).join(" ")}
+      aria-label="全局运行监控"
+    >
       <header className="task-monitor-dock__head">
         <button
           aria-label={collapsed ? "展开运行监控" : "折叠运行监控"}
@@ -135,7 +138,7 @@ export function TaskMonitorDock() {
             </div>
             <small>
               {globalRuntimeMonitor?.updated_at
-                ? `最近刷新 ${formatTime(globalRuntimeMonitor.updated_at)}`
+                ? `${streamLabel} · ${globalRuntimeMonitorLastEvent?.event_type || `校准 ${formatTime(globalRuntimeMonitor.updated_at)}`}`
                 : "任务开始后，这里显示全局运行信息。"}
             </small>
           </section>
@@ -161,7 +164,10 @@ export function TaskMonitorDock() {
                 <button
                   className={active ? "runtime-monitor-row runtime-monitor-row--active" : "runtime-monitor-row"}
                   key={item.task_run_id}
-                  onClick={() => selectGlobalRuntimeMonitorTaskRun(item.task_run_id)}
+                  onClick={() => {
+                    selectGlobalRuntimeMonitorTaskRun(item.task_run_id);
+                    onOpenTaskDetail?.();
+                  }}
                   type="button"
                 >
                   <span className={`runtime-monitor-row__status runtime-monitor-row__status--${item.status}`}>
@@ -172,8 +178,8 @@ export function TaskMonitorDock() {
                     <small>{item.graph_id || item.coordination_run_id || item.task_run_id}</small>
                   </span>
                   <span className="runtime-monitor-row__meta">
-                    <strong>{statusLabel(item.status)}</strong>
-                    <small>{formatDuration(item.elapsed_seconds)}</small>
+                    <strong>{monitorStatusLabel(item)}</strong>
+                    <small>{monitorTimeLabel(item, nowSeconds)}</small>
                   </span>
                 </button>
               );
@@ -184,34 +190,6 @@ export function TaskMonitorDock() {
                 <span>Agent 开始执行后，会按任务显示实时状态。</span>
               </div>
             )}
-          </section>
-
-          <section className="runtime-monitor-detail" aria-label="选中任务详细监控">
-            {selectedTask ? (
-              <header className="runtime-monitor-detail__head">
-                <div>
-                  <span>{statusLabel(selectedTask.status)}</span>
-                  <strong>{taskTitle(selectedTask)}</strong>
-                </div>
-                <small>{selectedTask.event_count} events · 更新 {formatTime(selectedTask.latest_event_at || selectedTask.updated_at)}</small>
-              </header>
-            ) : null}
-
-            {globalRuntimeMonitorSelectedGraphMonitor ? (
-              <TaskGraphRunMonitorPanel monitor={globalRuntimeMonitorSelectedGraphMonitor} />
-            ) : globalRuntimeMonitorSelectedLiveMonitor ? (
-              <div className="runtime-monitor-lite-detail">
-                <article><span>TaskRun</span><strong>{String(globalRuntimeMonitorSelectedLiveMonitor.task_run?.task_run_id ?? selectedTask?.task_run_id ?? "")}</strong></article>
-                <article><span>状态</span><strong>{statusLabel(globalRuntimeMonitorSelectedLiveMonitor.status)}</strong></article>
-                <article><span>终止原因</span><strong>{globalRuntimeMonitorSelectedLiveMonitor.terminal_reason || "-"}</strong></article>
-                <article><span>Checkpoint</span><strong>{String(globalRuntimeMonitorSelectedLiveMonitor.latest_checkpoint?.checkpoint_id ?? "-")}</strong></article>
-              </div>
-            ) : selectedTask ? (
-              <div className="runtime-monitor-empty">
-                <RefreshCw size={18} />
-                <strong>正在读取详情</strong>
-              </div>
-            ) : null}
           </section>
         </div>
       )}

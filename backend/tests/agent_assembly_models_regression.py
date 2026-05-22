@@ -12,13 +12,11 @@ from runtime.agent_assembly import (
     SubRuntimeWorkOrder,
     WorkOrder,
     build_agent_assembly_contract,
-    payload_from_work_order,
     validate_assembly_contract,
     validate_execution_permit,
     validate_work_order,
-    work_order_from_node_execution_request_legacy,
-    work_order_from_legacy_payload,
 )
+from runtime.coordination_runtime.work_order_builder import build_node_work_order_from_request
 from runtime.execution_permit import build_execution_permit
 from runtime.execution.node_execution_request import NodeExecutionRequest
 
@@ -29,31 +27,29 @@ def _base_dir() -> Path:
     return isolated_backend_root("agent-assembly-")
 
 
-def test_legacy_payload_round_trip_narrows_to_human_and_subruntime() -> None:
-    human = work_order_from_legacy_payload(
-        {
-            "work_kind": "human",
-            "task_ref": "task.review",
-            "executor_type": "human",
-            "coordination_run_id": "coordrun:test",
-            "stage_id": "review",
-            "node_id": "review",
-            "agent_id": "agent:reviewer",
-            "agent_profile_id": "review_profile",
-        }
+def test_typed_work_orders_cover_human_and_subruntime_executors() -> None:
+    human = HumanWorkOrder(
+        work_order_id="",
+        work_kind="human",
+        task_ref="task.review",
+        executor_type="human",
+        coordination_run_id="coordrun:test",
+        stage_id="review",
+        node_id="review",
+        agent_id="agent:reviewer",
+        agent_profile_id="review_profile",
     )
-    subruntime = work_order_from_legacy_payload(
-        {
-            "work_kind": "subruntime",
-            "task_ref": "task.graph",
-            "executor_type": "subruntime",
-            "coordination_run_id": "coordrun:test",
-            "stage_id": "graph",
-            "node_id": "graph",
-            "agent_id": "agent:0",
-            "agent_profile_id": "main_interactive_agent",
-            "subruntime_kind": "graph_module",
-        }
+    subruntime = SubRuntimeWorkOrder(
+        work_order_id="",
+        work_kind="subruntime",
+        task_ref="task.graph",
+        executor_type="subruntime",
+        coordination_run_id="coordrun:test",
+        stage_id="graph",
+        node_id="graph",
+        agent_id="agent:0",
+        agent_profile_id="main_interactive_agent",
+        subruntime_kind="graph_module",
     )
 
     assert isinstance(human, HumanWorkOrder)
@@ -76,11 +72,11 @@ def test_node_execution_request_round_trip_preserves_boundary_fields() -> None:
         human_work_packet={"work_packet_id": "humanwork:test"},
     )
 
-    work_order = work_order_from_node_execution_request_legacy(request)
-    payload = payload_from_work_order(work_order)
+    work_order = build_node_work_order_from_request(request)
 
     assert isinstance(work_order, HumanWorkOrder)
-    assert payload["authority"] == "task_graph.node_execution_request"
+    payload = work_order.to_dict()
+    assert payload["authority"] == "runtime.agent_assembly.work_order"
     assert payload["human_work_packet"]["work_packet_id"] == "humanwork:test"
     assert payload["stage_id"] == "review"
     assert payload["node_id"] == "review"
@@ -151,5 +147,4 @@ def test_direct_work_order_gets_agent_style_prompt_and_default_permit() -> None:
     assert "runtime 节点" not in assembly.prompt_assembly.instruction_text
     assert permit.allowed_operations
     assert permit.model_visible_tool_refs == permit.visible_tools
-    assert payload_from_work_order(work_order)["authority"] == "task_graph.node_execution_request"
     assert validate_work_order(work_order).passed

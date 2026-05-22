@@ -9,6 +9,7 @@ from runtime.coordination_runtime.runtime import (
     LangGraphCoordinationRuntime,
     _active_scope_key_for_scheduler,
     _apply_loop_derived_fields,
+    _memory_edge_allows_refs_only_auto_candidate,
     _review_gate_event_is_accepted,
     _pending_inputs_for_stage_quality_retry,
     _stage_execution_message,
@@ -280,7 +281,7 @@ def test_stage_execution_message_declares_runtime_batch_boundary_over_stale_proj
                     "list_template": "允许章号清单：{unit_list}。",
                     "size_template": "当前运行时每轮批次大小为 {unit_count} 章。",
                     "metric_template": "当前批次目标正文量约 {target_metric} 字。",
-                    "conflict_template": "如果项目启动包、上游旧产物或历史摘要出现其他批次大小或其他章号范围，以本运行时批次边界为准。",
+                    "conflict_template": "如果项目启动包、上游旧产物或历史摘要出现其他批次大小或其他章号范围，以本轮处理边界为准。",
                 }
             },
         },
@@ -296,13 +297,13 @@ def test_stage_execution_message_declares_runtime_batch_boundary_over_stale_proj
         },
     )
 
-    boundary_pos = message.index("运行时批次边界：")
-    hard_setting_pos = message.index("用户硬设定：")
+    boundary_pos = message.index("本轮处理边界：")
+    hard_setting_pos = message.index("用户约束：")
 
     assert boundary_pos < hard_setting_pos
     assert "本节点只允许处理第1章至第5章" in message
     assert "当前运行时每轮批次大小为 5 章" in message
-    assert "以本运行时批次边界为准" in message
+    assert "以本轮处理边界为准" in message
 
 
 def test_stage_execution_message_uses_generic_batch_boundary_without_domain_defaults() -> None:
@@ -344,9 +345,9 @@ def test_stage_execution_message_expands_revision_artifact_text(tmp_path) -> Non
         },
     )
 
-    assert "审核报告正文" in message
+    assert "审核报告内容" in message
     assert "需要补强卷级推进和伏笔回收" in message
-    assert "上一版候选产物正文" in message
+    assert "上一版候选产物内容" in message
     assert "这里是上一版正文" in message
     assert "不要输出 read_file" in message
 
@@ -1764,6 +1765,122 @@ def test_formal_memory_read_edge_does_not_fallback_to_working_memory(tmp_path) -
     assert context["formal_memory.required_records"][0]["version_id"] == candidate.version_id
 
 
+def test_formal_memory_missing_required_blocks_stage_dispatch(tmp_path) -> None:
+    registry = _FormalMemoryRegistry()
+    state_index = RuntimeStateIndex(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    runtime = LangGraphCoordinationRuntime(
+        root_dir=tmp_path,
+        state_index=state_index,
+        event_log=event_log,
+        task_flow_registry=registry,
+        trace_reader=_Trace({}),
+    )
+    graph_spec = {
+        "graph_id": "graph.test.formal_memory_block",
+        "graph_ref": "graph.test.formal_memory_block",
+        "nodes": [
+            {
+                "node_id": "memory.world",
+                "node_type": "memory_repository",
+                "metadata": {
+                    "memory_repository": {
+                        "repository_id": "memory.world",
+                        "collections": [
+                            {
+                                "collection_id": "world",
+                                "content_requirement": {
+                                    "canonical_text_required": True,
+                                    "artifact_ref_only_allowed": False,
+                                },
+                            }
+                        ],
+                    }
+                },
+            },
+            {"node_id": "chapter_writer", "node_type": "agent"},
+        ],
+        "edges": [
+            {
+                "edge_id": "edge.memory.chapter.world",
+                "source_node_id": "memory.world",
+                "target_node_id": "chapter_writer",
+                "mode": "memory_read",
+                "metadata": {
+                    "collection": "world",
+                    "selector": {"record_key": "world_bible.current", "status_filter": ["committed"]},
+                    "content_requirement": {
+                        "canonical_text_required": True,
+                        "artifact_ref_only_allowed": False,
+                    },
+                    "on_missing": "block",
+                },
+            }
+        ],
+    }
+    state = {
+        "coordination_run_id": "coordrun:formal-memory-block",
+        "root_task_run_id": "taskrun:formal-memory-block",
+        "active_stage_id": "chapter_writer",
+        "active_task_ref": "task.test.world_review",
+        "stage_contracts": {
+            "chapter_writer": {
+                "stage_id": "chapter_writer",
+                "node_id": "chapter_writer",
+                "task_ref": "task.test.world_review",
+                "agent_id": "agent:0",
+            }
+        },
+        "pending_inputs": {},
+        "current_event": {},
+        "stage_results": {},
+        "retry_counts": {},
+        "stage_order": ["chapter_writer"],
+        "node_statuses": {},
+        "diagnostics": {"coordination_graph_spec": graph_spec},
+    }
+
+    result = runtime._stage_execute(state)
+
+    assert result["terminal_status"] == "blocked"
+    assert result["node_statuses"]["chapter_writer"] == "blocked"
+    assert result["diagnostics"]["stage_blocked_by_memory"] is True
+    assert result["missing_required_memory_records"][0]["collection"] == "world"
+    assert "node_execution_request" not in result
+
+
+def test_refs_only_auto_candidate_requires_explicit_memory_edge_contract() -> None:
+    assert _memory_edge_allows_refs_only_auto_candidate(
+        {
+            "edge_id": "edge.write.artifacts",
+            "collection": "draft_refs",
+            "content_requirement": {
+                "canonical_text_required": False,
+                "artifact_ref_only_allowed": True,
+            },
+        }
+    ) is True
+    assert _memory_edge_allows_refs_only_auto_candidate(
+        {
+            "edge_id": "edge.write.legacy_named_refs",
+            "collection": "draft_refs",
+            "content_requirement": {},
+            "materialization_policy": {},
+        }
+    ) is False
+    assert _memory_edge_allows_refs_only_auto_candidate(
+        {
+            "edge_id": "edge.write.canon",
+            "collection": "canon",
+            "content_requirement": {
+                "canonical_text_required": True,
+                "artifact_ref_only_allowed": False,
+            },
+            "materialization_policy": {"canonical_text_mode": "refs_only"},
+        }
+    ) is False
+
+
 def test_langgraph_coordination_runtime_commits_working_memory_decisions(tmp_path) -> None:
     registry = _WorkingMemoryRegistry()
     state_index = RuntimeStateIndex(tmp_path)
@@ -2545,7 +2662,58 @@ def test_langgraph_coordination_runtime_retries_failed_stage_when_policy_allows(
     assert result.stage_execution_request is not None
     assert result.stage_execution_request.stage_id == "a"
     assert result.state["retry_counts"]["a"] == 1
+    assert result.state["retry_stage_id"] == ""
+    assert "retry_stage_id" not in result.state["diagnostics"]
     assert result.state["running_nodes"] == ["a"]
+
+
+def test_langgraph_coordination_runtime_commit_identity_is_authoritative_state(tmp_path) -> None:
+    runtime, _, coordination_run = _diamond_runtime(tmp_path)
+    stage_contracts = runtime.task_flow_registry.coordination.metadata["stage_contracts"]
+    stage_contracts[0]["artifact_policy"] = {
+        "commit_identity_policy": {
+            "mode": "input_keys_and_artifact_refs",
+            "include_result_artifact_refs": True,
+        }
+    }
+
+    accepted = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            artifact_refs=("ref:a",),
+            accepted=True,
+        ),
+    )
+
+    committed = list(accepted.state["committed_stage_identities"])
+    assert committed
+    assert "committed_stage_identities" not in accepted.state["diagnostics"]
+    assert accepted.state["diagnostics"]["last_committed_stage_identity"] == committed[0]
+
+    duplicate = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a:duplicate",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a:duplicate",
+            artifact_refs=("ref:a",),
+            accepted=True,
+        ),
+    )
+
+    assert duplicate.state["terminal_status"] == "duplicate_commit_ignored"
+    assert duplicate.state["committed_stage_identities"] == committed
+    assert "committed_stage_identities" not in duplicate.state["diagnostics"]
+    assert duplicate.state["diagnostics"]["last_duplicate_commit_identity"] == committed[0]
 
 
 def test_failed_file_artifact_stage_does_not_satisfy_required_outputs(tmp_path) -> None:
@@ -2839,7 +3007,7 @@ def test_langgraph_runtime_emits_graph_module_stage_request(tmp_path) -> None:
     assert request.task_ref == "task_graph.node.graph.test.importing_graph_module_runtime.graph_module.block.child"
     assert request.executor_binding["selected_executor"] == "graph_module"
     handle = request.runtime_assembly["graph_module_runtime_handle"]
-    assert handle["authority"] == "orchestration.graph_module_runtime_handle"
+    assert handle["authority"] == "runtime.subruntime.graph_module_runtime_handle"
     assert handle["linked_graph_id"] == "graph.test.imported_graph_module_runtime"
     assert handle["graph_module_runtime_plan_id"] == "graph_module_runtime.block.child"
     assert handle["importing_coordination_run_id"] == "coordrun:graph-module"

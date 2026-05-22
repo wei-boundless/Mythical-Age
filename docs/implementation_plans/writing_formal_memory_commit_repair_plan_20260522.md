@@ -2,6 +2,24 @@
 
 日期：2026-05-22
 
+## 0. 底座依赖与定位修正
+
+本计划不再作为独立 runtime 补丁执行。写作图暴露的问题已经上升为通用任务图记忆读写协议问题，必须先按以下计划建立通用底座：
+
+```text
+docs/implementation_plans/task_graph_memory_read_write_standardization_plan_20260522.md
+```
+
+本计划的定位调整为：在通用 `TaskGraphMemoryProtocol` 完成后，把模块化写作任务图迁移到标准记忆读写协议，并作为复杂长任务回归样板。
+
+硬边界：
+
+1. 通用 runtime 不允许内置世界观、人设、大纲、章节、正文等写作概念。
+2. 写作图可以定义写作专用 repository/collection/record_kind，但只能通过通用 memory address、read spec、write spec、materialization policy 和 commit policy 表达。
+3. 不再通过 refs-only fallback 生成 formal canon。
+4. 写作节点的 prompts 只负责专业角色行为，不负责弥补记忆协议缺陷。
+5. required memory 缺失时必须由通用底座 fail closed，写作图不能靠 prompt 要求模型“自行谨慎处理”。
+
 ## 1. 问题定义
 
 当前写作图的核心故障不是“prompt 不够长”，而是长篇生产所依赖的世界观、人设、大纲、正文事实没有稳定进入正式记忆。产物文件已经落盘，但 formal memory 中大量记录只是产物引用壳，`canonical_text` 为空，后续节点读到的不是可写作依据，而是“某节点已产出若干产物引用”的摘要。
@@ -55,17 +73,16 @@
 
 ## 3. 修复总方向
 
-采用“双层修复”：
+采用“通用底座 + 写作迁移”的修复：
 
 1. 通用底座修复：
-   - 增加通用的 formal memory candidate materialization 机制。
-   - 增加 missing required formal memory 的 fail-closed 执行门。
-   - 改进正式记忆快照展示，使模型能看到可用正文或明确的缺失诊断。
+   - 由 `task_graph_memory_read_write_standardization_plan_20260522.md` 负责。
+   - 包含 formal memory candidate materialization、required memory fail-closed、snapshot contract、content requirement、visibility policy、refs-only 隔离。
 
 2. 写作图专用修复：
    - 不再把专业集合压扁成粗集合。
    - 给每类写作节点定义真实读写矩阵。
-   - 给提交节点定义结构化记忆候选产出规则。
+   - 给提交节点配置通用 materialization/commit policy。
    - 增加写作专用回归测试，验证下游节点真的能读到世界观、人设、大纲和章节事实。
 
 ## 4. 目标架构
@@ -114,9 +131,9 @@ next_batch_requirement
 
 但这些只是图配置里的业务值，runtime 不内置这些词。
 
-### 4.2 通用 materialization policy
+### 4.2 写作图使用的 materialization policy
 
-在节点 `memory_writeback_policy` 中增加通用字段：
+通用字段由 `TaskGraphMemoryProtocol` 提供。写作图只负责给提交节点配置业务 record rules，例如：
 
 ```json
 {
@@ -143,7 +160,7 @@ next_batch_requirement
 }
 ```
 
-这是通用策略：它只是把已接受产物转成正式记忆候选。写作图负责提供 collection、record_key、record_kind。
+这不是写作专用 runtime 规则。它只是通过通用 materialization policy 把已审核通过的写作产物转成 formal memory candidate。写作图负责提供 collection、record_key、record_kind。
 
 ### 4.3 写作记忆库结构
 
@@ -250,7 +267,7 @@ backend/tests/writing_modular_novel_graph_config_regression.py
 2. `chapter_draft` 读取的不是粗集合 `baseline`，而是具体的 baseline/mutable/manuscript collection。
 3. 写作图测试禁止把 `memory.writing.baseline` 的主要读写 collection 继续生成为 `baseline`。
 
-### 阶段二：通用 formal memory candidate materializer
+### 阶段二：接入通用 formal memory candidate materializer
 
 文件：
 
@@ -264,11 +281,11 @@ backend/tests/formal_memory_store_regression.py
 
 改动：
 
-1. 增加通用 helper：根据 `candidate_materialization_policy` 从已接受 artifact refs 生成正式记忆候选。
-2. 排除 debug artifact，避免把 run report 写成 canon。
-3. 对 `artifact_index` 这类 refs-only 仓库保持 refs-only，不灌入大段正文。
-4. 当 candidate 已经带 `canonical_text` 时，尊重 candidate，不重复读取 artifact。
-5. 当 policy 要求 `canonical_text_required` 但无法取得正文时，写入失败并返回 formal memory error。
+1. 依赖通用底座中的 materializer，不在写作图里单独实现一套。
+2. 写作图为 `memory_commit_world`、`memory_commit_character`、`baseline_memory_seed`、`memory_commit_chapter` 配置 record rules。
+3. 排除 debug artifact，避免把 run report 写成 canon。
+4. 对 `artifact_index` 这类 refs-only 仓库保持 refs-only，不灌入大段正文。
+5. 当 collection 要求 `canonical_text_required` 但无法取得正文时，写入失败并返回 formal memory error。
 
 完成标准：
 
@@ -317,7 +334,7 @@ backend/tests/writing_modular_novel_graph_config_regression.py
 2. schema 可以被 runtime materializer 使用。
 3. 提交节点不再只产出“提交了几个 artifact refs”的空壳。
 
-### 阶段四：required memory fail-closed
+### 阶段四：required memory fail-closed 验证
 
 文件：
 
@@ -330,12 +347,12 @@ backend/tests/writing_professional_runtime_regression.py
 
 改动：
 
-1. `_select_stage_working_memory_context()` 已能拿到 `missing_required_records`，但执行前需要硬拦截。
-2. 当节点有 required memory read edge 且 formal memory 缺失时：
+1. fail-closed 由通用底座实现，写作图只声明哪些读边是 required。
+2. 当写作节点有 required memory read edge 且 formal memory 缺失时：
    - 不派发 agent。
-   - 写 timeline event：`memory_snapshot_missing_required_records`。
-   - stage 状态进入 blocked 或 pending upstream。
-3. 对非 required 的 preferred memory，只记录 warning，不阻塞。
+   - 写 timeline event。
+   - stage 状态进入 blocked 或 pending repair。
+3. 写作测试覆盖世界观、人设、大纲、章节摘要缺失时的阻断。
 
 完成标准：
 
@@ -343,7 +360,7 @@ backend/tests/writing_professional_runtime_regression.py
 2. `chapter_draft` 在没有 `chapter_outline_ref`、baseline world、baseline characters 时不能执行。
 3. 回归测试证明 required memory 缺失不会继续生成正文。
 
-### 阶段五：记忆快照可读性修复
+### 阶段五：记忆快照可读性接入
 
 文件：
 
@@ -356,15 +373,16 @@ backend/tests/langgraph_coordination_runtime_regression.py
 
 改动：
 
-1. `_readable_memory_snapshot_sections()` 按 repository/collection 分组展示。
-2. 每条记录展示：
+1. 由通用 `MemorySnapshotContract` 按 repository/collection 分组展示。
+2. 写作图为每类 collection 提供 agent-facing `usage_instruction`。
+3. 每条记录展示：
    - label
    - repository/collection/record_key
    - usage_instruction
    - canonical_text 摘要或正文片段
    - artifact refs
-3. 对写作长文本节点，允许更高的记忆展示预算，但必须按 collection 预算控制，避免前 20 条记录吃掉全部上下文。
-4. 如果记录 `canonical_text` 为空但 artifact refs 存在，展示明确警告：
+4. 对写作长文本节点，允许更高的记忆展示预算，但必须按 collection 预算控制，避免前 20 条记录吃掉全部上下文。
+5. 如果记录 `canonical_text` 为空但 artifact refs 存在，展示明确警告：
    - “此记录只有产物引用，没有正式记忆正文”
    - 这类记录不得满足 required canonical memory。
 
@@ -385,7 +403,7 @@ backend/tests/formal_memory_run_scope_regression.py
 
 改动：
 
-1. 增加维护脚本或维护说明：识别 `canonical_text = '' AND artifact_refs_json != '[]'` 的 writing formal records。
+1. 使用通用底座的 shell record 诊断/隔离能力识别 `canonical_text = '' AND artifact_refs_json != '[]'` 的 writing formal records。
 2. 对当前任务继续跑时，必须先把这些空壳记录标为 invalidated 或隔离，不允许继续作为 committed canon 被选中。
 3. 对《洪荒时代》当前运行，建议从最近一次有效的 `world_candidate + world_review` 之后重跑 `memory_commit_world`，而不是继续沿用空壳 baseline。
 
@@ -471,11 +489,11 @@ docs/implementation_plans/writing_formal_memory_commit_repair_plan_20260522.md
 
 这次修复完成后，必须满足：
 
-1. 写作图中专业 collections 不再只是配置名词，而是真实 memory edge 地址。
-2. `memory_commit_world` 后，formal memory 中至少存在非空 `world_bible.current`。
-3. `memory_commit_chapter` 后，formal memory 中至少存在非空 `chapter_summaries` 和 `manuscript_fact_index`。
-4. 下游节点的输入消息里能看到正式记忆正文或结构化摘要。
-5. required memory 缺失时，节点不会执行。
-6. 原有写作图模块、章节循环、断点续跑、产物落盘测试继续通过。
-7. 通用 runtime 中不出现写作专用节点名或章节业务默认值。
-
+1. 通用 `TaskGraphMemoryProtocol` 已经成为写作图的记忆读写主路径。
+2. 写作图中专业 collections 不再只是配置名词，而是真实 memory edge 地址。
+3. `memory_commit_world` 后，formal memory 中至少存在非空 `world_bible.current`。
+4. `memory_commit_chapter` 后，formal memory 中至少存在非空 `chapter_summaries` 和 `manuscript_fact_index`。
+5. 下游节点的输入消息里能看到正式记忆正文或结构化摘要。
+6. required memory 缺失时，节点不会执行。
+7. 原有写作图模块、章节循环、断点续跑、产物落盘测试继续通过。
+8. 通用 runtime 中不出现写作专用节点名或章节业务默认值。

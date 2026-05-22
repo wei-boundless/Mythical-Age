@@ -4,7 +4,7 @@ from runtime.memory.tool_observation_ledger import (
     ToolObservationLedger,
     build_tool_observation_record,
 )
-from runtime.shared.protocol_boundary import detect_protocol_leak, strip_protocol_leak
+from task_system.runtime_semantics.protocol_boundary import detect_protocol_leak, strip_protocol_leak
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
 
 

@@ -61,7 +61,7 @@ def build_graph_module_runtime_handle_from_contract(
         "scope_path": list(dispatch_context.get("scope_path") or []),
     }
     return {
-        "authority": "orchestration.graph_module_runtime_handle",
+        "authority": "runtime.subruntime.graph_module_runtime_handle",
         "handle_id": f"graphmodrun:{_short_hash(seed)}",
         "importing_graph_id": str(importing_graph_id or graph_module_plan.get("importing_graph_id") or ""),
         "importing_coordination_run_id": str(importing_coordination_run_id or ""),
@@ -102,7 +102,7 @@ def build_graph_module_runtime_handle_from_request(request_payload: dict[str, An
         or {}
     )
     return {
-        "authority": "orchestration.graph_module_runtime_handle",
+        "authority": "runtime.subruntime.graph_module_runtime_handle",
         "handle_id": str(runtime_assembly.get("handle_id") or executor_binding.get("handle_id") or ""),
         "importing_coordination_run_id": str(request_payload.get("coordination_run_id") or ""),
         "importing_root_task_run_id": str(request_payload.get("root_task_run_id") or ""),

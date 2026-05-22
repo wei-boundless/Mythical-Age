@@ -1,12 +1,23 @@
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass
 import json
+import threading
 import time
 import uuid
 from pathlib import Path
 from typing import Any
 
 from .events import RuntimeEvent, RuntimeEventType
+
+
+@dataclass(slots=True)
+class RuntimeEventSubscription:
+    subscription_id: str
+    queue: asyncio.Queue[RuntimeEvent]
+    loop: asyncio.AbstractEventLoop | None = None
+    task_run_id: str = ""
 
 
 class RuntimeEventLog:
@@ -16,6 +27,8 @@ class RuntimeEventLog:
         self.root_dir = Path(root_dir)
         self.event_dir = self.root_dir / "events"
         self.event_dir.mkdir(parents=True, exist_ok=True)
+        self._subscriptions: list[RuntimeEventSubscription] = []
+        self._subscription_lock = threading.RLock()
 
     def append(
         self,
@@ -38,7 +51,29 @@ class RuntimeEventLog:
         path = self._event_path(task_run_id)
         with path.open("a", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
+        self._publish(event)
         return event
+
+    def subscribe(self, *, task_run_id: str = "", max_queue_size: int = 500) -> RuntimeEventSubscription:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        subscription = RuntimeEventSubscription(
+            subscription_id=f"rtesub:{uuid.uuid4().hex}",
+            queue=asyncio.Queue(maxsize=max(1, int(max_queue_size or 500))),
+            loop=loop,
+            task_run_id=task_run_id.strip(),
+        )
+        with self._subscription_lock:
+            self._subscriptions.append(subscription)
+        return subscription
+
+    def unsubscribe(self, subscription: RuntimeEventSubscription) -> None:
+        with self._subscription_lock:
+            self._subscriptions = [
+                item for item in self._subscriptions if item.subscription_id != subscription.subscription_id
+            ]
 
     def list_events(self, task_run_id: str) -> list[RuntimeEvent]:
         path = self._event_path(task_run_id)
@@ -65,10 +100,34 @@ class RuntimeEventLog:
     def next_offset(self, task_run_id: str) -> int:
         return len(self.list_events(task_run_id))
 
+    def _publish(self, event: RuntimeEvent) -> None:
+        with self._subscription_lock:
+            subscriptions = list(self._subscriptions)
+        if not subscriptions:
+            return
+        for subscription in subscriptions:
+            if subscription.task_run_id and subscription.task_run_id != event.task_run_id:
+                continue
+            if subscription.loop is not None and subscription.loop.is_running():
+                subscription.loop.call_soon_threadsafe(_put_event_drop_oldest, subscription.queue, event)
+                continue
+            _put_event_drop_oldest(subscription.queue, event)
+
     def _event_path(self, task_run_id: str) -> Path:
         return self.event_dir / f"{_safe_id(task_run_id)}.jsonl"
 
 
+def _put_event_drop_oldest(queue: asyncio.Queue[RuntimeEvent], event: RuntimeEvent) -> None:
+    if queue.full():
+        try:
+            queue.get_nowait()
+        except asyncio.QueueEmpty:
+            pass
+    try:
+        queue.put_nowait(event)
+    except asyncio.QueueFull:
+        pass
+
+
 def _safe_id(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in str(value or ""))
-

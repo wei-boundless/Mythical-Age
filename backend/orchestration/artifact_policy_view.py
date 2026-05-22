@@ -65,7 +65,7 @@ def render_artifact_policy_instructions(
         return ""
     lines = [f"{heading}："]
     requirement = "必须产出正式文本产物" if summary["required"] else "允许产出正式文本产物"
-    lines.append(f"- 要求：{requirement}；最终正文会按产物政策落盘，不能只写状态说明或执行说明。")
+    lines.append(f"- 要求：{requirement}；最终产物内容会按产物政策落盘，不能只写状态说明或执行说明。")
     if summary["target_paths"]:
         lines.append("- 正式产物路径：" + "、".join(summary["target_paths"]) + "。")
     if summary["default_artifact_root"]:
@@ -75,6 +75,6 @@ def render_artifact_policy_instructions(
     if summary["content_sources"]:
         lines.append("- 内容来源：" + "、".join(summary["content_sources"]) + "。")
     if summary["fallback_to_full_content"]:
-        lines.append("- 若没有可拆分章节，系统会用完整最终正文写入目标文件；因此最终正文必须就是可验收的完整产物。")
+        lines.append("- 若没有可拆分单元，系统会用完整最终产物内容写入目标文件；因此最终产物内容必须就是可验收的完整产物。")
     lines.append("- 调试报告、运行说明、占位文本不算正式交付产物。")
     return "\n".join(lines)

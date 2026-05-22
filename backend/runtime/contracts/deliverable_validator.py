@@ -3,7 +3,7 @@ import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from ..shared.protocol_boundary import has_protocol_leak
+from task_system.runtime_semantics.protocol_boundary import has_protocol_leak
 
 
 @dataclass(frozen=True, slots=True)

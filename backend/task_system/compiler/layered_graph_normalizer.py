@@ -37,6 +37,7 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
     ]
     timeline_blocks = _timeline_blocks(graph=graph, nodes=nodes)
     matrix = _memory_matrix(nodes=nodes, resource_nodes=resource_nodes, memory_edges=memory_edges)
+    memory_protocol = _memory_protocol(resource_nodes=resource_nodes, memory_edges=memory_edges)
     issues = _layer_issues(
         graph=graph,
         resource_nodes=resource_nodes,
@@ -44,6 +45,7 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
         memory_edges=memory_edges,
         artifact_context_edges=artifact_context_edges,
         revision_edges=revision_edges,
+        memory_protocol=memory_protocol,
     )
     return {
         "authority": "task_system.layered_graph_normalizer",
@@ -58,6 +60,7 @@ def normalize_task_graph_layers(graph: TaskGraphDefinition) -> dict[str, Any]:
         "resource_nodes": resource_nodes,
         "temporal_edges": temporal_edges,
         "memory_edges": memory_edges,
+        "memory_protocol": memory_protocol,
         "artifact_context_edges": artifact_context_edges,
         "revision_edges": revision_edges,
         "loop_frames": loop_frames,
@@ -119,16 +122,19 @@ def _graph_runtime_loop_frames(graph: TaskGraphDefinition) -> list[dict[str, Any
 
 def _resource_node_payload(node: TaskGraphNodeDefinition) -> dict[str, Any]:
     metadata = dict(node.metadata or {})
+    repository_config = dict(metadata.get("memory_repository") or {})
     lifecycle = dict(node.resource_lifecycle_policy or {})
-    collections = metadata.get("collections")
-    if not isinstance(collections, list):
-        collections = []
+    raw_collections = repository_config.get("collections") if isinstance(repository_config.get("collections"), list) else metadata.get("collections")
+    if not isinstance(raw_collections, list):
+        raw_collections = []
+    collection_specs = _collection_specs(raw_collections)
     return {
         "node_id": node.node_id,
         "title": node.title,
         "resource_type": node.node_type,
-        "repository_id": str(metadata.get("repository_id") or node.node_id),
-        "collections": [str(item).strip() for item in collections if str(item).strip()],
+        "repository_id": str(repository_config.get("repository_id") or metadata.get("repository_id") or node.node_id),
+        "collections": [item["collection_id"] for item in collection_specs],
+        "collection_specs": collection_specs,
         "versioning": str(lifecycle.get("versioning") or metadata.get("versioning") or "append_version"),
         "mutable": bool(lifecycle.get("mutable", True)),
         "write_owner_node_ids": _string_list(lifecycle.get("write_owner_node_ids")),
@@ -233,6 +239,17 @@ def _memory_edge_payload(edge: TaskGraphEdgeDefinition) -> dict[str, Any]:
         "required_verdict": str(metadata.get("required_verdict") or ""),
         "approval_source_node_id": str(metadata.get("approval_source_node_id") or ""),
         "approval_policy": str(metadata.get("approval_policy") or ""),
+        "content_requirement": dict(
+            metadata.get("content_requirement")
+            or metadata.get("memory_content_requirement")
+            or selector.get("content_requirement")
+            or {}
+        ),
+        "materialization_policy": dict(
+            metadata.get("materialization_policy")
+            or metadata.get("candidate_materialization_policy")
+            or {}
+        ),
         "commit_visibility_policy": dict(
             metadata.get("commit_visibility_policy")
             or metadata.get("visibility_policy")
@@ -245,6 +262,244 @@ def _memory_edge_payload(edge: TaskGraphEdgeDefinition) -> dict[str, Any]:
         "working_memory_handoff_policy": dict(edge.working_memory_handoff_policy or {}),
         "metadata": metadata,
         "authority": "task_system.memory_edge",
+    }
+
+
+def _collection_specs(raw_collections: list[Any]) -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_collections):
+        if isinstance(raw, str):
+            payload = {"collection_id": raw, "title": raw}
+        elif isinstance(raw, dict):
+            payload = dict(raw)
+        else:
+            continue
+        collection_id = str(
+            payload.get("collection_id")
+            or payload.get("id")
+            or payload.get("name")
+            or ("default" if index == 0 else f"collection_{index + 1}")
+        ).strip()
+        if not collection_id:
+            continue
+        specs.append(
+            {
+                "collection_id": collection_id,
+                "title": str(payload.get("title") or payload.get("label") or collection_id),
+                "schema_id": str(payload.get("schema_id") or payload.get("schema_ref") or ""),
+                "record_kinds": _string_list(payload.get("record_kinds") or payload.get("kinds")),
+                "key_strategy": str(payload.get("key_strategy") or "stable_key"),
+                "default_version_selector": str(payload.get("default_version_selector") or "latest_committed_before_clock"),
+                "content_requirement": dict(payload.get("content_requirement") or {}),
+                "snapshot_budget": dict(payload.get("snapshot_budget") or {}),
+                "retention_policy": dict(payload.get("retention_policy") or {}),
+                "authority": "task_system.memory_collection_spec",
+            }
+        )
+    return specs
+
+
+def _memory_protocol(*, resource_nodes: list[dict[str, Any]], memory_edges: list[dict[str, Any]]) -> dict[str, Any]:
+    memory_resources = [item for item in resource_nodes if _resource_is_memory_repository(item)]
+    repositories: list[dict[str, Any]] = []
+    collections: list[dict[str, Any]] = []
+    issues: list[dict[str, Any]] = []
+    repository_by_any_id: dict[str, dict[str, Any]] = {}
+    collection_by_address: dict[tuple[str, str], dict[str, Any]] = {}
+    for resource in memory_resources:
+        repository = {
+            "repository_id": str(resource.get("repository_id") or resource.get("node_id") or ""),
+            "repository_node_id": str(resource.get("node_id") or ""),
+            "title": str(resource.get("title") or resource.get("repository_id") or resource.get("node_id") or ""),
+            "repository_kind": str(resource.get("resource_type") or "memory_repository"),
+            "lifecycle_policy": dict(resource.get("lifecycle_policy") or {}),
+            "scope_policy": dict(resource.get("lifecycle_policy") or {}),
+            "mutable": bool(resource.get("mutable", True)),
+            "authority": "task_system.memory_repository_spec",
+        }
+        repositories.append(repository)
+        for key in (repository["repository_id"], repository["repository_node_id"]):
+            if key:
+                repository_by_any_id[key] = repository
+        raw_specs = [dict(item) for item in list(resource.get("collection_specs") or []) if isinstance(item, dict)]
+        if not raw_specs:
+            raw_specs = [
+                {
+                    "collection_id": str(item),
+                    "title": str(item),
+                    "content_requirement": {},
+                }
+                for item in list(resource.get("collections") or [])
+                if str(item).strip()
+            ]
+        for spec in raw_specs:
+            collection_id = str(spec.get("collection_id") or "").strip()
+            if not collection_id:
+                continue
+            collection = {
+                **spec,
+                "repository_id": repository["repository_id"],
+                "repository_node_id": repository["repository_node_id"],
+                "collection_id": collection_id,
+                "content_requirement": dict(spec.get("content_requirement") or {}),
+                "snapshot_budget": dict(spec.get("snapshot_budget") or {}),
+                "authority": "task_system.memory_collection_spec",
+            }
+            collections.append(collection)
+            collection_by_address[(repository["repository_id"], collection_id)] = collection
+            collection_by_address[(repository["repository_node_id"], collection_id)] = collection
+    read_edges: list[dict[str, Any]] = []
+    write_edges: list[dict[str, Any]] = []
+    commit_edges: list[dict[str, Any]] = []
+    for edge in memory_edges:
+        operation = _memory_protocol_operation(edge)
+        if operation == "handoff":
+            continue
+        repository_id = _memory_edge_repository_id(edge=edge, repositories=repository_by_any_id)
+        collection_id = str(edge.get("collection") or "").strip()
+        collection = collection_by_address.get((repository_id, collection_id), {})
+        spec = _memory_protocol_edge(edge=edge, operation=operation, repository_id=repository_id, collection_id=collection_id, collection=collection)
+        if operation == "read":
+            read_edges.append(spec)
+        elif operation in {"write", "write_candidate"}:
+            write_edges.append(spec)
+        elif operation == "commit":
+            commit_edges.append(spec)
+        issues.extend(_memory_protocol_edge_issues(edge=spec, collection=collection))
+    return {
+        "authority": "task_system.memory_protocol",
+        "repositories": repositories,
+        "collections": collections,
+        "read_edges": read_edges,
+        "write_edges": write_edges,
+        "commit_edges": commit_edges,
+        "issues": issues,
+        "summary": {
+            "repository_count": len(repositories),
+            "collection_count": len(collections),
+            "read_edge_count": len(read_edges),
+            "write_edge_count": len(write_edges),
+            "commit_edge_count": len(commit_edges),
+            "issue_count": len(issues),
+        },
+    }
+
+
+def _resource_is_memory_repository(resource: dict[str, Any]) -> bool:
+    resource_type = str(resource.get("resource_type") or "").strip()
+    if resource_type == "artifact_repository":
+        return False
+    return resource_type in {"memory", "memory_resource", "memory_repository", "memory_collection", "working_memory_store", "thread_ledger", "progress_ledger", "issue_ledger", "runtime_state_store"}
+
+
+def _memory_protocol_operation(edge: dict[str, Any]) -> str:
+    operation = str(edge.get("memory_edge_type") or "").strip()
+    if operation == "write_candidate":
+        return "write_candidate"
+    return operation
+
+
+def _memory_edge_repository_id(*, edge: dict[str, Any], repositories: dict[str, dict[str, Any]]) -> str:
+    explicit = str(edge.get("repository") or "").strip()
+    if explicit:
+        return str(repositories.get(explicit, {}).get("repository_id") or explicit)
+    source = str(edge.get("source_node_id") or "").strip()
+    target = str(edge.get("target_node_id") or "").strip()
+    operation = _memory_protocol_operation(edge)
+    connected = source if operation == "read" else target
+    return str(repositories.get(connected, {}).get("repository_id") or connected)
+
+
+def _memory_protocol_edge(
+    *,
+    edge: dict[str, Any],
+    operation: str,
+    repository_id: str,
+    collection_id: str,
+    collection: dict[str, Any],
+) -> dict[str, Any]:
+    selector = dict(edge.get("selector") or {})
+    edge_requirement = dict(edge.get("content_requirement") or {})
+    collection_requirement = dict(collection.get("content_requirement") or {})
+    content_requirement = {**collection_requirement, **edge_requirement}
+    return {
+        "edge_id": str(edge.get("edge_id") or ""),
+        "operation": operation,
+        "source_node_id": str(edge.get("source_node_id") or ""),
+        "target_node_id": str(edge.get("target_node_id") or ""),
+        "repository_id": repository_id,
+        "collection_id": collection_id,
+        "address": {
+            "repository_id": repository_id,
+            "collection_id": collection_id,
+            "record_key": str(edge.get("record_key") or selector.get("record_key") or ""),
+            "record_kind": str(edge.get("record_kind") or selector.get("record_kind") or ""),
+            "record_keys": list(edge.get("record_keys") or []),
+            "record_kinds": list(edge.get("record_kinds") or []),
+        },
+        "selector": selector,
+        "version_selector": str(edge.get("version_selector") or ""),
+        "missing_policy": str(edge.get("on_missing") or ""),
+        "source_output_key": str(edge.get("source_output_key") or ""),
+        "candidate_ref_key": str(edge.get("candidate_ref_key") or ""),
+        "verdict_key": str(edge.get("verdict_key") or ""),
+        "required_verdict": str(edge.get("required_verdict") or ""),
+        "approval_source_node_id": str(edge.get("approval_source_node_id") or ""),
+        "commit_visibility_policy": dict(edge.get("commit_visibility_policy") or {}),
+        "content_requirement": content_requirement,
+        "materialization_policy": dict(edge.get("materialization_policy") or {}),
+        "model_visible_label": str(edge.get("model_visible_label") or ""),
+        "usage_instruction": str(edge.get("usage_instruction") or ""),
+        "authority": "task_system.memory_protocol_edge",
+    }
+
+
+def _memory_protocol_edge_issues(*, edge: dict[str, Any], collection: dict[str, Any]) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    edge_id = str(edge.get("edge_id") or "")
+    operation = str(edge.get("operation") or "")
+    repository_id = str(edge.get("repository_id") or "")
+    collection_id = str(edge.get("collection_id") or "")
+    requirement = dict(edge.get("content_requirement") or {})
+    materialization = dict(edge.get("materialization_policy") or {})
+    if not repository_id:
+        issues.append(_memory_protocol_issue("memory_protocol_repository_missing", "记忆边缺少 repository，无法解析正式记忆地址。", edge_id=edge_id))
+    if not collection_id:
+        issues.append(_memory_protocol_issue("memory_protocol_collection_missing", "记忆边缺少 collection，无法解析正式记忆地址。", edge_id=edge_id))
+    if repository_id and collection_id and not collection:
+        issues.append(_memory_protocol_issue("memory_protocol_collection_undeclared", f"{repository_id}.{collection_id} 没有在记忆仓库中声明。", edge_id=edge_id))
+    if operation == "read" and str(edge.get("missing_policy") or "") not in {"block", "required", "fail_closed", "warn", "ignore"}:
+        issues.append(_memory_protocol_issue("memory_protocol_read_missing_policy_invalid", "memory_read 必须声明 block/fail_closed/warn/ignore 之一。", edge_id=edge_id, severity="warning"))
+    if operation == "read" and str(edge.get("missing_policy") or "") not in {"block", "required", "fail_closed"}:
+        issues.append(_memory_protocol_issue("memory_protocol_required_read_not_fail_closed", "正式记忆读取默认应 fail closed；除非明确是可选参考，否则不要使用非阻断策略。", edge_id=edge_id, severity="warning"))
+    canonical_required = bool(requirement.get("canonical_text_required"))
+    refs_only_allowed = bool(requirement.get("artifact_ref_only_allowed"))
+    if canonical_required and refs_only_allowed:
+        issues.append(_memory_protocol_issue("memory_protocol_refs_only_conflicts_with_canonical", "同一 collection 不能同时要求 canonical_text 又允许 refs-only 满足。", edge_id=edge_id))
+    if operation in {"write", "write_candidate", "commit"} and canonical_required:
+        canonical_text_mode = str(materialization.get("canonical_text_mode") or materialization.get("mode") or "").strip()
+        if canonical_text_mode in {"none", "refs_only"}:
+            issues.append(_memory_protocol_issue("memory_protocol_canonical_write_uses_refs_only_materialization", "要求 canonical_text 的写入边不能使用 refs_only materialization。", edge_id=edge_id))
+    if operation in {"write", "write_candidate"} and not str(edge.get("source_output_key") or "").strip() and canonical_required and not materialization:
+        issues.append(_memory_protocol_issue("memory_protocol_write_source_missing", "写入正式记忆需要 source_output_key 或 materialization_policy。", edge_id=edge_id))
+    if operation == "commit":
+        address = dict(edge.get("address") or {})
+        has_candidate_ref = bool(str(edge.get("candidate_ref_key") or "").strip())
+        has_approval = bool(str(edge.get("approval_source_node_id") or "").strip())
+        has_record_selector = bool(str(address.get("record_key") or address.get("record_kind") or "").strip() or list(address.get("record_keys") or []) or list(address.get("record_kinds") or []))
+        if not (has_candidate_ref or has_approval or has_record_selector):
+            issues.append(_memory_protocol_issue("memory_protocol_commit_candidate_source_missing", "memory_commit 必须有 candidate_ref_key、approval_source_node_id 或明确 record selector。", edge_id=edge_id))
+    return issues
+
+
+def _memory_protocol_issue(code: str, message: str, *, edge_id: str = "", severity: str = "error") -> dict[str, Any]:
+    return {
+        "code": code,
+        "message": message,
+        "severity": severity,
+        "edge_id": edge_id,
+        "authority": "task_system.memory_protocol_issue",
+        "source": "task_system.memory_protocol_issue",
     }
 
 
@@ -429,8 +684,11 @@ def _layer_issues(
     memory_edges: list[dict[str, Any]],
     artifact_context_edges: list[dict[str, Any]],
     revision_edges: list[dict[str, Any]],
+    memory_protocol: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
+    if memory_protocol:
+        issues.extend(dict(item) for item in list(memory_protocol.get("issues") or []) if isinstance(item, dict))
     resource_ids = {str(item.get("node_id") or "") for item in resource_nodes}
     node_ids = {node.node_id for node in graph.nodes}
     for edge in memory_edges:

@@ -191,7 +191,7 @@ class TimelineLedgerStore:
                 created_at=now,
                 updated_at=now,
             )
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = self._read_json_with_retry(path)
         events: list[TimelineEvent] = []
         for item in list(payload.get("events") or []):
             if not isinstance(item, dict):
@@ -232,6 +232,19 @@ class TimelineLedgerStore:
 
     def _path(self, coordination_run_id: str) -> Path:
         return self.ledger_dir / f"{_safe_id(coordination_run_id)}.json"
+
+    @staticmethod
+    def _read_json_with_retry(path: Path) -> dict[str, Any]:
+        last_error: OSError | json.JSONDecodeError | None = None
+        for attempt in range(8):
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except (PermissionError, json.JSONDecodeError) as exc:
+                last_error = exc
+                time.sleep(0.03 * (attempt + 1))
+        if last_error is not None:
+            raise last_error
+        return {}
 
     @staticmethod
     def _atomic_write(path: Path, payload: dict[str, Any]) -> None:

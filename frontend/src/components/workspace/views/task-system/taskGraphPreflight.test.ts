@@ -416,6 +416,47 @@ describe("TaskGraph preflight", () => {
     expect(report.issues.some((issue) => issue.source === "frontend.preflight.memory_commit_contract")).toBe(true);
   });
 
+  it("surfaces backend memory protocol issues in preflight", () => {
+    const report = buildTaskGraphPreflightReport({
+      dirty: false,
+      editorIssueCount: 0,
+      editorValid: true,
+      nodes: [{ node_id: "writer", agent_id: "agent.writer" }],
+      edges: [],
+      standardView: {
+        issues: [],
+        units: [],
+        interfaces: [],
+        port_edges: [],
+        graph_module_runtime: [],
+        graph_module_expansions: [],
+        memory_protocol: {
+          repositories: [],
+          collections: [],
+          read_edges: [],
+          write_edges: [],
+          commit_edges: [],
+          issues: [
+            {
+              code: "memory_protocol_collection_missing",
+              message: "记忆边缺少 collection，无法解析正式记忆地址。",
+              severity: "error",
+              edge_id: "edge.memory.read",
+            },
+          ],
+        },
+      },
+    });
+
+    expect(report.valid).toBe(false);
+    expect(report.issues.some((issue) => (
+      issue.source === "backend.memory_protocol"
+      && issue.scope === "edge"
+      && issue.target_id === "edge.memory.read"
+      && issue.title === "memory_protocol_collection_missing"
+    ))).toBe(true);
+  });
+
   it("warns when revision routes do not carry original artifact and review result references", () => {
     const report = buildTaskGraphPreflightReport({
       dirty: false,

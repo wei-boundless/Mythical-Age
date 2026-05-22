@@ -1,6 +1,10 @@
 import type {
   ComposableUnitSpec,
   GraphModuleExpansionSpec,
+  TaskGraphMemoryProtocol,
+  TaskGraphMemoryProtocolCollection,
+  TaskGraphMemoryProtocolEdge,
+  TaskGraphMemoryProtocolRepository,
   TaskGraphStandardEdgeSpec,
   TaskGraphStandardResourceSpec,
   TaskGraphStandardView,
@@ -23,6 +27,26 @@ function resourceRepositoryId(resource: TaskGraphStandardResourceSpec) {
 
 function expansionUnitId(expansion: GraphModuleExpansionSpec) {
   return String(expansion.unit_id ?? "").trim();
+}
+
+function protocolOrEmpty(standardView: TaskGraphStandardView | null): TaskGraphMemoryProtocol {
+  return standardView?.memory_protocol ?? {
+    repositories: [],
+    collections: [],
+    read_edges: [],
+    write_edges: [],
+    commit_edges: [],
+    issues: [],
+    summary: {},
+  };
+}
+
+function contentRequiresCanonical(collection: TaskGraphMemoryProtocolCollection | TaskGraphMemoryProtocolEdge) {
+  return asRecord(collection.content_requirement).canonical_text_required === true;
+}
+
+function contentAllowsRefsOnly(collection: TaskGraphMemoryProtocolCollection | TaskGraphMemoryProtocolEdge) {
+  return asRecord(collection.content_requirement).artifact_ref_only_allowed === true;
 }
 
 export function isTaskGraphThreadLedgerResource(resource: TaskGraphStandardResourceSpec) {
@@ -158,6 +182,51 @@ export function buildTaskGraphTimelineStandardModel(standardView: TaskGraphStand
     entryNodeId: standardView.timeline?.entry_node_id ?? "",
     outputNodeId: standardView.timeline?.output_node_id ?? "",
     runtimeSemantics,
+  };
+}
+
+export function buildTaskGraphMemoryProtocolStandardModel(standardView: TaskGraphStandardView | null) {
+  const protocol = protocolOrEmpty(standardView);
+  const repositories = (protocol.repositories ?? []) as TaskGraphMemoryProtocolRepository[];
+  const collections = (protocol.collections ?? []) as TaskGraphMemoryProtocolCollection[];
+  const readEdges = (protocol.read_edges ?? []) as TaskGraphMemoryProtocolEdge[];
+  const writeEdges = (protocol.write_edges ?? []) as TaskGraphMemoryProtocolEdge[];
+  const commitEdges = (protocol.commit_edges ?? []) as TaskGraphMemoryProtocolEdge[];
+  const issues = protocol.issues ?? [];
+  const edges = [...readEdges, ...writeEdges, ...commitEdges];
+  const collectionsByRepository = new Map<string, TaskGraphMemoryProtocolCollection[]>();
+  for (const collection of collections) {
+    const repositoryId = String(collection.repository_id ?? "").trim();
+    collectionsByRepository.set(repositoryId, [...(collectionsByRepository.get(repositoryId) ?? []), collection]);
+  }
+  const edgesByRepository = new Map<string, TaskGraphMemoryProtocolEdge[]>();
+  for (const edge of edges) {
+    const repositoryId = String(edge.repository_id ?? "").trim();
+    edgesByRepository.set(repositoryId, [...(edgesByRepository.get(repositoryId) ?? []), edge]);
+  }
+
+  return {
+    protocol,
+    repositories,
+    collections,
+    readEdges,
+    writeEdges,
+    commitEdges,
+    edges,
+    issues,
+    collectionsByRepository,
+    edgesByRepository,
+    repositoryCount: repositories.length,
+    collectionCount: collections.length,
+    readEdgeCount: readEdges.length,
+    writeEdgeCount: writeEdges.length,
+    commitEdgeCount: commitEdges.length,
+    issueCount: issues.length,
+    canonicalCollectionCount: collections.filter(contentRequiresCanonical).length,
+    refsOnlyCollectionCount: collections.filter(contentAllowsRefsOnly).length,
+    canonicalEdgeCount: edges.filter(contentRequiresCanonical).length,
+    refsOnlyEdgeCount: edges.filter(contentAllowsRefsOnly).length,
+    hasProtocol: Boolean(standardView?.memory_protocol),
   };
 }
 

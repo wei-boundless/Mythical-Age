@@ -165,9 +165,9 @@ function Start-Frontend {
     Stop-ManagedProcess -PidFile $FrontendPidFile -Port $FrontendPort -Role "frontend" | Out-Null
     $nextMode = if ($FrontendMode -eq "prod") { "start" } else { "dev" }
     $frontendCommand = if ($FrontendMode -eq "prod") {
-        "npm run start"
+        "npm run start:next"
     } else {
-        "npm run dev"
+        "npm run dev:next"
     }
     $process = Start-Process `
         -FilePath "cmd.exe" `

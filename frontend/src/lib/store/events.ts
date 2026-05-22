@@ -9,7 +9,7 @@ import {
   ToolCall
 } from "@/lib/api";
 
-import type { Message, StoreState } from "./types";
+import type { Message, StoreState, UserReceipt } from "./types";
 import {
   looksLikeSkillDocument,
   looksLikeSkillDocumentPrefix,
@@ -154,6 +154,99 @@ function activityDetailForEvent(event: string, data: Record<string, unknown>) {
   return summary === event ? "" : summary;
 }
 
+function stringValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function isMachineReference(value: string) {
+  return /^(taskrun|taskinst|turn|run|rtchk|runtime|event)[:_-]/i.test(value.trim());
+}
+
+function extractArtifactPaths(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      if (item && typeof item === "object") {
+        const record = item as Record<string, unknown>;
+        return stringValue(record.path ?? record.file ?? record.file_path ?? record.artifact_path);
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
+function userReceiptForEvent(event: string, data: Record<string, unknown>): UserReceipt | null {
+  if (event === "tool_start") {
+    const tool = stringValue(data.tool) || "工具";
+    return {
+      level: "running",
+      title: `正在调用 ${tool}`,
+      body: "系统正在处理你的命令，完成后会更新结果。",
+      debug: { event, tool },
+    };
+  }
+  if (event === "tool_end") {
+    const tool = stringValue(data.tool) || "工具";
+    return {
+      level: "running",
+      title: `${tool} 已返回`,
+      body: "正在整理工具结果。",
+      debug: { event, tool },
+    };
+  }
+  if (event === "retrieval") {
+    const results = Array.isArray(data.results) ? data.results.length : 0;
+    return {
+      level: "running",
+      title: results ? `已检索到 ${results} 条候选证据` : "正在检索可用证据",
+      body: "检索结果会用于本轮回答。",
+      debug: { event },
+    };
+  }
+  if (event === "done") {
+    const paths = extractArtifactPaths(data.files ?? data.paths ?? data.artifacts);
+    const answerSource = stringValue(data.answer_source);
+    const body = stringValue(data.receipt_summary ?? data.summary ?? data.message);
+    return {
+      level: "success",
+      title: paths.length ? `已更新 ${paths.length} 个文件` : "已处理 1 个命令",
+      body: body && !isMachineReference(body) ? body : "结果已写回会话。",
+      artifacts: paths.map((path) => ({ label: "文件已更新", path })),
+      debug: {
+        event,
+        ...(answerSource ? { answerSource } : {}),
+      },
+    };
+  }
+  if (event === "error") {
+    return {
+      level: "error",
+      title: "处理失败",
+      body: stringValue(data.error) || "请求执行失败。",
+      debug: { event },
+    };
+  }
+  if (event === "stopped") {
+    return {
+      level: "stopped",
+      title: "已停止本轮生成",
+      body: "已按你的操作中断当前处理。",
+      debug: { event },
+    };
+  }
+  const title = stageStatusForEvent(event, data);
+  if (!title) return null;
+  const detail = activityDetailForEvent(event, data);
+  return {
+    level: activityLevelForEvent(event, data),
+    title,
+    body: detail && !isMachineReference(detail) ? detail : undefined,
+    debug: { event },
+  };
+}
+
 function patchSessionActivity(
   state: StoreState,
   event: string,
@@ -172,6 +265,7 @@ function patchSessionActivity(
       detail: activityDetailForEvent(event, data),
       event,
       toolName: event.startsWith("tool") ? String(data.tool ?? "").trim() || undefined : undefined,
+      receipt: userReceiptForEvent(event, data),
       updatedAt: Date.now()
     }
   };
@@ -631,6 +725,12 @@ export function startStreamingTurn(state: StoreState, userContent: string): Stre
         title: "接收请求",
         detail: userContent.trim().slice(0, 120),
         event: "user_message",
+        receipt: {
+          level: "running",
+          title: "已收到你的命令",
+          body: userContent.trim().slice(0, 120),
+          debug: { event: "user_message" },
+        },
         updatedAt: Date.now()
       },
       orchestrationSnapshot: makeOrchestrationSnapshot(state, userContent)

@@ -126,7 +126,7 @@ def test_human_continuation_uses_work_order_boundary() -> None:
 
 def test_graph_module_request_is_normalized_to_subruntime_work_order() -> None:
     handle = {
-        "authority": "orchestration.graph_module_runtime_handle",
+        "authority": "runtime.subruntime.graph_module_runtime_handle",
         "handle_id": "graphmodrun:test",
         "linked_graph_id": "graph.test.child",
         "graph_module_runtime_plan_id": "graph_module_runtime.child",
@@ -141,7 +141,7 @@ def test_graph_module_request_is_normalized_to_subruntime_work_order() -> None:
         task_ref="task_graph.node.graph.parent.graph_module.child",
         executor_type="graph_module",
         executor_binding={"selected_executor": "graph_module", "graph_module_runtime_handle": handle},
-        runtime_assembly={"authority": "orchestration.graph_module_runtime_assembly", "graph_module_runtime_handle": handle},
+        runtime_assembly={"authority": "runtime.subruntime.graph_module_runtime_assembly", "graph_module_runtime_handle": handle},
         standard_input_package={"package_id": "nodeinput:graph-module"},
     )
 

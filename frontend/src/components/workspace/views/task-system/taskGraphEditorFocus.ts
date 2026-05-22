@@ -61,6 +61,21 @@ export function focusForPreflightIssue(issue: TaskGraphPreflightIssue): TaskGrap
   }
 
   if (
+    issue.source.includes("memory_protocol")
+    || issue.source.includes("backend.memory_protocol")
+    || issue.source.includes("memory_protocol_issue")
+  ) {
+    return {
+      ...base,
+      layer: "memory",
+      facet: issue.scope === "edge" ? "selector" : "protocol",
+      edge_id: issue.scope === "edge" ? issue.target_id : undefined,
+      node_id: issue.scope === "node" ? issue.target_id : undefined,
+      repository_id: issue.scope === "graph" ? issue.target_id : undefined,
+    };
+  }
+
+  if (
     issue.source.includes("memory_selector")
     || issue.source.includes("commit_visibility")
     || issue.source.includes("memory_commit_path")

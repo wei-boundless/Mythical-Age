@@ -14,6 +14,14 @@ from ..graph_runtime.run_monitor import build_task_graph_run_monitor_view
 from .timeline_ledger import TimelineLedgerStore
 
 
+_ACTIVE_TASK_RUN_STATUSES = {"created", "running", "waiting_approval", "blocked"}
+_WAITING_TASK_RUN_STATUSES = {"waiting_approval", "blocked"}
+_TERMINAL_TASK_RUN_STATUSES = {"completed", "failed", "aborted", "success"}
+_ACTIVE_STALE_AFTER_SECONDS = 90.0
+_RECENT_TERMINAL_WINDOW_SECONDS = 10 * 60.0
+_STALE_MONITOR_LIMIT = 3
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeLoopTraceReader:
     """Read-only view over TaskRunLoop event/checkpoint traces."""
@@ -38,26 +46,102 @@ class RuntimeLoopTraceReader:
         }
 
     def list_global_live_monitor(self, limit: int = 20) -> dict[str, Any]:
-        task_runs = sorted(
-            self.state_index.list_task_runs(),
-            key=lambda item: (item.updated_at, item.created_at),
-            reverse=True,
-        )[: max(1, min(int(limit or 20), 100))]
-        items = [self._task_run_live_summary(item) for item in task_runs]
-        active_statuses = {"created", "running", "waiting_approval", "blocked"}
-        waiting_statuses = {"waiting_approval", "blocked"}
+        now = time.time()
+        requested_limit = max(1, min(int(limit or 20), 100))
+        task_runs = self.state_index.list_task_runs()
+        candidate_task_runs = self._global_live_monitor_candidates(
+            task_runs,
+            now=now,
+            limit=requested_limit,
+        )
+        all_items = [self._task_run_live_summary(item, now=now) for item in candidate_task_runs]
+        visible_items = [
+            item
+            for item in all_items
+            if item["display_bucket"] in {"live", "stale"}
+            or (
+                item["display_bucket"] == "recent"
+                and float(item.get("last_activity_age_seconds") or 0.0) <= _RECENT_TERMINAL_WINDOW_SECONDS
+            )
+        ]
+        bucket_order = {"live": 0, "stale": 1, "recent": 2, "history": 3}
+        items = sorted(
+            visible_items,
+            key=lambda item: (
+                bucket_order.get(str(item.get("display_bucket") or "history"), 99),
+                -float(item.get("last_activity_at") or item.get("updated_at") or 0.0),
+            ),
+        )
+        stale_seen = 0
+        capped_items: list[dict[str, Any]] = []
+        for item in items:
+            if item["display_bucket"] == "stale":
+                stale_seen += 1
+                if stale_seen > _STALE_MONITOR_LIMIT:
+                    continue
+            capped_items.append(item)
+            if len(capped_items) >= requested_limit:
+                break
+        items = capped_items
         return {
             "authority": "runtime_live_monitor.global",
             "summary": {
                 "total": len(items),
-                "running": sum(1 for item in items if str(item.get("status") or "") in active_statuses),
-                "waiting": sum(1 for item in items if str(item.get("status") or "") in waiting_statuses),
+                "running": sum(1 for item in items if item.get("is_live") is True),
+                "waiting": sum(1 for item in items if item.get("is_live") is True and str(item.get("status") or "") in _WAITING_TASK_RUN_STATUSES),
                 "completed": sum(1 for item in items if str(item.get("status") or "") == "completed"),
                 "failed": sum(1 for item in items if str(item.get("status") or "") in {"failed", "aborted"}),
+                "stale": sum(1 for item in items if str(item.get("display_bucket") or "") == "stale"),
+                "recent": sum(1 for item in items if str(item.get("display_bucket") or "") == "recent"),
             },
             "task_runs": items,
-            "updated_at": time.time(),
+            "updated_at": now,
         }
+
+    def _global_live_monitor_candidates(
+        self,
+        task_runs: list[TaskRun],
+        *,
+        now: float,
+        limit: int,
+    ) -> list[TaskRun]:
+        active_runs: list[TaskRun] = []
+        recent_terminal_runs: list[TaskRun] = []
+        for task_run in task_runs:
+            status = str(task_run.status or "")
+            updated_at = float(task_run.updated_at or task_run.created_at or 0.0)
+            if status in _ACTIVE_TASK_RUN_STATUSES:
+                active_runs.append(task_run)
+                continue
+            if (
+                status in _TERMINAL_TASK_RUN_STATUSES
+                and updated_at
+                and now - updated_at <= _RECENT_TERMINAL_WINDOW_SECONDS
+            ):
+                recent_terminal_runs.append(task_run)
+
+        def _freshness(item: TaskRun) -> tuple[float, float]:
+            return (float(item.updated_at or 0.0), float(item.created_at or 0.0))
+
+        fresh_active = [
+            item
+            for item in active_runs
+            if now - max(float(item.updated_at or 0.0), float(item.created_at or 0.0)) <= _ACTIVE_STALE_AFTER_SECONDS
+        ]
+        stale_active = [
+            item
+            for item in active_runs
+            if now - max(float(item.updated_at or 0.0), float(item.created_at or 0.0)) > _ACTIVE_STALE_AFTER_SECONDS
+        ]
+        candidates = [
+            *sorted(fresh_active, key=_freshness, reverse=True)[:limit],
+            *sorted(stale_active, key=_freshness, reverse=True)[:_STALE_MONITOR_LIMIT],
+            *sorted(recent_terminal_runs, key=_freshness, reverse=True)[:limit],
+        ]
+        deduped: dict[str, TaskRun] = {}
+        for task_run in candidates:
+            deduped.setdefault(task_run.task_run_id, task_run)
+        return list(deduped.values())
 
     def get_session_live_monitor(self, session_id: str) -> dict[str, Any]:
         state_snapshot = self.state_index.read_session_monitor_snapshot(session_id)
@@ -98,13 +182,35 @@ class RuntimeLoopTraceReader:
             "authority": "runtime_live_monitor",
         }
 
-    def _task_run_live_summary(self, task_run: TaskRun) -> dict[str, Any]:
+    def _task_run_live_summary(self, task_run: TaskRun, *, now: float | None = None) -> dict[str, Any]:
+        now = float(now if now is not None else time.time())
         coordination_runs = self.state_index.list_task_coordination_runs(task_run.task_run_id)
         coordination_run = _pick_coordination_run(coordination_runs)
         project_id = str(dict(task_run.diagnostics or {}).get("project_id") or "")
         project_status = self.state_index.get_project_runtime_status(project_id) if project_id else None
         events = self.event_log.list_events(task_run.task_run_id)
         latest_event = events[-1] if events else None
+        status = str(task_run.status or "")
+        created_at = float(task_run.created_at or 0.0)
+        updated_at = float(task_run.updated_at or 0.0)
+        latest_event_at = float(latest_event.created_at if latest_event is not None else updated_at or 0.0)
+        last_activity_at = max(updated_at, latest_event_at, created_at)
+        last_activity_age_seconds = max(0.0, now - last_activity_at) if last_activity_at else 0.0
+        is_active_status = status in _ACTIVE_TASK_RUN_STATUSES
+        is_terminal_status = status in _TERMINAL_TASK_RUN_STATUSES
+        is_live = is_active_status and last_activity_age_seconds <= _ACTIVE_STALE_AFTER_SECONDS
+        if is_live:
+            display_bucket = "live"
+            runtime_seconds = max(0.0, now - created_at) if created_at else 0.0
+        elif is_active_status:
+            display_bucket = "stale"
+            runtime_seconds = max(0.0, last_activity_at - created_at) if created_at and last_activity_at else 0.0
+        elif is_terminal_status and last_activity_age_seconds <= _RECENT_TERMINAL_WINDOW_SECONDS:
+            display_bucket = "recent"
+            runtime_seconds = max(0.0, updated_at - created_at) if created_at and updated_at else 0.0
+        else:
+            display_bucket = "history"
+            runtime_seconds = max(0.0, updated_at - created_at) if created_at and updated_at else 0.0
         active_node_id = ""
         graph_id = ""
         if coordination_run is not None:
@@ -117,13 +223,18 @@ class RuntimeLoopTraceReader:
             "session_id": task_run.session_id,
             "task_id": task_run.task_id,
             "title": str(dict(task_run.diagnostics or {}).get("title") or dict(task_run.diagnostics or {}).get("project_title") or task_run.task_id or task_run.task_run_id),
-            "status": task_run.status,
+            "status": status,
             "terminal_reason": str(task_run.terminal_reason or ""),
-            "created_at": float(task_run.created_at or 0.0),
-            "updated_at": float(task_run.updated_at or 0.0),
-            "elapsed_seconds": max(0.0, time.time() - float(task_run.created_at or time.time())),
+            "created_at": created_at,
+            "updated_at": updated_at,
+            "elapsed_seconds": runtime_seconds,
+            "runtime_seconds": runtime_seconds,
+            "last_activity_at": last_activity_at,
+            "last_activity_age_seconds": last_activity_age_seconds,
+            "is_live": is_live,
+            "display_bucket": display_bucket,
             "latest_event_type": str(latest_event.event_type if latest_event is not None else ""),
-            "latest_event_at": float(latest_event.created_at if latest_event is not None else task_run.updated_at or 0.0),
+            "latest_event_at": latest_event_at,
             "event_count": len(events),
             "coordination_run_id": coordination_run.coordination_run_id if coordination_run is not None else "",
             "coordination_status": coordination_run.status if coordination_run is not None else "",

@@ -25,7 +25,15 @@ from .event_translation import (
     append_tool_result_received_event,
     build_search_policy_blocked_tool_observation,
 )
+from .engine import ModelTurnEvent, RuntimeExecutionEngine, translate_executor_event
 from .model_loop import ModelToolCallAccumulator
+from .model_turn_effects import (
+    RawModelEventEffect,
+    RuntimeEventEffect,
+    answer_metadata_from_done_event,
+    classify_raw_model_event,
+    classify_runtime_event,
+)
 from .observation_flow import (
     apply_observation_aggregation,
     match_bundle_ordinal_for_tool_observation,
@@ -76,6 +84,11 @@ __all__ = [
     "merge_task_spec_binding_into_delegation_payload",
     "match_bundle_ordinal_for_tool_observation",
     "ModelToolCallAccumulator",
+    "RawModelEventEffect",
+    "RuntimeEventEffect",
+    "answer_metadata_from_done_event",
+    "classify_raw_model_event",
+    "classify_runtime_event",
     "project_file_work_context_from_tool_observation",
     "prepare_tool_execution",
     "record_tool_observation_projection",
@@ -84,4 +97,7 @@ __all__ = [
     "select_final_answer_from_context",
     "select_final_answer_from_task_summary_refs",
     "should_force_answer_after_tool_results",
+    "ModelTurnEvent",
+    "RuntimeExecutionEngine",
+    "translate_executor_event",
 ]

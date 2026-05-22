@@ -41,16 +41,26 @@ def tool_instances_for_policy_and_permit(
     if permit_operations:
         allowed_operations = allowed_operations & permit_operations
         allowed_operations.add("op.model_response")
+    permit_visible_tools = {
+        str(item).strip()
+        for item in [
+            *list(dict(execution_permit or {}).get("model_visible_tool_refs") or []),
+            *list(dict(execution_permit or {}).get("visible_tools") or []),
+        ]
+        if str(item).strip()
+    }
     authorized = build_authorized_tool_set(
         tool_instances=tool_instances,
         definitions_by_name=definitions_by_name,
         allowed_operations=allowed_operations,
         runtime_lane="main_runtime",
-        include_hidden=bool(dict(sandbox_policy or {}).get("enabled") is True),
+        include_hidden=bool(permit_visible_tools),
     )
     filtered: list[Any] = []
     for tool in list(authorized.instances):
         tool_name = str(getattr(tool, "name", "") or "").strip()
+        if permit_visible_tools and tool_name not in permit_visible_tools:
+            continue
         definition = definitions_by_name.get(tool_name)
         if definition is not None and not tool_allowed_by_search_policy(definition, allowed_sources):
             continue

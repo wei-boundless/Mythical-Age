@@ -79,6 +79,8 @@ export function getDefaultState(): StoreState {
     globalRuntimeMonitorSelectedGraphMonitor: null,
     globalRuntimeMonitorLoading: false,
     globalRuntimeMonitorError: "",
+    globalRuntimeMonitorStreamStatus: "closed",
+    globalRuntimeMonitorLastEvent: null,
     taskGraphBoundRunMonitor: null,
     taskGraphMonitorDecision: null,
     taskGraphMonitorDecisions: [],

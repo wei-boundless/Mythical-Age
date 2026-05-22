@@ -29,6 +29,21 @@ describe("TaskGraph editor focus", () => {
     expect(focusTargetLabel(focus)).toContain("memory / selector");
   });
 
+  it("routes backend memory protocol diagnostics to the memory protocol layer", () => {
+    const focus = focusForPreflightIssue(issue({
+      source: "backend.memory_protocol",
+      scope: "graph",
+      target_id: "memory.project",
+      title: "memory_protocol_collection_undeclared",
+    }));
+
+    expect(focus).toMatchObject({
+      layer: "memory",
+      facet: "protocol",
+      repository_id: "memory.project",
+    });
+  });
+
   it("routes cognition packet diagnostics to the responsibility page with edge focus", () => {
     const focus = focusForPreflightIssue(issue({
       source: "frontend.preflight.cognition_packet",

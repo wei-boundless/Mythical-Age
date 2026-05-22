@@ -4,6 +4,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+from memory_system.formal_memory_content import (
+    materialize_formal_memory_candidate as _materialize_formal_memory_candidate,
+)
 from memory_system.working_memory_service import WorkingMemoryService
 
 from .result_helpers import (
@@ -340,6 +343,17 @@ def _graph_memory_edge_descriptors(
                 "approval_policy": str(metadata.get("approval_policy") or "").strip(),
                 "model_visible_label": str(metadata.get("model_visible_label") or metadata.get("visible_label") or "").strip(),
                 "usage_instruction": str(metadata.get("usage_instruction") or metadata.get("instructions") or "").strip(),
+                "content_requirement": dict(
+                    metadata.get("content_requirement")
+                    or metadata.get("memory_content_requirement")
+                    or selector.get("content_requirement")
+                    or {}
+                ),
+                "materialization_policy": dict(
+                    metadata.get("materialization_policy")
+                    or metadata.get("candidate_materialization_policy")
+                    or {}
+                ),
                 "commit_visibility_policy": dict(
                     metadata.get("commit_visibility_policy")
                     or metadata.get("visibility_policy")
@@ -525,6 +539,17 @@ def _formal_memory_write_records(
             ]
         for index, raw_candidate in enumerate(edge_candidates):
             candidate = dict(raw_candidate)
+            materialized_candidate, materialization_errors = _materialize_formal_memory_candidate(
+                candidate=candidate,
+                edge=edge,
+                fallback_write_policy=fallback_write_policy,
+                output_bundle=output_bundle,
+            )
+            if materialization_errors:
+                errors.extend(materialization_errors)
+                if any(str(item.get("severity") or "") == "error" for item in materialization_errors):
+                    continue
+            candidate = materialized_candidate
             candidate_kind = str(candidate.get("kind") or "").strip()
             kind = candidate_kind if (candidate_kind and (not record_kinds or candidate_kind in record_kinds)) else (record_kinds[0] if record_kinds else candidate_kind)
             if not kind:
@@ -549,6 +574,12 @@ def _formal_memory_write_records(
                 "selector": dict(edge.get("selector") or {}),
                 "version_selector": str(edge.get("version_selector") or ""),
                 "commit_visibility_policy": dict(edge.get("commit_visibility_policy") or {}),
+                "content_requirement": dict(edge.get("content_requirement") or {}),
+                "materialization_policy": dict(
+                    edge.get("materialization_policy")
+                    or edge.get("candidate_materialization_policy")
+                    or {}
+                ),
             }
             records.append(
                 {

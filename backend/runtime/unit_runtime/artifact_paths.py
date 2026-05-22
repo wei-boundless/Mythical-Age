@@ -124,7 +124,7 @@ def _build_required_artifact_write_messages(
         f"任务：{task_title}\n"
         f"{path_line}\n"
         "文件内容必须是可验收的完整任务产物，不是状态说明。"
-        "如果上一轮回答包含可用内容，请扩展成文件正文；如果不够，请根据任务目标生成完整正文。\n"
+        "如果上一轮回答包含可用内容，请扩展成目标文件内容；如果不够，请根据任务目标生成完整可验收内容。\n"
         "工具参数要求：path 使用目标文件路径，content 使用完整文件内容。"
         "不要声称已写入，必须发出 write_file 工具调用。\n\n"
         f"用户原始要求：\n{user_message}\n\n"

@@ -25,13 +25,20 @@ class TaskGraphTemplateMemoryLayer:
     repository_role: str
     mutable: bool
     collections: tuple[str, ...] = ()
+    collection_specs: tuple[dict[str, Any], ...] = ()
     write_policy: str = "commit_only"
     read_policy: str = "explicit_edges_only"
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["collections"] = list(self.collections)
+        collection_specs = [dict(item) for item in self.collection_specs]
+        payload["collection_specs"] = collection_specs
+        payload["collections"] = list(self.collections) or [
+            str(item.get("collection_id") or "").strip()
+            for item in collection_specs
+            if str(item.get("collection_id") or "").strip()
+        ]
         return payload
 
 
@@ -82,14 +89,68 @@ def _slot(
     )
 
 
+def _canonical_requirement() -> dict[str, bool]:
+    return {"canonical_text_required": True, "artifact_ref_only_allowed": False}
+
+
+def _refs_only_requirement() -> dict[str, bool]:
+    return {"canonical_text_required": False, "artifact_ref_only_allowed": True}
+
+
+def _collection_spec(
+    collection_id: str,
+    *,
+    content_requirement: dict[str, Any],
+    schema_id: str = "",
+    record_kinds: tuple[str, ...] = (),
+    snapshot_budget: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "collection_id": collection_id,
+        "title": collection_id.replace("_", " "),
+        "schema_id": schema_id,
+        "record_kinds": list(record_kinds or (collection_id,)),
+        "content_requirement": dict(content_requirement),
+        "snapshot_budget": dict(snapshot_budget or {"default_max_records": 12, "default_max_chars": 24000}),
+    }
+
+
+def _collection_specs(
+    collection_ids: tuple[str, ...],
+    *,
+    content_requirement: dict[str, Any],
+    schema_id: str,
+    snapshot_budget: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], ...]:
+    return tuple(
+        _collection_spec(
+            collection_id,
+            content_requirement=content_requirement,
+            schema_id=schema_id,
+            snapshot_budget=snapshot_budget,
+        )
+        for collection_id in collection_ids
+    )
+
+
 def _standard_memory_layers() -> tuple[TaskGraphTemplateMemoryLayer, ...]:
+    baseline_collections = ("facts", "plans", "decisions")
+    mutable_collections = ("progress", "state_delta", "continuity")
+    issue_collections = ("issues", "revision_requests", "risk_notes")
+    artifact_index_collections = ("candidate_refs", "review_refs", "commit_refs")
     return (
         TaskGraphTemplateMemoryLayer(
             layer_id="memory.baseline",
             title="基准记忆库",
             repository_role="committed_canon",
             mutable=False,
-            collections=("facts", "plans", "decisions"),
+            collections=baseline_collections,
+            collection_specs=_collection_specs(
+                baseline_collections,
+                content_requirement=_canonical_requirement(),
+                schema_id="memory.collection.baseline_canon",
+                snapshot_budget={"default_max_records": 16, "default_max_chars": 32000},
+            ),
             write_policy="review_approved_commit_only",
         ),
         TaskGraphTemplateMemoryLayer(
@@ -97,7 +158,13 @@ def _standard_memory_layers() -> tuple[TaskGraphTemplateMemoryLayer, ...]:
             title="动态记忆库",
             repository_role="runtime_delta",
             mutable=True,
-            collections=("progress", "state_delta", "continuity"),
+            collections=mutable_collections,
+            collection_specs=_collection_specs(
+                mutable_collections,
+                content_requirement=_canonical_requirement(),
+                schema_id="memory.collection.mutable_delta",
+                snapshot_budget={"default_max_records": 20, "default_max_chars": 24000},
+            ),
             write_policy="post_review_delta_commit",
         ),
         TaskGraphTemplateMemoryLayer(
@@ -105,7 +172,13 @@ def _standard_memory_layers() -> tuple[TaskGraphTemplateMemoryLayer, ...]:
             title="问题台账",
             repository_role="review_issues",
             mutable=True,
-            collections=("issues", "revision_requests", "risk_notes"),
+            collections=issue_collections,
+            collection_specs=_collection_specs(
+                issue_collections,
+                content_requirement=_canonical_requirement(),
+                schema_id="memory.collection.issue_ledger",
+                snapshot_budget={"default_max_records": 30, "default_max_chars": 24000},
+            ),
             write_policy="review_nodes_only",
         ),
         TaskGraphTemplateMemoryLayer(
@@ -113,7 +186,13 @@ def _standard_memory_layers() -> tuple[TaskGraphTemplateMemoryLayer, ...]:
             title="产物索引库",
             repository_role="artifact_refs",
             mutable=True,
-            collections=("candidate_refs", "review_refs", "commit_refs"),
+            collections=artifact_index_collections,
+            collection_specs=_collection_specs(
+                artifact_index_collections,
+                content_requirement=_refs_only_requirement(),
+                schema_id="memory.collection.artifact_index",
+                snapshot_budget={"default_max_records": 40, "default_max_chars": 12000},
+            ),
             write_policy="artifact_ref_only",
         ),
     )
@@ -217,6 +296,11 @@ def default_task_graph_templates() -> tuple[TaskGraphTemplateDefinition, ...]:
                     repository_role="evidence_refs",
                     mutable=True,
                     collections=("source_refs", "evidence_slices", "uncertainties"),
+                    collection_specs=(
+                        _collection_spec("source_refs", content_requirement=_refs_only_requirement(), schema_id="memory.collection.artifact_index"),
+                        _collection_spec("evidence_slices", content_requirement=_canonical_requirement(), schema_id="memory.collection.evidence"),
+                        _collection_spec("uncertainties", content_requirement=_canonical_requirement(), schema_id="memory.collection.issue_ledger"),
+                    ),
                     write_policy="evidence_nodes_only",
                 ),
             ),
@@ -240,6 +324,11 @@ def default_task_graph_templates() -> tuple[TaskGraphTemplateDefinition, ...]:
                     repository_role="evidence_refs",
                     mutable=True,
                     collections=("pdf_evidence", "table_evidence", "conflicts"),
+                    collection_specs=(
+                        _collection_spec("pdf_evidence", content_requirement=_canonical_requirement(), schema_id="memory.collection.evidence"),
+                        _collection_spec("table_evidence", content_requirement=_canonical_requirement(), schema_id="memory.collection.evidence"),
+                        _collection_spec("conflicts", content_requirement=_canonical_requirement(), schema_id="memory.collection.issue_ledger"),
+                    ),
                     write_policy="evidence_nodes_only",
                 ),
             ),

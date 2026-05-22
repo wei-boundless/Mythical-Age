@@ -116,7 +116,7 @@ REPOSITORY_NODES = (
     },
     {
         "node_id": "memory.writing.artifact_index",
-        "node_type": "artifact_repository",
+        "node_type": "memory_repository",
         "title": "产物索引库",
         "repository_id": "writing_modular_artifact_index",
         "collections": ("draft_refs", "review_refs", "commit_refs", "debug_refs"),
@@ -137,6 +137,132 @@ REPOSITORY_NODES = (
         "library_role": "risk_and_issue_ledger",
     },
 )
+
+COLLECTION_CONTENT_REQUIREMENTS: dict[str, dict[str, Any]] = {
+    "world_bible": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "world_element_cards": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "character_baselines": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "relationship_baselines": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "outline_canon": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "outline_thread_index": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "frozen_facts": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "forbidden_changes": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "chapter_state_deltas": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "volume_state_deltas": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "extension_commits": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "continuity_notes": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "character_state_snapshots": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "setting_expansion_cards": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "outline_adjustments": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "next_batch_requirements": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "approved_chapter_batches": {"canonical_text_required": False, "artifact_ref_only_allowed": True},
+    "chapter_summaries": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "manuscript_fact_index": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "scene_continuity": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "chapter_hooks": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "prose_refs": {"canonical_text_required": False, "artifact_ref_only_allowed": True},
+    "draft_refs": {"canonical_text_required": False, "artifact_ref_only_allowed": True},
+    "review_refs": {"canonical_text_required": False, "artifact_ref_only_allowed": True},
+    "commit_refs": {"canonical_text_required": False, "artifact_ref_only_allowed": True},
+    "debug_refs": {"canonical_text_required": False, "artifact_ref_only_allowed": True},
+    "review_issues": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "continuity_issues": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+    "runtime_issues": {"canonical_text_required": True, "artifact_ref_only_allowed": False},
+}
+
+BASELINE_READ_COLLECTIONS_BY_NODE: dict[str, tuple[str, ...]] = {
+    "character_design": ("world_bible", "world_element_cards", "frozen_facts", "forbidden_changes"),
+    "character_review": ("world_bible", "world_element_cards", "frozen_facts", "forbidden_changes"),
+    "plot_design": ("world_bible", "world_element_cards", "frozen_facts", "forbidden_changes"),
+    "design_sync": ("world_bible", "world_element_cards", "frozen_facts", "forbidden_changes"),
+    "memory_commit_character": ("world_bible", "world_element_cards", "frozen_facts", "forbidden_changes"),
+    "outline_design": ("world_bible", "world_element_cards", "character_baselines", "relationship_baselines", "frozen_facts", "forbidden_changes"),
+    "outline_review": ("world_bible", "world_element_cards", "character_baselines", "relationship_baselines", "frozen_facts", "forbidden_changes"),
+    "baseline_memory_seed": ("world_bible", "world_element_cards", "character_baselines", "relationship_baselines", "frozen_facts", "forbidden_changes"),
+}
+
+BASELINE_FULL_READ_COLLECTIONS = (
+    "world_bible",
+    "world_element_cards",
+    "character_baselines",
+    "relationship_baselines",
+    "outline_canon",
+    "outline_thread_index",
+    "frozen_facts",
+    "forbidden_changes",
+)
+MUTABLE_READ_COLLECTIONS = (
+    "chapter_state_deltas",
+    "volume_state_deltas",
+    "extension_commits",
+    "continuity_notes",
+    "character_state_snapshots",
+    "setting_expansion_cards",
+    "outline_adjustments",
+    "next_batch_requirements",
+)
+MANUSCRIPT_READ_COLLECTIONS = (
+    "approved_chapter_batches",
+    "chapter_summaries",
+    "manuscript_fact_index",
+    "scene_continuity",
+    "chapter_hooks",
+    "prose_refs",
+)
+
+WRITE_COLLECTIONS_BY_NODE: dict[str, dict[str, tuple[str, ...]]] = {
+    "memory_commit_world": {
+        "memory.writing.baseline": ("world_bible", "world_element_cards", "frozen_facts", "forbidden_changes"),
+    },
+    "memory_commit_character": {
+        "memory.writing.baseline": ("character_baselines", "relationship_baselines", "frozen_facts", "forbidden_changes"),
+    },
+    "baseline_memory_seed": {
+        "memory.writing.baseline": ("outline_canon", "outline_thread_index", "frozen_facts", "forbidden_changes"),
+    },
+    "memory_commit_chapter": {
+        "memory.writing.mutable": (
+            "chapter_state_deltas",
+            "continuity_notes",
+            "character_state_snapshots",
+            "setting_expansion_cards",
+            "outline_adjustments",
+            "next_batch_requirements",
+        ),
+        "memory.writing.manuscript": (
+            "approved_chapter_batches",
+            "chapter_summaries",
+            "manuscript_fact_index",
+            "scene_continuity",
+            "chapter_hooks",
+            "prose_refs",
+        ),
+    },
+    "volume_commit": {
+        "memory.writing.mutable": (
+            "volume_state_deltas",
+            "continuity_notes",
+            "character_state_snapshots",
+            "outline_adjustments",
+            "next_batch_requirements",
+        ),
+    },
+    "extension_commit": {
+        "memory.writing.mutable": (
+            "extension_commits",
+            "setting_expansion_cards",
+            "character_state_snapshots",
+            "outline_adjustments",
+            "continuity_notes",
+        ),
+    },
+    "memory_finalize": {
+        "memory.writing.mutable": ("volume_state_deltas", "continuity_notes"),
+        "memory.writing.manuscript": ("approved_chapter_batches", "chapter_summaries", "manuscript_fact_index", "prose_refs"),
+    },
+}
+
+ISSUE_WRITE_COLLECTIONS = ("review_issues", "continuity_issues", "runtime_issues")
 
 COMMIT_WRITE_MODES = {"baseline_commit", "chapter_commit", "volume_commit", "dynamic_memory_commit", "finalize_commit"}
 MUTABLE_COMMIT_WRITE_MODES = {"chapter_commit", "volume_commit", "dynamic_memory_commit", "finalize_commit"}
@@ -1850,6 +1976,7 @@ def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:
             "memory": {
                 "repository_id": spec["repository_id"],
                 "collections": list(spec["collections"]),
+                "collection_specs": _repository_collections_payload(spec),
                 "mutable": bool(spec["mutable"]),
                 "library_role": spec["library_role"],
             }
@@ -1858,12 +1985,33 @@ def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:
             "managed_by": MANAGED_BY,
             "repository_id": spec["repository_id"],
             "collections": list(spec["collections"]),
+            "memory_repository": {
+                "repository_id": spec["node_id"],
+                "title": spec["title"],
+                "collections": _repository_collections_payload(spec),
+            },
             "mutable": bool(spec["mutable"]),
             "library_role": spec["library_role"],
             "write_owner_node_ids": list(spec["write_owner_node_ids"]),
             "readable_by": list(spec["readable_by"]),
         },
     }
+
+
+def _repository_collections_payload(spec: dict[str, Any]) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
+    for collection_id in list(spec["collections"]):
+        collection = str(collection_id).strip()
+        if not collection:
+            continue
+        payload.append(
+            {
+                "collection_id": collection,
+                "title": collection,
+                "content_requirement": dict(COLLECTION_CONTENT_REQUIREMENTS.get(collection) or {}),
+            }
+        )
+    return payload
 
 
 def _node_agent_id(node: NodeSpec) -> str:
@@ -1939,28 +2087,95 @@ def _memory_edges_for_nodes(nodes: tuple[NodeSpec, ...]) -> list[dict[str, Any]]
     node_by_id = {node.node_id: node for node in nodes}
     for node in nodes:
         for repo_id in node.readable_repositories:
-            edges.append(
-                _memory_edge(
-                    edge_id=f"edge.memory_read.{repo_id}.{node.node_id}",
-                    source=repo_id,
-                    target=node.node_id,
-                    operation="read",
-                    collection=_repository_collection(repo_id),
-                    topics=node.memory_topics,
-                    label=_repository_label(repo_id),
+            for collection in _read_collections_for_node(node=node, repo_id=repo_id):
+                edges.append(
+                    _memory_edge(
+                        edge_id=f"edge.memory_read.{repo_id}.{collection}.{node.node_id}",
+                        source=repo_id,
+                        target=node.node_id,
+                        operation="read",
+                        collection=collection,
+                        topics=_record_kinds_for_collection(collection, fallback=node.memory_topics),
+                        label=f"{_repository_label(repo_id)}:{collection}",
+                    )
                 )
-            )
         if node.write_mode in {"baseline_commit"}:
-            edges.append(_memory_edge(f"edge.memory_commit.{node.node_id}.baseline", node.node_id, "memory.writing.baseline", "commit", "baseline", node.memory_topics, "基准库提交"))
+            for collection in _write_collections_for_node(node=node, repo_id="memory.writing.baseline"):
+                edges.append(_memory_edge(f"edge.memory_commit.{node.node_id}.baseline.{collection}", node.node_id, "memory.writing.baseline", "commit", collection, _record_kinds_for_collection(collection, fallback=node.memory_topics), "基准库提交"))
         elif node.write_mode in MUTABLE_COMMIT_WRITE_MODES:
-            edges.append(_memory_edge(f"edge.memory_commit.{node.node_id}.mutable", node.node_id, "memory.writing.mutable", "commit", "mutable", node.memory_topics, "动态记忆提交"))
+            for collection in _write_collections_for_node(node=node, repo_id="memory.writing.mutable"):
+                edges.append(_memory_edge(f"edge.memory_commit.{node.node_id}.mutable.{collection}", node.node_id, "memory.writing.mutable", "commit", collection, _record_kinds_for_collection(collection, fallback=node.memory_topics), "动态记忆提交"))
         if node.write_mode in MANUSCRIPT_COMMIT_WRITE_MODES:
-            edges.append(_memory_edge(f"edge.memory_commit.{node.node_id}.manuscript", node.node_id, "memory.writing.manuscript", "commit", "manuscript", node.memory_topics, "正文记忆提交"))
+            for collection in _write_collections_for_node(node=node, repo_id="memory.writing.manuscript"):
+                edges.append(_memory_edge(f"edge.memory_commit.{node.node_id}.manuscript.{collection}", node.node_id, "memory.writing.manuscript", "commit", collection, _record_kinds_for_collection(collection, fallback=node.memory_topics), "正文记忆提交"))
         elif node.write_mode == "review_and_issue_ledger":
-            edges.append(_memory_edge(f"edge.issue_commit.{node.node_id}", node.node_id, "memory.writing.issue_ledger", "commit", "issues", node.memory_topics, "问题台账"))
+            for collection in ISSUE_WRITE_COLLECTIONS:
+                edges.append(_memory_edge(f"edge.issue_commit.{node.node_id}.{collection}", node.node_id, "memory.writing.issue_ledger", "commit", collection, _record_kinds_for_collection(collection, fallback=node.memory_topics), "问题台账"))
         if node.artifact_paths:
-            edges.append(_memory_edge(f"edge.artifact_index.{node.node_id}", node.node_id, "memory.writing.artifact_index", "commit", "artifact_refs", node.memory_topics, "产物索引"))
+            edges.append(_memory_edge(f"edge.artifact_index.{node.node_id}", node.node_id, "memory.writing.artifact_index", "commit", "commit_refs", _record_kinds_for_collection("commit_refs", fallback=node.memory_topics), "产物索引"))
     return [edge for edge in edges if edge["source_node_id"] in node_by_id or edge["target_node_id"] in node_by_id or edge["source_node_id"].startswith("memory.") or edge["target_node_id"].startswith("memory.")]
+
+
+def _read_collections_for_node(*, node: NodeSpec, repo_id: str) -> tuple[str, ...]:
+    if repo_id == "memory.writing.baseline":
+        return BASELINE_READ_COLLECTIONS_BY_NODE.get(node.node_id, BASELINE_FULL_READ_COLLECTIONS)
+    if repo_id == "memory.writing.mutable":
+        return MUTABLE_READ_COLLECTIONS
+    if repo_id == "memory.writing.manuscript":
+        return MANUSCRIPT_READ_COLLECTIONS
+    if repo_id == "memory.writing.issue_ledger":
+        return ISSUE_WRITE_COLLECTIONS
+    if repo_id == "memory.writing.artifact_index":
+        return ("commit_refs",)
+    return (_repository_collection(repo_id),)
+
+
+def _write_collections_for_node(*, node: NodeSpec, repo_id: str) -> tuple[str, ...]:
+    collections = dict(WRITE_COLLECTIONS_BY_NODE.get(node.node_id) or {}).get(repo_id)
+    if collections:
+        return tuple(collections)
+    if repo_id == "memory.writing.baseline":
+        return ("frozen_facts",)
+    if repo_id == "memory.writing.mutable":
+        return ("continuity_notes",)
+    if repo_id == "memory.writing.manuscript":
+        return ("prose_refs",)
+    return (_repository_collection(repo_id),)
+
+
+def _record_kinds_for_collection(collection: str, *, fallback: tuple[str, ...]) -> tuple[str, ...]:
+    mapping: dict[str, tuple[str, ...]] = {
+        "world_bible": ("world_bible",),
+        "world_element_cards": ("world_element_card",),
+        "character_baselines": ("character_baseline",),
+        "relationship_baselines": ("relationship_baseline",),
+        "outline_canon": ("outline_canon",),
+        "outline_thread_index": ("outline_thread",),
+        "frozen_facts": ("frozen_fact",),
+        "forbidden_changes": ("forbidden_change",),
+        "chapter_state_deltas": ("character_state_delta", "chapter_state_delta"),
+        "volume_state_deltas": ("volume_state_delta",),
+        "extension_commits": ("extension_commit",),
+        "continuity_notes": ("continuity_note",),
+        "character_state_snapshots": ("character_state_snapshot",),
+        "setting_expansion_cards": ("setting_expansion_card",),
+        "outline_adjustments": ("outline_adjustment",),
+        "next_batch_requirements": ("next_batch_requirement",),
+        "approved_chapter_batches": ("approved_chapter_batch",),
+        "chapter_summaries": ("chapter_summary",),
+        "manuscript_fact_index": ("manuscript_fact",),
+        "scene_continuity": ("scene_continuity",),
+        "chapter_hooks": ("chapter_hook",),
+        "prose_refs": ("prose_ref",),
+        "draft_refs": ("artifact_ref",),
+        "review_refs": ("artifact_ref",),
+        "commit_refs": ("artifact_ref",),
+        "debug_refs": ("artifact_ref",),
+        "review_issues": ("review_issue",),
+        "continuity_issues": ("continuity_issue",),
+        "runtime_issues": ("runtime_issue",),
+    }
+    return mapping.get(collection) or fallback
 
 
 def _memory_edge(edge_id: str, source: str, target: str, operation: str, collection: str, topics: tuple[str, ...], label: str) -> dict[str, Any]:
@@ -2005,7 +2220,34 @@ def _memory_edge(edge_id: str, source: str, target: str, operation: str, collect
             "model_visible_label": label,
             "usage_instruction": f"读取或提交{label}，必须按节点契约使用。",
             "on_missing": "block" if operation == "read" else "warn",
+            "content_requirement": dict(COLLECTION_CONTENT_REQUIREMENTS.get(collection) or {}),
+            "materialization_policy": _memory_materialization_policy(collection=collection, operation=operation),
         },
+    }
+
+
+def _memory_materialization_policy(*, collection: str, operation: str) -> dict[str, Any]:
+    requirement = dict(COLLECTION_CONTENT_REQUIREMENTS.get(collection) or {})
+    if operation == "read":
+        return {}
+    if bool(requirement.get("artifact_ref_only_allowed")) and not bool(requirement.get("canonical_text_required")):
+        return {
+            "enabled": False,
+            "canonical_text_mode": "refs_only",
+            "content_requirement": requirement,
+            "authority": "task_graph.memory_materialization_policy",
+        }
+    return {
+        "enabled": True,
+        "source": "artifact_refs",
+        "canonical_text_mode": "full_text",
+        "summary_mode": "first_heading_or_excerpt",
+        "artifact_filters": {
+            "include_extensions": [".md", ".txt", ".json"],
+            "exclude_path_contains": ["/debug/", "\\debug\\", "/run_report", "run_report"],
+        },
+        "content_requirement": requirement,
+        "authority": "task_graph.memory_materialization_policy",
     }
 
 

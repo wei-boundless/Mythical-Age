@@ -5,86 +5,62 @@ from typing import Any
 
 from text_metric import count_text_units
 
-from ..contracts.deliverable_validator import _protocol_leak_detected
-from ..coordination_runtime.review_gate_verdict import (
-    extract_explicit_review_verdict as _shared_extract_explicit_review_verdict,
-    extract_review_verdict as _shared_extract_review_verdict,
+from .protocol_boundary import has_protocol_leak
+from .review_gate_verdict import (
+    extract_explicit_review_verdict,
+    extract_review_verdict,
     review_verdict_is_accepted,
     review_verdict_is_rejected,
 )
-from .artifact_materializer import extract_markdown_section_content
 
 
-def _model_stream_policy_from_task_execution_assembly(
-    task_execution_assembly: dict[str, Any],
+def extract_markdown_section_content(
+    content: str,
+    section_keys: tuple[str, ...] | list[str],
     *,
-    current_turn_context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    assembly_payload = dict(task_execution_assembly or {})
-    assembly_metadata = dict(assembly_payload.get("metadata") or {})
-    assembly_diagnostics = dict(assembly_payload.get("diagnostics") or {})
-    turn_context = dict(current_turn_context or {})
-    stage_request = dict(turn_context.get("stage_execution_request") or {})
-    policy: dict[str, Any] = {}
-    for candidate in (
-        assembly_metadata.get("stream_policy"),
-        assembly_diagnostics.get("stream_policy"),
-        stage_request.get("stream_policy"),
-        turn_context.get("stream_policy"),
-    ):
-        candidate_dict = dict(candidate or {})
-        if candidate_dict:
-            policy = {**policy, **candidate_dict}
-    return {
-        "enabled": bool(policy.get("enabled") is True),
-        "mode": str(policy.get("mode") or "disabled"),
-        "monitor_visibility": str(policy.get("monitor_visibility") or "none"),
-        "chunk_event_type": str(policy.get("chunk_event_type") or ""),
-        "emit_text_preview": bool(policy.get("emit_text_preview") is True),
-        "preview_char_limit": _safe_int(policy.get("preview_char_limit")),
-        "persist_full_stream_text": bool(policy.get("persist_full_stream_text") is True),
-        "fallback_to_non_stream_on_error": bool(policy.get("fallback_to_non_stream_on_error", True) is not False),
-        "model_response_timeout_seconds": float(policy.get("model_response_timeout_seconds") or 0),
-        "non_stream_fallback_timeout_seconds": float(policy.get("non_stream_fallback_timeout_seconds") or 0),
-        "stream_recovery_timeout_seconds": float(policy.get("stream_recovery_timeout_seconds") or 0),
-        "fallback_timeout_seconds": float(policy.get("fallback_timeout_seconds") or 0),
-        "authority": "orchestration.task_stream_policy",
-    }
+    stop_section_keys: tuple[str, ...] | list[str] | None = None,
+    include_heading: bool = True,
+) -> str:
+    text = str(content or "").strip()
+    keys = tuple(str(item).strip() for item in list(section_keys or []) if str(item).strip())
+    if not text or not keys:
+        return ""
+    boundaries = _markdown_section_boundaries(text)
+    if not boundaries:
+        return ""
+    stop_keys = tuple(
+        dict.fromkeys(
+            [
+                *[str(item).strip() for item in list(stop_section_keys or []) if str(item).strip()],
+            ]
+        )
+    )
+    chunks: list[str] = []
+    for index, boundary in enumerate(boundaries):
+        title = str(boundary.get("title") or "")
+        if not any(_section_title_matches(title, key) for key in keys):
+            continue
+        end = len(text)
+        for next_boundary in boundaries[index + 1 :]:
+            next_title = str(next_boundary.get("title") or "")
+            if any(_section_title_matches(next_title, stop_key) for stop_key in stop_keys):
+                end = int(next_boundary.get("start") or end)
+                break
+        start = int(boundary.get("start") if include_heading else boundary.get("end") or 0)
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+    return "\n\n".join(chunks).strip()
 
 
-def _artifact_policy_from_task_execution_assembly(
-    *,
-    selected_recipe_payload: dict[str, Any],
-    task_execution_assembly: dict[str, Any],
-    current_turn_context: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    assembly_payload = dict(task_execution_assembly or {})
-    assembly_metadata = dict(assembly_payload.get("metadata") or {})
-    assembly_diagnostics = dict(assembly_payload.get("diagnostics") or {})
-    turn_context = dict(current_turn_context or {})
-    stage_request = dict(turn_context.get("stage_execution_request") or {})
-    policy: dict[str, Any] = {}
-    for candidate in (
-        selected_recipe_payload.get("artifact_policy"),
-        assembly_metadata.get("artifact_policy"),
-        assembly_diagnostics.get("artifact_policy"),
-        stage_request.get("artifact_policy"),
-        turn_context.get("artifact_policy"),
-    ):
-        candidate_dict = dict(candidate or {})
-        if candidate_dict:
-            policy = {**policy, **candidate_dict}
-    return policy
-
-
-def _safe_int(value: Any) -> int:
+def safe_int(value: Any) -> int:
     try:
         return int(value or 0)
     except (TypeError, ValueError):
         return 0
 
 
-def _count_text_units(content: str) -> int:
+def count_text_units_for_quality_gate(content: str) -> int:
     return count_text_units(content)
 
 
@@ -152,7 +128,54 @@ def _quality_section_title_matches(title: str, key: str) -> bool:
     return title_norm == key_norm or key_norm in title_norm or title_norm in key_norm
 
 
-def _stage_business_acceptance(
+def _markdown_section_boundaries(text: str) -> list[dict[str, Any]]:
+    boundaries: list[dict[str, Any]] = []
+    offset = 0
+    for line in str(text or "").splitlines(keepends=True):
+        stripped = line.strip()
+        markdown_match = re.match(r"^(?P<hashes>#{1,6})\s+(?P<title>.+?)\s*$", stripped)
+        bracket_match = re.match(r"^【(?P<title>[^】]{1,80})】\s*$", stripped)
+        if markdown_match:
+            title = str(markdown_match.group("title") or "").strip().strip("#").strip()
+            boundaries.append(
+                {
+                    "start": offset,
+                    "end": offset + len(line),
+                    "level": len(str(markdown_match.group("hashes") or "")),
+                    "title": title,
+                }
+            )
+        elif bracket_match:
+            title = str(bracket_match.group("title") or "").strip()
+            boundaries.append(
+                {
+                    "start": offset,
+                    "end": offset + len(line),
+                    "level": 1,
+                    "title": title,
+                }
+            )
+        offset += len(line)
+    return boundaries
+
+
+def _normalize_section_title(value: str) -> str:
+    text = str(value or "").strip().strip("#").strip()
+    text = re.sub(r"^[【\[\(（]+", "", text)
+    text = re.sub(r"[】\]\)）]+$", "", text)
+    text = re.sub(r"\s+", "", text)
+    return text.lower()
+
+
+def _section_title_matches(title: str, key: str) -> bool:
+    normalized_title = _normalize_section_title(title)
+    normalized_key = _normalize_section_title(key)
+    if not normalized_title or not normalized_key:
+        return False
+    return normalized_title == normalized_key or normalized_key in normalized_title or normalized_title in normalized_key
+
+
+def stage_business_acceptance(
     *,
     stage_id: str,
     contract: dict[str, Any],
@@ -164,7 +187,7 @@ def _stage_business_acceptance(
 ) -> dict[str, Any]:
     artifact_ok = bool(output_refs) if requires_file_artifact_refs else True
     base_accepted = str(terminal_status or "") == "completed" and artifact_ok
-    protocol_leak = _protocol_leak_detected(final_content)
+    protocol_leak = has_protocol_leak(final_content)
     if protocol_leak:
         return {
             "accepted": False,
@@ -181,7 +204,7 @@ def _stage_business_acceptance(
     quality_policy = dict(contract.get("quality_retry_policy") or {})
     accepted_policies = {str(item) for item in list(quality_policy.get("acceptance_policies") or []) if str(item)}
     if length_budget and length_budget.get("configured") is True:
-        content_quality = _length_budget_quality_gate(
+        content_quality = length_budget_quality_gate(
             final_content,
             explicit_inputs=dict(explicit_inputs or {}),
             length_budget=length_budget,
@@ -197,7 +220,7 @@ def _stage_business_acceptance(
             "authority": "orchestration.stage_business_acceptance",
         }
     if "sectioned_text_batch_quality" in accepted_policies:
-        content_quality = _sectioned_text_batch_quality_gate(
+        content_quality = sectioned_text_batch_quality_gate(
             final_content,
             explicit_inputs=dict(explicit_inputs or {}),
             policy=quality_policy,
@@ -257,7 +280,7 @@ def _stage_business_acceptance(
     }
 
 
-def _length_budget_quality_gate(
+def length_budget_quality_gate(
     content: str,
     *,
     explicit_inputs: dict[str, Any],
@@ -266,17 +289,17 @@ def _length_budget_quality_gate(
     text = str(content or "").strip()
     metric_text, metric_text_diagnostics = _quality_gate_metric_text(text, length_budget)
     measurement_mode = str(length_budget.get("measurement_mode") or "text_units").strip() or "text_units"
-    raw_content_metric_total = _count_text_units(text)
-    content_metric_total = _count_text_units(metric_text)
+    raw_content_metric_total = count_text_units_for_quality_gate(text)
+    content_metric_total = count_text_units_for_quality_gate(metric_text)
     measurement_diagnostics: dict[str, Any] = {"measurement_mode": measurement_mode}
     if measurement_mode in {"tokens", "hybrid"}:
         measurement_diagnostics["measurement_fallback"] = (
             "text_units_counter_used_for_length_budget_until_token_meter_is_bound"
         )
-    target_units = _safe_int(length_budget.get("target_units"))
-    min_units = _safe_int(length_budget.get("min_units"))
-    max_units = _safe_int(length_budget.get("max_units"))
-    batch_unit_count = _safe_int(length_budget.get("batch_unit_count"))
+    target_units = safe_int(length_budget.get("target_units"))
+    min_units = safe_int(length_budget.get("min_units"))
+    max_units = safe_int(length_budget.get("max_units"))
+    batch_unit_count = safe_int(length_budget.get("batch_unit_count"))
     if target_units <= 0 and min_units > 0:
         target_units = min_units
     if max_units > 0 and target_units > max_units:
@@ -306,11 +329,11 @@ def _length_budget_quality_gate(
 
 
 def _extract_review_verdict(content: str) -> str:
-    return _shared_extract_review_verdict(content)
+    return extract_review_verdict(content)
 
 
 def _extract_explicit_review_verdict(text: str) -> str:
-    return _shared_extract_explicit_review_verdict(text)
+    return extract_explicit_review_verdict(text)
 
 
 def _extract_review_commit_permission(content: str) -> bool | None:
@@ -328,7 +351,7 @@ def _extract_review_commit_permission(content: str) -> bool | None:
     return None
 
 
-def _sectioned_text_batch_quality_gate(
+def sectioned_text_batch_quality_gate(
     content: str,
     *,
     explicit_inputs: dict[str, Any],
@@ -336,8 +359,8 @@ def _sectioned_text_batch_quality_gate(
 ) -> dict[str, Any]:
     text = str(content or "").strip()
     metric_text, metric_text_diagnostics = _quality_gate_metric_text(text, policy)
-    raw_content_metric_total = _count_text_units(text)
-    content_metric_total = _count_text_units(metric_text)
+    raw_content_metric_total = count_text_units_for_quality_gate(text)
+    content_metric_total = count_text_units_for_quality_gate(metric_text)
     unit_count_key = str(policy.get("unit_count_key") or "unit_count")
     unit_start_key = str(policy.get("unit_start_key") or "unit_start_index")
     unit_end_key = str(policy.get("unit_end_key") or "unit_end_index")
@@ -345,11 +368,11 @@ def _sectioned_text_batch_quality_gate(
     target_metric_key = str(policy.get("target_metric_key") or "target_metric_total")
     unit_target_metric_key = str(policy.get("unit_target_metric_key") or "")
     units_per_batch = max(
-        _safe_int(explicit_inputs.get(unit_count_key)) or 1,
+        safe_int(explicit_inputs.get(unit_count_key)) or 1,
         1,
     )
-    start_index = _safe_int(explicit_inputs.get(unit_start_key) or explicit_inputs.get(unit_index_key)) or 1
-    end_index = _safe_int(explicit_inputs.get(unit_end_key)) or (start_index + units_per_batch - 1)
+    start_index = safe_int(explicit_inputs.get(unit_start_key) or explicit_inputs.get(unit_index_key)) or 1
+    end_index = safe_int(explicit_inputs.get(unit_end_key)) or (start_index + units_per_batch - 1)
     expected_indexes = list(range(start_index, end_index + 1)) if end_index >= start_index else [start_index]
     expected_index_set = set(expected_indexes)
     heading_patterns = tuple(str(item).strip() for item in list(policy.get("required_heading_patterns") or []) if str(item).strip())
@@ -383,14 +406,14 @@ def _sectioned_text_batch_quality_gate(
         if bool(policy.get("forbid_unexpected_unit_ranges"))
         else []
     )
-    target_metric_total = _safe_int(explicit_inputs.get(target_metric_key)) or (
-        (_safe_int(explicit_inputs.get(unit_target_metric_key)) or 0) * units_per_batch
+    target_metric_total = safe_int(explicit_inputs.get(target_metric_key)) or (
+        (safe_int(explicit_inputs.get(unit_target_metric_key)) or 0) * units_per_batch
     )
     min_ratio = float(policy.get("minimum_metric_ratio") or 0.0)
-    min_per_unit = _safe_int(policy.get("minimum_metric_per_unit"))
+    min_per_unit = safe_int(policy.get("minimum_metric_per_unit"))
     min_metric_total = max(min_per_unit * units_per_batch, int(target_metric_total * min_ratio))
     unit_metric_counts = {
-        str(index): _count_text_units(metric_text[start:end])
+        str(index): count_text_units_for_quality_gate(metric_text[start:end])
         for index, (start, end) in sorted(
             _extract_indexed_section_ranges(
                 metric_text,
@@ -809,4 +832,3 @@ def _parse_index_number(value: str) -> int:
             total += (current or 1) * 100
             current = 0
     return total + current
-

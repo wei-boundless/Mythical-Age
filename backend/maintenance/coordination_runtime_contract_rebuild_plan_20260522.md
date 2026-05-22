@@ -209,9 +209,6 @@ Planned files:
   - work order and assembly validators
   - missing-field reports
   - fail-closed checks
-- `compat.py`
-  - temporary adapters from old `NodeExecutionRequest`
-  - temporary adapters to old continuation payloads
 - `ids.py`
   - stable work order / assembly / permit / result ids
 - `assembler.py`
@@ -226,9 +223,6 @@ Planned files:
   - binds tools, operations, MCP routes, and delegated agents
 - `soul_binder.py`
   - binds soul/projection/prompt manifest
-- `work_order_adapter.py`
-  - old payload to work order bridge during migration
-
 Core rules:
 
 - Work orders and assembly contracts are typed dataclasses or equivalent strict models.
@@ -446,7 +440,8 @@ Rules:
 After shadow tests pass:
 
 - `TaskRunLoop` accepts `AgentAssemblyContract` as primary execution input.
-- `stage_execution_request` is accepted only through `compat.py`.
+- `stage_execution_request` is accepted only through an explicit coordination
+  runtime bridge while scheduler/API/monitor callers are migrated.
 - Graph node execution no longer rebuilds agent identity from `task_selection`.
 - Tool visibility and dispatch both consume `ExecutionPermit`.
 
@@ -498,19 +493,17 @@ Files:
 - add `backend/runtime/agent_assembly/models.py`
 - add `backend/runtime/agent_assembly/validation.py`
 - add `backend/runtime/agent_assembly/ids.py`
-- add `backend/runtime/agent_assembly/compat.py`
-- add `backend/runtime/agent_assembly/work_order_adapter.py`
 - update `backend/runtime/__init__.py`
 
 Work:
 
 - Define strict work order and assembly fields.
 - Add validators for required work identity, executor, agent, graph, permission request, ports, and result ownership.
-- Add old-payload adapters.
+- During migration, convert old node request payloads at the coordination boundary only; do not keep agent-assembly-level compatibility files after cutover.
 
 Completion criteria:
 
-- `NodeExecutionRequest -> NodeWorkOrder -> AgentAssemblyContract -> compat payload` round trip works for agent, human, and graph module requests.
+- `NodeExecutionRequest -> NodeWorkOrder -> AgentAssemblyContract` mapping works for agent, human, and graph module requests.
 - No coordination or runtime behavior changes yet.
 
 ### Phase 2: Coordination Produces `NodeWorkOrder`
@@ -692,13 +685,44 @@ Progress 2026-05-22:
 - Removed old private loop helper imports from tests for the migrated
   execution-engine functions.
 
+Progress 2026-05-22 continued:
+
+- Collapsed repeated tool-result step completion handling in
+  `backend/runtime/unit_runtime/loop.py` into
+  `TaskRunLoop._apply_tool_result_step_transition`.
+- Collapsed repeated failed-step projection handling for runtime loop
+  control, operation-gate denial, executor-error observations, and loop
+  errors into `TaskRunLoop._apply_failed_step_transition`.
+- Added regression coverage for unmatched tool results so checkpoint writes
+  cannot reference a missing ledger event.
+- Added `backend/runtime/execution_engine/engine.py` as the real executor-event
+  boundary. `RuntimeExecutionEngine.translate_event()` now owns translation of
+  model stream events, answer candidates, tool-call requests, approval waits,
+  and executor errors into runtime trace events.
+- `TaskRunLoop._events_from_executor_event()` now delegates to
+  `RuntimeExecutionEngine` instead of owning that decision tree.
+- Added regression coverage proving the execution engine translates model
+  stream deltas through the new boundary.
+- Added `backend/runtime/execution_engine/model_turn_effects.py` so raw model
+  done/error metadata and runtime-event result refs are interpreted by the
+  execution-engine package instead of repeated inside `TaskRunLoop`.
+- Collapsed the tool-call-request ledger transition into
+  `TaskRunLoop._apply_tool_call_step_transition`; the main model loop no longer
+  carries the full understand-step completion/advance/checkpoint sequence inline.
+- Collapsed the initial model turn, tool follow-up turns, and required artifact
+  write repair turn through `TaskRunLoop._apply_model_turn_event`; runtime
+  event classification, raw done/error metadata handling, approval wait
+  entry, result-ref capture, tool-result ledger transitions, and executor
+  failure transitions now share one code path.
+- Kept follow-up message construction and final synthesis policy in
+  `backend/runtime/execution_engine/followup_cycle.py`; `TaskRunLoop` now owns
+  lifecycle decisions while the repeated model-turn effect application is no
+  longer copied across three loops.
+
 Remaining Phase 5 work:
 
-- Move the model/tool follow-up loop itself behind
-  `backend/runtime/execution_engine/engine.py`.
-- Move the remaining model invocation, streamed event consumption, repeated
-  tool halt, forced synthesis, and final answer selection behind
-  `backend/runtime/execution_engine/engine.py`.
+- Move the remaining model invocation, repeated-tool halt, forced synthesis,
+  and final answer selection behind `backend/runtime/execution_engine/engine.py`.
 - Reduce `TaskRunLoop.run_single_agent_stream` to task-run lifecycle,
   checkpoint, event-log, and finalizer orchestration.
 
@@ -729,6 +753,28 @@ Completion criteria:
 - `diagnostics` no longer contains authoritative commit markers.
 - Review gate and artifact acceptance tests pass.
 
+Progress 2026-05-22:
+
+- Moved `committed_stage_identities` out of `diagnostics` and into
+  authoritative coordination runtime state.
+- Moved `retry_stage_id` out of `diagnostics` and into authoritative
+  coordination runtime state.
+- Added a normalization bridge for old checkpoints that still contain those
+  fields in `diagnostics`; the bridge strips the old diagnostic keys after
+  loading.
+- Kept `last_accepted_stage_id`, `last_committed_stage_identity`,
+  `last_duplicate_commit_identity`, and `last_stale_result_reason` as
+  observational diagnostics only.
+- Added regression coverage proving retry routing and duplicate commit
+  detection do not depend on diagnostic control fields.
+- Added `backend/runtime/coordination_runtime/node_result_committer.py` and
+  moved node result acceptance drafting, stale result detection, commit
+  identity hashing, source-ref hashing, and artifact-ref extraction into that
+  boundary.
+- `LangGraphCoordinationRuntime._stage_accept()` now consumes
+  `NodeResultAcceptanceDraft` instead of rebuilding result acceptance fields
+  inline.
+
 ### Phase 7: Sub-Runtime And GraphModule Rebuild
 
 Goal:
@@ -757,6 +803,21 @@ Completion criteria:
 - `coordination_recovery.py` no longer owns GraphModule packet construction.
 - GraphModule identity is not stored as arbitrary diagnostics keys.
 
+Progress 2026-05-22:
+
+- Created `backend/runtime/subruntime/` with GraphModule models, runtime handle
+  building, start/imported-run execution, result packet construction, failure
+  packet construction, packet consumption, and core artifact selection.
+- Deleted `backend/runtime/execution/graph_module_runtime.py`; GraphModule
+  runtime handles now belong to `runtime.subruntime`.
+- Updated `backend/orchestration/coordination_scheduler.py` to call
+  `runtime.subruntime.graph_module_executor` for imported GraphModule starts.
+- Removed GraphModule packet construction from
+  `backend/orchestration/coordination_recovery.py`; recovery keeps only generic
+  completed-stage recovery and acceptance quality checks.
+- Updated API and tests to import GraphModule packet helpers directly from
+  `runtime.subruntime` rather than a coordination recovery wrapper.
+
 ### Phase 8: Remove Business Hardcoding From Runtime
 
 Goal:
@@ -780,6 +841,23 @@ Completion criteria:
 - Runtime packages do not contain chapter-specific branching.
 - Writing behavior remains covered by regression tests.
 
+Progress 2026-05-22:
+
+- Cleaned prompt labels in coordination runtime from control/domain wording to
+  task-facing wording: `本轮处理边界`, `用户约束`, `目标产物`, and `任务要求`.
+- Replaced the shared context section fallback `本轮写作要求` with
+  `本轮任务要求`.
+- Moved downstream-invalidation blocking review verdict tokens out of
+  coordination runtime and rewind helpers into
+  `task_system.runtime_semantics.review_gate_verdict`; runtime now consumes a
+  generic review-verdict predicate instead of carrying writing-oriented
+  `repair_*` token lists inline.
+
+Remaining Phase 8 work:
+
+- Move the remaining writing/chapter-specific acceptance and batch policy out
+  of runtime packages into task/capability policy ownership.
+
 ### Phase 9: Delete Old Shells
 
 Goal:
@@ -789,7 +867,6 @@ Remove compatibility layers once cutover is complete.
 Files:
 
 - `backend/orchestration/coordination_control.py`
-- compatibility helpers in `backend/runtime/agent_assembly/compat.py`
 - old private helper import paths in tests
 - stale tests that validate old private structures
 
@@ -803,6 +880,32 @@ Completion criteria:
 - No old compatibility imports are required by tests.
 - No private `_coordination_*` helper facade is used as a public boundary.
 - Full targeted runtime/coordination test matrix passes.
+
+Progress 2026-05-22:
+
+- Deleted `backend/orchestration/coordination_control.py`.
+- Deleted `backend/runtime/agent_assembly/compat.py` and
+  `backend/runtime/agent_assembly/work_order_adapter.py`; the remaining old
+  node request bridge is explicit in coordination runtime, not hidden under
+  agent assembly.
+- Updated `backend/api/orchestration.py` to import recovery, replay, rewind,
+  scheduler, and subruntime helpers directly from their owning modules.
+- Removed GraphModule compatibility wrapper functions from
+  `backend/orchestration/coordination_recovery.py`.
+- Updated GraphModule tests to target `runtime.subruntime` directly.
+- Updated non-monitor scheduler/API execution handoff to pass
+  `node_work_order` and `agent_assembly_contract` alongside the temporary
+  `stage_execution_request` command. The old request remains a visible
+  migration bridge, but background execution and GraphModule start now receive
+  the new contract payloads explicitly.
+
+Remaining Phase 9 work:
+
+- Continue replacing remaining `NodeExecutionRequest` / `stage_execution_request`
+  shape tests with contract-level tests where the old shape is not the actual
+  external API under test.
+- Move monitor compatibility reads toward `node_work_order +
+  agent_assembly_contract` after the monitor boundary is allowed to change.
 
 ## 7. File-Level Execution Checklist
 
@@ -1081,8 +1184,6 @@ backend/runtime/
     models.py
     validation.py
     ids.py
-    compat.py              # temporary, removed after cutover
-    work_order_adapter.py  # temporary old payload bridge
     assembler.py
     context_builder.py
     prompt_composer.py
@@ -1106,8 +1207,14 @@ backend/runtime/
   execution_engine/
     engine.py
     model_loop.py
+    model_turn_effects.py
     tool_loop.py
     final_output.py
+    followup_cycle.py
+    observation_flow.py
+    observation_projection.py
+    event_translation.py
+    delegation_context.py
   subruntime/
     models.py
     graph_module_executor.py
@@ -1116,7 +1223,12 @@ backend/runtime/
     loop.py                # task-run lifecycle only, not model/tool inner loop
     finalizer.py
     artifact_materializer.py
-    quality_gates.py
+    runtime_policy.py
+backend/task_system/runtime_semantics/
+  quality_gates.py
+  review_gate_verdict.py
+  protocol_boundary.py
+  length_budget.py
 ```
 
 ## 12. Execution Lock

@@ -6,7 +6,7 @@ from typing import Any
 
 from runtime.tool_runtime.provider_tool_call_adapter import normalize_tool_call_dicts
 from runtime.model_gateway.model_runtime import ModelRuntimeError, stringify_content
-from runtime.shared.protocol_boundary import detect_protocol_leak
+from task_system.runtime_semantics.protocol_boundary import detect_protocol_leak
 from orchestration.commit_gate import build_blocked_runtime_commit_gate
 from orchestration.runtime_directive import RuntimeDirective
 from response_system.boundary.boundary import AssistantOutputBoundary, sanitize_visible_assistant_content
@@ -71,12 +71,15 @@ class ModelResponseRuntimeExecutor:
             if stream_enabled and tools and callable(tool_streamer):
                 raw_content = ""
                 aggregated_chunk = None
-                async for chunk in _call_streamer_with_optional_model_spec(
-                    tool_streamer,
-                    model_messages,
-                    tools,
-                    model_spec=model_spec,
-                    tool_call_options=tool_call_options,
+                async for chunk in _iterate_stream_with_hard_timeout(
+                    _call_streamer_with_optional_model_spec(
+                        tool_streamer,
+                        model_messages,
+                        tools,
+                        model_spec=model_spec,
+                        tool_call_options=tool_call_options,
+                    ),
+                    timeout_seconds=response_timeout_seconds,
                 ):
                     aggregated_chunk = chunk if aggregated_chunk is None else aggregated_chunk + chunk
                     delta_text = _chunk_text(chunk)
@@ -95,7 +98,14 @@ class ModelResponseRuntimeExecutor:
                 response = aggregated_chunk if aggregated_chunk is not None else raw_content
             elif stream_enabled:
                 raw_content = ""
-                async for chunk in _call_streamer_with_optional_model_spec(self.model_runtime.astream_messages, model_messages, model_spec=model_spec):
+                async for chunk in _iterate_stream_with_hard_timeout(
+                    _call_streamer_with_optional_model_spec(
+                        self.model_runtime.astream_messages,
+                        model_messages,
+                        model_spec=model_spec,
+                    ),
+                    timeout_seconds=response_timeout_seconds,
+                ):
                     delta_text = _chunk_text(chunk)
                     if not delta_text:
                         continue
@@ -552,6 +562,25 @@ async def _await_with_hard_timeout(awaitable: Any, *, timeout_seconds: float) ->
     task.cancel()
     task.add_done_callback(_discard_task_exception)
     raise asyncio.TimeoutError
+
+
+async def _iterate_stream_with_hard_timeout(stream: Any, *, timeout_seconds: float):
+    timeout = max(0.01, float(timeout_seconds or 0.01))
+    iterator = stream.__aiter__()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            close = getattr(iterator, "aclose", None) or getattr(stream, "aclose", None)
+            if callable(close):
+                with contextlib.suppress(BaseException):
+                    await close()
+            raise asyncio.TimeoutError
+        try:
+            yield await asyncio.wait_for(iterator.__anext__(), timeout=remaining)
+        except StopAsyncIteration:
+            return
 
 
 def _discard_task_exception(task: asyncio.Task[Any]) -> None:

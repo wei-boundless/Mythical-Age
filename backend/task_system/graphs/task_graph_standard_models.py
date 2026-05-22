@@ -6,7 +6,7 @@ from typing import Any
 from task_system.graphs.composable_graph_builder import build_composable_graph_view
 from task_system.graphs.composable_graph_models import ComposableUnit, GraphModuleRuntimePlan, UnitInterface, UnitPortEdge
 from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-from runtime.contracts.length_budget_compiler import compiled_length_budget_preview, compile_length_budget
+from task_system.runtime_semantics.length_budget import compiled_length_budget_preview, compile_length_budget
 from task_system.registry.flow_models import SpecificTaskRecord, TaskCommunicationProtocol
 from task_system.graphs.task_graph_models import TaskGraphDefinition, task_graph_from_dict
 
@@ -61,6 +61,7 @@ class TaskGraphStandardResourceSpec:
     resource_type: str
     repository_id: str = ""
     collections: tuple[str, ...] = ()
+    collection_specs: tuple[dict[str, Any], ...] = ()
     lifecycle: dict[str, Any] = field(default_factory=dict)
     readable_by: tuple[str, ...] = ()
     write_owner_node_ids: tuple[str, ...] = ()
@@ -69,6 +70,7 @@ class TaskGraphStandardResourceSpec:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["collections"] = list(self.collections)
+        payload["collection_specs"] = [dict(item) for item in self.collection_specs]
         payload["readable_by"] = list(self.readable_by)
         payload["write_owner_node_ids"] = list(self.write_owner_node_ids)
         return payload
@@ -177,6 +179,7 @@ class TaskGraphStandardView:
     timeline: TaskGraphStandardTimelineSpec
     runtime_isolation: TaskGraphRuntimeIsolationSpec
     memory_matrix: dict[str, Any]
+    memory_protocol: dict[str, Any]
     diagnostics: dict[str, Any]
     issues: tuple[TaskGraphStandardIssue, ...]
 
@@ -195,6 +198,7 @@ class TaskGraphStandardView:
             "timeline": self.timeline.to_dict(),
             "runtime_isolation": self.runtime_isolation.to_dict(),
             "memory_matrix": dict(self.memory_matrix),
+            "memory_protocol": dict(self.memory_protocol),
             "diagnostics": dict(self.diagnostics),
             "issues": [item.to_dict() for item in self.issues],
         }
@@ -339,6 +343,7 @@ def build_task_graph_standard_view(
         timeline=timeline,
         runtime_isolation=runtime_isolation,
         memory_matrix=dict(layered.get("memory_matrix") or {}),
+        memory_protocol=dict(layered.get("memory_protocol") or {}),
         diagnostics={
             "runtime_spec": runtime_spec.to_dict(),
             "length_budget": length_budget.to_dict(),
@@ -479,17 +484,47 @@ def _edge_spec_from_graph_edge(
 
 
 def _resource_spec_from_payload(payload: dict[str, Any]) -> TaskGraphStandardResourceSpec:
+    collection_specs = _collection_specs_from_resource_payload(payload)
     return TaskGraphStandardResourceSpec(
         node_id=str(payload.get("node_id") or ""),
         title=str(payload.get("title") or payload.get("node_id") or ""),
         resource_type=str(payload.get("resource_type") or ""),
         repository_id=str(payload.get("repository_id") or payload.get("node_id") or ""),
-        collections=tuple(str(item).strip() for item in list(payload.get("collections") or []) if str(item).strip()),
+        collections=tuple(str(item.get("collection_id") or "").strip() for item in collection_specs if str(item.get("collection_id") or "").strip()),
+        collection_specs=tuple(collection_specs),
         lifecycle=dict(payload.get("lifecycle_policy") or {}),
         readable_by=tuple(str(item).strip() for item in list(payload.get("readable_by") or []) if str(item).strip()),
         write_owner_node_ids=tuple(str(item).strip() for item in list(payload.get("write_owner_node_ids") or []) if str(item).strip()),
         metadata=dict(payload.get("metadata") or {}),
     )
+
+
+def _collection_specs_from_resource_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_specs = [dict(item) for item in list(payload.get("collection_specs") or []) if isinstance(item, dict)]
+    if not raw_specs:
+        raw_specs = []
+        for index, raw in enumerate(list(payload.get("collections") or []), start=1):
+            if isinstance(raw, dict):
+                raw_specs.append(dict(raw))
+            elif str(raw).strip():
+                raw_specs.append({"collection_id": str(raw).strip(), "title": str(raw).strip()})
+    specs: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_specs, start=1):
+        collection_id = str(raw.get("collection_id") or raw.get("id") or raw.get("name") or f"collection_{index}").strip()
+        if not collection_id:
+            continue
+        specs.append(
+            {
+                **raw,
+                "collection_id": collection_id,
+                "title": str(raw.get("title") or raw.get("label") or collection_id),
+                "schema_id": str(raw.get("schema_id") or raw.get("schema_ref") or ""),
+                "record_kinds": [str(item).strip() for item in list(raw.get("record_kinds") or raw.get("kinds") or []) if str(item).strip()],
+                "content_requirement": dict(raw.get("content_requirement") or {}),
+                "snapshot_budget": dict(raw.get("snapshot_budget") or {}),
+            }
+        )
+    return specs
 
 
 def _phase_specs(graph: TaskGraphDefinition) -> tuple[dict[str, Any], ...]:

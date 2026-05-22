@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 
 from runtime.shared.checkpoint import RuntimeCheckpointStore
 from runtime.shared.models import CoordinationNodeRun, CoordinationRun, RuntimeLoopState, TaskRun
@@ -8,6 +10,142 @@ from runtime.memory.state_index import RuntimeStateIndex
 from runtime.memory.trace_reader import RuntimeLoopTraceReader
 from runtime.shared.event_log import RuntimeEventLog
 from runtime.coordination_runtime.checkpoint_adapter import LangGraphCheckpointStoreAdapter
+
+
+def test_global_live_monitor_uses_real_runtime_and_hides_old_history(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("runtime.memory.trace_reader.time.time", lambda: 1000.0)
+    state_index = RuntimeStateIndex(tmp_path)
+    checkpoints = RuntimeCheckpointStore(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    reader = RuntimeLoopTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
+
+    live = TaskRun(
+        task_run_id="taskrun:test:live",
+        session_id="session:test",
+        task_id="task.live",
+        status="running",
+        created_at=900.0,
+        updated_at=980.0,
+    )
+    recent_completed = TaskRun(
+        task_run_id="taskrun:test:recent-completed",
+        session_id="session:test",
+        task_id="task.recent",
+        status="completed",
+        created_at=800.0,
+        updated_at=930.0,
+        terminal_reason="completed",
+    )
+    old_completed = TaskRun(
+        task_run_id="taskrun:test:old-completed",
+        session_id="session:test",
+        task_id="task.old",
+        status="completed",
+        created_at=10.0,
+        updated_at=20.0,
+        terminal_reason="completed",
+    )
+    state_index.upsert_task_run(live)
+    state_index.upsert_task_run(recent_completed)
+    state_index.upsert_task_run(old_completed)
+
+    monitor = reader.list_global_live_monitor(limit=20)
+    items = {item["task_run_id"]: item for item in monitor["task_runs"]}
+
+    assert list(items) == ["taskrun:test:live", "taskrun:test:recent-completed"]
+    assert items["taskrun:test:live"]["is_live"] is True
+    assert items["taskrun:test:live"]["display_bucket"] == "live"
+    assert items["taskrun:test:live"]["runtime_seconds"] == 100.0
+    assert items["taskrun:test:recent-completed"]["is_live"] is False
+    assert items["taskrun:test:recent-completed"]["display_bucket"] == "recent"
+    assert items["taskrun:test:recent-completed"]["runtime_seconds"] == 130.0
+    assert monitor["summary"]["running"] == 1
+    assert monitor["summary"]["recent"] == 1
+    assert monitor["summary"]["completed"] == 1
+
+
+def test_global_live_monitor_marks_inactive_running_task_as_stale(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("runtime.memory.trace_reader.time.time", lambda: 1000.0)
+    state_index = RuntimeStateIndex(tmp_path)
+    checkpoints = RuntimeCheckpointStore(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    reader = RuntimeLoopTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
+
+    stale = TaskRun(
+        task_run_id="taskrun:test:stale-running",
+        session_id="session:test",
+        task_id="task.stale",
+        status="running",
+        created_at=100.0,
+        updated_at=200.0,
+    )
+    state_index.upsert_task_run(stale)
+
+    monitor = reader.list_global_live_monitor(limit=20)
+    item = monitor["task_runs"][0]
+
+    assert item["task_run_id"] == stale.task_run_id
+    assert item["is_live"] is False
+    assert item["display_bucket"] == "stale"
+    assert item["runtime_seconds"] == 100.0
+    assert item["last_activity_age_seconds"] == 800.0
+    assert monitor["summary"]["running"] == 0
+    assert monitor["summary"]["stale"] == 1
+
+
+def test_runtime_event_log_publishes_appended_events_to_subscribers(tmp_path) -> None:
+    event_log = RuntimeEventLog(tmp_path)
+    all_events = event_log.subscribe()
+    scoped_events = event_log.subscribe(task_run_id="taskrun:test:target")
+
+    ignored = event_log.append(
+        "taskrun:test:other",
+        "task_run_started",
+        payload={"status": "running"},
+    )
+    target = event_log.append(
+        "taskrun:test:target",
+        "task_run_ledger_updated",
+        payload={"status": "running", "step": "draft"},
+    )
+
+    assert all_events.queue.get_nowait().event_id == ignored.event_id
+    assert all_events.queue.get_nowait().event_id == target.event_id
+    assert scoped_events.queue.get_nowait().event_id == target.event_id
+
+    event_log.unsubscribe(all_events)
+    event_log.unsubscribe(scoped_events)
+    event_log.append("taskrun:test:target", "checkpoint_written")
+
+    assert all_events.queue.empty()
+    assert scoped_events.queue.empty()
+
+
+def test_runtime_event_log_wakes_async_subscriber_from_background_thread(tmp_path) -> None:
+    async def collect_published_event() -> str:
+        event_log = RuntimeEventLog(tmp_path)
+        subscription = event_log.subscribe()
+        ready = threading.Event()
+
+        def publish_from_worker() -> None:
+            ready.wait(timeout=2.0)
+            event_log.append(
+                "taskrun:test:threaded",
+                "task_run_ledger_updated",
+                payload={"status": "running", "source": "worker_thread"},
+            )
+
+        thread = threading.Thread(target=publish_from_worker)
+        thread.start()
+        try:
+            ready.set()
+            event = await asyncio.wait_for(subscription.queue.get(), timeout=2.0)
+            return event.task_run_id
+        finally:
+            event_log.unsubscribe(subscription)
+            thread.join(timeout=2.0)
+
+    assert asyncio.run(collect_published_event()) == "taskrun:test:threaded"
 
 
 def test_trace_reader_builds_live_monitor_from_latest_runtime_state(tmp_path) -> None:

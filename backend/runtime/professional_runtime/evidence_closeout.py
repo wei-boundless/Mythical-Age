@@ -14,7 +14,7 @@ from .tool_contract_gate import (
     _observation_paths_for_satisfaction,
     _required_writes_satisfied,
 )
-from ..shared.protocol_boundary import has_protocol_leak, strip_protocol_leak
+from task_system.runtime_semantics.protocol_boundary import has_protocol_leak, strip_protocol_leak
 from ..memory.tool_observation_ledger import ToolObservationLedger
 
 

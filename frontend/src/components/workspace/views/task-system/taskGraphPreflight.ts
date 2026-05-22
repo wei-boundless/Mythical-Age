@@ -39,7 +39,7 @@ export type BuildTaskGraphPreflightReportInput = {
     issues?: Array<Record<string, unknown>>;
     diagnostics?: Record<string, unknown>;
   } | null;
-  standardView?: Pick<TaskGraphStandardView, "issues" | "units" | "interfaces" | "port_edges" | "graph_module_runtime" | "graph_module_expansions"> | null;
+  standardView?: Pick<TaskGraphStandardView, "issues" | "units" | "interfaces" | "port_edges" | "graph_module_runtime" | "graph_module_expansions" | "memory_protocol"> | null;
 };
 
 function stringValue(value: unknown) {
@@ -755,6 +755,26 @@ export function buildTaskGraphPreflightReport({
         source: expansionIssue ? "backend.graph_module_expansion" : "backend.composable_graph",
       });
     });
+
+  (standardView?.memory_protocol?.issues ?? []).forEach((issue, index) => {
+    const code = stringValue(issue.code);
+    const severity = stringValue(issue.severity) === "warning"
+      ? "warning"
+      : stringValue(issue.severity) === "info"
+        ? "info"
+        : "error";
+    const edgeId = stringValue(issue.edge_id);
+    const nodeId = stringValue(issue.node_id);
+    pushIssue(issues, {
+      issue_id: `memory_protocol:${code || index}:${edgeId || nodeId || "graph"}`,
+      severity,
+      scope: edgeId ? "edge" : nodeId ? "node" : "graph",
+      target_id: edgeId || nodeId,
+      title: code || "记忆协议问题",
+      detail: stringValue(issue.message) || "后端 Memory Protocol 返回了未命名问题。",
+      source: "backend.memory_protocol",
+    });
+  });
 
   (standardView?.graph_module_expansions ?? []).forEach((expansion, expansionIndex) => {
     (expansion.issues ?? []).forEach((issue, issueIndex) => {

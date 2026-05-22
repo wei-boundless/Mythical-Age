@@ -37,8 +37,10 @@ from .memory_helpers import (
     _formal_memory_commit_requests,
     _formal_memory_only_context,
     _formal_memory_write_records,
+    _first_policy_value,
     _graph_edges,
     _graph_memory_edge_descriptors,
+    _matching_commit_edge,
     _stage_working_memory_refs_for_commit,
     _timeline_working_memory_operation,
     _working_memory_context_from_selection,
@@ -48,15 +50,25 @@ from .memory_helpers import (
 )
 from .result_helpers import (
     _collect_stage_outputs,
-    _contract_has_required_artifact_outputs,
-    _contract_requires_file_artifact_refs,
     _extract_source_output_value,
     _first_dict,
     _latest_timeline_result_record,
     _node_result_output_bundle,
-    _required_artifact_outputs_satisfied,
     _stage_outputs_from_artifact_refs,
-    _structured_outputs_from_output_bundle,
+)
+from .node_result_committer import (
+    active_execution_request_payload as _active_execution_request_payload,
+    artifact_refs_from_value as _artifact_refs_from_value,
+    build_node_result_acceptance_draft,
+    build_stage_result_request_payload as _stage_result_request_payload,
+    committed_stage_identities as _committed_stage_identities,
+    dependency_scope_key_from_inputs as _dependency_scope_key_from_inputs,
+    node_execution_boundary as _node_execution_boundary,
+    runtime_scope_coordinate_from_inputs as _runtime_scope_coordinate_from_inputs,
+    scope_path_segments_from_coordinate as _scope_path_segments_from_coordinate,
+    short_hash as _short_hash,
+    stage_commit_identity as _stage_commit_identity,
+    stale_result_reason as _stale_result_reason,
 )
 from .runtime_payloads import (
     _accept_contract_status,
@@ -75,7 +87,11 @@ from .runtime_payloads import (
 )
 from .trace_adapter import CoordinationTraceAdapter
 from .context_packet_resolver import build_revision_packet_from_review, resolve_context_packets
-from .review_gate_verdict import review_verdict_is_accepted, review_verdict_is_rejected
+from task_system.runtime_semantics.review_gate_verdict import (
+    review_verdict_blocks_downstream_invalidation,
+    review_verdict_is_accepted,
+    review_verdict_is_rejected,
+)
 from .checkpoint_adapter import LangGraphCheckpointStoreAdapter
 from .runtime_kernel import LangGraphRuntimeKernel
 from .work_order_builder import build_node_work_order_from_request
@@ -85,7 +101,7 @@ from ..shared.models import AgentHandoffEnvelope, CoordinationRun
 from ..contracts.runtime_assembly_builder import build_node_runtime_assembly
 from orchestration.artifact_policy_view import render_artifact_policy_instructions
 from ..execution.node_execution_request import NodeExecutionRequest, NodeResultReadyEvent
-from ..execution.graph_module_runtime import (
+from ..subruntime import (
     build_graph_module_runtime_handle_from_contract,
     graph_module_stage_is_enabled,
 )
@@ -110,7 +126,7 @@ from ..graph_runtime.batch_runtime import (
 from ..graph_runtime.scheduler import bootstrap_scheduler_state
 from ..memory.timeline_ledger import TimelineEvent, TimelineLedgerStore
 from ..memory.timeline_result_record import build_timeline_result_record
-from ..shared.protocol_boundary import is_internal_protocol_input_key
+from task_system.runtime_semantics.protocol_boundary import is_internal_protocol_input_key
 from ..execution.node_handoff_protocol import (
     build_node_executor_binding,
     build_standard_node_input_package,
@@ -146,10 +162,12 @@ class CoordinationRuntimeState(TypedDict, total=False):
     stage_results_by_instance: dict[str, dict[str, Any]]
     stale_stage_results: list[dict[str, Any]]
     duplicate_stage_commits: list[dict[str, Any]]
+    committed_stage_identities: list[str]
     artifact_refs: Annotated[list[dict[str, Any]], operator.add]
     pending_inputs: dict[str, Any]
     missing_required_inputs: list[str]
     retry_counts: dict[str, int]
+    retry_stage_id: str
     human_gate: dict[str, Any]
     terminal_status: str
     final_result_ref: str
@@ -518,6 +536,7 @@ class LangGraphCoordinationRuntime:
         state = self.checkpoints.get_state(thread_id=coordination_run_id)
         if not state:
             return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_checkpoint"})
+        state = _normalize_coordination_authoritative_state(state)
         human_gate = dict(state.get("human_gate") or {})
         pending_stage_id = str(resume_payload.get("stage_id") or human_gate.get("stage_id") or human_gate.get("pending_stage_id") or state.get("active_stage_id") or "").strip()
         state["human_gate"] = {
@@ -603,6 +622,7 @@ class LangGraphCoordinationRuntime:
         state = self.checkpoints.get_state(thread_id=coordination_run_id)
         if not state:
             return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_checkpoint"})
+        state = _normalize_coordination_authoritative_state(state)
 
         target_stage_id = str(stage_id or "").strip()
         if not target_stage_id:
@@ -788,19 +808,17 @@ class LangGraphCoordinationRuntime:
         }
         committed_identities = [
             item
-            for item in list(diagnostics.get("committed_stage_identities") or [])
+            for item in _committed_stage_identities(state)
             if not any(str(item).startswith(f"{stage}:") for stage in invalidated_set)
         ]
-        diagnostics["committed_stage_identities"] = committed_identities
         for key in (
             "last_accepted_stage_id",
-            "retry_stage_id",
             "last_duplicate_commit_identity",
             "last_stale_result_reason",
             "human_gate",
         ):
             value = str(diagnostics.get(key) or "")
-            if value in invalidated_set or key in {"last_accepted_stage_id", "retry_stage_id"}:
+            if value in invalidated_set or key == "last_accepted_stage_id":
                 diagnostics.pop(key, None)
 
         state.update(
@@ -811,6 +829,7 @@ class LangGraphCoordinationRuntime:
                 "node_statuses": node_statuses,
                 "stage_results": stage_results,
                 "stage_results_by_instance": stage_results_by_instance,
+                "committed_stage_identities": committed_identities,
                 "timeline_result_records": timeline_result_records,
                 "result_record_index": result_record_index,
                 "latest_stage_result_records": latest_stage_result_records,
@@ -821,6 +840,7 @@ class LangGraphCoordinationRuntime:
                 "working_memory_operations": working_memory_operations,
                 "pending_inputs": pending_inputs,
                 "missing_required_inputs": [],
+                "retry_stage_id": "",
                 "current_event": {},
                 "current_task_result": {},
                 **_execution_boundary_cleared(),
@@ -958,6 +978,7 @@ class LangGraphCoordinationRuntime:
         state = self.checkpoints.get_state(thread_id=coordination_run.coordination_run_id)
         if not state:
             return LangGraphCoordinationRuntimeResult(diagnostics={"supported": False, "reason": "missing_checkpoint"})
+        state = _normalize_coordination_authoritative_state(state)
         limit = max(int(max_requests or 0), 0)
         if limit <= 0:
             return LangGraphCoordinationRuntimeResult(state=state, diagnostics={"supported": True, "request_count": 0})
@@ -1248,49 +1269,20 @@ class LangGraphCoordinationRuntime:
                 "timeline": self.timeline_ledger.snapshot(str(state.get("coordination_run_id") or ""), limit=80),
                 "diagnostics": {**dict(state.get("diagnostics") or {}), "last_stale_result_reason": stale_result},
             }
-        raw_refs = [
-            str(item)
-            for item in list(event.get("artifact_refs") or [])
-            if str(item)
-        ]
-        requires_file_artifact_refs = _contract_requires_file_artifact_refs(contract)
-        artifact_refs = [item for item in raw_refs if item.startswith("artifact:")] if requires_file_artifact_refs else raw_refs
-        trace_refs = [item for item in raw_refs if not item.startswith("artifact:")] if requires_file_artifact_refs else []
-        output_mappings = [dict(item) for item in list(contract.get("output_mappings") or []) if isinstance(item, dict)]
-        mapped_outputs: dict[str, Any] = {}
-        for mapping in output_mappings:
-            output_key = str(mapping.get("output_key") or "").strip()
-            if not output_key:
-                continue
-            mapped_outputs[output_key] = artifact_refs if mapping.get("single") is False else (artifact_refs[0] if artifact_refs else "")
-        output_bundle = _node_result_output_bundle(
-            state=state,
-            event=event,
-            artifact_refs=artifact_refs,
-            mapped_outputs=mapped_outputs,
-        )
-        stage_outputs = {
-            **_structured_outputs_from_output_bundle(output_bundle),
-            **mapped_outputs,
-        }
-        required_artifact_outputs_satisfied = _required_artifact_outputs_satisfied(
-            output_mappings,
-            artifact_refs,
-            requires_file_artifact_refs=requires_file_artifact_refs,
-        )
-        accepted = bool(event.get("accepted") is True) and required_artifact_outputs_satisfied
-        if _review_gate_event_is_accepted(event=event, contract=contract):
-            accepted = True
         stage_scope = self._stage_scope(state=state, stage_id=stage_id, contract=contract)
-        result_request_payload = _stage_result_request_payload(
+        review_gate_accepted = _review_gate_event_is_accepted(event=event, contract=contract)
+        committed_identities = set(_committed_stage_identities(state))
+        result_draft = build_node_result_acceptance_draft(
             state=state,
-            request_payload=request_payload,
             event=event,
             stage_id=stage_id,
-            node_id=node_id,
             contract=contract,
+            request_payload=request_payload,
             stage_scope=stage_scope,
+            event_accepted_by_policy=review_gate_accepted,
+            committed_identities=committed_identities,
         )
+        result_request_payload = result_draft.result_request_payload
         stage_scope = self._stage_scope(
             state={
                 **dict(state),
@@ -1299,18 +1291,16 @@ class LangGraphCoordinationRuntime:
             stage_id=stage_id,
             contract=contract,
         )
-        dispatch_context = dict(result_request_payload.get("dispatch_context") or request_payload.get("dispatch_context") or {})
-        commit_identity = _stage_commit_identity(
-            stage_id=stage_id,
-            contract=contract,
-            explicit_inputs=dict(result_request_payload.get("explicit_inputs") or state.get("pending_inputs") or {}),
-            artifact_refs=artifact_refs,
-        )
-        committed_identities = {
-            str(item)
-            for item in list(dict(state.get("diagnostics") or {}).get("committed_stage_identities") or [])
-            if str(item)
-        }
+        artifact_refs = result_draft.artifact_refs
+        trace_refs = result_draft.trace_refs
+        output_bundle = result_draft.output_bundle
+        stage_outputs = result_draft.stage_outputs
+        required_artifact_outputs_satisfied = result_draft.required_artifact_outputs_satisfied
+        requires_file_artifact_refs = result_draft.requires_file_artifact_refs
+        output_mappings = result_draft.output_mappings
+        accepted = result_draft.accepted
+        dispatch_context = result_draft.dispatch_context
+        commit_identity = result_draft.commit_identity
         if accepted and commit_identity and commit_identity in committed_identities:
             duplicate_event = self._append_timeline_event(
                 state,
@@ -1334,6 +1324,7 @@ class LangGraphCoordinationRuntime:
             duplicate_commits.append(dict(duplicate_event.to_dict() if duplicate_event is not None else {}))
             return {
                 "duplicate_stage_commits": duplicate_commits,
+                "committed_stage_identities": sorted(committed_identities),
                 **_execution_boundary_cleared(),
                 "terminal_status": "duplicate_commit_ignored",
                 "timeline": self.timeline_ledger.snapshot(str(state.get("coordination_run_id") or ""), limit=80),
@@ -1458,12 +1449,9 @@ class LangGraphCoordinationRuntime:
             trace_refs=trace_refs,
             memory_write_candidate_refs=created_memory_refs,
             memory_commit_refs=committed_memory_refs,
-            validation_result={
-                "required_artifact_outputs_satisfied": required_artifact_outputs_satisfied
-                if bool(event.get("accepted") is True) or _review_gate_event_is_accepted(event=event, contract=contract)
-                else not _contract_has_required_artifact_outputs(output_mappings, requires_file_artifact_refs=requires_file_artifact_refs),
-                "requires_file_artifact_refs": requires_file_artifact_refs,
-            },
+            validation_result=result_draft.validation_result(
+                event_accepts_artifacts=bool(event.get("accepted") is True) or review_gate_accepted,
+            ),
         )
         result_record_payload = result_record.to_dict()
         stage_result_payload["timeline_result_record"] = result_record_payload
@@ -1621,14 +1609,14 @@ class LangGraphCoordinationRuntime:
                 artifact_refs=artifact_refs,
                 missing_required_inputs=[],
             )
+        committed_stage_identities = sorted({*committed_identities, commit_identity}) if accepted and commit_identity else sorted(committed_identities)
         diagnostics = {**dict(state.get("diagnostics") or {}), "last_accepted_stage_id": stage_id}
         if accepted and commit_identity:
-            diagnostics["committed_stage_identities"] = sorted({*committed_identities, commit_identity})
+            diagnostics["last_committed_stage_identity"] = commit_identity
         if retry_stage_id:
-            diagnostics["retry_stage_id"] = retry_stage_id
             diagnostics["retry_counts"] = retry_counts
         else:
-            diagnostics.pop("retry_stage_id", None)
+            diagnostics.pop("retry_counts", None)
         human_gate = dict(state.get("human_gate") or {})
         if terminal_status == "waiting_for_human":
             human_gate = {
@@ -1706,7 +1694,7 @@ class LangGraphCoordinationRuntime:
             elif node_has_more_batch_work(runtime_state=batch_runtime_state, stage_id=stage_id, node_id=node_id):
                 node_statuses[stage_id] = "pending"
                 terminal_status = ""
-                diagnostics["retry_stage_id"] = stage_id
+                retry_stage_id = stage_id
                 diagnostics["batch_node_continue"] = True
                 if (
                     node_has_active_batch_work(runtime_state=batch_runtime_state, stage_id=stage_id, node_id=node_id)
@@ -1720,7 +1708,6 @@ class LangGraphCoordinationRuntime:
                     "pending_inputs": dict(state.get("pending_inputs") or {}),
                     "diagnostics": {
                         **dict(loop_updates.get("diagnostics") or {}),
-                        "retry_stage_id": stage_id,
                         "batch_node_continue": True,
                     },
                 }
@@ -1741,9 +1728,11 @@ class LangGraphCoordinationRuntime:
         return {
             "stage_results": stage_results,
             "stage_results_by_instance": stage_results_by_instance,
+            "committed_stage_identities": committed_stage_identities,
             "node_statuses": dict(loop_updates.get("node_statuses") or node_statuses),
             **batch_updates,
             "retry_counts": retry_counts,
+            "retry_stage_id": retry_stage_id,
             "contract_status": contract_status,
             "human_gate": human_gate,
             "artifact_refs": artifact_payloads,
@@ -1995,7 +1984,7 @@ class LangGraphCoordinationRuntime:
             )
             return self._record_scheduler_evaluation(state=state, scheduler_update=update, node_statuses=dict(state.get("node_statuses") or {}))
         node_statuses = dict(state.get("node_statuses") or {})
-        retry_stage_id = str(dict(state.get("diagnostics") or {}).get("retry_stage_id") or "").strip()
+        retry_stage_id = str(state.get("retry_stage_id") or "").strip()
         if retry_stage_id and retry_stage_id in order and node_statuses.get(retry_stage_id) not in {"completed", "failed"}:
             contracts = dict(state.get("stage_contracts") or {})
             contract = dict(contracts.get(retry_stage_id) or {})
@@ -2006,13 +1995,13 @@ class LangGraphCoordinationRuntime:
                 state=state,
             )
             diagnostics = dict(state.get("diagnostics") or {})
-            diagnostics.pop("retry_stage_id", None)
             result = {
                 **next_sets,
                 "active_stage_id": retry_stage_id,
                 "active_node_id": str(contract.get("node_id") or retry_stage_id),
                 "active_task_ref": str(contract.get("task_ref") or ""),
                 "node_statuses": node_statuses,
+                "retry_stage_id": "",
                 "terminal_status": "",
                 "missing_required_inputs": [],
                 "diagnostics": {**dict(next_sets.get("diagnostics") or {}), **diagnostics},
@@ -2222,6 +2211,50 @@ class LangGraphCoordinationRuntime:
             **({stage_id: working_memory_context} if working_memory_context else {}),
         }
         stage_scope = self._stage_scope(state=state, stage_id=stage_id, contract=contract)
+        missing_required_memory = [
+            dict(item)
+            for item in list(dict(working_memory_context or {}).get("missing_required_records") or [])
+            if isinstance(item, dict)
+        ]
+        if missing_required_memory:
+            self._append_timeline_event(
+                state,
+                event_type="memory_required_records_missing",
+                status="blocked",
+                scope_type=str(stage_scope.get("scope_type") or "stage"),
+                scope_path=list(stage_scope.get("scope_path") or ["run"]),
+                node_id=node_id,
+                phase_id=str(stage_scope.get("phase_id") or ""),
+                iteration_index=int(stage_scope.get("iteration_index") or 0),
+                payload={
+                    "stage_id": stage_id,
+                    "node_id": node_id,
+                    "missing_required_records": missing_required_memory,
+                    "repository_read_edges": list(dict(working_memory_context or {}).get("repository_read_edges") or []),
+                },
+                idempotency_key=f"{state.get('coordination_run_id')}:{stage_id}:missing_required_memory",
+            )
+            node_statuses = dict(state.get("node_statuses") or {})
+            node_statuses[stage_id] = "blocked"
+            return {
+                "terminal_status": "blocked",
+                "node_statuses": node_statuses,
+                "working_memory_contexts": working_memory_contexts,
+                "working_memory_operations": working_memory_operations,
+                "missing_required_memory_records": missing_required_memory,
+                "timeline": self.timeline_ledger.snapshot(str(state.get("coordination_run_id") or ""), limit=80),
+                **_scheduler_node_sets(
+                    order=[str(item) for item in list(state.get("stage_order") or []) if str(item)],
+                    node_statuses=node_statuses,
+                    state=state,
+                    terminal_status="blocked",
+                ),
+                "diagnostics": {
+                    **dict(state.get("diagnostics") or {}),
+                    "missing_required_memory_records": missing_required_memory,
+                    "stage_blocked_by_memory": True,
+                },
+            }
         dispatch_idempotency_key = _node_dispatch_idempotency_key(
             coordination_run_id=str(state.get("coordination_run_id") or ""),
             stage_id=stage_id,
@@ -2377,7 +2410,7 @@ class LangGraphCoordinationRuntime:
             )
             runtime_assembly_payload = {
                 **dict(runtime_assembly_payload or {}),
-                "authority": "orchestration.graph_module_runtime_assembly",
+                "authority": "runtime.subruntime.graph_module_runtime_assembly",
                 "assembly_id": str(
                     runtime_assembly_payload.get("assembly_id")
                     or f"runtime-assembly:graph-module:{_safe_id(graph_module_handle.get('handle_id'))}"
@@ -2724,7 +2757,14 @@ class LangGraphCoordinationRuntime:
             for edge in memory_write_edges
             if str(edge.get("edge_id") or "")
         }
-        if not candidates and artifact_refs and bool(write_policy.get("capture_artifact_refs")):
+        refs_only_auto_capture_allowed = (
+            bool(write_policy.get("capture_artifact_refs"))
+            and (
+                not memory_write_edges
+                or any(_memory_edge_allows_refs_only_auto_candidate(edge) for edge in memory_write_edges)
+            )
+        )
+        if not candidates and artifact_refs and refs_only_auto_capture_allowed:
             candidates = [
                 {
                     "title": f"{stage_id} 输出产物",
@@ -2740,7 +2780,10 @@ class LangGraphCoordinationRuntime:
             candidates=candidates,
             memory_write_edges=memory_write_edges,
             fallback_write_policy=write_policy,
-            output_bundle=dict(output_bundle or {}),
+            output_bundle={
+                **dict(output_bundle or {}),
+                "workspace_root": str(_workspace_root_from_runtime_root(self.root_dir)),
+            },
         )
         created = []
         formal_memory_acknowledgements: list[dict[str, Any]] = []
@@ -3005,22 +3048,23 @@ class LangGraphCoordinationRuntime:
             operation="write",
         )
         commit_edges = [edge for edge in commit_edges if str(edge.get("edge_type") or "") == "memory_commit" or str(edge.get("memory_edge_type") or "") == "commit"]
-        if not commit_edges:
-            return {}
         resolved_output_bundle = dict(output_bundle or _node_result_output_bundle(state=state, event=event, artifact_refs=[], mapped_outputs={}))
         fallback_commit_refs = list(accepted_refs)
-        if not fallback_commit_refs:
+        if commit_edges and not fallback_commit_refs:
             fallback_commit_refs = self._candidate_refs_from_commit_approval_sources(
                 state=state,
                 commit_edges=commit_edges,
                 current_stage_id=stage_id,
                 current_stage_candidate_refs=current_stage_candidate_refs,
             )
-        edge_commit_requests, edge_commit_errors = _formal_memory_commit_requests(
-            commit_edges=commit_edges,
-            output_bundle=resolved_output_bundle,
-            accepted_candidate_refs=fallback_commit_refs,
-        )
+        edge_commit_requests: list[dict[str, Any]] = []
+        edge_commit_errors: list[dict[str, Any]] = []
+        if commit_edges:
+            edge_commit_requests, edge_commit_errors = _formal_memory_commit_requests(
+                commit_edges=commit_edges,
+                output_bundle=resolved_output_bundle,
+                accepted_candidate_refs=fallback_commit_refs,
+            )
         refs_from_commit_edges = [request["candidate_ref"] for request in edge_commit_requests if request.get("candidate_ref")]
         for ref in refs_from_commit_edges:
             if ref not in accepted_refs:
@@ -3183,7 +3227,7 @@ class LangGraphCoordinationRuntime:
     def _load_or_bootstrap_state(self, *, coordination_run: CoordinationRun, coordination_task: Any) -> dict[str, Any]:
         stored = self.checkpoints.get_state(thread_id=coordination_run.coordination_run_id)
         if stored:
-            return stored
+            return _normalize_coordination_authoritative_state(stored)
         return self._bootstrap_state(coordination_run=coordination_run, coordination_task=coordination_task)
 
     def _bootstrap_state(
@@ -3317,6 +3361,7 @@ class LangGraphCoordinationRuntime:
             "node_statuses": node_statuses,
             "stage_results": {},
             "stage_results_by_instance": {},
+            "committed_stage_identities": [],
             "artifact_refs": [],
             "working_memory_contexts": {},
             "working_memory_operations": [],
@@ -3330,6 +3375,7 @@ class LangGraphCoordinationRuntime:
             "pending_inputs": dict(loop_state),
             "missing_required_inputs": [],
             "retry_counts": {},
+            "retry_stage_id": "",
             "human_gate": {},
             "terminal_status": "blocked" if issues else "",
             "final_result_ref": "",
@@ -4126,18 +4172,18 @@ def _stage_execution_message(
         lines.append(loop_summary)
     batch_boundary = _runtime_batch_boundary_instruction(contract=contract, explicit_inputs=explicit_inputs)
     if batch_boundary:
-        lines.append("运行时批次边界：")
+        lines.append("本轮处理边界：")
         lines.append(batch_boundary)
     user_seed = _explicit_project_brief(explicit_inputs)
     if user_seed:
-        lines.append("用户硬设定：")
+        lines.append("用户约束：")
         lines.append(user_seed)
     original_request = str(explicit_inputs.get("original_user_request") or explicit_inputs.get("natural_request") or "").strip()
     if original_request and original_request != user_seed:
         lines.append("原始任务目标：")
         lines.append(original_request)
     if artifact_paths:
-        lines.append("目标文本：" + "、".join(artifact_paths) + "。")
+        lines.append("目标产物：" + "、".join(artifact_paths) + "。")
     artifact_policy_instruction = render_artifact_policy_instructions(contract.get("artifact_policy"))
     if artifact_policy_instruction:
         lines.append(artifact_policy_instruction)
@@ -4155,7 +4201,7 @@ def _stage_execution_message(
     if revision_sections:
         lines.extend(revision_sections)
     if instructions:
-        lines.append("写作要求：")
+        lines.append("任务要求：")
         lines.extend(f"- {item}" for item in instructions)
     upstream = str(explicit_inputs.get("upstream_final_content") or "").strip()
     if upstream:
@@ -4164,53 +4210,23 @@ def _stage_execution_message(
     return "\n".join(lines)
 
 
-def _stale_result_reason(
-    *,
-    event: dict[str, Any],
-    request_payload: dict[str, Any],
-    stage_id: str,
-    known_batch_execution: bool = False,
-) -> str:
-    event_request_id = str(event.get("request_id") or "").strip()
-    event_dispatch_id = str(event.get("dispatch_event_id") or "").strip()
-    if known_batch_execution:
-        return ""
-    if not request_payload:
-        return "missing_active_stage_execution_request" if event_request_id or event_dispatch_id else ""
-    active_stage_id = str(request_payload.get("stage_id") or "").strip()
-    if active_stage_id and active_stage_id != stage_id and (event_request_id or event_dispatch_id):
-        return "stage_id_does_not_match_active_request"
-    active_request_id = str(request_payload.get("request_id") or "").strip()
-    if event_request_id and active_request_id and event_request_id != active_request_id:
-        return "request_id_does_not_match_active_request"
-    active_dispatch_id = str(dict(request_payload.get("dispatch_context") or {}).get("dispatch_event_id") or "").strip()
-    if event_dispatch_id and active_dispatch_id and event_dispatch_id != active_dispatch_id:
-        return "dispatch_event_id_does_not_match_active_request"
-    return ""
-
-
-def _active_execution_request_payload(state: dict[str, Any]) -> dict[str, Any]:
-    work_order = dict(state.get("node_work_order") or {})
-    if work_order:
-        return _request_compat_payload_from_work_order(work_order)
-    return dict(state.get("node_execution_request") or state.get("stage_execution_request") or {})
-
-
-def _request_compat_payload_from_work_order(work_order: dict[str, Any]) -> dict[str, Any]:
-    payload = dict(work_order or {})
-    if not payload:
-        return {}
-    input_package = dict(payload.get("input_package") or payload.get("standard_input_package") or {})
-    executor_type = str(payload.get("executor_type") or dict(payload.get("executor_binding") or {}).get("selected_executor") or "agent")
-    if executor_type == "subruntime":
-        executor_type = str(payload.get("subruntime_kind") or dict(payload.get("executor_binding") or {}).get("selected_executor") or "subruntime")
-    return {
-        **payload,
-        "request_id": str(payload.get("request_id") or payload.get("work_order_id") or ""),
-        "standard_input_package": input_package,
-        "executor_type": executor_type,
-        "authority": "task_graph.node_execution_request",
-    }
+def _normalize_coordination_authoritative_state(state: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(state or {})
+    diagnostics = dict(normalized.get("diagnostics") or {})
+    if "committed_stage_identities" not in normalized:
+        committed = [
+            str(item)
+            for item in list(diagnostics.get("committed_stage_identities") or [])
+            if str(item)
+        ]
+        normalized["committed_stage_identities"] = sorted(set(committed))
+    if "retry_stage_id" not in normalized:
+        normalized["retry_stage_id"] = str(diagnostics.get("retry_stage_id") or "").strip()
+    for key in ("committed_stage_identities", "retry_stage_id"):
+        diagnostics.pop(key, None)
+    if diagnostics != dict(normalized.get("diagnostics") or {}):
+        normalized["diagnostics"] = diagnostics
+    return normalized
 
 
 def _runtime_result_from_state(
@@ -4307,110 +4323,6 @@ def _request_dispatch_identity(request_payload: dict[str, Any]) -> str:
     )
 
 
-def _stage_commit_identity(
-    *,
-    stage_id: str,
-    contract: dict[str, Any],
-    explicit_inputs: dict[str, Any],
-    artifact_refs: list[str],
-) -> str:
-    policy = _commit_identity_policy(contract)
-    if not policy:
-        return ""
-    mode = str(policy.get("mode") or "input_keys_and_artifact_refs").strip()
-    if mode in {"disabled", "none", "off"}:
-        return ""
-    namespace = str(policy.get("identity_namespace") or policy.get("namespace") or stage_id or "stage").strip()
-    seed: dict[str, Any] = {
-        "stage_id": stage_id,
-        "namespace": namespace,
-        "mode": mode,
-    }
-
-    input_keys = [str(item).strip() for item in list(policy.get("input_keys") or []) if str(item).strip()]
-    if input_keys:
-        seed["inputs"] = {key: explicit_inputs.get(key) for key in input_keys}
-    elif mode in {"runtime_scope", "scope_and_artifact_refs"}:
-        seed["inputs"] = _runtime_scope_coordinate_from_inputs(explicit_inputs)
-
-    source_refs = _commit_identity_source_refs(
-        policy=policy,
-        explicit_inputs=explicit_inputs,
-        artifact_refs=artifact_refs,
-    )
-    if source_refs:
-        seed["source_refs"] = source_refs
-    if not seed.get("inputs") and not source_refs:
-        return ""
-    return f"{namespace}:commitid:{_short_hash(seed)}"
-
-
-def _commit_identity_policy(contract: dict[str, Any]) -> dict[str, Any]:
-    for source in (
-        dict(contract.get("memory_writeback_policy") or {}),
-        dict(contract.get("artifact_policy") or {}),
-        dict(contract.get("executor_policy") or {}),
-        dict(contract.get("metadata") or {}),
-    ):
-        policy = source.get("commit_identity_policy")
-        if isinstance(policy, dict) and policy:
-            return dict(policy)
-    return {}
-
-
-def _commit_identity_source_refs(
-    *,
-    policy: dict[str, Any],
-    explicit_inputs: dict[str, Any],
-    artifact_refs: list[str],
-) -> list[str]:
-    source_refs: list[str] = []
-    exact_input_keys = [
-        str(item).strip()
-        for item in list(policy.get("artifact_ref_input_keys") or policy.get("source_ref_input_keys") or [])
-        if str(item).strip()
-    ]
-    for key in exact_input_keys:
-        source_refs.extend(_artifact_refs_from_value(explicit_inputs.get(key)))
-
-    suffixes = [
-        str(item).strip()
-        for item in list(policy.get("artifact_ref_input_suffixes") or [])
-        if str(item).strip()
-    ]
-    prefixes = [
-        str(item).strip()
-        for item in list(policy.get("artifact_ref_input_prefixes") or [])
-        if str(item).strip()
-    ]
-    contains = [
-        str(item).strip()
-        for item in list(policy.get("artifact_ref_input_contains") or [])
-        if str(item).strip()
-    ]
-    if suffixes or prefixes or contains:
-        for key, value in dict(explicit_inputs or {}).items():
-            key_text = str(key or "")
-            if (
-                any(key_text.endswith(suffix) for suffix in suffixes)
-                or any(key_text.startswith(prefix) for prefix in prefixes)
-                or any(token in key_text for token in contains)
-            ):
-                source_refs.extend(_artifact_refs_from_value(value))
-
-    if bool(policy.get("include_result_artifact_refs") or policy.get("fallback_to_result_artifact_refs")):
-        source_refs.extend(str(item) for item in list(artifact_refs or []) if str(item))
-    return sorted({str(item) for item in source_refs if str(item)})
-
-
-def _short_hash(value: Any) -> str:
-    import hashlib
-    import json
-
-    text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str, separators=(",", ":"))
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
-
-
 def _readable_artifact_context_for_stage(
     *,
     contract: dict[str, Any],
@@ -4454,15 +4366,72 @@ def _readable_artifact_context_for_stage(
 
 def _readable_memory_snapshot_sections(memory_snapshot: dict[str, Any]) -> list[str]:
     records = [dict(item) for item in list(memory_snapshot.get("resolved_records") or []) if isinstance(item, dict)]
-    if not records:
+    missing = [dict(item) for item in list(memory_snapshot.get("missing_required_records") or []) if isinstance(item, dict)]
+    if not records and not missing:
         return []
     lines = ["记忆快照："]
-    for record in records[:20]:
-        title = str(record.get("title") or record.get("record_key") or record.get("record_id") or record.get("version_id") or "记忆记录").strip()
-        summary = str(record.get("summary") or record.get("canonical_text") or "").strip()
-        if summary:
-            lines.append(f"- {title}: {summary[:4000]}")
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for record in records:
+        key = (str(record.get("repository_id") or "").strip(), str(record.get("collection_id") or "").strip())
+        grouped.setdefault(key, []).append(record)
+    for (repository_id, collection_id), group in grouped.items():
+        label = " / ".join(item for item in (repository_id, collection_id) if item) or "formal_memory"
+        lines.append(f"[{label}]")
+        for record in group[:12]:
+            title = str(record.get("model_visible_label") or record.get("title") or record.get("record_key") or record.get("record_id") or record.get("version_id") or "记忆记录").strip()
+            address = "/".join(
+                item
+                for item in (
+                    str(record.get("repository_id") or ""),
+                    str(record.get("collection_id") or ""),
+                    str(record.get("record_key") or ""),
+                )
+                if item
+            )
+            content_state = str(record.get("content_state") or "").strip()
+            usage = str(record.get("usage_instruction") or "").strip()
+            canonical_text = str(record.get("canonical_text") or "").strip()
+            summary = str(record.get("summary") or "").strip()
+            lines.append(f"- {title} ({address}; content_state={content_state or 'unknown'})")
+            if usage:
+                lines.append(f"  用途：{usage[:1000]}")
+            text = canonical_text or summary
+            if text:
+                lines.append(f"  内容：{text[:4000]}")
+            elif record.get("artifact_refs"):
+                lines.append("  警告：此记录只有产物引用，没有正式记忆内容，不能满足 required canonical memory。")
+            for warning in list(record.get("content_warnings") or []):
+                if isinstance(warning, dict) and warning.get("message"):
+                    lines.append(f"  警告：{str(warning.get('message'))[:1000]}")
+    if missing:
+        lines.append("缺失的必需记忆：")
+        for item in missing[:20]:
+            address = "/".join(
+                part
+                for part in (
+                    str(item.get("logical_repository_id") or item.get("repository") or ""),
+                    str(item.get("collection") or ""),
+                    str(dict(item.get("selector") or {}).get("record_key") or ""),
+                )
+                if part
+            )
+            reason = str(item.get("reason") or "missing_required_record")
+            lines.append(f"- {str(item.get('edge_id') or '')}: {address or 'unknown'} ({reason})")
     return lines
+
+
+def _memory_edge_allows_refs_only_auto_candidate(edge: dict[str, Any]) -> bool:
+    requirement = dict(edge.get("content_requirement") or {})
+    materialization_policy = dict(edge.get("materialization_policy") or edge.get("candidate_materialization_policy") or {})
+    if bool(requirement.get("artifact_ref_only_allowed")):
+        return True
+    if bool(requirement.get("canonical_text_required")):
+        return False
+    if str(materialization_policy.get("canonical_text_mode") or "").strip() in {"none", "refs_only"}:
+        return True
+    if str(materialization_policy.get("mode") or "").strip() in {"none", "refs_only"}:
+        return True
+    return False
 
 
 def _readable_revision_packet_sections(revision_packet: dict[str, Any]) -> list[str]:
@@ -4476,13 +4445,13 @@ def _readable_revision_packet_sections(revision_packet: dict[str, Any]) -> list[
             lines.append(f"- {key}: {value}")
     _append_revision_ref_texts(
         lines,
-        title="审核报告正文",
+        title="审核报告内容",
         refs=_artifact_refs_from_value(revision_packet.get("review_result_refs")),
         max_chars=12000,
     )
     _append_revision_ref_texts(
         lines,
-        title="上一版候选产物正文",
+        title="上一版候选产物内容",
         refs=_artifact_refs_from_value(revision_packet.get("previous_candidate_artifact_refs")),
         max_chars=30000,
     )
@@ -4529,14 +4498,6 @@ def _resolve_artifact_context_value(item: dict[str, Any], *, explicit_inputs: di
                 values.append(value)
         return values
     return None
-
-
-def _artifact_refs_from_value(value: Any) -> list[str]:
-    if isinstance(value, str):
-        return [value] if value.startswith("artifact:") else []
-    if isinstance(value, (list, tuple)):
-        return [str(item) for item in value if str(item).startswith("artifact:")]
-    return []
 
 
 def _read_artifact_ref_text(ref: str) -> str:
@@ -4597,7 +4558,7 @@ def _runtime_batch_boundary_instruction(*, contract: dict[str, Any], explicit_in
     metric_template = str(policy.get("metric_template") or "当前批次目标工作量约 {target_metric}。").strip()
     conflict_template = str(
         policy.get("conflict_template")
-        or "如果项目启动包、上游旧产物或历史摘要出现其他批次大小或其他范围，以本运行时批次边界为准。"
+        or "如果项目启动包、上游旧产物或历史摘要出现其他批次大小或其他范围，以本轮处理边界为准。"
     ).strip()
     unit_list = str(explicit_inputs.get(list_key) or "").strip()
     if not unit_list:
@@ -4689,37 +4650,6 @@ def _replay_sanitization_policy(*, contract: dict[str, Any], node_id: str) -> di
     return {}
 
 
-def _runtime_scope_coordinate_from_inputs(inputs: dict[str, Any]) -> dict[str, int]:
-    batch_start = _safe_int(inputs.get("batch_start_index"), 0)
-    batch_end = _safe_int(inputs.get("batch_end_index"), batch_start)
-    return {
-        "volume_index": _safe_int(inputs.get("volume_index"), 0),
-        "batch_start_index": batch_start,
-        "batch_end_index": batch_end,
-        "round_index": _safe_int(inputs.get("round_index") or inputs.get("revision_round") or inputs.get("attempt_index"), 0),
-        "iteration_index": _safe_int(inputs.get("iteration_index"), 0),
-    }
-
-
-def _scope_path_segments_from_coordinate(coordinate: dict[str, Any]) -> list[str]:
-    volume_index = _safe_int(coordinate.get("volume_index"), 0)
-    batch_start = _safe_int(coordinate.get("batch_start_index"), 0)
-    batch_end = _safe_int(coordinate.get("batch_end_index"), batch_start)
-    round_index = _safe_int(coordinate.get("round_index"), 0)
-    parts: list[str] = []
-    if volume_index > 0:
-        parts.append(f"volume[{volume_index:03d}]")
-    if batch_start > 0:
-        batch_label = f"batch[{batch_start:03d}"
-        if batch_end and batch_end != batch_start:
-            batch_label += f"-{batch_end:03d}"
-        batch_label += "]"
-        parts.append(batch_label)
-    if round_index > 0:
-        parts.append(f"round[{round_index:03d}]")
-    return parts
-
-
 class _SafeFormatValues(dict):
     def __init__(self, values: dict[str, Any]) -> None:
         super().__init__({str(key): value for key, value in dict(values or {}).items()})
@@ -4782,144 +4712,6 @@ def _contract_from_payload(payload: dict[str, Any]) -> CoordinationStageContract
         quality_retry_policy=dict(payload.get("quality_retry_policy") or {}),
         artifact_targets=tuple(dict(item) for item in list(payload.get("artifact_targets") or []) if isinstance(item, dict)),
     )
-
-
-def _stage_result_request_payload(
-    *,
-    state: dict[str, Any],
-    request_payload: dict[str, Any],
-    event: dict[str, Any],
-    stage_id: str,
-    node_id: str,
-    contract: dict[str, Any],
-    stage_scope: dict[str, Any],
-) -> dict[str, Any]:
-    """Return the execution context used to accept a node result.
-
-    A running graph can receive the first stage result from outside the runtime
-    before a NodeExecutionRequest exists. The accepted result still needs the
-    same timeline coordinate, executor binding, and package identity shape as a
-    normal dispatched node; otherwise the scheduler cannot prove that the
-    upstream result is effective for downstream edges.
-    """
-
-    if request_payload:
-        return dict(request_payload)
-    coordination_run_id = str(state.get("coordination_run_id") or event.get("coordination_run_id") or "")
-    task_result_ref = str(event.get("task_result_ref") or event.get("agent_run_result_ref") or event.get("task_run_id") or "")
-    identity_seed = f"{coordination_run_id}:{stage_id}:external_result:{task_result_ref}"
-    activation_id = f"activation:{_safe_id(identity_seed)}"
-    execution_permit_id = f"permit:{_safe_id(identity_seed)}"
-    explicit_inputs = dict(state.get("pending_inputs") or {})
-    dispatch_context = {
-        "dispatch_event_id": str(event.get("dispatch_event_id") or ""),
-        "clock_seq": 0,
-        "scope_path": list(stage_scope.get("scope_path") or ["run"]),
-        "scope_type": str(stage_scope.get("scope_type") or "stage"),
-        "phase_id": str(stage_scope.get("phase_id") or ""),
-        "dependency_scope_key": str(stage_scope.get("dependency_scope_key") or ""),
-        "volume_index": int(stage_scope.get("volume_index") or 0),
-        "batch_start_index": int(stage_scope.get("batch_start_index") or 0),
-        "batch_end_index": int(stage_scope.get("batch_end_index") or 0),
-        "round_index": int(stage_scope.get("round_index") or 0),
-        "iteration_index": int(stage_scope.get("iteration_index") or 0),
-        "node_id": node_id,
-        "stage_id": stage_id,
-        "thread_id": coordination_run_id,
-        "coordination_run_id": coordination_run_id,
-        "root_task_run_id": str(state.get("root_task_run_id") or event.get("task_run_id") or ""),
-        "activation_id": activation_id,
-        "execution_permit_id": execution_permit_id,
-    }
-    executor_binding = build_node_executor_binding(
-        node_id=node_id,
-        contract=contract,
-        explicit_inputs=explicit_inputs,
-        agent_profile_id="",
-    )
-    return {
-        "request_id": str(event.get("request_id") or f"nodeexec:{_safe_id(identity_seed)}"),
-        "coordination_run_id": coordination_run_id,
-        "thread_id": coordination_run_id,
-        "root_task_run_id": str(state.get("root_task_run_id") or event.get("task_run_id") or ""),
-        "stage_id": stage_id,
-        "node_id": node_id,
-        "task_ref": str(contract.get("task_ref") or event.get("task_ref") or ""),
-        "agent_id": str(contract.get("agent_id") or ""),
-        "runtime_lane": str(contract.get("runtime_lane") or ""),
-        "executor_type": executor_binding.selected_executor,
-        "executor_binding": executor_binding.to_dict(),
-        "explicit_inputs": explicit_inputs,
-        "standard_input_package": {
-            "coordination_run_id": coordination_run_id,
-            "node_id": node_id,
-            "stage_id": stage_id,
-            "activation_id": activation_id,
-            "execution_permit_id": execution_permit_id,
-        },
-        "dispatch_context": dispatch_context,
-    }
-
-
-def _node_execution_boundary(execution_context: dict[str, Any] | None) -> dict[str, Any]:
-    payload = dict(execution_context or {})
-    dispatch_context = dict(payload.get("dispatch_context") or {})
-    standard_input = dict(payload.get("standard_input_package") or {})
-    coordination_run_id = _first_non_empty(
-        payload.get("coordination_run_id"),
-        dispatch_context.get("coordination_run_id"),
-        standard_input.get("coordination_run_id"),
-    )
-    stage_id = _first_non_empty(payload.get("stage_id"), dispatch_context.get("stage_id"), standard_input.get("stage_id"))
-    node_id = _first_non_empty(payload.get("node_id"), dispatch_context.get("node_id"), standard_input.get("node_id"), stage_id)
-    activation_id = _first_non_empty(
-        payload.get("activation_id"),
-        dispatch_context.get("activation_id"),
-        standard_input.get("activation_id"),
-    )
-    execution_permit_id = _first_non_empty(
-        payload.get("execution_permit_id"),
-        dispatch_context.get("execution_permit_id"),
-        standard_input.get("execution_permit_id"),
-    )
-    request_id = _first_non_empty(payload.get("request_id"), standard_input.get("request_id"))
-    dispatch_event_id = _first_non_empty(payload.get("dispatch_event_id"), dispatch_context.get("dispatch_event_id"))
-    missing = [
-        key
-        for key, value in {
-            "coordination_run_id": coordination_run_id,
-            "stage_id": stage_id,
-            "node_id": node_id,
-            "activation_id": activation_id,
-            "execution_permit_id": execution_permit_id,
-            "request_id": request_id,
-        }.items()
-        if not value
-    ]
-    return {
-        "coordination_run_id": coordination_run_id,
-        "stage_id": stage_id,
-        "node_id": node_id,
-        "activation_id": activation_id,
-        "execution_permit_id": execution_permit_id,
-        "request_id": request_id,
-        "dispatch_event_id": dispatch_event_id,
-        "clock_seq": int(dispatch_context.get("clock_seq") or 0),
-        "scope_path": [str(item) for item in list(dispatch_context.get("scope_path") or []) if str(item)],
-        "valid": not missing,
-        "missing": missing,
-        "authority": "task_graph.node_execution_boundary",
-    }
-
-
-
-
-def _first_non_empty(*values: Any) -> str:
-    for value in values:
-        text = str(value or "").strip()
-        if text:
-            return text
-    return ""
 
 
 def _stage_scope_for_resume(*, state: dict[str, Any], stage_id: str, contract: dict[str, Any]) -> dict[str, Any]:
@@ -5145,12 +4937,12 @@ def _resume_human_gate_state(*, state: CoordinationRuntimeState, event: dict[str
             missing_required_inputs=[],
             diagnostics={"reason": "human_gate_retry", "retry_count": retry_counts.get(stage_id)},
         )
-        diagnostics["retry_stage_id"] = stage_id
         diagnostics["retry_counts"] = retry_counts
         diagnostics["human_gate"] = {"status": "retry", "stage_id": stage_id}
         return {
             "node_statuses": node_statuses,
             "retry_counts": retry_counts,
+            "retry_stage_id": stage_id,
             "contract_status": contract_status,
             "human_gate": {**human_gate, "status": "retry", "stage_id": stage_id, "resume": dict(event)},
             "terminal_status": "",
@@ -5323,14 +5115,7 @@ def _edge_allows_downstream_invalidation(
         return False
     if loop_role in {"repair", "feedback"}:
         return False
-    if verdict in {
-        "revise",
-        "repair_world",
-        "repair_outline",
-        "repair_character",
-        "human_review_required",
-        "fail_closed",
-    }:
+    if review_verdict_blocks_downstream_invalidation(verdict):
         return False
     return order_index.get(target, -1) >= order_index.get(source, -1)
 
@@ -5512,16 +5297,6 @@ def _scheduler_node_sets(
 
 
 
-
-
-def _dependency_scope_key_from_inputs(inputs: dict[str, Any]) -> str:
-    coordinate = _runtime_scope_coordinate_from_inputs(inputs)
-    iteration_index = int(coordinate.get("iteration_index") or 0)
-    parts = ["run"]
-    parts.extend(_scope_path_segments_from_coordinate(coordinate))
-    if iteration_index > 0:
-        parts.append(f"iteration[{iteration_index}]")
-    return "/".join(parts)
 
 
 def _node_dispatch_idempotency_key(

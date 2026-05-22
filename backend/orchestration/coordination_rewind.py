@@ -8,6 +8,7 @@ from typing import Any
 
 from runtime import TaskRun
 from runtime.shared.models import AgentRun, CoordinationRun
+from task_system.runtime_semantics.review_gate_verdict import review_verdict_blocks_downstream_invalidation
 
 def _mark_rewound_task_run_running(
     *,
@@ -280,14 +281,7 @@ def _coordination_edge_allows_downstream_invalidation(
         return False
     if loop_role in {"repair", "feedback"}:
         return False
-    if verdict in {
-        "revise",
-        "repair_world",
-        "repair_outline",
-        "repair_character",
-        "human_review_required",
-        "fail_closed",
-    }:
+    if review_verdict_blocks_downstream_invalidation(verdict):
         return False
     return order_index.get(target, -1) >= order_index.get(source, -1)
 

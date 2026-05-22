@@ -795,6 +795,7 @@ export type TaskGraphStandardResourceSpec = {
   resource_type: string;
   repository_id: string;
   collections: string[];
+  collection_specs?: Array<Record<string, unknown>>;
   lifecycle?: Record<string, unknown>;
   readable_by?: string[];
   write_owner_node_ids?: string[];
@@ -817,6 +818,67 @@ export type TaskGraphRuntimeIsolationSpec = {
   memory_repositories: Array<Record<string, unknown>>;
   artifact_repositories: Array<Record<string, unknown>>;
   runtime_state_stores: Array<Record<string, unknown>>;
+};
+
+export type TaskGraphMemoryProtocolRepository = {
+  repository_id: string;
+  repository_node_id?: string;
+  title?: string;
+  repository_kind?: string;
+  lifecycle_policy?: Record<string, unknown>;
+  scope_policy?: Record<string, unknown>;
+  mutable?: boolean;
+  authority?: string;
+};
+
+export type TaskGraphMemoryProtocolCollection = {
+  repository_id: string;
+  repository_node_id?: string;
+  collection_id: string;
+  title?: string;
+  schema_id?: string;
+  record_kinds?: string[];
+  key_strategy?: string;
+  default_version_selector?: string;
+  content_requirement?: Record<string, unknown>;
+  snapshot_budget?: Record<string, unknown>;
+  retention_policy?: Record<string, unknown>;
+  authority?: string;
+};
+
+export type TaskGraphMemoryProtocolEdge = {
+  edge_id: string;
+  operation: "read" | "write" | "write_candidate" | "commit" | string;
+  source_node_id?: string;
+  target_node_id?: string;
+  repository_id: string;
+  collection_id: string;
+  address?: Record<string, unknown>;
+  selector?: Record<string, unknown>;
+  version_selector?: string;
+  missing_policy?: string;
+  source_output_key?: string;
+  candidate_ref_key?: string;
+  verdict_key?: string;
+  required_verdict?: string;
+  approval_source_node_id?: string;
+  commit_visibility_policy?: Record<string, unknown>;
+  content_requirement?: Record<string, unknown>;
+  materialization_policy?: Record<string, unknown>;
+  model_visible_label?: string;
+  usage_instruction?: string;
+  authority?: string;
+};
+
+export type TaskGraphMemoryProtocol = {
+  authority?: string;
+  repositories: TaskGraphMemoryProtocolRepository[];
+  collections: TaskGraphMemoryProtocolCollection[];
+  read_edges: TaskGraphMemoryProtocolEdge[];
+  write_edges: TaskGraphMemoryProtocolEdge[];
+  commit_edges: TaskGraphMemoryProtocolEdge[];
+  issues: Array<Record<string, unknown>>;
+  summary?: Record<string, unknown>;
 };
 
 export type UnitPortSpec = {
@@ -924,6 +986,7 @@ export type TaskGraphStandardView = {
   timeline: TaskGraphStandardTimelineSpec;
   runtime_isolation: TaskGraphRuntimeIsolationSpec;
   memory_matrix: Record<string, unknown>;
+  memory_protocol?: TaskGraphMemoryProtocol;
   diagnostics: Record<string, unknown>;
   issues: TaskGraphStandardIssue[];
 };
@@ -1862,6 +1925,11 @@ export type GlobalRuntimeMonitorItem = {
   created_at: number;
   updated_at: number;
   elapsed_seconds: number;
+  runtime_seconds?: number;
+  last_activity_at?: number;
+  last_activity_age_seconds?: number;
+  is_live?: boolean;
+  display_bucket?: "live" | "stale" | "recent" | "history" | string;
   latest_event_type: string;
   latest_event_at: number;
   event_count: number;
@@ -1883,9 +1951,27 @@ export type GlobalRuntimeMonitor = {
     waiting: number;
     completed: number;
     failed: number;
+    stale?: number;
+    recent?: number;
   };
   task_runs: GlobalRuntimeMonitorItem[];
   updated_at: number;
+};
+
+export type RuntimeMonitorEventPayload = {
+  source?: string;
+  monitor?: GlobalRuntimeMonitor;
+  runtime_event?: {
+    event_id: string;
+    task_run_id: string;
+    event_type: string;
+    offset: number;
+    created_at: number;
+    payload: Record<string, unknown>;
+    refs: Record<string, unknown>;
+    authority: string;
+  };
+  updated_at?: number;
 };
 
 export type RuntimeLoopTaskRunTrace = {
@@ -3219,16 +3305,24 @@ export type StreamHandlers = {
 };
 
 function getApiBase() {
+  const hostBase = (
+    globalThis.__MYTHICAL_AGENT_HOST__?.apiBase
+    || (typeof window !== "undefined" ? window.mythicalAgentHost?.getConfig().apiBase : "")
+  )?.trim();
+  if (hostBase) {
+    return hostBase.replace(/\/$/, "");
+  }
+
   const explicitBase = process.env.NEXT_PUBLIC_API_BASE?.trim();
   if (explicitBase) {
     return explicitBase.replace(/\/$/, "");
   }
 
-  if (typeof window === "undefined") {
-    return "http://127.0.0.1:8002/api";
-  }
+  return "http://127.0.0.1:8002/api";
+}
 
-  return "/api";
+export function getRuntimeMonitorEventStreamUrl(limit = 40) {
+  return `${getApiBase()}/orchestration/runtime-loop/monitor-events?limit=${encodeURIComponent(String(limit))}`;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

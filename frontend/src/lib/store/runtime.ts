@@ -8,6 +8,7 @@ import {
   deleteSession,
   getCoordinationRunTaskGraphMonitor,
   getGlobalRuntimeMonitor,
+  getRuntimeMonitorEventStreamUrl,
   getModelProviderConfig,
   getSoulImageAssetConfig,
   getTaskGraphRunMonitorDecisions,
@@ -30,6 +31,7 @@ import {
   taskGraphRunIdFromLiveMonitor,
   truncateSessionMessages
 } from "@/lib/api";
+import type { GlobalRuntimeMonitor, RuntimeMonitorEventPayload } from "@/lib/api";
 import {
   ACTIVE_SOUL_PATH,
   SOUL_SEED_PATHS,
@@ -47,6 +49,7 @@ import { toUiMessages } from "./utils";
 const TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY = "task-graph-monitor-binding";
 
 export class WorkspaceRuntime {
+  private initializePromise: Promise<void> | null = null;
   private createSessionPromise: Promise<string> | null = null;
   private sessionDetailsRequest = 0;
   private orchestrationHydrateRequest = 0;
@@ -59,6 +62,10 @@ export class WorkspaceRuntime {
   private taskGraphMonitorInFlight = false;
   private globalRuntimeMonitorTimer: number | null = null;
   private globalRuntimeMonitorInFlight = false;
+  private globalRuntimeMonitorPolling = false;
+  private globalRuntimeMonitorRequest = 0;
+  private globalRuntimeMonitorEventSource: EventSource | null = null;
+  private globalRuntimeMonitorDetailRefreshTimer: number | null = null;
   private sessionRefreshTimers: number[] = [];
   private streamingSessionCache = new Map<string, Pick<StoreState, "messages" | "orchestrationSnapshot">>();
   private removedStreamingSessionIds = new Set<string>();
@@ -171,7 +178,21 @@ export class WorkspaceRuntime {
     };
   }
 
+  startGlobalRuntimeMonitor() {
+    this.startGlobalRuntimeMonitorPolling();
+  }
+
   async initialize() {
+    if (this.initializePromise) {
+      return this.initializePromise;
+    }
+    this.initializePromise = this.initializeWorkspace().finally(() => {
+      this.initializePromise = null;
+    });
+    return this.initializePromise;
+  }
+
+  private async initializeWorkspace() {
     const [sessions, rag, skills, souls, modelProviderConfig, soulImageAssetConfig] = await Promise.all([
       listSessions(),
       getRagMode(),
@@ -212,7 +233,6 @@ export class WorkspaceRuntime {
       inspectorDirty: false
     }));
     this.restoreTaskGraphMonitorBinding();
-    this.startGlobalRuntimeMonitorPolling();
   }
 
   dispose() {
@@ -226,6 +246,7 @@ export class WorkspaceRuntime {
     this.stopOrchestrationMonitorPolling();
     this.stopTaskGraphMonitorPolling();
     this.stopGlobalRuntimeMonitorPolling();
+    this.stopGlobalRuntimeMonitorEventStream();
   }
 
   private scheduleSessionRefreshes(delays: number[] = [1500, 4000]) {
@@ -683,12 +704,23 @@ export class WorkspaceRuntime {
       return undefined;
     }
     const option = catalog?.providers?.[provider];
+    const isPrimaryConfigured = provider === config?.provider && model === config?.model;
+    const isFallbackConfigured = provider === config?.fallback_provider && model === config?.fallback_model;
+    if (!isPrimaryConfigured && !isFallbackConfigured) {
+      return undefined;
+    }
     return {
       selection_id: selectionId,
       provider,
       model,
-      base_url: provider === config?.provider ? config.base_url : option?.default_base_url,
-      credential_ref: option?.credential_ref || `provider:${provider}:primary`,
+      base_url: isPrimaryConfigured
+        ? config?.base_url
+        : isFallbackConfigured
+          ? config?.fallback_base_url
+          : option?.default_base_url,
+      credential_ref: isFallbackConfigured
+        ? config?.fallback_credential_ref || `provider:${provider}:fallback`
+        : option?.credential_ref || `provider:${provider}:primary`,
     };
   }
 
@@ -1299,6 +1331,15 @@ export class WorkspaceRuntime {
     if (typeof window === "undefined") {
       return;
     }
+    this.globalRuntimeMonitorPolling = true;
+    this.startGlobalRuntimeMonitorEventStream();
+    if (this.globalRuntimeMonitorInFlight) {
+      return;
+    }
+    if (this.globalRuntimeMonitorTimer !== null) {
+      window.clearTimeout(this.globalRuntimeMonitorTimer);
+      this.globalRuntimeMonitorTimer = null;
+    }
     void this.refreshGlobalRuntimeMonitor();
   }
 
@@ -1306,6 +1347,8 @@ export class WorkspaceRuntime {
     if (typeof window === "undefined") {
       return;
     }
+    this.globalRuntimeMonitorPolling = false;
+    this.stopGlobalRuntimeMonitorEventStream();
     if (this.globalRuntimeMonitorTimer !== null) {
       window.clearTimeout(this.globalRuntimeMonitorTimer);
       this.globalRuntimeMonitorTimer = null;
@@ -1313,16 +1356,138 @@ export class WorkspaceRuntime {
     this.globalRuntimeMonitorInFlight = false;
   }
 
+  private startGlobalRuntimeMonitorEventStream() {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (this.globalRuntimeMonitorEventSource) {
+      return;
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      globalRuntimeMonitorStreamStatus: "connecting",
+    }));
+    const eventSource = new EventSource(getRuntimeMonitorEventStreamUrl(40));
+    this.globalRuntimeMonitorEventSource = eventSource;
+    eventSource.onopen = () => {
+      this.store.setState((prev) => ({
+        ...prev,
+        globalRuntimeMonitorError: "",
+        globalRuntimeMonitorStreamStatus: "connected",
+      }));
+    };
+    eventSource.onerror = () => {
+      this.store.setState((prev) => ({
+        ...prev,
+        globalRuntimeMonitorStreamStatus: "fallback",
+      }));
+      this.scheduleGlobalRuntimeMonitorPoll(1200);
+    };
+    eventSource.addEventListener("runtime_monitor_snapshot", (event) => {
+      this.applyGlobalRuntimeMonitorStreamPayload(this.parseRuntimeMonitorEventPayload(event));
+    });
+    eventSource.addEventListener("runtime_monitor_event", (event) => {
+      this.applyGlobalRuntimeMonitorStreamPayload(this.parseRuntimeMonitorEventPayload(event));
+    });
+  }
+
+  private stopGlobalRuntimeMonitorEventStream() {
+    if (this.globalRuntimeMonitorEventSource) {
+      this.globalRuntimeMonitorEventSource.close();
+      this.globalRuntimeMonitorEventSource = null;
+    }
+    if (this.globalRuntimeMonitorDetailRefreshTimer !== null && typeof window !== "undefined") {
+      window.clearTimeout(this.globalRuntimeMonitorDetailRefreshTimer);
+      this.globalRuntimeMonitorDetailRefreshTimer = null;
+    }
+    this.store.setState((prev) => ({
+      ...prev,
+      globalRuntimeMonitorStreamStatus: "closed",
+    }));
+  }
+
+  private parseRuntimeMonitorEventPayload(event: Event): RuntimeMonitorEventPayload | null {
+    const message = event as MessageEvent<string>;
+    try {
+      return JSON.parse(message.data) as RuntimeMonitorEventPayload;
+    } catch {
+      return null;
+    }
+  }
+
+  private applyGlobalRuntimeMonitorStreamPayload(payload: RuntimeMonitorEventPayload | null) {
+    if (!payload) {
+      return;
+    }
+    if (payload.monitor) {
+      this.applyGlobalRuntimeMonitorSnapshot(payload.monitor, {
+        detailTaskRunId: payload.runtime_event?.task_run_id,
+        lastEvent: payload.runtime_event ?? null,
+      });
+    } else if (payload.runtime_event) {
+      this.store.setState((prev) => ({
+        ...prev,
+        globalRuntimeMonitorLastEvent: payload.runtime_event ?? null,
+      }));
+      this.queueSelectedGlobalRuntimeMonitorDetailRefresh(payload.runtime_event.task_run_id);
+    }
+  }
+
+  private applyGlobalRuntimeMonitorSnapshot(
+    monitor: GlobalRuntimeMonitor,
+    options: {
+      detailTaskRunId?: string;
+      lastEvent?: RuntimeMonitorEventPayload["runtime_event"] | null;
+    } = {},
+  ) {
+    const currentSelected = this.store.getState().globalRuntimeMonitorSelectedTaskRunId;
+    const currentStillVisible = monitor.task_runs.some((item) => item.task_run_id === currentSelected);
+    const nextSelected = currentStillVisible ? currentSelected : monitor.task_runs[0]?.task_run_id || "";
+    this.store.setState((prev) => ({
+      ...prev,
+      globalRuntimeMonitor: monitor,
+      globalRuntimeMonitorSelectedTaskRunId: nextSelected,
+      globalRuntimeMonitorSelectedLiveMonitor: nextSelected ? prev.globalRuntimeMonitorSelectedLiveMonitor : null,
+      globalRuntimeMonitorSelectedGraphMonitor: nextSelected ? prev.globalRuntimeMonitorSelectedGraphMonitor : null,
+      globalRuntimeMonitorError: "",
+      globalRuntimeMonitorLastEvent: options.lastEvent ?? prev.globalRuntimeMonitorLastEvent,
+    }));
+    this.queueSelectedGlobalRuntimeMonitorDetailRefresh(options.detailTaskRunId || nextSelected);
+  }
+
+  private queueSelectedGlobalRuntimeMonitorDetailRefresh(taskRunId?: string) {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const normalized = String(taskRunId || "").trim();
+    const selected = this.store.getState().globalRuntimeMonitorSelectedTaskRunId;
+    if (!normalized || normalized !== selected) {
+      return;
+    }
+    if (this.globalRuntimeMonitorDetailRefreshTimer !== null) {
+      window.clearTimeout(this.globalRuntimeMonitorDetailRefreshTimer);
+    }
+    this.globalRuntimeMonitorDetailRefreshTimer = window.setTimeout(() => {
+      this.globalRuntimeMonitorDetailRefreshTimer = null;
+      void this.loadGlobalRuntimeMonitorTaskRunDetail(normalized);
+    }, 180);
+  }
+
   private scheduleGlobalRuntimeMonitorPoll(delayMs = 2500) {
     if (typeof window === "undefined") {
       return;
     }
+    if (!this.globalRuntimeMonitorPolling) {
+      return;
+    }
+    const streamStatus = this.store.getState().globalRuntimeMonitorStreamStatus;
+    const effectiveDelay = streamStatus === "connected" ? Math.max(delayMs, 30000) : delayMs;
     if (this.globalRuntimeMonitorTimer !== null) {
       window.clearTimeout(this.globalRuntimeMonitorTimer);
     }
     this.globalRuntimeMonitorTimer = window.setTimeout(() => {
       void this.refreshGlobalRuntimeMonitor();
-    }, delayMs);
+    }, effectiveDelay);
   }
 
   private async refreshGlobalRuntimeMonitor() {
@@ -1331,29 +1496,28 @@ export class WorkspaceRuntime {
       return;
     }
     this.globalRuntimeMonitorInFlight = true;
+    const requestId = ++this.globalRuntimeMonitorRequest;
     this.store.setState((prev) => ({ ...prev, globalRuntimeMonitorLoading: true }));
     try {
       const monitor = await getGlobalRuntimeMonitor(40);
-      const currentSelected = this.store.getState().globalRuntimeMonitorSelectedTaskRunId;
-      const nextSelected = currentSelected || monitor.task_runs[0]?.task_run_id || "";
-      this.store.setState((prev) => ({
-        ...prev,
-        globalRuntimeMonitor: monitor,
-        globalRuntimeMonitorSelectedTaskRunId: nextSelected,
-        globalRuntimeMonitorError: "",
-      }));
-      if (nextSelected) {
-        await this.loadGlobalRuntimeMonitorTaskRunDetail(nextSelected);
+      if (!this.globalRuntimeMonitorPolling || requestId !== this.globalRuntimeMonitorRequest) {
+        return;
       }
+      this.applyGlobalRuntimeMonitorSnapshot(monitor);
     } catch (error) {
+      if (!this.globalRuntimeMonitorPolling || requestId !== this.globalRuntimeMonitorRequest) {
+        return;
+      }
       this.store.setState((prev) => ({
         ...prev,
         globalRuntimeMonitorError: error instanceof Error ? error.message : "全局运行监控读取失败",
       }));
     } finally {
-      this.globalRuntimeMonitorInFlight = false;
-      this.store.setState((prev) => ({ ...prev, globalRuntimeMonitorLoading: false }));
-      this.scheduleGlobalRuntimeMonitorPoll();
+      if (requestId === this.globalRuntimeMonitorRequest) {
+        this.globalRuntimeMonitorInFlight = false;
+        this.store.setState((prev) => ({ ...prev, globalRuntimeMonitorLoading: false }));
+        this.scheduleGlobalRuntimeMonitorPoll();
+      }
     }
   }
 
@@ -1411,8 +1575,18 @@ export class WorkspaceRuntime {
         sessionActivity: {
           level: "waiting",
           title: normalizedStatus === "waiting_approval" ? "等待审批" : "运行受阻",
-          detail: taskRunId || coordinationRunId || "任务图运行正在等待处理",
+          detail: normalizedStatus === "waiting_approval" ? "需要确认后继续执行" : "任务图运行需要处理",
           event: "runtime_live_monitor",
+          receipt: {
+            level: "waiting",
+            title: normalizedStatus === "waiting_approval" ? "等待审批" : "运行受阻",
+            body: normalizedStatus === "waiting_approval" ? "需要确认后继续执行。" : "任务图运行需要处理。",
+            debug: {
+              event: "runtime_live_monitor",
+              taskRunId: taskRunId || "",
+              coordinationRunId: coordinationRunId || "",
+            },
+          },
           updatedAt: Date.now(),
         },
       }));
@@ -1424,8 +1598,18 @@ export class WorkspaceRuntime {
         sessionActivity: {
           level: "running",
           title: "任务运行中",
-          detail: taskRunId || coordinationRunId || "正在同步任务图运行状态",
+          detail: "正在同步任务图运行状态",
           event: "runtime_live_monitor",
+          receipt: {
+            level: "running",
+            title: "任务运行中",
+            body: "正在同步任务图运行状态。",
+            debug: {
+              event: "runtime_live_monitor",
+              taskRunId: taskRunId || "",
+              coordinationRunId: coordinationRunId || "",
+            },
+          },
           updatedAt: Date.now(),
         },
       }));
@@ -1437,8 +1621,18 @@ export class WorkspaceRuntime {
         sessionActivity: {
           level: "success",
           title: "任务已完成",
-          detail: taskRunId || coordinationRunId || "任务图运行已收口",
+          detail: "结果已写回会话，运行记录可在监控中查看",
           event: "runtime_live_monitor",
+          receipt: {
+            level: "success",
+            title: "任务已完成",
+            body: "结果已写回会话，运行记录可在监控中查看。",
+            debug: {
+              event: "runtime_live_monitor",
+              taskRunId: taskRunId || "",
+              coordinationRunId: coordinationRunId || "",
+            },
+          },
           updatedAt: Date.now(),
         },
       }));
@@ -1450,8 +1644,18 @@ export class WorkspaceRuntime {
         sessionActivity: {
           level: "error",
           title: "任务失败",
-          detail: taskRunId || coordinationRunId || "任务图运行返回失败状态",
+          detail: "任务图运行返回失败状态，请查看运行监控",
           event: "runtime_live_monitor",
+          receipt: {
+            level: "error",
+            title: "任务失败",
+            body: "任务图运行返回失败状态，请查看运行监控。",
+            debug: {
+              event: "runtime_live_monitor",
+              taskRunId: taskRunId || "",
+              coordinationRunId: coordinationRunId || "",
+            },
+          },
           updatedAt: Date.now(),
         },
       }));

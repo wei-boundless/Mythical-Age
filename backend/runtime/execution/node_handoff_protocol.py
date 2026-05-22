@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..shared.protocol_boundary import is_internal_protocol_input_key
+from task_system.runtime_semantics.protocol_boundary import is_internal_protocol_input_key
 
 
 EXECUTOR_TYPES = {"agent", "human", "tool", "graph_module"}

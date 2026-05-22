@@ -7,7 +7,6 @@ from typing import Any
 from bootstrap.settings import AppSettingsService
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.models.model_profile_resolver import ModelProfileResolver
-from runtime.contracts.length_budget_compiler import compile_length_budget, compiled_length_budget_preview
 from task_system.compiler.coordination_graph_models import (
     TaskGraphModuleRuntimePlan,
     TaskGraphRuntimeEdge,
@@ -21,6 +20,7 @@ from task_system.graphs.task_graph_models import TaskGraphDefinition, TaskGraphV
 from task_system.planning.task_split_plan_builder import build_static_split_plans_for_graph, split_merge_runtime_issues
 from task_system.planning.task_split_merge_models import SplitMergeIssue
 from task_system.runtime_semantics import compile_runtime_semantics_manifest
+from task_system.runtime_semantics.length_budget import compile_length_budget, compiled_length_budget_preview
 
 
 def compile_task_graph_definition_runtime_spec(

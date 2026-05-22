@@ -71,8 +71,30 @@ def _seed_graph(tmp_path: Path) -> None:
                     "versioning": "append_version",
                 },
                 "metadata": {
-                    "repository_id": "baseline",
-                    "collections": ["world", "outline"],
+                    "memory_repository": {
+                        "repository_id": "baseline",
+                        "collections": [
+                            {
+                                "collection_id": "world",
+                                "schema_id": "memory.collection.baseline_canon",
+                                "record_kinds": ["world_bible"],
+                                "content_requirement": {
+                                    "canonical_text_required": True,
+                                    "artifact_ref_only_allowed": False,
+                                },
+                                "snapshot_budget": {"default_max_records": 12, "default_max_chars": 32000},
+                            },
+                            {
+                                "collection_id": "outline",
+                                "schema_id": "memory.collection.baseline_canon",
+                                "record_kinds": ["outline"],
+                                "content_requirement": {
+                                    "canonical_text_required": True,
+                                    "artifact_ref_only_allowed": False,
+                                },
+                            },
+                        ],
+                    },
                 },
             },
             {
@@ -86,8 +108,27 @@ def _seed_graph(tmp_path: Path) -> None:
                     "versioning": "append_version",
                 },
                 "metadata": {
-                    "repository_id": "thread.ledger.1",
-                    "collections": ["threads", "decisions"],
+                    "memory_repository": {
+                        "repository_id": "thread.ledger.1",
+                        "collections": [
+                            {
+                                "collection_id": "threads",
+                                "schema_id": "memory.collection.mutable_delta",
+                                "content_requirement": {
+                                    "canonical_text_required": True,
+                                    "artifact_ref_only_allowed": False,
+                                },
+                            },
+                            {
+                                "collection_id": "decisions",
+                                "schema_id": "memory.collection.baseline_canon",
+                                "content_requirement": {
+                                    "canonical_text_required": True,
+                                    "artifact_ref_only_allowed": False,
+                                },
+                            },
+                        ],
+                    },
                 },
             },
             {
@@ -172,6 +213,17 @@ def test_build_task_graph_standard_view_projects_nodes_edges_resources_and_timel
     assert payload["timeline"]["entry_node_id"] == "input"
     assert payload["runtime_isolation"]["memory_repositories"][0]["repository_id"] == "baseline"
     assert any(item["repository_id"] == "thread.ledger.1" for item in payload["runtime_isolation"]["memory_repositories"])
+    baseline_resource = next(item for item in payload["resources"] if item["node_id"] == "baseline.memory")
+    world_spec = next(item for item in baseline_resource["collection_specs"] if item["collection_id"] == "world")
+    assert world_spec["content_requirement"]["canonical_text_required"] is True
+    protocol = payload["memory_protocol"]
+    assert protocol["summary"]["repository_count"] == 2
+    assert any(item["repository_id"] == "baseline" for item in protocol["repositories"])
+    assert any(item["repository_id"] == "baseline" and item["collection_id"] == "world" for item in protocol["collections"])
+    assert any(item["edge_id"] == "edge.memory.read" and item["collection_id"] == "world" for item in protocol["read_edges"])
+    assert any(item["edge_id"] == "edge.memory.commit" and item["collection_id"] == "world" for item in protocol["commit_edges"])
+    protocol_world = next(item for item in protocol["collections"] if item["repository_id"] == "baseline" and item["collection_id"] == "world")
+    assert protocol_world["content_requirement"]["artifact_ref_only_allowed"] is False
     assert any(item["unit_id"] == "unit.node.draft" for item in payload["units"])
     assert any(item["unit_id"] == "unit.graph.block.design" and item["ref"]["graph_id"] == "graph.design.initialization" for item in payload["units"])
     assert any(item["interface_id"] == "interface.node.draft" for item in payload["interfaces"])
@@ -186,6 +238,83 @@ def test_build_task_graph_standard_view_projects_nodes_edges_resources_and_timel
     assert any(item["node_id"] == "child.memory" and item["scoped_node_id"].startswith("graph_module.block.design::") for item in payload["graph_module_expansions"][0]["resources"])
     assert payload["diagnostics"]["composable_graph"]["diagnostics"]["mode"] == "read_only_shadow_model"
     assert payload["diagnostics"]["graph_module_expansion_count"] == 1
+
+
+def test_task_graph_standard_view_surfaces_memory_protocol_preflight_issues(tmp_path: Path) -> None:
+    registry = TaskFlowRegistry(tmp_path)
+    registry.upsert_task_graph(
+        graph_id="graph.test.memory_protocol_issues",
+        title="记忆协议问题图",
+        graph_kind="coordination",
+        entry_node_id="draft",
+        output_node_id="gate",
+        nodes=(
+            {"node_id": "draft", "node_type": "agent", "title": "执行者"},
+            {"node_id": "gate", "node_type": "review_gate", "title": "审核门"},
+            {
+                "node_id": "memory.repo",
+                "node_type": "memory_repository",
+                "title": "正式记忆库",
+                "metadata": {
+                    "memory_repository": {
+                        "repository_id": "memory",
+                        "collections": [
+                            {
+                                "collection_id": "canon",
+                                "schema_id": "memory.collection.baseline_canon",
+                                "content_requirement": {
+                                    "canonical_text_required": True,
+                                    "artifact_ref_only_allowed": False,
+                                },
+                            }
+                        ],
+                    },
+                },
+            },
+        ),
+        edges=(
+            {
+                "edge_id": "edge.memory.read.missing_collection",
+                "source_node_id": "memory.repo",
+                "target_node_id": "draft",
+                "edge_type": "memory_read",
+                "metadata": {"repository": "memory"},
+            },
+            {
+                "edge_id": "edge.memory.write.refs_only",
+                "source_node_id": "draft",
+                "target_node_id": "memory.repo",
+                "edge_type": "memory_write",
+                "metadata": {
+                    "repository": "memory",
+                    "collection": "canon",
+                    "materialization_policy": {"canonical_text_mode": "refs_only"},
+                },
+            },
+            {
+                "edge_id": "edge.memory.commit.no_candidate",
+                "source_node_id": "gate",
+                "target_node_id": "memory.repo",
+                "edge_type": "memory_commit",
+                "metadata": {
+                    "repository": "memory",
+                    "collection": "canon",
+                    "materialization_policy": {"canonical_text_mode": "refs_only"},
+                },
+            },
+        ),
+    )
+    graph = registry.get_task_graph("graph.test.memory_protocol_issues")
+    assert graph is not None
+
+    payload = build_task_graph_standard_view(graph=graph, graph_lookup=registry).to_dict()
+    protocol_codes = {item["code"] for item in payload["memory_protocol"]["issues"]}
+    top_level_codes = {item["code"] for item in payload["issues"]}
+
+    assert "memory_protocol_collection_missing" in protocol_codes
+    assert "memory_protocol_canonical_write_uses_refs_only_materialization" in protocol_codes
+    assert "memory_protocol_commit_candidate_source_missing" in protocol_codes
+    assert protocol_codes <= top_level_codes
 
 
 def test_task_graph_standard_view_merges_composable_metadata_overlay(tmp_path: Path) -> None:

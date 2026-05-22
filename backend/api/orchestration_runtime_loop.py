@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
@@ -12,6 +15,15 @@ from runtime.memory.project_supervision import make_supervision_record
 from runtime.shared.models import CoordinationRun
 
 router = APIRouter()
+
+
+def _sse(event: str, data: dict[str, Any], *, event_id: str = "") -> str:
+    lines = []
+    if event_id:
+        lines.append(f"id: {event_id}")
+    lines.append(f"event: {event}")
+    lines.append(f"data: {json.dumps(data, ensure_ascii=False)}")
+    return "\n".join(lines) + "\n\n"
 
 
 class TaskRunStopRequest(BaseModel):
@@ -40,6 +52,58 @@ async def list_runtime_loop_task_runs(session_id: str) -> dict[str, Any]:
 async def list_runtime_loop_global_live_monitor(limit: int = 20) -> dict[str, Any]:
     runtime = require_runtime()
     return runtime.query_runtime.task_run_loop.list_global_live_monitor(limit=limit)
+
+
+@router.get("/orchestration/runtime-loop/monitor-events")
+async def stream_runtime_loop_monitor_events(request: Request, limit: int = 40):
+    runtime = require_runtime()
+    task_run_loop = runtime.query_runtime.task_run_loop
+    subscription = task_run_loop.event_log.subscribe()
+    requested_limit = max(1, min(int(limit or 40), 100))
+
+    async def event_generator():
+        try:
+            yield _sse(
+                "runtime_monitor_snapshot",
+                {
+                    "monitor": task_run_loop.list_global_live_monitor(limit=requested_limit),
+                    "source": "initial",
+                },
+            )
+            while not await request.is_disconnected():
+                try:
+                    runtime_event = await asyncio.wait_for(subscription.queue.get(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    yield _sse(
+                        "runtime_monitor_heartbeat",
+                        {
+                            "updated_at": time.time(),
+                            "source": "heartbeat",
+                        },
+                    )
+                    continue
+                monitor = task_run_loop.list_global_live_monitor(limit=requested_limit)
+                yield _sse(
+                    "runtime_monitor_event",
+                    {
+                        "runtime_event": runtime_event.to_dict(),
+                        "monitor": monitor,
+                        "source": "runtime_event_log",
+                    },
+                    event_id=runtime_event.event_id,
+                )
+        finally:
+            task_run_loop.event_log.unsubscribe(subscription)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/orchestration/runtime-loop/sessions/{session_id}/live-monitor")

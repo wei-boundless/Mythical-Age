@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from task_system.runtime_semantics.quality_gates import extract_markdown_section_content
+
 @dataclass(frozen=True, slots=True)
 class MaterializedTaskArtifacts:
     enabled: bool
@@ -277,8 +279,8 @@ def _rejected_artifact_root(
         explicit_inputs.get("batch_scope_slug")
         or explicit_inputs.get("unit_batch_slug")
         or explicit_inputs.get("batch_label_slug")
-        or explicit_inputs.get("batch_chapter_range")
         or explicit_inputs.get("batch_range")
+        or explicit_inputs.get("unit_batch_id")
         or ""
     ).strip()
     if scope_label:
@@ -374,92 +376,6 @@ def _split_markdown_sections(content: str) -> dict[str, str]:
             sections[title] = f"## {title}\n\n{body}".strip()
     sections["__all__"] = text
     return sections
-
-
-def extract_markdown_section_content(
-    content: str,
-    section_keys: tuple[str, ...] | list[str],
-    *,
-    stop_section_keys: tuple[str, ...] | list[str] | None = None,
-    include_heading: bool = True,
-) -> str:
-    text = str(content or "").strip()
-    keys = tuple(str(item).strip() for item in list(section_keys or []) if str(item).strip())
-    if not text or not keys:
-        return ""
-    boundaries = _markdown_section_boundaries(text)
-    if not boundaries:
-        return ""
-    stop_keys = tuple(
-        dict.fromkeys(
-            [
-                *[str(item).strip() for item in list(stop_section_keys or []) if str(item).strip()],
-            ]
-        )
-    )
-    chunks: list[str] = []
-    for index, boundary in enumerate(boundaries):
-        title = str(boundary.get("title") or "")
-        if not any(_section_title_matches(title, key) for key in keys):
-            continue
-        end = len(text)
-        for next_boundary in boundaries[index + 1 :]:
-            next_title = str(next_boundary.get("title") or "")
-            if any(_section_title_matches(next_title, stop_key) for stop_key in stop_keys):
-                end = int(next_boundary.get("start") or end)
-                break
-        start = int(boundary.get("start") if include_heading else boundary.get("end") or 0)
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-    return "\n\n".join(chunks).strip()
-
-
-def _markdown_section_boundaries(text: str) -> list[dict[str, Any]]:
-    boundaries: list[dict[str, Any]] = []
-    offset = 0
-    for line in str(text or "").splitlines(keepends=True):
-        stripped = line.strip()
-        markdown_match = re.match(r"^(?P<hashes>#{1,6})\s+(?P<title>.+?)\s*$", stripped)
-        bracket_match = re.match(r"^【(?P<title>[^】]{1,80})】\s*$", stripped)
-        if markdown_match:
-            title = str(markdown_match.group("title") or "").strip().strip("#").strip()
-            boundaries.append(
-                {
-                    "start": offset,
-                    "end": offset + len(line),
-                    "level": len(str(markdown_match.group("hashes") or "")),
-                    "title": title,
-                }
-            )
-        elif bracket_match:
-            title = str(bracket_match.group("title") or "").strip()
-            boundaries.append(
-                {
-                    "start": offset,
-                    "end": offset + len(line),
-                    "level": 1,
-                    "title": title,
-                }
-            )
-        offset += len(line)
-    return boundaries
-
-
-def _normalize_section_title(value: str) -> str:
-    text = str(value or "").strip().strip("#").strip()
-    text = re.sub(r"^[【\[\(（]+", "", text)
-    text = re.sub(r"[】\]\)）]+$", "", text)
-    text = re.sub(r"\s+", "", text)
-    return text.lower()
-
-
-def _section_title_matches(title: str, key: str) -> bool:
-    normalized_title = _normalize_section_title(title)
-    normalized_key = _normalize_section_title(key)
-    if not normalized_title or not normalized_key:
-        return False
-    return normalized_title == normalized_key or normalized_key in normalized_title or normalized_title in normalized_key
 
 
 def _content_for_artifact_spec(

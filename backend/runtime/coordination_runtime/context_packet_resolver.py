@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..shared.protocol_boundary import is_internal_protocol_input_key
+from task_system.runtime_semantics.protocol_boundary import is_internal_protocol_input_key
 
 
 def resolve_context_packets(
@@ -91,6 +91,7 @@ def resolve_memory_snapshot(
     snapshot_id = f"memsnap:{_short_hash({'dispatch': dispatch_context, 'refs': refs, 'stage_id': stage_id})}"
     return {
         "snapshot_id": snapshot_id,
+        "memory_snapshot_id": snapshot_id,
         "dispatch_event_id": str(dispatch_context.get("dispatch_event_id") or ""),
         "clock_seq": int(dispatch_context.get("clock_seq") or 0),
         "scope_path": list(dispatch_context.get("scope_path") or []),
@@ -101,6 +102,7 @@ def resolve_memory_snapshot(
         "repository_read_edges": [dict(item) for item in list(working_memory_context.get("repository_read_edges") or []) if isinstance(item, dict)],
         "resolved_record_refs": refs,
         "resolved_records": resolved_records,
+        "sections": _memory_snapshot_sections(resolved_records),
         "formal_memory_record_refs": _dedupe(formal_record_refs),
         "formal_memory_read_log_ids": [
             str(item).strip()
@@ -120,9 +122,48 @@ def resolve_memory_snapshot(
             for ref in refs
         ],
         "missing_required_records": list(working_memory_context.get("missing_required_records") or []),
+        "content_contract": {
+            "required_records_must_have_content": True,
+            "refs_only_records_satisfy_required_canonical_memory": False,
+            "authority": "task_graph.memory_snapshot_contract",
+        },
         "read_receipt_id": str(working_memory_context.get("read_log_id") or ""),
         "authority": "task_graph.memory_snapshot",
     }
+
+
+def _memory_snapshot_sections(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for record in records:
+        repository_id = str(record.get("repository_id") or "").strip()
+        collection_id = str(record.get("collection_id") or "").strip()
+        grouped.setdefault((repository_id, collection_id), []).append(record)
+    for (repository_id, collection_id), group in grouped.items():
+        sections.append(
+            {
+                "section_id": f"formal_memory:{repository_id}:{collection_id}",
+                "repository_id": repository_id,
+                "collection_id": collection_id,
+                "record_count": len(group),
+                "records": [
+                    {
+                        "record_id": str(item.get("record_id") or ""),
+                        "version_id": str(item.get("version_id") or ""),
+                        "record_key": str(item.get("record_key") or ""),
+                        "record_kind": str(item.get("record_kind") or ""),
+                        "content_state": str(item.get("content_state") or ""),
+                        "summary": str(item.get("summary") or ""),
+                        "canonical_text_excerpt": str(item.get("canonical_text") or "")[:4000],
+                        "artifact_refs": list(item.get("artifact_refs") or []),
+                        "usage_instruction": str(item.get("usage_instruction") or ""),
+                    }
+                    for item in group
+                ],
+                "authority": "task_graph.memory_snapshot_section",
+            }
+        )
+    return sections
 
 
 def resolve_artifact_context_packet(

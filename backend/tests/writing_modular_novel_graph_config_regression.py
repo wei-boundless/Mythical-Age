@@ -672,6 +672,60 @@ def test_modular_writing_memory_taxonomy_and_growth_protocols(tmp_path: Path) ->
     }
 
 
+def test_modular_writing_memory_edges_use_concrete_collection_addresses(tmp_path: Path) -> None:
+    base_dir = _seed_storage(tmp_path)
+    config = _load_config_module()
+    config.configure(base_dir)
+
+    registry = TaskFlowRegistry(base_dir)
+    graphs = {graph.graph_id: graph for graph in registry.list_task_graphs()}
+    coarse_collections = {"baseline", "mutable", "manuscript", "issues", "artifact_refs"}
+
+    memory_edges = [
+        edge
+        for graph in graphs.values()
+        for edge in graph.edges
+        if edge.edge_type in {"memory_read", "memory_write", "memory_write_candidate", "memory_commit"}
+    ]
+    artifact_index_repos = [
+        node
+        for graph in graphs.values()
+        for node in graph.nodes
+        if node.node_id == "memory.writing.artifact_index"
+    ]
+    assert artifact_index_repos
+    assert {node.node_type for node in artifact_index_repos} == {"memory_repository"}
+    assert all(
+        dict(spec).get("content_requirement", {}).get("artifact_ref_only_allowed") is True
+        for node in artifact_index_repos
+        for spec in dict(node.metadata or {}).get("memory_repository", {}).get("collections", [])
+    )
+    assert memory_edges
+    assert not [
+        {
+            "graph_id": graph.graph_id,
+            "edge_id": edge.edge_id,
+            "collection": dict(edge.metadata or {}).get("collection"),
+        }
+        for graph in graphs.values()
+        for edge in graph.edges
+        if edge.edge_type in {"memory_read", "memory_write", "memory_write_candidate", "memory_commit"}
+        and str(dict(edge.metadata or {}).get("collection") or "") in coarse_collections
+    ]
+    for edge in memory_edges:
+        metadata = dict(edge.metadata or {})
+        collection = str(metadata.get("collection") or "").strip()
+        requirement = dict(metadata.get("content_requirement") or {})
+        assert collection
+        assert "canonical_text_required" in requirement
+        assert "artifact_ref_only_allowed" in requirement
+        if edge.edge_type != "memory_read":
+            if requirement["canonical_text_required"]:
+                assert metadata["materialization_policy"]["canonical_text_mode"] == "full_text"
+            else:
+                assert metadata["materialization_policy"]["canonical_text_mode"] == "refs_only"
+
+
 def test_modular_writing_design_parallelism_uses_alignment_barrier(tmp_path: Path) -> None:
     base_dir = _seed_storage(tmp_path)
     config = _load_config_module()

@@ -18,6 +18,14 @@ REJECTED_REVIEW_VERDICTS = {
     "reject",
     "blocker_found",
 }
+DOWNSTREAM_INVALIDATION_BLOCKING_VERDICTS = {
+    "revise",
+    "repair_world",
+    "repair_outline",
+    "repair_character",
+    "human_review_required",
+    "fail_closed",
+}
 
 _REVIEW_LABELS = {
     "审核结论",
@@ -140,6 +148,10 @@ def review_verdict_is_accepted(verdict: str) -> bool:
 
 def review_verdict_is_rejected(verdict: str) -> bool:
     return str(verdict or "").strip() in REJECTED_REVIEW_VERDICTS
+
+
+def review_verdict_blocks_downstream_invalidation(verdict: str) -> bool:
+    return str(verdict or "").strip() in DOWNSTREAM_INVALIDATION_BLOCKING_VERDICTS
 
 
 def _iter_explicit_label_values(text: str) -> Iterable[tuple[str, str]]:
@@ -272,63 +284,109 @@ def _contains_hard_rejection(value: str) -> bool:
             "拒绝",
             "驳回",
             "退回",
-            "返修",
-            "返工",
-            "阻塞",
+            "必须返修",
+            "需要返修",
+            "需返修",
+            "待返修",
+            "要求返修",
+            "必须返工",
+            "需要返工",
+            "需返工",
+            "待返工",
+            "要求返工",
             "不可进入",
             "不能进入",
             "不允许进入",
         )
     ):
         return True
+    if compact.strip("。；;，,：:") in {"返修", "返工", "退回", "拒绝"}:
+        return True
     return any(token in lowered for token in ("repair_", "blocker_found"))
 
 
 def _has_blocking_revision_signal(text: str) -> bool:
-    compact = re.sub(r"\s+", "", str(text or ""))
+    raw_text = str(text or "")
+    compact = re.sub(r"\s+", "", raw_text)
     if not compact:
         return False
+    if _has_unresolved_blocker_line(raw_text):
+        return True
     hard_signals = (
         "必须修订项",
         "必须修订",
-        "阻塞后续写作",
+        "阻塞后续执行",
         "阻塞后续",
-        "阻塞项",
-        "阻塞问题",
-        "返修",
+        "必须返修",
+        "需要返修",
+        "审核完成，待返修",
+        "产物状态：待返修",
         "退回修改",
         "退回修订",
-        "第二轮审核",
+        "返修后进入",
+        "返修完成后进入",
         "修订后进入",
         "修订完成后进入",
         "不允许进入",
         "不能进入",
         "暂不进入",
+        "需完成指定修改后方可进入",
+        "修改后方可进入",
     )
     if any(signal in compact for signal in hard_signals):
-        no_blocker_patterns = (
-            "阻塞项：无",
-            "阻塞项:无",
-            "阻塞问题：无",
-            "阻塞问题:无",
-            "无阻塞项",
-            "无阻塞问题",
-            "阻塞问题：零",
-            "阻塞问题:零",
-        )
-        if any(pattern in compact for pattern in no_blocker_patterns) and not any(
-            signal in compact
-            for signal in (
-                "必须修订项",
-                "阻塞后续写作",
-                "返修",
-                "第二轮审核",
-                "不允许进入",
-                "不能进入",
-            )
-        ):
-            return False
         return True
+    return False
+
+
+def _has_unresolved_blocker_line(text: str) -> bool:
+    resolved_markers = (
+        "已解决",
+        "已修正",
+        "已修复",
+        "已处理",
+        "已回应",
+        "复核",
+        "检查",
+        "无",
+        "没有",
+        "暂无",
+        "零",
+        "0",
+    )
+    blocking_markers = (
+        "必须修改",
+        "必须修订",
+        "必须处理",
+        "必须补充",
+        "未解决",
+        "待修复",
+        "待修改",
+        "待补充",
+        "不能进入",
+        "不允许进入",
+        "方可进入",
+        "阻塞-",
+        "阻塞一",
+        "阻塞二",
+        "阻塞三",
+        "阻塞四",
+        "阻塞五",
+        "阻塞六",
+        "阻塞七",
+        "阻塞八",
+        "阻塞九",
+        "阻塞十",
+    )
+    for raw_line in str(text or "").splitlines():
+        compact_line = re.sub(r"\s+", "", raw_line.strip())
+        if not compact_line or "阻塞" not in compact_line:
+            continue
+        if any(marker in compact_line for marker in resolved_markers):
+            continue
+        if any(marker in compact_line for marker in blocking_markers):
+            return True
+        if re.search(r"阻塞(?:-|—|_)?\d+", compact_line):
+            return True
     return False
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import asyncio
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -9,12 +10,32 @@ if str(BACKEND_DIR) not in sys.path:
 
 from runtime.execution_engine import (
     ModelToolCallAccumulator,
+    translate_executor_event,
     build_runtime_budget_exhausted_message,
     forced_synthesis_answer_metadata,
     forced_tool_synthesis_from_available_evidence,
     select_final_answer_from_context,
 )
 from runtime.memory.observation_aggregator import ObservationAggregator
+
+
+class _Event:
+    def __init__(self, event_type: str, payload: dict, refs: dict | None = None) -> None:
+        self.event_type = event_type
+        self.payload = payload
+        self.refs = dict(refs or {})
+        self.event_id = f"event:{event_type}"
+
+
+class _EventLog:
+    def __init__(self) -> None:
+        self.events: list[_Event] = []
+
+    def append(self, task_run_id: str, event_type: str, payload: dict | None = None, refs: dict | None = None) -> _Event:
+        _ = task_run_id
+        event = _Event(event_type, dict(payload or {}), refs)
+        self.events.append(event)
+        return event
 
 
 def test_execution_engine_final_output_selects_context_answer() -> None:
@@ -65,3 +86,34 @@ def test_execution_engine_model_tool_call_accumulator_collects_stream_context() 
     assert accumulator.pending_tool_calls == [{"id": "call-1", "name": "read_file"}]
     assert accumulator.assistant_content == "需要读取文件"
     assert accumulator.assistant_additional_kwargs["tool_calls"] == [{"id": "call-1"}]
+
+
+def test_execution_engine_translates_model_stream_delta() -> None:
+    event_log = _EventLog()
+
+    events = asyncio.run(
+        translate_executor_event(
+            event_log=event_log,
+            task_run_id="task-run-1",
+            user_message="hello",
+            task_id="task",
+            task_operation={},
+            adopted_resource_policy=None,
+            current_step_id="step-1",
+            runtime_context_manager=None,
+            model_response_executor=None,
+            tool_runtime_executor=None,
+            event={
+                "type": "content_delta",
+                "content": "partial",
+                "stream_ref": "directive-1",
+            },
+            definitions_by_name={},
+            operation_gate=None,
+            permission_mode="default",
+            root_dir=".",
+        )
+    )
+
+    assert [event.event_type for event in events] == ["model_item_received"]
+    assert event_log.events[0].payload["delta_preview"] == "partial"

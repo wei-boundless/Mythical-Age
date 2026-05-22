@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .length_budget_compiler import compile_length_budget
+from task_system.runtime_semantics.length_budget import compile_length_budget
 
 
 ALLOWED_BINDING_SOURCES = {

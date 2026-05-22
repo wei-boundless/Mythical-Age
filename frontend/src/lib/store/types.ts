@@ -3,6 +3,7 @@ import type {
   GlobalRuntimeMonitor,
   ModelProviderConfig,
   RetrievalResult,
+  RuntimeMonitorEventPayload,
   SoulImageAssetConfig,
   TaskGraphMonitorDecision,
   TaskGraphRunMonitorView,
@@ -29,6 +30,22 @@ export type Message = {
 };
 
 export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "error" | "stopped";
+export type RuntimeMonitorStreamStatus = "connecting" | "connected" | "fallback" | "closed";
+
+export type UserReceiptArtifact = {
+  label: string;
+  path?: string;
+  value?: string;
+};
+
+export type UserReceipt = {
+  level: SessionActivityLevel;
+  title: string;
+  body?: string;
+  scope?: string;
+  artifacts?: UserReceiptArtifact[];
+  debug?: Record<string, string>;
+};
 
 export type SessionActivityState = {
   level: SessionActivityLevel;
@@ -36,6 +53,7 @@ export type SessionActivityState = {
   detail: string;
   event: string;
   toolName?: string;
+  receipt?: UserReceipt | null;
   updatedAt: number;
 };
 
@@ -176,6 +194,8 @@ export type StoreState = {
   globalRuntimeMonitorSelectedGraphMonitor: TaskGraphRunMonitorView | null;
   globalRuntimeMonitorLoading: boolean;
   globalRuntimeMonitorError: string;
+  globalRuntimeMonitorStreamStatus: RuntimeMonitorStreamStatus;
+  globalRuntimeMonitorLastEvent: RuntimeMonitorEventPayload["runtime_event"] | null;
   taskGraphBoundRunMonitor: TaskGraphRunMonitorView | null;
   taskGraphMonitorDecision: TaskGraphMonitorDecision | null;
   taskGraphMonitorDecisions: TaskGraphMonitorDecision[];

@@ -1,6 +1,5 @@
 "use client";
 
-import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 
 import { AppProvider, useAppStore } from "@/lib/store";
@@ -9,10 +8,8 @@ import { CapabilitySystemView } from "@/components/workspace/views/CapabilitySys
 import { PlaygroundView } from "@/components/workspace/views/PlaygroundView";
 import { SystemFrameworkView } from "@/components/workspace/views/SystemFrameworkView";
 import { TaskSystemView } from "@/components/workspace/views/TaskSystemView";
-import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
-import { Sidebar } from "@/components/layout/Sidebar";
+import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
 import { TaskGraphRunInteractionDock } from "@/components/workspace/views/task-system/TaskGraphRunInteractionDock";
-import { isChatVisualMode, isSoulChatVisualMode, normalizeChatVisualMode, type ChatVisualMode } from "@/lib/chatVisualModes";
 import type { WorkspaceView } from "@/lib/store/types";
 
 const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
@@ -22,6 +19,8 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "capability-system",
   "system-framework",
 ]);
+
+const WORKSPACE_TONES = new Set(["water", "leaf", "gold", "ember", "lumen"]);
 
 function isTaskLayerView(view: WorkspaceView) {
   return view === "task-system" || view === "capability-system";
@@ -42,16 +41,8 @@ function Workspace() {
     taskGraphMonitorError,
     taskGraphMonitorLoading,
     taskGraphRunInteractionOpen,
-    activeSoulKey,
-    soulOptions,
   } = useAppStore();
-  const [mounted, setMounted] = useState(false);
   const [forcedPlayground, setForcedPlayground] = useState(false);
-  const [chatVisualMode, setChatVisualMode] = useState<ChatVisualMode>("hebo");
-  const soulVisualMode = isSoulChatVisualMode(chatVisualMode);
-  const visualSoulKey = soulVisualMode ? chatVisualMode : activeSoulKey ?? "hebo";
-  const visualSoul = soulOptions.find((soul) => soul.key === visualSoulKey) ?? soulOptions[0] ?? null;
-  const soulBackgroundPath = visualSoul?.backgroundPath ?? `/souls/backgrounds/${visualSoulKey}-bg.png`;
 
   const mainView: WorkspaceView = isTaskLayerView(activeWorkspaceView)
     ? "task-system"
@@ -60,20 +51,14 @@ function Workspace() {
       : "chat";
 
   useEffect(() => {
-    setMounted(true);
-    const storedMode = window.localStorage.getItem("chatVisualMode");
-    setChatVisualMode(normalizeChatVisualMode(storedMode));
-  }, []);
-
-  useEffect(() => {
-    if (isSoulChatVisualMode(chatVisualMode)) {
-      document.documentElement.dataset.soul = chatVisualMode;
-      return;
-    }
+    window.localStorage.removeItem("chatVisualMode");
     delete document.documentElement.dataset.soul;
-  }, [chatVisualMode]);
-
-  useEffect(() => {
+    const storedTone = window.localStorage.getItem("workspaceTone");
+    if (storedTone && WORKSPACE_TONES.has(storedTone)) {
+      document.documentElement.dataset.workspaceTone = storedTone;
+    } else {
+      delete document.documentElement.dataset.workspaceTone;
+    }
     const view = new URLSearchParams(window.location.search).get("view");
     if (view && WORKSPACE_QUERY_VIEWS.has(view as WorkspaceView)) {
       setWorkspaceView(view as WorkspaceView);
@@ -98,24 +83,6 @@ function Workspace() {
     const url = new URL(window.location.href);
     url.searchParams.delete("view");
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
-  }
-
-  function updateChatVisualMode(mode: ChatVisualMode) {
-    const nextMode = mode === "default" ? "hebo" : mode;
-    setChatVisualMode(nextMode);
-    window.localStorage.setItem("chatVisualMode", nextMode);
-  }
-
-  function buildWorkspaceClassName() {
-    const classes = ["practical-workspace"];
-    if (soulVisualMode) {
-      classes.push("practical-workspace--soul-chat");
-    }
-    return classes.join(" ");
-  }
-
-  if (!mounted) {
-    return <main className="app-boot-stage" aria-label="正在启动" />;
   }
 
   if (activeWorkspaceView === "system-framework") {
@@ -143,33 +110,20 @@ function Workspace() {
     forcedPlayground || activeWorkspaceView === "playground" ? (
       <PlaygroundView onReturnToWorkspace={returnToWorkspace} />
     ) : (
-      <main
-        className={buildWorkspaceClassName()}
-        data-chat-visual={chatVisualMode}
-        style={soulVisualMode ? { "--soul-background-image": `url(${soulBackgroundPath})` } as CSSProperties : undefined}
-      >
-        {soulVisualMode ? <div aria-hidden="true" className="soul-chat-background-figure" /> : null}
-        <Sidebar />
+      <WorkbenchShell>
         {activeWorkspaceView === "capability-system" ? (
-          <section className="practical-main practical-main--immersive" aria-label="主工作区">
-            <section className="practical-content">
-              <CapabilitySystemView />
-            </section>
+          <section className="workbench-view-host" aria-label="能力系统">
+            <CapabilitySystemView />
           </section>
         ) : mainView === "task-system" ? (
-          <section className="practical-main practical-main--immersive" aria-label="主工作区">
-            <section className="practical-content">
-              <TaskSystemView />
-            </section>
+          <section className="workbench-view-host" aria-label="图任务层">
+            <TaskSystemView />
           </section>
         ) : (
-          <section className="practical-main practical-main--immersive" aria-label="主工作区">
-            <section className="practical-content">
-              <ChatPanel onVisualModeChange={updateChatVisualMode} visualMode={chatVisualMode} />
-            </section>
+          <section className="workbench-view-host workbench-view-host--chat" aria-label="主会话">
+            <ChatPanel />
           </section>
         )}
-        <TaskMonitorDock />
         <TaskGraphRunInteractionDock
           actionLoading={taskGraphMonitorActionLoading}
           binding={taskGraphMonitorBinding}
@@ -183,7 +137,7 @@ function Workspace() {
           onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
           open={taskGraphRunInteractionOpen}
         />
-      </main>
+      </WorkbenchShell>
     )
   );
 }

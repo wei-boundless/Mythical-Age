@@ -160,27 +160,16 @@ function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: 
     ? `系统默认 · ${config.provider}/${config.model}`
     : "系统默认模型";
   const options = [{ id: "system-default", label: systemLabel }];
-  const providers = Object.keys(config?.provider_catalog?.providers ?? {}).length
-    ? config?.provider_catalog?.providers ?? {}
-    : FALLBACK_CHAT_MODEL_PROVIDERS;
-  for (const provider of Object.values(providers)) {
-    if (!provider.default_base_url || !String(provider.default_base_url).trim()) {
-      continue;
-    }
-    const presets = provider.model_presets?.length ? provider.model_presets : [provider.default_model];
-    for (const model of presets) {
-      const normalizedModel = String(model || "").trim();
-      if (!normalizedModel) {
-        continue;
-      }
-      const id = `${provider.provider}::${normalizedModel}`;
-      if (options.some((option) => option.id === id)) {
-        continue;
-      }
-      const label = `${provider.display_name || provider.provider} · ${normalizedModel}`;
-      options.push({ id, label });
-    }
-  }
+  addConfiguredModelOption(options, {
+    id: config?.provider && config?.model ? `${config.provider}::${config.model}` : "",
+    label: config?.provider && config?.model ? `${providerDisplayName(config, config.provider)} · ${config.model}` : "",
+    baseUrl: config?.base_url,
+  });
+  addConfiguredModelOption(options, {
+    id: config?.fallback_provider && config?.fallback_model ? `${config.fallback_provider}::${config.fallback_model}` : "",
+    label: config?.fallback_provider && config?.fallback_model ? `${providerDisplayName(config, config.fallback_provider)} · ${config.fallback_model}（备用）` : "",
+    baseUrl: config?.fallback_base_url,
+  });
   if (imageConfig?.configured && imageConfig.base_url && imageConfig.model) {
     const imageId = `openai::${imageConfig.model}`;
     if (!options.some((option) => option.id === imageId)) {
@@ -193,23 +182,21 @@ function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: 
   return options;
 }
 
-const FALLBACK_CHAT_MODEL_PROVIDERS = {
-  deepseek: {
-    provider: "deepseek",
-    display_name: "DeepSeek",
-    default_model: "deepseek-v4-pro",
-    model_presets: ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat"],
-  },
-  openai: {
-    provider: "openai",
-    display_name: "OpenAI",
-    default_model: "gpt-4.1-mini",
-    model_presets: ["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"],
-  },
-  bailian: {
-    provider: "bailian",
-    display_name: "Qwen",
-    default_model: "qwen3.5-plus",
-    model_presets: ["qwen3.5-plus", "qwen-plus", "qwen-max"],
-  },
-};
+function addConfiguredModelOption(
+  options: Array<{ id: string; label: string }>,
+  item: { id?: string; label?: string; baseUrl?: string | null }
+) {
+  const id = String(item.id || "").trim();
+  const label = String(item.label || "").trim();
+  const baseUrl = String(item.baseUrl || "").trim();
+  if (!id || !label || !baseUrl || options.some((option) => option.id === id)) {
+    return;
+  }
+  options.push({ id, label });
+}
+
+function providerDisplayName(config: ModelProviderConfig | null, provider: string) {
+  return config?.provider_catalog?.providers?.[provider]?.display_name
+    || config?.supported_providers?.[provider]?.display_name
+    || provider;
+}

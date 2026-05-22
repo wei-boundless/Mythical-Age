@@ -44,12 +44,6 @@ from .validation import (
     validate_execution_permit,
     validate_work_order,
 )
-from .work_order_adapter import (
-    payload_from_work_order,
-    work_order_from_legacy_payload,
-    work_order_from_node_execution_request_legacy,
-)
-
 __all__ = [
     "AgentAssemblyContract",
     "AssemblyPort",
@@ -86,7 +80,6 @@ __all__ = [
     "compose_prompt",
     "compose_prompt_snapshot",
     "memory_binding_snapshot",
-    "payload_from_work_order",
     "project_execution_result",
     "project_node_result_envelope",
     "project_subruntime_result",
@@ -96,6 +89,4 @@ __all__ = [
     "validate_assembly_contract",
     "validate_execution_permit",
     "validate_work_order",
-    "work_order_from_legacy_payload",
-    "work_order_from_node_execution_request_legacy",
 ]

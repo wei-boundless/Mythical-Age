@@ -12,7 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 from runtime.model_gateway.model_response import ModelResponseRuntimeExecutor
 from runtime.model_gateway.model_runtime import ModelRuntimeError
 from orchestration import RuntimeDirective
-from runtime.unit_runtime.quality_gates import _model_stream_policy_from_task_execution_assembly
+from runtime.unit_runtime.runtime_policy import model_stream_policy_from_task_execution_assembly
 
 
 def _directive() -> RuntimeDirective:
@@ -64,6 +64,15 @@ class _HangingRuntime:
     async def invoke_messages(self, _messages):
         await asyncio.sleep(10)
         return SimpleNamespace(content="late content")
+
+
+class _HangingStreamRuntime:
+    async def astream_messages(self, _messages):
+        await asyncio.sleep(10)
+        yield SimpleNamespace(content="late stream content")
+
+    async def invoke_messages(self, _messages):
+        return SimpleNamespace(content="unused fallback")
 
 
 def test_stream_retryable_error_falls_back_to_real_non_stream_invoke() -> None:
@@ -145,8 +154,29 @@ def test_non_stream_model_response_has_hard_timeout() -> None:
     assert events[-1]["answer_channel"] == "orchestration_fail_closed"
 
 
+def test_stream_model_response_has_hard_timeout() -> None:
+    executor = ModelResponseRuntimeExecutor(model_runtime=_HangingStreamRuntime())
+
+    async def _collect():
+        events = []
+        async for event in executor.stream(
+            user_message="run",
+            model_messages=[{"role": "user", "content": "run"}],
+            directive=_directive(),
+            model_stream_policy={"enabled": True, "model_response_timeout_seconds": 0.01},
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert events[-1]["type"] == "error"
+    assert events[-1]["error"] == "model_response_timeout"
+    assert events[-1]["answer_channel"] == "orchestration_fail_closed"
+
+
 def test_task_stream_policy_preserves_recovery_timeout_fields() -> None:
-    policy = _model_stream_policy_from_task_execution_assembly(
+    policy = model_stream_policy_from_task_execution_assembly(
         {
             "metadata": {
                 "stream_policy": {

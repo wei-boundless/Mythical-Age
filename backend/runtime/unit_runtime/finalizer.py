@@ -32,7 +32,11 @@ from ..memory.project_supervision import (
     record_failure,
     record_progress_unit_commit,
 )
-from .quality_gates import _count_text_units, _safe_int, _stage_business_acceptance
+from task_system.runtime_semantics.quality_gates import (
+    count_text_units_for_quality_gate,
+    safe_int,
+    stage_business_acceptance,
+)
 from ..shared.runtime_object_store import RuntimeObjectStore
 from ..memory.state_index import RuntimeStateIndex
 from .artifact_materializer import MaterializedTaskArtifacts, materialize_task_artifacts
@@ -168,7 +172,7 @@ class TaskRunFinalizer:
                 or {}
             )
             if not requires_file_artifact_refs_preview:
-                stage_acceptance_preview = _stage_business_acceptance(
+                stage_acceptance_preview = stage_business_acceptance(
                     stage_id=str(stage_execution_request.get("stage_id") or ""),
                     contract=stage_contract_for_acceptance,
                     explicit_inputs=explicit_inputs,
@@ -493,7 +497,7 @@ class TaskRunFinalizer:
                 stage_contract = dict(
                     dict(coordination_state_before_resume.get("stage_contracts") or {}).get(current_stage_id) or {}
                 )
-                stage_acceptance = _stage_business_acceptance(
+                stage_acceptance = stage_business_acceptance(
                     stage_id=current_stage_id,
                     contract=stage_contract,
                     explicit_inputs=dict(current_stage_request.get("explicit_inputs") or {}),
@@ -504,7 +508,7 @@ class TaskRunFinalizer:
                 )
                 accepted_content_metric_total = int(
                     stage_acceptance.get("content_metric_total")
-                    or _count_text_units(final_content)
+                    or count_text_units_for_quality_gate(final_content)
                 )
                 ready_event = NodeResultReadyEvent(
                     event_type="task_result_ready",
@@ -522,7 +526,7 @@ class TaskRunFinalizer:
                         "terminal_reason": terminal_state.terminal_reason,
                         "last_error": dict(terminal_state.diagnostics.get("last_error") or {}),
                         "content_metric_total": accepted_content_metric_total,
-                        "raw_content_metric_total": _count_text_units(final_content),
+                        "raw_content_metric_total": count_text_units_for_quality_gate(final_content),
                         "stage_business_acceptance": stage_acceptance,
                     },
                 )
@@ -854,20 +858,20 @@ class TaskRunFinalizer:
                 or 0
             )
             units_per_commit = max(
-                _safe_int(
+                safe_int(
                     explicit_inputs.get(unit_count_key)
                     or pending_inputs.get(unit_count_key)
                     or 1
                 ),
                 1,
             )
-            batch_start_index = _safe_int(
+            batch_start_index = safe_int(
                 explicit_inputs.get(unit_start_key)
                 or pending_inputs.get(unit_start_key)
                 or unit_index
                 or 0
             )
-            batch_end_index = _safe_int(
+            batch_end_index = safe_int(
                 explicit_inputs.get(unit_end_key)
                 or pending_inputs.get(unit_end_key)
                 or (batch_start_index + units_per_commit - 1 if batch_start_index else 0)

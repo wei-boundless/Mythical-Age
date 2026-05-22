@@ -7,7 +7,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from runtime.unit_runtime.quality_gates import _sectioned_text_batch_quality_gate
+from task_system.runtime_semantics.quality_gates import sectioned_text_batch_quality_gate
 
 
 def _chapter_quality_policy(**overrides) -> dict:
@@ -63,7 +63,7 @@ def test_chapter_draft_quality_gate_reports_per_chapter_metric_deficits() -> Non
         ]
     )
 
-    result = _sectioned_text_batch_quality_gate(
+    result = sectioned_text_batch_quality_gate(
         text,
         explicit_inputs={
             "batch_start_index": 1,
@@ -100,7 +100,7 @@ def test_chapter_draft_quality_gate_accepts_complete_bounded_batch() -> None:
         ]
     )
 
-    result = _sectioned_text_batch_quality_gate(
+    result = sectioned_text_batch_quality_gate(
         text,
         explicit_inputs={
             "batch_start_index": 1,
@@ -131,7 +131,7 @@ def test_batch_quality_gate_rejects_unexpected_chapter_headings() -> None:
         ]
     )
 
-    result = _sectioned_text_batch_quality_gate(
+    result = sectioned_text_batch_quality_gate(
         text,
         explicit_inputs={
             "batch_start_index": 1,
@@ -171,7 +171,7 @@ def test_batch_quality_gate_ignores_next_batch_handoff_chapter_numbers() -> None
         ]
     )
 
-    result = _sectioned_text_batch_quality_gate(
+    result = sectioned_text_batch_quality_gate(
         text,
         explicit_inputs={
             "batch_start_index": 1,
@@ -207,7 +207,7 @@ def test_batch_quality_gate_ignores_future_batch_range_reference() -> None:
         ]
     )
 
-    result = _sectioned_text_batch_quality_gate(
+    result = sectioned_text_batch_quality_gate(
         text,
         explicit_inputs={
             "batch_start_index": 1,
@@ -244,7 +244,7 @@ def test_batch_quality_gate_rejects_stale_batch_range_declaration() -> None:
         ]
     )
 
-    result = _sectioned_text_batch_quality_gate(
+    result = sectioned_text_batch_quality_gate(
         text,
         explicit_inputs={
             "batch_start_index": 1,
@@ -281,7 +281,7 @@ def test_chapter_draft_quality_gate_excludes_manifest_sections_from_body_metrics
         ]
     )
 
-    result = _sectioned_text_batch_quality_gate(
+    result = sectioned_text_batch_quality_gate(
         text,
         explicit_inputs={
             "batch_start_index": 1,

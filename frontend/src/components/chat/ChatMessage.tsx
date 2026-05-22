@@ -44,34 +44,33 @@ export function ChatMessage({
 
   return (
     <article
-      className={`message-shell chat-message-shell max-w-[92%] px-0 py-0 ${
+      className={`message-shell chat-message-shell ${
         isUser
-          ? "message-shell--user ml-auto"
-          : "message-shell--assistant mr-auto text-[var(--color-text)]"
+          ? "message-shell--user chat-message-shell--user"
+          : "message-shell--assistant chat-message-shell--assistant"
       }`}
     >
-      <div className="chat-message-shell__head flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+      <div className="chat-message-shell__head">
+        <div className="chat-message-shell__identity">
           <div className={`message-emblem ${isUser ? "message-emblem--user" : ""}`}>
             {isUser ? "你" : assistantMark}
           </div>
-          <div>
-            <p className="chat-message-shell__label text-sm font-medium">
-              {isUser ? "用户" : assistantName}
-            </p>
-          </div>
+          <p className="chat-message-shell__label">
+            {isUser ? "用户" : assistantName}
+          </p>
         </div>
         {isUser && canEdit ? (
           <button
+            aria-label="编辑消息"
             className="message-edit-button"
             onClick={() => {
               setDraft(content);
               setEditing(true);
             }}
+            title="编辑"
             type="button"
           >
-            <Pencil size={14} />
-            编辑
+            <Pencil size={13} />
           </button>
         ) : null}
       </div>

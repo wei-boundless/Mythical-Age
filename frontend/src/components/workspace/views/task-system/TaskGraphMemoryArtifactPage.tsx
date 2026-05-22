@@ -12,7 +12,11 @@ import {
   type TaskGraphStandardView,
 } from "@/lib/api";
 
-import { buildTaskGraphResourceStandardModel, describeTaskGraphStandardEdge } from "./taskGraphStandardView";
+import {
+  buildTaskGraphMemoryProtocolStandardModel,
+  buildTaskGraphResourceStandardModel,
+  describeTaskGraphStandardEdge,
+} from "./taskGraphStandardView";
 import { TaskSystemField, TaskSystemSelectField, taskSystemOptionLabel } from "./TaskSystemWorkbenchUi";
 import type { TaskGraphDraftV2 } from "./taskGraphDraftV2";
 import type { TaskGraphEditorFocus } from "./taskGraphEditorFocus";
@@ -29,7 +33,7 @@ import {
   type TaskGraphMemoryRepositoryView,
 } from "./taskGraphMemoryMatrix";
 
-type MemoryFacet = "repositories" | "matrix" | "selector" | "snapshot" | "artifact_context" | "formal_store" | "artifact_store";
+type MemoryFacet = "protocol" | "repositories" | "matrix" | "selector" | "snapshot" | "artifact_context" | "formal_store" | "artifact_store";
 type MatrixOperationValue = "forbidden" | "read" | "write_candidate" | "read_write_candidate" | "commit";
 type ResourceTemplate = {
   kind: string;
@@ -62,6 +66,17 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function defaultContentRequirement() {
+  return {
+    canonical_text_required: true,
+    artifact_ref_only_allowed: false,
+  };
+}
+
+function booleanText(value: unknown) {
+  return value === true ? "是" : "否";
+}
+
 function splitList(value: string) {
   return value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean);
 }
@@ -87,6 +102,7 @@ function repositoryCollectionsFromNode(node?: Record<string, unknown>) {
         key_strategy: "stable_key",
         default_version_selector: "latest_committed_before_clock",
         required_commit_status: "committed",
+        content_requirement: defaultContentRequirement(),
       };
     }
     const record = asRecord(item);
@@ -98,6 +114,10 @@ function repositoryCollectionsFromNode(node?: Record<string, unknown>) {
       schema_ref: String(record.schema_ref ?? record.schema_id ?? ""),
       default_version_selector: String(record.default_version_selector ?? "latest_committed_before_clock"),
       required_commit_status: String(record.required_commit_status ?? "committed"),
+      content_requirement: {
+        ...defaultContentRequirement(),
+        ...asRecord(record.content_requirement),
+      },
     };
   });
 }
@@ -157,12 +177,13 @@ export function TaskGraphMemoryArtifactPage({
   standardView: TaskGraphStandardView | null;
   standardViewLoading?: boolean;
 }) {
-  const [facet, setFacet] = useState<MemoryFacet>("repositories");
+  const [facet, setFacet] = useState<MemoryFacet>("protocol");
   const memoryModel = useMemo(
     () => buildTaskGraphMemoryModel({ nodes: activeGraphNodes, edges: activeGraphEdges }),
     [activeGraphNodes, activeGraphEdges],
   );
   const standardResourceModel = useMemo(() => buildTaskGraphResourceStandardModel(standardView), [standardView]);
+  const standardProtocolModel = useMemo(() => buildTaskGraphMemoryProtocolStandardModel(standardView), [standardView]);
   const firstRepositoryId = memoryModel.repositories[0]?.nodeId ?? "";
   const firstMemoryEdgeId = memoryModel.memoryEdges[0]?.edgeId ?? "";
   const firstSnapshotNodeId = memoryModel.snapshots[0]?.nodeId ?? "";
@@ -207,7 +228,7 @@ export function TaskGraphMemoryArtifactPage({
   useEffect(() => {
     if (editorFocus?.layer !== "memory") return;
     const focusFacet = String(editorFocus.facet ?? "");
-    if (["repositories", "matrix", "selector", "snapshot", "artifact_context", "formal_store", "artifact_store"].includes(focusFacet)) {
+    if (["protocol", "repositories", "matrix", "selector", "snapshot", "artifact_context", "formal_store", "artifact_store"].includes(focusFacet)) {
       setFacet(focusFacet as MemoryFacet);
     }
     if (editorFocus.repository_id) {
@@ -290,6 +311,7 @@ export function TaskGraphMemoryArtifactPage({
             key_strategy: "stable_key",
             default_version_selector: "latest_committed_before_clock",
             required_commit_status: "committed",
+            content_requirement: defaultContentRequirement(),
           }],
         },
       }
@@ -374,6 +396,7 @@ export function TaskGraphMemoryArtifactPage({
               key_strategy: "stable_key",
               default_version_selector: "latest_committed_before_clock",
               required_commit_status: "committed",
+              content_requirement: defaultContentRequirement(),
             },
           ],
         },
@@ -418,6 +441,7 @@ export function TaskGraphMemoryArtifactPage({
 
       <section className="task-graph-facet-switch" aria-label="资源流配置分面">
         {[
+          ["protocol", "协议视图", "repository / collection / edge"],
           ["repositories", "仓库结构", "repository / collection"],
           ["matrix", "读写矩阵", "node x collection"],
           ["selector", "Selector 配置", "read / version / visibility"],
@@ -456,7 +480,134 @@ export function TaskGraphMemoryArtifactPage({
             <p><span>诊断问题</span><strong>{standardResourceModel.issueCount}</strong></p>
           </div>
         </article>
+        <article className="boundary-card task-graph-standard-card">
+          <header><strong>Memory Protocol</strong><span>{standardProtocolModel.hasProtocol ? "standard view" : "未载入"}</span></header>
+          <div className="task-graph-mini-kv">
+            <p><span>仓库</span><strong>{standardProtocolModel.repositoryCount}</strong></p>
+            <p><span>集合</span><strong>{standardProtocolModel.collectionCount}</strong></p>
+            <p><span>读取边</span><strong>{standardProtocolModel.readEdgeCount}</strong></p>
+            <p><span>写入边</span><strong>{standardProtocolModel.writeEdgeCount}</strong></p>
+            <p><span>提交边</span><strong>{standardProtocolModel.commitEdgeCount}</strong></p>
+            <p><span>协议问题</span><strong>{standardProtocolModel.issueCount}</strong></p>
+          </div>
+        </article>
       </section>
+
+      {facet === "protocol" ? (
+        <section className="task-graph-memory-workbench">
+          <aside className="boundary-card task-graph-memory-sidebar">
+            <header><strong>协议仓库</strong><span>{standardProtocolModel.repositoryCount} repositories</span></header>
+            <div className="task-graph-mini-kv">
+              <p><span>canonical</span><strong>{standardProtocolModel.canonicalCollectionCount}</strong></p>
+              <p><span>refs-only</span><strong>{standardProtocolModel.refsOnlyCollectionCount}</strong></p>
+              <p><span>canonical edges</span><strong>{standardProtocolModel.canonicalEdgeCount}</strong></p>
+              <p><span>refs-only edges</span><strong>{standardProtocolModel.refsOnlyEdgeCount}</strong></p>
+            </div>
+            <div className="task-graph-cognition-list">
+              {standardProtocolModel.repositories.map((repository) => {
+                const repositoryId = String(repository.repository_id ?? repository.repository_node_id ?? "");
+                return (
+                  <button
+                    className={selectedRepositoryNodeId === String(repository.repository_node_id ?? repositoryId) ? "task-graph-memory-list-button task-graph-memory-list-button--active" : "task-graph-memory-list-button"}
+                    key={repositoryId}
+                    onClick={() => {
+                      setSelectedRepositoryNodeId(String(repository.repository_node_id ?? repositoryId));
+                      onEditorFocus?.({ layer: "memory", facet: "protocol", repository_id: repositoryId, node_id: String(repository.repository_node_id ?? "") });
+                    }}
+                    type="button"
+                  >
+                    <strong>{String(repository.title ?? repositoryId)}</strong>
+                    <span>{repositoryId}</span>
+                    <em>{standardProtocolModel.collectionsByRepository.get(repositoryId)?.length ?? 0} collections / {standardProtocolModel.edgesByRepository.get(repositoryId)?.length ?? 0} edges</em>
+                  </button>
+                );
+              })}
+              {!standardProtocolModel.repositories.length ? (
+                <div className="task-graph-note">
+                  <strong>没有协议仓库</strong>
+                  <span>保存并刷新标准视图后，后端会输出规范化 memory protocol。</span>
+                </div>
+              ) : null}
+            </div>
+          </aside>
+
+          <article className="boundary-card task-graph-memory-detail">
+            <header><strong>Collection 协议</strong><span>{standardProtocolModel.collectionCount} collections</span></header>
+            <div className="task-graph-node-policy-list">
+              {standardProtocolModel.collections.map((collection) => {
+                const requirement = asRecord(collection.content_requirement);
+                return (
+                  <article className="task-graph-node-policy-row task-graph-node-policy-row--wide" key={`${collection.repository_id}.${collection.collection_id}`}>
+                    <div className="task-graph-node-policy-row__identity">
+                      <strong>{String(collection.title ?? collection.collection_id)}</strong>
+                      <span>{collection.repository_id}.{collection.collection_id}</span>
+                    </div>
+                    <div className="task-graph-mini-kv">
+                      <p><span>schema</span><strong>{String(collection.schema_id ?? "未设置")}</strong></p>
+                      <p><span>canonical</span><strong>{booleanText(requirement.canonical_text_required)}</strong></p>
+                      <p><span>refs-only</span><strong>{booleanText(requirement.artifact_ref_only_allowed)}</strong></p>
+                      <p><span>record kinds</span><strong>{(collection.record_kinds ?? []).length}</strong></p>
+                    </div>
+                    <small>{(collection.record_kinds ?? []).join(" / ") || "未声明 record kind"}</small>
+                  </article>
+                );
+              })}
+              {!standardProtocolModel.collections.length ? (
+                <div className="task-graph-note">
+                  <strong>没有 collection specs</strong>
+                  <span>在仓库结构中声明 collection_specs 或 metadata.memory_repository.collections。</span>
+                </div>
+              ) : null}
+            </div>
+          </article>
+
+          <article className="boundary-card task-graph-memory-detail">
+            <header><strong>协议边与问题</strong><span>{standardProtocolModel.edges.length} edges / {standardProtocolModel.issueCount} issues</span></header>
+            <div className="task-graph-cognition-section">
+              <header><strong>Read / Write / Commit</strong><span>后端规范化结果</span></header>
+              <div className="task-graph-cognition-list">
+                {standardProtocolModel.edges.slice(0, 80).map((edge) => {
+                  const requirement = asRecord(edge.content_requirement);
+                  return (
+                    <button
+                      className={selectedMemoryEdgeId === edge.edge_id ? "task-graph-memory-list-button task-graph-memory-list-button--active" : "task-graph-memory-list-button"}
+                      key={edge.edge_id}
+                      onClick={() => {
+                        setSelectedMemoryEdgeId(edge.edge_id);
+                        setFacet("selector");
+                        onEditorFocus?.({ layer: "memory", facet: "selector", edge_id: edge.edge_id, repository_id: edge.repository_id, collection_id: edge.collection_id });
+                      }}
+                      type="button"
+                    >
+                      <strong>{edge.operation} · {edge.repository_id}.{edge.collection_id}</strong>
+                      <span>{String(edge.source_node_id ?? "")} {"->"} {String(edge.target_node_id ?? "")}</span>
+                      <em>{booleanText(requirement.canonical_text_required)} canonical / {booleanText(requirement.artifact_ref_only_allowed)} refs-only</em>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="task-graph-cognition-section">
+              <header><strong>协议问题</strong><span>{standardProtocolModel.issueCount} 条</span></header>
+              <div className="task-graph-cognition-list">
+                {standardProtocolModel.issues.map((issue, index) => (
+                  <article className={String(issue.severity ?? "error") === "error" ? "task-graph-cognition-item task-graph-cognition-item--warn" : "task-graph-cognition-item"} key={`${String(issue.code ?? "issue")}-${index}`}>
+                    <div><strong>{String(issue.code ?? "memory_protocol_issue")}</strong><span>{String(issue.severity ?? "error")}</span></div>
+                    <p>{String(issue.message ?? "后端协议返回了未命名问题。")}</p>
+                    <em>{String(issue.edge_id ?? issue.node_id ?? "graph")}</em>
+                  </article>
+                ))}
+                {!standardProtocolModel.issues.length ? (
+                  <div className="task-graph-note">
+                    <strong>没有协议问题</strong>
+                    <span>当前标准视图没有发现 repository / collection / read / write / commit 层面的阻塞问题。</span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </article>
+        </section>
+      ) : null}
 
       {facet === "repositories" ? (
         <section className="task-graph-memory-workbench">
@@ -578,6 +729,7 @@ export function TaskGraphMemoryArtifactPage({
                 schema_ref: collection.schemaId,
                 default_version_selector: collection.defaultVersionSelector,
                 required_commit_status: collection.requiredCommitStatus,
+                content_requirement: defaultContentRequirement(),
               })) : repositoryCollectionsFromNode(selectedRepository.node)) : []).map((collection) => {
                 const collectionId = String(collection.collection_id);
                 return (
@@ -619,6 +771,30 @@ export function TaskGraphMemoryArtifactPage({
                       options={["latest_committed_before_clock", "latest_committed_before_scope", "pinned_version", "manual_snapshot"]}
                       value={String(collection.default_version_selector ?? "latest_committed_before_clock")}
                     />
+                    <TaskSystemSelectField
+                      label="Canonical Text"
+                      onChange={(value) => selectedRepository && updateRepositoryCollection(selectedRepository, collectionId, {
+                        content_requirement: {
+                          ...asRecord(collection.content_requirement),
+                          canonical_text_required: value === "required",
+                          artifact_ref_only_allowed: value === "refs_only",
+                        },
+                      })}
+                      options={["required", "not_required", "refs_only"]}
+                      value={
+                        asRecord(collection.content_requirement).artifact_ref_only_allowed === true
+                          ? "refs_only"
+                          : asRecord(collection.content_requirement).canonical_text_required === false
+                            ? "not_required"
+                            : "required"
+                      }
+                    />
+                    <TaskSystemField label="内容要求">
+                      <textarea
+                        disabled
+                        value={`canonical_text_required=${booleanText(asRecord(collection.content_requirement).canonical_text_required !== false)}\nartifact_ref_only_allowed=${booleanText(asRecord(collection.content_requirement).artifact_ref_only_allowed === true)}`}
+                      />
+                    </TaskSystemField>
                   </article>
                 );
               })}

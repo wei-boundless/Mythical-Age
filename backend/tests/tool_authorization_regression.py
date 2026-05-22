@@ -157,6 +157,70 @@ def test_task_run_loop_tool_filter_intersects_resource_policy_with_execution_per
     assert "search_text" not in names
 
 
+def test_sandbox_does_not_make_hidden_tools_model_visible() -> None:
+    instances = build_tool_instances(Path.cwd())
+    index = build_tool_authorization_index(get_tool_definitions())
+    registry = build_default_operation_registry()
+    policy = ResourcePolicy(
+        policy_id="respol-test-sandbox-hidden-tools",
+        task_id="task-test",
+        allowed_operations=("op.read_file", "op.shell", "op.python_repl"),
+        adopted=True,
+        runtime_executable=True,
+        runtime_view_only=False,
+    )
+
+    visible = tool_instances_for_policy_and_permit(
+        tool_instances=instances,
+        resource_policy=policy,
+        definitions_by_name=index.definitions_by_name,
+        normalize_operation_id=registry.normalize_id,
+        sandbox_policy={"enabled": True, "mode": "isolated_workspace"},
+        execution_permit={
+            "permit_id": "permit:test-sandbox",
+            "allowed_operations": ["op.read_file", "op.shell", "op.python_repl"],
+            "visible_tools": ["read_file"],
+            "dispatchable_tools": ["read_file"],
+        },
+    )
+    names = {getattr(tool, "name", "") for tool in visible}
+
+    assert "read_file" in names
+    assert "terminal" not in names
+    assert "python_repl" not in names
+
+
+def test_permit_explicit_visible_hidden_tool_can_be_model_visible() -> None:
+    instances = build_tool_instances(Path.cwd())
+    index = build_tool_authorization_index(get_tool_definitions())
+    registry = build_default_operation_registry()
+    policy = ResourcePolicy(
+        policy_id="respol-test-permit-hidden-tool",
+        task_id="task-test",
+        allowed_operations=("op.model_response", "op.shell"),
+        adopted=True,
+        runtime_executable=True,
+        runtime_view_only=False,
+    )
+
+    visible = tool_instances_for_policy_and_permit(
+        tool_instances=instances,
+        resource_policy=policy,
+        definitions_by_name=index.definitions_by_name,
+        normalize_operation_id=registry.normalize_id,
+        execution_permit={
+            "permit_id": "permit:test-hidden-terminal",
+            "allowed_operations": ["op.model_response", "op.shell"],
+            "visible_tools": ["terminal"],
+            "dispatchable_tools": ["terminal"],
+            "model_visible_tool_refs": ["terminal"],
+        },
+    )
+    names = {getattr(tool, "name", "") for tool in visible}
+
+    assert names == {"terminal"}
+
+
 def test_task_run_loop_reads_permission_mode_from_provider() -> None:
     loop = TaskRunLoop(Path("runtime-loop-test"), permission_mode_provider=lambda: "headless")
 

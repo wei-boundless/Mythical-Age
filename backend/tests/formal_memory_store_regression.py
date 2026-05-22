@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from memory_system.formal_memory_content import materialize_formal_memory_candidate
 from memory_system.formal_memory_service import FormalMemoryService
 
 
@@ -198,3 +199,177 @@ def test_formal_memory_write_is_idempotent_by_node_edge_and_content(tmp_path) ->
 
     assert second_version.version_id == first_version.version_id
     assert second_txn.transaction_id == first_txn.transaction_id
+
+
+def test_required_formal_memory_rejects_refs_only_shell_records(tmp_path) -> None:
+    service = FormalMemoryService(tmp_path)
+    service.sync_graph_spec(
+        graph_id="graph:memory-content",
+        task_run_id="taskrun:memory-content",
+        graph_spec={
+            "nodes": [
+                {
+                    "node_id": "memory.project",
+                    "node_type": "memory_repository",
+                    "metadata": {
+                        "memory_repository": {
+                            "repository_id": "memory.project",
+                            "collections": [
+                                {
+                                    "collection_id": "canon",
+                                    "content_requirement": {
+                                        "canonical_text_required": True,
+                                        "artifact_ref_only_allowed": False,
+                                    },
+                                }
+                            ],
+                        }
+                    },
+                }
+            ]
+        },
+    )
+    version, _ = service.store.write_candidate(
+        repository_id="run:taskrun_memory-content:memory.project",
+        collection_id="canon",
+        record_key="canon.current",
+        logical_repository_id="memory.project",
+        task_run_id="taskrun:memory-content",
+        scope_kind="run_scoped",
+        scope_id="taskrun:memory-content",
+        record_kind="canon",
+        payload={},
+        canonical_text="",
+        summary="shell",
+        artifact_refs=["artifact:canon.md"],
+        source_node_id="writer",
+        source_edge_id="edge.writer.canon",
+        source_node_run_id="taskrun:memory-content:writer",
+        source_clock_seq=1,
+    )
+    service.store.commit_version(
+        candidate_version_id=version.version_id,
+        edge_id="edge.commit.canon",
+        node_run_id="taskrun:memory-content:commit",
+        source_clock_seq=1,
+    )
+
+    selected = service.select_for_node(
+        read_edges=[
+            {
+                "edge_id": "edge.reader.canon",
+                "repository": "memory.project",
+                "collection": "canon",
+                "selector": {"record_key": "canon.current", "status_filter": ["committed"]},
+                "content_requirement": {
+                    "canonical_text_required": True,
+                    "artifact_ref_only_allowed": False,
+                },
+                "on_missing": "block",
+            }
+        ],
+        task_run_id="taskrun:memory-content",
+        node_run_id="taskrun:memory-content:reader",
+        clock_seq=2,
+    )
+
+    assert selected["required_records"] == []
+    assert selected["missing_required_records"][0]["reason"] == "content_requirement_not_satisfied"
+    assert selected["missing_required_records"][0]["rejected_versions"][0]["content_state"] == "refs_only"
+
+
+def test_collection_content_requirement_cannot_be_loosened_by_candidate_or_edge(tmp_path) -> None:
+    service = FormalMemoryService(tmp_path)
+    service.sync_graph_spec(
+        graph_id="graph:memory-content-hard-boundary",
+        task_run_id="taskrun:memory-content-hard-boundary",
+        graph_spec={
+            "nodes": [
+                {
+                    "node_id": "memory.project",
+                    "node_type": "memory_repository",
+                    "metadata": {
+                        "memory_repository": {
+                            "repository_id": "memory.project",
+                            "collections": [
+                                {
+                                    "collection_id": "canon",
+                                    "content_requirement": {
+                                        "canonical_text_required": True,
+                                        "artifact_ref_only_allowed": False,
+                                    },
+                                }
+                            ],
+                        }
+                    },
+                }
+            ]
+        },
+    )
+
+    try:
+        service.write_candidate_from_edge(
+            edge={
+                "edge_id": "edge.writer.canon",
+                "repository": "memory.project",
+                "collection": "canon",
+                "record_key": "canon.current",
+                "record_kind": "canon",
+                "content_requirement": {
+                    "canonical_text_required": False,
+                    "artifact_ref_only_allowed": True,
+                },
+            },
+            candidate={
+                "kind": "canon",
+                "summary": "shell",
+                "artifact_refs": ["artifact:canon.md"],
+                "content_requirement": {
+                    "canonical_text_required": False,
+                    "artifact_ref_only_allowed": True,
+                },
+            },
+            task_run_id="taskrun:memory-content-hard-boundary",
+            node_run_id="taskrun:memory-content-hard-boundary:writer",
+        )
+    except ValueError as exc:
+        assert "content requirement" in str(exc)
+    else:
+        raise AssertionError("candidate loosened the collection content requirement")
+
+
+def test_formal_memory_candidate_materialization_reads_artifact_text(tmp_path, monkeypatch) -> None:
+    artifact = tmp_path / "memory_candidate.md"
+    artifact.write_text("# Canon\n\n正式记忆正文。", encoding="utf-8")
+    candidate, errors = materialize_formal_memory_candidate(
+        candidate={"summary": "artifact_refs", "artifact_refs": [f"artifact:{artifact.name}"]},
+        edge={
+            "edge_id": "edge.write.canon",
+            "memory_edge_type": "commit",
+            "repository": "memory.project",
+            "collection": "canon",
+            "record_key": "canon.current",
+            "record_kinds": ["canon"],
+            "source_output_key": "artifact_refs",
+            "content_requirement": {
+                "canonical_text_required": True,
+                "artifact_ref_only_allowed": False,
+            },
+            "materialization_policy": {
+                "enabled": True,
+                "source": "artifact_refs",
+                "canonical_text_mode": "full_text",
+                "summary_mode": "first_heading_or_excerpt",
+            },
+        },
+        fallback_write_policy={"writable_kinds": ["canon"], "writable_scopes": ["test"]},
+        output_bundle={
+            "artifact_refs": [f"artifact:{artifact.name}"],
+            "workspace_root": str(tmp_path),
+        },
+    )
+
+    assert errors == []
+    assert candidate["canonical_text"] == "# Canon\n\n正式记忆正文。"
+    assert candidate["summary"] == "Canon"
+    assert candidate["content_requirement"]["canonical_text_required"] is True

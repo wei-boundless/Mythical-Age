@@ -117,6 +117,7 @@ class RuntimeContextManager:
         stage_projection_snapshot: Any | None = None,
         runtime_execution_facts: dict[str, Any] | None = None,
         runtime_assembly: dict[str, Any] | None = None,
+        agent_assembly_contract: dict[str, Any] | None = None,
     ) -> RuntimeContextSnapshot:
         system_prompt = self.system_prompt_builder(
             session_id=session_id,
@@ -138,6 +139,7 @@ class RuntimeContextManager:
             context_policy_result=context_policy_result,
             runtime_execution_facts=runtime_execution_facts,
             runtime_assembly=runtime_assembly,
+            agent_assembly_contract=agent_assembly_contract,
         )
         model_messages = (
             {"role": "system", "content": runtime_prompt},
@@ -186,6 +188,8 @@ class RuntimeContextManager:
                 "runtime_prompt_assembly_applied": True,
                 "runtime_assembly_ref": str((runtime_assembly or {}).get("assembly_id") or ""),
                 "runtime_assembly_context_applied": bool(runtime_assembly),
+                "agent_assembly_contract_ref": str((agent_assembly_contract or {}).get("assembly_id") or ""),
+                "agent_assembly_contract_applied": bool(agent_assembly_contract),
                 "assembly_main_session_history": str(assembly_policy.get("main_session_history") or ""),
             },
         )
@@ -352,8 +356,15 @@ def _build_runtime_system_prompt(
     context_policy_result: dict[str, Any] | None,
     runtime_execution_facts: dict[str, Any] | None = None,
     runtime_assembly: dict[str, Any] | None = None,
+    agent_assembly_contract: dict[str, Any] | None = None,
 ) -> str:
     parts = [str(base_system_prompt or "").strip()]
+    receipt_protocol_block = _render_user_visible_receipt_protocol_block()
+    if receipt_protocol_block:
+        parts.append(receipt_protocol_block)
+    agent_assembly_block = _render_agent_assembly_contract_block(agent_assembly_contract)
+    if agent_assembly_block:
+        parts.append(agent_assembly_block)
     projection_block = _render_projection_block(stage_projection_snapshot)
     if projection_block:
         parts.append(projection_block)
@@ -370,6 +381,64 @@ def _build_runtime_system_prompt(
     if delegation_guidance_block:
         parts.append(delegation_guidance_block)
     return "\n\n".join(part for part in parts if part)
+
+
+def _render_user_visible_receipt_protocol_block() -> str:
+    return "\n".join(
+        [
+            "## 用户可见回执协议",
+            "当你完成用户命令、工具操作、文件编辑或任务执行时，必须用自然语言说明做了什么、影响范围是什么、是否产生了文件或其它产物。",
+            "默认可见内容必须面向用户；不要把 taskrun_id、taskinst_id、node_id、event_name、运行状态字段、装配字段或权限记录作为回答正文或状态摘要。",
+            "这些内部标识只能进入 debug、diagnostics、运行监控详情或开发者可展开区域。",
+        ]
+    )
+
+
+def _render_agent_assembly_contract_block(agent_assembly_contract: dict[str, Any] | None) -> str:
+    assembly = dict(agent_assembly_contract or {})
+    if not assembly:
+        return ""
+    prompt = dict(assembly.get("prompt_assembly") or {})
+    role_name = str(prompt.get("role_name") or "执行代理").strip() or "执行代理"
+    role_summary = str(prompt.get("role_summary") or "").strip()
+    instruction_text = str(prompt.get("instruction_text") or "").strip()
+    required_outputs = [
+        str(item).strip()
+        for item in list(prompt.get("required_outputs") or [])
+        if str(item).strip()
+    ]
+    forbidden_actions = [
+        str(item).strip()
+        for item in list(prompt.get("forbidden_actions") or [])
+        if str(item).strip()
+    ]
+    output_boundary = dict(assembly.get("output_boundary") or {})
+    delivery = _delivery_label(str(output_boundary.get("selected_channel") or ""))
+    lines = [
+        "## 当前 Agent 工作契约",
+        f"你是一名{role_name}。",
+    ]
+    if role_summary:
+        lines.append(role_summary)
+    if instruction_text:
+        lines.append(instruction_text)
+    if delivery:
+        lines.append(f"你的最终交付应是：{delivery}。")
+    if required_outputs:
+        lines.append("必须交付：" + "，".join(required_outputs))
+    if forbidden_actions:
+        lines.append("禁止事项：" + "，".join(forbidden_actions))
+    lines.append("不要把装配字段、节点编号、权限记录或运行状态当作用户可见内容输出。")
+    return "\n".join(line for line in lines if line)
+
+
+def _delivery_label(channel: str) -> str:
+    return {
+        "assistant_message": "面向用户的最终回答",
+        "graph_node_result": "当前阶段任务结果",
+        "human_review": "人工审核反馈",
+        "subruntime_result": "子任务结果",
+    }.get(str(channel or "").strip(), "当前任务结果")
 
 
 def _runtime_assembly_context_policy(runtime_assembly: dict[str, Any] | None) -> dict[str, str]:
@@ -430,7 +499,7 @@ def _render_projection_block(stage_projection_snapshot: Any | None) -> str:
     sections = []
     for section in _model_visible_projection_sections(stage_projection_snapshot):
         item = dict(section or {})
-        title = str(item.get("title") or item.get("section_id") or "本轮写作要求").strip()
+        title = str(item.get("title") or item.get("section_id") or "本轮任务要求").strip()
         content = str(item.get("content") or "").strip()
         if not content:
             continue
@@ -438,8 +507,8 @@ def _render_projection_block(stage_projection_snapshot: Any | None) -> str:
     if not sections:
         return ""
     header = (
-        "## 本轮创作角色\n"
-        "以下内容用于确定本轮写作或编辑的职责、语气和交付形态。"
+        "## 本轮执行角色\n"
+        "以下内容用于确定本轮任务职责、语气和交付形态。"
     )
     return "\n\n".join([header, *sections])
 

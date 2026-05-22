@@ -6,19 +6,23 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
-from orchestration.coordination_control import (
+from orchestration.coordination_recovery import (
+    _latest_unconsumed_stage_task_result,
+    _recover_active_stage_completed_checkpoint,
+)
+from orchestration.coordination_replay import sanitize_replayed_stage_request_payload
+from orchestration.coordination_rewind import (
     _coordination_downstream_stage_ids,
     _coordination_stage_artifact_paths,
-    _latest_unconsumed_graph_module_imported_result,
-    _latest_unconsumed_stage_task_result,
-    _mark_graph_module_imported_output_packet_committed,
     _mark_invalidated_stage_task_runs,
     _mark_rewound_task_run_running,
     _move_invalidated_artifacts,
-    _recover_active_stage_completed_checkpoint,
-    sanitize_replayed_stage_request_payload,
-    _schedule_stage_execution_background,
     _stage_request_matches_active_stage,
+)
+from orchestration.coordination_scheduler import _schedule_stage_execution_background
+from runtime.subruntime.result_packets import (
+    latest_unconsumed_graph_module_imported_result,
+    mark_graph_module_imported_output_packet_committed,
 )
 from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from task_system import TaskFlowRegistry
@@ -111,6 +115,8 @@ async def start_task_graph_runtime_loop_run(
         },
     )
     stage_execution_request = dict(start.loop_state.diagnostics.get("stage_execution_request") or {})
+    node_work_order = dict(start.loop_state.diagnostics.get("node_work_order") or {})
+    agent_assembly_contract = dict(start.loop_state.diagnostics.get("agent_assembly_contract") or {})
     initial_stage_execution_events: list[dict[str, Any]] = []
     initial_stage_execution_error: dict[str, Any] | None = None
     initial_stage_execution_background = False
@@ -125,6 +131,8 @@ async def start_task_graph_runtime_loop_run(
                 session_id=session_id,
                 source="runtime.task_graph_start_api",
                 stage_execution_request=request,
+                node_work_order=node_work_order,
+                agent_assembly_contract=agent_assembly_contract,
                 current_turn_context={
                     "authority": "context.task_graph_start",
                     "task_graph_id": graph.graph_id,
@@ -148,6 +156,8 @@ async def start_task_graph_runtime_loop_run(
         "checkpoint": start.checkpoint.to_dict(),
         "runtime_spec": runtime_spec.to_dict(),
         "stage_execution_request": stage_execution_request or None,
+        "node_work_order": node_work_order or None,
+        "agent_assembly_contract": agent_assembly_contract or None,
         "initial_stage_execution_events": initial_stage_execution_events,
         "initial_stage_execution_event_count": len(initial_stage_execution_events),
         "initial_stage_execution_error": initial_stage_execution_error,
@@ -206,6 +216,8 @@ async def dispatch_coordination_ready_batches(
                     session_id=session_id,
                     source=payload.source,
                     stage_execution_request=request,
+                    node_work_order=dict(result.node_work_order or {}),
+                    agent_assembly_contract=dict(result.agent_assembly_contract or {}),
                     current_turn_context={
                         "authority": "context.coordination_run_dispatch_ready_batches",
                         "coordination_run_id": coordination_run_id,
@@ -306,7 +318,7 @@ async def continue_coordination_current_stage(
         and current_event_task_run_id
         and current_event_task_run_id == current_stage_result_task_run_id
     )
-    graph_module_imported_result = _latest_unconsumed_graph_module_imported_result(
+    graph_module_imported_result = latest_unconsumed_graph_module_imported_result(
         runtime=runtime,
         session_id=session_id,
         state=state,
@@ -322,7 +334,7 @@ async def continue_coordination_current_stage(
             inherited_inputs=dict(graph_module_imported_result.get("explicit_inputs") or {}),
             artifact_root=str(graph_module_imported_result.get("artifact_root") or ""),
         )
-        _mark_graph_module_imported_output_packet_committed(
+        consumption = mark_graph_module_imported_output_packet_committed(
             task_run_loop=runtime.query_runtime.task_run_loop,
             imported_task_run_id=str(graph_module_imported_result.get("task_run_id") or ""),
             packet_ref=str(graph_module_imported_result.get("packet_ref") or ""),
@@ -336,6 +348,8 @@ async def continue_coordination_current_stage(
                 session_id=session_id,
                 source=payload.source or "orchestration.coordination_run_continue_api",
                 stage_execution_request=request,
+                node_work_order=dict(result.node_work_order or {}),
+                agent_assembly_contract=dict(result.agent_assembly_contract or {}),
                 current_turn_context={
                     "authority": "context.coordination_run_continue",
                     "coordination_run_id": coordination_run_id,
@@ -355,6 +369,7 @@ async def continue_coordination_current_stage(
             "mode": "resumed_from_graph_module_imported_output_packet",
             "consumed_task_run_id": str(graph_module_imported_result.get("task_run_id") or ""),
             "packet_ref": str(graph_module_imported_result.get("packet_ref") or ""),
+            "packet_consumption_ref": str(consumption.get("consumption_ref") or ""),
         }
     recovered_stage_result = _recover_active_stage_completed_checkpoint(
         runtime=runtime,
@@ -375,6 +390,8 @@ async def continue_coordination_current_stage(
                 session_id=session_id,
                 source=payload.source or "orchestration.coordination_run_continue_api:completed_checkpoint_recovery",
                 stage_execution_request=request,
+                node_work_order=dict(continuation_payload.get("node_work_order") or {}),
+                agent_assembly_contract=dict(continuation_payload.get("agent_assembly_contract") or {}),
                 current_turn_context={
                     "authority": "context.coordination_run_continue",
                     "coordination_run_id": coordination_run_id,
@@ -424,6 +441,8 @@ async def continue_coordination_current_stage(
                 session_id=session_id,
                 source=payload.source or "orchestration.coordination_run_continue_api",
                 stage_execution_request=request,
+                node_work_order=dict(result.node_work_order or {}),
+                agent_assembly_contract=dict(result.agent_assembly_contract or {}),
                 current_turn_context={
                     "authority": "context.coordination_run_continue",
                     "coordination_run_id": coordination_run_id,
@@ -463,6 +482,8 @@ async def continue_coordination_current_stage(
             session_id=session_id,
             source=payload.source or "orchestration.coordination_run_continue_api",
             stage_execution_request=request,
+            node_work_order=dict(state.get("node_work_order") or {}),
+            agent_assembly_contract=dict(state.get("agent_assembly_contract") or {}),
             current_turn_context=current_turn_context,
         )
         return {
@@ -494,6 +515,8 @@ async def continue_coordination_current_stage(
             session_id=session_id,
             source=payload.source or "orchestration.coordination_run_continue_api",
             stage_execution_request=request,
+            node_work_order=dict(state.get("node_work_order") or {}),
+            agent_assembly_contract=dict(state.get("agent_assembly_contract") or {}),
             current_turn_context=current_turn_context,
         )
         return {
@@ -558,6 +581,8 @@ async def continue_coordination_current_stage(
             session_id=session_id,
             source=payload.source or "orchestration.coordination_run_continue_api",
             stage_execution_request=request,
+            node_work_order=dict(result.node_work_order or {}),
+            agent_assembly_contract=dict(result.agent_assembly_contract or {}),
             current_turn_context={
                 "authority": "context.coordination_run_continue",
                 "coordination_run_id": coordination_run_id,
@@ -666,6 +691,8 @@ async def rewind_coordination_run_from_stage(
             session_id=session_id,
             source=payload.source,
             stage_execution_request=request,
+            node_work_order=dict(result.node_work_order or {}),
+            agent_assembly_contract=dict(result.agent_assembly_contract or {}),
             current_turn_context={
                 "authority": "context.coordination_run_rewind",
                 "coordination_run_id": coordination_run_id,
