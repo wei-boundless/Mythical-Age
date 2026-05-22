@@ -2022,10 +2022,10 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
     assert work_order["graph_state"]["authority"] == "task_graph.node_work_order_graph_state_snapshot"
     assert validate_work_order(WorkOrder.from_dict(work_order)).passed
     continuation = result.continuation_payload(session_id="session")
-    assert continuation["a2a_payload"]["message"]["metadata"]["target_task_ref"] == "task.test.novel_bible"
-    assert continuation["node_work_order"]["work_order_id"] == work_order["work_order_id"]
-    assert continuation["current_turn_context"]["a2a_payload"]["message"]["metadata"]["target_stage_id"] == "novel_bible"
-    assert continuation["current_turn_context"]["node_work_order"]["work_order_id"] == work_order["work_order_id"]
+    assert continuation["runtime_control"]["node_work_order"]["work_order_id"] == work_order["work_order_id"]
+    assert continuation["runtime_control"]["stage_execution_request"]["a2a_payload"]["message"]["metadata"]["target_task_ref"] == "task.test.novel_bible"
+    assert "a2a_payload" not in continuation["current_turn_context"]
+    assert "node_work_order" not in continuation["current_turn_context"]
     assert continuation["task_selection"]["selected_task_id"] == work_order["task_ref"]
     assert result.stage_execution_request.runtime_assembly["authority"] == "orchestration.node_runtime_assembly"
     assert result.stage_execution_request.a2a_payload["message"]["metadata"]["runtime_assembly_ref"]
@@ -3020,10 +3020,10 @@ def test_langgraph_runtime_emits_graph_module_stage_request(tmp_path) -> None:
     assert work_order["subruntime_kind"] == "graph_module"
     assert work_order["task_ref"] == request.task_ref
     continuation = result.continuation_payload(session_id="session")
-    assert continuation["node_work_order"]["subruntime_kind"] == "graph_module"
-    assert continuation["node_work_order"]["work_kind"] == "subruntime"
+    assert continuation["runtime_control"]["node_work_order"]["subruntime_kind"] == "graph_module"
+    assert continuation["runtime_control"]["node_work_order"]["work_kind"] == "subruntime"
     assert continuation["next_stage_id"] == "graph_module.block.child"
-    assert continuation["current_turn_context"]["node_work_order"]["work_kind"] == "subruntime"
+    assert "node_work_order" not in continuation["current_turn_context"]
 
 
 class _GraphModuleRegistry:

@@ -8,6 +8,7 @@ from task_system.compiler.coordination_graph_compiler import compile_task_graph_
 
 from ..shared.models import TaskRun
 from task_system.runtime_semantics.protocol_boundary import is_internal_protocol_input_key
+from runtime.agent_assembly import build_runtime_control_payload, runtime_control_ref_summary
 from .graph_module_runtime import build_graph_module_runtime_handle_from_request, build_graph_module_runtime_handle_from_work_order
 from .models import GraphModuleStartResult
 
@@ -61,6 +62,19 @@ def start_graph_module_stage_request(
         for key, value in dict(handle).items()
         if key not in {"explicit_inputs", "standard_input_package"}
     }
+    runtime_control_summary = runtime_control_ref_summary(
+        build_runtime_control_payload(
+            stage_execution_request=request_payload,
+            node_work_order=work_order_payload,
+            agent_assembly_contract=dict(agent_assembly_contract or {}),
+            standard_input_package=dict(
+                handle.get("standard_input_package")
+                or work_order_payload.get("input_package")
+                or request_payload.get("standard_input_package")
+                or {}
+            ),
+        )
+    )
     imported_initial_inputs = {
         str(key): value
         for key, value in dict(handle.get("explicit_inputs") or {}).items()
@@ -72,8 +86,9 @@ def start_graph_module_stage_request(
         "graph_module_runtime_handle_id": str(handle.get("handle_id") or ""),
         "importing_graph_module_runtime_handle": importing_runtime_handle,
         "importing_stage_execution_request_ref": str(request_payload.get("request_id") or request_payload.get("idempotency_key") or ""),
-        "importing_node_work_order": work_order_payload,
-        "importing_agent_assembly_contract": dict(agent_assembly_contract or {}),
+        "importing_runtime_control_summary": runtime_control_summary,
+        "importing_node_work_order_ref": str(runtime_control_summary.get("work_order_id") or ""),
+        "importing_agent_assembly_contract_ref": str(runtime_control_summary.get("assembly_id") or ""),
         "importing_standard_input_package": dict(
             handle.get("standard_input_package")
             or work_order_payload.get("input_package")

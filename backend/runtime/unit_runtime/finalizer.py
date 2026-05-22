@@ -21,6 +21,7 @@ from ..shared.models import (
     TaskRun,
 )
 from ..execution.node_execution_request import NodeResultReadyEvent
+from ..agent_assembly import sanitize_explicit_inputs
 from ..memory.project_supervision import (
     build_runtime_status,
     classify_blocker,
@@ -160,7 +161,18 @@ class TaskRunFinalizer:
                 reason=finalization_suppression_reason,
             )
             return FinishedTaskRunResult(events=tuple(events), continuation_payload={})
-        explicit_inputs = dict(dict(current_turn_context or {}).get("explicit_inputs") or {})
+        start_task_run_diagnostics = dict(base_task_run.diagnostics or {})
+        stage_execution_request = _stage_execution_request_for_finalizer(
+            task_run_diagnostics=start_task_run_diagnostics,
+            current_turn_context=current_turn_context,
+            coordination_run=start_coordination_run,
+            langgraph_coordination_runtime=self.langgraph_coordination_runtime,
+        )
+        explicit_inputs = sanitize_explicit_inputs(
+            dict(current_turn_context or {}).get("explicit_inputs")
+            or stage_execution_request.get("explicit_inputs")
+            or {}
+        )
         task_ref_for_artifacts = str(
             dict(current_turn_context or {}).get("selected_task_id")
             or dict(current_turn_context or {}).get("task_id")
@@ -182,7 +194,6 @@ class TaskRunFinalizer:
         if task_record_for_artifacts is not None:
             task_ref_for_artifacts = str(getattr(task_record_for_artifacts, "task_id", "") or task_ref_for_artifacts)
             task_policy_for_artifacts = dict(task_record_for_artifacts.task_policy or {})
-        stage_execution_request = dict(dict(current_turn_context or {}).get("stage_execution_request") or {})
         stage_artifact_policy = dict(stage_execution_request.get("artifact_policy") or {})
         if stage_artifact_policy:
             task_policy_for_artifacts = {
@@ -492,7 +503,12 @@ class TaskRunFinalizer:
             graph_record = self._resolve_task_graph_view(target_coordination_run.graph_ref)
             if self.langgraph_coordination_runtime.supports(target_coordination_run):
                 raw_flow_state = dict(target_coordination_run.diagnostics.get("coordination_flow") or {})
-                current_stage_request = dict(dict(current_turn_context or {}).get("stage_execution_request") or {})
+                current_stage_request = _stage_execution_request_for_finalizer(
+                    task_run_diagnostics=dict(start_task_run.diagnostics or {}),
+                    current_turn_context=current_turn_context,
+                    coordination_run=target_coordination_run,
+                    langgraph_coordination_runtime=self.langgraph_coordination_runtime,
+                )
                 request_stage_id = str(current_stage_request.get("stage_id") or "").strip()
                 flow_stage_id = str(raw_flow_state.get("current_stage_id") or "").strip()
                 resolved_stage_id = self._stage_id_for_task_ref(
@@ -1330,6 +1346,67 @@ def _specific_task_record_for_runtime_ref(flow_registry: TaskFlowRegistry, task_
         if task_id == raw or task_id.endswith(f".{suffix}") or task_id.split(".")[-1] == suffix:
             return record
     return None
+
+
+def _stage_execution_request_for_finalizer(
+    *,
+    task_run_diagnostics: dict[str, Any] | None,
+    current_turn_context: dict[str, Any] | None,
+    coordination_run: CoordinationRun | None,
+    langgraph_coordination_runtime: LangGraphCoordinationRuntime,
+) -> dict[str, Any]:
+    diagnostics = dict(task_run_diagnostics or {})
+    assembly = dict(diagnostics.get("agent_assembly_contract") or {})
+    work_order = dict(assembly.get("work_order") or {})
+    if work_order:
+        return _stage_request_payload_from_work_order(work_order)
+    context_request = dict(dict(current_turn_context or {}).get("stage_execution_request") or {})
+    if context_request:
+        return context_request
+    if coordination_run is not None and langgraph_coordination_runtime.supports(coordination_run):
+        state = langgraph_coordination_runtime.checkpoints.get_state(thread_id=coordination_run.coordination_run_id) or {}
+        return dict(state.get("stage_execution_request") or {})
+    return {}
+
+
+def _stage_request_payload_from_work_order(work_order: dict[str, Any]) -> dict[str, Any]:
+    item = dict(work_order or {})
+    if not item:
+        return {}
+    return {
+        "request_id": str(item.get("work_order_id") or ""),
+        "coordination_run_id": str(item.get("coordination_run_id") or ""),
+        "thread_id": str(item.get("thread_id") or item.get("coordination_run_id") or ""),
+        "root_task_run_id": str(item.get("root_task_run_id") or ""),
+        "stage_id": str(item.get("stage_id") or ""),
+        "node_id": str(item.get("node_id") or item.get("stage_id") or ""),
+        "task_ref": str(item.get("task_ref") or ""),
+        "agent_id": str(item.get("agent_id") or ""),
+        "agent_profile_id": str(item.get("agent_profile_id") or ""),
+        "runtime_lane": str(item.get("runtime_lane") or ""),
+        "executor_type": str(item.get("executor_type") or "agent"),
+        "executor_binding": dict(item.get("executor_binding") or {}),
+        "message": str(item.get("message") or ""),
+        "explicit_inputs": sanitize_explicit_inputs(item.get("explicit_inputs") or {}),
+        "standard_input_package": dict(item.get("input_package") or item.get("standard_input_package") or {}),
+        "artifact_policy": dict(item.get("artifact_policy") or {}),
+        "stream_policy": dict(item.get("stream_policy") or {}),
+        "artifact_root": str(item.get("artifact_root") or ""),
+        "artifact_targets": list(item.get("artifact_targets") or []),
+        "output_contract_id": str(item.get("output_contract_id") or ""),
+        "expected_outputs": list(item.get("expected_outputs") or []),
+        "working_memory_refs": list(item.get("working_memory_refs") or []),
+        "dispatch_context": dict(item.get("dispatch_context") or {}),
+        "memory_snapshot": dict(item.get("memory_snapshot") or {}),
+        "artifact_context_packet": dict(item.get("artifact_context_packet") or {}),
+        "revision_packet": dict(item.get("revision_packet") or {}),
+        "handoff_packet_refs": list(item.get("handoff_packet_refs") or []),
+        "timeline_result_policy": dict(item.get("timeline_result_policy") or {}),
+        "human_work_packet": dict(item.get("human_work_packet") or {}),
+        "a2a_payload": dict(item.get("a2a_payload") or {}),
+        "runtime_assembly": dict(item.get("runtime_assembly") or {}),
+        "idempotency_key": str(item.get("idempotency_key") or ""),
+    }
 
 
 def _task_run_finalization_suppression_reason(

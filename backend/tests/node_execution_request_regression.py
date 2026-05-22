@@ -119,6 +119,14 @@ def test_agent_executor_continuation_payload_exposes_stage_request_identity() ->
     assert payload["runtime_control"]["stage_execution_request"]["idempotency_key"] == request.idempotency_key
     assert payload["current_turn_context"]["stage_execution_request_ref"] == "nodeexec:draft"
     assert "stage_execution_request" not in payload["current_turn_context"]
+    assert "node_work_order" not in payload["current_turn_context"]
+    assert "agent_assembly_contract" not in payload["current_turn_context"]
+    assert "runtime_control" not in payload["current_turn_context"]
+    assert "a2a_payload" not in payload["current_turn_context"]
+    assert "stage_execution_request" not in payload
+    assert "node_work_order" not in payload
+    assert "agent_assembly_contract" not in payload
+    assert "a2a_payload" not in payload
     assert payload["task_selection"]["selected_task_id"] == "task.test.chapter_draft"
 
 

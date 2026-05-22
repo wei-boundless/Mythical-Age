@@ -14,37 +14,13 @@ from understanding.capability_resolution_view import capability_resolution_view
 from understanding.memory_intent import analyze_memory_intent
 from understanding.query_understanding import analyze_query_understanding
 
+from runtime.agent_assembly.boundary import (
+    build_model_context_payload,
+    build_task_selection_payload,
+)
 from ..identity import normalize_agent_id
 from ..profiles.runtime_profile_registry import AgentRuntimeRegistry
 from .runtime_bundle_builder import build_orchestration_runtime_bundle
-
-
-_CONTROL_CONTEXT_KEYS = {
-    "stage_execution_request",
-    "node_work_order",
-    "agent_assembly_contract",
-    "execution_permit",
-}
-
-
-_MODEL_CONTEXT_TASK_SELECTION_KEYS = {
-    "turn_id",
-    "selected_task_id",
-    "task_id",
-    "agent_id",
-    "agent_profile_id",
-    "projection_id",
-    "selected_projection_id",
-    "runtime_lane",
-    "runtime_limits",
-    "agent_group_id",
-    "artifact_root",
-    "workspace_root",
-    "explicit_inputs",
-    "a2a_payload",
-    "coordination_run_id",
-    "continuation_stage_id",
-}
 
 
 class AgentRuntimeChainAssembler:
@@ -69,9 +45,11 @@ class AgentRuntimeChainAssembler:
         current_turn_context_override: dict[str, Any] | None = None,
         agent_assembly_contract: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        task_selection_payload = dict(task_selection or {})
-        assembly_contract_payload = dict(agent_assembly_contract or task_selection_payload.get("agent_assembly_contract") or {})
-        task_selection_payload.pop("agent_assembly_contract", None)
+        assembly_contract_payload = dict(agent_assembly_contract or dict(task_selection or {}).get("agent_assembly_contract") or {})
+        task_selection_payload = build_task_selection_payload(
+            task_selection=task_selection,
+            agent_assembly_contract=assembly_contract_payload,
+        )
         effective_agent_runtime_profile = agent_runtime_profile
         selected_agent_id = normalize_agent_id(
             str(assembly_contract_payload.get("agent_id") or task_selection_payload.get("agent_id") or "").strip()
@@ -98,6 +76,7 @@ class AgentRuntimeChainAssembler:
         initial_memory_request_profile = _memory_request_profile_for_context_assembly(
             {},
             task_selection=task_selection_payload,
+            agent_assembly_contract=assembly_contract_payload,
         )
         memory_payload = self.build_memory_runtime_view_payload(
             task_id=task_id,
@@ -173,21 +152,13 @@ class AgentRuntimeChainAssembler:
         current_turn_context_payload = current_turn_context.to_dict()
         if current_turn_context_override:
             current_turn_context_payload.update(
-                {
-                    key: value
-                    for key, value in dict(current_turn_context_override or {}).items()
-                    if value not in ("", None, [], {}) and key not in _CONTROL_CONTEXT_KEYS
-                }
+                build_model_context_payload(current_turn_context=current_turn_context_override)
             )
         if turn_id:
             current_turn_context_payload["turn_id"] = turn_id
         if task_selection:
             current_turn_context_payload.update(
-                {
-                    key: value
-                    for key, value in dict(task_selection or {}).items()
-                    if value not in ("", None, [], {}) and key in _MODEL_CONTEXT_TASK_SELECTION_KEYS
-                }
+                build_model_context_payload(current_turn_context=task_selection_payload)
             )
         skill_frame = _resolve_skill_frame(self.skill_registry, query_understanding)
         task_bundle = build_task_execution_assembly_bundle(
@@ -213,6 +184,7 @@ class AgentRuntimeChainAssembler:
             memory_request_profile,
             task_selection=task_selection_payload,
             current_turn_context=current_turn_context_payload,
+            agent_assembly_contract=assembly_contract_payload,
         )
         task_operation["task_memory_request_profile"] = memory_request_profile
         memory_payload = self.build_memory_runtime_view_payload(
@@ -363,8 +335,15 @@ def _memory_request_profile_for_context_assembly(
     *,
     task_selection: dict[str, Any] | None = None,
     current_turn_context: dict[str, Any] | None = None,
+    agent_assembly_contract: dict[str, Any] | None = None,
+    runtime_assembly: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    policy = _context_assembly_policy_from_payloads(task_selection, current_turn_context)
+    policy = _context_assembly_policy_from_payloads(
+        {"runtime_assembly": dict(runtime_assembly or {})},
+        {"agent_assembly_contract": dict(agent_assembly_contract or {})},
+        task_selection,
+        current_turn_context,
+    )
     if not bool(policy.get("suppress_conversation_memory")):
         return dict(memory_request_profile or {})
     profile = dict(memory_request_profile or {})

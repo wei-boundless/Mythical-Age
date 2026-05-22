@@ -447,58 +447,6 @@ class AgentAssemblyContract:
         payload["diagnostics"] = dict(self.diagnostics)
         return payload
 
-    def memory_binding_snapshot(self) -> dict[str, Any]:
-        return {
-            "read_scope": dict(self.memory_binding.read_scope),
-            "write_scope": dict(self.memory_binding.write_scope),
-            "snapshot_ref": str(self.memory_binding.snapshot_ref or self.memory_snapshot.get("memory_snapshot_id") or ""),
-            "durable_ref": str(self.memory_binding.durable_ref or self.work_order.get("durable_memory_ref") or ""),
-        }
-
-    def soul_binding_snapshot(self) -> dict[str, Any]:
-        binding = self.soul_binding
-        prompt = self.prompt_assembly
-        return {
-            "projection_id": str(binding.projection_id or self.projection_id or ""),
-            "soul_id": str(binding.soul_id or self.soul_id or ""),
-            "prompt_manifest_ref": str(binding.prompt_manifest_ref or self.prompt_manifest_ref or ""),
-            "role_name": str(binding.role_name or (prompt.role_name if prompt is not None else "") or ""),
-            "role_summary": str(binding.role_summary or (prompt.role_summary if prompt is not None else "") or ""),
-            "metadata": dict(binding.metadata),
-        }
-
-    def capability_binding_snapshot(self) -> dict[str, Any]:
-        binding = self.capability_binding
-        return {
-            "allowed_operations": [str(item).strip() for item in binding.allowed_operations if str(item).strip()],
-            "visible_tools": [str(item).strip() for item in binding.visible_tools if str(item).strip()],
-            "dispatchable_tools": [str(item).strip() for item in binding.dispatchable_tools if str(item).strip()],
-            "mcp_routes": [str(item).strip() for item in binding.mcp_routes if str(item).strip()],
-            "delegated_agent_ids": [str(item).strip() for item in binding.delegated_agent_ids if str(item).strip()],
-            "metadata": dict(binding.metadata),
-        }
-
-    def prompt_snapshot(self) -> dict[str, Any]:
-        prompt = self.prompt_assembly
-        if prompt is None:
-            return {"role_name": "", "instruction_text": ""}
-        sections = []
-        for section in prompt.visible_sections:
-            ref = str(section.ref or section.port_id or "").strip()
-            if ref:
-                sections.append(f"- {section.port_kind}: {ref}")
-        instruction = str(prompt.instruction_text or "").strip()
-        if sections:
-            instruction = f"{instruction}\n\n可见输入：\n" + "\n".join(sections)
-        return {
-            "prompt_id": prompt.prompt_id,
-            "role_name": prompt.role_name,
-            "instruction_text": instruction.strip(),
-            "required_outputs": list(prompt.required_outputs),
-            "forbidden_actions": list(prompt.forbidden_actions),
-        }
-
-
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ExecutionPermit:
     permit_id: str

@@ -321,7 +321,7 @@ def test_context_assembly_policy_filters_conversation_memory_layer() -> None:
 
     filtered = _memory_request_profile_for_context_assembly(
         profile,
-        task_selection={"stage_execution_request": {"runtime_assembly": runtime_assembly}},
+        runtime_assembly=runtime_assembly,
     )
 
     assert filtered["requested_memory_layers"] == ["state", "long_term"]

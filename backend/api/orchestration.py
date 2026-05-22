@@ -24,6 +24,12 @@ from runtime.subruntime.result_packets import (
     latest_unconsumed_graph_module_imported_result,
     mark_graph_module_imported_output_packet_committed,
 )
+from runtime.agent_assembly import (
+    agent_assembly_contract_from_runtime_control,
+    node_work_order_from_runtime_control,
+    stage_execution_request_from_runtime_control,
+)
+from runtime.execution.node_execution_request import NodeExecutionRequest
 from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
 from task_system import TaskFlowRegistry
 from sessions import InvalidSessionId, validate_session_id
@@ -122,8 +128,6 @@ async def start_task_graph_runtime_loop_run(
     initial_stage_execution_background = False
     initial_stage_execution_schedule: dict[str, Any] = {}
     if payload.execute_initial_stage and stage_execution_request:
-        from runtime.execution.node_execution_request import NodeExecutionRequest
-
         request = NodeExecutionRequest.from_dict(stage_execution_request)
         try:
             initial_stage_execution_schedule = _schedule_stage_execution_background(
@@ -381,7 +385,7 @@ async def continue_coordination_current_stage(
     )
     if recovered_stage_result.get("recovered"):
         continuation_payload = dict(recovered_stage_result.get("continuation_payload") or {})
-        request_payload = dict(continuation_payload.get("stage_execution_request") or {})
+        request_payload = stage_execution_request_from_runtime_control(continuation_payload)
         request = NodeExecutionRequest.from_dict(request_payload) if request_payload else None
         schedule_result: dict[str, Any] = {}
         if request is not None:
@@ -390,8 +394,8 @@ async def continue_coordination_current_stage(
                 session_id=session_id,
                 source=payload.source or "orchestration.coordination_run_continue_api:completed_checkpoint_recovery",
                 stage_execution_request=request,
-                node_work_order=dict(continuation_payload.get("node_work_order") or {}),
-                agent_assembly_contract=dict(continuation_payload.get("agent_assembly_contract") or {}),
+                node_work_order=node_work_order_from_runtime_control(continuation_payload),
+                agent_assembly_contract=agent_assembly_contract_from_runtime_control(continuation_payload),
                 current_turn_context={
                     "authority": "context.coordination_run_continue",
                     "coordination_run_id": coordination_run_id,

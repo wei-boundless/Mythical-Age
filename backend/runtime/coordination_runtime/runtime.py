@@ -95,7 +95,12 @@ from task_system.runtime_semantics.review_gate_verdict import (
 from .checkpoint_adapter import LangGraphCheckpointStoreAdapter
 from .runtime_kernel import LangGraphRuntimeKernel
 from .work_order_builder import build_node_work_order_from_request
-from ..agent_assembly import build_agent_assembly_contract
+from ..agent_assembly import (
+    build_agent_assembly_contract,
+    build_model_context_payload,
+    build_runtime_control_payload,
+    build_task_selection_payload,
+)
 from ..shared.runtime_object_store import RuntimeObjectStore
 from ..shared.models import AgentHandoffEnvelope, CoordinationRun
 from ..contracts.runtime_assembly_builder import build_node_runtime_assembly
@@ -208,59 +213,27 @@ class LangGraphCoordinationRuntimeResult:
         request = self.stage_execution_request or NodeExecutionRequest.from_dict(
             _request_compat_payload_from_work_order(work_order)
         )
-        runtime_assembly = dict(request.runtime_assembly or {})
-        projection_id = str(runtime_assembly.get("projection_id") or "").strip()
         work_order_task_ref = str(work_order.get("task_ref") or request.task_ref)
-        work_order_agent_id = str(work_order.get("agent_id") or request.agent_id)
-        work_order_projection_id = str(work_order.get("projection_id") or projection_id)
         work_order_executor_type = str(work_order.get("executor_type") or request.executor_type)
         work_order_stage_id = str(work_order.get("stage_id") or request.stage_id)
         stage_request_payload = request.to_dict()
         stage_request_ref = _stage_execution_request_ref(stage_request_payload)
         standard_input_package = dict(work_order.get("input_package") or request.standard_input_package)
-        explicit_inputs = dict(work_order.get("explicit_inputs") or request.explicit_inputs)
         a2a_payload = dict(work_order.get("a2a_payload") or request.a2a_payload)
-        inherited_context = {
-            key: value
-            for key, value in dict(current_turn_context or {}).items()
-            if key
-            not in {
-                "user_message",
-                "current_user_message",
-                "task_id",
-                "selected_task_id",
-                "agent_id",
-                "projection_id",
-                "selected_projection_id",
-                "continuation_stage_id",
-                "stage_execution_request",
-                "node_work_order",
-                "agent_assembly_contract",
-                "a2a_payload",
-            }
-        }
-        turn_context = {
-            **inherited_context,
-            "selected_task_id": work_order_task_ref,
-            "task_id": work_order_task_ref,
-            "agent_id": work_order_agent_id,
-            "projection_id": work_order_projection_id,
-            "selected_projection_id": work_order_projection_id,
-            "coordination_run_id": request.coordination_run_id,
-            "continuation_stage_id": work_order_stage_id,
-            "work_order_id": str(work_order.get("work_order_id") or request.request_id),
-            "assembly_id": str(assembly_contract.get("assembly_id") or ""),
-            "stage_execution_request_ref": stage_request_ref,
-            "a2a_payload": a2a_payload,
-            "explicit_inputs": explicit_inputs,
-        }
-        runtime_control = {
-            "stage_execution_request": stage_request_payload,
-            "stage_execution_request_ref": stage_request_ref,
-            "node_work_order": work_order,
-            "agent_assembly_contract": assembly_contract,
-            "standard_input_package": standard_input_package,
-        }
+        runtime_control = build_runtime_control_payload(
+            stage_execution_request=stage_request_payload,
+            stage_execution_request_ref=stage_request_ref,
+            node_work_order=work_order,
+            agent_assembly_contract=assembly_contract,
+            standard_input_package=standard_input_package,
+        )
+        turn_context = build_model_context_payload(
+            current_turn_context=current_turn_context,
+            stage_execution_request=stage_request_payload,
+            node_work_order=work_order,
+            agent_assembly_contract=assembly_contract,
+            stage_execution_request_ref=stage_request_ref,
+        )
         if work_order_executor_type == "human":
             return {
                 "session_id": session_id,
@@ -307,22 +280,11 @@ class LangGraphCoordinationRuntimeResult:
             "current_turn_context": turn_context,
             "message": str(work_order.get("message") or request.message),
             "runtime_control": runtime_control,
-            "stage_execution_request": stage_request_payload,
-            "node_work_order": work_order,
-            "agent_assembly_contract": assembly_contract,
-            "a2a_payload": a2a_payload,
-            "task_selection": {
-                "selected_task_id": work_order_task_ref,
-                "task_id": work_order_task_ref,
-                "agent_id": work_order_agent_id,
-                "agent_profile_id": str(assembly_contract.get("agent_profile_id") or work_order.get("agent_profile_id") or request.agent_profile_id),
-                "runtime_lane": str(assembly_contract.get("runtime_lane") or work_order.get("runtime_lane") or request.runtime_lane),
-                "projection_id": work_order_projection_id,
-                "selected_projection_id": work_order_projection_id,
-                "work_order_id": str(work_order.get("work_order_id") or request.request_id),
-                "assembly_id": str(assembly_contract.get("assembly_id") or ""),
-                "stage_execution_request_ref": stage_request_ref,
-            },
+            "task_selection": build_task_selection_payload(
+                current_turn_context=turn_context,
+                agent_assembly_contract=assembly_contract,
+                runtime_control=runtime_control,
+            ),
             "suppress_done": True,
         }
 

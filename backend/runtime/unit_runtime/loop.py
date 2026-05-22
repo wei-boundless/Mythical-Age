@@ -85,10 +85,16 @@ from ..execution.agent_delegation_executor import AgentDelegationExecutor
 from ..coordination_runtime.runtime import LangGraphCoordinationRuntime, LangGraphCoordinationRuntimeResult
 from ..agent_assembly import (
     WorkOrder,
+    agent_assembly_contract_from_runtime_control,
+    build_model_context_payload,
+    build_task_selection_payload,
     build_agent_assembly_contract,
     build_assembly_contract_id,
     build_execution_permit_id,
     build_work_order_id,
+    node_work_order_from_runtime_control,
+    stage_execution_request_from_runtime_control,
+    strip_control_context,
 )
 from ..execution_permit import (
     append_approval_rejection_observation,
@@ -1259,6 +1265,8 @@ class TaskRunLoop:
             runtime_chain_task_selection["assembly_id"] = str(assembly_contract.get("assembly_id") or "")
             runtime_chain_task_selection["work_order_id"] = str(assembly_contract.get("work_order_id") or "")
             runtime_chain_task_selection["executor_type"] = str(assembly_contract.get("executor_type") or "")
+        stream_policy = dict(assembly_contract.get("stream_policy") or dict(runtime_chain_task_selection.get("stream_policy") or {}))
+        artifact_policy = dict(assembly_contract.get("artifact_policy") or dict(runtime_chain_task_selection.get("artifact_policy") or {}))
         allowed_search_sources = _resolve_runtime_search_sources(
             search_policy=search_policy,
             task_selection=runtime_chain_task_selection,
@@ -1278,6 +1286,10 @@ class TaskRunLoop:
             agent_assembly_contract=assembly_contract,
         )
         task_operation = dict(chain_runtime.get("task_operation") or {})
+        if stream_policy:
+            task_operation["runtime_stream_policy"] = stream_policy
+        if artifact_policy:
+            task_operation["runtime_artifact_policy"] = artifact_policy
         task_contract = dict(task_operation.get("task_contract") or {})
         task_intent_contract = dict(task_operation.get("task_intent_contract") or {})
         selected_recipe_payload = dict(task_operation.get("selected_recipe") or {})
@@ -1591,6 +1603,8 @@ class TaskRunLoop:
         model_stream_policy = model_stream_policy_from_task_execution_assembly(
             task_execution_assembly_payload,
             current_turn_context=current_turn_context,
+            agent_assembly_contract=assembly_contract,
+            runtime_policy=dict(task_operation.get("runtime_stream_policy") or {}),
         )
         if _is_professional_task_run_recipe(selected_recipe_payload):
             model_stream_policy = {
@@ -1608,6 +1622,8 @@ class TaskRunLoop:
             selected_recipe_payload=selected_recipe_payload,
             task_execution_assembly=task_execution_assembly_payload,
             current_turn_context=current_turn_context,
+            agent_assembly_contract=assembly_contract,
+            runtime_policy=dict(task_operation.get("runtime_artifact_policy") or {}),
         )
         if current_turn_context:
             current_turn_event = self.event_log.append(
@@ -4238,7 +4254,7 @@ class TaskRunLoop:
             stage_agent_runtime_profile = self.agent_runtime_registry.get_profile(stage_agent_id)
             if stage_agent_runtime_profile is None:
                 raise ValueError(f"TaskGraph node agent has no runtime profile: {stage_agent_id}")
-        stage_request = dict(runtime_control.get("stage_execution_request") or continuation_payload.get("stage_execution_request") or {})
+        stage_request = stage_execution_request_from_runtime_control(continuation_payload)
         standard_input_package = dict(runtime_control.get("standard_input_package") or stage_request.get("standard_input_package") or {})
         standard_input_materials = _render_standard_input_package_for_model(standard_input_package)
         if standard_input_materials and standard_input_materials not in next_message:
@@ -5153,6 +5169,8 @@ _STANDARD_INPUT_ITEM_TEXT_LIMIT = 24_000
 
 def _render_standard_input_package_for_model(standard_input_package: dict[str, Any]) -> str:
     package = dict(standard_input_package or {})
+    if "input_items" not in package and isinstance(package.get("standard_input_package"), dict):
+        package = dict(package.get("standard_input_package") or {})
     items = [dict(item) for item in list(package.get("input_items") or []) if isinstance(item, dict)]
     if not items:
         return ""
@@ -5460,18 +5478,14 @@ def _selection_is_coordination_task(selection: dict[str, Any]) -> bool:
 
 
 def _model_context_from_continuation_payload(continuation_payload: dict[str, Any]) -> dict[str, Any]:
-    context = dict(continuation_payload.get("current_turn_context") or {})
-    for key in (
-        "stage_execution_request",
-        "node_work_order",
-        "agent_assembly_contract",
-        "execution_permit",
-    ):
-        context.pop(key, None)
     runtime_control = dict(continuation_payload.get("runtime_control") or {})
-    if runtime_control.get("stage_execution_request_ref") and not context.get("stage_execution_request_ref"):
-        context["stage_execution_request_ref"] = str(runtime_control.get("stage_execution_request_ref") or "")
-    return context
+    return build_model_context_payload(
+        current_turn_context=dict(continuation_payload.get("current_turn_context") or {}),
+        stage_execution_request=dict(runtime_control.get("stage_execution_request") or {}),
+        node_work_order=dict(runtime_control.get("node_work_order") or {}),
+        agent_assembly_contract=dict(runtime_control.get("agent_assembly_contract") or {}),
+        stage_execution_request_ref=str(runtime_control.get("stage_execution_request_ref") or ""),
+    )
 
 
 def _task_selection_from_continuation_context(
@@ -5479,39 +5493,12 @@ def _task_selection_from_continuation_context(
     continuation_payload: dict[str, Any],
     current_turn_context: dict[str, Any],
 ) -> dict[str, Any]:
-    selection = {
-        key: value
-        for key, value in dict(continuation_payload.get("task_selection") or {}).items()
-        if key not in {"stage_execution_request", "node_work_order", "agent_assembly_contract", "execution_permit"}
-    }
-    for key in (
-        "turn_id",
-        "selected_task_id",
-        "task_id",
-        "agent_id",
-        "agent_profile_id",
-        "projection_id",
-        "selected_projection_id",
-        "runtime_lane",
-        "runtime_limits",
-        "agent_group_id",
-        "artifact_root",
-        "workspace_root",
-        "explicit_inputs",
-        "a2a_payload",
-        "coordination_run_id",
-        "continuation_stage_id",
-        "stage_execution_request_ref",
-        "work_order_id",
-        "assembly_id",
-    ):
-        value = current_turn_context.get(key)
-        if value not in ("", None, [], {}):
-            selection[key] = value
-    runtime_control = dict(continuation_payload.get("runtime_control") or {})
-    if runtime_control.get("stage_execution_request_ref"):
-        selection["stage_execution_request_ref"] = str(runtime_control.get("stage_execution_request_ref") or "")
-    return selection
+    return build_task_selection_payload(
+        task_selection=dict(continuation_payload.get("task_selection") or {}),
+        current_turn_context=current_turn_context,
+        agent_assembly_contract=agent_assembly_contract_from_runtime_control(continuation_payload),
+        runtime_control=dict(continuation_payload.get("runtime_control") or {}),
+    )
 
 
 def _intent_continuation_trace_events(current_turn_context: dict[str, Any]) -> list[dict[str, Any]]:
@@ -5793,14 +5780,10 @@ def _assembly_contract_from_continuation_payload(
     base_dir: Path,
 ) -> dict[str, Any]:
     payload = dict(continuation_payload or {})
-    assembly = dict(payload.get("agent_assembly_contract") or {})
+    assembly = agent_assembly_contract_from_runtime_control(payload)
     if assembly:
         return assembly
-    context = dict(payload.get("current_turn_context") or {})
-    assembly = dict(context.get("agent_assembly_contract") or {})
-    if assembly:
-        return assembly
-    work_order = dict(payload.get("node_work_order") or context.get("node_work_order") or {})
+    work_order = node_work_order_from_runtime_control(payload)
     if not work_order:
         return {}
     return build_agent_assembly_contract(WorkOrder.from_dict(work_order), base_dir=base_dir).to_dict()
@@ -6024,7 +6007,7 @@ class _ContinuationAgentRuntimeChain:
 
     def build_runtime(self, **kwargs) -> dict[str, Any]:
         override = {
-            **dict(kwargs.get("current_turn_context_override") or {}),
+            **strip_control_context(dict(kwargs.get("current_turn_context_override") or {})),
             **dict(self._forced_turn_context),
         }
         forced_agent_id = str(self._assembly_contract.get("agent_id") or self._forced_turn_context.get("agent_id") or "").strip()
@@ -6036,18 +6019,13 @@ class _ContinuationAgentRuntimeChain:
             override["agent_profile_id"] = forced_agent_profile_id
         if forced_runtime_lane:
             override["runtime_lane"] = forced_runtime_lane
-        for key in ("stage_execution_request", "node_work_order", "agent_assembly_contract", "execution_permit"):
-            override.pop(key, None)
+        override = strip_control_context(override)
         kwargs["current_turn_context_override"] = override
-        task_selection = {
-            **dict(kwargs.get("task_selection") or {}),
-            **{
-                key: value
-                for key, value in override.items()
-                if value not in ("", None, [], {})
-                and key not in {"stage_execution_request", "node_work_order", "agent_assembly_contract", "execution_permit"}
-            },
-        }
+        task_selection = build_task_selection_payload(
+            task_selection=dict(kwargs.get("task_selection") or {}),
+            current_turn_context=override,
+            agent_assembly_contract=self._assembly_contract,
+        )
         if forced_agent_id:
             task_selection["agent_id"] = forced_agent_id
         if forced_agent_profile_id:
@@ -6062,11 +6040,10 @@ class _ContinuationAgentRuntimeChain:
         kwargs["agent_assembly_contract"] = self._assembly_contract
         runtime = dict(self._base.build_runtime(**kwargs) or {})
         current_turn_context = {
-            **dict(runtime.get("current_turn_context") or {}),
+            **strip_control_context(dict(runtime.get("current_turn_context") or {})),
             **dict(self._forced_turn_context),
         }
-        for key in ("stage_execution_request", "node_work_order", "agent_assembly_contract", "execution_permit"):
-            current_turn_context.pop(key, None)
+        current_turn_context = build_model_context_payload(current_turn_context=current_turn_context)
         if self._assembly_contract:
             current_turn_context["agent_id"] = forced_agent_id
             current_turn_context["agent_profile_id"] = forced_agent_profile_id
