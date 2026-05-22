@@ -120,7 +120,8 @@ def test_human_continuation_uses_work_order_boundary() -> None:
     assert payload["requires_human_executor"] is True
     assert payload["node_work_order"]["work_order_id"] == work_order.work_order_id
     assert payload["current_turn_context"]["agent_id"] == "agent:reviewer"
-    assert payload["current_turn_context"]["node_work_order"]["work_kind"] == "human"
+    assert "node_work_order" not in payload["current_turn_context"]
+    assert payload["node_work_order"]["work_kind"] == "human"
     assert payload["next_stage_id"] == "manual_review"
 
 

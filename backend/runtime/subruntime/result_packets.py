@@ -21,14 +21,14 @@ def latest_unconsumed_graph_module_imported_result(
         return {}
     stage_results = dict(state.get("stage_results") or {})
     already_consumed_task_run_id = str(dict(stage_results.get(active_stage_id) or {}).get("task_run_id") or "").strip()
-    current_stage_payload = dict(state.get("stage_execution_request") or {})
+    current_stage_payload = dict(state.get("node_work_order") or state.get("stage_execution_request") or {})
     active_task_ref = str(
         current_stage_payload.get("task_ref")
         or dict(dict(state.get("stage_contracts") or {}).get(active_stage_id) or {}).get("task_ref")
         or state.get("active_task_ref")
         or ""
     ).strip()
-    active_request_id = str(current_stage_payload.get("request_id") or "").strip()
+    active_request_id = str(current_stage_payload.get("request_id") or current_stage_payload.get("work_order_id") or "").strip()
     active_idempotency_key = str(current_stage_payload.get("idempotency_key") or "").strip()
     pending_inputs = dict(state.get("pending_inputs") or {})
     candidates: list[tuple[float, TaskRun, dict[str, Any], dict[str, Any]]] = []
@@ -42,11 +42,15 @@ def latest_unconsumed_graph_module_imported_result(
             continue
         if str(diagnostics.get("importing_stage_id") or diagnostics.get("stage_id") or "").strip() != active_stage_id:
             continue
-        imported_request_id = str(diagnostics.get("importing_stage_request_id") or "").strip()
-        imported_idempotency_key = str(diagnostics.get("importing_stage_idempotency_key") or "").strip()
+        imported_request_id = str(diagnostics.get("importing_work_order_id") or "").strip()
+        imported_idempotency_key = str(diagnostics.get("importing_stage_request_ref") or "").strip()
         if active_request_id and imported_request_id and imported_request_id != active_request_id:
             continue
-        if active_idempotency_key and imported_idempotency_key and imported_idempotency_key != active_idempotency_key:
+        if (
+            active_idempotency_key
+            and imported_idempotency_key
+            and imported_idempotency_key not in {active_idempotency_key, active_request_id}
+        ):
             continue
         committed = graph_module_imported_packet_consumption(
             task_run_loop=runtime.query_runtime.task_run_loop,
@@ -119,7 +123,7 @@ def latest_unconsumed_graph_module_imported_result(
             "artifact_refs": tuple(artifact_refs or [packet_ref]),
             "accepted": bool(packet.get("accepted") is True),
             "agent_run_result_ref": "",
-            "request_id": active_request_id or str(diagnostics.get("importing_stage_request_id") or ""),
+            "request_id": active_request_id or str(diagnostics.get("importing_work_order_id") or ""),
             "dispatch_event_id": str(diagnostics.get("importing_dispatch_event_id") or ""),
             "diagnostics": {
                 "authority": "runtime.subruntime.graph_module_committed_output_packet" if bool(packet.get("accepted") is True) else "runtime.subruntime.graph_module_committed_failure_packet",
@@ -136,7 +140,12 @@ def latest_unconsumed_graph_module_imported_result(
 
 
 def active_stage_is_graph_module(*, state: dict[str, Any], active_stage_id: str) -> bool:
+    work_order_payload = dict(state.get("node_work_order") or {})
     request_payload = dict(state.get("stage_execution_request") or {})
+    if str(work_order_payload.get("work_kind") or "") == "subruntime":
+        return True
+    if str(work_order_payload.get("subruntime_kind") or "") == "graph_module":
+        return True
     if str(request_payload.get("executor_type") or "") == "graph_module":
         return True
     contract = dict(dict(state.get("stage_contracts") or {}).get(active_stage_id) or {})
@@ -270,8 +279,8 @@ def graph_module_imported_completion_packet(
         "importing_root_task_run_id": str(diagnostics.get("importing_root_task_run_id") or ""),
         "importing_stage_id": str(diagnostics.get("importing_stage_id") or ""),
         "importing_node_id": str(diagnostics.get("importing_node_id") or ""),
-        "importing_stage_request_id": str(diagnostics.get("importing_stage_request_id") or ""),
-        "importing_stage_idempotency_key": str(diagnostics.get("importing_stage_idempotency_key") or ""),
+        "importing_work_order_id": str(diagnostics.get("importing_work_order_id") or ""),
+        "importing_stage_request_ref": str(diagnostics.get("importing_stage_request_ref") or ""),
         "imported_task_run_id": imported_task_run.task_run_id,
         "imported_coordination_run_id": imported_coordination_run_id,
         "linked_graph_id": str(diagnostics.get("linked_graph_id") or ""),
@@ -348,8 +357,8 @@ def graph_module_imported_failure_packet(
         "importing_root_task_run_id": str(diagnostics.get("importing_root_task_run_id") or ""),
         "importing_stage_id": str(diagnostics.get("importing_stage_id") or ""),
         "importing_node_id": str(diagnostics.get("importing_node_id") or ""),
-        "importing_stage_request_id": str(diagnostics.get("importing_stage_request_id") or ""),
-        "importing_stage_idempotency_key": str(diagnostics.get("importing_stage_idempotency_key") or ""),
+        "importing_work_order_id": str(diagnostics.get("importing_work_order_id") or ""),
+        "importing_stage_request_ref": str(diagnostics.get("importing_stage_request_ref") or ""),
         "imported_task_run_id": imported_task_run.task_run_id,
         "imported_coordination_run_id": imported_coordination_run_id,
         "linked_graph_id": str(diagnostics.get("linked_graph_id") or ""),

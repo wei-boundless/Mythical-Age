@@ -121,6 +121,45 @@ class TaskRunFinalizer:
         continuation_payload: dict[str, Any] = {}
         existing_task_run = self.state_index.get_task_run(start_task_run.task_run_id)
         base_task_run = existing_task_run or start_task_run
+        finalization_suppression_reason = _task_run_finalization_suppression_reason(
+            existing_task_run=existing_task_run,
+            terminal_state=terminal_state,
+            events=self.event_log.list_events(start_task_run.task_run_id),
+        )
+        if finalization_suppression_reason:
+            suppression_event = self.event_log.append(
+                start_task_run.task_run_id,
+                "task_run_finalization_suppressed",
+                payload={
+                    "reason": finalization_suppression_reason,
+                    "incoming_status": str(terminal_state.status or ""),
+                    "incoming_terminal_reason": str(terminal_state.terminal_reason or ""),
+                    "preserved_status": str(base_task_run.status or ""),
+                    "preserved_terminal_reason": str(base_task_run.terminal_reason or ""),
+                    "checkpoint_ref": str(checkpoint_event.refs.get("checkpoint_ref") or ""),
+                },
+                refs={
+                    "task_run_ref": start_task_run.task_run_id,
+                    "checkpoint_ref": str(checkpoint_event.refs.get("checkpoint_ref") or ""),
+                },
+            )
+            events.append(suppression_event)
+            self._preserve_suppressed_task_run_state(
+                task_run=base_task_run,
+                event_offset=suppression_event.offset,
+                reason=finalization_suppression_reason,
+                checkpoint_ref=str(base_task_run.latest_checkpoint_ref or ""),
+                incoming_status=str(terminal_state.status or ""),
+                incoming_terminal_reason=str(terminal_state.terminal_reason or ""),
+            )
+            self._close_running_agent_runs_after_suppressed_finalization(
+                task_run_id=start_task_run.task_run_id,
+                fallback_agent_run=start_agent_run,
+                status=_suppressed_agent_run_status(finalization_suppression_reason),
+                checkpoint_ref=str(base_task_run.latest_checkpoint_ref or ""),
+                reason=finalization_suppression_reason,
+            )
+            return FinishedTaskRunResult(events=tuple(events), continuation_payload={})
         explicit_inputs = dict(dict(current_turn_context or {}).get("explicit_inputs") or {})
         task_ref_for_artifacts = str(
             dict(current_turn_context or {}).get("selected_task_id")
@@ -622,6 +661,83 @@ class TaskRunFinalizer:
             events=tuple(events),
             continuation_payload=continuation_payload,
         )
+
+    def _preserve_suppressed_task_run_state(
+        self,
+        *,
+        task_run: TaskRun,
+        event_offset: int,
+        reason: str,
+        checkpoint_ref: str,
+        incoming_status: str,
+        incoming_terminal_reason: str,
+    ) -> None:
+        self.state_index.upsert_task_run(
+            TaskRun(
+                task_run_id=task_run.task_run_id,
+                session_id=task_run.session_id,
+                task_id=task_run.task_id,
+                task_contract_ref=task_run.task_contract_ref,
+                owner_agent_seat_id=task_run.owner_agent_seat_id,
+                agent_id=task_run.agent_id,
+                agent_profile_id=task_run.agent_profile_id,
+                runtime_lane=task_run.runtime_lane,
+                status=task_run.status,
+                created_at=task_run.created_at,
+                updated_at=time.time(),
+                latest_event_offset=event_offset,
+                latest_checkpoint_ref=checkpoint_ref,
+                terminal_reason=task_run.terminal_reason,
+                diagnostics={
+                    **dict(task_run.diagnostics or {}),
+                    "suppressed_finalization": {
+                        "reason": reason,
+                        "incoming_status": incoming_status,
+                        "incoming_terminal_reason": incoming_terminal_reason,
+                        "suppressed_at": time.time(),
+                    },
+                },
+            )
+        )
+
+    def _close_running_agent_runs_after_suppressed_finalization(
+        self,
+        *,
+        task_run_id: str,
+        fallback_agent_run: AgentRun,
+        status: str,
+        checkpoint_ref: str,
+        reason: str,
+    ) -> None:
+        agent_runs = self.state_index.list_task_agent_runs(task_run_id)
+        if not agent_runs:
+            agent_runs = [fallback_agent_run]
+        for agent_run in agent_runs:
+            if str(agent_run.status or "") not in {"pending", "running"}:
+                continue
+            self.state_index.upsert_agent_run(
+                AgentRun(
+                    agent_run_id=agent_run.agent_run_id,
+                    task_run_id=agent_run.task_run_id,
+                    agent_id=agent_run.agent_id,
+                    agent_profile_id=agent_run.agent_profile_id,
+                    role=agent_run.role,
+                    spawn_mode=agent_run.spawn_mode,
+                    context_scope=agent_run.context_scope,
+                    runtime_lane=agent_run.runtime_lane,
+                    parent_agent_run_ref=agent_run.parent_agent_run_ref,
+                    coordination_run_ref=agent_run.coordination_run_ref,
+                    status=status,
+                    latest_checkpoint_ref=checkpoint_ref or agent_run.latest_checkpoint_ref,
+                    result_ref=agent_run.result_ref,
+                    created_at=agent_run.created_at,
+                    updated_at=time.time(),
+                    diagnostics={
+                        **dict(agent_run.diagnostics or {}),
+                        "suppressed_finalization": {"reason": reason},
+                    },
+                )
+            )
 
     def recover_completed_checkpoint_task_run(
         self,
@@ -1214,6 +1330,49 @@ def _specific_task_record_for_runtime_ref(flow_registry: TaskFlowRegistry, task_
         if task_id == raw or task_id.endswith(f".{suffix}") or task_id.split(".")[-1] == suffix:
             return record
     return None
+
+
+def _task_run_finalization_suppression_reason(
+    *,
+    existing_task_run: TaskRun | None,
+    terminal_state: RuntimeLoopState,
+    events: list[Any],
+) -> str:
+    incoming_status = str(terminal_state.status or "")
+    incoming_terminal_reason = str(terminal_state.terminal_reason or "")
+    if incoming_status == "aborted":
+        return ""
+    if existing_task_run is not None:
+        existing_status = str(existing_task_run.status or "")
+        existing_terminal_reason = str(existing_task_run.terminal_reason or "")
+        if existing_status == "aborted":
+            return "task_run_already_aborted"
+        if existing_status == "failed" and _has_invalidating_diagnostic(existing_task_run.diagnostics):
+            return "task_run_already_invalidated"
+        if existing_terminal_reason == "user_aborted" and incoming_terminal_reason != "user_aborted":
+            return "task_run_already_stopped"
+    if incoming_terminal_reason == "completed" and _has_stop_event(events):
+        return "task_run_stop_event_precedes_finalization"
+    return ""
+
+
+def _has_invalidating_diagnostic(diagnostics: dict[str, Any] | None) -> bool:
+    payload = dict(diagnostics or {})
+    return bool(
+        payload.get("invalidated_by_coordination_rewind")
+        or payload.get("invalidated_by_stage_scheduler")
+        or payload.get("stop_request")
+    )
+
+
+def _has_stop_event(events: list[Any]) -> bool:
+    return any(str(getattr(event, "event_type", "") or "") == "task_run_stopped" for event in events)
+
+
+def _suppressed_agent_run_status(reason: str) -> str:
+    if "aborted" in str(reason or "") or "stopped" in str(reason or "") or "stop_event" in str(reason or ""):
+        return "killed"
+    return "failed"
 
 
 def _task_run_ledger_from_payload(payload: dict[str, Any]):

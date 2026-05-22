@@ -40,6 +40,20 @@ class SaveFileRequest(BaseModel):
     content: str
 
 
+@router.get("/workspace/context")
+async def get_workspace_context() -> dict[str, Any]:
+    runtime = require_runtime()
+    layout = ProjectLayout.from_backend_dir(runtime.base_dir)
+    return {
+        "project_name": layout.project_root.name,
+        "project_root": str(layout.project_root),
+        "backend_root": str(layout.backend_dir),
+        "storage_root": str(layout.storage_root),
+        "editable_prefixes": list(EDITABLE_PREFIXES),
+        "readable_prefixes": list(READABLE_PREFIXES),
+    }
+
+
 def _read_text_with_fallback(file_path: Path) -> str:
     encodings = ("utf-8", "utf-8-sig", "gb18030", "gbk")
     for encoding in encodings:

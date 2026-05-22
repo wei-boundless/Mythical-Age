@@ -10,7 +10,8 @@ import type {
   RuntimeLoopTaskRunLiveMonitor,
   SessionSummary,
   SystemGraphOverlay,
-  ToolCall
+  ToolCall,
+  WorkspaceContext
 } from "@/lib/api";
 import type { SoulKey, SoulSummary } from "@/lib/souls";
 
@@ -159,6 +160,7 @@ export type TaskGraphMonitorBinding = {
 
 export type StoreState = {
   activeWorkspaceView: WorkspaceView;
+  workspaceContext: WorkspaceContext | null;
   sessions: SessionSummary[];
   currentSessionId: string | null;
   messages: Message[];

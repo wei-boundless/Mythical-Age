@@ -215,6 +215,11 @@ class LangGraphCoordinationRuntimeResult:
         work_order_projection_id = str(work_order.get("projection_id") or projection_id)
         work_order_executor_type = str(work_order.get("executor_type") or request.executor_type)
         work_order_stage_id = str(work_order.get("stage_id") or request.stage_id)
+        stage_request_payload = request.to_dict()
+        stage_request_ref = _stage_execution_request_ref(stage_request_payload)
+        standard_input_package = dict(work_order.get("input_package") or request.standard_input_package)
+        explicit_inputs = dict(work_order.get("explicit_inputs") or request.explicit_inputs)
+        a2a_payload = dict(work_order.get("a2a_payload") or request.a2a_payload)
         inherited_context = {
             key: value
             for key, value in dict(current_turn_context or {}).items()
@@ -243,11 +248,18 @@ class LangGraphCoordinationRuntimeResult:
             "selected_projection_id": work_order_projection_id,
             "coordination_run_id": request.coordination_run_id,
             "continuation_stage_id": work_order_stage_id,
-            "stage_execution_request": request.to_dict(),
+            "work_order_id": str(work_order.get("work_order_id") or request.request_id),
+            "assembly_id": str(assembly_contract.get("assembly_id") or ""),
+            "stage_execution_request_ref": stage_request_ref,
+            "a2a_payload": a2a_payload,
+            "explicit_inputs": explicit_inputs,
+        }
+        runtime_control = {
+            "stage_execution_request": stage_request_payload,
+            "stage_execution_request_ref": stage_request_ref,
             "node_work_order": work_order,
             "agent_assembly_contract": assembly_contract,
-            "a2a_payload": dict(request.a2a_payload),
-            "explicit_inputs": dict(request.explicit_inputs),
+            "standard_input_package": standard_input_package,
         }
         if work_order_executor_type == "human":
             return {
@@ -257,11 +269,12 @@ class LangGraphCoordinationRuntimeResult:
                 "current_task_run_id": request.root_task_run_id,
                 "next_stage_id": work_order_stage_id,
                 "current_turn_context": turn_context,
-                "stage_execution_request": request.to_dict(),
+                "runtime_control": runtime_control,
+                "stage_execution_request": stage_request_payload,
                 "node_work_order": work_order,
                 "agent_assembly_contract": assembly_contract,
-                "a2a_payload": dict(request.a2a_payload),
-                "human_work_packet": dict(request.human_work_packet),
+                "a2a_payload": a2a_payload,
+                "human_work_packet": dict(work_order.get("human_work_packet") or request.human_work_packet),
                 "requires_human_executor": True,
                 "suppress_done": True,
             }
@@ -273,11 +286,14 @@ class LangGraphCoordinationRuntimeResult:
                 "current_task_run_id": request.root_task_run_id,
                 "next_stage_id": work_order_stage_id,
                 "current_turn_context": turn_context,
-                "stage_execution_request": request.to_dict(),
+                "runtime_control": runtime_control,
+                "stage_execution_request": stage_request_payload,
                 "node_work_order": work_order,
                 "agent_assembly_contract": assembly_contract,
-                "a2a_payload": dict(request.a2a_payload),
-                "graph_module_runtime_handle": dict(request.runtime_assembly.get("graph_module_runtime_handle") or {}),
+                "a2a_payload": a2a_payload,
+                "graph_module_runtime_handle": dict(
+                    dict(work_order.get("runtime_assembly") or request.runtime_assembly).get("graph_module_runtime_handle") or {}
+                ),
                 "requires_graph_module_executor": True,
                 "suppress_done": True,
             }
@@ -289,11 +305,12 @@ class LangGraphCoordinationRuntimeResult:
             "next_task_ref": work_order_task_ref,
             "next_stage_id": work_order_stage_id,
             "current_turn_context": turn_context,
-            "message": request.message,
-            "stage_execution_request": request.to_dict(),
+            "message": str(work_order.get("message") or request.message),
+            "runtime_control": runtime_control,
+            "stage_execution_request": stage_request_payload,
             "node_work_order": work_order,
             "agent_assembly_contract": assembly_contract,
-            "a2a_payload": dict(request.a2a_payload),
+            "a2a_payload": a2a_payload,
             "task_selection": {
                 "selected_task_id": work_order_task_ref,
                 "task_id": work_order_task_ref,
@@ -302,10 +319,19 @@ class LangGraphCoordinationRuntimeResult:
                 "runtime_lane": str(assembly_contract.get("runtime_lane") or work_order.get("runtime_lane") or request.runtime_lane),
                 "projection_id": work_order_projection_id,
                 "selected_projection_id": work_order_projection_id,
-                "agent_assembly_contract": assembly_contract,
+                "work_order_id": str(work_order.get("work_order_id") or request.request_id),
+                "assembly_id": str(assembly_contract.get("assembly_id") or ""),
+                "stage_execution_request_ref": stage_request_ref,
             },
             "suppress_done": True,
         }
+
+
+def _stage_execution_request_ref(stage_request_payload: dict[str, Any]) -> str:
+    request_id = str(stage_request_payload.get("request_id") or "").strip()
+    if request_id:
+        return request_id
+    return str(stage_request_payload.get("idempotency_key") or "").strip()
 
 
 class LangGraphCoordinationRuntime:

@@ -11,6 +11,7 @@ import {
   getRuntimeMonitorEventStreamUrl,
   getModelProviderConfig,
   getSoulImageAssetConfig,
+  getWorkspaceContext,
   getTaskGraphRunMonitorDecisions,
   getTaskGraphRunMonitor,
   getOrchestrationRuntimeLoopTaskRunLiveMonitor,
@@ -193,13 +194,14 @@ export class WorkspaceRuntime {
   }
 
   private async initializeWorkspace() {
-    const [sessions, rag, skills, souls, modelProviderConfig, soulImageAssetConfig] = await Promise.all([
+    const [sessions, rag, skills, souls, modelProviderConfig, soulImageAssetConfig, workspaceContext] = await Promise.all([
       listSessions(),
       getRagMode(),
       listSkills(),
       this.loadSouls(),
       getModelProviderConfig().catch(() => null),
-      getSoulImageAssetConfig().catch(() => null)
+      getSoulImageAssetConfig().catch(() => null),
+      getWorkspaceContext().catch(() => null)
     ]);
 
     this.store.setState((prev) => ({
@@ -212,6 +214,7 @@ export class WorkspaceRuntime {
       },
       modelProviderConfig,
       soulImageAssetConfig,
+      workspaceContext,
       skills,
       soulOptions: souls.options,
       activeSoulKey: souls.activeSoulKey,

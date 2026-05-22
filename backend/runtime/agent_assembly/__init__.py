@@ -1,6 +1,4 @@
 from .assembler import build_agent_assembly_contract, build_execution_permit_for_work_order
-from .capability_binder import bind_capabilities, capability_binding_snapshot
-from .context_builder import build_model_context, compact_visible_sections
 from .ids import (
     build_assembly_contract_id,
     build_execution_permit_id,
@@ -10,7 +8,6 @@ from .ids import (
     safe_id,
     stable_hash,
 )
-from .memory_binder import bind_memory, memory_binding_snapshot
 from .models import (
     AgentAssemblyContract,
     AssemblyPort,
@@ -30,13 +27,6 @@ from .models import (
     SubRuntimeWorkOrder,
     WorkOrder,
 )
-from .prompt_composer import compose_prompt, compose_prompt_snapshot
-from .result_projector import (
-    project_execution_result,
-    project_node_result_envelope,
-    project_subruntime_result,
-)
-from .soul_binder import bind_soul, soul_binding_snapshot
 from .validation import (
     AssemblyValidationIssue,
     AssemblyValidationReport,
@@ -64,27 +54,14 @@ __all__ = [
     "SubRuntimeResultEnvelope",
     "SubRuntimeWorkOrder",
     "WorkOrder",
-    "bind_capabilities",
-    "bind_memory",
-    "bind_soul",
     "build_agent_assembly_contract",
     "build_assembly_contract_id",
     "build_execution_permit_for_work_order",
     "build_execution_permit_id",
     "build_execution_result_id",
-    "build_model_context",
     "build_node_result_envelope_id",
     "build_work_order_id",
-    "capability_binding_snapshot",
-    "compact_visible_sections",
-    "compose_prompt",
-    "compose_prompt_snapshot",
-    "memory_binding_snapshot",
-    "project_execution_result",
-    "project_node_result_envelope",
-    "project_subruntime_result",
     "safe_id",
-    "soul_binding_snapshot",
     "stable_hash",
     "validate_assembly_contract",
     "validate_execution_permit",

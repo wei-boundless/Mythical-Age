@@ -115,8 +115,10 @@ def test_agent_executor_continuation_payload_exposes_stage_request_identity() ->
     payload = LangGraphCoordinationRuntimeResult(stage_execution_request=request).continuation_payload(session_id="session:test")
 
     assert payload["next_task_ref"] == "task.test.chapter_draft"
-    assert payload["current_turn_context"]["stage_execution_request"]["request_id"] == "nodeexec:draft"
-    assert payload["current_turn_context"]["stage_execution_request"]["idempotency_key"] == request.idempotency_key
+    assert payload["runtime_control"]["stage_execution_request"]["request_id"] == "nodeexec:draft"
+    assert payload["runtime_control"]["stage_execution_request"]["idempotency_key"] == request.idempotency_key
+    assert payload["current_turn_context"]["stage_execution_request_ref"] == "nodeexec:draft"
+    assert "stage_execution_request" not in payload["current_turn_context"]
     assert payload["task_selection"]["selected_task_id"] == "task.test.chapter_draft"
 
 

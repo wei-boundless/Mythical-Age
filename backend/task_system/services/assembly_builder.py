@@ -868,7 +868,7 @@ def _is_stage_execution_turn(current_turn_payload: dict[str, Any]) -> bool:
         return False
     if str(current_turn_payload.get("continuation_stage_id") or "").strip():
         return True
-    if dict(current_turn_payload.get("stage_execution_request") or {}):
+    if str(current_turn_payload.get("stage_execution_request_ref") or "").strip():
         return True
     if str(current_turn_payload.get("coordination_run_id") or "").strip():
         return True

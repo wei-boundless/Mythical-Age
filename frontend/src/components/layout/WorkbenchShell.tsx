@@ -1,9 +1,7 @@
 "use client";
 
 import {
-  BookOpen,
   CircleDot,
-  Compass,
   FileCode2,
   Folder,
   Globe2,
@@ -12,6 +10,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   MonitorDot,
+  PencilLine,
   Plus,
   Save,
   Search,
@@ -20,14 +19,14 @@ import {
   Trash2,
   Workflow,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
 import { RuntimeMonitorDetailView } from "@/components/layout/RuntimeMonitorDetailView";
 import { useAppStore } from "@/lib/store";
 import type { WorkspaceView } from "@/lib/store/types";
 
-type LeftPanel = "project" | "files" | "sessions";
+type LeftPanel = "sessions" | "files";
 type RightPanel = "monitor" | "browser" | "details";
 
 const LEFT_WIDTH_KEY = "agentWorkbench.leftWidth";
@@ -71,58 +70,39 @@ function groupEditableFiles(paths: string[]) {
   }));
 }
 
-function workspaceResourceConfig(view: WorkspaceView) {
-  if (view === "task-system") {
-    return {
-      title: "图任务资源",
-      summary: "任务图、断点重续、运行监控相关文件。",
-      focusGroups: ["项目记忆", "项目文件"],
-      actions: [
-        { label: "任务图配置", detail: "图结构、节点协议、运行包" },
-        { label: "断点重续", detail: "checkpoint、人工介入、恢复状态" },
-        { label: "运行监控", detail: "任务进度、状态、事件流" },
-      ],
-    };
-  }
-  if (view === "capability-system") {
-    return {
-      title: "能力资源",
-      summary: "Skills、MCP、权限端点与工具治理。",
-      focusGroups: ["Skills", "MCP", "能力系统"],
-      actions: [
-        { label: "Skills", detail: "技能说明、触发条件、执行约束" },
-        { label: "MCP", detail: "本地与外部端点统一管理" },
-        { label: "权限", detail: "工具权限、文件边界、审批策略" },
-      ],
-    };
-  }
-  if (view === "playground") {
-    return {
-      title: "投影资源",
-      summary: "灵魂系统只作为管家投影与辅助呈现资源。",
-      focusGroups: ["投影资产"],
-      actions: [
-        { label: "当前投影", detail: "激活角色、视觉资产、行为边界" },
-        { label: "投影素材", detail: "头像、姿态、状态呈现" },
-        { label: "交互策略", detail: "何时出现、如何提示、如何退场" },
-      ],
-    };
-  }
-  return {
-    title: "会话资源",
-    summary: "当前会话、项目记忆与可编辑上下文。",
-    focusGroups: ["项目记忆", "项目文件"],
-    actions: [
-      { label: "当前会话", detail: "对话、任务入口、人工介入" },
-      { label: "项目记忆", detail: "长期上下文与可维护知识" },
-      { label: "文件编辑", detail: "打开右侧编辑器处理配置" },
-    ],
-  };
+function normalizeSearch(value: string) {
+  return value.trim().toLocaleLowerCase();
 }
 
 function compactFileName(path: string) {
   const parts = path.split("/");
   return parts[parts.length - 1] || path;
+}
+
+function compactDirectory(path: string) {
+  const parts = path.split("/");
+  if (parts.length <= 1) return "根目录";
+  return parts.slice(0, -1).join("/");
+}
+
+function formatSessionTime(timestamp: number) {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "无时间";
+  const date = new Date(timestamp > 1_000_000_000_000 ? timestamp : timestamp * 1000);
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function workspaceViewLabel(view: WorkspaceView) {
+  if (view === "task-system") return "图任务";
+  if (view === "capability-system") return "能力";
+  if (view === "playground") return "投影";
+  if (view === "system-framework") return "系统";
+  return "会话";
 }
 
 function isNavActive(current: WorkspaceView, target: WorkspaceView) {
@@ -261,134 +241,227 @@ function WorkbenchRail() {
   );
 }
 
-function ResourcePanel({ activePanel, onPanelChange }: { activePanel: LeftPanel; onPanelChange: (panel: LeftPanel) => void }) {
+function WorkspaceManagerPanel({ activePanel, onPanelChange }: { activePanel: LeftPanel; onPanelChange: (panel: LeftPanel) => void }) {
+  const [fileQuery, setFileQuery] = useState("");
+  const [sessionQuery, setSessionQuery] = useState("");
+  const [sessionTitleDraft, setSessionTitleDraft] = useState("");
   const {
     activeWorkspaceView,
     currentSessionId,
     editableFiles,
+    globalRuntimeMonitorStreamStatus,
     inspectorDirty,
     inspectorPath,
     sessions,
     createNewSession,
     loadInspectorFile,
+    renameCurrentSession,
     removeSession,
     saveInspector,
     selectSession,
+    workspaceContext,
   } = useAppStore();
-  const selectedContext = activeWorkspaceView === "task-system"
-    ? "图任务层"
-    : activeWorkspaceView === "capability-system"
-      ? "能力系统"
-      : "会话";
   const fileGroups = useMemo(() => groupEditableFiles(editableFiles), [editableFiles]);
-  const resourceConfig = workspaceResourceConfig(activeWorkspaceView);
-  const focusedFiles = fileGroups
-    .filter((group) => resourceConfig.focusGroups.includes(group.title))
-    .flatMap((group) => group.files)
-    .slice(0, 8);
+  const visibleFileGroups = useMemo(() => {
+    const query = normalizeSearch(fileQuery);
+    if (!query) return fileGroups;
+    return fileGroups
+      .map((group) => ({
+        ...group,
+        files: group.files.filter((path) => {
+          const haystack = normalizeSearch(`${group.title} ${path} ${compactFileName(path)} ${compactDirectory(path)}`);
+          return haystack.includes(query);
+        }),
+      }))
+      .filter((group) => group.files.length > 0);
+  }, [fileGroups, fileQuery]);
+  const visibleFileCount = visibleFileGroups.reduce((count, group) => count + group.files.length, 0);
+  const visibleSessions = useMemo(() => {
+    const query = normalizeSearch(sessionQuery);
+    const sorted = [...sessions].sort((a, b) => b.updated_at - a.updated_at);
+    if (!query) return sorted;
+    return sorted.filter((session) => normalizeSearch(`${session.title} ${session.id}`).includes(query));
+  }, [sessionQuery, sessions]);
+  const currentSession = sessions.find((session) => session.id === currentSessionId) ?? null;
+  const streamLabel = globalRuntimeMonitorStreamStatus === "connected"
+    ? "事件流"
+    : globalRuntimeMonitorStreamStatus === "connecting"
+      ? "连接中"
+      : globalRuntimeMonitorStreamStatus === "fallback"
+        ? "快照兜底"
+        : "未连接";
+  const canRenameSession = Boolean(
+    currentSession && sessionTitleDraft.trim() && sessionTitleDraft.trim() !== currentSession.title
+  );
+  const projectName = workspaceContext?.project_name || "当前工作区";
+  const projectRoot = workspaceContext?.project_root || "未加载项目根";
+
+  useEffect(() => {
+    setSessionTitleDraft(currentSession?.title ?? "");
+  }, [currentSession?.id, currentSession?.title]);
+
+  function handleRenameSession(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canRenameSession) return;
+    void renameCurrentSession(sessionTitleDraft.trim());
+  }
 
   return (
-    <aside className="workbench-resource-panel" aria-label="项目与文件">
+    <aside className="workbench-resource-panel" aria-label="工作区管理">
       <header className="workbench-panel-head">
         <div>
           <strong>工作区</strong>
-          <span>{selectedContext}</span>
+          <span>{workspaceViewLabel(activeWorkspaceView)}</span>
         </div>
         <button aria-label="保存当前文件" className="workbench-icon-button" disabled={!inspectorDirty} onClick={() => void saveInspector()} type="button">
           <Save size={15} />
         </button>
       </header>
 
-      <div className="workbench-segmented" aria-label="左栏内容">
-        <button className={activePanel === "project" ? "is-active" : ""} onClick={() => onPanelChange("project")} type="button">
-          <Compass size={14} />项目
+      <section className="workbench-project-context" aria-label="当前项目上下文">
+        <div>
+          <span>当前项目</span>
+          <strong>{projectName}</strong>
+          <small title={projectRoot}>{projectRoot}</small>
+        </div>
+        <dl>
+          <div>
+            <dt>当前层</dt>
+            <dd>{workspaceViewLabel(activeWorkspaceView)}</dd>
+          </div>
+          <div>
+            <dt>会话</dt>
+            <dd>{currentSession?.title || "未选择"}</dd>
+          </div>
+          <div>
+            <dt>文件</dt>
+            <dd>{inspectorPath ? compactFileName(inspectorPath) : "未打开"}</dd>
+          </div>
+          <div>
+            <dt>监控</dt>
+            <dd>{streamLabel}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <div className="workbench-segmented" aria-label="项目对象">
+        <button className={activePanel === "sessions" ? "is-active" : ""} onClick={() => onPanelChange("sessions")} type="button">
+          <MessageSquare size={14} />会话
         </button>
         <button className={activePanel === "files" ? "is-active" : ""} onClick={() => onPanelChange("files")} type="button">
           <Folder size={14} />文件
         </button>
-        <button className={activePanel === "sessions" ? "is-active" : ""} onClick={() => onPanelChange("sessions")} type="button">
-          <MessageSquare size={14} />会话
-        </button>
       </div>
-
-      {activePanel === "project" ? (
-        <div className="workbench-project-stack">
-          <section className="workbench-resource-summary">
-            <strong>{resourceConfig.title}</strong>
-            <span>{resourceConfig.summary}</span>
-          </section>
-          <section className="workbench-resource-actions" aria-label="当前层资源">
-            {resourceConfig.actions.map((item) => (
-              <article className="workbench-resource-action" key={item.label}>
-                <strong>{item.label}</strong>
-                <span>{item.detail}</span>
-              </article>
-            ))}
-          </section>
-          {focusedFiles.length ? (
-            <section className="workbench-file-group">
-              <header><BookOpen size={14} /><span>快捷文件</span></header>
-              {focusedFiles.map((path) => (
-                <button
-                  className={path === inspectorPath ? "workbench-file-row workbench-file-row--active" : "workbench-file-row"}
-                  key={path}
-                  onClick={() => void loadInspectorFile(path)}
-                  type="button"
-                >
-                  <FileCode2 size={14} />
-                  <span><strong>{compactFileName(path)}</strong><small>{path}</small></span>
-                </button>
-              ))}
-            </section>
-          ) : null}
-        </div>
-      ) : null}
 
       {activePanel === "files" ? (
         <div className="workbench-file-tree">
-          <div className="workbench-search-line">
-            <Search size={14} />
-            <span>{inspectorPath || "选择文件"}</span>
+          <div className="workbench-manager-toolbar">
+            <div>
+              <strong>文件管理</strong>
+              <span>{visibleFileCount} / {editableFiles.length}</span>
+            </div>
+            <button aria-label="保存当前文件" disabled={!inspectorDirty} onClick={() => void saveInspector()} type="button">
+              <Save size={14} />
+              <span>{inspectorDirty ? "保存" : "已同步"}</span>
+            </button>
           </div>
-          {fileGroups.map((group) => (
-            <section className="workbench-file-group" key={group.title}>
-              <header><BookOpen size={14} /><span>{group.title}</span></header>
-              {group.files.map((path) => (
-                <button
-                  className={path === inspectorPath ? "workbench-file-row workbench-file-row--active" : "workbench-file-row"}
-                  key={path}
-                  onClick={() => void loadInspectorFile(path)}
-                  type="button"
-                >
-                  <FileCode2 size={14} />
-                  <span><strong>{compactFileName(path)}</strong><small>{path}</small></span>
-                </button>
-              ))}
-            </section>
-          ))}
+          <label className="workbench-search-box">
+            <Search size={14} />
+            <input
+              aria-label="搜索文件"
+              onChange={(event) => setFileQuery(event.target.value)}
+              placeholder="搜索文件"
+              value={fileQuery}
+            />
+          </label>
+          <section className={inspectorDirty ? "workbench-current-file workbench-current-file--dirty" : "workbench-current-file"}>
+            <div>
+              <span>当前文件</span>
+              <strong>{inspectorPath ? compactFileName(inspectorPath) : "未打开"}</strong>
+              <small title={inspectorPath}>{inspectorPath || "无"}</small>
+            </div>
+            <em>{inspectorDirty ? "未保存" : "已同步"}</em>
+          </section>
+          {visibleFileGroups.length ? (
+            visibleFileGroups.map((group) => (
+              <section className="workbench-file-group" key={group.title}>
+                <header><span>{group.title}</span><small>{group.files.length}</small></header>
+                {group.files.map((path) => (
+                  <button
+                    className={path === inspectorPath ? "workbench-file-row workbench-file-row--active" : "workbench-file-row"}
+                    key={path}
+                    onClick={() => void loadInspectorFile(path)}
+                    type="button"
+                  >
+                    <FileCode2 size={14} />
+                    <span><strong>{compactFileName(path)}</strong><small title={path}>{compactDirectory(path)}</small></span>
+                  </button>
+                ))}
+              </section>
+            ))
+          ) : (
+            <div className="workbench-empty-state">
+              <Folder size={18} />
+              <strong>{editableFiles.length ? "没有匹配文件" : "没有可编辑文件"}</strong>
+              <span>{fileQuery || "文件入口为空"}</span>
+            </div>
+          )}
         </div>
       ) : null}
 
       {activePanel === "sessions" ? (
         <section className="workbench-session-panel">
-          <div className="workbench-section-title">
-            <span>会话</span>
-            <button aria-label="新会话" className="workbench-icon-button" onClick={() => void createNewSession()} type="button">
+          <div className="workbench-manager-toolbar">
+            <div>
+              <strong>会话管理</strong>
+              <span>{visibleSessions.length} / {sessions.length}</span>
+            </div>
+            <button aria-label="新会话" onClick={() => void createNewSession()} type="button">
               <Plus size={15} />
+              <span>新建</span>
             </button>
           </div>
+          <form className="workbench-session-active" onSubmit={handleRenameSession}>
+            <span>当前会话</span>
+            <div className="workbench-session-title-editor">
+              <PencilLine size={14} />
+              <input
+                aria-label="当前会话名称"
+                disabled={!currentSession}
+                onChange={(event) => setSessionTitleDraft(event.target.value)}
+                value={sessionTitleDraft}
+              />
+              <button disabled={!canRenameSession} type="submit">保存</button>
+            </div>
+            <small>{currentSession ? `${currentSession.message_count} 条消息 · ${formatSessionTime(currentSession.updated_at)}` : "未选择"}</small>
+          </form>
+          <label className="workbench-search-box">
+            <Search size={14} />
+            <input
+              aria-label="搜索会话"
+              onChange={(event) => setSessionQuery(event.target.value)}
+              placeholder="搜索会话"
+              value={sessionQuery}
+            />
+          </label>
           <div className="workbench-session-list">
-            {sessions.map((session) => (
+            {visibleSessions.length ? visibleSessions.map((session) => (
               <div className={session.id === currentSessionId ? "workbench-session-row workbench-session-row--active" : "workbench-session-row"} key={session.id}>
-                <button onClick={() => void selectSession(session.id)} type="button">
-                  <strong>{session.title}</strong>
-                  <small>{session.message_count} 条消息</small>
+                <button aria-current={session.id === currentSessionId ? "page" : undefined} onClick={() => void selectSession(session.id)} type="button">
+                  <strong>{session.title || "未命名会话"}</strong>
+                  <small>{session.message_count} 条消息 · {formatSessionTime(session.updated_at)}</small>
                 </button>
                 <button aria-label={`删除 ${session.title}`} onClick={() => void removeSession(session.id)} type="button">
                   <Trash2 size={13} />
                 </button>
               </div>
-            ))}
+            )) : (
+              <div className="workbench-empty-state">
+                <MessageSquare size={18} />
+                <strong>{sessions.length ? "没有匹配会话" : "还没有会话"}</strong>
+                <span>{sessionQuery || "会话列表为空"}</span>
+              </div>
+            )}
           </div>
         </section>
       ) : null}
@@ -535,7 +608,7 @@ function RightToolPanel({
 
 export function WorkbenchShell({ children }: { children: ReactNode }) {
   const { activeWorkspaceView, inspectorWidth, setInspectorWidth, setSidebarWidth, sidebarWidth } = useAppStore();
-  const [leftPanel, setLeftPanel] = useState<LeftPanel>("project");
+  const [leftPanel, setLeftPanel] = useState<LeftPanel>("sessions");
   const [rightPanel, setRightPanel] = useState<RightPanel>("monitor");
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [centerMode, setCenterMode] = useState<"workspace" | "monitor-detail">("workspace");
@@ -556,7 +629,7 @@ export function WorkbenchShell({ children }: { children: ReactNode }) {
       }}
     >
       <WorkbenchRail />
-      <ResourcePanel activePanel={leftPanel} onPanelChange={setLeftPanel} />
+      <WorkspaceManagerPanel activePanel={leftPanel} onPanelChange={setLeftPanel} />
       <ResizeHandle label="调整左栏宽度" onResize={(delta) => setSidebarWidth(clamp(sidebarWidth + delta, 220, 420))} side="left" />
       <section className="workbench-center" aria-label="主工作区">
         <MainToolbar onToggleRightPanel={() => setRightCollapsed((value) => !value)} rightPanelCollapsed={rightCollapsed} />

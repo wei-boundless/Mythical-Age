@@ -8,7 +8,6 @@ from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.registry.agent_registry import AgentRegistry
 
-from .context_builder import build_model_context
 from .models import (
     AgentAssemblyContract,
     AssemblyPort,
@@ -19,6 +18,27 @@ from .models import (
     SoulAssemblyBinding,
     WorkOrder,
 )
+
+
+def build_model_context(assembly: AgentAssemblyContract) -> dict[str, Any]:
+    return {
+        "assembly_id": assembly.assembly_id,
+        "work_order_id": assembly.work_order_id,
+        "task_ref": assembly.task_ref,
+        "executor_type": assembly.executor_type,
+        "agent_id": assembly.agent_id,
+        "agent_profile_id": assembly.agent_profile_id,
+        "runtime_lane": assembly.runtime_lane,
+        "prompt_manifest_ref": assembly.prompt_manifest_ref,
+        "model_profile_id": assembly.model_profile_id,
+        "projection_id": assembly.projection_id,
+        "soul_id": assembly.soul_id,
+        "memory_binding": assembly.memory_binding.to_dict(),
+        "capability_binding": assembly.capability_binding.to_dict(),
+        "output_boundary": assembly.output_boundary.to_dict(),
+        "current_turn_context": dict(assembly.current_turn_context),
+        "visible_ports": [port.to_dict() for port in assembly.ports if port.mode == "input" or port.required],
+    }
 
 
 def build_agent_assembly_contract(

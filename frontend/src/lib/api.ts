@@ -36,6 +36,15 @@ export type SessionHistory = {
   }>;
 };
 
+export type WorkspaceContext = {
+  project_name: string;
+  project_root: string;
+  backend_root: string;
+  storage_root: string;
+  editable_prefixes: string[];
+  readable_prefixes: string[];
+};
+
 export type ExperimentProfile = {
   id: string;
   title: string;
@@ -3425,6 +3434,10 @@ export async function listSkills() {
   return request<Array<{ name: string; title: string; description: string; path: string }>>(
     "/skills"
   );
+}
+
+export async function getWorkspaceContext() {
+  return request<WorkspaceContext>("/workspace/context");
 }
 
 export async function loadFile(path: string) {

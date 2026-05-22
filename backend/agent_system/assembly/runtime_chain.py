@@ -19,6 +19,34 @@ from ..profiles.runtime_profile_registry import AgentRuntimeRegistry
 from .runtime_bundle_builder import build_orchestration_runtime_bundle
 
 
+_CONTROL_CONTEXT_KEYS = {
+    "stage_execution_request",
+    "node_work_order",
+    "agent_assembly_contract",
+    "execution_permit",
+}
+
+
+_MODEL_CONTEXT_TASK_SELECTION_KEYS = {
+    "turn_id",
+    "selected_task_id",
+    "task_id",
+    "agent_id",
+    "agent_profile_id",
+    "projection_id",
+    "selected_projection_id",
+    "runtime_lane",
+    "runtime_limits",
+    "agent_group_id",
+    "artifact_root",
+    "workspace_root",
+    "explicit_inputs",
+    "a2a_payload",
+    "coordination_run_id",
+    "continuation_stage_id",
+}
+
+
 class AgentRuntimeChainAssembler:
     """Assembles the current single-agent runtime chain."""
 
@@ -39,10 +67,15 @@ class AgentRuntimeChainAssembler:
         task_selection: dict[str, Any] | None = None,
         agent_runtime_profile: Any | None = None,
         current_turn_context_override: dict[str, Any] | None = None,
+        agent_assembly_contract: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         task_selection_payload = dict(task_selection or {})
+        assembly_contract_payload = dict(agent_assembly_contract or task_selection_payload.get("agent_assembly_contract") or {})
+        task_selection_payload.pop("agent_assembly_contract", None)
         effective_agent_runtime_profile = agent_runtime_profile
-        selected_agent_id = normalize_agent_id(str(task_selection_payload.get("agent_id") or "").strip())
+        selected_agent_id = normalize_agent_id(
+            str(assembly_contract_payload.get("agent_id") or task_selection_payload.get("agent_id") or "").strip()
+        )
         task_default_agent_id = _resolve_task_selection_default_agent_id(
             self.base_dir,
             task_selection=task_selection_payload,
@@ -143,7 +176,7 @@ class AgentRuntimeChainAssembler:
                 {
                     key: value
                     for key, value in dict(current_turn_context_override or {}).items()
-                    if value not in ("", None, [], {})
+                    if value not in ("", None, [], {}) and key not in _CONTROL_CONTEXT_KEYS
                 }
             )
         if turn_id:
@@ -153,7 +186,7 @@ class AgentRuntimeChainAssembler:
                 {
                     key: value
                     for key, value in dict(task_selection or {}).items()
-                    if value not in ("", None, [], {})
+                    if value not in ("", None, [], {}) and key in _MODEL_CONTEXT_TASK_SELECTION_KEYS
                 }
             )
         skill_frame = _resolve_skill_frame(self.skill_registry, query_understanding)
@@ -228,6 +261,7 @@ class AgentRuntimeChainAssembler:
             "context_policy_result": context_payload,
             "current_turn_context": current_turn_context_payload,
             "task_operation": task_operation,
+            "agent_assembly_contract": assembly_contract_payload,
             "task_execution_assembly": dict(task_operation.get("task_execution_assembly") or {}),
             "task_body_orchestration": dict(task_operation.get("task_body_orchestration") or {}),
             "agent_runtime_spec": dict(task_operation.get("agent_runtime_spec") or {}),
@@ -393,8 +427,8 @@ def _context_assembly_policy_from_payloads(*payloads: dict[str, Any] | None) -> 
 
 def _context_assembly_policy_from_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
     item = dict(payload or {})
-    stage_request = dict(item.get("stage_execution_request") or {})
-    runtime_assembly = dict(item.get("runtime_assembly") or stage_request.get("runtime_assembly") or {})
+    assembly_contract = dict(item.get("agent_assembly_contract") or {})
+    runtime_assembly = dict(item.get("runtime_assembly") or assembly_contract.get("runtime_assembly") or {})
     diagnostics = dict(runtime_assembly.get("diagnostics") or {})
     return dict(runtime_assembly.get("context_assembly_policy") or diagnostics.get("context_assembly_policy") or {})
 

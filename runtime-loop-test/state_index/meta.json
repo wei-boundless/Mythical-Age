@@ -1,7 +1,0 @@
-{
-  "version": 2,
-  "storage_mode": "sharded_runtime_state_index",
-  "updated_at": 1778951367.823714,
-  "migrated_from": "",
-  "authority": "orchestration.runtime_state_index"
-}

@@ -10,12 +10,11 @@ class GraphModuleStartResult:
     imported_coordination_run_id: str
     linked_graph_id: str
     graph_module_runtime_handle_id: str = ""
-    imported_stage_execution_request: dict[str, Any] = field(default_factory=dict)
+    imported_stage_execution_request_ref: str = ""
     authority: str = "runtime.subruntime.graph_module_start_result"
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["imported_stage_execution_request"] = dict(self.imported_stage_execution_request)
         return payload
 
 

@@ -7,6 +7,7 @@ from .graph_module_executor import (
 from .graph_module_runtime import (
     build_graph_module_runtime_handle_from_contract,
     build_graph_module_runtime_handle_from_request,
+    build_graph_module_runtime_handle_from_work_order,
     graph_module_stage_is_enabled,
 )
 from .result_packets import (
@@ -19,6 +20,7 @@ __all__ = [
     "attach_graph_module_imported_run_identity",
     "build_graph_module_runtime_handle_from_contract",
     "build_graph_module_runtime_handle_from_request",
+    "build_graph_module_runtime_handle_from_work_order",
     "graph_module_core_artifact_refs",
     "graph_module_stage_is_enabled",
     "latest_unconsumed_graph_module_imported_result",

@@ -10,7 +10,12 @@ from api import task_system as tasks_api
 from orchestration import coordination_rewind, coordination_scheduler
 from runtime.execution.node_execution_request import NodeExecutionRequest
 from runtime.subruntime import graph_module_core_artifact_refs, latest_unconsumed_graph_module_imported_result
-from runtime.shared.models import AgentRun, CoordinationRun, TaskRun
+from artifact_system import ArtifactRepositoryService
+from runtime.shared.checkpoint import RuntimeCheckpointStore
+from runtime.shared.execution_record import RuntimeExecutionStore
+from runtime.shared.models import AgentRun, CoordinationRun, RuntimeLoopState, TaskRun
+from runtime.shared.runtime_object_store import RuntimeObjectStore
+from runtime.unit_runtime.finalizer import TaskRunFinalizer
 from runtime.coordination_runtime.trace_adapter import CoordinationTraceAdapter
 from runtime.memory.state_index import RuntimeStateIndex
 from runtime.unit_runtime.loop import TaskRunLoop
@@ -424,6 +429,104 @@ def test_stage_execution_scheduler_invalidates_stale_running_task_run(tmp_path: 
     assert events[-1][0] == "coordination_stage_background_execution_invalidated"
 
 
+def test_finalizer_suppresses_completed_result_after_task_run_stop(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    runtime_dir = tmp_path / "runtime_state"
+    workspace_root = tmp_path
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_specific_task_record(
+        task_id="task.test.artifact_writer",
+        task_title="Artifact Writer",
+        task_family="test",
+        runtime_lane="coordination_task",
+        task_policy={
+            "artifact_policy": {
+                "enabled": True,
+                "required": True,
+                "default_artifact_root": "output/test_artifacts",
+                "artifacts": [
+                    {
+                        "path": "stopped_result.md",
+                        "required": True,
+                        "content_source": "final_content",
+                    }
+                ],
+            }
+        },
+    )
+    state_index = RuntimeStateIndex(runtime_dir)
+    event_log = TaskRunLoop(runtime_dir, backend_dir=backend_dir).event_log
+    checkpoints = RuntimeCheckpointStore(runtime_dir)
+    task_run = TaskRun(
+        task_run_id="taskrun:test:stopped:artifact",
+        session_id="session:test",
+        task_id="task.test.artifact_writer",
+        task_contract_ref="task.test.artifact_writer",
+        status="aborted",
+        terminal_reason="user_aborted",
+        latest_checkpoint_ref="rtchk:stop",
+        diagnostics={"stop_request": {"reason": "user_aborted"}},
+    )
+    agent_run = AgentRun(
+        agent_run_id="agrun:test:stopped",
+        task_run_id=task_run.task_run_id,
+        agent_id="agent:test",
+        agent_profile_id="profile:test",
+        status="running",
+    )
+    state_index.upsert_task_run(task_run)
+    state_index.upsert_agent_run(agent_run)
+    event_log.append(
+        task_run.task_run_id,
+        "task_run_stopped",
+        payload={"reason": "user_aborted"},
+        refs={"checkpoint_ref": "rtchk:stop"},
+    )
+    checkpoint_event = event_log.append(
+        task_run.task_run_id,
+        "checkpoint_written",
+        payload={"checkpoint_id": "rtchk:completed"},
+        refs={"checkpoint_ref": "rtchk:completed"},
+    )
+    finalizer = TaskRunFinalizer(
+        root_dir=runtime_dir,
+        state_index=state_index,
+        event_log=event_log,
+        checkpoints=checkpoints,
+        execution_store=RuntimeExecutionStore(runtime_dir),
+        runtime_objects=RuntimeObjectStore(runtime_dir),
+        task_flow_registry=registry,
+        langgraph_coordination_runtime=SimpleNamespace(checkpoints=SimpleNamespace(get_state=lambda *, thread_id: {})),
+        artifact_repository=ArtifactRepositoryService(runtime_dir / "artifact_repository", workspace_root=workspace_root),
+    )
+
+    result = finalizer.upsert_finished_task_run(
+        start_task_run=task_run,
+        start_agent_run=agent_run,
+        start_coordination_run=None,
+        task_contract_ref="task.test.artifact_writer",
+        terminal_state=RuntimeLoopState(
+            task_run_id=task_run.task_run_id,
+            status="completed",
+            terminal_reason="completed",
+        ),
+        checkpoint_event=checkpoint_event,
+        final_content="# Should Not Materialize\n\nThis stale completion must be ignored.",
+        current_turn_context={"explicit_inputs": {}},
+    )
+
+    stored = state_index.get_task_run(task_run.task_run_id)
+    assert stored is not None
+    assert stored.status == "aborted"
+    assert stored.terminal_reason == "user_aborted"
+    assert stored.diagnostics["suppressed_finalization"]["reason"] == "task_run_already_aborted"
+    assert result.continuation_payload == {}
+    assert [event.event_type for event in result.events] == ["task_run_finalization_suppressed"]
+    assert state_index.list_task_agent_run_results(task_run.task_run_id) == []
+    assert state_index.list_task_agent_runs(task_run.task_run_id)[0].status == "killed"
+    assert not (workspace_root / "output" / "test_artifacts" / "stopped_result.md").exists()
+
+
 def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_dir = tmp_path / "runtime_state"
@@ -540,7 +643,7 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
     assert imported.diagnostics["importing_stage_id"] == "graph_module.block.child"
     assert imported.diagnostics["stage_idempotency_key"] == request.idempotency_key
     assert imported.diagnostics["importing_graph_module_runtime_handle"]["linked_graph_id"] == "graph.test.graph_module_imported_run"
-    assert imported.diagnostics["importing_stage_execution_request"]["request_id"] == "nodeexec:graph-module"
+    assert imported.diagnostics["importing_stage_execution_request_ref"] == "nodeexec:graph-module"
     assert imported.diagnostics["importing_standard_input_package"]["input_items"][0]["input_key"] == "world_design"
     initial_inputs_ref = str(imported.diagnostics["task_graph_initial_inputs_ref"])
     child_initial_inputs = dict(loop.runtime_objects.get_object(initial_inputs_ref)["initial_inputs"])
@@ -550,7 +653,7 @@ def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(
     assert child_state["pending_inputs"]["user_goal"] == "启动导入模块"
     for protocol_key in (
         "importing_graph_module_runtime_handle",
-        "importing_stage_execution_request",
+        "importing_stage_execution_request_ref",
         "importing_standard_input_package",
         "graph_module_runtime_handle",
     ):

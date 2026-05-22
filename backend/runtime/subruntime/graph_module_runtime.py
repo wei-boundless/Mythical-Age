@@ -127,6 +127,50 @@ def build_graph_module_runtime_handle_from_request(request_payload: dict[str, An
     }
 
 
+def build_graph_module_runtime_handle_from_work_order(work_order_payload: dict[str, Any]) -> dict[str, Any]:
+    work_order = dict(work_order_payload or {})
+    runtime_assembly = dict(work_order.get("runtime_assembly") or {})
+    executor_binding = dict(work_order.get("executor_binding") or {})
+    handle = dict(
+        runtime_assembly.get("graph_module_runtime_handle")
+        or executor_binding.get("graph_module_runtime_handle")
+        or {}
+    )
+    if handle:
+        handle.setdefault("executor_policy", dict(executor_binding.get("executor_policy") or runtime_assembly.get("executor_policy") or {}))
+        return handle
+    graph_module_plan = dict(
+        runtime_assembly.get("graph_module_runtime_plan")
+        or executor_binding.get("graph_module_runtime_plan")
+        or {}
+    )
+    return {
+        "authority": "runtime.subruntime.graph_module_runtime_handle",
+        "handle_id": str(runtime_assembly.get("handle_id") or executor_binding.get("handle_id") or ""),
+        "importing_coordination_run_id": str(work_order.get("coordination_run_id") or ""),
+        "importing_root_task_run_id": str(work_order.get("root_task_run_id") or ""),
+        "importing_stage_id": str(work_order.get("stage_id") or ""),
+        "importing_node_id": str(work_order.get("node_id") or ""),
+        "linked_graph_id": str(
+            runtime_assembly.get("linked_graph_id")
+            or executor_binding.get("linked_graph_id")
+            or executor_binding.get("imported_graph_id")
+            or graph_module_plan.get("linked_graph_id")
+            or ""
+        ),
+        "graph_module_runtime_plan_id": str(
+            runtime_assembly.get("graph_module_runtime_plan_id")
+            or executor_binding.get("graph_module_runtime_plan_id")
+            or graph_module_plan.get("plan_id")
+            or ""
+        ),
+        "graph_module_runtime_plan": graph_module_plan,
+        "explicit_inputs": dict(work_order.get("explicit_inputs") or {}),
+        "standard_input_package": dict(work_order.get("input_package") or {}),
+        "dispatch_context": dict(work_order.get("dispatch_context") or {}),
+    }
+
+
 def _first_non_empty(*values: Any) -> str:
     for value in values:
         text = str(value or "").strip()
