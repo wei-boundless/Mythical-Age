@@ -9,8 +9,8 @@
       "metadata": {
         "system_default": true,
         "theme": "plain",
-        "gate_image": "/souls/generated/world-default-gate.png",
-        "scene_image": "/souls/generated/world-default-scene.png"
+        "gate_image": "/souls/generated/world-default-gate-v2.png",
+        "scene_image": "/souls/generated/world-default-scene-v2.png"
       }
     },
     {
@@ -22,8 +22,8 @@
       "metadata": {
         "theme": "honghuang",
         "style_scope": "worldview_only",
-        "gate_image": "/souls/generated/world-honghuang-gate.png",
-        "scene_image": "/souls/generated/world-honghuang-scene.png"
+        "gate_image": "/souls/generated/world-honghuang-gate-v2.png",
+        "scene_image": "/souls/generated/world-honghuang-scene-v2.png"
       }
     }
   ],

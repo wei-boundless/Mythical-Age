@@ -24,7 +24,7 @@ const primaryNavItems: Array<{
 
 function navItemIsActive(current: WorkspaceView, target: WorkspaceView) {
   if (target === "task-system") {
-    return current === "task-system" || current === "capability-system" || current === "mcp-system";
+    return current === "task-system" || current === "capability-system";
   }
   return current === target;
 }

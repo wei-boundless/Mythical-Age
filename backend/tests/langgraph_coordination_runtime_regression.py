@@ -3,13 +3,16 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from runtime.shared.event_log import RuntimeEventLog
+from runtime.agent_assembly import WorkOrder, validate_work_order
 from runtime.coordination_runtime.runtime import (
     LangGraphCoordinationRuntime,
+    _active_scope_key_for_scheduler,
     _apply_loop_derived_fields,
     _review_gate_event_is_accepted,
     _pending_inputs_for_stage_quality_retry,
     _stage_execution_message,
 )
+from runtime.coordination_runtime.context_packet_resolver import build_revision_packet_from_review
 from runtime.shared.models import CoordinationRun, TaskRun
 from runtime.execution.node_execution_request import NodeResultReadyEvent
 from runtime.memory.state_index import RuntimeStateIndex
@@ -306,6 +309,60 @@ def test_stage_execution_message_expands_revision_artifact_text(tmp_path) -> Non
     assert "上一版候选产物正文" in message
     assert "这里是上一版正文" in message
     assert "不要输出 read_file" in message
+
+
+def test_revision_packet_prefers_node_work_order_over_stage_request() -> None:
+    state = {
+        "node_work_order": {
+            "work_order_id": "nodeexec:new",
+            "dispatch_context": {
+                "dispatch_event_id": "tlevent:new",
+                "clock_seq": 9,
+            },
+            "artifact_context_packet": {"artifact_refs": ["artifact:new.md"]},
+            "explicit_inputs": {"candidate_ref": "artifact:new-fallback.md"},
+        },
+        "stage_execution_request": {
+            "request_id": "nodeexec:old",
+            "dispatch_context": {
+                "dispatch_event_id": "tlevent:old",
+                "clock_seq": 1,
+            },
+            "artifact_context_packet": {"artifact_refs": ["artifact:old.md"]},
+            "explicit_inputs": {"candidate_ref": "artifact:old-fallback.md"},
+        },
+    }
+
+    packet = build_revision_packet_from_review(
+        state=state,
+        review_stage_id="review",
+        target_stage_id="draft",
+        event={"artifact_refs": ["artifact:review.md"], "diagnostics": {"verdict": "revise"}},
+        accepted=False,
+    )
+
+    assert packet["source_dispatch_event_id"] == "tlevent:new"
+    assert packet["source_clock_seq"] == 9
+    assert packet["previous_candidate_artifact_refs"] == ["artifact:new.md"]
+
+
+def test_scheduler_scope_prefers_node_work_order_dispatch_context() -> None:
+    state = {
+        "node_work_order": {
+            "dispatch_context": {
+                "dependency_scope_key": "scope:new",
+                "scope_path": ["run", "phase.new"],
+            }
+        },
+        "stage_execution_request": {
+            "dispatch_context": {
+                "dependency_scope_key": "scope:old",
+                "scope_path": ["run", "phase.old"],
+            }
+        },
+    }
+
+    assert _active_scope_key_for_scheduler(state) == "scope:new"
 
 
 def test_standard_input_package_materials_render_to_model_visible_text() -> None:
@@ -1642,9 +1699,23 @@ def test_langgraph_coordination_runtime_advances_by_stage_contract(tmp_path) -> 
     assert result.stage_execution_request.dispatch_context["clock_seq"] > 0
     assert result.stage_execution_request.artifact_context_packet["artifact_refs"] == ["ref:project_spec"]
     assert result.state["timeline"]["current_clock_seq"] >= result.stage_execution_request.dispatch_context["clock_seq"]
+    work_order = result.node_work_order
+    assert work_order["authority"] == "runtime.agent_assembly.work_order"
+    assert work_order["work_kind"] == "node"
+    assert work_order["work_order_id"] == result.stage_execution_request.request_id
+    assert work_order["task_ref"] == result.stage_execution_request.task_ref
+    assert work_order["agent_id"] == result.stage_execution_request.agent_id
+    assert work_order["agent_profile_id"] == result.stage_execution_request.agent_profile_id
+    assert work_order["input_package"]["package_id"] == result.stage_execution_request.standard_input_package["package_id"]
+    assert work_order["graph_state"]["contract_manifest_ref"] == result.state["contract_manifest"]["manifest_id"]
+    assert work_order["graph_state"]["authority"] == "task_graph.node_work_order_graph_state_snapshot"
+    assert validate_work_order(WorkOrder.from_dict(work_order)).passed
     continuation = result.continuation_payload(session_id="session")
     assert continuation["a2a_payload"]["message"]["metadata"]["target_task_ref"] == "task.test.novel_bible"
+    assert continuation["node_work_order"]["work_order_id"] == work_order["work_order_id"]
     assert continuation["current_turn_context"]["a2a_payload"]["message"]["metadata"]["target_stage_id"] == "novel_bible"
+    assert continuation["current_turn_context"]["node_work_order"]["work_order_id"] == work_order["work_order_id"]
+    assert continuation["task_selection"]["selected_task_id"] == work_order["task_ref"]
     assert result.stage_execution_request.runtime_assembly["authority"] == "orchestration.node_runtime_assembly"
     assert result.stage_execution_request.a2a_payload["message"]["metadata"]["runtime_assembly_ref"]
     scheduler_state = dict(dict(result.state["diagnostics"]).get("task_graph_scheduler_state") or {})
@@ -1918,6 +1989,95 @@ def test_langgraph_coordination_runtime_ignores_stale_dispatch_result(tmp_path) 
     assert runtime_state["completed_nodes"] == ["a"]
     assert runtime_state["running_nodes"] == ["b"]
     assert runtime_state["ready_nodes"] == ["c"]
+
+
+def test_langgraph_coordination_runtime_accepts_result_by_node_work_order_not_stale_stage_request(tmp_path) -> None:
+    runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
+    first = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            artifact_refs=("ref:a",),
+            accepted=True,
+        ),
+    )
+    active_work_order = dict(first.state["node_work_order"])
+    assert active_work_order["stage_id"] == "b"
+    assert active_work_order["work_order_id"] == first.stage_execution_request.request_id
+
+    corrupted_state = dict(runtime.checkpoints.get_state(thread_id="coordrun:diamond"))
+    corrupted_state["stage_execution_request"] = {
+        **dict(corrupted_state["stage_execution_request"]),
+        "request_id": "nodeexec:old-stage-request",
+        "dispatch_context": {
+            **dict(corrupted_state["stage_execution_request"].get("dispatch_context") or {}),
+            "dispatch_event_id": "tlevent:old-stage-request",
+        },
+    }
+    runtime.checkpoints.put_state(
+        thread_id="coordrun:diamond",
+        state=corrupted_state,
+        metadata={"event": "test_corrupt_stage_request"},
+    )
+
+    accepted = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:b",
+            stage_id="b",
+            task_ref="task.test.b",
+            task_result_ref="taskresult:b",
+            artifact_refs=("ref:b",),
+            accepted=True,
+            request_id=active_work_order["work_order_id"],
+            dispatch_event_id=active_work_order["dispatch_context"]["dispatch_event_id"],
+        ),
+    )
+
+    assert "b" in accepted.state["stage_results"]
+    assert accepted.state["stage_results"]["b"]["accepted"] is True
+    assert accepted.state["stage_results"]["b"]["timeline_result_record"]["request_id"] == active_work_order["work_order_id"]
+    assert accepted.state["diagnostics"].get("last_stale_result_reason") in {None, ""}
+
+
+def test_langgraph_coordination_runtime_initialize_does_not_redispatch_when_work_order_exists(tmp_path) -> None:
+    runtime, state_index, coordination_run = _diamond_runtime(tmp_path)
+    first = runtime.resume_from_task_result(
+        coordination_run=coordination_run,
+        event=NodeResultReadyEvent(
+            event_type="task_result_ready",
+            coordination_run_id="coordrun:diamond",
+            task_run_id="taskrun:a",
+            stage_id="a",
+            task_ref="task.test.a",
+            task_result_ref="taskresult:a",
+            artifact_refs=("ref:a",),
+            accepted=True,
+        ),
+    )
+    active_work_order_id = first.state["node_work_order"]["work_order_id"]
+    state = dict(runtime.checkpoints.get_state(thread_id="coordrun:diamond"))
+    state["stage_execution_request"] = {}
+    state["node_execution_request"] = {}
+    runtime.checkpoints.put_state(
+        thread_id="coordrun:diamond",
+        state=state,
+        metadata={"event": "test_keep_work_order_only"},
+    )
+
+    initialized = runtime.initialize(coordination_run=coordination_run)
+
+    assert initialized.node_work_order["work_order_id"] == active_work_order_id
+    assert initialized.stage_execution_request is not None
+    assert initialized.stage_execution_request.request_id == active_work_order_id
+    assert initialized.stage_execution_request.stage_id == "b"
 
 
 def test_langgraph_coordination_runtime_rewinds_stage_and_invalidates_downstream(tmp_path) -> None:
@@ -2492,6 +2652,16 @@ def test_langgraph_runtime_emits_graph_module_stage_request(tmp_path) -> None:
     assert handle["handoff_contract_id"] == "contract.test.graph_module.handoff"
     assert handle["explicit_inputs"]["user_goal"] == "运行导入模块"
     assert handle["executor_policy"]["auto_start_imported_initial_stage"] is True
+    work_order = result.node_work_order
+    assert work_order["work_kind"] == "subruntime"
+    assert work_order["executor_type"] == "subruntime"
+    assert work_order["subruntime_kind"] == "graph_module"
+    assert work_order["task_ref"] == request.task_ref
+    continuation = result.continuation_payload(session_id="session")
+    assert continuation["node_work_order"]["subruntime_kind"] == "graph_module"
+    assert continuation["node_work_order"]["work_kind"] == "subruntime"
+    assert continuation["next_stage_id"] == "graph_module.block.child"
+    assert continuation["current_turn_context"]["node_work_order"]["work_kind"] == "subruntime"
 
 
 class _GraphModuleRegistry:

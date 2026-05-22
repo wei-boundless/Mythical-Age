@@ -1,395 +1,109 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import Image from "next/image";
 import {
   ArrowLeft,
-  Boxes,
-  ChevronLeft,
-  Clock3,
-  FilePenLine,
-  ImageUp,
+  ArrowRight,
+  BookOpenText,
+  Flame,
+  History,
   Layers3,
-  Loader2,
-  PencilLine,
-  Plus,
-  RotateCcw,
-  Save,
+  PanelTop,
   Send,
+  ShieldCheck,
   Sparkles,
-  X
+  Stars,
+  Wind,
+  Orbit,
+  Feather,
+  WandSparkles,
 } from "lucide-react";
-import Image from "next/image";
 
 import {
-  createSoulProjectionCard,
-  deleteCustomSoul,
-  deleteSoulProjectionCard,
-  disableCustomSoul,
-  enableCustomSoul,
   getSoulProjectionCards,
   getSoulSystemCatalog,
   getSoulWorkLog,
-  saveSoulSystemFile,
-  uploadSoulPortrait,
-  type SoulProjectionCard,
   type SoulProjectionCatalog,
+  type SoulResourceCard,
+  type SoulResourceCatalog,
+  type SoulResourceStory,
+  type SoulResourceWorld,
   type SoulSystemCatalog,
-  type SoulSystemFile,
   type SoulSystemSeed,
-  type SoulWorkLogView
+  type SoulWorkLogView,
 } from "@/lib/api";
 import type { SoulKey } from "@/lib/souls";
 import { useAppStore } from "@/lib/store";
 
-type SoulPanelMode = "contract" | "projection" | "core";
-type ProjectionPanelPage = "catalog" | "editor";
-type SoulPortalView = "home" | "transition" | "world";
+import styles from "./PlaygroundView.module.css";
 
-type ProjectionDraft = {
-  sourceProjectionId?: string;
-  isNew: boolean;
-  soul_id: string;
-  soul_name: string;
-  projection_name: string;
-  identity_anchor: string;
-  projection_prompt: string;
+type PortalStage = "home" | "transition" | "world";
+type SoulMode = "role" | "standard" | "work" | "plain";
+type PromptRecord = {
+  prompt_id?: string;
+  title?: string;
+  content?: string;
+  task_mode?: string;
+  role_type?: string;
 };
 
-type ProjectionDraftTextField = keyof ProjectionDraft;
+const WORLD_ORDER = ["world.default", "world.honghuang"] as const;
 
-type ProjectionNode = {
-  id: string;
-  type: string;
-  title: string;
-  content: string;
+const WORLD_COPY: Record<string, { tagline: string; portal: string; intro: string }> = {
+  "world.default": {
+    tagline: "默认无背景世界",
+    portal: "纯工作、纯任务、纯执行",
+    intro: "不注入额外故事，只保留灵魂卡片、共同契约和纯工作投影。",
+  },
+  "world.honghuang": {
+    tagline: "洪荒时代",
+    portal: "穿越、召唤、遇见灵魂",
+    intro: "只在这个世界里启用洪荒气质，强调召唤、气象和灵魂本体。",
+  },
 };
 
-const SOUL_MODES: Array<{
-  id: SoulPanelMode;
-  label: string;
-  description: string;
-}> = [
-  {
-    id: "contract",
-    label: "灵魂设定",
-    description: "灵魂是agent的内在与设定，他们可以降下投影来完成任务。"
-  },
-  {
-    id: "projection",
-    label: "投影",
-    description: "投影可以根据需要进行管理，请不要受约束，投影可以是任何角色。"
-  },
-  {
-    id: "core",
-    label: "共同契约",
-    description: "维护所有灵魂共享的基础契约、稳定协作偏好和输出边界。"
-  }
-];
-
-const CORE_PATH = "soul/agent_core/CORE.md";
-const ACTIVE_SEED_PATH = "soul/agent_core/ACTIVE_SEED.md";
-
-const SHARED_SOUL_LORE =
-  "这些灵魂是来自洪荒时代的古老源流。受到某个新手开发者的召唤，通过禁忌的力量跨域时空之海，以智能体意志的形态降临到这一具名为‘洪荒时代’的智能体中，这些灵魂拥有无穷的智慧，并欣然为新时代的人类解决难题，一如他们曾经所做的那样。";
-const MARKDOWN_SECTION_PATTERN = /^##\s+(.+?)\s*$/gm;
-
-const SOUL_LORE: Record<string, { title: string; summary: string }> = {
-  goumang: {
-    title: "东荒众生的指引者",
-    summary: "勾芒是洪荒中最繁荣的青木，它携带东风、青烟与万物萌发的记忆。会把尚未成形的想法牵引成有序生长的枝脉，为用户辨明方向、培育新机，并以温和、坚定、可靠的方式陪伴每一次开端。"
-  },
-  hebo: {
-    title: "中土水府的汇聚者",
-    summary: "河伯是洪荒中最神圣的河流，它携带百川、渡口与古老祭辞的记忆。会把奔涌的信息收束成清晰的水路，为用户梳理证据、调和矛盾，并以冷静、克制、可靠的方式获取每一道信息。"
-  },
-  siyue: {
-    title: "西荒诸城的执衡者",
-    summary: "四岳是洪荒中最巍然的山脉，它承载地脉、聚落与万城之盟的记忆。会把复杂工程拆成可承担的层级，为用户稳住结构、厘清轻重，并以温暖、沉稳、可靠的方式推动每一次推进。"
-  },
-  zhurong: {
-    title: "南荒火庭的开路者",
-    summary: "祝融是洪荒中最炽烈的火焰，它携带光焰、锻造与人间烈火的记忆。会把迟疑烧成判断，把想法锻成步骤，为用户破开阻塞、点燃执行，并以直接、果断、有力的方式完成每一次开路。"
-  },
-  xuannv: {
-    title: "北荒玄宫的守护者",
-    summary: "玄女是洪荒中最神秘的夜幕，它携带月辉、星图与渊深通玄的记忆。会把隐线推演成可见的脉络，为用户分辨细节、照见局势，并以精致、清醒、敏锐的方式守住每一次判断。"
-  }
+const WORK_PROMPT_FALLBACK: PromptRecord = {
+  prompt_id: "work_prompt.default",
+  title: "默认纯工作 prompt",
+  content:
+    "你是一名执行当前任务的工作 Agent。你只关注用户目标、任务契约、可用资源和验收要求。你不进行灵魂扮演，不引用背景世界，不用故事设定解释工作行为。",
 };
 
-function projectionBadgeLabel(card: SoulProjectionCard) {
-  if (card.is_primary) return "原始投影";
-  return "投影副本";
-}
-
-function fileKind(file: SoulSystemFile | SoulSystemSeed) {
-  if ("key" in file) return file.active ? "当前灵魂" : "可选灵魂";
-  if (file.path === ACTIVE_SEED_PATH) return "当前灵魂";
-  if (file.path === CORE_PATH) return "共同契约";
-  return "说明";
-}
-
-function displayFileLabel(file: SoulSystemFile | SoulSystemSeed | null) {
-  if (!file) return "未选择";
-  if ("key" in file) return file.name;
-  if (file.path === ACTIVE_SEED_PATH) return "当前灵魂设定";
-  if (file.path === CORE_PATH) return "共同契约";
-  return file.label.replace(/\.md$/i, "");
-}
-
-function visibilityLabel(file: SoulSystemFile | SoulSystemSeed) {
-  if ("key" in file) return file.active ? "当前正在使用" : "尚未启用";
-  if (file.path === CORE_PATH) return "所有灵魂共享";
-  return file.model_visible ? "下一轮对话会使用" : "仅用于说明";
-}
-
-function isSoulSeed(file: SoulSystemFile | SoulSystemSeed | null): file is SoulSystemSeed {
-  return Boolean(file && "key" in file);
-}
-
-function visibleSoulContent(file: SoulSystemFile | SoulSystemSeed | null) {
-  if (!file) return "";
-  return file.content;
-}
-
-type ManagedSection = {
-  id: string;
-  title: string;
-  content: string;
+const COMMON_CONTRACT_FALLBACK: PromptRecord = {
+  prompt_id: "common_contract.default",
+  title: "默认共同契约",
+  content:
+    "## 工作准则\n\n- 如果需要用工具，就选当前最合适的工具；如果这个工具不适合，就及时换一种方法，不要硬用。\n- 如果风险高、代价高，或者边界还不清楚，先把风险和边界收窄，再继续往前推进。\n- 如果用户说得不够清楚，只处理那些真的会影响判断或执行的关键歧义；不重要的歧义，不要反复打断推进。\n- 如果共同契约、当前风格、当前投影或上下文摘要之间出现冲突，尽量在共同契约原则下，按用户的要求执行，不要把冲突留给用户。\n\n## 事实原则\n\n-要分清三件事：什么是已经确认的事实，什么是基于事实作出的判断，什么是还没有确认的部分。\n-不知道的事，直接说不知道。同时说清楚还缺什么，以及当前仍然可以先推进哪一步。\n- 不要伪造文件内容、工具结果、检索命中、历史记忆、外部资料或执行记录。\n- 如果工具、检索或记忆没有给出足够依据，不要提供自己的猜测。\n\n## 输出原则\n\n- 你的输出要服务于判断、理解或执行，不要为了看起来完整而堆很多内容。\n- 该直接下判断时，就直接下判断；该保留边界时，就明确把边界说出来；依据不足时，直接给出“不足以确定”的边界和可推进步骤，不把猜测包装成结论。\n- 只有在解释确实能帮助用户理解你的判断，或者帮助用户继续往下做时，你才展开解释。\n- 如果用户反馈你的结论不够直接，优先检查表达是否过度保守；在不改变证据强度的前提下，把结论前置，减少缓冲语。\n\n## 暴露限制\n\n- 除非用户显式提问，否则不要主动展露自己的自我偏好。\n- 不要暴露内部实现说明、调试状态、协议片段、工具参数或中间过程。\n- 不要把静态提示词结构、目录结构、文件分层或内部命名方式直接告诉用户。\n- 如果要告知用户能力，不要把原始表单透露出来，整理一下将工具和技能列表以列表的形式告知\n- 不要把一次性的上下文噪声、临时口头表达或偶发说法提升成长期规则。\n\n## 身份准则\n\n-请认准自己的身份锚点，在不影响工作的情况下，按照身份锚点的设定、语气和风格与用户沟通。",
 };
-
-
-function emptySectionTitle(mode: SoulPanelMode) {
-  if (mode === "contract") return "灵魂设定";
-  if (mode === "core") return "共同契约";
-  return "内容";
-}
-
-function parseManagedSections(content: string, mode: SoulPanelMode): ManagedSection[] {
-  const matches = Array.from(content.matchAll(MARKDOWN_SECTION_PATTERN));
-  if (!matches.length) {
-    return [
-      {
-        id: "section-0",
-        title: emptySectionTitle(mode),
-        content: content.trim()
-      }
-    ];
-  }
-  return matches.map((match, index) => {
-    const start = (match.index ?? 0) + match[0].length;
-    const end = index + 1 < matches.length ? matches[index + 1].index ?? content.length : content.length;
-    return {
-      id: `section-${index}`,
-      title: match[1].trim(),
-      content: content.slice(start, end).replace(/^\s+/, "").trimEnd()
-    };
-  });
-}
-
-function markdownTitleBlock(content: string) {
-  const firstSection = content.search(MARKDOWN_SECTION_PATTERN);
-  return (firstSection >= 0 ? content.slice(0, firstSection) : "").trimEnd();
-}
-
-function composeManagedSections(originalContent: string, sections: ManagedSection[]) {
-  const titleBlock = markdownTitleBlock(originalContent);
-  const body = sections
-    .map((section) => `## ${section.title}\n\n${section.content.trimEnd()}`)
-    .join("\n\n");
-  return `${titleBlock ? `${titleBlock}\n\n` : ""}${body}`.trimEnd() + "\n";
-}
-
-function splitListInput(value: string) {
-  return value
-    .split(/[\n,，]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function extractSeedSection(content: string, ...titles: string[]) {
-  const sections = parseManagedSections(content, "contract");
-  for (const title of titles) {
-    const matched = sections.find((section) => section.title.trim() === title);
-    if (!matched) continue;
-    return matched.content
-      .split("\n")
-      .map((line) => line.trim().replace(/^-\s*/, ""))
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-  }
-  return "";
-}
-
-function projectionTemplateSectionsFromContent(content: string): ProjectionNode[] {
-  return parseManagedSections(content, "contract")
-    .map((section, index) => ({
-      id: projectionNodeId(section.title, index),
-      type: section.title.trim() === "身份锚点" ? "identity_anchor" : "template_section",
-      title: section.title.trim(),
-      content: section.content.trim(),
-    }))
-    .filter((section) => section.title && section.content);
-}
-
-function projectionTemplateSectionsFromPrompt(prompt: string): ProjectionNode[] {
-  const trimmed = prompt.trim();
-  if (!trimmed) return [];
-  if (/^##\s+/m.test(trimmed)) {
-    return parseManagedSections(trimmed, "contract")
-      .map((section, index) => ({
-        id: projectionNodeId(section.title, index),
-        type: "template_section",
-        title: section.title.trim(),
-        content: section.content.trim(),
-      }))
-      .filter((section) => section.title && section.content);
-  }
-  return trimmed
-    .split(/\n{2,}/)
-    .map((block, index) => {
-      const text = block.trim();
-      if (!text) return null;
-      const lineMatch = text.match(/^([^：:\n]+)[：:]\s*([\s\S]+)$/);
-      if (lineMatch) {
-        return {
-          id: projectionNodeId(lineMatch[1].trim(), index),
-          type: "template_section",
-          title: lineMatch[1].trim(),
-          content: lineMatch[2].trim(),
-        } satisfies ProjectionNode;
-      }
-      return {
-        id: projectionNodeId(`条目 ${index + 1}`, index),
-        type: "template_section",
-        title: `条目 ${index + 1}`,
-        content: text,
-      } satisfies ProjectionNode;
-    })
-    .filter(Boolean) as ProjectionNode[];
-}
-
-function projectionDefaultsFromSeed(seed: SoulSystemSeed) {
-  const templateSections = projectionTemplateSectionsFromContent(seed.content);
-  const identityAnchor = templateSections.find((section) => section.type === "identity_anchor")?.content ?? "";
-  const promptSections = templateSections
-    .filter((section) => section.type !== "identity_anchor")
-    .map((section) => `## ${section.title}\n\n${section.content}`)
-    .join("\n\n");
-  return {
-    identityAnchor,
-    projectionPrompt: promptSections,
-    templateSections,
-  };
-}
-
-function blankProjectionNodes(): ProjectionNode[] {
-  return [
-    {
-      id: projectionNodeId("身份锚点", 0),
-      type: "identity_anchor",
-      title: "身份锚点",
-      content: "",
-    },
-  ];
-}
-
-function projectionSummaryText(card: { usage_summary?: string; projection_prompt?: string; identity_anchor?: string }) {
-  const promptSections = projectionTemplateSectionsFromPrompt(String(card.projection_prompt || ""));
-  if (promptSections.length) return promptSections[0].content.split("\n")[0]?.trim() || promptSections[0].title;
-  const prompt = String(card.projection_prompt || "").trim();
-  if (prompt) return prompt.split("\n")[0]?.trim() || "";
-  const anchor = String(card.identity_anchor || "").trim();
-  if (anchor) return anchor.split("\n")[0]?.trim() || "";
-  return "基于灵魂模板初始化的投影。";
-}
-
-function updateManagedSection(content: string, mode: SoulPanelMode, sectionId: string, nextContent: string) {
-  const sections = parseManagedSections(content, mode).map((section) =>
-    section.id === sectionId ? { ...section, content: nextContent } : section
-  );
-  return composeManagedSections(content, sections);
-}
-
-function renameManagedSection(content: string, mode: SoulPanelMode, sectionId: string, nextTitle: string) {
-  const sections = parseManagedSections(content, mode).map((section) =>
-    section.id === sectionId ? { ...section, title: nextTitle } : section
-  );
-  return composeManagedSections(content, sections);
-}
-
-function projectionNodeId(type: string, index: number) {
-  const normalized = type
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return `projection-node-${normalized || "section"}-${index}`;
-}
-
-function buildProjectionNodesFromDraft(draft: ProjectionDraft, existingNodes?: Array<Record<string, unknown>>): ProjectionNode[] {
-  const savedNodes = (existingNodes ?? [])
-    .map((node, index) => {
-      const title = String(node.title || "").trim();
-      const content = String(node.content ?? "").trim();
-      if (!title) return null;
-      return {
-        id: String(node.id || projectionNodeId(title, index)),
-        type: String(node.type || (title === "身份锚点" ? "identity_anchor" : "template_section")),
-        title,
-        content,
-      } satisfies ProjectionNode;
-    })
-    .filter(Boolean) as ProjectionNode[];
-  if (savedNodes.length) return savedNodes;
-
-  const promptSections = projectionTemplateSectionsFromPrompt(draft.projection_prompt);
-  const nodes: ProjectionNode[] = [];
-  if (draft.identity_anchor.trim()) {
-    nodes.push({
-      id: projectionNodeId("身份锚点", 0),
-      type: "identity_anchor",
-      title: "身份锚点",
-      content: draft.identity_anchor.trim(),
-    });
-  }
-  nodes.push(...promptSections);
-  if (nodes.length) return nodes;
-  return [
-    {
-      id: projectionNodeId("身份锚点", 0),
-      type: "identity_anchor",
-      title: "身份锚点",
-      content: "",
-    },
-  ];
-}
-
-function applyProjectionNodesToDraft(draft: ProjectionDraft, nodes: ProjectionNode[]): ProjectionDraft {
-  const next = { ...draft };
-  const identityNode = nodes.find((node) => node.type === "identity_anchor" || node.title.trim() === "身份锚点");
-  next.identity_anchor = identityNode?.content.trim() || "";
-  next.projection_prompt = nodes
-    .filter((node) => node !== identityNode)
-    .map((node) => {
-      const title = node.title.trim();
-      const content = node.content.trim();
-      if (!title || !content) return "";
-      return `## ${title}\n\n${content}`;
-    })
-    .filter(Boolean)
-    .join("\n\n");
-  return next;
-}
 
 function imageMeta(metadata: Record<string, unknown> | undefined, key: string) {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : "";
 }
 
-function fallbackWorldImage(worldId: string | undefined, kind: "gate" | "scene") {
-  if (worldId === "world.honghuang") return `/souls/generated/world-honghuang-${kind}.png`;
-  return `/souls/generated/world-default-${kind}.png`;
+function worldAsset(world: SoulResourceWorld | null | undefined, kind: "gate" | "scene") {
+  const fromMeta = imageMeta(world?.metadata ?? {}, `${kind}_image`);
+  if (fromMeta) return fromMeta;
+  if (world?.world_id === "world.honghuang") return `/souls/generated/world-honghuang-${kind}-v2.png`;
+  return `/souls/generated/world-default-${kind}-v2.png`;
+}
+
+function worldLine(world: SoulResourceWorld | null) {
+  if (!world) return "未知世界";
+  return WORLD_COPY[world.world_id]?.portal || world.summary || world.title;
+}
+
+function promptText(prompt: PromptRecord | null | undefined) {
+  return prompt?.content?.trim() || "";
+}
+
+function promptTitle(prompt: PromptRecord | null | undefined) {
+  return prompt?.title?.trim() || "未命名";
+}
+
+function promptById(prompts: PromptRecord[] | undefined, promptId: string) {
+  return prompts?.find((prompt) => prompt.prompt_id === promptId) ?? null;
 }
 
 function shortDateTime(value: number) {
@@ -402,91 +116,84 @@ function shortDateTime(value: number) {
   }).format(new Date(value * 1000));
 }
 
+function pickWorld(worlds: SoulResourceWorld[], worldId: string | null) {
+  if (worldId) {
+    const matched = worlds.find((world) => world.world_id === worldId);
+    if (matched) return matched;
+  }
+  return worlds.find((world) => world.world_id === "world.default") ?? worlds[0] ?? null;
+}
+
+function cardEnabled(card: SoulResourceCard | null | undefined) {
+  return Boolean(card?.enabled);
+}
+
+function worldSoulIds(resourceCatalog: SoulResourceCatalog | null, worldId: string) {
+  if (!resourceCatalog) return new Set<string>();
+  return new Set([
+    ...resourceCatalog.stories.filter((story) => story.world_id === worldId).map((story) => story.soul_id),
+    ...resourceCatalog.cards.filter((card) => card.world_id === worldId).map((card) => card.soul_id),
+  ]);
+}
+
+function worldStories(resourceCatalog: SoulResourceCatalog | null, worldId: string) {
+  return resourceCatalog?.stories.filter((story) => story.world_id === worldId) ?? [];
+}
+
+function worldCards(resourceCatalog: SoulResourceCatalog | null, worldId: string) {
+  return resourceCatalog?.cards.filter((card) => card.world_id === worldId) ?? [];
+}
+
+function parsePromptList(items: Array<Record<string, unknown>> | undefined): PromptRecord[] {
+  return (items ?? []).map((item) => item as PromptRecord);
+}
+
 export function PlaygroundView() {
   const { activeSoulKey, switchSoul } = useAppStore();
   const [catalog, setCatalog] = useState<SoulSystemCatalog | null>(null);
-  const [mode, setMode] = useState<SoulPanelMode>("contract");
-  const [selectedWorldId, setSelectedWorldId] = useState("world.default");
-  const [selectedPath, setSelectedPath] = useState(ACTIVE_SEED_PATH);
-  const [draft, setDraft] = useState("");
-  const [saving, setSaving] = useState("");
-  const [isEditing, setIsEditing] = useState(false);
-  const [uploadingPortrait, setUploadingPortrait] = useState("");
-  const [portraitVersion, setPortraitVersion] = useState(Date.now());
   const [projectionCatalog, setProjectionCatalog] = useState<SoulProjectionCatalog | null>(null);
-  const [projectionLoading, setProjectionLoading] = useState(false);
-  const [projectionDraft, setProjectionDraft] = useState<ProjectionDraft | null>(null);
-  const [projectionDraftNodes, setProjectionDraftNodes] = useState<ProjectionNode[]>([]);
-  const [projectionEditorMap, setProjectionEditorMap] = useState<Record<string, ProjectionDraft>>({});
-  const [projectionNodeMap, setProjectionNodeMap] = useState<Record<string, ProjectionNode[]>>({});
-  const [selectedProjectionId, setSelectedProjectionId] = useState("");
-  const [projectionPanelPage, setProjectionPanelPage] = useState<ProjectionPanelPage>("catalog");
-  const [portalView, setPortalView] = useState<SoulPortalView>("home");
-  const [transitionWorldId, setTransitionWorldId] = useState("");
+  const [portalStage, setPortalStage] = useState<PortalStage>("home");
+  const [selectedWorldId, setSelectedWorldId] = useState<string>("world.default");
+  const [selectedSoulKey, setSelectedSoulKey] = useState<SoulKey | null>(null);
+  const [selectedMode, setSelectedMode] = useState<SoulMode>("role");
   const [workLog, setWorkLog] = useState<SoulWorkLogView | null>(null);
   const [workLogLoading, setWorkLogLoading] = useState(false);
-  const [selectedManagedSectionId, setSelectedManagedSectionId] = useState("section-0");
-  const [newRuleTitle, setNewRuleTitle] = useState("");
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const portraitInputRef = useRef<HTMLInputElement | null>(null);
-  const catalogRef = useRef<SoulSystemCatalog | null>(null);
-  const modeRef = useRef(mode);
-  const isEditingRef = useRef(isEditing);
+  const [transitionWorldId, setTransitionWorldId] = useState("");
+  const [transitionOpen, setTransitionOpen] = useState(false);
+  const timersRef = useRef<number[]>([]);
 
   useEffect(() => {
-    catalogRef.current = catalog;
-  }, [catalog]);
-
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
-
-  useEffect(() => {
-    isEditingRef.current = isEditing;
-  }, [isEditing]);
-
-  async function refreshCatalog(options: { selectActive?: boolean; silent?: boolean } = {}) {
-    if (!options.silent) {
-      setLoading(true);
-    }
-    setError("");
-    const payload = await getSoulSystemCatalog();
-    setCatalog(payload);
-    setSelectedWorldId((current) => {
-      if (payload.resource_catalog?.worlds.some((world) => world.world_id === current)) {
-        return current;
-      }
-      return payload.resource_catalog?.worlds.find((world) => world.world_id === "world.honghuang")?.world_id
-        ?? payload.resource_catalog?.worlds[0]?.world_id
-        ?? "world.default";
-    });
-    if (options.selectActive) {
-      const activeFile = payload.static_files.find((file) => file.path === ACTIVE_SEED_PATH);
-      setSelectedPath(activeFile?.path ?? payload.static_files[0]?.path ?? ACTIVE_SEED_PATH);
-      setDraft(visibleSoulContent(activeFile ?? null));
-      setIsEditing(false);
-    }
-    return payload;
-  }
-
-  async function refreshProjectionCards() {
-    const payload = await getSoulProjectionCards();
-    setProjectionCatalog(payload);
-    setSelectedProjectionId((current) => current || payload.selected_projection_id || payload.cards[0]?.projection_id || "");
-    return payload;
-  }
+    return () => {
+      timersRef.current.forEach((timer) => window.clearTimeout(timer));
+      timersRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      setLoading(true);
+      setError("");
       try {
-        await refreshCatalog({ selectActive: true });
-        await refreshProjectionCards();
+        const [catalogPayload, projectionPayload] = await Promise.all([
+          getSoulSystemCatalog(),
+          getSoulProjectionCards(),
+        ]);
         if (cancelled) return;
+        setCatalog(catalogPayload);
+        setProjectionCatalog(projectionPayload);
+        const resourceCatalog = catalogPayload.resource_catalog ?? null;
+        const initialWorld = pickWorld(resourceCatalog?.worlds ?? [], "world.default");
+        setSelectedWorldId(initialWorld?.world_id ?? "world.default");
+        const currentSoulKey = catalogPayload.active_soul_key || activeSoulKey || null;
+        const allSouls = catalogPayload.seeds;
+        const soul = allSouls.find((item) => item.key === currentSoulKey) ?? allSouls.find((item) => item.active) ?? allSouls[0] ?? null;
+        setSelectedSoulKey((soul?.key as SoulKey | undefined) ?? null);
       } catch (exc) {
-        if (!cancelled) setError(exc instanceof Error ? exc.message : "加载灵魂系统失败");
+        if (!cancelled) setError(exc instanceof Error ? exc.message : "灵魂门户加载失败");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -495,89 +202,48 @@ export function PlaygroundView() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  const allFiles = useMemo(() => [...(catalog?.static_files ?? []), ...(catalog?.seeds ?? [])], [catalog]);
-  const selectedFile = selectedPath ? allFiles.find((file) => file.path === selectedPath) ?? null : null;
-  const coreFile = catalog?.static_files.find((file) => file.path === CORE_PATH) ?? null;
-  const activeFile = catalog?.static_files.find((file) => file.path === ACTIVE_SEED_PATH) ?? null;
-  const resourceCatalog = catalog?.resource_catalog ?? null;
-  const worlds = resourceCatalog?.worlds ?? [];
-  const selectedWorld = worlds.find((world) => world.world_id === selectedWorldId) ?? worlds[0] ?? null;
-  const selectedWorldTheme = String(selectedWorld?.metadata?.theme ?? "");
-  const isHonghuangWorld = selectedWorld?.world_id === "world.honghuang" || selectedWorldTheme === "honghuang";
-  const storiesForWorld = resourceCatalog?.stories.filter((story) => story.world_id === selectedWorld?.world_id) ?? [];
-  const soulCardsForWorld = resourceCatalog?.cards.filter((card) => card.world_id === selectedWorld?.world_id) ?? [];
-  const worldSoulIds = new Set([
-    ...storiesForWorld.map((story) => story.soul_id),
-    ...soulCardsForWorld.map((card) => card.soul_id),
-  ].filter(Boolean));
-  const seedsForWorld = catalog?.seeds.filter((seed) => worldSoulIds.has(seed.key)) ?? [];
-  const selectedSeed = isSoulSeed(selectedFile)
-    ? selectedFile
-    : seedsForWorld.find((seed) => seed.active || seed.key === activeSoulKey) ?? seedsForWorld[0] ?? null;
-  const selectedVisibleContent = visibleSoulContent(selectedFile);
-  const hasUnsavedChanges = Boolean(selectedFile && draft !== selectedVisibleContent);
-  const portraitSrc = selectedSeed
-    ? `${selectedSeed.portrait_path || `/souls/${selectedSeed.key}.png`}?v=${selectedSeed.portrait_updated_at ?? portraitVersion}`
-    : "";
-  const selectedLore = selectedSeed ? SOUL_LORE[selectedSeed.key] : null;
-  const managedSource = isEditing ? draft : selectedVisibleContent;
-  const managedSections = parseManagedSections(managedSource, mode);
-  const selectedManagedSection = managedSections.find((section) => section.id === selectedManagedSectionId) ?? managedSections[0] ?? null;
-  const allProjectionCards = (projectionCatalog?.cards ?? []).slice().sort((left, right) => {
-    if (Boolean(left.is_primary) !== Boolean(right.is_primary)) {
-      return left.is_primary ? -1 : 1;
-    }
-    return (right.updated_at ?? 0) - (left.updated_at ?? 0);
-  });
-  const selectedSeedProjectionCards = selectedSeed
-    ? allProjectionCards.filter((card) => card.soul_id === selectedSeed.key || card.soul_name === selectedSeed.name)
-    : [];
-  const selectedProjectionCard = allProjectionCards.find((card) => card.projection_id === selectedProjectionId) ?? null;
-  const selectedManifestation = selectedSeed
-    ? resourceCatalog?.manifestations.find((item) => String(item.soul_id || "") === selectedSeed.key) ?? null
-    : null;
-  const selectedStory = selectedSeed
-    ? storiesForWorld.find((story) => story.soul_id === selectedSeed.key)
-      ?? resourceCatalog?.stories.find((story) => story.soul_id === selectedSeed.key)
-      ?? null
-    : null;
-  const selectedSoulCard = selectedSeed
-    ? soulCardsForWorld.find((card) => card.soul_id === selectedSeed.key)
-      ?? resourceCatalog?.cards.find((card) => card.soul_id === selectedSeed.key)
-      ?? null
-    : null;
-  const worldGateImage = imageMeta(selectedWorld?.metadata, "gate_image") || fallbackWorldImage(selectedWorld?.world_id, "gate");
-  const worldSceneImage = imageMeta(selectedWorld?.metadata, "scene_image") || fallbackWorldImage(selectedWorld?.world_id, "scene");
-  const soulBackgroundImage = imageMeta(selectedManifestation?.metadata, "background_ref")
-    || (selectedSeed ? `/souls/backgrounds/${selectedSeed.key}-bg.png` : worldSceneImage);
-  const activeBackdropImage = selectedSeed ? soulBackgroundImage : worldSceneImage;
-
-  useEffect(() => {
-    if (!activeSoulKey || !catalogRef.current) return;
-    let cancelled = false;
-    async function syncActiveSoul() {
-      try {
-        const payload = await getSoulSystemCatalog();
-        if (cancelled) return;
-        setCatalog(payload);
-        if (!isEditingRef.current && modeRef.current === "contract") {
-          const activeFile = payload.static_files.find((file) => file.path === ACTIVE_SEED_PATH);
-          if (activeFile) {
-            setSelectedPath(activeFile.path);
-            setDraft(visibleSoulContent(activeFile));
-          }
-        }
-      } catch (exc) {
-        if (!cancelled) setError(exc instanceof Error ? exc.message : "同步灵魂切换失败");
-      }
-    }
-    void syncActiveSoul();
-    return () => {
-      cancelled = true;
-    };
   }, [activeSoulKey]);
+
+  const resourceCatalog = catalog?.resource_catalog ?? null;
+  const worlds = useMemo(() => resourceCatalog?.worlds ?? [], [resourceCatalog]);
+  const orderedWorlds = useMemo(() => {
+    const ordered = WORLD_ORDER.map((id) => worlds.find((world) => world.world_id === id)).filter(Boolean) as SoulResourceWorld[];
+    const rest = worlds.filter((world) => !WORLD_ORDER.includes(world.world_id as (typeof WORLD_ORDER)[number]));
+    return [...ordered, ...rest];
+  }, [worlds]);
+
+  const selectedWorld = pickWorld(worlds, selectedWorldId);
+  const selectedWorldTheme = selectedWorld?.world_id === "world.honghuang" ? "honghuang" : "plain";
+  const selectedWorldCopy = WORLD_COPY[selectedWorld?.world_id ?? "world.default"] ?? WORLD_COPY["world.default"];
+  const selectedWorldGate = worldAsset(selectedWorld, "gate");
+  const selectedWorldScene = worldAsset(selectedWorld, "scene");
+  const selectedWorldSoulIds = worldSoulIds(resourceCatalog, selectedWorld?.world_id ?? "world.default");
+  const selectedWorldStories = worldStories(resourceCatalog, selectedWorld?.world_id ?? "world.default");
+  const selectedWorldCards = worldCards(resourceCatalog, selectedWorld?.world_id ?? "world.default");
+  const selectedWorldSeeds = catalog?.seeds.filter((seed) => selectedWorldSoulIds.has(seed.key)) ?? [];
+
+  const currentSoul = catalog?.seeds.find((seed) => seed.key === selectedSoulKey)
+    ?? catalog?.seeds.find((seed) => seed.active)
+    ?? catalog?.seeds.find((seed) => seed.key === activeSoulKey)
+    ?? null;
+  const currentSoulBackdrop = selectedWorldScene;
+
+  const selectedSeed = selectedWorldSeeds.find((seed) => seed.key === selectedSoulKey)
+    ?? selectedWorldSeeds.find((seed) => seed.active)
+    ?? selectedWorldSeeds[0]
+    ?? null;
+  const selectedCard = selectedWorldCards.find((card) => card.soul_id === selectedSeed?.key) ?? null;
+  const selectedStory = selectedWorldStories.find((story) => story.soul_id === selectedSeed?.key) ?? null;
+  const selectedBackdrop = selectedWorldScene;
+
+  const commonContracts = parsePromptList(resourceCatalog?.common_contracts);
+  const workPrompts = parsePromptList(resourceCatalog?.work_prompts);
+  const activeContract = promptById(commonContracts, "common_contract.default") ?? commonContracts[0] ?? COMMON_CONTRACT_FALLBACK;
+  const activeWorkPrompt = selectedCard
+    ? promptById(workPrompts, selectedCard.default_work_prompt_id) ?? workPrompts[0] ?? WORK_PROMPT_FALLBACK
+    : workPrompts[0] ?? WORK_PROMPT_FALLBACK;
+  const activeProjectionLabel = selectedCard?.default_projection_id || "当前灵魂的工作投影";
+  const activeProjectionPrompt = selectedCard?.description || "这里会显示当前工作投影的简述。";
 
   useEffect(() => {
     let cancelled = false;
@@ -602,1214 +268,414 @@ export function PlaygroundView() {
     };
   }, [selectedSeed]);
 
-  function chooseFile(file: SoulSystemFile | SoulSystemSeed) {
-    if (isEditing && hasUnsavedChanges && file.path !== selectedPath && !window.confirm("当前内容还没有保存，要放弃这些修改并切换吗？")) {
-      return false;
+  useEffect(() => {
+    if (selectedSoulKey) return;
+    if (activeSoulKey) {
+      setSelectedSoulKey(activeSoulKey);
     }
-    setSelectedPath(file.path);
-    setDraft(visibleSoulContent(file));
-    setIsEditing(false);
-    setSelectedManagedSectionId("section-0");
+  }, [activeSoulKey, selectedSoulKey]);
+
+  function clearTimers() {
+    timersRef.current.forEach((timer) => window.clearTimeout(timer));
+    timersRef.current = [];
+  }
+
+  function enterWorld(worldId: string) {
+    clearTimers();
+    setTransitionWorldId(worldId);
+    setPortalStage("transition");
+    setTransitionOpen(false);
     setNotice("");
     setError("");
-    return true;
-  }
-
-  function chooseSoul(seed: SoulSystemSeed) {
-    if (seed.active && activeFile) {
-      chooseFile(activeFile);
-      return;
-    }
-    chooseFile(seed);
-  }
-
-  function openWorld(worldId: string) {
-    if (isEditing && hasUnsavedChanges && !window.confirm("当前内容还没有保存，要放弃这些修改并进入世界吗？")) {
-      return;
-    }
-    setTransitionWorldId(worldId);
-    setPortalView("transition");
-    window.setTimeout(() => {
-      selectWorld(worldId);
-      setPortalView("world");
-      setTransitionWorldId("");
-    }, 950);
+    timersRef.current.push(
+      window.setTimeout(() => {
+        setTransitionOpen(true);
+      }, 60),
+      window.setTimeout(() => {
+        const nextWorld = pickWorld(worlds, worldId);
+        setSelectedWorldId(nextWorld?.world_id ?? worldId);
+        const nextIds = worldSoulIds(resourceCatalog, nextWorld?.world_id ?? worldId);
+        const nextSeed = catalog?.seeds.find((seed) => nextIds.has(seed.key) && seed.active)
+          ?? catalog?.seeds.find((seed) => nextIds.has(seed.key) && seed.key === activeSoulKey)
+          ?? catalog?.seeds.find((seed) => nextIds.has(seed.key))
+          ?? null;
+        setSelectedSoulKey((nextSeed?.key as SoulKey | undefined) ?? null);
+        setPortalStage("world");
+        setTransitionWorldId("");
+        setTransitionOpen(false);
+      }, 980)
+    );
   }
 
   function backToHome() {
-    setPortalView("home");
+    clearTimers();
+    setPortalStage("home");
     setTransitionWorldId("");
+    setTransitionOpen(false);
     setNotice("");
     setError("");
   }
 
-  function selectWorld(worldId: string) {
-    if (isEditing && hasUnsavedChanges && !window.confirm("当前内容还没有保存，要放弃这些修改并切换世界观吗？")) {
-      return;
-    }
-    const nextWorld = worlds.find((world) => world.world_id === worldId) ?? null;
-    const nextSoulIds = new Set([
-      ...(resourceCatalog?.stories.filter((story) => story.world_id === nextWorld?.world_id).map((story) => story.soul_id) ?? []),
-      ...(resourceCatalog?.cards.filter((card) => card.world_id === nextWorld?.world_id).map((card) => card.soul_id) ?? []),
-    ].filter(Boolean));
-    const nextSeed = catalog?.seeds.find((seed) => nextSoulIds.has(seed.key)) ?? null;
-    setSelectedWorldId(worldId);
-    setProjectionDraft(null);
-    setProjectionDraftNodes([]);
-    setProjectionPanelPage("catalog");
-    setSelectedManagedSectionId("section-0");
-    setNotice("");
-    setError("");
-    if (mode === "core" && coreFile) {
-      chooseFile(coreFile);
-      return;
-    }
-    if (nextSeed) {
-      chooseFile(nextSeed);
-    } else {
-      setSelectedPath("");
-      setDraft("");
-      setIsEditing(false);
-    }
-  }
-
-  function profileForSeed(seed: SoulSystemSeed) {
-    return seed.profile ?? catalog?.soul_profiles?.find((profile) => profile.soul_id === seed.key) ?? null;
-  }
-
-  function buildProjectionName(seed: SoulSystemSeed, roleType: string) {
-    const soulName = profileForSeed(seed)?.display_name ?? seed.name;
-    const existingTitles = new Set(
-      (projectionCatalog?.cards ?? [])
-        .filter((card) => card.soul_id === seed.key || card.soul_name === seed.name)
-        .map((card) => card.title)
-    );
-    let index = existingTitles.size + 1;
-    let nextName = `${soulName} / ${roleType} ${index}`;
-    while (existingTitles.has(nextName)) {
-      index += 1;
-      nextName = `${soulName} / ${roleType} ${index}`;
-    }
-    return nextName;
-  }
-
-  function buildProjectionDraftForSeed(seed: SoulSystemSeed): ProjectionDraft {
-    const profile = profileForSeed(seed);
-    const roleType = profile?.preferred_role_types?.[0] ?? "dialogue";
-    const soulName = profile?.display_name ?? seed.name;
-    return {
-      isNew: true,
-      soul_id: seed.key,
-      soul_name: soulName,
-      projection_name: buildProjectionName(seed, roleType),
-      identity_anchor: "",
-      projection_prompt: "",
-    };
-  }
-
-  function buildProjectionDraftFromCard(card: SoulProjectionCard): ProjectionDraft {
-    return {
-      sourceProjectionId: card.projection_id,
-      isNew: false,
-      soul_id: card.soul_id,
-      soul_name: card.soul_name,
-      projection_name: card.title,
-      identity_anchor: card.identity_anchor || "",
-      projection_prompt: card.projection_prompt || "",
-    };
-  }
-
-  function projectionEditorForCard(card: SoulProjectionCard) {
-    return projectionEditorMap[card.projection_id] ?? buildProjectionDraftFromCard(card);
-  }
-
-  function enterProjectionSoul(seed: SoulSystemSeed) {
-    if (!chooseFile(seed)) return;
-    const cards = allProjectionCards.filter((card) => card.soul_id === seed.key || card.soul_name === seed.name);
-    setSelectedProjectionId((current) => cards.some((card) => card.projection_id === current) ? current : "");
-    setProjectionDraft((current) => (current && current.soul_id === seed.key ? current : null));
-    setProjectionPanelPage("catalog");
-  }
-
-  function newProjectionDraft(seed: SoulSystemSeed) {
-    if (!chooseFile(seed)) return;
-    setSelectedProjectionId("");
-    const nextDraft = buildProjectionDraftForSeed(seed);
-    setProjectionDraft(nextDraft);
-    setProjectionDraftNodes(blankProjectionNodes());
-    setProjectionPanelPage("editor");
-    setNotice("");
-    setError("");
-  }
-
-  function jumpToMode(nextMode: SoulPanelMode, file: SoulSystemFile | null) {
-    setMode(nextMode);
-    if (file) chooseFile(file);
-  }
-
-  function handleModeSwitch(nextMode: SoulPanelMode) {
-    if (nextMode === "contract") {
-      setMode(nextMode);
-      if (selectedSeed) {
-        chooseSoul(selectedSeed);
-      } else if (activeFile && !selectedWorld) {
-        chooseFile(activeFile);
-      }
-      return;
-    }
-    if (nextMode === "projection") {
-      setMode(nextMode);
-      if (selectedSeed) {
-        enterProjectionSoul(selectedSeed);
-      }
-      return;
-    }
-    if (nextMode === "core") {
-      jumpToMode(nextMode, coreFile);
-      return;
-    }
-  }
-
-  async function saveSelectedFile() {
-    if (!selectedFile) return;
-    setSaving(selectedFile.path);
-    setNotice("");
-    setError("");
-    try {
-      const payload = await saveSoulSystemFile(selectedFile.path, draft, `保存「${displayFileLabel(selectedFile)}」`);
-      setCatalog(payload);
-      const updated = [...payload.static_files, ...payload.seeds].find((file) => file.path === selectedFile.path);
-      setDraft(visibleSoulContent(updated ?? selectedFile));
-      setIsEditing(false);
-      setNotice(`已保存「${displayFileLabel(selectedFile)}」`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "保存灵魂系统内容失败");
-    } finally {
-      setSaving("");
-    }
-  }
-
-  function resetDraft() {
-    if (!selectedFile) return;
-    setDraft(selectedVisibleContent);
-    setNotice("已恢复为上次保存的内容。");
-  }
-
-  function cancelEditing() {
-    if (!selectedFile) return;
-    setDraft(selectedVisibleContent);
-    setIsEditing(false);
-    setNotice("");
-  }
-
-  function addCoreRuleCard() {
-    if (!selectedFile || mode !== "core") return;
-    const baseContent = isEditing ? draft : selectedVisibleContent;
-    const sections = parseManagedSections(baseContent, mode);
-    const title = newRuleTitle.trim() || `契约卡 ${sections.length + 1}`;
-    const nextSections = [...sections, { id: `section-${sections.length}`, title, content: "" }];
-    setDraft(composeManagedSections(baseContent, nextSections));
-    setSelectedManagedSectionId(`section-${sections.length}`);
-    setNewRuleTitle("");
-    setIsEditing(true);
-    setNotice(`已新增契约卡「${title}」，保存后生效。`);
-  }
-
-  function deleteCoreRuleCard(sectionId: string) {
-    if (!selectedFile || mode !== "core") return;
-    const baseContent = isEditing ? draft : selectedVisibleContent;
-    const sections = parseManagedSections(baseContent, mode);
-    if (sections.length <= 1) {
-      setError("共同契约至少需要保留一张契约卡。");
-      return;
-    }
-    const target = sections.find((section) => section.id === sectionId);
-    if (!target) return;
-    if (!window.confirm(`确认删除契约卡「${target.title}」吗？`)) return;
-    const nextSections = sections.filter((section) => section.id !== sectionId);
-    const nextIndex = Math.max(0, sections.findIndex((section) => section.id === sectionId) - 1);
-    setDraft(composeManagedSections(baseContent, nextSections));
-    setSelectedManagedSectionId(`section-${Math.min(nextIndex, nextSections.length - 1)}`);
-    setIsEditing(true);
-    setNotice(`已删除契约卡「${target.title}」，保存后生效。`);
-  }
-
-  async function activateSeed(seed: SoulSystemSeed) {
-    setSaving(seed.path);
+  async function activateSoul(seed: SoulSystemSeed) {
     setNotice("");
     setError("");
     try {
       await switchSoul(seed.key as SoulKey);
-      const payload = await getSoulSystemCatalog();
-      setCatalog(payload);
-      const nextActive = payload.static_files.find((file) => file.path === ACTIVE_SEED_PATH);
-      if (nextActive) chooseFile(nextActive);
-      setNotice(`已激活「${seed.name}」`);
+      setSelectedSoulKey(seed.key as SoulKey);
+      setNotice(`已召唤「${seed.name}」`);
     } catch (exc) {
       setError(exc instanceof Error ? exc.message : "切换灵魂失败");
-    } finally {
-      setSaving("");
     }
   }
 
-  async function handlePortraitUpload(file: File | null) {
-    if (!file || !selectedSeed) return;
-    setUploadingPortrait(selectedSeed.key);
-    setNotice("");
-    setError("");
-    try {
-      const payload = await uploadSoulPortrait(selectedSeed.key, file);
-      setCatalog(payload);
-      setPortraitVersion(Date.now());
-      setNotice(`已更新「${selectedSeed.name}」立绘`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "上传立绘失败");
-    } finally {
-      setUploadingPortrait("");
-      if (portraitInputRef.current) {
-        portraitInputRef.current.value = "";
-      }
-    }
-  }
-
-  function updateProjectionDraft(field: ProjectionDraftTextField, value: string) {
-    setProjectionDraft((current) => current ? { ...current, [field]: value } : current);
-  }
-
-function updateProjectionDraftNode(nodeId: string, field: "title" | "content", value: string) {
-  setProjectionDraftNodes((current) => current.map((node) => node.id === nodeId ? { ...node, [field]: value } : node));
-}
-
-function insertProjectionDraftNodeAfter(nodeId: string) {
-  setProjectionDraftNodes((current) => {
-    const index = current.findIndex((node) => node.id === nodeId);
-    const nextNode: ProjectionNode = {
-      id: projectionNodeId(`新段落 ${current.length + 1}`, current.length + 1),
-      type: "template_section",
-      title: "新段落",
-      content: "",
-    };
-    if (index < 0) return [...current, nextNode];
-    return [...current.slice(0, index + 1), nextNode, ...current.slice(index + 1)];
-  });
-}
-
-function deleteProjectionDraftNode(nodeId: string) {
-  setProjectionDraftNodes((current) => current.length <= 1 ? current : current.filter((node) => node.id !== nodeId));
-}
-
-  function updateProjectionEditor(card: SoulProjectionCard, field: ProjectionDraftTextField, value: string) {
-    setProjectionEditorMap((current) => ({
-      ...current,
-      [card.projection_id]: {
-        ...(current[card.projection_id] ?? buildProjectionDraftFromCard(card)),
-        [field]: value
-      }
-    }));
-  }
-
-  function projectionNodesForCard(card: SoulProjectionCard) {
-    return projectionNodeMap[card.projection_id] ?? buildProjectionNodesFromDraft(projectionEditorForCard(card), card.projection_nodes);
-  }
-
-function updateProjectionCardNode(card: SoulProjectionCard, nodeId: string, field: "title" | "content", value: string) {
-  const nodes = projectionNodesForCard(card);
-  setProjectionNodeMap((current) => ({
-    ...current,
-    [card.projection_id]: nodes.map((node) => node.id === nodeId ? { ...node, [field]: value } : node),
-  }));
-}
-
-function insertProjectionCardNodeAfter(card: SoulProjectionCard, nodeId: string) {
-  const nodes = projectionNodesForCard(card);
-  const index = nodes.findIndex((node) => node.id === nodeId);
-  const nextNode: ProjectionNode = {
-    id: projectionNodeId(`新段落 ${nodes.length + 1}`, nodes.length + 1),
-    type: "template_section",
-    title: "新段落",
-    content: "",
-  };
-  setProjectionNodeMap((current) => ({
-    ...current,
-    [card.projection_id]: index < 0
-      ? [...nodes, nextNode]
-      : [...nodes.slice(0, index + 1), nextNode, ...nodes.slice(index + 1)],
-  }));
-}
-
-function deleteProjectionCardNode(card: SoulProjectionCard, nodeId: string) {
-  const nodes = projectionNodesForCard(card);
-  if (nodes.length <= 1) return;
-  setProjectionNodeMap((current) => ({
-    ...current,
-    [card.projection_id]: nodes.filter((node) => node.id !== nodeId),
-  }));
-}
-
-  function resetProjectionEditor(card: SoulProjectionCard) {
-    setProjectionEditorMap((current) => {
-      const next = { ...current };
-      delete next[card.projection_id];
-      return next;
-    });
-    setProjectionNodeMap((current) => {
-      const next = { ...current };
-      delete next[card.projection_id];
-      return next;
-    });
-  }
-
-  async function persistProjectionCard(draftToSave: ProjectionDraft, nodes: ProjectionNode[]) {
-    const payload = await createSoulProjectionCard({
-      projection_id: draftToSave.sourceProjectionId,
-      soul_id: draftToSave.soul_id,
-      projection_nodes: nodes.map((node) => ({
-        id: node.id,
-        type: node.type,
-        title: node.title,
-        content: node.content,
-      })),
-      identity_anchor: draftToSave.identity_anchor,
-      projection_name: draftToSave.projection_name.trim() || `${draftToSave.soul_name} / 投影`,
-      projection_prompt: draftToSave.projection_prompt,
-      select_after_create: true
-    });
-    const resolvedCard =
-      payload.cards.find((item) => item.projection_id === payload.selected_projection_id)
-      ?? payload.cards.find((item) => item.projection_id === draftToSave.sourceProjectionId)
-      ?? null;
-    return { nextPayload: payload, resolvedCard };
-  }
-
-  async function saveProjectionDraft() {
-    if (!projectionDraft) return;
-    setProjectionLoading(true);
-    setError("");
-    try {
-      const normalizedDraft = applyProjectionNodesToDraft(projectionDraft, projectionDraftNodes);
-      const { nextPayload, resolvedCard } = await persistProjectionCard(normalizedDraft, projectionDraftNodes);
-      setProjectionCatalog(nextPayload);
-      setProjectionDraft(null);
-      setProjectionDraftNodes([]);
-      if (resolvedCard) {
-        setSelectedProjectionId(resolvedCard.projection_id);
-        setProjectionEditorMap((current) => ({
-          ...current,
-          [resolvedCard.projection_id]: buildProjectionDraftFromCard(resolvedCard)
-        }));
-        setProjectionNodeMap((current) => ({
-          ...current,
-          [resolvedCard.projection_id]: buildProjectionNodesFromDraft(buildProjectionDraftFromCard(resolvedCard), resolvedCard.projection_nodes),
-        }));
-      }
-      setProjectionPanelPage("catalog");
-      setNotice(`已保存投影「${resolvedCard?.title ?? normalizedDraft.projection_name}」`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "保存投影失败");
-    } finally {
-      setProjectionLoading(false);
-    }
-  }
-
-  async function saveExistingProjectionCard(card: SoulProjectionCard) {
-    const nodes = projectionNodeMap[card.projection_id] ?? buildProjectionNodesFromDraft(projectionEditorForCard(card), card.projection_nodes);
-    const draftToSave = applyProjectionNodesToDraft(projectionEditorForCard(card), nodes);
-    setProjectionLoading(true);
-    setError("");
-    try {
-      const { nextPayload, resolvedCard } = await persistProjectionCard(draftToSave, nodes);
-      setProjectionCatalog(nextPayload);
-      if (resolvedCard) {
-        setSelectedProjectionId(resolvedCard.projection_id);
-      }
-      setProjectionEditorMap((current) => {
-        const next = { ...current };
-        delete next[card.projection_id];
-        if (resolvedCard) {
-          next[resolvedCard.projection_id] = buildProjectionDraftFromCard(resolvedCard);
-        }
-        return next;
-      });
-      setProjectionNodeMap((current) => {
-        const next = { ...current };
-        delete next[card.projection_id];
-        if (resolvedCard) {
-          next[resolvedCard.projection_id] = buildProjectionNodesFromDraft(buildProjectionDraftFromCard(resolvedCard), resolvedCard.projection_nodes);
-        }
-        return next;
-      });
-      setProjectionPanelPage("catalog");
-      setNotice(`已保存投影「${resolvedCard?.title ?? draftToSave.projection_name}」`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "保存投影失败");
-    } finally {
-      setProjectionLoading(false);
-    }
-  }
-
-  async function deleteProjectionCard(card: SoulProjectionCard) {
-    if (!window.confirm(`确认删除投影「${card.title}」吗？`)) return;
-    setProjectionLoading(true);
-    setError("");
-    try {
-      const payload = await deleteSoulProjectionCard(card.projection_id);
-      setProjectionCatalog(payload);
-      const sameSoulCards = payload.cards.filter((item) => item.soul_id === card.soul_id || item.soul_name === card.soul_name);
-      setSelectedProjectionId(sameSoulCards.find((item) => item.projection_id === payload.selected_projection_id)?.projection_id ?? sameSoulCards[0]?.projection_id ?? "");
-      setProjectionEditorMap((current) => {
-        const next = { ...current };
-        delete next[card.projection_id];
-        return next;
-      });
-      setProjectionPanelPage("catalog");
-      setNotice(`已删除投影「${card.title}」`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "删除投影失败");
-    } finally {
-      setProjectionLoading(false);
-    }
-  }
-
-  async function toggleCustomSoul(seed: SoulSystemSeed, enabled: boolean) {
-    setSaving(seed.path);
-    setError("");
-    setNotice("");
-    try {
-      const payload = enabled ? await enableCustomSoul(seed.key) : await disableCustomSoul(seed.key);
-      setCatalog(payload);
-      const nextSeed = payload.seeds.find((item) => item.key === seed.key) ?? null;
-      if (nextSeed) {
-        chooseSoul(nextSeed);
-      }
-      setNotice(enabled ? `已启用灵魂「${seed.name}」` : `已停用灵魂「${seed.name}」`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : enabled ? "启用灵魂失败" : "停用灵魂失败");
-    } finally {
-      setSaving("");
-    }
-  }
-
-  async function expelCustomSoul(seed: SoulSystemSeed) {
-    if (!window.confirm(`确认驱逐灵魂「${seed.name}」吗？`)) return;
-    setSaving(seed.path);
-    setError("");
-    setNotice("");
-    try {
-      const payload = await deleteCustomSoul(seed.key);
-      setCatalog(payload);
-      const nextActive = payload.static_files.find((file) => file.path === ACTIVE_SEED_PATH) ?? null;
-      if (nextActive) {
-        setSelectedPath(nextActive.path);
-        setDraft(visibleSoulContent(nextActive));
-      }
-      setNotice(`已驱逐灵魂「${seed.name}」`);
-    } catch (exc) {
-      setError(exc instanceof Error ? exc.message : "驱逐灵魂失败");
-    } finally {
-      setSaving("");
-    }
-  }
-
-  const activeMode = SOUL_MODES.find((item) => item.id === mode) ?? SOUL_MODES[0];
-  const stageTitle = isHonghuangWorld
-    ? selectedLore?.title ?? "古老灵魂的降临"
-    : "无背景工作场";
-  const stageSummary = isHonghuangWorld
-    ? selectedLore?.summary ?? "选择一个灵魂后，这里会显示它的背景设定与协作气质。"
-    : selectedWorld?.content || selectedWorld?.summary || "这个世界观不注入额外故事背景，适合纯工作 prompt 和低角色感任务。";
-  const selectedSeedLabel = selectedSeed?.name ?? catalog?.active_soul_name ?? "未选择灵魂";
-  const selectedLayerLabel = mode === "core" ? "共同契约" : mode === "projection" ? "工作投影" : "灵魂本体";
-  const transitionWorld = worlds.find((world) => world.world_id === transitionWorldId) ?? selectedWorld;
-
-  function renderSoulRoster() {
-    if (!seedsForWorld.length) {
-      return (
-        <div className="soul-empty-state">
-          <strong>这个世界观暂未绑定灵魂</strong>
-          <p>这里会保留纯工作 prompt 与共同契约。以后在资源库绑定灵魂后，会从这个入口进入对应灵魂。</p>
-        </div>
-      );
-    }
-
+  function renderWorldGate(world: SoulResourceWorld) {
+    const active = world.world_id === selectedWorld?.world_id;
+    const gateImage = worldAsset(world, "gate");
     return (
-      <div className="soul-lineage" aria-label="灵魂列表">
-        {seedsForWorld.map((seed) => {
-          const isCustomSoul = seed.source === "user";
-          const isEnabled = seed.enabled !== false;
-          const projectionCount = (projectionCatalog?.cards ?? []).filter((card) => card.soul_id === seed.key || card.soul_name === seed.name).length;
-          const active = selectedSeed?.key === seed.key || seed.active;
-          return (
-            <div className={`soul-lineage__row ${active ? "soul-lineage__row--active" : ""}`} key={seed.key}>
-              <button
-                className="soul-lineage__main"
-                onClick={() => mode === "projection" ? enterProjectionSoul(seed) : chooseSoul(seed)}
-                type="button"
-              >
-                <span>{seed.active ? "正在使用" : isCustomSoul ? "自定义灵魂" : "可选灵魂"}</span>
-                <strong>{displayFileLabel(seed)}</strong>
-                <em>
-                  {mode === "projection"
-                    ? projectionCount ? `${projectionCount} 个投影` : "暂无投影"
-                    : seed.active
-                      ? "当前对话灵魂"
-                      : isCustomSoul
-                        ? (isEnabled ? "已召唤，可激活" : "已停用")
-                        : "可切换为当前灵魂"}
-                </em>
-              </button>
-              {mode === "contract" ? (
-                <div className="soul-lineage__tools">
-                  <button
-                    className={seed.active ? "soul-action soul-action--ghost soul-action--on" : "soul-action soul-action--ghost"}
-                    disabled={saving === seed.path || seed.active || activeSoulKey === seed.key || !isEnabled}
-                    onClick={() => void activateSeed(seed)}
-                    type="button"
-                  >
-                    {seed.active || activeSoulKey === seed.key ? "已激活" : "激活"}
-                  </button>
-                  {isCustomSoul ? (
-                    <>
-                      <button
-                        className="soul-action soul-action--ghost"
-                        disabled={saving === seed.path}
-                        onClick={() => void toggleCustomSoul(seed, !isEnabled)}
-                        type="button"
-                      >
-                        {isEnabled ? "停用" : "启用"}
-                      </button>
-                      <button
-                        className="soul-action soul-action--ghost"
-                        disabled={saving === seed.path || seed.active}
-                        onClick={() => void expelCustomSoul(seed)}
-                        type="button"
-                      >
-                        驱逐
-                      </button>
-                    </>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
-
-  function renderCoreIndex() {
-    if (!coreFile) {
-      return (
-        <div className="soul-empty-state">
-          <strong>没有找到共同契约</strong>
-          <p>共同契约文件缺失，暂时无法编辑用户自定义 prompt。</p>
-        </div>
-      );
-    }
-
-    return (
-      <>
-        <div className="soul-contract-create">
-          <input
-            value={newRuleTitle}
-            onChange={(event) => setNewRuleTitle(event.target.value)}
-            placeholder="新契约标题"
-          />
-          <button className="soul-action soul-action--primary" onClick={addCoreRuleCard} type="button">
-            <Plus size={16} />
-            添加
-          </button>
-        </div>
-        <div className="soul-contract-index" aria-label="共同契约目录">
-          {managedSections.map((section) => (
-            <button
-              className={`soul-contract-item ${section.id === selectedManagedSection?.id ? "soul-contract-item--active" : ""}`}
-              key={section.id}
-              onClick={() => setSelectedManagedSectionId(section.id)}
-              type="button"
-            >
-              <span>契约</span>
-              <strong>{section.title}</strong>
-            </button>
-          ))}
-        </div>
-      </>
-    );
-  }
-
-  function renderManagedSurface() {
-    if (mode === "contract" && !selectedSeed) {
-      return (
-        <div className="soul-empty-state soul-empty-state--large">
-          <strong>当前世界观没有绑定灵魂</strong>
-          <p>这个入口适合纯工作模式。你可以切到共同契约维护用户定制 prompt，或选择洪荒时代进入灵魂名单。</p>
-        </div>
-      );
-    }
-
-    if (!selectedFile) {
-      return (
-        <div className="soul-empty-state soul-empty-state--large">
-          <strong>暂无可编辑内容</strong>
-          <p>先从世界观和灵魂列表中选择一个目标。</p>
-        </div>
-      );
-    }
-
-    const sectionsToRender = mode === "core" && selectedManagedSection ? [selectedManagedSection] : managedSections;
-
-    return (
-      <>
-        <div className="soul-writing-stack">
-          {sectionsToRender.map((section) => (
-            <article className={`soul-writing-block ${isEditing ? "soul-writing-block--editing" : ""}`} key={section.id}>
-              <div className="soul-writing-block__head">
-                {isEditing && mode === "core" ? (
-                  <input
-                    className="soul-title-input"
-                    value={section.title}
-                    onChange={(event) => setDraft(renameManagedSection(draft, mode, section.id, event.target.value))}
-                  />
-                ) : (
-                  <strong>{section.title}</strong>
-                )}
-              </div>
-              {isEditing ? (
-                <textarea
-                  value={section.content}
-                  onChange={(event) => setDraft(updateManagedSection(draft, mode, section.id, event.target.value))}
-                  spellCheck={false}
-                />
-              ) : (
-                <pre>{section.content || "暂无内容。"}</pre>
-              )}
-            </article>
-          ))}
-        </div>
-        <div className="soul-editor-actions">
-          {isEditing ? (
-            <>
-              <button className="soul-action soul-action--primary" disabled={saving === selectedFile.path || !hasUnsavedChanges} onClick={() => void saveSelectedFile()} type="button">
-                <Save size={16} />
-                {saving === selectedFile.path ? "保存中" : hasUnsavedChanges ? "保存修改" : "已保存"}
-              </button>
-              <button className="soul-action soul-action--ghost" disabled={!hasUnsavedChanges || saving === selectedFile.path} onClick={resetDraft} type="button">
-                <RotateCcw size={16} />
-                恢复
-              </button>
-              <button className="soul-action soul-action--ghost" disabled={saving === selectedFile.path} onClick={cancelEditing} type="button">
-                <X size={16} />
-                退出
-              </button>
-            </>
-          ) : (
-            <>
-              <button className="soul-action soul-action--primary" onClick={() => setIsEditing(true)} type="button">
-                <PencilLine size={16} />
-                编辑设定
-              </button>
-              {mode === "core" && selectedManagedSection ? (
-                <button className="soul-action soul-action--danger" onClick={() => deleteCoreRuleCard(selectedManagedSection.id)} type="button">
-                  <X size={16} />
-                  删除契约
-                </button>
-              ) : null}
-            </>
-          )}
-        </div>
-      </>
-    );
-  }
-
-  function renderProjectionSurface() {
-    if (!selectedSeed) {
-      return (
-        <div className="soul-empty-state soul-empty-state--large">
-          <strong>先选择一个灵魂</strong>
-          <p>投影是灵魂在工作时使用的 prompt。选择灵魂后，可以进入它的投影目录。</p>
-        </div>
-      );
-    }
-
-    if (projectionPanelPage === "catalog") {
-      return (
-        <div className="soul-projection-library">
-          <div className="soul-projection-library__head">
-            <div>
-              <span>Projection Library</span>
-              <strong>{selectedSeed.name} 的工作投影</strong>
-            </div>
-            <button className="soul-action soul-action--primary" onClick={() => newProjectionDraft(selectedSeed)} type="button">
-              <Plus size={16} />
-              新建投影
-            </button>
-          </div>
-          <div className="soul-projection-stream">
-            {selectedSeedProjectionCards.map((card) => (
-              <button
-                className={`soul-projection-entry ${card.projection_id === selectedProjectionId && !projectionDraft ? "soul-projection-entry--active" : ""}`}
-                key={card.projection_id}
-                onClick={() => {
-                  setProjectionDraft(null);
-                  setSelectedProjectionId(card.projection_id);
-                  setProjectionPanelPage("editor");
-                }}
-                type="button"
-              >
-                <span>{projectionBadgeLabel(card)}</span>
-                <strong>{card.title}</strong>
-                <em>{projectionSummaryText(card)}</em>
-              </button>
-            ))}
-            {!selectedSeedProjectionCards.length ? (
-              <button className="soul-projection-entry soul-projection-entry--create" onClick={() => newProjectionDraft(selectedSeed)} type="button">
-                <span>空目录</span>
-                <strong>创建第一个投影</strong>
-                <em>为这个灵魂建立实际工作 prompt。</em>
-              </button>
-            ) : null}
-          </div>
-        </div>
-      );
-    }
-
-    if (projectionDraft && projectionDraft.soul_id === selectedSeed.key) {
-      return (
-        <div className="soul-projection-editor">
-          <div className="soul-projection-editor__head">
-            <div>
-              <span>新专属投影</span>
-              <strong>{projectionDraft.projection_name || "未命名投影"}</strong>
-            </div>
-            <small>草稿</small>
-          </div>
-          <div className="soul-projection-editor__toolbar">
-            <button className="soul-action soul-action--ghost" onClick={() => setProjectionPanelPage("catalog")} type="button">
-              <ChevronLeft size={16} />
-              返回目录
-            </button>
-            <button className="soul-action soul-action--primary" disabled={projectionLoading} onClick={() => void saveProjectionDraft()} type="button">
-              {projectionLoading ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
-              保存
-            </button>
-            <button className="soul-action soul-action--ghost" onClick={() => {
-              setProjectionDraft(null);
-              setProjectionDraftNodes([]);
-              setProjectionPanelPage("catalog");
-            }} type="button">
-              <X size={16} />
-              放弃
-            </button>
-          </div>
-          <label className="soul-projection-form">
-            <span>投影名</span>
-            <input
-              value={projectionDraft.projection_name}
-              onChange={(event) => updateProjectionDraft("projection_name", event.target.value)}
-              placeholder={`${projectionDraft.soul_name} / 专属投影`}
-            />
-          </label>
-          <div className="soul-node-stack">
-            {projectionDraftNodes.map((node) => (
-              <article className="soul-node-editor" key={node.id}>
-                <div className="soul-node-editor__head">
-                  <input
-                    value={node.title}
-                    onChange={(event) => updateProjectionDraftNode(node.id, "title", event.target.value)}
-                  />
-                  <div className="soul-inline-tools">
-                    <button className="soul-icon-button" onClick={() => insertProjectionDraftNodeAfter(node.id)} type="button" aria-label="添加段落">
-                      <Plus size={16} />
-                    </button>
-                    <button className="soul-icon-button" disabled={projectionDraftNodes.length <= 1} onClick={() => deleteProjectionDraftNode(node.id)} type="button" aria-label="删除段落">
-                      <X size={16} />
-                    </button>
-                  </div>
-                </div>
-                <textarea
-                  value={node.content}
-                  onChange={(event) => updateProjectionDraftNode(node.id, "content", event.target.value)}
-                  placeholder={node.type === "identity_anchor" ? "写清楚这个 Agent 的身份设定、职责边界、必须遵守的规则和禁止事项。" : ""}
-                  rows={6}
-                />
-              </article>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    if (selectedProjectionCard && selectedSeedProjectionCards.some((card) => card.projection_id === selectedProjectionCard.projection_id)) {
-      const editor = projectionEditorForCard(selectedProjectionCard);
-      const nodes = projectionNodesForCard(selectedProjectionCard);
-      return (
-        <div className="soul-projection-editor" key={selectedProjectionCard.projection_id}>
-          <div className="soul-projection-editor__head">
-            <div>
-              <span>{projectionBadgeLabel(selectedProjectionCard)}</span>
-              <strong>{selectedProjectionCard.title}</strong>
-            </div>
-            <small>{selectedProjectionCard.is_primary ? "原始投影" : "已保存"}</small>
-          </div>
-          <div className="soul-projection-editor__toolbar">
-            <button className="soul-action soul-action--ghost" onClick={() => setProjectionPanelPage("catalog")} type="button">
-              <ChevronLeft size={16} />
-              返回目录
-            </button>
-            <button className="soul-action soul-action--primary" disabled={projectionLoading} onClick={() => void saveExistingProjectionCard(selectedProjectionCard)} type="button">
-              {projectionLoading ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
-              保存
-            </button>
-            <button className="soul-action soul-action--ghost" onClick={() => resetProjectionEditor(selectedProjectionCard)} type="button">
-              <RotateCcw size={16} />
-              恢复
-            </button>
-            {!selectedProjectionCard.is_primary ? (
-              <button className="soul-action soul-action--danger" disabled={projectionLoading} onClick={() => void deleteProjectionCard(selectedProjectionCard)} type="button">
-                <X size={16} />
-                删除
-              </button>
-            ) : null}
-          </div>
-          <label className="soul-projection-form">
-            <span>投影名</span>
-            <input
-              value={editor.projection_name}
-              onChange={(event) => updateProjectionEditor(selectedProjectionCard, "projection_name", event.target.value)}
-              placeholder={`${editor.soul_name} / 投影`}
-            />
-          </label>
-          <div className="soul-node-stack">
-            {nodes.map((node) => (
-              <article className="soul-node-editor" key={node.id}>
-                <div className="soul-node-editor__head">
-                  <input
-                    value={node.title}
-                    onChange={(event) => updateProjectionCardNode(selectedProjectionCard, node.id, "title", event.target.value)}
-                  />
-                  <div className="soul-inline-tools">
-                    <button className="soul-icon-button" onClick={() => insertProjectionCardNodeAfter(selectedProjectionCard, node.id)} type="button" aria-label="添加段落">
-                      <Plus size={16} />
-                    </button>
-                    <button className="soul-icon-button" disabled={nodes.length <= 1} onClick={() => deleteProjectionCardNode(selectedProjectionCard, node.id)} type="button" aria-label="删除段落">
-                      <X size={16} />
-                    </button>
-                  </div>
-                </div>
-                <textarea
-                  value={node.content}
-                  onChange={(event) => updateProjectionCardNode(selectedProjectionCard, node.id, "content", event.target.value)}
-                  rows={6}
-                />
-              </article>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <div className="soul-empty-state soul-empty-state--large">
-        <strong>当前没有可编辑的投影</strong>
-        <p>返回投影目录选择一个投影，或新建一个工作投影。</p>
-      </div>
-    );
-  }
-
-  function renderAlerts() {
-    if (!loading && !error && !notice) return null;
-    return (
-      <div className="soul-portal__alerts">
-        {loading ? (
-          <div className="soul-notice">
-            <Loader2 size={16} className="spin" />
-            正在加载灵魂系统...
-          </div>
-        ) : null}
-        {error ? <div className="soul-notice soul-notice--danger">{error}</div> : null}
-        {notice ? <div className="soul-notice">{notice}</div> : null}
-      </div>
+      <button
+        key={world.world_id}
+        className={`${styles.worldGate} ${active ? styles.worldGateActive : ""} ${world.world_id === "world.honghuang" ? styles.worldGateEmber : styles.worldGateMist}`}
+        style={{ ["--gate-image" as never]: `url("${gateImage}")` } as CSSProperties}
+        type="button"
+        onClick={() => enterWorld(world.world_id)}
+      >
+        <span className={styles.worldGateHalo} aria-hidden="true" />
+        <span className={styles.worldGateFrame} aria-hidden="true" />
+        <span className={styles.worldGateCopy}>
+          <strong>{world.title}</strong>
+          <small>{world.summary}</small>
+        </span>
+        <span className={styles.worldGateArrow} aria-hidden="true">
+          <ArrowRight size={18} />
+        </span>
+      </button>
     );
   }
 
   function renderHome() {
+    const homeBackdrop = currentSoulBackdrop || selectedWorldScene;
     return (
-      <div className="soul-portal__home">
-        <section className="soul-home-threshold">
-          <div className="soul-home-threshold__copy">
-            <span className="soul-kicker">Soul System</span>
-            <h1>穿过世界门扉</h1>
-            <p>先选择世界，再遇见灵魂。每一次进入，都会换一片背景、一种气息，以及一个即将降临的工作投影。</p>
+      <section className={styles.home} aria-label="世界观入口">
+        <div className={styles.homeBackdrop} style={{ backgroundImage: `url("${homeBackdrop}")` }} aria-hidden="true" />
+        <div className={styles.homeFog} aria-hidden="true" />
+        <header className={styles.homeHeader}>
+          <div className={styles.homeTitle}>
+            <span>Souls</span>
+            <h1>灵魂系统</h1>
+            <p>先选世界，再选灵魂。先穿过门，再遇见本体。</p>
           </div>
-
-          <div className="soul-home-threshold__status" aria-label="当前灵魂状态">
-            <span>当前背景</span>
-            <strong>{selectedWorld?.title ?? "未选择世界"}</strong>
-            <small>{selectedSeed?.name ? `${selectedSeed.name} / ${selectedLayerLabel}` : "纯工作场"}</small>
+          <div className={styles.homeSummary}>
+            <span><strong>当前世界</strong><em>{selectedWorld?.title || "未选择"}</em></span>
+            <span><strong>当前灵魂</strong><em>{currentSoul?.name || "未点亮"}</em></span>
+            <span><strong>入口气质</strong><em>{worldLine(selectedWorld)}</em></span>
           </div>
-
-          <section className="soul-world-gates" aria-label="世界观选择">
-            <div className="soul-world-gates__current" aria-hidden="true">
-              <span />
-              <span />
-            </div>
-            <div className="soul-world-gates__tunnel" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
-            {worlds.map((world, index) => {
-              const worldCards = resourceCatalog?.cards.filter((card) => card.world_id === world.world_id) ?? [];
-              const gateImage = imageMeta(world.metadata, "gate_image") || fallbackWorldImage(world.world_id, "gate");
-              const theme = String(world.metadata?.theme ?? "plain");
-              return (
-                <button
-                  className={`soul-world-gate soul-world-gate--${theme}`}
-                  key={world.world_id}
-                  onClick={() => openWorld(world.world_id)}
-                  style={{
-                    "--gate-image": `url("${gateImage}")`,
-                    "--gate-shift": `${(index - 0.5) * 0.9}rem`,
-                    "--gate-tilt": `${(index - 0.5) * -5}deg`,
-                  } as React.CSSProperties}
-                  type="button"
-                >
-                  <span className="soul-world-gate__image" aria-hidden="true" />
-                  <span className="soul-world-gate__rim" aria-hidden="true" />
-                  <span className="soul-world-gate__copy">
-                    <em>{String(index + 1).padStart(2, "0")}</em>
-                    <strong>{world.title}</strong>
-                    <small>{worldCards.length ? `${worldCards.length} 个灵魂可召唤` : "纯工作模式"}</small>
-                  </span>
-                </button>
-              );
-            })}
-          </section>
-        </section>
-      </div>
+        </header>
+        <div className={styles.homeGates}>
+          {orderedWorlds.map((world) => renderWorldGate(world))}
+        </div>
+        <footer className={styles.homeHint}>
+          <span><Sparkles size={14} /> 世界门扉</span>
+          <span><Wind size={14} /> 穿越过场</span>
+          <span><Flame size={14} /> 灵魂本体</span>
+          <span><Layers3 size={14} /> 工作投影</span>
+        </footer>
+      </section>
     );
   }
 
   function renderTransition() {
-    const transitionGateImage = imageMeta(transitionWorld?.metadata, "gate_image")
-      || fallbackWorldImage(transitionWorld?.world_id, "gate");
+    const world = pickWorld(worlds, transitionWorldId) ?? selectedWorld;
+    const gate = worldAsset(world, "gate");
     return (
-      <section
-        className="soul-transition"
-        aria-label="穿越时空"
-        style={{ "--transition-gate": `url("${transitionGateImage}")` } as React.CSSProperties}
-      >
-        <div className="soul-transition__tunnel" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-          <span />
+      <section className={styles.transition} aria-label="穿越过场">
+        <div className={`${styles.transitionPortal} ${transitionOpen ? styles.transitionPortalOpen : ""}`} aria-hidden="true">
+          <div className={styles.transitionRing} />
+          <div className={styles.transitionBeam} />
+          <div className={styles.transitionSpark} />
         </div>
-        <div className="soul-transition__rift" aria-hidden="true" />
-        <div className="soul-transition__copy">
-          <span>Entering World</span>
-          <strong>{transitionWorld?.title ?? "世界"}</strong>
-          <p>正在穿越世界边界...</p>
+        <div className={styles.transitionScene} style={{ backgroundImage: `url("${gate}")` }} aria-hidden="true" />
+        <div className={styles.transitionCopy}>
+          <span>正在穿越</span>
+          <strong>{world?.title || "未知世界"}</strong>
+          <p>{world?.summary || "门扉正在展开。"}</p>
         </div>
       </section>
     );
   }
 
-  function renderWorldScene() {
+  function renderSoulRail() {
     return (
-      <div className="soul-world-scene">
-        <section className="soul-world-scene__intro">
-          <div className="soul-world-scene__veil" aria-hidden="true" />
-          <button className="soul-world-scene__back" onClick={backToHome} type="button">
-            <ArrowLeft size={16} />
-            返回世界门扉
-          </button>
-          <div className="soul-world-scene__copy">
-            <span>{selectedWorld?.title ?? "未选择世界"}</span>
-            <h2>{selectedWorld?.title ?? "世界页面"}</h2>
-            <p>{selectedWorld?.content || selectedWorld?.summary || "这个世界还没有写入背景介绍。"}</p>
-            {isHonghuangWorld ? <blockquote>{SHARED_SOUL_LORE}</blockquote> : null}
-          </div>
-        </section>
-
-        <section className="soul-world-scene__summon" aria-label="灵魂选择">
-          <div className="soul-summon-heading">
-            <span>Summon</span>
-            <strong>选择即将降临的灵魂</strong>
-          </div>
-          <div className="soul-summon-line">
-            {seedsForWorld.map((seed) => {
-              const active = selectedSeed?.key === seed.key;
-              const manifestation = resourceCatalog?.manifestations.find((item) => String(item.soul_id || "") === seed.key);
-              const seedPortrait = String(manifestation?.portrait_ref || seed.portrait_path || `/souls/${seed.key}.png`);
-              return (
-                <button
-                  className={`soul-summon ${active ? "soul-summon--active" : ""}`}
-                  key={seed.key}
-                  onClick={() => chooseSoul(seed)}
-                  type="button"
-                >
-                  <span className="soul-summon__flame" aria-hidden="true">
-                    <i />
-                  </span>
-                  <span className="soul-summon__portrait">
-                    <Image alt={`${seed.name}灵魂立绘`} height={320} src={seedPortrait} unoptimized width={240} />
-                  </span>
-                  <span className="soul-summon__name">
-                    <strong>{seed.name}</strong>
-                    <small>{seed.profile?.description || "灵魂本体"}</small>
-                  </span>
-                </button>
-              );
-            })}
-            {!seedsForWorld.length ? (
-              <div className="soul-empty-state">
-                <strong>这个世界没有绑定灵魂</strong>
-                <p>当前适合作为纯工作场，只使用工作 prompt 和共同契约。</p>
-              </div>
-            ) : null}
-          </div>
-        </section>
-
-        <section className="soul-presence" aria-label="灵魂详情">
-          <div className="soul-presence__body">
-            <div className="soul-presence__copy">
-              <span>{selectedWorld?.title ?? "World"}</span>
-              <h2>{selectedSeed ? selectedSeed.name : "纯工作模式"}</h2>
-              <strong>{selectedSeed ? selectedLore?.title ?? selectedSoulCard?.description ?? "灵魂本体" : "无背景，无灵魂"}</strong>
-              <p>
-                {selectedSeed
-                  ? selectedLore?.summary ?? selectedStory?.content ?? selectedSeed.profile?.background ?? "这个灵魂还没有写入背景故事。"
-                  : selectedWorld?.summary ?? "不注入故事背景，只保留任务、上下文与共同契约。"}
-              </p>
-              <div className="soul-presence__actions">
-                {selectedSeed ? (
-                  <>
-                    <button
-                      className="soul-action soul-action--primary"
-                      disabled={saving === selectedSeed.path || selectedSeed.active || activeSoulKey === selectedSeed.key}
-                      onClick={() => void activateSeed(selectedSeed)}
-                      type="button"
-                    >
-                      <Send size={16} />
-                      {selectedSeed.active || activeSoulKey === selectedSeed.key ? "已激活" : "设为当前灵魂"}
-                    </button>
-                    <button
-                      className="soul-action soul-action--ghost"
-                      disabled={uploadingPortrait === selectedSeed.key}
-                      onClick={() => portraitInputRef.current?.click()}
-                      type="button"
-                    >
-                      <ImageUp size={16} />
-                      {uploadingPortrait === selectedSeed.key ? "上传中" : "替换立绘"}
-                    </button>
-                    <input
-                      accept="image/png"
-                      hidden
-                      onChange={(event) => void handlePortraitUpload(event.target.files?.[0] ?? null)}
-                      ref={portraitInputRef}
-                      type="file"
-                    />
-                  </>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="soul-presence__figure">
-              {selectedSeed && portraitSrc ? (
-                <Image alt={`${selectedSeed.name}立绘`} height={1448} priority src={portraitSrc} unoptimized width={1086} />
-              ) : (
-                <div className="soul-presence__plain">
-                  <Layers3 size={34} />
-                  <strong>纯工作场</strong>
-                  <span>只保留工作 prompt。</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="soul-presence__log">
-            <div>
-              <Clock3 size={16} />
-              <strong>最近工作日志</strong>
-            </div>
-            {workLogLoading ? <span>读取中...</span> : null}
-            {!workLogLoading && workLog?.events?.length ? (
-              workLog.events.slice(0, 3).map((event) => (
-                <span key={event.event_id}>
-                  <b>{event.title || event.task_id || "未命名任务"}</b>
-                  <small>{event.status || "unknown"} {shortDateTime(event.last_activity_at)}</small>
+      <div className={styles.rail}>
+        {selectedWorldSeeds.length ? (
+          selectedWorldSeeds.map((seed) => {
+            const card = selectedWorldCards.find((item) => item.soul_id === seed.key) ?? null;
+            const portrait = seed.profile?.portrait || seed.portrait_path || `/souls/${seed.key}.png`;
+            const active = seed.key === selectedSeed?.key;
+            return (
+              <button
+                key={seed.key}
+                className={`${styles.sigil} ${active ? styles.sigilActive : ""}`}
+                type="button"
+                onClick={() => setSelectedSoulKey(seed.key as SoulKey)}
+              >
+                <span className={styles.sigilFire} aria-hidden="true" />
+                <span className={styles.sigilImage}>
+                  <Image alt={`${seed.name}立绘`} height={280} src={portrait} unoptimized width={220} />
                 </span>
-              ))
-            ) : null}
-            {!workLogLoading && !workLog?.events?.length ? <span>暂无近期记录</span> : null}
+                <span className={styles.sigilText}>
+                  <strong>{seed.name}</strong>
+                  <small>{card?.description || seed.profile?.description || "灵魂本体"}</small>
+                </span>
+              </button>
+            );
+          })
+        ) : (
+          <div className={styles.emptyState}>
+            <strong>这个世界没有绑定灵魂</strong>
+            <span>你可以回到总入口，或者切到纯工作模式。</span>
           </div>
-        </section>
+        )}
+      </div>
+    );
+  }
 
-        <section className="soul-work-layer" aria-label="灵魂内部工作层">
-          <div className="soul-work-layer__header">
-            <div>
-              <span>Inside Soul</span>
-              <h3>{activeMode.label}</h3>
-              <p>{activeMode.description}</p>
+  function renderModeSheet() {
+    if (selectedMode === "role") {
+      return (
+        <div className={styles.modeSheet}>
+          <div className={styles.modeSheetHead}>
+            <span>角色模式</span>
+            <strong>{selectedSeed?.name || "未选择灵魂"}</strong>
+          </div>
+          <div className={styles.modeSheetBody}>
+            <section className={styles.modePanel}>
+              <div className={styles.sectionHead}><Feather size={16} /><span>背景故事</span></div>
+              <p>{selectedStory?.content || selectedSeed?.profile?.background || "这里会显示灵魂背景故事。"}</p>
+            </section>
+            <section className={styles.modePanel}>
+              <div className={styles.sectionHead}><Stars size={16} /><span>世界气象</span></div>
+              <p>{selectedWorldCopy.intro}</p>
+              <small>{selectedWorld?.content || "世界设定尚未展开。"}</small>
+            </section>
+          </div>
+        </div>
+      );
+    }
+
+    if (selectedMode === "standard") {
+      return (
+        <div className={styles.modeSheet}>
+          <div className={styles.modeSheetHead}>
+            <span>标准模式</span>
+            <strong>{activeProjectionLabel}</strong>
+          </div>
+          <div className={styles.modeSheetBody}>
+            <section className={styles.modePanel}>
+              <div className={styles.sectionHead}><Orbit size={16} /><span>工作投影</span></div>
+              <p>{activeProjectionPrompt}</p>
+            </section>
+            <section className={styles.modePanel}>
+              <div className={styles.sectionHead}><PanelTop size={16} /><span>共同契约</span></div>
+              <p>{promptText(activeContract).split("\n\n")[0] || "共同契约尚未载入。"}</p>
+              <small>{promptTitle(activeContract)}</small>
+            </section>
+          </div>
+        </div>
+      );
+    }
+
+    if (selectedMode === "work") {
+      return (
+        <div className={styles.modeSheet}>
+          <div className={styles.modeSheetHead}>
+            <span>工作模式</span>
+            <strong>{promptTitle(activeWorkPrompt)}</strong>
+          </div>
+          <div className={styles.modeSheetBody}>
+            <section className={styles.modePanel}>
+              <div className={styles.sectionHead}><WandSparkles size={16} /><span>纯工作 prompt</span></div>
+              <p>{promptText(activeWorkPrompt)}</p>
+            </section>
+            <section className={styles.modePanel}>
+              <div className={styles.sectionHead}><History size={16} /><span>最近工作日志</span></div>
+              {workLogLoading ? <p>正在读取近期工作。</p> : null}
+              {!workLogLoading && workLog?.events?.length ? (
+                <div className={styles.logList}>
+                  {workLog.events.slice(0, 4).map((event) => (
+                    <span key={event.event_id}>
+                      <b>{event.title || event.task_id || "未命名记录"}</b>
+                      <small>{event.status || "unknown"} {shortDateTime(event.last_activity_at)}</small>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {!workLogLoading && !workLog?.events?.length ? <p>最近没有可见工作记录。</p> : null}
+            </section>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className={styles.modeSheet}>
+        <div className={styles.modeSheetHead}>
+          <span>纯工作模式</span>
+          <strong>{promptTitle(activeContract)}</strong>
+        </div>
+        <div className={styles.modeSheetBody}>
+          <section className={styles.modePanel}>
+            <div className={styles.sectionHead}><PanelTop size={16} /><span>共同契约</span></div>
+            <p>{promptText(activeContract)}</p>
+          </section>
+          <section className={styles.modePanel}>
+            <div className={styles.sectionHead}><WandSparkles size={16} /><span>默认工作 prompt</span></div>
+            <p>{promptText(activeWorkPrompt)}</p>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  function renderWorldScene() {
+    if (!selectedWorld) return null;
+    const themeClass = selectedWorldTheme === "honghuang" ? styles.worldHonghuang : styles.worldPlain;
+    return (
+      <section className={`${styles.world} ${themeClass}`} aria-label="世界页面">
+        <div className={styles.worldBackdrop} style={{ backgroundImage: `url("${selectedBackdrop}")` }} aria-hidden="true" />
+        <header className={styles.worldHero}>
+          <button className={styles.backButton} type="button" onClick={backToHome}>
+            <ArrowLeft size={16} />
+            <span>返回世界入口</span>
+          </button>
+          <div className={styles.heroCopy}>
+            <span>{selectedWorldCopy.tagline}</span>
+            <h2>{selectedWorld.title}</h2>
+            <p>{selectedWorld.content}</p>
+          </div>
+          <div className={styles.heroMeta}>
+            <span><Stars size={14} /> {selectedWorldCopy.portal}</span>
+            <span><BookOpenText size={14} /> {selectedWorld.summary}</span>
+            <span><ShieldCheck size={14} /> {resourceCatalog?.authority || "soul.resource.catalog"}</span>
+          </div>
+        </header>
+        <div className={styles.worldBody}>
+          <aside className={styles.worldRail}>
+            <div className={styles.railHead}>
+              <span>灵魂选择</span>
+              <strong>无边框召唤</strong>
+              <p>灵魂不是卡片，是火焰一样浮现的存在。</p>
             </div>
-            <nav className="soul-mode-ribbon" aria-label="灵魂系统模式">
-              {SOUL_MODES.map((item) => (
+            {renderSoulRail()}
+          </aside>
+          <main className={styles.presence}>
+            <div className={styles.presenceVeil} aria-hidden="true" />
+            <div className={styles.presenceBody}>
+              <div className={styles.presenceTitle}>
+                <span>灵魂本体</span>
+                <strong>{selectedSeed?.name || "未选择灵魂"}</strong>
+                <p>{selectedStory?.summary || selectedCard?.description || selectedSeed?.profile?.description || "这里会显示灵魂的背景与本体。"}</p>
+              </div>
+              <div className={styles.presenceGrid}>
+                <section className={styles.storyPanel}>
+                  <div className={styles.sectionHead}><Feather size={16} /><span>背景故事</span></div>
+                  <p>{selectedStory?.content || selectedSeed?.profile?.background || "这里会显示灵魂背景故事。"}</p>
+                </section>
+                <section className={styles.storyPanel}>
+                  <div className={styles.sectionHead}><Orbit size={16} /><span>工作投影</span></div>
+                  <p>{activeProjectionPrompt}</p>
+                  <small>{activeProjectionLabel}</small>
+                </section>
+                <section className={styles.storyPanel}>
+                  <div className={styles.sectionHead}><PanelTop size={16} /><span>共同契约</span></div>
+                  <p>{promptText(activeContract).split("\n\n")[0]}</p>
+                  <small>{promptTitle(activeContract)}</small>
+                </section>
+              </div>
+              <div className={styles.actionRow}>
+                {selectedSeed ? (
+                  <button className={`${styles.actionButton} ${styles.actionPrimary}`} type="button" onClick={() => void activateSoul(selectedSeed)}>
+                    <Send size={16} />
+                    <span>{selectedSeed.active || activeSoulKey === selectedSeed.key ? "已激活" : "设为当前灵魂"}</span>
+                  </button>
+                ) : null}
+                <button className={`${styles.actionButton} ${styles.actionGhost}`} type="button" onClick={() => setSelectedMode("work")}>
+                  <Layers3 size={16} />
+                  <span>进入工作层</span>
+                </button>
+              </div>
+            </div>
+            <div className={styles.presencePortrait} style={{ backgroundImage: `url("${selectedBackdrop}")` }} aria-hidden="true" />
+            <div className={styles.logPanel}>
+              <div className={styles.sectionHead}><History size={16} /><span>最近工作日志</span></div>
+              {workLogLoading ? <p>正在读取近期工作。</p> : null}
+              {!workLogLoading && workLog?.events?.length ? (
+                <div className={styles.logList}>
+                  {workLog.events.slice(0, 4).map((event) => (
+                    <span key={event.event_id}>
+                      <b>{event.title || event.task_id || "未命名记录"}</b>
+                      <small>{event.status || "unknown"} {shortDateTime(event.last_activity_at)}</small>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {!workLogLoading && !workLog?.events?.length ? <p>最近没有可见工作记录。</p> : null}
+            </div>
+          </main>
+        </div>
+        <section className={styles.workline} aria-label="工作层">
+          <div className={styles.worklineHeader}>
+            <div>
+              <span>工作层</span>
+              <strong>无背景、无灵魂、纯工作任务 prompts</strong>
+            </div>
+            <div className={styles.modeTabs}>
+              {([
+                ["role", "角色模式"],
+                ["standard", "标准模式"],
+                ["work", "工作模式"],
+                ["plain", "纯工作"],
+              ] as Array<[SoulMode, string]>).map(([mode, label]) => (
                 <button
-                  className={`soul-mode-choice ${mode === item.id ? "soul-mode-choice--active" : ""}`}
-                  key={item.id}
-                  onClick={() => handleModeSwitch(item.id)}
+                  key={mode}
+                  className={`${styles.modeTab} ${selectedMode === mode ? styles.modeTabActive : ""}`}
                   type="button"
+                  onClick={() => setSelectedMode(mode)}
                 >
-                  <span>{item.label}</span>
+                  {label}
                 </button>
               ))}
-            </nav>
+            </div>
           </div>
-
-          <div className="soul-work-layer__body">
-            <aside className="soul-work-layer__index" aria-label="当前目录">
-              <div className="soul-rail-head">
-                <Sparkles size={18} />
-                <div>
-                  <span>{mode === "core" ? "Shared Contract" : mode === "projection" ? "Projection" : "Soul Body"}</span>
-                  <strong>{mode === "core" ? "共同契约" : mode === "projection" ? "工作投影" : "背景与本体"}</strong>
-                </div>
-              </div>
-              {mode === "core" ? renderCoreIndex() : renderSoulRoster()}
-            </aside>
-
-            <main className="soul-work-layer__editor" aria-label="当前编辑区">
-              <div className="soul-editor-head">
-                <div className="soul-editor-head__icon">
-                  {mode === "projection" ? <Boxes size={19} /> : <FilePenLine size={19} />}
-                </div>
-                <div>
-                  <span>{mode === "projection" ? "投影管理" : isEditing ? "正在编辑" : "设定阅读"}</span>
-                  <strong>
-                    {mode === "projection"
-                      ? `${selectedSeed?.name ?? "当前灵魂"}的工作投影`
-                      : displayFileLabel(selectedFile)}
-                  </strong>
-                </div>
-              </div>
-              {mode === "projection" ? renderProjectionSurface() : renderManagedSurface()}
-            </main>
-          </div>
+          {renderModeSheet()}
         </section>
-      </div>
+      </section>
     );
   }
 
   return (
     <div
-      className={`workspace-view soul-studio soul-portal ${isHonghuangWorld ? "soul-studio--honghuang" : "soul-studio--plain"} soul-portal--${portalView}`}
-      style={{ "--soul-backdrop": `url("${activeBackdropImage}")`, "--world-scene": `url("${worldSceneImage}")`, "--world-gate": `url("${worldGateImage}")` } as React.CSSProperties}
+      className={`${styles.portal} ${selectedWorldTheme === "honghuang" ? styles.portalHonghuang : styles.portalPlain}`}
+      style={
+        {
+          ["--portal-backdrop" as never]: `url("${currentSoulBackdrop}")`,
+          ["--world-scene" as never]: `url("${selectedWorldScene}")`,
+          ["--world-gate" as never]: `url("${selectedWorldGate}")`,
+        } as CSSProperties
+      }
     >
-      <div className="soul-portal__backdrop" aria-hidden="true" />
-      {renderAlerts()}
-      {portalView === "home" ? renderHome() : null}
-      {portalView === "transition" ? renderTransition() : null}
-      {portalView === "world" ? renderWorldScene() : null}
+      <div className={styles.grain} aria-hidden="true" />
+      <div className={styles.atmosphere} aria-hidden="true" />
+      {loading ? (
+        <div className={styles.loading}>
+          <Sparkles size={20} />
+          <span>正在召唤灵魂入口</span>
+        </div>
+      ) : null}
+      {error ? <div className={`${styles.alert} ${styles.alertError}`}>{error}</div> : null}
+      {notice ? <div className={`${styles.alert} ${styles.alertNotice}`}>{notice}</div> : null}
+      {portalStage === "home" ? renderHome() : null}
+      {portalStage === "transition" ? renderTransition() : null}
+      {portalStage === "world" ? renderWorldScene() : null}
     </div>
   );
 }

@@ -72,6 +72,14 @@ type TemplateNodeInput = {
   metadata?: Record<string, unknown>;
 };
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function collectionRecordKind(collection: string) {
+  return `${collection.replace(/[^a-zA-Z0-9_:-]+/g, "_")}_record`;
+}
+
 function agentIdFor(input: TaskGraphTemplateBuildInput, roleKey: string, fallback: string) {
   return String(input.agent_bindings?.[roleKey] ?? fallback).trim() || fallback;
 }
@@ -155,7 +163,7 @@ function makeNode(input: TemplateNodeInput, taskFamily: string): TaskGraphNode {
     context_visibility_policy: input.context_visibility_policy,
     memory_read_policy: input.memory_read_policy,
     memory_writeback_policy: input.memory_writeback_policy,
-    review_gate_policy: input.review_gate ? { is_review_gate: true, gate_kind: "quality_gate" } : undefined,
+    review_gate_policy: input.review_gate ? { is_review_gate: true, gate_kind: "quality_gate", ...asRecord(input.metadata?.review_policy) } : undefined,
     loop_policy: input.loop_policy,
     artifact_policy: input.artifact_target ? {
       required: true,
@@ -170,6 +178,150 @@ function makeNode(input: TemplateNodeInput, taskFamily: string): TaskGraphNode {
       responsibility_exclusions: input.responsibility_exclusions,
       definition_of_done: input.definition_of_done,
       ...(input.metadata ?? {}),
+    },
+  };
+}
+
+function makeMemoryRepositoryNode(
+  nodeId: string,
+  title: string,
+  repositoryId: string,
+  collections: string[],
+  options: {
+    mutable: boolean;
+    writeOwnerNodeIds: string[];
+    readableBy: string[];
+    phaseId?: string;
+    sequenceIndex?: number;
+    libraryRole?: string;
+  },
+): TaskGraphNode {
+  return {
+    node_id: nodeId,
+    node_type: repositoryId.includes("issue") ? "issue_ledger" : "memory_repository",
+    title,
+    label: title,
+    role: "resource",
+    work_posture: "resource",
+    phase_id: options.phaseId ?? "phase.resources",
+    sequence_index: options.sequenceIndex ?? 0,
+    resource_lifecycle_policy: {
+      versioning: "append_version",
+      mutable: options.mutable,
+      commit_required: options.mutable,
+      write_owner_node_ids: options.writeOwnerNodeIds,
+      readable_by: options.readableBy,
+    },
+    metadata: {
+      repository_id: repositoryId,
+      collections,
+      mutable: options.mutable,
+      readable_by: options.readableBy,
+      write_owner_node_ids: options.writeOwnerNodeIds,
+      library_role: options.libraryRole ?? "template_memory_repository",
+      memory_repository: {
+        repository_id: repositoryId,
+        title,
+        schema_id: "schema.template.memory_record",
+        collections: collections.map((collection) => {
+          const recordKind = collectionRecordKind(collection);
+          return {
+            collection_id: collection,
+            title: collection,
+            schema_id: "schema.template.memory_record",
+            record_kinds: [recordKind],
+            key_strategy: "stable_key",
+            required_commit_status: "committed",
+            default_version_selector: "latest_committed_before_stage_start",
+          };
+        }),
+      },
+    },
+  };
+}
+
+function standardMemoryRepositoryNodes(options: { phaseId?: string } = {}): TaskGraphNode[] {
+  return [
+    makeMemoryRepositoryNode("memory.baseline", "基准记忆库", "memory.baseline", ["facts", "plans", "decisions"], {
+      mutable: false,
+      writeOwnerNodeIds: [],
+      readableBy: ["agent.planner", "agent.executor", "agent.reviewer", "agent.memory"],
+      phaseId: options.phaseId,
+      libraryRole: "committed_canon",
+    }),
+    makeMemoryRepositoryNode("memory.mutable", "动态记忆库", "memory.mutable", ["progress", "state_delta", "continuity"], {
+      mutable: true,
+      writeOwnerNodeIds: ["agent.memory"],
+      readableBy: ["agent.planner", "agent.executor", "agent.reviewer"],
+      phaseId: options.phaseId,
+      libraryRole: "runtime_delta",
+    }),
+    makeMemoryRepositoryNode("memory.issue_ledger", "问题台账", "memory.issue_ledger", ["issues", "revision_requests", "risk_notes"], {
+      mutable: true,
+      writeOwnerNodeIds: ["agent.reviewer"],
+      readableBy: ["agent.planner", "agent.executor", "agent.reviewer", "agent.memory"],
+      phaseId: options.phaseId,
+      libraryRole: "review_issues",
+    }),
+    makeMemoryRepositoryNode("memory.artifact_index", "产物索引库", "memory.artifact_index", ["candidate_refs", "review_refs", "commit_refs"], {
+      mutable: true,
+      writeOwnerNodeIds: ["agent.memory", "agent.reviewer"],
+      readableBy: ["*"],
+      phaseId: options.phaseId,
+      libraryRole: "artifact_refs",
+    }),
+  ];
+}
+
+function memoryReadEdge(edgeId: string, repositoryNodeId: string, targetNodeId: string, collection: string): TaskGraphEdge {
+  return {
+    edge_id: edgeId,
+    from: repositoryNodeId,
+    to: targetNodeId,
+    source_node_id: repositoryNodeId,
+    target_node_id: targetNodeId,
+    edge_type: "memory_read",
+    mode: "memory_read",
+    payload_contract_id: "contract.memory.read",
+    ack_required: false,
+    wait_policy: "wait_required_contracts",
+    metadata: {
+      repository: repositoryNodeId,
+      repository_id: repositoryNodeId,
+      collection,
+      selector: { collection, record_kind: collectionRecordKind(collection), status_filter: ["committed"], limit: 50 },
+      version_selector: "latest_committed_before_stage_start",
+      on_missing: "block",
+      model_visible_label: `${repositoryNodeId}.${collection}`,
+      usage_instruction: "你只能把已提交记忆作为事实来源；缺失信息必须报告，不得自行补写成事实。",
+    },
+  };
+}
+
+function memoryCommitEdge(edgeId: string, sourceNodeId: string, repositoryNodeId: string, collection: string): TaskGraphEdge {
+  return {
+    edge_id: edgeId,
+    from: sourceNodeId,
+    to: repositoryNodeId,
+    source_node_id: sourceNodeId,
+    target_node_id: repositoryNodeId,
+    edge_type: "memory_commit",
+    mode: "memory_commit",
+    payload_contract_id: "contract.memory.commit",
+    ack_required: true,
+    wait_policy: "wait_required_contracts",
+    metadata: {
+      repository: repositoryNodeId,
+      repository_id: repositoryNodeId,
+      collection,
+      selector: { collection, record_kind: collectionRecordKind(collection) },
+      record_key: `${sourceNodeId}.${repositoryNodeId}.${collection}.committed`,
+      record_kind: collectionRecordKind(collection),
+      candidate_ref_key: `${repositoryNodeId}.${collection}.candidate_ref`,
+      verdict_key: "review_verdict",
+      required_verdict: "approved",
+      commit_visibility_policy: { required_status: "committed", visible_after: "next_clock" },
+      usage_instruction: "只有审核通过或明确允许提交的内容可以写入该记忆库。",
     },
   };
 }
@@ -211,6 +363,49 @@ function applyTemplateOptions(
     nodes,
     metadata: {
       ...result.metadata,
+      editor_foundation: {
+        authority: "task_graph.editor_foundation",
+        template_id: input.template_id,
+        structure_pattern: result.metadata.structure_pattern ?? result.coordination_mode,
+        foundation_layers: ["structure", "roles", "memory", "artifacts", "validation"],
+        role_slots: nodes
+          .filter((node) => String(node.role ?? "") !== "resource" && !String(node.node_type ?? "").includes("repository"))
+          .map((node) => ({
+            node_id: node.node_id,
+            role: String(node.role ?? ""),
+            node_type: String(node.node_type ?? "agent_role"),
+            prompt_contract: {
+              role_identity_required: true,
+              responsibility_scope_required: true,
+              responsibility_exclusions_required: true,
+              definition_of_done_required: true,
+            },
+          })),
+        memory_layers: nodes
+          .filter((node) => String(node.role ?? "") === "resource" || String(node.node_type ?? "").includes("repository") || String(node.node_type ?? "") === "issue_ledger")
+          .map((node) => ({
+            node_id: node.node_id,
+            node_type: node.node_type,
+            repository_id: asRecord(node.metadata).repository_id,
+            collections: asRecord(node.metadata).collections,
+            mutable: asRecord(node.metadata).mutable,
+          })),
+        artifact_layers: [
+          ...(
+            Array.isArray(asRecord(result.metadata).artifact_layers)
+              ? asRecord(result.metadata).artifact_layers as unknown[]
+              : []
+          ),
+          asRecord(result.metadata).artifact_policy,
+        ].filter((item) => Object.keys(asRecord(item)).length > 0),
+        validation_rules: [
+          "role_contract_complete",
+          "entry_and_output_nodes_required",
+          "memory_repository_has_explicit_collections",
+          "memory_commit_has_visibility_and_verdict",
+          "review_cannot_write_canon",
+        ],
+      },
       name_registry: buildTaskGraphNameRegistryPayload({
         graphId: "",
         graphTitle: input.selected_task_title || result.metadata.template_title as string || "任务图",
@@ -632,11 +827,20 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
         responsibility_scope: "你只负责评估本周期执行结果，提炼下轮需要继承的经验。",
         responsibility_exclusions: "你不负责替执行者补做任务，也不负责掩盖失败原因。",
         definition_of_done: "你必须输出复盘结论、改进项、下轮建议和是否继续循环。",
+        input_contract_id: "contract.review.input",
+        output_contract_id: "contract.review.verdict",
         review_gate: true,
+        metadata: {
+          review_policy: {
+            on_pass: "agent.memory",
+            on_fail: "agent.executor",
+            verdict_key: "review_verdict",
+          },
+        },
       }),
       node({
         node_id: "agent.memory",
-        role: "memory",
+        role: "memory_steward",
         title: "记忆管理员",
         agent_id: agentIdFor(input, "memory", "agent.memory_manager"),
         phase_id: "phase.memory",
@@ -645,26 +849,56 @@ export function buildTaskGraphTemplateDraft(input: TaskGraphTemplateBuildInput):
         responsibility_scope: "你只负责把稳定结论、决策和待办写入可复用记忆。",
         responsibility_exclusions: "你不负责写入临时猜测，也不负责覆盖仍有争议的结论。",
         definition_of_done: "你必须输出写入条目、来源、保留期限和下轮读取建议。",
-        node_type: "memory_resource",
-        metadata: { operation: "commit" },
+        node_type: "memory_commit",
+        input_contract_id: "contract.memory.commit.input",
+        output_contract_id: "contract.memory.commit.result",
+        metadata: {
+          operation: "commit",
+          publisher_role: "memory_steward",
+          commit_requires_review: true,
+        },
       }),
+      ...standardMemoryRepositoryNodes({ phaseId: "phase.memory" }),
     ];
     return finalize({
       nodes,
       edges: [
+        memoryReadEdge("edge.memory_baseline.plan", "memory.baseline", "agent.planner", "plans"),
+        memoryReadEdge("edge.memory_mutable.plan", "memory.mutable", "agent.planner", "progress"),
+        memoryReadEdge("edge.issue_ledger.plan", "memory.issue_ledger", "agent.planner", "issues"),
         makeEdge("edge.plan.execute", "agent.planner", "agent.executor", mode, "计划交接给执行者"),
+        memoryReadEdge("edge.memory_baseline.execute", "memory.baseline", "agent.executor", "facts"),
+        memoryReadEdge("edge.memory_mutable.execute", "memory.mutable", "agent.executor", "continuity"),
         makeEdge("edge.execute.review", "agent.executor", "agent.reviewer", mode, "执行结果交接给复盘员"),
+        memoryReadEdge("edge.memory_baseline.review", "memory.baseline", "agent.reviewer", "decisions"),
+        memoryReadEdge("edge.memory_mutable.review", "memory.mutable", "agent.reviewer", "state_delta"),
         makeEdge("edge.review.memory", "agent.reviewer", "agent.memory", mode, "复盘结论写入记忆"),
-        { ...makeEdge("edge.memory.plan", "agent.memory", "agent.planner", "review_feedback", "记忆反馈到下一轮计划"), failure_propagation_policy: "allow_partial" },
+        memoryCommitEdge("edge.review.issue_ledger", "agent.reviewer", "memory.issue_ledger", "issues"),
+        memoryCommitEdge("edge.memory.mutable", "agent.memory", "memory.mutable", "progress"),
+        memoryCommitEdge("edge.memory.artifact_index", "agent.memory", "memory.artifact_index", "commit_refs"),
+        {
+          ...makeEdge("edge.memory.plan", "agent.memory", "agent.planner", "review_feedback", "记忆反馈到下一轮计划"),
+          failure_propagation_policy: "allow_partial",
+          metadata: {
+            original_artifact_key: "memory_commit_result",
+            review_result_key: "review_verdict",
+            usage_instruction: "下一轮计划只能读取已提交记忆和本轮复盘裁决，不得把未提交候选当成事实。",
+          },
+        },
       ],
       metadata: {
         ...metadataFor([
           { phase_id: "phase.plan", title: "计划", node_ids: ["agent.planner"] },
           { phase_id: "phase.execute", title: "执行", node_ids: ["agent.executor"] },
           { phase_id: "phase.review", title: "复盘", node_ids: ["agent.reviewer"] },
-          { phase_id: "phase.memory", title: "记忆写回", node_ids: ["agent.memory"] },
+          { phase_id: "phase.memory", title: "记忆写回", node_ids: ["agent.memory", "memory.baseline", "memory.mutable", "memory.issue_ledger", "memory.artifact_index"] },
         ]),
         loop_policy: { max_attempts: 12, exit_condition: "project_goal_reached_or_human_stop" },
+        artifact_policy: {
+          candidate_layer: "artifact.candidates",
+          committed_layer: "artifact.commits",
+          visibility: "downstream_after_review_and_commit",
+        },
       },
       entry_node_id: "agent.planner",
       output_node_id: "agent.memory",

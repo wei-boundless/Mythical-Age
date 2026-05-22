@@ -1,18 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
-import { Boxes, MessageSquare, PlugZap, Sparkles, Workflow } from "lucide-react";
+import { useEffect, useState } from "react";
 
-import { Sidebar } from "@/components/layout/Sidebar";
-import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
+import { AppProvider, useAppStore } from "@/lib/store";
 import { ChatPanel } from "@/components/chat/ChatPanel";
-import { PlaygroundView } from "@/components/workspace/views/PlaygroundView";
 import { CapabilitySystemView } from "@/components/workspace/views/CapabilitySystemView";
-import { MCPSystemView } from "@/components/workspace/views/MCPSystemView";
+import { PlaygroundView } from "@/components/workspace/views/PlaygroundView";
 import { SystemFrameworkView } from "@/components/workspace/views/SystemFrameworkView";
 import { TaskSystemView } from "@/components/workspace/views/TaskSystemView";
+import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
+import { Sidebar } from "@/components/layout/Sidebar";
 import { TaskGraphRunInteractionDock } from "@/components/workspace/views/task-system/TaskGraphRunInteractionDock";
-import { AppProvider, useAppStore } from "@/lib/store";
 import type { WorkspaceView } from "@/lib/store/types";
 
 const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
@@ -20,63 +18,11 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "playground",
   "task-system",
   "capability-system",
-  "mcp-system",
-  "system-framework"
+  "system-framework",
 ]);
 
-const MAIN_LAYERS: Array<{
-  icon: typeof MessageSquare;
-  label: string;
-  description: string;
-  view: WorkspaceView;
-}> = [
-  {
-    icon: MessageSquare,
-    label: "主会话",
-    description: "对话、任务入口与普通协作",
-    view: "chat",
-  },
-  {
-    icon: Workflow,
-    label: "图任务层",
-    description: "任务图、任务域、编辑器与运行配置",
-    view: "task-system",
-  },
-  {
-    icon: Sparkles,
-    label: "灵魂系统",
-    description: "世界观、灵魂、投影与共同契约",
-    view: "playground",
-  },
-];
-
-const TASK_LAYER_TOOLS: Array<{
-  icon: typeof Boxes;
-  label: string;
-  description: string;
-  view: WorkspaceView;
-}> = [
-  {
-    icon: Boxes,
-    label: "能力系统",
-    description: "工具、Skill、Operation 与权限",
-    view: "capability-system",
-  },
-  {
-    icon: PlugZap,
-    label: "MCP",
-    description: "本地/外部 MCP 统一管理",
-    view: "mcp-system",
-  },
-];
-
-function activeWorkspaceViewClassName(view: WorkspaceView) {
-  if (view === "playground") return "practical-workspace practical-workspace--soul";
-  return "practical-workspace";
-}
-
 function isTaskLayerView(view: WorkspaceView) {
-  return view === "task-system" || view === "capability-system" || view === "mcp-system";
+  return view === "task-system" || view === "capability-system";
 }
 
 function Workspace() {
@@ -95,18 +41,30 @@ function Workspace() {
     taskGraphMonitorLoading,
     taskGraphRunInteractionOpen,
   } = useAppStore();
-  const mainView = isTaskLayerView(activeWorkspaceView)
+  const [mounted, setMounted] = useState(false);
+  const [forcedPlayground, setForcedPlayground] = useState(false);
+
+  const mainView: WorkspaceView = isTaskLayerView(activeWorkspaceView)
     ? "task-system"
     : activeWorkspaceView === "playground"
       ? "playground"
       : "chat";
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
     const view = new URLSearchParams(window.location.search).get("view");
     if (view && WORKSPACE_QUERY_VIEWS.has(view as WorkspaceView)) {
       setWorkspaceView(view as WorkspaceView);
+      setForcedPlayground(view === "playground");
     }
   }, [setWorkspaceView]);
+
+  if (!mounted) {
+    return <main className="app-boot-stage" aria-label="正在启动" />;
+  }
 
   useEffect(() => {
     if (
@@ -141,116 +99,38 @@ function Workspace() {
   }
 
   return (
-    <main className={activeWorkspaceViewClassName(activeWorkspaceView)}>
-      {activeWorkspaceView === "playground" ? null : <Sidebar />}
-
-      <section className="practical-main" aria-label="主工作区">
-        <header className="practical-mainbar">
-          <div className="practical-mainbar__title">
-            <span>LangChain Agent</span>
-            <strong>
-              {mainView === "chat" ? "主会话页面" : mainView === "task-system" ? "图任务层" : "灵魂系统"}
-            </strong>
-          </div>
-          <nav className="practical-layer-tabs" aria-label="主工作层">
-            {MAIN_LAYERS.map((item) => {
-              const Icon = item.icon;
-              const active = mainView === item.view;
-              return (
-                <button
-                  aria-pressed={active}
-                  className={active ? "practical-layer-tab practical-layer-tab--active" : "practical-layer-tab"}
-                  key={item.view}
-                  onClick={() => setWorkspaceView(item.view)}
-                  type="button"
-                >
-                  <Icon size={16} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </header>
-
-        {activeWorkspaceView === "playground" ? null : (
-          <section className="practical-layer-context" aria-label="当前层说明">
-            {MAIN_LAYERS.map((item) => {
-              if (item.view !== mainView) return null;
-              const Icon = item.icon;
-              return (
-                <div className="practical-layer-card" key={item.view}>
-                  <Icon size={17} />
-                  <div>
-                    <strong>{item.label}</strong>
-                    <span>{item.description}</span>
-                  </div>
-                </div>
-              );
-            })}
+    forcedPlayground || activeWorkspaceView === "playground" ? (
+      <PlaygroundView />
+    ) : (
+      <main className="practical-workspace">
+        <Sidebar />
+        <section className="practical-main" aria-label="主工作区">
+          <section className="practical-content">
+            {activeWorkspaceView === "capability-system" ? (
+              <CapabilitySystemView />
+            ) : mainView === "task-system" ? (
+              <TaskSystemView />
+            ) : (
+              <ChatPanel />
+            )}
           </section>
-        )}
-
-        {mainView === "task-system" ? (
-          <section className="practical-subtabs" aria-label="图任务层工具">
-            <button
-              aria-pressed={activeWorkspaceView === "task-system"}
-              className={activeWorkspaceView === "task-system" ? "practical-subtab practical-subtab--active" : "practical-subtab"}
-              onClick={() => setWorkspaceView("task-system")}
-              type="button"
-            >
-              <Workflow size={15} />
-              <span>任务图</span>
-            </button>
-            {TASK_LAYER_TOOLS.map((item) => {
-              const Icon = item.icon;
-              const active = activeWorkspaceView === item.view;
-              return (
-                <button
-                  aria-pressed={active}
-                  className={active ? "practical-subtab practical-subtab--active" : "practical-subtab"}
-                  key={item.view}
-                  onClick={() => setWorkspaceView(item.view)}
-                  type="button"
-                >
-                  <Icon size={15} />
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </section>
-        ) : null}
-
-        <section className="practical-content">
-          {activeWorkspaceView === "capability-system" ? (
-            <CapabilitySystemView />
-          ) : activeWorkspaceView === "mcp-system" ? (
-            <MCPSystemView />
-          ) : mainView === "chat" ? (
-            <ChatPanel />
-          ) : mainView === "task-system" ? (
-            <TaskSystemView />
-          ) : (
-            <PlaygroundView />
-          )}
         </section>
-      </section>
-
-      {activeWorkspaceView === "playground" ? null : <TaskMonitorDock />}
-
-      <TaskGraphRunInteractionDock
-        actionLoading={taskGraphMonitorActionLoading}
-        binding={taskGraphMonitorBinding}
-        decision={taskGraphMonitorDecision}
-        error={taskGraphMonitorError}
-        monitor={taskGraphBoundRunMonitor}
-        monitorLoading={taskGraphMonitorLoading}
-        onClear={clearTaskGraphMonitorRun}
-        onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
-        onOpenChange={setTaskGraphRunInteractionOpen}
-        onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
-        open={taskGraphRunInteractionOpen}
-      />
-    </main>
+        <TaskMonitorDock />
+        <TaskGraphRunInteractionDock
+          actionLoading={taskGraphMonitorActionLoading}
+          binding={taskGraphMonitorBinding}
+          decision={taskGraphMonitorDecision}
+          error={taskGraphMonitorError}
+          monitor={taskGraphBoundRunMonitor}
+          monitorLoading={taskGraphMonitorLoading}
+          onClear={clearTaskGraphMonitorRun}
+          onEvaluate={() => void evaluateBoundTaskGraphMonitor()}
+          onOpenChange={setTaskGraphRunInteractionOpen}
+          onSubmitDecision={(decision, controlAction, resumePayload) => void submitTaskGraphMonitorDecision(decision, controlAction, resumePayload)}
+          open={taskGraphRunInteractionOpen}
+        />
+      </main>
+    )
   );
 }
 

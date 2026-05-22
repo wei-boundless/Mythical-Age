@@ -106,6 +106,16 @@ class SingleMessageModelRuntimeStub:
         return SimpleNamespace(content=self.content)
 
 
+class StreamingMessageModelRuntimeStub(SingleMessageModelRuntimeStub):
+    def __init__(self, *, chunks: list[str], content: str | None = None) -> None:
+        super().__init__(content=content or "".join(chunks))
+        self.chunks = list(chunks)
+
+    async def astream_messages(self, _messages, **_kwargs):
+        for chunk in self.chunks:
+            yield SimpleNamespace(content=chunk)
+
+
 def isolated_backend_root(prefix: str = "backend-test-") -> Path:
     root = Path(tempfile.mkdtemp(prefix=prefix)) / "backend"
     root.mkdir(parents=True, exist_ok=True)

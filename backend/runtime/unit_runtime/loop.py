@@ -2398,10 +2398,6 @@ class TaskRunLoop:
                     terminal_reason = "executor_failed"
                 if event.get("type") != "done":
                     yield event
-                elif event.get("type") == "error":
-                    terminal_reason = "executor_failed"
-                if event.get("type") != "done":
-                    yield event
 
         turn_count = 1
         model_call_count = 1

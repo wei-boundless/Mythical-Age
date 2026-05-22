@@ -20,6 +20,7 @@ from tests.support.runtime_stubs import (
     PrimarySettingsStub,
     QueryRuntimeMemoryFacadeStub,
     SingleMessageModelRuntimeStub,
+    StreamingMessageModelRuntimeStub,
     isolated_backend_root,
 )
 
@@ -70,6 +71,51 @@ def test_astream_specific_light_web_game_task_can_write_new_file(tmp_path: Path)
         for event in events
         if event.get("type") == "runtime_loop_event"
     )
+
+
+def test_run_single_agent_stream_emits_stream_delta_once() -> None:
+    runtime = QueryRuntime(
+        base_dir=isolated_backend_root("query-runtime-stream-dedup-"),
+        settings_service=PrimarySettingsStub(),
+        session_manager=InMemorySessionManagerStub(),
+        memory_facade=QueryRuntimeMemoryFacadeStub(),
+        retrieval_service=SimpleNamespace(),
+        tool_runtime=EmptyToolRuntimeStub(),
+        skill_registry=EmptySkillRegistryStub(),
+        permission_service=DefaultPermissionStub(),
+        model_runtime=StreamingMessageModelRuntimeStub(chunks=["流式片段"]),
+    )
+
+    async def _collect() -> list[dict[str, object]]:
+        events: list[dict[str, object]] = []
+        async for event in runtime.task_run_loop.run_single_agent_stream(
+            session_id="session-stream-dedup",
+            task_id="taskinst:session-stream-dedup:general",
+            user_message="请流式回答。",
+            history=[],
+            source="regression",
+            agent_runtime_chain=runtime.agent_runtime_chain,
+            model_response_executor=runtime.model_response_executor,
+            runtime_context_manager=runtime.runtime_context_manager,
+            task_selection={
+                "turn_id": "turn:session-stream-dedup:1",
+                "stream_policy": {"enabled": True, "mode": "model_text_stream"},
+            },
+            tool_runtime_executor=runtime.tool_runtime_executor,
+            tool_instances=runtime._all_tool_instances(),
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    deltas = [
+        event
+        for event in events
+        if event.get("type") == "content_delta" and event.get("content") == "流式片段"
+    ]
+
+    assert len(deltas) == 1
+    assert any(event.get("type") == "done" for event in events)
 
 
 def test_astream_selected_health_task_adopts_configured_health_agent() -> None:

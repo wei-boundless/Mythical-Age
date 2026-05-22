@@ -27,7 +27,6 @@ const URL_WORKSPACE_VIEWS = new Set<WorkspaceView>([
   "playground",
   "task-system",
   "capability-system",
-  "mcp-system",
   "system-framework"
 ]);
 

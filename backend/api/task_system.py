@@ -25,6 +25,7 @@ from task_system import (
     compile_task_graph_definition_runtime_spec,
 )
 from task_system.compiler.coordination_graph_models import TaskGraphRuntimeSpec
+from task_system.editor.graph_template_catalog import build_task_graph_template_catalog
 from task_system.registry.flow_models import SpecificTaskRecord
 from task_system.graphs.task_graph_models import validate_task_graph
 
@@ -1302,6 +1303,11 @@ async def compile_task_system_task_graph_runtime_spec(graph_id: str) -> dict[str
         communication_protocol=protocol,
     )
     return graph_spec.to_dict()
+
+
+@router.get("/tasks/task-graph-templates")
+async def get_task_system_task_graph_templates() -> dict[str, object]:
+    return build_task_graph_template_catalog()
 
 
 @router.get("/tasks/execution-packages/task-graphs/{graph_id}")

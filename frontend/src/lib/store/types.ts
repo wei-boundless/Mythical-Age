@@ -50,7 +50,6 @@ export type WorkspaceView =
   | "test-system"
   | "health-system"
   | "capability-system"
-  | "mcp-system"
   | "evidence"
   | "task-system"
   | "orchestration"

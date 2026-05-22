@@ -65,6 +65,17 @@ from .contracts.runtime_assembly_models import (
     RuntimeOutputContract,
     SingleAgentRuntimeAssembly,
 )
+from .agent_assembly import (
+    AgentAssemblyContract,
+    DirectWorkOrder,
+    ExecutionPermit,
+    HumanWorkOrder,
+    NodeWorkOrder,
+    SubRuntimeWorkOrder,
+    WorkOrder,
+    build_agent_assembly_contract,
+    build_execution_permit,
+)
 from .shared.event_log import RuntimeEventLog
 from .shared.events import RuntimeEvent, RuntimeEventType
 from .shared.execution_record import (
@@ -172,6 +183,13 @@ __all__ = [
     "CompiledGraphModuleHandoffContract",
     "CompiledRuntimeContract",
     "CompiledAcceptanceContract",
+    "AgentAssemblyContract",
+    "DirectWorkOrder",
+    "ExecutionPermit",
+    "HumanWorkOrder",
+    "NodeWorkOrder",
+    "SubRuntimeWorkOrder",
+    "WorkOrder",
     "SingleAgentRuntimeAssembly",
     "NodeRuntimeAssembly",
     "RuntimeContextSection",
@@ -213,6 +231,8 @@ __all__ = [
     "compile_coordination_contract_manifest",
     "build_single_agent_runtime_assembly",
     "build_node_runtime_assembly",
+    "build_agent_assembly_contract",
+    "build_execution_permit",
     "build_coordination_flow_state",
     "attach_batch_execution_request",
     "bootstrap_scheduler_state",

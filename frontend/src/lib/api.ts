@@ -1301,6 +1301,12 @@ export type ProjectionTemplateCatalog = {
   summary: Record<string, number>;
 };
 
+export type TaskGraphTemplateCatalog = {
+  authority: string;
+  templates: Array<Record<string, unknown>>;
+  summary: Record<string, unknown>;
+};
+
 export type HealthSystemOverview = {
   authority: string;
   summary: Record<string, number>;
@@ -4064,6 +4070,10 @@ export async function upsertTaskWorkflow(workflowId: string, payload: TaskWorkfl
 
 export async function getTaskSystemOverview() {
   return request<TaskSystemOverview>("/tasks/overview");
+}
+
+export async function getTaskGraphTemplates() {
+  return request<TaskGraphTemplateCatalog>("/tasks/task-graph-templates");
 }
 
 export async function upsertTaskSystemContract(contractId: string, payload: ContractSpecUpsertPayload) {

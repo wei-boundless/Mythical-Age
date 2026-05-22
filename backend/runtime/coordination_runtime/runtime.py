@@ -77,6 +77,7 @@ from .context_packet_resolver import build_revision_packet_from_review, resolve_
 from .review_gate_verdict import review_verdict_is_accepted, review_verdict_is_rejected
 from .checkpoint_adapter import LangGraphCheckpointStoreAdapter
 from .runtime_kernel import LangGraphRuntimeKernel
+from .work_order_builder import build_node_work_order_from_request
 from ..shared.runtime_object_store import RuntimeObjectStore
 from ..shared.models import AgentHandoffEnvelope, CoordinationRun
 from ..contracts.runtime_assembly_builder import build_node_runtime_assembly
@@ -152,6 +153,7 @@ class CoordinationRuntimeState(TypedDict, total=False):
     final_result_ref: str
     current_event: dict[str, Any]
     current_task_result: dict[str, Any]
+    node_work_order: dict[str, Any]
     node_execution_request: dict[str, Any]
     stage_execution_request: dict[str, Any]
     a2a_payload: dict[str, Any]
@@ -172,15 +174,24 @@ class LangGraphCoordinationRuntimeResult:
     state: dict[str, Any] = field(default_factory=dict)
     events: tuple[Any, ...] = ()
     stage_execution_request: NodeExecutionRequest | None = None
+    node_work_order: dict[str, Any] = field(default_factory=dict)
     checkpoint_ref: str = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def continuation_payload(self, *, session_id: str, current_turn_context: dict[str, Any] | None = None) -> dict[str, Any]:
-        if self.stage_execution_request is None:
+        work_order = dict(self.node_work_order or {})
+        if self.stage_execution_request is None and not work_order:
             return {}
-        request = self.stage_execution_request
+        request = self.stage_execution_request or NodeExecutionRequest.from_dict(
+            _request_compat_payload_from_work_order(work_order)
+        )
         runtime_assembly = dict(request.runtime_assembly or {})
         projection_id = str(runtime_assembly.get("projection_id") or "").strip()
+        work_order_task_ref = str(work_order.get("task_ref") or request.task_ref)
+        work_order_agent_id = str(work_order.get("agent_id") or request.agent_id)
+        work_order_projection_id = str(work_order.get("projection_id") or projection_id)
+        work_order_executor_type = str(work_order.get("executor_type") or request.executor_type)
+        work_order_stage_id = str(work_order.get("stage_id") or request.stage_id)
         inherited_context = {
             key: value
             for key, value in dict(current_turn_context or {}).items()
@@ -195,45 +206,49 @@ class LangGraphCoordinationRuntimeResult:
                 "selected_projection_id",
                 "continuation_stage_id",
                 "stage_execution_request",
+                "node_work_order",
                 "a2a_payload",
             }
         }
         turn_context = {
             **inherited_context,
-            "selected_task_id": request.task_ref,
-            "task_id": request.task_ref,
-            "agent_id": request.agent_id,
-            "projection_id": projection_id,
-            "selected_projection_id": projection_id,
+            "selected_task_id": work_order_task_ref,
+            "task_id": work_order_task_ref,
+            "agent_id": work_order_agent_id,
+            "projection_id": work_order_projection_id,
+            "selected_projection_id": work_order_projection_id,
             "coordination_run_id": request.coordination_run_id,
-            "continuation_stage_id": request.stage_id,
+            "continuation_stage_id": work_order_stage_id,
             "stage_execution_request": request.to_dict(),
+            "node_work_order": work_order,
             "a2a_payload": dict(request.a2a_payload),
             "explicit_inputs": dict(request.explicit_inputs),
         }
-        if request.executor_type == "human":
+        if work_order_executor_type == "human":
             return {
                 "session_id": session_id,
                 "coordination_run_id": request.coordination_run_id,
                 "thread_id": request.thread_id,
                 "current_task_run_id": request.root_task_run_id,
-                "next_stage_id": request.stage_id,
+                "next_stage_id": work_order_stage_id,
                 "current_turn_context": turn_context,
                 "stage_execution_request": request.to_dict(),
+                "node_work_order": work_order,
                 "a2a_payload": dict(request.a2a_payload),
                 "human_work_packet": dict(request.human_work_packet),
                 "requires_human_executor": True,
                 "suppress_done": True,
             }
-        if request.executor_type == "graph_module":
+        if work_order_executor_type == "graph_module" or str(work_order.get("work_kind") or "") == "subruntime":
             return {
                 "session_id": session_id,
                 "coordination_run_id": request.coordination_run_id,
                 "thread_id": request.thread_id,
                 "current_task_run_id": request.root_task_run_id,
-                "next_stage_id": request.stage_id,
+                "next_stage_id": work_order_stage_id,
                 "current_turn_context": turn_context,
                 "stage_execution_request": request.to_dict(),
+                "node_work_order": work_order,
                 "a2a_payload": dict(request.a2a_payload),
                 "graph_module_runtime_handle": dict(request.runtime_assembly.get("graph_module_runtime_handle") or {}),
                 "requires_graph_module_executor": True,
@@ -244,18 +259,19 @@ class LangGraphCoordinationRuntimeResult:
             "coordination_run_id": request.coordination_run_id,
             "thread_id": request.thread_id,
             "current_task_run_id": request.root_task_run_id,
-            "next_task_ref": request.task_ref,
-            "next_stage_id": request.stage_id,
+            "next_task_ref": work_order_task_ref,
+            "next_stage_id": work_order_stage_id,
             "current_turn_context": turn_context,
             "message": request.message,
             "stage_execution_request": request.to_dict(),
+            "node_work_order": work_order,
             "a2a_payload": dict(request.a2a_payload),
             "task_selection": {
-                "selected_task_id": request.task_ref,
-                "task_id": request.task_ref,
-                "agent_id": request.agent_id,
-                "projection_id": projection_id,
-                "selected_projection_id": projection_id,
+                "selected_task_id": work_order_task_ref,
+                "task_id": work_order_task_ref,
+                "agent_id": work_order_agent_id,
+                "projection_id": work_order_projection_id,
+                "selected_projection_id": work_order_projection_id,
             },
             "suppress_done": True,
         }
@@ -376,7 +392,7 @@ class LangGraphCoordinationRuntime:
             payload={"coordination_run_id": coordination_run.coordination_run_id},
             idempotency_key=f"{coordination_run.coordination_run_id}:run_started",
         )
-        if not dict(state.get("stage_execution_request") or {}):
+        if not _active_execution_request_payload(state):
             prepared_inputs = self._stage_prepare(state)
             state.update(prepared_inputs)
             if str(state.get("terminal_status") or "") not in {"blocked", "waiting_for_batch_result"}:
@@ -405,14 +421,9 @@ class LangGraphCoordinationRuntime:
             checkpoint_ref=checkpoint.checkpoint_id,
             event_task_run_id=event_task_run_id or coordination_run.task_run_id,
         )
-        return LangGraphCoordinationRuntimeResult(
+        return _runtime_result_from_state(
             state=state,
             events=tuple(events),
-            stage_execution_request=(
-                NodeExecutionRequest.from_dict(dict(state.get("stage_execution_request") or {}))
-                if dict(state.get("stage_execution_request") or {})
-                else None
-            ),
             checkpoint_ref=checkpoint.checkpoint_id,
             diagnostics={"supported": True, "initialized": True},
         )
@@ -461,12 +472,9 @@ class LangGraphCoordinationRuntime:
             checkpoint_ref=checkpoint.checkpoint_id,
             event_task_run_id=event.task_run_id,
         )
-        request_payload = dict(final_state.get("stage_execution_request") or {})
-        request = NodeExecutionRequest.from_dict(request_payload) if request_payload else None
-        return LangGraphCoordinationRuntimeResult(
+        return _runtime_result_from_state(
             state=final_state,
             events=tuple(events),
-            stage_execution_request=request,
             checkpoint_ref=checkpoint.checkpoint_id,
             diagnostics=dict(final_state.get("diagnostics") or {}),
         )
@@ -528,12 +536,9 @@ class LangGraphCoordinationRuntime:
             checkpoint_ref=checkpoint.checkpoint_id,
             event_task_run_id=coordination_run.task_run_id,
         )
-        request_payload = dict(final_state.get("stage_execution_request") or {})
-        request = NodeExecutionRequest.from_dict(request_payload) if request_payload else None
-        return LangGraphCoordinationRuntimeResult(
+        return _runtime_result_from_state(
             state=final_state,
             events=tuple(events),
-            stage_execution_request=request,
             checkpoint_ref=checkpoint.checkpoint_id,
             diagnostics=dict(final_state.get("diagnostics") or {}),
         )
@@ -773,6 +778,7 @@ class LangGraphCoordinationRuntime:
                 "missing_required_inputs": [],
                 "current_event": {},
                 "current_task_result": {},
+                "node_work_order": {},
                 "node_execution_request": {},
                 "stage_execution_request": {},
                 "a2a_payload": {},
@@ -830,12 +836,13 @@ class LangGraphCoordinationRuntime:
             checkpoint_ref=checkpoint.checkpoint_id,
             event_task_run_id=coordination_run.task_run_id,
         )
-        request_payload = dict(state.get("stage_execution_request") or {})
+        request_payload = _active_execution_request_payload(state)
         request = NodeExecutionRequest.from_dict(request_payload) if request_payload else None
         return LangGraphCoordinationRuntimeResult(
             state=state,
             events=tuple(events),
             stage_execution_request=request,
+            node_work_order=dict(state.get("node_work_order") or {}),
             checkpoint_ref=checkpoint.checkpoint_id,
             diagnostics={
                 "supported": True,
@@ -861,9 +868,10 @@ class LangGraphCoordinationRuntime:
         if limit <= 0:
             return LangGraphCoordinationRuntimeResult(state=state, diagnostics={"supported": True, "request_count": 0})
         requests: list[NodeExecutionRequest] = []
-        if include_current_request and dict(state.get("stage_execution_request") or {}):
+        current_request_payload = _active_execution_request_payload(state)
+        if include_current_request and current_request_payload:
             try:
-                current_request = NodeExecutionRequest.from_dict(dict(state.get("stage_execution_request") or {}))
+                current_request = NodeExecutionRequest.from_dict(current_request_payload)
                 if _request_dispatch_identity(current_request.to_dict()) not in {
                     _request_dispatch_identity(item.to_dict()) for item in requests
                 }:
@@ -888,6 +896,7 @@ class LangGraphCoordinationRuntime:
                 break
             state["stage_execution_request"] = {}
             state["node_execution_request"] = {}
+            state["node_work_order"] = {}
             state["terminal_status"] = ""
             prepared_inputs = self._stage_prepare(state)
             state.update(prepared_inputs)
@@ -895,7 +904,7 @@ class LangGraphCoordinationRuntime:
                 break
             prepared = self._stage_execute(state)
             state.update(prepared)
-            request_payload = dict(state.get("stage_execution_request") or {})
+            request_payload = _active_execution_request_payload(state)
             if not request_payload:
                 break
             try:
@@ -926,6 +935,7 @@ class LangGraphCoordinationRuntime:
             state=state,
             events=tuple(events),
             stage_execution_request=requests[-1] if requests else None,
+            node_work_order=dict(state.get("node_work_order") or {}),
             checkpoint_ref=checkpoint.checkpoint_id,
             diagnostics={
                 "supported": True,
@@ -1090,7 +1100,7 @@ class LangGraphCoordinationRuntime:
         if not stage_id:
             return {"diagnostics": {**dict(state.get("diagnostics") or {}), "accept_warning": "missing_stage_id"}}
         contract = dict(dict(state.get("stage_contracts") or {}).get(stage_id) or {})
-        request_payload = dict(state.get("stage_execution_request") or {})
+        request_payload = _active_execution_request_payload(state)
         node_id = str(contract.get("node_id") or stage_id)
         batch_runtime_state_for_result = summarize_batch_lifecycle_runtime_state(
             dict(state.get("batch_lifecycle_runtime_state") or {})
@@ -1148,7 +1158,8 @@ class LangGraphCoordinationRuntime:
             stale_results.append(dict(stale_event.to_dict() if stale_event is not None else {}))
             return {
                 "stale_stage_results": stale_results,
-                "node_execution_request": dict(state.get("node_execution_request") or state.get("stage_execution_request") or {}),
+                "node_work_order": dict(state.get("node_work_order") or {}),
+                "node_execution_request": _active_execution_request_payload(state),
                 "stage_execution_request": dict(state.get("stage_execution_request") or {}),
                 "a2a_payload": dict(state.get("a2a_payload") or {}),
                 "terminal_status": "stale_result_ignored",
@@ -1240,6 +1251,7 @@ class LangGraphCoordinationRuntime:
             duplicate_commits.append(dict(duplicate_event.to_dict() if duplicate_event is not None else {}))
             return {
                 "duplicate_stage_commits": duplicate_commits,
+                "node_work_order": {},
                 "node_execution_request": {},
                 "stage_execution_request": {},
                 "a2a_payload": {},
@@ -1256,7 +1268,7 @@ class LangGraphCoordinationRuntime:
             node_id=node_id,
             phase_id=str(stage_scope.get("phase_id") or ""),
             iteration_index=int(stage_scope.get("iteration_index") or 0),
-            request_id=str(request_payload.get("request_id") or ""),
+            request_id=str(result_request_payload.get("request_id") or ""),
             payload={
                 "stage_id": stage_id,
                 "task_run_id": str(event.get("task_run_id") or ""),
@@ -1661,6 +1673,7 @@ class LangGraphCoordinationRuntime:
             "latest_stage_result_records": latest_stage_result_records,
             "accepted_result_records_by_scope": accepted_result_records_by_scope,
             "final_result_ref": str(event.get("task_result_ref") or event.get("agent_run_result_ref") or ""),
+            "node_work_order": {},
             "node_execution_request": {},
             "stage_execution_request": {},
             "a2a_payload": {},
@@ -1858,7 +1871,7 @@ class LangGraphCoordinationRuntime:
         if str(state.get("terminal_status") or "") == "stale_result_ignored":
             return {
                 "terminal_status": "stale_result_ignored",
-                "node_execution_request": dict(state.get("node_execution_request") or state.get("stage_execution_request") or {}),
+                "node_execution_request": _active_execution_request_payload(state),
                 "stage_execution_request": dict(state.get("stage_execution_request") or {}),
                 "a2a_payload": dict(state.get("a2a_payload") or {}),
                 "ready_nodes": list(state.get("ready_nodes") or []),
@@ -1872,7 +1885,7 @@ class LangGraphCoordinationRuntime:
         if str(state.get("terminal_status") or "") == "duplicate_commit_ignored":
             return {
                 "terminal_status": "duplicate_commit_ignored",
-                "node_execution_request": dict(state.get("node_execution_request") or state.get("stage_execution_request") or {}),
+                "node_execution_request": _active_execution_request_payload(state),
                 "stage_execution_request": dict(state.get("stage_execution_request") or {}),
                 "a2a_payload": dict(state.get("a2a_payload") or {}),
                 "ready_nodes": list(state.get("ready_nodes") or []),
@@ -2418,6 +2431,30 @@ class LangGraphCoordinationRuntime:
                 "authority": "task_graph.timeline_result_policy",
             },
         )
+        node_work_order = build_node_work_order_from_request(request, state=state)
+        if dispatch_event is not None:
+            self._append_timeline_event(
+                state,
+                event_type="node_work_order_created",
+                status="created",
+                scope_type=str(stage_scope.get("scope_type") or "stage"),
+                scope_path=list(stage_scope.get("scope_path") or ["run"]),
+                node_id=node_id,
+                phase_id=str(stage_scope.get("phase_id") or ""),
+                request_id=request.request_id,
+                payload={
+                    "work_order_id": node_work_order.work_order_id,
+                    "work_kind": node_work_order.work_kind,
+                    "stage_id": stage_id,
+                    "node_id": node_id,
+                    "task_ref": node_work_order.task_ref,
+                    "executor_type": node_work_order.executor_type,
+                    "subruntime_kind": str(getattr(node_work_order, "subruntime_kind", "") or ""),
+                    "request_id": request.request_id,
+                },
+                causal_event_ids=[dispatch_event.event_id],
+                idempotency_key=f"{state.get('coordination_run_id')}:{stage_id}:work_order:{request.request_id}",
+            )
         batch_runtime_state = summarize_batch_lifecycle_runtime_state(
             dict(state.get("batch_lifecycle_runtime_state") or {})
         )
@@ -2434,6 +2471,7 @@ class LangGraphCoordinationRuntime:
         return {
             "node_execution_request": request.to_dict(),
             "stage_execution_request": request.to_dict(),
+            "node_work_order": node_work_order.to_dict(),
             "a2a_payload": a2a_payload,
             "pending_inputs": explicit_inputs,
             **({"batch_lifecycle_runtime_state": batch_runtime_state} if batch_runtime_state else {}),
@@ -2947,13 +2985,14 @@ class LangGraphCoordinationRuntime:
 
     @staticmethod
     def _blocked(state: CoordinationRuntimeState) -> dict[str, Any]:
-        return {"terminal_status": str(state.get("terminal_status") or "blocked"), "node_execution_request": {}, "stage_execution_request": {}, "a2a_payload": {}}
+        return _clear_execution_boundary(state, terminal_status=str(state.get("terminal_status") or "blocked"))
 
     @staticmethod
     def _noop(state: CoordinationRuntimeState) -> dict[str, Any]:
         return {
             "terminal_status": str(state.get("terminal_status") or ""),
-            "node_execution_request": dict(state.get("node_execution_request") or state.get("stage_execution_request") or {}),
+            "node_work_order": dict(state.get("node_work_order") or {}),
+            "node_execution_request": _active_execution_request_payload(state),
             "stage_execution_request": dict(state.get("stage_execution_request") or {}),
             "a2a_payload": dict(state.get("a2a_payload") or {}),
         }
@@ -2980,7 +3019,7 @@ class LangGraphCoordinationRuntime:
                     existing_operations=operations,
                 )
             )
-        return {"terminal_status": "completed", "node_execution_request": {}, "stage_execution_request": {}, "a2a_payload": {}, "working_memory_operations": operations}
+        return {**_clear_execution_boundary(state, terminal_status="completed"), "working_memory_operations": operations}
 
     @staticmethod
     def _route_after_next(state: CoordinationRuntimeState) -> str:
@@ -3027,6 +3066,7 @@ class LangGraphCoordinationRuntime:
                 "coordination_run_id": coordination_run.coordination_run_id,
                 "root_task_run_id": coordination_run.task_run_id,
                 "terminal_status": "blocked",
+                "node_work_order": {},
                 "node_execution_request": {},
                 "stage_execution_request": {},
                 "a2a_payload": {},
@@ -3161,6 +3201,7 @@ class LangGraphCoordinationRuntime:
             "terminal_status": "blocked" if issues else "",
             "final_result_ref": "",
             "current_event": {},
+            "node_work_order": {},
             "node_execution_request": {},
             "stage_execution_request": {},
             "a2a_payload": {},
@@ -4018,6 +4059,49 @@ def _stale_result_reason(
     return ""
 
 
+def _active_execution_request_payload(state: dict[str, Any]) -> dict[str, Any]:
+    work_order = dict(state.get("node_work_order") or {})
+    if work_order:
+        return _request_compat_payload_from_work_order(work_order)
+    return dict(state.get("node_execution_request") or state.get("stage_execution_request") or {})
+
+
+def _request_compat_payload_from_work_order(work_order: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(work_order or {})
+    if not payload:
+        return {}
+    input_package = dict(payload.get("input_package") or payload.get("standard_input_package") or {})
+    executor_type = str(payload.get("executor_type") or dict(payload.get("executor_binding") or {}).get("selected_executor") or "agent")
+    if executor_type == "subruntime":
+        executor_type = str(payload.get("subruntime_kind") or dict(payload.get("executor_binding") or {}).get("selected_executor") or "subruntime")
+    return {
+        **payload,
+        "request_id": str(payload.get("request_id") or payload.get("work_order_id") or ""),
+        "standard_input_package": input_package,
+        "executor_type": executor_type,
+        "authority": "task_graph.node_execution_request",
+    }
+
+
+def _runtime_result_from_state(
+    *,
+    state: dict[str, Any],
+    events: tuple[Any, ...],
+    checkpoint_ref: str,
+    diagnostics: dict[str, Any],
+) -> LangGraphCoordinationRuntimeResult:
+    request_payload = _active_execution_request_payload(state)
+    request = NodeExecutionRequest.from_dict(request_payload) if request_payload else None
+    return LangGraphCoordinationRuntimeResult(
+        state=state,
+        events=events,
+        stage_execution_request=request,
+        node_work_order=dict(state.get("node_work_order") or {}),
+        checkpoint_ref=checkpoint_ref,
+        diagnostics=diagnostics,
+    )
+
+
 def _batch_execution_request_payload_from_state(
     *,
     state: dict[str, Any],
@@ -4613,7 +4697,7 @@ def _resume_human_gate_state(*, state: CoordinationRuntimeState, event: dict[str
         }
         request_payload = _stage_result_request_payload(
             state=state,
-            request_payload=dict(state.get("stage_execution_request") or {}),
+            request_payload=_active_execution_request_payload(state),
             event=approval_event,
             stage_id=stage_id,
             node_id=node_id,
@@ -4704,7 +4788,7 @@ def _resume_human_gate_state(*, state: CoordinationRuntimeState, event: dict[str
             task_result_ref=str(event.get("task_result_ref") or original_event.get("task_result_ref") or original_event.get("agent_run_result_ref") or ""),
             artifact_refs=artifact_refs,
             missing_required_inputs=[],
-            diagnostics={"reason": "human_gate_approved"},
+            diagnostics={"reason": "human_gate_approved", "work_order_id": str(request_payload.get("work_order_id") or request_payload.get("request_id") or "")},
         )
         diagnostics["human_gate"] = {"status": "approved", "stage_id": stage_id}
         return {
@@ -4719,6 +4803,7 @@ def _resume_human_gate_state(*, state: CoordinationRuntimeState, event: dict[str
             "human_gate": {**human_gate, "status": "approved", "stage_id": stage_id, "resume": dict(event)},
             "terminal_status": "",
             "missing_required_inputs": [],
+            "node_work_order": {},
             "node_execution_request": {},
             "stage_execution_request": {},
             "a2a_payload": {},
@@ -4747,6 +4832,7 @@ def _resume_human_gate_state(*, state: CoordinationRuntimeState, event: dict[str
             "human_gate": {**human_gate, "status": "retry", "stage_id": stage_id, "resume": dict(event)},
             "terminal_status": "",
             "missing_required_inputs": [],
+            "node_work_order": {},
             "node_execution_request": {},
             "stage_execution_request": {},
             "a2a_payload": {},
@@ -4771,6 +4857,7 @@ def _resume_human_gate_state(*, state: CoordinationRuntimeState, event: dict[str
             "human_gate": {**human_gate, "status": "rejected", "stage_id": stage_id, "resume": dict(event)},
             "terminal_status": "failed",
             "missing_required_inputs": [],
+            "node_work_order": {},
             "node_execution_request": {},
             "stage_execution_request": {},
             "a2a_payload": {},
@@ -4793,6 +4880,7 @@ def _resume_human_gate_state(*, state: CoordinationRuntimeState, event: dict[str
         "contract_status": contract_status,
         "human_gate": {**human_gate, "status": "waiting", "stage_id": stage_id, "resume": dict(event)},
         "terminal_status": "waiting_for_human",
+        "node_work_order": {},
         "node_execution_request": {},
         "stage_execution_request": {},
         "a2a_payload": {},
@@ -4823,6 +4911,16 @@ def _topological_stage_order(nodes: list[dict[str, Any]], edges: list[dict[str, 
             if incoming_count[target] == 0:
                 queue.append(target)
     return resolved if len(resolved) == len(node_ids) else node_ids
+
+
+def _clear_execution_boundary(state: dict[str, Any], *, terminal_status: str) -> dict[str, Any]:
+    return {
+        "terminal_status": terminal_status,
+        "node_work_order": {},
+        "node_execution_request": {},
+        "stage_execution_request": {},
+        "a2a_payload": {},
+    }
 
 
 def _downstream_stage_ids(*, state: dict[str, Any], stage_id: str, include_self: bool = True) -> list[str]:
@@ -5134,7 +5232,7 @@ def _node_dispatch_idempotency_key(
 
 
 def _active_scope_key_for_scheduler(state: dict[str, Any]) -> str:
-    request = dict(state.get("stage_execution_request") or {})
+    request = dict(state.get("node_work_order") or state.get("stage_execution_request") or {})
     dispatch_context = dict(request.get("dispatch_context") or {})
     dependency_scope_key = str(dispatch_context.get("dependency_scope_key") or "").strip()
     if dependency_scope_key:

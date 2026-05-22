@@ -1,13 +1,13 @@
-# Coordination + Runtime Contract Rebuild Plan 2026-05-22
+# Coordination + Runtime Agent Assembly Rebuild Plan 2026-05-22
 
 ## 0. Scope
 
 Backend only. Do not use stale docs as authority. This plan is based on the current backend code paths for task graph coordination, agent runtime assembly, model/tool execution, permission adoption, GraphModule execution, result acceptance, and recovery.
 
-This is not a directory-only slimming plan. The target is to rebuild the contract boundary between:
+This is not a directory-only slimming plan. The target is to rebuild the contract boundary around one central agent assembly layer:
 
 - task graph coordination: decide which node runs, with which inputs, under which graph state;
-- agent runtime assembly: decide which agent identity/profile/projection/model/context/capabilities are active;
+- agent assembly: decide which agent identity/profile/projection/model/context/capabilities/permissions are active;
 - execution engine: run one agent/human/sub-runtime with a sealed contract;
 - result acceptance: turn execution output into graph state, task result, memory writeback, and trace.
 
@@ -18,7 +18,7 @@ The system currently has two overlapping runtimes:
 1. `LangGraphCoordinationRuntime` owns graph stage state and emits `NodeExecutionRequest`.
 2. `TaskRunLoop` owns single-agent execution and then reinterprets the node request through `task_selection`, `current_turn_context`, runtime chain assembly, resource adoption, context assembly, model execution, tool execution, finalizer, and recovery.
 
-The broken system property is not file size. The broken property is that the execution contract is not canonical. The same turn is represented as:
+The broken system property is not file size. The broken property is that agent assembly is not canonical. The same turn is represented as:
 
 - `stage_execution_request`
 - `NodeExecutionRequest`
@@ -39,16 +39,16 @@ Correct end state:
 
 ```text
 TaskGraphRuntime
-  -> NodeRuntimeContract
-  -> AgentRuntimeContract
+  -> WorkOrder
+  -> AgentAssemblyContract
   -> ExecutionPermit
-  -> AgentExecutionEngine | HumanExecutionEngine | SubRuntimeExecutionEngine
+  -> ExecutionEngine | HumanExecutionEngine | SubRuntimeExecutionEngine
   -> ExecutionResult
   -> NodeResultCommitter
   -> TaskGraphRuntime.accept_result
 ```
 
-No layer after contract creation should infer agent identity, permissions, prompt role, node input scope, graph module linkage, or result ownership from loose dicts.
+Direct user turns enter at `DirectWorkOrder`; task graph nodes enter at `NodeWorkOrder`. Both must converge through the same `AgentAssemblyContract` before execution. No layer after agent assembly may infer agent identity, permissions, prompt role, input scope, graph module linkage, or result ownership from loose dicts.
 
 ## 2. Technical Source Report
 
@@ -67,7 +67,7 @@ The graph runtime already knows the node, task ref, agent, inputs, memory/artifa
 
 Required decision:
 
-Coordination may compile `NodeRuntimeContract`. Runtime may assemble `AgentRuntimeContract` from that contract. Runtime must not reinterpret node identity or executor type from `task_selection`.
+Coordination may compile a `NodeWorkOrder`. The agent assembly layer must assemble `AgentAssemblyContract` from that work order. Runtime must not reinterpret node identity or executor type from `task_selection`.
 
 ### 2.2 `stage_execution_request` Is Too Wide
 
@@ -81,7 +81,7 @@ This object is simultaneously command, context bundle, prompt material, executor
 
 Required decision:
 
-`NodeExecutionRequest` becomes a thin compatibility command during migration. The durable contract becomes `NodeRuntimeContract`, and executor-specific details move to typed sub-contracts.
+`NodeExecutionRequest` becomes a thin compatibility command during migration. The durable coordination-to-assembly shape becomes `WorkOrder`, and executor-specific details move into typed assembly inputs or sub-runtime work orders.
 
 ### 2.3 `current_turn_context` And `task_selection` Are Control-State Bags
 
@@ -114,7 +114,7 @@ The system has three related but separate concepts: model-visible tools, operati
 
 Required decision:
 
-Build `ExecutionPermit` once per execution contract. Model tool visibility, operation gate, approval state, sandbox mode, and executor dispatch must all consume that permit.
+Build `ExecutionPermit` once from `AgentAssemblyContract`. Model tool visibility, operation gate, approval state, sandbox mode, and executor dispatch must all consume that permit.
 
 ### 2.5 Coordination And TaskRunLoop Have Two State Machines
 
@@ -181,36 +181,61 @@ Fix this in Phase 0 before deeper migration, because it is a real execution bug 
 
 ## 3. Target Architecture
 
-### 3.1 New Contract Types
+### 3.1 Agent Assembly As The Shared Center
 
-Create `backend/runtime/execution_contracts/`.
+Create `backend/runtime/agent_assembly/`.
 
 Planned files:
 
 - `models.py`
-  - `NodeRuntimeContract`
-  - `AgentRuntimeContract`
+  - `WorkOrder`
+  - `DirectWorkOrder`
+  - `NodeWorkOrder`
+  - `HumanWorkOrder`
+  - `SubRuntimeWorkOrder`
+  - `AgentAssemblyContract`
+  - `AssemblyPort`
+  - `MemoryAssemblyBinding`
+  - `CapabilityAssemblyBinding`
+  - `SoulAssemblyBinding`
+  - `PromptAssemblyContract`
+  - `OutputBoundaryBinding`
   - `ExecutionPermit`
   - `ExecutionResult`
   - `NodeResultEnvelope`
   - `SubRuntimeInvocationContract`
   - `SubRuntimeResultEnvelope`
 - `validation.py`
-  - contract validators
+  - work order and assembly validators
   - missing-field reports
   - fail-closed checks
 - `compat.py`
   - temporary adapters from old `NodeExecutionRequest`
   - temporary adapters to old continuation payloads
 - `ids.py`
-  - stable request/contract/result ids
+  - stable work order / assembly / permit / result ids
+- `assembler.py`
+  - converts direct and graph-node work orders into `AgentAssemblyContract`
+- `prompt_composer.py`
+  - renders role-driven model instructions from `AgentAssemblyContract`
+- `context_builder.py`
+  - prepares compacted model context before execution
+- `memory_binder.py`
+  - binds memory read/write scopes
+- `capability_binder.py`
+  - binds tools, operations, MCP routes, and delegated agents
+- `soul_binder.py`
+  - binds soul/projection/prompt manifest
+- `work_order_adapter.py`
+  - old payload to work order bridge during migration
 
 Core rules:
 
-- Contracts are typed dataclasses or equivalent strict models.
-- Contracts use explicit refs, not `diagnostics`, for ownership.
+- Work orders and assembly contracts are typed dataclasses or equivalent strict models.
+- Work orders say what must be done; agent assembly says who/how/with which capabilities it runs.
+- Assembly contracts use explicit refs, not `diagnostics`, for ownership.
 - `diagnostics` may explain, never decide.
-- Empty dicts are not valid placeholders for executor-specific contracts.
+- Empty dicts are not valid placeholders for executor-specific assembly inputs.
 
 ### 3.2 Coordination Boundary
 
@@ -236,15 +261,15 @@ Coordination does not own:
 Target modules:
 
 - `backend/runtime/coordination_runtime/runtime.py`
-  - becomes graph state machine plus node contract producer/consumer.
-- `backend/runtime/coordination_runtime/node_contract_builder.py`
-  - new owner for building `NodeRuntimeContract`.
+  - becomes graph state machine plus node work order producer/consumer.
+- `backend/runtime/coordination_runtime/work_order_builder.py`
+  - new owner for building `NodeWorkOrder`.
 - `backend/runtime/coordination_runtime/node_result_committer.py`
   - new owner for accepting `NodeResultEnvelope`.
 - `backend/runtime/coordination_runtime/recovery_candidates.py`
   - restores candidates only; does not construct executor-specific results from diagnostics.
 
-### 3.3 Agent Runtime Assembly Boundary
+### 3.3 Agent Assembly Boundary
 
 Agent assembly owns:
 
@@ -258,16 +283,28 @@ Agent assembly owns:
 
 Target modules:
 
-- `backend/runtime/agent_execution/assembler.py`
-  - builds `AgentRuntimeContract` from `NodeRuntimeContract` or direct user task.
-- `backend/runtime/agent_execution/prompt_composer.py`
-  - produces model messages from `AgentRuntimeContract`.
-- `backend/runtime/agent_execution/context_builder.py`
+- `backend/runtime/agent_assembly/assembler.py`
+  - builds `AgentAssemblyContract` from `DirectWorkOrder` or `NodeWorkOrder`.
+- `backend/runtime/agent_assembly/prompt_composer.py`
+  - produces role-contract instructions from `AgentAssemblyContract`.
+- `backend/runtime/agent_assembly/context_builder.py`
   - prepares model context and enforces compaction before execution.
-- `backend/runtime/agent_execution/engine.py`
-  - executes model/tool loop using sealed contract and permit.
-- `backend/runtime/agent_execution/result_projector.py`
+- `backend/runtime/agent_assembly/memory_binder.py`
+  - resolves memory scopes and working/task durable memory bindings.
+- `backend/runtime/agent_assembly/capability_binder.py`
+  - resolves operations, visible tools, MCPs, and delegation candidates before permit creation.
+- `backend/runtime/agent_assembly/soul_binder.py`
+  - resolves soul/projection/prompt manifest.
+- `backend/runtime/agent_assembly/result_projector.py`
   - projects execution output to `ExecutionResult`.
+
+Execution target modules:
+
+- `backend/runtime/execution_engine/engine.py`
+  - executes model/tool loop using sealed assembly contract and permit.
+- `backend/runtime/execution_engine/model_loop.py`
+- `backend/runtime/execution_engine/tool_loop.py`
+- `backend/runtime/execution_engine/final_output.py`
 
 Existing modules to reduce:
 
@@ -313,7 +350,8 @@ Target modules:
 GraphModule target flow:
 
 ```text
-NodeRuntimeContract.executor = subruntime
+NodeWorkOrder.executor = subruntime
+AgentAssemblyContract.executor = subruntime
 SubRuntimeInvocationContract.kind = graph_module
 SubRuntimeExecutor.start()
 SubRuntimeResultEnvelope
@@ -328,9 +366,10 @@ This removes GraphModule-specific imported-run packet construction from generic 
 
 ```text
 User turn
-  -> AgentRuntimeContractAssembler.build_direct_contract()
+  -> DirectWorkOrderBuilder.build()
+  -> AgentAssemblyAssembler.build()
   -> PermissionGateway.build_execution_permit()
-  -> AgentExecutionEngine.run()
+  -> ExecutionEngine.run()
   -> ExecutionResult
   -> TaskRunFinalizer.commit()
 ```
@@ -339,10 +378,10 @@ User turn
 
 ```text
 LangGraphCoordinationRuntime.route_next()
-  -> NodeRuntimeContractBuilder.build()
-  -> AgentRuntimeContractAssembler.build_from_node_contract()
+  -> NodeWorkOrderBuilder.build()
+  -> AgentAssemblyAssembler.build()
   -> PermissionGateway.build_execution_permit()
-  -> AgentExecutionEngine.run()
+  -> ExecutionEngine.run()
   -> NodeResultEnvelope
   -> LangGraphCoordinationRuntime.accept_node_result()
 ```
@@ -350,7 +389,8 @@ LangGraphCoordinationRuntime.route_next()
 ### 4.3 Human Node
 
 ```text
-NodeRuntimeContract.executor = human
+NodeWorkOrder.executor = human
+AgentAssemblyContract.executor = human
   -> HumanWorkPacketBuilder
   -> wait/resume
   -> NodeResultEnvelope
@@ -360,7 +400,8 @@ NodeRuntimeContract.executor = human
 ### 4.4 GraphModule Node
 
 ```text
-NodeRuntimeContract.executor = subruntime
+NodeWorkOrder.executor = subruntime
+AgentAssemblyContract.executor = subruntime
   -> SubRuntimeInvocationContract(kind=graph_module)
   -> GraphModuleExecutor
   -> SubRuntimeResultEnvelope
@@ -377,15 +418,15 @@ First introduce new contracts and build them alongside old payloads.
 Rules:
 
 - No behavior change in shadow mode.
-- Every old `NodeExecutionRequest` gets a corresponding `NodeRuntimeContract`.
-- Add tests that compare old request identity to new contract identity.
+- Every old `NodeExecutionRequest` gets a corresponding `NodeWorkOrder` and `AgentAssemblyContract`.
+- Add tests that compare old request identity to new work order / assembly identity.
 - Any mismatch must be reported as validation failure, not hidden in diagnostics.
 
 ### 5.2 Cutover Mode
 
 After shadow tests pass:
 
-- `TaskRunLoop` accepts `AgentRuntimeContract` as primary execution input.
+- `TaskRunLoop` accepts `AgentAssemblyContract` as primary execution input.
 - `stage_execution_request` is accepted only through `compat.py`.
 - Graph node execution no longer rebuilds agent identity from `task_selection`.
 - Tool visibility and dispatch both consume `ExecutionPermit`.
@@ -426,62 +467,63 @@ Completion criteria:
 - Tool-call request event count is not doubled.
 - Existing runtime loop tests still pass.
 
-### Phase 1: Add Contract Models In Shadow Mode
+### Phase 1: Add Agent Assembly Models In Shadow Mode
 
 Goal:
 
-Introduce canonical contracts without changing runtime behavior.
+Introduce work order and agent assembly contracts without changing runtime behavior.
 
 Files:
 
-- add `backend/runtime/execution_contracts/__init__.py`
-- add `backend/runtime/execution_contracts/models.py`
-- add `backend/runtime/execution_contracts/validation.py`
-- add `backend/runtime/execution_contracts/ids.py`
-- add `backend/runtime/execution_contracts/compat.py`
+- add `backend/runtime/agent_assembly/__init__.py`
+- add `backend/runtime/agent_assembly/models.py`
+- add `backend/runtime/agent_assembly/validation.py`
+- add `backend/runtime/agent_assembly/ids.py`
+- add `backend/runtime/agent_assembly/compat.py`
+- add `backend/runtime/agent_assembly/work_order_adapter.py`
 - update `backend/runtime/__init__.py`
 
 Work:
 
-- Define strict contract fields.
-- Add validators for required identity, executor, agent, graph, permission, and result ownership.
+- Define strict work order and assembly fields.
+- Add validators for required work identity, executor, agent, graph, permission request, ports, and result ownership.
 - Add old-payload adapters.
 
 Completion criteria:
 
-- `NodeExecutionRequest -> NodeRuntimeContract -> compat payload` round trip works for agent, human, and graph module requests.
+- `NodeExecutionRequest -> NodeWorkOrder -> AgentAssemblyContract -> compat payload` round trip works for agent, human, and graph module requests.
 - No coordination or runtime behavior changes yet.
 
-### Phase 2: Coordination Produces `NodeRuntimeContract`
+### Phase 2: Coordination Produces `NodeWorkOrder`
 
 Goal:
 
-Move node execution contract production out of loose `stage_execution_request`.
+Move node work production out of loose `stage_execution_request`.
 
 Files:
 
-- add `backend/runtime/coordination_runtime/node_contract_builder.py`
+- add `backend/runtime/coordination_runtime/work_order_builder.py`
 - update `backend/runtime/coordination_runtime/runtime.py`
 - update `backend/runtime/execution/node_execution_request.py`
 - update `backend/runtime/coordination_runtime/trace_adapter.py`
 
 Work:
 
-- Build `NodeRuntimeContract` at the same point where `NodeExecutionRequest` is currently created.
-- Store contract ref in coordination state.
+- Build `NodeWorkOrder` at the same point where `NodeExecutionRequest` is currently created.
+- Store work order ref in coordination state.
 - Keep old request payload only as compatibility output.
 
 Completion criteria:
 
-- Coordination checkpoint contains contract identity.
+- Coordination checkpoint contains work order identity.
 - Existing continuation still works.
-- New tests prove graph route to node contract is deterministic.
+- New tests prove graph route to node work order is deterministic.
 
 Forbidden:
 
 - Do not add more fields to `stage_execution_request` to solve contract gaps.
 
-### Phase 3: Agent Assembly Consumes Contract
+### Phase 3: Agent Assembly Becomes The Single Assembly Layer
 
 Goal:
 
@@ -489,18 +531,20 @@ Create one agent runtime assembly path.
 
 Files:
 
-- add `backend/runtime/agent_execution/__init__.py`
-- add `backend/runtime/agent_execution/assembler.py`
-- add `backend/runtime/agent_execution/context_builder.py`
-- add `backend/runtime/agent_execution/prompt_composer.py`
+- add `backend/runtime/agent_assembly/assembler.py`
+- add `backend/runtime/agent_assembly/context_builder.py`
+- add `backend/runtime/agent_assembly/prompt_composer.py`
+- add `backend/runtime/agent_assembly/memory_binder.py`
+- add `backend/runtime/agent_assembly/capability_binder.py`
+- add `backend/runtime/agent_assembly/soul_binder.py`
 - update `backend/agent_system/assembly/runtime_chain.py`
 - update `backend/agent_system/assembly/runtime_bundle_builder.py`
 - update `backend/runtime/shared/context_manager.py`
 
 Work:
 
-- Build `AgentRuntimeContract` from `NodeRuntimeContract`.
-- Direct user turns also get `AgentRuntimeContract`.
+- Build `AgentAssemblyContract` from `NodeWorkOrder`.
+- Direct user turns also get `DirectWorkOrder -> AgentAssemblyContract`.
 - Stop using `current_turn_context` as agent identity authority.
 - Prompt composer must render role instructions, not runtime bookkeeping.
 
@@ -542,7 +586,7 @@ Completion criteria:
 - A denied operation cannot become visible through sandbox hidden-tool behavior.
 - Tool authorization regression tests pass and include model-visible/dispatch consistency checks.
 
-### Phase 5: Extract `AgentExecutionEngine`
+### Phase 5: Extract `ExecutionEngine`
 
 Goal:
 
@@ -550,17 +594,18 @@ Reduce `TaskRunLoop` to task-run lifecycle orchestration.
 
 Files:
 
-- add `backend/runtime/agent_execution/engine.py`
-- add `backend/runtime/agent_execution/tool_loop.py`
-- add `backend/runtime/agent_execution/model_loop.py`
-- add `backend/runtime/agent_execution/final_output.py`
+- add `backend/runtime/execution_engine/__init__.py`
+- add `backend/runtime/execution_engine/engine.py`
+- add `backend/runtime/execution_engine/tool_loop.py`
+- add `backend/runtime/execution_engine/model_loop.py`
+- add `backend/runtime/execution_engine/final_output.py`
 - update `backend/runtime/unit_runtime/loop.py`
 - update `backend/runtime/professional_runtime/driver.py` if needed
 
 Work:
 
 - Move model call loop, tool follow-up loop, observation aggregation, repeated-tool halt, and forced synthesis out of `TaskRunLoop`.
-- Engine returns `ExecutionResult`.
+- Engine consumes `AgentAssemblyContract + ExecutionPermit` and returns `ExecutionResult`.
 - `TaskRunLoop` remains owner of task run start/checkpoint/finalizer.
 
 Completion criteria:
@@ -656,7 +701,7 @@ Remove compatibility layers once cutover is complete.
 Files:
 
 - `backend/orchestration/coordination_control.py`
-- compatibility helpers in `backend/runtime/execution_contracts/compat.py`
+- compatibility helpers in `backend/runtime/agent_assembly/compat.py`
 - old private helper import paths in tests
 - stale tests that validate old private structures
 
@@ -675,8 +720,8 @@ Completion criteria:
 
 ### New Packages
 
-- `backend/runtime/execution_contracts/`
-- `backend/runtime/agent_execution/`
+- `backend/runtime/agent_assembly/`
+- `backend/runtime/execution_engine/`
 - `backend/runtime/permissions/`
 - `backend/runtime/subruntime/`
 
@@ -703,10 +748,10 @@ Completion criteria:
 ### Tests To Add Or Update
 
 - add `backend/tests/runtime_stream_event_dedup_regression.py`
-- add `backend/tests/runtime_execution_contract_models_regression.py`
-- add `backend/tests/agent_runtime_contract_assembly_regression.py`
+- add `backend/tests/agent_assembly_models_regression.py`
+- add `backend/tests/work_order_to_agent_assembly_regression.py`
 - add `backend/tests/execution_permit_gateway_regression.py`
-- add `backend/tests/coordination_node_runtime_contract_regression.py`
+- add `backend/tests/coordination_node_work_order_regression.py`
 - add `backend/tests/coordination_node_result_envelope_regression.py`
 - add `backend/tests/graph_module_subruntime_contract_regression.py`
 - update `backend/tests/node_execution_request_regression.py`
@@ -738,23 +783,23 @@ New contract-specific groups:
 
 ```text
 python -m pytest backend/tests/runtime_stream_event_dedup_regression.py
-python -m pytest backend/tests/runtime_execution_contract_models_regression.py
-python -m pytest backend/tests/agent_runtime_contract_assembly_regression.py
+python -m pytest backend/tests/agent_assembly_models_regression.py
+python -m pytest backend/tests/work_order_to_agent_assembly_regression.py
 python -m pytest backend/tests/execution_permit_gateway_regression.py
-python -m pytest backend/tests/coordination_node_runtime_contract_regression.py
+python -m pytest backend/tests/coordination_node_work_order_regression.py
 python -m pytest backend/tests/coordination_node_result_envelope_regression.py
 python -m pytest backend/tests/graph_module_subruntime_contract_regression.py
 ```
 
 Behavioral invariants:
 
-- a task graph node cannot execute under a different agent than its node contract;
+- a task graph node cannot execute under a different agent than its work order / assembly contract;
 - model-visible tools equal permit-visible tools;
 - a tool request cannot dispatch without the same permit admitting it;
 - recovered node result equals direct node result acceptance;
 - GraphModule success and failure use the same sub-runtime envelope shape;
 - `diagnostics` removal from control-state paths does not change final graph state;
-- direct single-agent execution and graph-node execution converge through the same agent execution engine.
+- direct single-agent execution and graph-node execution converge through the same agent assembly layer and execution engine.
 
 ## 9. Anti-Patterns Forbidden During Implementation
 
@@ -775,7 +820,7 @@ These constraints are stricter than normal refactor guidelines. They exist becau
 
 1. Every long task must have a durable execution spine.
 
-   A task cannot be represented only by stream events or temporary context. It must have stable records for graph state, node contract, execution permit, execution result, result commit, checkpoint, and finalization.
+   A task cannot be represented only by stream events or temporary context. It must have stable records for graph state, work order, agent assembly contract, execution permit, execution result, result commit, checkpoint, and finalization.
 
 2. Resume must restore; it must not decide.
 
@@ -810,13 +855,13 @@ These constraints are stricter than normal refactor guidelines. They exist becau
 
    Runtime terminal state may be completed, failed, blocked, waiting_for_human, or waiting_for_subruntime. Values like `stale_result_ignored` and `duplicate_commit_ignored` must live in result/event handling, not as graph/task terminal status.
 
-8. Memory and artifact writes must be transactional at the contract level.
+8. Memory and artifact writes must be transactional at the assembly contract level.
 
-   The system must know which contract authorized a write, which result caused it, and whether the write was committed, rejected, archived, or invalidated. Invalidating a node must invalidate downstream writes by ref, not by path guessing.
+   The system must know which work order and assembly contract authorized a write, which result caused it, and whether the write was committed, rejected, archived, or invalidated. Invalidating a node must invalidate downstream writes by ref, not by path guessing.
 
 9. Long-running sub-runtimes must expose progress and final result through the same envelope family.
 
-   GraphModule, human execution, worker delegation, and future sub-runtimes must all converge into `ExecutionResult` or `NodeResultEnvelope`. They may have executor-specific payloads, but not executor-specific commit paths.
+   GraphModule, human execution, worker delegation, and future sub-runtimes must all converge into `ExecutionResult` or `NodeResultEnvelope`. They may have executor-specific work order payloads, but not executor-specific commit paths.
 
 10. Finalization must be monotonic.
 
@@ -824,9 +869,9 @@ These constraints are stricter than normal refactor guidelines. They exist becau
 
 ### 10.2 Free-Composition Constraints
 
-1. Composition must happen through contracts, not inheritance of ambient context.
+1. Composition must happen through work orders and assembly contracts, not inheritance of ambient context.
 
-   An agent, node, graph module, tool, memory packet, or capability can be composed only if its input/output/permission contracts are compatible. `current_turn_context` and `task_selection` may provide hints, but cannot authorize composition.
+   An agent, node, graph module, tool, memory packet, or capability can be composed only if its input/output/permission contracts are compatible at the `AgentAssemblyContract` boundary. `current_turn_context` and `task_selection` may provide hints, but cannot authorize composition.
 
 2. Every composable unit must declare ports.
 
@@ -840,9 +885,9 @@ These constraints are stricter than normal refactor guidelines. They exist becau
    - permission ports
    - lifecycle ports
 
-3. Agent identity must be sealed before execution.
+3. Agent identity must be sealed by agent assembly before execution.
 
-   After `AgentRuntimeContract` is created, no downstream layer may switch `agent_id`, `agent_profile_id`, projection, model profile, or allowed operations by reading stale context, task selection, or diagnostics.
+   After `AgentAssemblyContract` is created, no downstream layer may switch `agent_id`, `agent_profile_id`, projection, model profile, or allowed operations by reading stale context, task selection, or diagnostics.
 
 4. Permissions are compositional intersection, not additive union.
 
@@ -875,7 +920,7 @@ These constraints are stricter than normal refactor guidelines. They exist becau
 
 9. Direct tasks and graph-node tasks must converge before execution.
 
-   Direct user execution and task graph node execution may have different assemblers, but both must produce `AgentRuntimeContract + ExecutionPermit` before entering model/tool execution.
+   Direct user execution and task graph node execution may have different work order builders, but both must produce `AgentAssemblyContract + ExecutionPermit` before entering model/tool execution.
 
 10. Every adapter must have an expiry.
 
@@ -883,7 +928,7 @@ These constraints are stricter than normal refactor guidelines. They exist becau
 
    - owner file;
    - source old shape;
-   - target new contract;
+   - target new work order or assembly contract;
    - tests;
    - cutover condition;
    - deletion phase.
@@ -900,7 +945,7 @@ These constraints are stricter than normal refactor guidelines. They exist becau
 
 3. `stage_execution_request` is not the durable contract.
 
-   During migration it may exist as compatibility payload. The durable shape is `NodeRuntimeContract`.
+   During migration it may exist as compatibility payload. The durable shape is `NodeWorkOrder` plus `AgentAssemblyContract`.
 
 4. Ref families must be distinct.
 
@@ -918,7 +963,7 @@ These constraints are stricter than normal refactor guidelines. They exist becau
 
 5. IDs must be deterministic where replay depends on them.
 
-   Node contract ids, execution permit ids, idempotency keys, sub-runtime invocation ids, and node result ids must be deterministic from stable contract inputs.
+   Work order ids, assembly contract ids, execution permit ids, idempotency keys, sub-runtime invocation ids, and node result ids must be deterministic from stable contract inputs.
 
 6. Runtime output must not leak protocol artifacts.
 
@@ -944,34 +989,38 @@ These constraints are stricter than normal refactor guidelines. They exist becau
 
 ```text
 backend/runtime/
-  execution_contracts/
+  agent_assembly/
     models.py
     validation.py
     ids.py
     compat.py              # temporary, removed after cutover
+    work_order_adapter.py  # temporary old payload bridge
+    assembler.py
+    context_builder.py
+    prompt_composer.py
+    memory_binder.py
+    capability_binder.py
+    soul_binder.py
+    result_projector.py
   coordination_runtime/
     runtime.py
-    node_contract_builder.py
+    work_order_builder.py
     node_result_committer.py
     recovery_candidates.py
     trace_adapter.py
     runtime_payloads.py
     context_packet_resolver.py
-  agent_execution/
-    assembler.py
-    context_builder.py
-    prompt_composer.py
-    engine.py
-    model_loop.py
-    tool_loop.py
-    final_output.py
-    result_projector.py
   permissions/
     permit_builder.py
     tool_gateway.py
     operation_gate_adapter.py
     sandbox_gateway.py
     approval_gateway.py
+  execution_engine/
+    engine.py
+    model_loop.py
+    tool_loop.py
+    final_output.py
   subruntime/
     models.py
     graph_module_executor.py

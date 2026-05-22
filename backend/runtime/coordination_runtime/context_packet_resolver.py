@@ -298,7 +298,7 @@ def build_revision_packet_from_review(
     event: dict[str, Any],
     accepted: bool,
 ) -> dict[str, Any]:
-    request = dict(state.get("stage_execution_request") or {})
+    request = _active_work_order_or_request(state)
     dispatch_context = dict(request.get("dispatch_context") or {})
     artifact_packet = dict(request.get("artifact_context_packet") or {})
     previous_candidate_refs = _string_list(artifact_packet.get("artifact_refs"))
@@ -347,6 +347,13 @@ def build_revision_packet_from_review(
         "status": "open",
         "authority": "task_graph.revision_packet",
     }
+
+
+def _active_work_order_or_request(state: dict[str, Any]) -> dict[str, Any]:
+    work_order = dict(state.get("node_work_order") or {})
+    if work_order:
+        return work_order
+    return dict(state.get("stage_execution_request") or {})
 
 
 def _graph_edges(state: dict[str, Any]) -> list[dict[str, Any]]:
