@@ -564,6 +564,7 @@
         "required_bindings": [],
         "optional_inputs": [
           "task_run_id",
+          "project_id",
           "repositories",
           "collections",
           "limit"

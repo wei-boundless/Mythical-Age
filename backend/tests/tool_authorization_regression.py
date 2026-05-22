@@ -145,14 +145,14 @@ def test_task_run_loop_tool_filter_uses_tool_definition_operation_id() -> None:
     assert visible == []
 
 
-def test_task_run_loop_tool_filter_intersects_resource_policy_with_execution_permit() -> None:
+def test_task_run_loop_tool_filter_uses_execution_permit_as_task_authority() -> None:
     instances = build_tool_instances(Path.cwd())
     index = build_tool_authorization_index(get_tool_definitions())
     registry = build_default_operation_registry()
     policy = ResourcePolicy(
-        policy_id="respol-test-permit-intersection",
+        policy_id="respol-test-permit-authority",
         task_id="task-test",
-        allowed_operations=("op.read_file", "op.search_text"),
+        allowed_operations=("op.read_file",),
         adopted=True,
         runtime_executable=True,
         runtime_view_only=False,
@@ -165,15 +165,14 @@ def test_task_run_loop_tool_filter_intersects_resource_policy_with_execution_per
         normalize_operation_id=registry.normalize_id,
         execution_permit={
             "permit_id": "permit:test",
-            "allowed_operations": ["op.read_file"],
-            "visible_tools": ["read_file"],
-            "dispatchable_tools": ["read_file"],
+            "allowed_operations": ["op.browser_control"],
+            "visible_tools": ["browser_control"],
+            "dispatchable_tools": ["browser_control"],
         },
     )
     names = {getattr(tool, "name", "") for tool in visible}
 
-    assert "read_file" in names
-    assert "search_text" not in names
+    assert names == {"browser_control"}
 
 
 def test_sandbox_does_not_make_hidden_tools_model_visible() -> None:

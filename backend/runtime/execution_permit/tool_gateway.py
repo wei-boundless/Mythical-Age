@@ -39,7 +39,7 @@ def tool_instances_for_policy_and_permit(
         if str(operation_id or "").strip()
     }
     if permit_operations:
-        allowed_operations = allowed_operations & permit_operations
+        allowed_operations = permit_operations
         allowed_operations.add("op.model_response")
     permit_visible_tools = {
         str(item).strip()

@@ -5884,13 +5884,21 @@ def _build_direct_agent_invocation_payload(
         artifact_policy=dict(selection.get("artifact_policy") or {}),
         stream_policy=dict(selection.get("stream_policy") or {}),
         artifact_root=str(selection.get("artifact_root") or ""),
-        runtime_assembly=dict(selection.get("runtime_assembly") or {}),
+        runtime_assembly=_direct_runtime_assembly_from_selection(selection),
     )
     return build_agent_invocation(
         work_order,
         base_dir=base_dir,
         agent_runtime_profile=agent_runtime_profile,
     ).to_dict()
+
+
+def _direct_runtime_assembly_from_selection(selection: dict[str, Any]) -> dict[str, Any]:
+    runtime_assembly = dict(selection.get("runtime_assembly") or {})
+    operation_policy = dict(selection.get("operation_policy") or {})
+    if operation_policy:
+        runtime_assembly["operation_policy"] = operation_policy
+    return runtime_assembly
 
 
 def _merge_invocation_identity_into_task_selection(
@@ -5995,14 +6003,25 @@ def _execution_permit_from_assembly_contract(
     tool_policy = dict(metadata.get("tool_execution_policy") or mode_policy.get("tool_policy") or {})
     if str(metadata.get("runtime_driver") or "").strip() != "professional_task_run":
         return permit
+    operation_policy = _professional_operation_policy(operation, metadata)
     allowed_operation_refs = [
         str(item).strip()
-        for item in list(tool_policy.get("allowed_operation_refs") or [])
+        for item in [
+            *list(tool_policy.get("allowed_operation_refs") or []),
+            *list(operation_policy.get("allowed_operations") or []),
+            *list(operation_policy.get("required_operations") or []),
+            *list(operation_policy.get("optional_operations") or []),
+        ]
         if str(item).strip()
     ]
     allowed_tool_names = [
         str(item).strip()
-        for item in list(tool_policy.get("allowed_tool_names") or [])
+        for item in [
+            *list(tool_policy.get("allowed_tool_names") or []),
+            *_tool_names_for_operation_refs(list(operation_policy.get("allowed_operations") or [])),
+            *_tool_names_for_operation_refs(list(operation_policy.get("required_operations") or [])),
+            *_tool_names_for_operation_refs(list(operation_policy.get("optional_operations") or [])),
+        ]
         if str(item).strip()
     ]
     if not allowed_operation_refs and not allowed_tool_names:
@@ -6046,8 +6065,45 @@ def _execution_permit_from_assembly_contract(
         "professional_mode_tool_policy_adopted": True,
         "professional_allowed_operation_refs": allowed_operation_refs,
         "professional_allowed_tool_names": allowed_tool_names,
+        "professional_operation_policy_adopted": bool(operation_policy),
+        "professional_operation_policy": operation_policy,
     }
     return permit
+
+
+def _professional_operation_policy(task_operation: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
+    current_turn = dict(task_operation.get("current_turn_context") or {})
+    policies = [
+        dict(metadata.get("operation_policy") or {}),
+        dict(dict(task_operation.get("selected_recipe") or {}).get("metadata") or {}).get("operation_policy") or {},
+        dict(current_turn.get("operation_policy") or {}),
+    ]
+    merged: dict[str, list[str]] = {
+        "allowed_operations": [],
+        "required_operations": [],
+        "optional_operations": [],
+    }
+    for policy in policies:
+        for key in tuple(merged):
+            merged[key].extend(str(item).strip() for item in list(dict(policy).get(key) or []) if str(item).strip())
+    return {key: _dedupe_refs(values) for key, values in merged.items() if _dedupe_refs(values)}
+
+
+def _tool_names_for_operation_refs(operation_refs: list[Any]) -> list[str]:
+    requested = {str(item or "").strip() for item in list(operation_refs or []) if str(item or "").strip()}
+    if not requested:
+        return []
+    try:
+        from capability_system.tool_definitions import get_tool_definitions
+    except Exception:
+        return [item.removeprefix("op.") for item in requested if item != "op.model_response"]
+    tools: list[str] = []
+    for definition in get_tool_definitions():
+        operation_id = str(getattr(definition, "operation_id", "") or "").strip()
+        tool_name = str(getattr(definition, "name", "") or "").strip()
+        if operation_id in requested and tool_name:
+            tools.append(tool_name)
+    return _dedupe_refs(tools)
 
 
 def _direct_professional_execution_permit(

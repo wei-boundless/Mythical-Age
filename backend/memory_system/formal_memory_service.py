@@ -57,7 +57,7 @@ class FormalMemoryService:
                 lifecycle_policy=lifecycle_policy,
                 runtime_scope=scope_context,
             )
-            self._scope_policies_by_logical_repository[repository_id] = dict(scope)
+            self._scope_policies_by_logical_repository[repository_id] = dict(lifecycle_policy)
             repository = self.store.upsert_repository(
                 FormalMemoryRepository(
                     repository_id=scope["effective_repository_id"],

@@ -318,7 +318,7 @@ def _tool_definitions() -> list[ToolDefinition]:
             factory=lambda base_dir: MemorySearchTool(root_dir=base_dir),
             contract=ToolExecutionContract(
                 required_inputs=["query"],
-                optional_inputs=["task_run_id", "repositories", "collections", "limit"],
+                optional_inputs=["task_run_id", "project_id", "repositories", "collections", "limit"],
                 owner_scope="task_memory",
                 missing_binding_behavior="clarify",
                 context_policy="inline",

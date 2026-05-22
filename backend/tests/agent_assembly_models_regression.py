@@ -155,6 +155,32 @@ def test_direct_work_order_gets_agent_style_prompt_and_default_permit() -> None:
     assert validate_work_order(work_order).passed
 
 
+def test_direct_work_order_operation_policy_extends_visible_tools() -> None:
+    base_dir = _base_dir()
+    work_order = DirectWorkOrder(
+        work_order_id="",
+        task_ref="task.test.browser",
+        runtime_assembly={
+            "operation_policy": {
+                "allowed_operations": ["op.model_response", "op.browser_control"],
+                "required_operations": ["op.browser_control"],
+            }
+        },
+    )
+    runtime_profile = AgentRuntimeProfile(
+        agent_profile_id="main_interactive_agent",
+        agent_id="agent:0",
+        allowed_operations=("op.model_response", "op.fetch_url"),
+    )
+
+    invocation = build_agent_invocation(work_order, base_dir=base_dir, agent_runtime_profile=runtime_profile)
+    permit = invocation.execution_permit
+
+    assert "op.browser_control" in permit["allowed_operations"]
+    assert "browser_control" in permit["visible_tools"]
+    assert "browser_control" in permit["model_visible_tool_refs"]
+
+
 def test_agent_invocation_is_single_boundary_for_node_work_order() -> None:
     base_dir = _base_dir()
     work_order = NodeWorkOrder(

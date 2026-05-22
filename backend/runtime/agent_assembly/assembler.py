@@ -398,6 +398,9 @@ def _build_capability_binding(
         for item in list(getattr(runtime_profile, "allowed_operations", ()) or ())
         if str(item).strip()
     )
+    explicit_operations = _work_order_operation_policy_operations(work_order)
+    if explicit_operations:
+        allowed_operations = tuple(_dedupe([*allowed_operations, *explicit_operations]))
     if not allowed_operations and work_order.executor_type != "human":
         allowed_operations = ("op.model_response",)
     visible_tools = tuple(
@@ -426,6 +429,34 @@ def _build_capability_binding(
         delegated_agent_ids=delegated_agent_ids,
         metadata=metadata,
     )
+
+
+def _work_order_operation_policy_operations(work_order: WorkOrder) -> tuple[str, ...]:
+    policies = [
+        dict(work_order.current_turn_context or {}).get("operation_policy") or {},
+        dict(work_order.runtime_assembly or {}).get("operation_policy") or {},
+    ]
+    operations: list[str] = []
+    for policy in policies:
+        item = dict(policy or {})
+        operations.extend(str(value).strip() for value in list(item.get("allowed_operations") or []) if str(value).strip())
+        operations.extend(str(value).strip() for value in list(item.get("required_operations") or []) if str(value).strip())
+        operations.extend(str(value).strip() for value in list(item.get("optional_operations") or []) if str(value).strip())
+    if operations:
+        operations.append("op.model_response")
+    return tuple(_dedupe(operations))
+
+
+def _dedupe(values: list[Any] | tuple[Any, ...]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
 
 
 def _build_output_boundary(

@@ -9,7 +9,7 @@
         "professional",
         "custom"
       ],
-      "default_runtime_mode": "role",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
         "role_interaction",
         "standard_task",
@@ -161,11 +161,16 @@
       "agent_profile_id": "memory_system_agent",
       "agent_id": "agent:1",
       "enabled_runtime_modes": [
-        "standard"
+        "standard",
+        "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task"
+        "standard_task",
+        "memory_trace_read",
+        "session_memory_maintenance",
+        "durable_memory_extraction",
+        "memory_candidate_review"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -294,11 +299,13 @@
       "agent_profile_id": "config_system_agent",
       "agent_id": "agent:2",
       "enabled_runtime_modes": [
-        "standard"
+        "standard",
+        "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task"
+        "standard_task",
+        "config_trace_read"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -418,11 +425,13 @@
       "agent_profile_id": "task_management_agent",
       "agent_id": "agent:4",
       "enabled_runtime_modes": [
-        "standard"
+        "standard",
+        "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task"
+        "standard_task",
+        "task_trace_read"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -542,11 +551,13 @@
       "agent_profile_id": "capability_system_agent",
       "agent_id": "agent:5",
       "enabled_runtime_modes": [
-        "standard"
+        "standard",
+        "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task"
+        "standard_task",
+        "capability_trace_read"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -666,11 +677,14 @@
       "agent_profile_id": "rag_analysis_agent",
       "agent_id": "agent:rag_analyst",
       "enabled_runtime_modes": [
-        "standard"
+        "standard",
+        "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task"
+        "standard_task",
+        "retrieval_delegate",
+        "readonly_exploration"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -794,11 +808,14 @@
       "agent_profile_id": "pdf_analysis_agent",
       "agent_id": "agent:pdf_reader",
       "enabled_runtime_modes": [
-        "standard"
+        "standard",
+        "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task"
+        "standard_task",
+        "pdf_delegate",
+        "readonly_exploration"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -922,11 +939,14 @@
       "agent_profile_id": "structured_data_analysis_agent",
       "agent_id": "agent:table_analyst",
       "enabled_runtime_modes": [
-        "standard"
+        "standard",
+        "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task"
+        "standard_task",
+        "structured_data_delegate",
+        "readonly_exploration"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -1050,11 +1070,14 @@
       "agent_profile_id": "web_research_agent",
       "agent_id": "agent:web_researcher",
       "enabled_runtime_modes": [
-        "standard"
+        "standard",
+        "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
-        "standard_task"
+        "standard_task",
+        "web_research_delegate",
+        "readonly_exploration"
       ],
       "allowed_operations": [
         "op.model_response",
@@ -1186,7 +1209,7 @@
         "standard",
         "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
         "standard_task",
         "coordination_task"
@@ -1234,7 +1257,7 @@
         "provider": "",
         "model": "",
         "credential_ref": "",
-        "max_output_tokens": 60000,
+        "max_output_tokens": 65536,
         "timeout_seconds": 180.0,
         "long_output_timeout_seconds": 600.0,
         "max_retries": 2,
@@ -1338,7 +1361,7 @@
         "standard",
         "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
         "standard_task",
         "coordination_task"
@@ -1386,7 +1409,7 @@
         "provider": "",
         "model": "",
         "credential_ref": "",
-        "max_output_tokens": 60000,
+        "max_output_tokens": 65536,
         "timeout_seconds": 180.0,
         "long_output_timeout_seconds": 600.0,
         "max_retries": 2,
@@ -1490,7 +1513,7 @@
         "standard",
         "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
         "standard_task",
         "coordination_task"
@@ -1537,7 +1560,7 @@
         "provider": "",
         "model": "",
         "credential_ref": "",
-        "max_output_tokens": 60000,
+        "max_output_tokens": 65536,
         "timeout_seconds": 180.0,
         "long_output_timeout_seconds": 600.0,
         "max_retries": 2,
@@ -1641,7 +1664,7 @@
         "standard",
         "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
         "standard_task",
         "coordination_task",
@@ -1689,7 +1712,7 @@
         "provider": "",
         "model": "",
         "credential_ref": "",
-        "max_output_tokens": 60000,
+        "max_output_tokens": 65536,
         "timeout_seconds": 180.0,
         "long_output_timeout_seconds": 600.0,
         "max_retries": 2,
@@ -1793,7 +1816,7 @@
         "standard",
         "custom"
       ],
-      "default_runtime_mode": "standard",
+      "default_runtime_mode": "custom",
       "allowed_runtime_lanes": [
         "standard_task",
         "task_graph_monitor"
@@ -1841,7 +1864,7 @@
         "provider": "",
         "model": "",
         "credential_ref": "",
-        "max_output_tokens": 60000,
+        "max_output_tokens": 65536,
         "timeout_seconds": 180.0,
         "long_output_timeout_seconds": 600.0,
         "max_retries": 2,
