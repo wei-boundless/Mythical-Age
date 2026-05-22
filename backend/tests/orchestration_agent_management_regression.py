@@ -228,6 +228,96 @@ def test_runtime_profile_rejects_unregistered_runtime_lane(tmp_path):
         )
 
 
+def test_runtime_profile_system_modes_derive_runtime_lanes(tmp_path):
+    agent_registry = AgentRegistry(tmp_path)
+    runtime_registry = AgentRuntimeRegistry(tmp_path)
+    agent_registry.upsert_agent(
+        agent_id="agent:mode_test",
+        agent_name="模式派生测试 Agent",
+        agent_category="custom_agent",
+    )
+
+    profile = runtime_registry.upsert_profile(
+        agent_id="agent:mode_test",
+        agent_profile_id="agent_mode_test_runtime",
+        enabled_runtime_modes=("role", "professional"),
+        default_runtime_mode="professional",
+        allowed_runtime_lanes=("readonly_exploration",),
+        allowed_operations=("op.model_response",),
+    )
+
+    assert profile.enabled_runtime_modes == ("role", "professional")
+    assert profile.default_runtime_mode == "professional"
+    assert profile.allowed_runtime_lanes == ("role_interaction", "professional_task")
+
+
+def test_runtime_profile_custom_mode_preserves_manual_runtime_lanes(tmp_path):
+    agent_registry = AgentRegistry(tmp_path)
+    runtime_registry = AgentRuntimeRegistry(tmp_path)
+    agent_registry.upsert_agent(
+        agent_id="agent:custom_mode_test",
+        agent_name="自定义模式测试 Agent",
+        agent_category="custom_agent",
+    )
+
+    profile = runtime_registry.upsert_profile(
+        agent_id="agent:custom_mode_test",
+        agent_profile_id="agent_custom_mode_test_runtime",
+        enabled_runtime_modes=("custom",),
+        default_runtime_mode="custom",
+        allowed_runtime_lanes=("readonly_exploration",),
+        allowed_operations=("op.model_response",),
+        metadata={"custom_runtime_modes": [{"mode": "custom.saved", "label": "不应保留"}]},
+    )
+    loaded = runtime_registry.get_profile("agent:custom_mode_test")
+
+    assert profile.enabled_runtime_modes == ("custom",)
+    assert profile.default_runtime_mode == "custom"
+    assert profile.allowed_runtime_lanes == ("readonly_exploration",)
+    assert loaded is not None
+    assert "custom_runtime_modes" not in loaded.metadata
+    assert [item["mode"] for item in loaded.to_dict()["runtime_mode_catalog"]] == [
+        "role",
+        "standard",
+        "professional",
+        "custom",
+    ]
+
+
+def test_runtime_profile_migration_adds_custom_for_mixed_legacy_lanes(tmp_path):
+    path = tmp_path / "storage" / "orchestration" / "agent_runtime_profiles.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    AgentRegistry(tmp_path).upsert_agent(
+        agent_id="agent:mixed_lane_test",
+        agent_name="混合旧 lane 测试 Agent",
+        agent_category="custom_agent",
+    )
+    path.write_text(
+        json.dumps(
+            {
+                "profiles": [
+                    {
+                        "agent_profile_id": "mixed_lane_runtime",
+                        "agent_id": "agent:mixed_lane_test",
+                        "allowed_runtime_lanes": ["role_interaction", "readonly_exploration"],
+                        "allowed_operations": ["op.model_response"],
+                        "metadata": {},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    profile = AgentRuntimeRegistry(tmp_path).get_profile("agent:mixed_lane_test")
+
+    assert profile is not None
+    assert profile.enabled_runtime_modes == ("role", "custom")
+    assert profile.allowed_runtime_lanes == ("role_interaction", "readonly_exploration")
+
+
 def test_runtime_lane_profile_marks_denied_request_without_silent_success(tmp_path):
     agent_registry = AgentRegistry(tmp_path)
     runtime_registry = AgentRuntimeRegistry(tmp_path)

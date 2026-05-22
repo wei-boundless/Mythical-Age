@@ -47,6 +47,12 @@ import { OrchestrationRegistryWorkbench } from "@/components/workspace/views/orc
 import { OrchestrationToolbarButton } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 import { taskSystemDisplayLabel } from "@/components/workspace/views/task-system/TaskSystemWorkbenchUi";
 import { useAppStore } from "@/lib/store";
+import {
+  deriveAllowedRuntimeLanes,
+  manualRuntimeLanes,
+  normalizeDefaultRuntimeMode,
+  normalizeRuntimeModesWithLanes,
+} from "@/lib/runtimeModeConfig";
 
 type AgentCategory = "main_agent" | "builtin_agent" | "custom_agent";
 type OrchestrationLayer = "identity" | "groups" | "runtime_permissions" | "model_runtime" | "context_memory" | "collaboration" | "overview" | "diagnostics";
@@ -87,6 +93,8 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
   agent_profile_id: "",
   agent_id: "",
   allowed_runtime_lanes: [],
+  enabled_runtime_modes: ["custom"],
+  default_runtime_mode: "custom",
   allowed_operations: ["op.model_response"],
   blocked_operations: [],
   allowed_memory_scopes: [],
@@ -293,10 +301,15 @@ function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentR
   const merged = { ...EMPTY_RUNTIME_DRAFT, ...(profile ?? {}), agent_id: agentId };
   const profileId = String(merged.agent_profile_id || `${agentId.replace(/[:]/g, "_")}_runtime`);
   const allowedOps = uniqueList(merged.allowed_operations).length ? uniqueList(merged.allowed_operations) : ["op.model_response"];
+  const enabledModes = normalizeRuntimeModesWithLanes((merged as Record<string, unknown>).enabled_runtime_modes, merged.allowed_runtime_lanes);
+  const defaultMode = normalizeDefaultRuntimeMode((merged as Record<string, unknown>).default_runtime_mode, enabledModes);
+  const allowedRuntimeLanes = deriveAllowedRuntimeLanes(enabledModes, merged.allowed_runtime_lanes);
   return {
     ...merged,
     agent_profile_id: profileId,
-    allowed_runtime_lanes: uniqueList(merged.allowed_runtime_lanes),
+    allowed_runtime_lanes: allowedRuntimeLanes,
+    enabled_runtime_modes: enabledModes,
+    default_runtime_mode: defaultMode,
     allowed_operations: allowedOps,
     blocked_operations: uniqueList(merged.blocked_operations),
     allowed_memory_scopes: uniqueList(merged.allowed_memory_scopes),
@@ -315,9 +328,14 @@ function runtimeDraftFrom(agentId: string, profile?: Partial<OrchestrationAgentR
 }
 
 function runtimePayloadFromDraft(draft: RuntimeDraft) {
+  const enabledModes = normalizeRuntimeModesWithLanes((draft as Record<string, unknown>).enabled_runtime_modes, draft.allowed_runtime_lanes);
+  const defaultMode = normalizeDefaultRuntimeMode((draft as Record<string, unknown>).default_runtime_mode, enabledModes);
+  const allowedRuntimeLanes = deriveAllowedRuntimeLanes(enabledModes, draft.allowed_runtime_lanes);
   return {
     agent_profile_id: draft.agent_profile_id,
-    allowed_runtime_lanes: uniqueList(draft.allowed_runtime_lanes),
+    allowed_runtime_lanes: allowedRuntimeLanes,
+    enabled_runtime_modes: enabledModes,
+    default_runtime_mode: defaultMode,
     allowed_operations: Array.from(new Set(["op.model_response", ...uniqueList(draft.allowed_operations)])),
     blocked_operations: uniqueList(draft.blocked_operations),
     allowed_memory_scopes: uniqueList(draft.allowed_memory_scopes),
@@ -375,7 +393,7 @@ function searchText(agent: Record<string, unknown>) {
 }
 
 export function OrchestrationView() {
-  const { activeWorkspaceView, orchestrationInspectorTarget } = useAppStore();
+  const { orchestrationInspectorTarget } = useAppStore();
   const [catalog, setCatalog] = useState<OrchestrationAgentRuntimeCatalog | null>(null);
   const [capabilityItems, setCapabilityItems] = useState<OrchestrationCapabilityItem[]>([]);
   const [capabilityItemsLoading, setCapabilityItemsLoading] = useState(false);
@@ -432,12 +450,11 @@ export function OrchestrationView() {
   }, []);
 
   useEffect(() => {
-    if (activeWorkspaceView !== "orchestration") return;
     void load();
-  }, [activeWorkspaceView, load]);
+  }, [load]);
 
   useEffect(() => {
-    if (activeWorkspaceView !== "orchestration" || activeLayer !== "runtime_permissions") return;
+    if (activeLayer !== "runtime_permissions") return;
     let cancelled = false;
     setCapabilityItemsLoading(true);
     setCapabilityItemsError("");
@@ -457,7 +474,7 @@ export function OrchestrationView() {
     return () => {
       cancelled = true;
     };
-  }, [activeLayer, activeWorkspaceView]);
+  }, [activeLayer]);
 
   const agents = useMemo(() => catalog?.agents ?? [], [catalog]);
   const agentGroups = useMemo(() => catalog?.agent_groups ?? [], [catalog]);
@@ -465,7 +482,6 @@ export function OrchestrationView() {
   const soulSeeds = useMemo(() => soulCatalog?.seeds ?? [], [soulCatalog]);
 
   useEffect(() => {
-    if (activeWorkspaceView !== "orchestration") return;
     if (!orchestrationInspectorTarget) return;
     const requestedLayer = orchestrationInspectorTarget.orchestrationLayer;
       const focusLayer =
@@ -506,7 +522,7 @@ export function OrchestrationView() {
     if (orchestrationInspectorTarget.reason) {
       setNotice(orchestrationInspectorTarget.reason);
     }
-  }, [activeWorkspaceView, agentGroups, agents, orchestrationInspectorTarget]);
+  }, [agentGroups, agents, orchestrationInspectorTarget]);
 
   const selectedAgent = agents.find((agent) => String(agent.agent_id) === selectedAgentId) ?? null;
   const selectedGroup = agentGroups.find((group) => group.group_id === selectedGroupId) ?? null;
@@ -639,19 +655,24 @@ export function OrchestrationView() {
     { label: "上下文段", value: `${displayOptionList(uniqueList(runtimeDraft.allowed_context_sections).slice(0, 4), runtimeOptionLabels)} / ${runtimeDraft.use_shared_contract ? "采用共同契约" : "不采用共同契约"}`, ready: Boolean(uniqueList(runtimeDraft.allowed_context_sections).length) },
   ];
   const agentLayerTabs: Array<[OrchestrationLayer, string, string]> = [
-    ["identity", "身份", agentMode === "new" ? "草稿" : ""],
-    ["runtime_permissions", "运行权限", runtimeDraft.agent_profile_id && !runtimeSaveBlocked ? "已配置" : "待保存"],
-    ["model_runtime", "模型运行", modelProfile.provider || modelProfile.model ? "已覆盖" : "继承"],
-    ["context_memory", "上下文记忆", `${uniqueList(runtimeDraft.allowed_context_sections).length + uniqueList(runtimeDraft.allowed_memory_scopes).length}`],
-    ["collaboration", "协作", runtimeDraft.can_delegate_to_agents ? "可委派" : ""],
-    ["overview", "总览", ""],
-    ["diagnostics", "诊断", overlapOps.length ? "冲突" : ""],
+    ["identity", "身份", agentMode === "new" ? "草稿" : "名册"],
+    ["runtime_permissions", "权限", runtimeDraft.agent_profile_id && !runtimeSaveBlocked ? `${allowedOps.length} 项` : "待保存"],
+    ["model_runtime", "模型", modelProfile.provider || modelProfile.model ? "覆盖" : "继承"],
+    ["context_memory", "上下文", `${uniqueList(runtimeDraft.allowed_context_sections).length + uniqueList(runtimeDraft.allowed_memory_scopes).length}`],
+    ["collaboration", "协作", runtimeDraft.can_delegate_to_agents ? "开放" : "关闭"],
+    ["overview", "总览", "摘要"],
+    ["diagnostics", "诊断", overlapOps.length ? "冲突" : "正常"],
   ];
   const layerTabs: Array<[OrchestrationLayer, string, string]> = selectionKind === "group"
     ? [["groups", "分组", String(splitList(groupDraft.member_agent_ids_text).length)]]
     : activeCategory === "custom_agent" && customDirectoryMode === "grouped"
       ? [["groups", "分组", String(agentGroups.length)], ...agentLayerTabs]
       : agentLayerTabs;
+  const activeLayerTab = layerTabs.find(([value]) => value === activeLayer) ?? layerTabs[0] ?? ["identity", "身份", ""];
+  const activeLayerLabel = selectionKind === "group" ? "Agent 组" : activeLayerTab[1];
+  const activeLayerHint = selectionKind === "group"
+    ? "先定组，再看成员与协调者。"
+    : activeLayerTab[2] || "当前层配置。";
 
   const selectedGroupAgents = useMemo(() => {
     if (!selectedGroup) return [];
@@ -697,6 +718,7 @@ export function OrchestrationView() {
         id: agentDraft.agent_id || "未生成 ID",
         badge: agentMode === "new" ? "新建草稿" : builtinManagedAgent ? "内置来源" : "可配置",
       };
+  const selectionKindLabel = selectionKind === "group" ? "Agent 组" : selectionKind === "agent" ? "Agent" : "待选";
 
   function selectCategory(category: AgentCategory) {
     setActiveCategory(category);
@@ -945,14 +967,37 @@ export function OrchestrationView() {
   }
 
   return (
-    <div className="workspace-view boundary-console orchestration-boundary">
-      <header className="boundary-hero">
-        <div>
-          <span>Agent Runtime Studio</span>
-          <h2>编排系统工作台</h2>
-          <p>Agent 名册与运行档案</p>
+    <div className="workspace-view boundary-console orchestration-boundary orchestration-console">
+      <header className="orchestration-console-head">
+        <div className="orchestration-console-head__title">
+          <span>Agent Assembly</span>
+          <h2>编排系统</h2>
+          <p>{agents.length} 个 Agent / {agentGroups.length} 个分组 / {catalog?.profiles?.length ?? 0} 个运行档案</p>
         </div>
-        <div className="boundary-actions">
+        <div className="orchestration-console-head__summary" aria-label="对象摘要">
+          <div>
+            <span>当前装配对象</span>
+            <strong>{focusSummary.title}</strong>
+            <small>{focusSummary.body}</small>
+          </div>
+          <div>
+            <span>当前步骤</span>
+            <strong>{activeLayerLabel}</strong>
+            <small>{activeLayerHint}</small>
+          </div>
+          <div>
+            <span>对象类型</span>
+            <strong>{selectionKindLabel}</strong>
+            <small>{focusSummary.id}</small>
+          </div>
+          <div>
+            <span>运行权限</span>
+            <strong>{allowedOps.length} 允 / {blockedOps.length} 阻</strong>
+            <small>{overlapOps.length ? `${overlapOps.length} 项冲突` : "无冲突"}</small>
+          </div>
+        </div>
+        <div className="boundary-actions orchestration-console-head__actions">
+          <OrchestrationToolbarButton onClick={startBlankAgentDraft}><UserCog size={15} />新建 Agent</OrchestrationToolbarButton>
           <OrchestrationToolbarButton onClick={() => void load()}><RefreshCw size={15} />刷新</OrchestrationToolbarButton>
         </div>
       </header>
@@ -991,19 +1036,8 @@ export function OrchestrationView() {
           removeSelectedGroup={() => void removeAgentGroup()}
         />
 
-        <main className="boundary-main">
-          <section className={selectionKind === "group" ? "orchestration-agent-focus orchestration-agent-focus--group" : "orchestration-agent-focus"}>
-            <div>
-              <span>{focusSummary.eyebrow}</span>
-              <h3>{focusSummary.title}</h3>
-              <p>{focusSummary.body}</p>
-            </div>
-            <div className="orchestration-agent-focus__meta">
-              <span>{focusSummary.id}</span>
-              <b>{focusSummary.badge}</b>
-            </div>
-          </section>
-          <nav className="boundary-layer-tabs" aria-label="编排系统层级">
+        <main className="boundary-main orchestration-config-main">
+          <nav className="boundary-layer-tabs orchestration-config-tabs" aria-label="编排配置页面">
             {layerTabs.map(([value, label, meta]) => (
               <button className={activeLayer === value ? "boundary-layer-tabs__item boundary-layer-tabs__item--active" : "boundary-layer-tabs__item"} key={value} onClick={() => setActiveLayer(value)} type="button">
                 <span>{label}</span>

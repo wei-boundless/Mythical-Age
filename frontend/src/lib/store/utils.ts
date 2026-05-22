@@ -105,7 +105,8 @@ export function toUiMessages(history: SessionHistory["messages"]) {
         content,
         toolCalls,
         retrievals: [],
-        sourceIndex
+        sourceIndex,
+        image: message.image ?? null
       };
     })
     .filter(Boolean) as Message[];
@@ -117,6 +118,7 @@ export function toUiMessages(history: SessionHistory["messages"]) {
       previous.content = appendMessageContent(previous.content, message.content);
       previous.toolCalls = [...previous.toolCalls, ...message.toolCalls];
       previous.retrievals = [...previous.retrievals, ...message.retrievals];
+      previous.image = previous.image ?? message.image ?? null;
       continue;
     }
     merged.push(message);

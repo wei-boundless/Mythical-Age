@@ -43,15 +43,40 @@ export function TaskSystemShell<T extends string>({
   path: string;
   title: string;
 }) {
+  const fallbackLayerSlot = (
+    <div className="task-system-object-table" aria-label="任务系统对象目录">
+      <div className="task-system-object-table__head" aria-hidden="true">
+        <span>对象</span>
+        <span>记录</span>
+        <span>说明</span>
+        <span>状态</span>
+      </div>
+      {navItems.map((item) => (
+        <button
+          aria-current={activeLayer === item.value ? "page" : undefined}
+          className={activeLayer === item.value ? "task-system-object-row task-system-object-row--active" : "task-system-object-row"}
+          key={item.value}
+          onClick={() => onSelectLayer(item.value)}
+          type="button"
+        >
+          <strong>{item.label}</strong>
+          <span className="task-system-object-row__meta">{item.meta}</span>
+          <small>{item.detail}</small>
+          <em>{activeLayer === item.value ? "当前" : "可配置"}</em>
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <div className={`workspace-view boundary-console task-system-boundary task-system-boundary--${mode}`}>
-      <header className={mode === "editor" ? "boundary-hero task-system-boundary__studio-hero" : "boundary-hero"}>
+      <header className={mode === "editor" ? "task-system-database-header task-system-database-header--editor" : "task-system-database-header"}>
         <div>
-          <span>{mode === "editor" ? "任务系统 · 图工作台" : "任务系统 · 库管理"}</span>
+          <span>{mode === "editor" ? "任务图编辑器" : "任务系统"}</span>
           <h2>{title}</h2>
           <p>{path}</p>
         </div>
-        <div className="boundary-actions">
+        <div className="task-system-database-header__actions">
           {mode === "editor" && onBackToGraphs ? (
             <ToolbarButton onClick={onBackToGraphs}>返回任务图库</ToolbarButton>
           ) : null}
@@ -67,31 +92,18 @@ export function TaskSystemShell<T extends string>({
           {children}
         </section>
       ) : (
-        <section className="task-system-boundary__management">
-          {contextSlot ? (
-            <section className="task-system-domain-context">
-              {contextSlot}
-            </section>
-          ) : null}
-          <nav className="task-system-object-switcher" aria-label="任务系统对象工作区">
-            {layerSlot ?? (
-              <>
-                {navItems.map((item) => (
-                <button
-                  className={activeLayer === item.value ? "boundary-list-row boundary-list-row--active task-system-boundary__object-card" : "boundary-list-row task-system-boundary__object-card"}
-                  key={item.value}
-                  onClick={() => onSelectLayer(item.value)}
-                  type="button"
-                >
-                  <strong>{item.label}</strong>
-                  <span>{item.meta}</span>
-                  {item.detail ? <small>{item.detail}</small> : null}
-                </button>
-                ))}
-              </>
-            )}
-          </nav>
-          <main className="boundary-main task-system-boundary__object-workspace">
+        <section className="task-system-database-layout">
+          <aside className="task-system-database-sidebar" aria-label="任务系统数据库导航">
+            {contextSlot ? (
+              <section className="task-system-domain-context">
+                {contextSlot}
+              </section>
+            ) : null}
+            <nav className="task-system-object-switcher" aria-label="任务系统对象工作区">
+              {layerSlot ?? fallbackLayerSlot}
+            </nav>
+          </aside>
+          <main className="task-system-database-workspace">
             {children}
           </main>
         </section>

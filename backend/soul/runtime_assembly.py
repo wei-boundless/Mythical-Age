@@ -160,6 +160,17 @@ class SoulRuntimeAssemblyBuilder:
                 source_refs=(str(contract.get("contract_id") or request.task_id),),
             ),
             PromptSection(
+                section_id="node_professional_prompt_section",
+                title="节点专业职责",
+                source_type="task_workflow_prompt",
+                source_id=str(dict(contract.get("metadata") or {}).get("task_workflow_id") or request.task_id),
+                owner_layer="task",
+                cache_scope="dynamic",
+                visible_to_model=True,
+                content=str(contract.get("node_professional_prompt_section") or ""),
+                source_refs=(str(dict(contract.get("metadata") or {}).get("task_workflow_id") or request.task_id),),
+            ),
+            PromptSection(
                 section_id="professional_profile_section",
                 title="专业职责",
                 source_type="professional_prompt_profile",

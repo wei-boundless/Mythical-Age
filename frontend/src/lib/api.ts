@@ -1234,6 +1234,8 @@ export type CapabilitySystemAgentCatalog = {
 export type OrchestrationAgentRuntimeProfile = {
   agent_profile_id: string;
   agent_id: string;
+  enabled_runtime_modes?: string[];
+  default_runtime_mode?: string;
   allowed_runtime_lanes: string[];
   allowed_operations: string[];
   blocked_operations: string[];
@@ -1249,6 +1251,7 @@ export type OrchestrationAgentRuntimeProfile = {
   lifecycle_policy: string;
   model_profile?: OrchestrationAgentModelProfile;
   metadata?: Record<string, unknown>;
+  runtime_mode_catalog?: Array<Record<string, unknown>>;
 };
 
 export type OrchestrationAgentModelProfile = {
@@ -1324,6 +1327,7 @@ export type OrchestrationAgentRuntimeCatalog = {
     operations: OperationDescriptor[];
     task_graphs: string[];
     runtime_lanes: string[];
+    runtime_modes?: Array<Record<string, unknown>>;
     runtime_lane_registry?: Record<string, unknown>;
     runtime_lane_diagnostics?: Record<string, unknown>;
     memory_scopes: string[];
@@ -1567,6 +1571,8 @@ export type ModelProviderConfig = {
   base_url: string;
   credential_ref?: string;
   api_key_configured: boolean;
+  thinking_mode?: string;
+  reasoning_effort?: string;
   fallback_provider: string;
   fallback_model: string;
   fallback_base_url: string;

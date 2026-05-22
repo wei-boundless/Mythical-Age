@@ -3,6 +3,8 @@ import type { MainAgentAssemblyMode, TaskSelectionState } from "@/lib/store/type
 type MainAgentAssemblyProfile = {
   mode: MainAgentAssemblyMode;
   label: string;
+  summary: string;
+  scope: string;
   agent_id: string;
   agent_profile_id: string;
   interaction_mode: string;
@@ -18,7 +20,9 @@ export const MAIN_AGENT_PROFILE_ID = "main_interactive_agent";
 export const MAIN_AGENT_ASSEMBLY_MODES: Record<MainAgentAssemblyMode, MainAgentAssemblyProfile> = {
   role: {
     mode: "role",
-    label: "角色",
+    label: "角色 / 对话",
+    summary: "偏会话承接，保留主会话语气与身份。",
+    scope: "主会话",
     agent_id: MAIN_AGENT_ID,
     agent_profile_id: MAIN_AGENT_PROFILE_ID,
     interaction_mode: "role_mode",
@@ -38,7 +42,9 @@ export const MAIN_AGENT_ASSEMBLY_MODES: Record<MainAgentAssemblyMode, MainAgentA
   },
   standard: {
     mode: "standard",
-    label: "标准",
+    label: "标准 / 任务",
+    summary: "按一般任务工作，兼顾判断与执行。",
+    scope: "主会话",
     agent_id: MAIN_AGENT_ID,
     agent_profile_id: MAIN_AGENT_PROFILE_ID,
     interaction_mode: "standard_mode",
@@ -58,7 +64,9 @@ export const MAIN_AGENT_ASSEMBLY_MODES: Record<MainAgentAssemblyMode, MainAgentA
   },
   professional: {
     mode: "professional",
-    label: "专业",
+    label: "专业 / 长任务",
+    summary: "偏长任务、重验证、强调收尾。",
+    scope: "主会话",
     agent_id: MAIN_AGENT_ID,
     agent_profile_id: MAIN_AGENT_PROFILE_ID,
     interaction_mode: "professional_mode",

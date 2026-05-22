@@ -15,10 +15,13 @@ from capability_system.tool_contracts import (
     ToolResourceExposurePolicy,
     ToolRuntimeVisibility,
 )
+from capability_system.units.tools.browser_control_tool import BrowserControlTool
 from capability_system.units.tools.delegate_to_agent_tool import DelegateToAgentTool
 from capability_system.units.tools.fetch_url_tool import FetchURLTool
 from capability_system.units.tools.file_system_tools import GlobPathsTool, ListDirTool, PathExistsTool, StatPathTool
 from capability_system.units.tools.git_tools import GitDiffTool, GitLogTool, GitShowTool, GitStatusTool
+from capability_system.units.tools.image_generation_tool import ImageGenerationTool
+from capability_system.units.tools.memory_search_tool import MemorySearchTool
 from capability_system.units.tools.python_repl_tool import PythonReplTool
 from capability_system.units.tools.read_file_tool import ReadFileTool
 from capability_system.units.tools.search_files_tool import SearchFilesTool, SearchTextTool
@@ -308,6 +311,33 @@ def _tool_definitions() -> list[ToolDefinition]:
             is_concurrency_safe=True,
         ),
         ToolDefinition(
+            name="memory_search",
+            display_name="搜索任务记忆",
+            operation_id="op.memory_read",
+            module="tools.memory_search_tool",
+            factory=lambda base_dir: MemorySearchTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["query"],
+                optional_inputs=["task_run_id", "repositories", "collections", "limit"],
+                owner_scope="task_memory",
+                missing_binding_behavior="clarify",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
+            output_contract=ToolOutputContract(display_mode="summary_text"),
+            capability_tags=["memory", "search", "formal_memory", "task_memory"],
+            supported_modalities=["text", "memory"],
+            safety_tags=["read", "memory_read"],
+            route_hints=["tool", "memory_read", "task_memory_search"],
+            safe_for_auto_route=True,
+            schema_identity="local.tools/memory_search",
+            prompt_exposure_policy="schema_only",
+            resource_exposure_policy="none",
+            is_read_only=True,
+            is_destructive=False,
+            is_concurrency_safe=True,
+        ),
+        ToolDefinition(
             name="text_metric",
             display_name="文本计量",
             operation_id="op.text_metric",
@@ -358,6 +388,60 @@ def _tool_definitions() -> list[ToolDefinition]:
             is_read_only=True,
             is_destructive=False,
             is_concurrency_safe=True,
+        ),
+        ToolDefinition(
+            name="browser_control",
+            display_name="网页操作",
+            operation_id="op.browser_control",
+            module="tools.browser_control_tool",
+            factory=lambda base_dir: BrowserControlTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["action"],
+                optional_inputs=["url", "selector", "text", "value", "timeout_ms", "screenshot_name"],
+                owner_scope="browser_session",
+                missing_binding_behavior="clarify",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
+            output_contract=ToolOutputContract(display_mode="summary_text", persistence_policy="persist_canonical"),
+            capability_tags=["browser", "web", "automation", "page_interaction", "visual_verification"],
+            supported_modalities=["web", "browser", "visual"],
+            safety_tags=["network", "interactive", "external_write_possible"],
+            route_hints=["tool", "browser", "web_automation", "page_operation"],
+            safe_for_auto_route=False,
+            schema_identity="local.tools/browser_control",
+            prompt_exposure_policy="schema_only",
+            resource_exposure_policy="explicit_resource",
+            is_read_only=False,
+            is_destructive=False,
+            is_concurrency_safe=False,
+        ),
+        ToolDefinition(
+            name="image_generate",
+            display_name="生成图像",
+            operation_id="op.image_generate",
+            module="tools.image_generation_tool",
+            factory=lambda base_dir: ImageGenerationTool(root_dir=base_dir),
+            contract=ToolExecutionContract(
+                required_inputs=["prompt"],
+                optional_inputs=["target_id", "asset_kind", "size", "overwrite"],
+                owner_scope="none",
+                missing_binding_behavior="clarify",
+                context_policy="inline",
+                result_channel="canonical",
+            ),
+            output_contract=ToolOutputContract(display_mode="summary_text", persistence_policy="persist_canonical"),
+            capability_tags=["image", "image_generation", "visual", "creative", "multimodal"],
+            supported_modalities=["image", "visual"],
+            safety_tags=["write", "external_model"],
+            route_hints=["tool", "image_generation", "generate_image", "visual_creation"],
+            safe_for_auto_route=True,
+            schema_identity="local.tools/image_generate",
+            prompt_exposure_policy="schema_only",
+            resource_exposure_policy="explicit_resource",
+            is_read_only=False,
+            is_destructive=False,
+            is_concurrency_safe=False,
         ),
         ToolDefinition(
             name="git_status",

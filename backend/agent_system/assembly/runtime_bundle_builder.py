@@ -437,6 +437,10 @@ def _build_runtime_prompt_contract(
             workflow_steps=workflow_steps,
             skill_ids=skill_ids,
         ),
+        "node_professional_prompt_section": _node_professional_prompt_section(
+            task_workflow=task_workflow,
+            registered_task=registered_task,
+        ),
         "semantic_task_section": _semantic_task_section(semantic_contract),
         "professional_profile_section": professional_profile.prompt if professional_profile is not None else "",
         "mode_policy_section": _mode_policy_section(mode_policy),
@@ -449,6 +453,7 @@ def _build_runtime_prompt_contract(
             "resource_policy_ref": str(operation_requirement.get("requirement_id") or ""),
             "registered_task_id": str(registered_task.get("task_id") or ""),
             "selected_recipe_id": str(selected_recipe.get("recipe_id") or ""),
+            "task_workflow_id": str(task_workflow.get("workflow_id") or ""),
             "semantic_task_contract": semantic_contract,
             "mode_policy": mode_policy,
             "professional_profile": professional_profile.to_dict() if professional_profile is not None else {},
@@ -576,6 +581,19 @@ def _workflow_section(
     if output_boundary:
         lines.append(f"Output boundary: {output_boundary}")
     return "\n".join(lines)
+
+
+def _node_professional_prompt_section(
+    *,
+    task_workflow: dict[str, Any],
+    registered_task: dict[str, Any],
+) -> str:
+    prompt = str(task_workflow.get("prompt") or "").strip()
+    if prompt:
+        return prompt
+    metadata = dict((registered_task or {}).get("metadata") or {})
+    fallback = str(metadata.get("role_prompt") or metadata.get("prompt") or "").strip()
+    return fallback
 
 
 def _projection_section(projection_requirement: dict[str, Any]) -> str:

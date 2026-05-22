@@ -65,8 +65,12 @@ def build_node_result_acceptance_draft(
     node_id = str(contract.get("node_id") or stage_id)
     raw_refs = [str(item) for item in list(event.get("artifact_refs") or []) if str(item)]
     requires_file_artifact_refs = _contract_requires_file_artifact_refs(contract)
-    artifact_refs = [item for item in raw_refs if item.startswith("artifact:")] if requires_file_artifact_refs else raw_refs
-    trace_refs = [item for item in raw_refs if not item.startswith("artifact:")] if requires_file_artifact_refs else []
+    if requires_file_artifact_refs:
+        artifact_refs = [item for item in raw_refs if _formal_file_artifact_ref(item)]
+        trace_refs = [item for item in raw_refs if item not in artifact_refs]
+    else:
+        artifact_refs = raw_refs
+        trace_refs = []
     output_mappings = [dict(item) for item in list(contract.get("output_mappings") or []) if isinstance(item, dict)]
     mapped_outputs = _mapped_outputs_from_artifact_refs(output_mappings, artifact_refs)
     output_bundle = _node_result_output_bundle(
@@ -125,6 +129,16 @@ def build_node_result_acceptance_draft(
         commit_identity=commit_identity,
         committed_identities={str(item) for item in committed_identities if str(item)},
     )
+
+
+def _formal_file_artifact_ref(ref: str) -> bool:
+    ref_text = str(ref or "")
+    if not ref_text.startswith("artifact:"):
+        return False
+    normalized = ref_text.replace("\\", "/")
+    if "/debug/" in normalized or "run_report" in normalized:
+        return False
+    return True
 
 
 def stale_result_reason(

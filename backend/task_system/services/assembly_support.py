@@ -120,9 +120,12 @@ def build_runtime_task_intent_contract(
         explicit_inputs=explicit_inputs,
         current_turn_context=current_turn,
     )
+    execution_obligation_payload = execution_obligation.to_dict()
+    if _current_turn_is_task_graph_node_runtime(current_turn):
+        execution_obligation_payload = _task_graph_node_execution_obligation_payload(execution_obligation_payload)
     current_turn_with_obligation = {
         **current_turn,
-        "execution_obligation": execution_obligation.to_dict(),
+        "execution_obligation": execution_obligation_payload,
     }
     followup_target_refs = _dedupe(
         [
@@ -145,14 +148,14 @@ def build_runtime_task_intent_contract(
         query_understanding=understanding,
         current_turn_context=current_turn_with_obligation,
         explicit_inputs=explicit_inputs,
-        execution_obligation=execution_obligation.to_dict(),
+        execution_obligation=execution_obligation_payload,
     )
     mode_policy = build_runtime_interaction_mode_policy(
         semantic_task_contract=semantic_contract.to_dict(),
         query_understanding=understanding,
         current_turn_context=current_turn_with_obligation,
         intent_decision=dict(current_turn.get("intent_decision") or {}),
-        execution_obligation=execution_obligation.to_dict(),
+        execution_obligation=execution_obligation_payload,
     )
     return TaskIntentContract(
         task_intent_id=f"task-intent:{session_id}:{task_id}",
@@ -185,7 +188,7 @@ def build_runtime_task_intent_contract(
         ),
         followup_target_refs=tuple(followup_target_refs),
         capability_requests=tuple(capability_requests),
-        execution_obligation=execution_obligation.to_dict(),
+        execution_obligation=execution_obligation_payload,
         semantic_task_contract=semantic_contract.to_dict(),
         mode_policy=mode_policy.to_dict(),
         diagnostics={
@@ -196,11 +199,11 @@ def build_runtime_task_intent_contract(
             "semantic_task_type": semantic_contract.task_goal_type,
             "professional_profile_id": semantic_contract.professional_profile_id,
             "execution_obligation": {
-                "required_reads": len(execution_obligation.required_reads),
-                "required_writes": len(execution_obligation.required_writes),
-                "required_commands": len(execution_obligation.required_commands),
-                "required_verifications": len(execution_obligation.required_verifications),
-                "forbidden_actions": list(execution_obligation.forbidden_actions),
+                "required_reads": len(list(execution_obligation_payload.get("required_reads") or [])),
+                "required_writes": len(list(execution_obligation_payload.get("required_writes") or [])),
+                "required_commands": len(list(execution_obligation_payload.get("required_commands") or [])),
+                "required_verifications": len(list(execution_obligation_payload.get("required_verifications") or [])),
+                "forbidden_actions": list(execution_obligation_payload.get("forbidden_actions") or []),
             },
             "bundle_item_count": len(bundle_items),
             "route_hint": str(understanding.get("route_hint") or ""),
@@ -224,6 +227,39 @@ def build_runtime_task_intent_contract(
             ),
         },
     )
+
+
+def _current_turn_is_task_graph_node_runtime(current_turn_context: dict[str, Any]) -> bool:
+    current_turn = dict(current_turn_context or {})
+    if current_turn.get("task_graph_node_runtime") is True or current_turn.get("suppress_bundle_projection") is True:
+        return True
+    if str(current_turn.get("runtime_lane") or "").strip() == "coordination_task":
+        return True
+    if str(current_turn.get("coordination_run_id") or "").strip() and str(
+        current_turn.get("selected_task_id")
+        or current_turn.get("task_id")
+        or current_turn.get("specific_task_id")
+        or ""
+    ).startswith("task."):
+        return True
+    return False
+
+
+def _task_graph_node_execution_obligation_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    item = dict(payload or {})
+    evidence = dict(item.get("extraction_evidence") or {})
+    item["required_writes"] = []
+    item["required_commands"] = []
+    item["required_verifications"] = []
+    item["required_deliverables"] = ["node_contract_output"]
+    item["forbidden_actions"] = []
+    item["task_graph_node_policy"] = "orchestration_owned_side_effects"
+    item["extraction_evidence"] = {
+        **evidence,
+        "task_graph_node_runtime": True,
+        "natural_language_write_markers_ignored": True,
+    }
+    return item
 
 
 def _execution_intent_from_context(

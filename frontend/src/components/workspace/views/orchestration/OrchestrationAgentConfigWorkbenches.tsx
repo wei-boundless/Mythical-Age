@@ -11,12 +11,24 @@ import {
   type OrchestrationOption,
 } from "@/components/workspace/views/orchestration/OrchestrationWorkbenchUi";
 import type { OrchestrationCapabilityItem } from "@/lib/api";
+import {
+  BUILTIN_RUNTIME_MODES,
+  deriveAllowedRuntimeLanes,
+  manualRuntimeLanes,
+  normalizeDefaultRuntimeMode,
+  normalizeRuntimeModes,
+  runtimeLanesForModes,
+  runtimeModeCatalogFrom,
+  type RuntimeModeConfig,
+} from "@/lib/runtimeModeConfig";
 
 type RuntimeDraftLike = {
   agent_profile_id?: string;
   approval_policy?: string;
   trace_policy?: string;
   lifecycle_policy?: string;
+  enabled_runtime_modes?: string[];
+  default_runtime_mode?: string;
   allowed_runtime_lanes?: string[];
   allowed_operations?: string[];
   blocked_operations?: string[];
@@ -45,6 +57,7 @@ type RuntimeDraftLike = {
     capability_tags?: string[];
     metadata?: Record<string, unknown>;
   };
+  runtime_mode_catalog?: Array<Record<string, unknown>>;
 };
 
 type AgentDraftLike = {
@@ -113,6 +126,20 @@ function numberOrNull(value: string) {
   if (value.trim() === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+type PendingRuntimeModeChange = {
+  mode: string;
+  checked: boolean;
+} | null;
+
+function runtimeModeLabel(mode: RuntimeModeConfig) {
+  return mode.label || mode.mode;
+}
+
+function runtimeModeSummary(mode: RuntimeModeConfig) {
+  if (mode.mode === "custom") return "手工 lane";
+  return runtimeLanesForModes([mode.mode], BUILTIN_RUNTIME_MODES).join(" / ") || mode.runtime_lane || "-";
 }
 
 export function OrchestrationModelRuntimeWorkbench({
@@ -297,6 +324,48 @@ export function OrchestrationRuntimePermissionWorkbench({
   allowedOpsCount: number;
   blockedOpsCount: number;
 }) {
+  const runtimeModeCatalog = useMemo(
+    () => runtimeModeCatalogFrom(runtimeDraft.runtime_mode_catalog),
+    [runtimeDraft.runtime_mode_catalog],
+  );
+  const enabledModes = normalizeRuntimeModes(runtimeDraft.enabled_runtime_modes, runtimeModeCatalog);
+  const defaultMode = normalizeDefaultRuntimeMode(runtimeDraft.default_runtime_mode, enabledModes);
+  const enabledModeSet = useMemo(() => new Set(enabledModes), [enabledModes]);
+  const manualLanes = manualRuntimeLanes(runtimeDraft.allowed_runtime_lanes, enabledModes);
+  const [pendingModeChange, setPendingModeChange] = useState<PendingRuntimeModeChange>(null);
+
+  function applyModes(nextModes: string[], nextDefaultMode = defaultMode) {
+    const normalizedModes = normalizeRuntimeModes(nextModes, runtimeModeCatalog);
+    const normalizedDefault = normalizeDefaultRuntimeMode(nextDefaultMode, normalizedModes);
+    const nextAllowedRuntimeLanes = deriveAllowedRuntimeLanes(normalizedModes, manualLanes);
+    patchRuntimeDraft({
+      enabled_runtime_modes: normalizedModes,
+      default_runtime_mode: normalizedDefault,
+      allowed_runtime_lanes: nextAllowedRuntimeLanes,
+    });
+  }
+
+  function confirmPendingModeChange() {
+    if (!pendingModeChange) return;
+    const { mode, checked } = pendingModeChange;
+    const nextModes = checked
+      ? dedupe([...enabledModes, mode])
+      : enabledModes.filter((item) => item !== mode);
+    const nonEmptyModes = nextModes.length ? nextModes : ["custom"];
+    const nextDefaultMode = checked
+      ? mode
+      : defaultMode === mode
+        ? nonEmptyModes[0] || "custom"
+        : defaultMode;
+    applyModes(nonEmptyModes, nextDefaultMode);
+    setPendingModeChange(null);
+  }
+
+  function setDefaultMode(mode: string) {
+    if (!enabledModeSet.has(mode)) return;
+    patchRuntimeDraft({ default_runtime_mode: mode });
+  }
+
   return (
     <section className="boundary-layer-grid boundary-layer-grid--wide">
       <div className="boundary-card">
@@ -326,18 +395,69 @@ export function OrchestrationRuntimePermissionWorkbench({
             <input value={runtimeDraft.lifecycle_policy || ""} onChange={(event) => patchRuntimeDraft({ lifecycle_policy: event.target.value })} />
           </OrchestrationField>
         </div>
-        <OrchestrationOptionSelection
-          displayId={displayId}
-          fallbackOptions={runtimeLaneOptions}
-          label="可承接运行场景权限"
-          onChange={(values) => patchRuntimeDraft({ allowed_runtime_lanes: dedupe(values) })}
-          options={runtimeLaneOptionItems}
-          selectedValues={runtimeDraft.allowed_runtime_lanes ?? []}
-        />
+        <div className="orchestration-runtime-mode-panel">
+          <div className="orchestration-runtime-mode-panel__head">
+            <span>运行模式配置</span>
+            <small>{enabledModes.length} 项 / 默认 {runtimeModeCatalog.find((mode) => mode.mode === defaultMode)?.label || defaultMode}</small>
+          </div>
+          <div className="orchestration-runtime-mode-grid">
+            {runtimeModeCatalog.map((mode) => {
+              const active = enabledModeSet.has(mode.mode);
+              return (
+                <div className={active ? "orchestration-runtime-mode-row orchestration-runtime-mode-row--active" : "orchestration-runtime-mode-row"} key={mode.mode}>
+                  <button
+                    aria-pressed={active}
+                    onClick={() => setPendingModeChange({ mode: mode.mode, checked: !active })}
+                    type="button"
+                  >
+                    <span>{runtimeModeLabel(mode)}</span>
+                    <strong>{runtimeModeSummary(mode)}</strong>
+                  </button>
+                  <button
+                    className={defaultMode === mode.mode ? "orchestration-runtime-mode-default orchestration-runtime-mode-default--active" : "orchestration-runtime-mode-default"}
+                    disabled={!active}
+                    onClick={() => setDefaultMode(mode.mode)}
+                    type="button"
+                  >
+                    {defaultMode === mode.mode ? "默认" : "设默认"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {pendingModeChange ? (
+            <div className="orchestration-runtime-mode-confirm">
+              <span>
+                确认{pendingModeChange.checked ? "启用" : "关闭"}
+                {runtimeModeCatalog.find((mode) => mode.mode === pendingModeChange.mode)?.label || pendingModeChange.mode}
+                ？
+              </span>
+              <button onClick={confirmPendingModeChange} type="button">确认</button>
+              <button onClick={() => setPendingModeChange(null)} type="button">取消</button>
+            </div>
+          ) : null}
+        </div>
+        {enabledModeSet.has("custom") ? (
+          <OrchestrationOptionSelection
+            displayId={displayId}
+            fallbackOptions={runtimeLaneOptions}
+            label="自定义运行 lane"
+            onChange={(values) => {
+              const nextManualLanes = dedupe(values);
+              patchRuntimeDraft({
+                allowed_runtime_lanes: deriveAllowedRuntimeLanes(enabledModes, nextManualLanes),
+              });
+            }}
+            options={runtimeLaneOptionItems}
+            selectedValues={manualLanes}
+            emptyText="自定义模式尚未选择手工 lane"
+          />
+        ) : null}
       </div>
       <aside className="boundary-card">
         <header><strong>运行权限摘要</strong></header>
         <div className="boundary-kv">
+          <p><span>运行模式</span><strong>{displayModeSummary(enabledModes, runtimeModeCatalog)}</strong></p>
           <p><span>运行场景权限</span><strong>{runtimeLanesSummary}</strong></p>
           <p><span>允许操作</span><strong>{allowedOpsCount}</strong></p>
           <p><span>阻断操作</span><strong>{blockedOpsCount}</strong></p>
@@ -359,6 +479,11 @@ export function OrchestrationRuntimePermissionWorkbench({
       />
     </section>
   );
+}
+
+function displayModeSummary(enabledModes: string[], catalog: RuntimeModeConfig[]) {
+  const labels = new Map(catalog.map((mode) => [mode.mode, runtimeModeLabel(mode)]));
+  return enabledModes.length ? enabledModes.map((mode) => labels.get(mode) || mode).join(" / ") : "未配置";
 }
 
 export function OrchestrationOperationAuthorizationWorkbench({
@@ -388,17 +513,17 @@ export function OrchestrationOperationAuthorizationWorkbench({
   const blockedOps = dedupe(runtimeDraft.blocked_operations ?? []);
   const allowedSet = useMemo(() => new Set(allowedOps), [allowedOps]);
   const blockedSet = useMemo(() => new Set(blockedOps), [blockedOps]);
-  const capabilityCards = useMemo(() => capabilityItems, [capabilityItems]);
+  const capabilityRows = useMemo(() => capabilityItems, [capabilityItems]);
   const [selectedCapabilityId, setSelectedCapabilityId] = useState("");
-  const selectedCapability = capabilityCards.find((item) => item.capability_id === selectedCapabilityId) ?? capabilityCards[0] ?? null;
+  const selectedCapability = capabilityRows.find((item) => item.capability_id === selectedCapabilityId) ?? capabilityRows[0] ?? null;
 
   useEffect(() => {
-    if (!capabilityCards.length) {
+    if (!capabilityRows.length) {
       setSelectedCapabilityId("");
       return;
     }
-    setSelectedCapabilityId((current) => capabilityCards.some((item) => item.capability_id === current) ? current : capabilityCards[0].capability_id);
-  }, [capabilityCards]);
+    setSelectedCapabilityId((current) => capabilityRows.some((item) => item.capability_id === current) ? current : capabilityRows[0].capability_id);
+  }, [capabilityRows]);
 
   function applyCapability(operationIds: string[], mode: "allow" | "block") {
     const ids = dedupe(operationIds);
@@ -417,80 +542,100 @@ export function OrchestrationOperationAuthorizationWorkbench({
   }
 
   return (
-    <section className="boundary-layer-grid boundary-layer-grid--wide orchestration-capability-permissions">
-      <div className="boundary-card orchestration-capability-pools">
+    <section className="boundary-layer-grid boundary-layer-grid--wide orchestration-permission-workbench">
+      <div className="boundary-card orchestration-permission-matrix-shell">
         <header>
-          <strong>能力目录与授权快捷入口</strong>
+          <strong>能力授权矩阵</strong>
           <OrchestrationBadge tone={overlapOps.length ? "danger" : "ok"}>{overlapOps.length ? "冲突" : "映射清晰"}</OrchestrationBadge>
         </header>
-        <div className="orchestration-identity-note">
-          <span>这里只是把能力映射到 operation 列表。</span>
-          <strong>真正权限仍保存到 AgentRuntimeProfile 的允许/阻断操作。</strong>
+        <div className="orchestration-permission-summary" aria-label="授权概况">
+          <span>允许 <b>{allowedOpsCount}</b></span>
+          <span>阻断 <b>{blockedOpsCount}</b></span>
+          <span>冲突 <b>{overlapSummary}</b></span>
         </div>
         {overlapOps.length ? <div className="boundary-notice boundary-notice--error"><AlertTriangle size={16} />{overlapOps.join(" / ")} 同时出现在允许和阻断列表。</div> : null}
-        {!capabilityCards.length ? <div className="boundary-notice"><Info size={16} />能力目录尚未就绪，当前没有可展示的授权能力项。</div> : null}
-        {(["skill", "tool", "mcp"] as CapabilityPool[]).map((pool) => {
-          const cards = capabilityCards.filter((item) => item.capability_kind === pool || (pool === "tool" && item.capability_kind === "operation"));
-          const allowedCount = cards.filter((item) => capabilityStatus(item.operation_ids, allowedSet, blockedSet) === "allowed").length;
-          return (
-            <section className="orchestration-capability-pool" key={pool}>
-              <div className="orchestration-capability-pool__head">
-                <div>
-                  <strong>{POOL_META[pool].title}</strong>
-                  <span>{POOL_META[pool].summary}</span>
-                </div>
-                <small>{allowedCount}/{cards.length} 允许</small>
+        {!capabilityRows.length ? <div className="boundary-notice"><Info size={16} />能力目录尚未就绪，当前没有可展示的授权能力项。</div> : null}
+        <div className="orchestration-permission-matrix" role="table" aria-label="能力授权矩阵">
+          <div className="orchestration-permission-matrix__head" role="row">
+            <span role="columnheader">类型</span>
+            <span role="columnheader">能力</span>
+            <span role="columnheader">来源</span>
+            <span role="columnheader">操作</span>
+            <span role="columnheader">风险</span>
+            <span role="columnheader">状态</span>
+            <span role="columnheader">动作</span>
+          </div>
+          {!capabilityRows.length ? (
+            <div className="orchestration-permission-row orchestration-permission-row--empty" role="row">
+              <span role="cell">空</span>
+              <span role="cell">能力准入项未加载</span>
+              <span role="cell">等待能力目录</span>
+              <span role="cell">0 项</span>
+              <span role="cell">无</span>
+              <span role="cell">不可配置</span>
+              <span role="cell">-</span>
+            </div>
+          ) : null}
+          {capabilityRows.map((capability) => {
+            const status = capabilityStatus(capability.operation_ids, allowedSet, blockedSet);
+            const active = selectedCapability?.capability_id === capability.capability_id;
+            const pool = capability.capability_kind === "operation" ? "tool" : capability.capability_kind;
+            const poolLabel = pool === "skill" || pool === "tool" || pool === "mcp" ? POOL_META[pool].title : capability.capability_kind;
+            return (
+              <div
+                aria-selected={active}
+                className={[
+                  "orchestration-permission-row",
+                  `orchestration-permission-row--${status}`,
+                  active ? "orchestration-permission-row--active" : "",
+                ].filter(Boolean).join(" ")}
+                key={capability.capability_id}
+                onClick={() => setSelectedCapabilityId(capability.capability_id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedCapabilityId(capability.capability_id);
+                  }
+                }}
+                role="row"
+                tabIndex={0}
+              >
+                <span className="orchestration-permission-row__type" role="cell">{poolLabel}</span>
+                <span className="orchestration-permission-row__name" role="cell"><strong>{capability.title}</strong></span>
+                <span role="cell">{capability.source_label || capability.source_detail}</span>
+                <span role="cell">{capability.operation_ids.length ? `${capability.operation_ids.length} 项` : "未绑定"}</span>
+                <span role="cell">{capability.risk_label || "未声明"}</span>
+                <span className="orchestration-permission-row__status" role="cell"><em>{statusLabel(status)}</em></span>
+                <span className="orchestration-permission-row__actions" role="cell">
+                  <button
+                    aria-label={`允许 ${capability.title}`}
+                    className={status === "allowed" ? "is-active" : ""}
+                    disabled={!capability.operation_ids.length}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      applyCapability(capability.operation_ids, "allow");
+                    }}
+                    type="button"
+                  >
+                    <CheckCircle2 size={13} />允许
+                  </button>
+                  <button
+                    aria-label={`阻断 ${capability.title}`}
+                    className={status === "blocked" ? "is-danger-active" : ""}
+                    disabled={!capability.operation_ids.length}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      applyCapability(capability.operation_ids, "block");
+                    }}
+                    type="button"
+                  >
+                    <XCircle size={13} />阻断
+                  </button>
+                </span>
               </div>
-              <div className="orchestration-capability-card-grid">
-                {cards.length ? cards.map((card) => {
-                  const status = capabilityStatus(card.operation_ids, allowedSet, blockedSet);
-                  const active = selectedCapability?.capability_id === card.capability_id;
-                  return (
-                    <article
-                      className={[
-                        "orchestration-capability-card",
-                        `orchestration-capability-card--${status}`,
-                        active ? "orchestration-capability-card--active" : "",
-                      ].filter(Boolean).join(" ")}
-                      key={card.capability_id}
-                      onClick={() => setSelectedCapabilityId(card.capability_id)}
-                    >
-                      <div className="orchestration-capability-card__top">
-                        <span>{card.source_label}</span>
-                        <em>{statusLabel(status)}</em>
-                      </div>
-                      <strong>{card.title}</strong>
-                      <div className="orchestration-capability-card__actions">
-                        <button
-                          className={status === "allowed" ? "is-active" : ""}
-                          disabled={!card.operation_ids.length}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            applyCapability(card.operation_ids, "allow");
-                          }}
-                          type="button"
-                        >
-                          <CheckCircle2 size={14} />加入允许
-                        </button>
-                        <button
-                          className={status === "blocked" ? "is-danger-active" : ""}
-                          disabled={!card.operation_ids.length}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            applyCapability(card.operation_ids, "block");
-                          }}
-                          type="button"
-                        >
-                          <XCircle size={14} />加入阻断
-                        </button>
-                      </div>
-                    </article>
-                  );
-                }) : <div className="boundary-empty">没有注册到 {POOL_META[pool].title} 能力。</div>}
-              </div>
-            </section>
-          );
-        })}
+            );
+          })}
+        </div>
         <details className="orchestration-permission-raw">
           <summary>运行操作明细</summary>
           <OrchestrationOptionSelection
@@ -511,41 +656,41 @@ export function OrchestrationOperationAuthorizationWorkbench({
           />
         </details>
       </div>
-      <aside className="boundary-card orchestration-capability-inspector">
+      <aside className="boundary-card orchestration-permission-inspector">
         <header><strong>能力注册说明</strong>{selectedCapability ? <OrchestrationBadge tone={selectedCapability.risk_tone === "danger" ? "danger" : selectedCapability.risk_tone === "warn" ? "warn" : selectedCapability.risk_tone === "ok" ? "ok" : "neutral"}>{statusLabel(capabilityStatus(selectedCapability.operation_ids, allowedSet, blockedSet))}</OrchestrationBadge> : null}</header>
         {selectedCapability ? (
           <>
-            <div className="orchestration-capability-inspector__hero">
+            <div className="orchestration-permission-inspector__hero">
               <span>{selectedCapability.source_label}</span>
               <h4>{selectedCapability.title}</h4>
               <p>{selectedCapability.description}</p>
             </div>
             <div className="boundary-kv">
               <p><span>来源</span><strong>{selectedCapability.source_detail}</strong></p>
-              <p><span>运行操作映射</span><strong>{selectedCapability.operation_ids.length ? selectedCapability.operation_ids.map((item) => displayId(item)).join(" / ") : "未绑定运行操作"}</strong></p>
+              <p><span>运行操作映射</span><strong>{selectedCapability.operation_ids.length ? selectedCapability.operation_ids.map((item) => valueLabel(item, displayId)).join(" / ") : "未绑定运行操作"}</strong></p>
               <p><span>风险</span><strong>{selectedCapability.risk_label}</strong></p>
               <p><span>允许</span><strong>{allowedOpsCount}</strong></p>
               <p><span>阻断</span><strong>{blockedOpsCount}</strong></p>
               <p><span>冲突</span><strong>{overlapSummary}</strong></p>
             </div>
-            <section className="orchestration-capability-detail-block">
+            <section className="orchestration-permission-detail-block">
               <strong>风险与限制</strong>
               <div>
                 {selectedCapability.risk_items.length ? selectedCapability.risk_items.map((item, index) => <span key={`${item}-${index}`}>{item}</span>) : <span>注册信息不足</span>}
               </div>
             </section>
-            <section className="orchestration-capability-detail-block">
+            <section className="orchestration-permission-detail-block">
               <strong>能力注册元数据</strong>
               <div>
                 {selectedCapability.metadata.map((item) => <p key={item.label}><span>{item.label}</span><b>{item.value}</b></p>)}
               </div>
             </section>
-            <div className="orchestration-capability-inspector__actions">
+            <div className="orchestration-permission-inspector__actions">
               <button disabled={!selectedCapability.operation_ids.length} onClick={() => applyCapability(selectedCapability.operation_ids, "allow")} type="button"><CheckCircle2 size={14} />加入允许操作</button>
               <button disabled={!selectedCapability.operation_ids.length} onClick={() => applyCapability(selectedCapability.operation_ids, "block")} type="button"><XCircle size={14} />加入阻断操作</button>
             </div>
           </>
-        ) : <div className="boundary-empty">请选择一个能力卡片查看来源、风险和说明。</div>}
+        ) : <div className="boundary-empty">请选择一个能力行查看来源、风险和说明。</div>}
       </aside>
     </section>
   );

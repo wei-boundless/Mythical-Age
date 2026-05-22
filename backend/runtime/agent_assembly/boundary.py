@@ -74,6 +74,7 @@ TASK_SEMANTIC_CONTEXT_KEYS = frozenset(
 
 TASK_SELECTION_KEYS = frozenset(
     {
+        "stage_execution_request",
         "turn_id",
         "selected_task_id",
         "task_id",
@@ -264,6 +265,8 @@ def build_task_selection_payload(
     request_ref = str(control.get("stage_execution_request_ref") or request.get("request_id") or request.get("idempotency_key") or "").strip()
     if request_ref:
         selection["stage_execution_request_ref"] = request_ref
+    if request:
+        selection["stage_execution_request"] = request
     work_kind = str(work_order.get("work_kind") or request.get("work_kind") or "").strip()
     stage_id = ""
     if work_kind and work_kind != "direct":

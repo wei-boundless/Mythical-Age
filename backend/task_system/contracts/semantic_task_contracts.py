@@ -182,6 +182,8 @@ def _resolve_task_goal_type(
     query_understanding: dict[str, Any],
     current_turn_context: dict[str, Any],
 ) -> str:
+    if _is_task_graph_node_runtime_context(current_turn_context):
+        return "task_graph_node_execution"
     explicit = str(
         current_turn_context.get("semantic_task_type")
         or current_turn_context.get("task_goal_type")
@@ -402,6 +404,8 @@ def _path_looks_like_command_argument(*, text: str, start: int, path: str) -> bo
 
 
 def _domain_for_goal_type(task_goal_type: str, query_understanding: dict[str, Any]) -> str:
+    if task_goal_type == "task_graph_node_execution":
+        return "task_graph"
     if task_goal_type in {"test_report_triage", "runtime_trace_analysis"}:
         return "agent_runtime_quality"
     if task_goal_type in {"code_fix_execution", "regression_test_design"}:
@@ -422,6 +426,7 @@ def _professional_profile_id(task_goal_type: str) -> str:
 
 def _deliverables_for_goal_type(task_goal_type: str) -> list[str]:
     return {
+        "task_graph_node_execution": ["node_contract_output", "artifact_refs_or_structured_output", "blocking_issue_if_any"],
         "test_report_triage": ["failure_classification", "structural_root_causes", "regression_test_plan", "evidence_limits"],
         "runtime_trace_analysis": ["event_chain", "turning_points", "structural_root_causes", "recovery_candidates"],
         "code_fix_execution": ["change_summary", "changed_files", "verification_result_or_limitation"],
@@ -436,6 +441,12 @@ def _deliverables_for_goal_type(task_goal_type: str) -> list[str]:
 
 def _reasoning_steps_for_goal_type(task_goal_type: str) -> list[str]:
     return {
+        "task_graph_node_execution": [
+            "read_node_contract_packet",
+            "execute_professional_node_role",
+            "produce_declared_node_output",
+            "report_blocking_issue_if_contract_cannot_be_satisfied",
+        ],
         "test_report_triage": [
             "extract_failures",
             "classify_failures_by_system_layer",
@@ -454,6 +465,8 @@ def _required_actions_for_goal_type(task_goal_type: str, *, materials: tuple[dic
     actions: list[str] = []
     if materials:
         actions.append("read_material")
+    if task_goal_type == "task_graph_node_execution":
+        actions.extend(["execute_node_contract", "produce_contract_output"])
     if task_goal_type in {"test_report_triage", "runtime_trace_analysis", "material_synthesis"}:
         actions.append("build_evidence_packet")
     if task_goal_type in {"test_report_triage", "runtime_trace_analysis", "code_fix_execution", "regression_test_design"}:
@@ -465,6 +478,8 @@ def _required_actions_for_goal_type(task_goal_type: str, *, materials: tuple[dic
 
 def _forbidden_actions_for_goal_type(task_goal_type: str, *, write_required: bool = False, write_forbidden: bool = False) -> list[str]:
     common = ["invent_evidence", "visible_tool_markup", "surface_only_summary"]
+    if task_goal_type == "task_graph_node_execution":
+        return [*common, "override_node_role_with_chat_intent", "treat_orchestration_artifact_write_as_code_patch"]
     if task_goal_type == "test_report_triage":
         actions = [*common, "invent_test_result"]
         if not write_required:
@@ -510,7 +525,7 @@ def _validation_schema_for_goal_type(task_goal_type: str, *, execution_obligatio
         "validator": f"deliverable.{task_goal_type}",
         "reject_protocol_leak": True,
         "require_evidence_alignment": task_goal_type in {"test_report_triage", "runtime_trace_analysis", "material_synthesis"},
-        "require_write_observation": _obligation_has_writes(obligation),
+        "require_write_observation": _obligation_has_writes(obligation) and task_goal_type != "task_graph_node_execution",
         "require_verification_observation": _obligation_has_verification(obligation),
     }
 
@@ -539,6 +554,8 @@ def _contract_deliverables(*, task_goal_type: str, obligation: dict[str, Any]) -
 
 def _required_actions_for_obligation(obligation: dict[str, Any]) -> list[str]:
     item = dict(obligation or {})
+    if str(item.get("task_graph_node_policy") or "").strip() == "orchestration_owned_side_effects":
+        return []
     actions: list[str] = []
     if list(item.get("required_reads") or []):
         actions.append("read_material")
@@ -579,6 +596,22 @@ def _obligation_summary(obligation: dict[str, Any]) -> dict[str, Any]:
         "required_deliverables": list(item.get("required_deliverables") or []),
         "forbidden_actions": list(item.get("forbidden_actions") or []),
     }
+
+
+def _is_task_graph_node_runtime_context(current_turn_context: dict[str, Any]) -> bool:
+    context = dict(current_turn_context or {})
+    if context.get("task_graph_node_runtime") is True or context.get("suppress_bundle_projection") is True:
+        return True
+    if str(context.get("runtime_lane") or "").strip() == "coordination_task":
+        return True
+    if str(context.get("continuation_stage_id") or "").strip() and str(
+        context.get("selected_task_id")
+        or context.get("task_id")
+        or context.get("specific_task_id")
+        or ""
+    ).startswith("task."):
+        return True
+    return False
 
 
 def _dedupe(values: list[str]) -> list[str]:

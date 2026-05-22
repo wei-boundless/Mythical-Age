@@ -1,7 +1,253 @@
 {
   "version": 3,
-  "skill_count": 4,
+  "skill_count": 6,
   "skills": [
+    {
+      "schema_version": 3,
+      "name": "browser-operation",
+      "title": "网页操作",
+      "description": "让主 Agent 使用受控浏览器打开网页、观察页面、点击、输入、等待、截图和抽取内容。",
+      "path": "capability_system/units/skills/browser-operation/SKILL.md",
+      "supported_modalities": [
+        "web",
+        "browser",
+        "visual",
+        "text"
+      ],
+      "supported_task_kinds": [
+        "web_navigation",
+        "web_search",
+        "form_fill",
+        "page_inspection",
+        "browser_testing"
+      ],
+      "supported_source_kinds": [
+        "website",
+        "url"
+      ],
+      "capability_tags": [
+        "browser",
+        "web_automation",
+        "page_interaction",
+        "screenshot",
+        "extraction"
+      ],
+      "preferred_route": "tool",
+      "forbidden_routes": [],
+      "routing_hints": [
+        "打开网页",
+        "操作网页",
+        "搜索网页",
+        "点击",
+        "填表",
+        "登录",
+        "截图",
+        "检查页面",
+        "网页测试"
+      ],
+      "examples": [
+        "打开这个网站搜索问题",
+        "帮我在网页上查一下这个报错",
+        "打开本地前端并测试生图按钮"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "requires_operations": [
+        "op.browser_control"
+      ],
+      "requires_capabilities": [
+        "browser_control"
+      ],
+      "runtime": {
+        "name": "browser-operation",
+        "title": "网页操作",
+        "description": "让主 Agent 使用受控浏览器打开网页、观察页面、点击、输入、等待、截图和抽取内容。",
+        "path": "capability_system/units/skills/browser-operation/SKILL.md",
+        "supported_modalities": [
+          "web",
+          "browser",
+          "visual",
+          "text"
+        ],
+        "supported_task_kinds": [
+          "web_navigation",
+          "web_search",
+          "form_fill",
+          "page_inspection",
+          "browser_testing"
+        ],
+        "supported_source_kinds": [
+          "website",
+          "url"
+        ],
+        "capability_tags": [
+          "browser",
+          "web_automation",
+          "page_interaction",
+          "screenshot",
+          "extraction"
+        ],
+        "preferred_route": "tool",
+        "forbidden_routes": [],
+        "routing_hints": [
+          "打开网页",
+          "操作网页",
+          "搜索网页",
+          "点击",
+          "填表",
+          "登录",
+          "截图",
+          "检查页面",
+          "网页测试"
+        ],
+        "examples": [
+          "打开这个网站搜索问题",
+          "帮我在网页上查一下这个报错",
+          "打开本地前端并测试生图按钮"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.browser_control"
+        ],
+        "requires_capabilities": [
+          "browser_control"
+        ]
+      },
+      "prompt": {
+        "name": "browser-operation",
+        "title": "网页操作",
+        "capability": "让主 Agent 使用受控浏览器打开网页、观察页面、点击、输入、等待、截图和抽取内容。",
+        "use_when": "用户要求打开网页、搜索问题、点击页面、填写表单、检查前端页面、截图验证、从网页抽取内容时使用。\n\n不适合用于纯 HTTP 抓取；如果只需要读取一个静态 URL，优先使用 `fetch_url`。",
+        "delegation_protocol": "",
+        "return_protocol": "向用户汇报时只说已完成什么、看到什么、下一步需要什么。不要暴露内部 selector 细节，除非用户在调试页面。",
+        "output_rule": "向用户汇报时只说已完成什么、看到什么、下一步需要什么。不要暴露内部 selector 细节，除非用户在调试页面。"
+      },
+      "validation_errors": []
+    },
+    {
+      "schema_version": 3,
+      "name": "image-prompt-design",
+      "title": "生图提示词设计",
+      "description": "帮助主 Agent 将用户的生图需求改写成清晰、具体、有审美标准的图像提示词，并调用生图工具生成图片。",
+      "path": "capability_system/units/skills/image-prompt-design/SKILL.md",
+      "supported_modalities": [
+        "image",
+        "visual",
+        "text"
+      ],
+      "supported_task_kinds": [
+        "image_generation",
+        "visual_prompt",
+        "character_design",
+        "scene_design"
+      ],
+      "supported_source_kinds": [
+        "user_prompt"
+      ],
+      "capability_tags": [
+        "image_generation",
+        "visual_prompt",
+        "aesthetics",
+        "composition",
+        "style_direction"
+      ],
+      "preferred_route": "tool",
+      "forbidden_routes": [],
+      "routing_hints": [
+        "生图",
+        "生成图片",
+        "画一张",
+        "角色图",
+        "场景图",
+        "立绘",
+        "海报",
+        "视觉风格"
+      ],
+      "examples": [
+        "为玄女生成一张角色立绘",
+        "画一张东荒青木神域的概念图",
+        "生成一张小说封面风格图"
+      ],
+      "activation_policy": "model_visible",
+      "context_mode": "inline",
+      "route_authority": "candidate_only",
+      "reference_paths": [],
+      "requires_operations": [
+        "op.image_generate"
+      ],
+      "requires_capabilities": [
+        "image_generate"
+      ],
+      "runtime": {
+        "name": "image-prompt-design",
+        "title": "生图提示词设计",
+        "description": "帮助主 Agent 将用户的生图需求改写成清晰、具体、有审美标准的图像提示词，并调用生图工具生成图片。",
+        "path": "capability_system/units/skills/image-prompt-design/SKILL.md",
+        "supported_modalities": [
+          "image",
+          "visual",
+          "text"
+        ],
+        "supported_task_kinds": [
+          "image_generation",
+          "visual_prompt",
+          "character_design",
+          "scene_design"
+        ],
+        "supported_source_kinds": [
+          "user_prompt"
+        ],
+        "capability_tags": [
+          "image_generation",
+          "visual_prompt",
+          "aesthetics",
+          "composition",
+          "style_direction"
+        ],
+        "preferred_route": "tool",
+        "forbidden_routes": [],
+        "routing_hints": [
+          "生图",
+          "生成图片",
+          "画一张",
+          "角色图",
+          "场景图",
+          "立绘",
+          "海报",
+          "视觉风格"
+        ],
+        "examples": [
+          "为玄女生成一张角色立绘",
+          "画一张东荒青木神域的概念图",
+          "生成一张小说封面风格图"
+        ],
+        "activation_policy": "model_visible",
+        "context_mode": "inline",
+        "route_authority": "candidate_only",
+        "reference_paths": [],
+        "requires_operations": [
+          "op.image_generate"
+        ],
+        "requires_capabilities": [
+          "image_generate"
+        ]
+      },
+      "prompt": {
+        "name": "image-prompt-design",
+        "title": "生图提示词设计",
+        "capability": "帮助主 Agent 将用户的生图需求改写成清晰、具体、有审美标准的图像提示词，并调用生图工具生成图片。",
+        "use_when": "用户要求生成图片、角色立绘、场景概念图、封面、视觉参考、风格图时使用。\n\n不用于纯文字写作、代码生成、资料检索；如果用户只是在讨论视觉设定但没有要求出图，可以先给视觉方案，不必调用生图工具。",
+        "delegation_protocol": "",
+        "return_protocol": "调用工具前，先在内部完成 prompt 优化。调用成功后，直接向用户展示图片，并用一句话说明图像主题。\n\n如果工具失败，说明失败原因，并保留用户原始需求以便重试。",
+        "output_rule": "调用工具前，先在内部完成 prompt 优化。调用成功后，直接向用户展示图片，并用一句话说明图像主题。\n\n如果工具失败，说明失败原因，并保留用户原始需求以便重试。"
+      },
+      "validation_errors": []
+    },
     {
       "schema_version": 3,
       "name": "pdf-analysis",

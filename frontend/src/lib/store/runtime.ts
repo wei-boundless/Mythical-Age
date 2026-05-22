@@ -45,6 +45,7 @@ import {
 
 import type { Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
+import { isTopLevelTaskGraphMonitorItem, topLevelTaskGraphMonitorItems } from "../runtimeMonitorLayering";
 import type { ChatMode, ChatModelSelection, MainAgentAssemblyMode, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
@@ -107,6 +108,9 @@ export class WorkspaceRuntime {
       },
       setSelectedChatMode: (mode) => {
         this.setSelectedChatMode(mode);
+      },
+      setDeepSeekThinkingEnabled: (enabled) => {
+        this.setDeepSeekThinkingEnabled(enabled);
       },
       setMainAgentAssemblyMode: (mode) => {
         this.setMainAgentAssemblyMode(mode);
@@ -222,7 +226,8 @@ export class WorkspaceRuntime {
       skills,
       soulOptions: souls.options,
       activeSoulKey: souls.activeSoulKey,
-      selectedChatMode: this.resolveSelectedChatMode(prev.selectedChatModelId, modelProviderConfig)
+      selectedChatMode: this.resolveSelectedChatMode(prev.selectedChatModelId, modelProviderConfig),
+      deepSeekThinkingEnabled: String(modelProviderConfig?.thinking_mode || "").trim().toLowerCase() === "enabled"
     }));
 
     const currentSessionId = this.store.getState().currentSessionId;
@@ -431,7 +436,10 @@ export class WorkspaceRuntime {
     this.streamAbortControllers.set(sessionId, abortController);
     const ephemeralSystemMessages = [...(state.pendingEphemeralSystemMessages ?? [])];
     const searchPolicy = this.enabledSearchPolicy(state);
+    const imageGeneration = this.chatImageGenerationPayload(state);
+    const isImageGenerationTurn = Boolean(imageGeneration);
     let consumedEphemeralSystemMessages = false;
+    let streamEndedWithError = false;
     this.store.setState((prev) => ({
       ...prev,
       orchestrationSnapshot: null,
@@ -471,7 +479,16 @@ export class WorkspaceRuntime {
       orchestrationSnapshot: streamState.orchestrationSnapshot
     });
     this.addActiveStreamSession(sessionId);
-    this.startOrchestrationMonitorPolling(sessionId);
+    if (isImageGenerationTurn) {
+      this.stopOrchestrationMonitorPolling();
+      this.store.setState((prev) => ({
+        ...prev,
+        taskGraphLiveMonitor: null,
+        taskGraphRunMonitor: null,
+      }));
+    } else {
+      this.startOrchestrationMonitorPolling(sessionId);
+    }
     if (this.store.getState().currentSessionId === sessionId) {
       this.applyVisibleStreamState(streamState, this.store.getState().activeStreamSessionIds);
     }
@@ -485,7 +502,13 @@ export class WorkspaceRuntime {
           search_policy: searchPolicy,
           task_selection: buildMainAgentTaskSelection(state.taskSelection, state.mainAgentAssemblyMode),
           model_selection: this.chatModelSelectionPayload(state),
-          image_generation: this.chatImageGenerationPayload(state),
+          image_generation: imageGeneration
+            ? {
+                ...imageGeneration,
+                target_id: `turn-${sessionId}-${Date.now()}`,
+                overwrite: true,
+              }
+            : undefined,
         },
         {
           onEvent: (event, data) => {
@@ -524,6 +547,7 @@ export class WorkspaceRuntime {
       if (this.removedStreamingSessionIds.has(sessionId)) {
         return;
       }
+      streamEndedWithError = true;
       const streamWasStopped = this.stoppedStreamingSessionIds.has(sessionId) || this.isAbortError(error);
       transition = reduceStreamEvent(
         this.store.getState().currentSessionId === sessionId ? this.store.getState() : streamState,
@@ -561,6 +585,9 @@ export class WorkspaceRuntime {
         && !prev.pendingEphemeralSystemMessages.length;
       this.store.setState((prev) => {
         const next = this.removeActiveStreamSession(prev, sessionId);
+        if (streamEndedWithError) {
+          next.sessionActivity = streamState.sessionActivity;
+        }
         if (
           shouldClearEphemeral(prev)
         ) {
@@ -578,7 +605,13 @@ export class WorkspaceRuntime {
       const streamSessionWasStopped = this.stoppedStreamingSessionIds.has(sessionId);
       this.removedStreamingSessionIds.delete(sessionId);
       this.stoppedStreamingSessionIds.delete(sessionId);
-      if (!streamSessionWasRemoved && !streamSessionWasStopped && this.store.getState().currentSessionId === sessionId) {
+      if (
+        !streamSessionWasRemoved
+        && !streamSessionWasStopped
+        && !streamEndedWithError
+        && !isImageGenerationTurn
+        && this.store.getState().currentSessionId === sessionId
+      ) {
         await this.refreshSessionDetails(sessionId);
         await this.hydrateLatestOrchestrationSnapshot(sessionId);
       }
@@ -698,37 +731,79 @@ export class WorkspaceRuntime {
     this.store.setState((prev) => ({ ...prev, selectedChatMode: mode }));
   }
 
+  private setDeepSeekThinkingEnabled(enabled: boolean) {
+    this.store.setState((prev) => ({ ...prev, deepSeekThinkingEnabled: enabled }));
+  }
+
   private chatModelSelectionPayload(state: StoreState): ChatModelSelection | undefined {
-    const selectionId = state.selectedChatModelId || "system-default";
-    if (selectionId === "system-default") {
+    const resolved = this.resolveChatModelSelection(state);
+    if (!resolved) {
       return undefined;
     }
-    const config = state.modelProviderConfig;
-    const catalog = config?.provider_catalog;
-    const [provider, ...modelParts] = selectionId.split("::");
-    const model = modelParts.join("::").trim();
-    if (!provider || !model) {
+    const { selectionId, provider, model, baseUrl, credentialRef } = resolved;
+    const isDeepSeekTextModel = this.isDeepSeekChatModel(provider, model, state.selectedChatMode);
+    if (selectionId === "system-default" && !isDeepSeekTextModel) {
       return undefined;
     }
-    const option = catalog?.providers?.[provider];
-    const isPrimaryConfigured = provider === config?.provider && model === config?.model;
-    const isFallbackConfigured = provider === config?.fallback_provider && model === config?.fallback_model;
-    if (!isPrimaryConfigured && !isFallbackConfigured) {
-      return undefined;
-    }
-    return {
+    const payload: ChatModelSelection = {
       selection_id: selectionId,
       provider,
       model,
-      base_url: isPrimaryConfigured
-        ? config?.base_url
-        : isFallbackConfigured
-          ? config?.fallback_base_url
-          : option?.default_base_url,
-      credential_ref: isFallbackConfigured
-        ? config?.fallback_credential_ref || `provider:${provider}:fallback`
-        : option?.credential_ref || `provider:${provider}:primary`,
+      base_url: baseUrl,
+      credential_ref: credentialRef,
     };
+    if (isDeepSeekTextModel) {
+      payload.thinking_mode = state.deepSeekThinkingEnabled ? "enabled" : "disabled";
+      payload.reasoning_effort = state.deepSeekThinkingEnabled ? "max" : "high";
+    }
+    return payload;
+  }
+
+  private resolveChatModelSelection(state: StoreState) {
+    const config = state.modelProviderConfig;
+    if (!config) {
+      return null;
+    }
+    const selectionId = state.selectedChatModelId || "system-default";
+    const catalog = config.provider_catalog;
+    let provider = "";
+    let model = "";
+    if (selectionId === "system-default") {
+      provider = String(config.provider || "").trim();
+      model = String(config.model || "").trim();
+    } else {
+      const [selectedProvider, ...modelParts] = selectionId.split("::");
+      provider = selectedProvider.trim();
+      model = modelParts.join("::").trim();
+    }
+    if (!provider || !model) {
+      return null;
+    }
+    const option = catalog?.providers?.[provider];
+    const isPrimaryConfigured = provider === config.provider && model === config.model;
+    const isFallbackConfigured = provider === config.fallback_provider && model === config.fallback_model;
+    if (!isPrimaryConfigured && !isFallbackConfigured) {
+      return null;
+    }
+    return {
+      selectionId,
+      provider,
+      model,
+      baseUrl: isPrimaryConfigured
+        ? config.base_url
+        : isFallbackConfigured
+          ? config.fallback_base_url
+          : option?.default_base_url,
+      credentialRef: isFallbackConfigured
+        ? config.fallback_credential_ref || `provider:${provider}:fallback`
+        : option?.credential_ref || config.credential_ref || `provider:${provider}:primary`,
+    };
+  }
+
+  private isDeepSeekChatModel(provider: string, model: string, mode: ChatMode) {
+    return mode !== "image"
+      && provider.trim().toLowerCase() === "deepseek"
+      && !model.trim().toLowerCase().includes("image");
   }
 
   private resolveSelectedChatMode(selectionId: string, config: StoreState["modelProviderConfig"]) {
@@ -1301,7 +1376,9 @@ export class WorkspaceRuntime {
         ?? taskGraphRunIdFromLiveMonitor(liveMonitor.monitor)
         ?? ""
       ).trim();
-      this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, coordinationRunId);
+      if (liveMonitor.monitor.has_coordination || coordinationRunId) {
+        this.updateSessionActivityFromLiveMonitor(liveStatus, taskRunId, coordinationRunId);
+      }
       let taskGraphRunMonitor = this.store.getState().taskGraphRunMonitor;
       if (coordinationRunId) {
         taskGraphRunMonitor = await getCoordinationRunTaskGraphMonitor(coordinationRunId);
@@ -1444,8 +1521,12 @@ export class WorkspaceRuntime {
     } = {},
   ) {
     const currentSelected = this.store.getState().globalRuntimeMonitorSelectedTaskRunId;
-    const currentStillVisible = monitor.task_runs.some((item) => item.task_run_id === currentSelected);
-    const nextSelected = currentStillVisible ? currentSelected : monitor.task_runs[0]?.task_run_id || "";
+    const visibleTaskGraphs = topLevelTaskGraphMonitorItems(monitor);
+    const currentStillVisible = visibleTaskGraphs.some((item) => item.task_run_id === currentSelected);
+    const nextSelected = currentStillVisible ? currentSelected : visibleTaskGraphs[0]?.task_run_id || "";
+    const detailTaskRunId = visibleTaskGraphs.some((item) => item.task_run_id === options.detailTaskRunId)
+      ? options.detailTaskRunId
+      : nextSelected;
     this.store.setState((prev) => ({
       ...prev,
       globalRuntimeMonitor: monitor,
@@ -1455,7 +1536,7 @@ export class WorkspaceRuntime {
       globalRuntimeMonitorError: "",
       globalRuntimeMonitorLastEvent: options.lastEvent ?? prev.globalRuntimeMonitorLastEvent,
     }));
-    this.queueSelectedGlobalRuntimeMonitorDetailRefresh(options.detailTaskRunId || nextSelected);
+    this.queueSelectedGlobalRuntimeMonitorDetailRefresh(detailTaskRunId);
   }
 
   private queueSelectedGlobalRuntimeMonitorDetailRefresh(taskRunId?: string) {
@@ -1526,13 +1607,15 @@ export class WorkspaceRuntime {
 
   private selectGlobalRuntimeMonitorTaskRun(taskRunId: string) {
     const normalized = taskRunId.trim();
+    const visibleTaskGraphs = topLevelTaskGraphMonitorItems(this.store.getState().globalRuntimeMonitor);
+    const selectable = visibleTaskGraphs.some((item) => item.task_run_id === normalized);
     this.store.setState((prev) => ({
       ...prev,
-      globalRuntimeMonitorSelectedTaskRunId: normalized,
+      globalRuntimeMonitorSelectedTaskRunId: selectable ? normalized : "",
       globalRuntimeMonitorSelectedLiveMonitor: null,
       globalRuntimeMonitorSelectedGraphMonitor: null,
     }));
-    if (normalized) {
+    if (normalized && selectable) {
       void this.loadGlobalRuntimeMonitorTaskRunDetail(normalized);
     }
   }
@@ -1540,6 +1623,11 @@ export class WorkspaceRuntime {
   private async loadGlobalRuntimeMonitorTaskRunDetail(taskRunId: string) {
     const normalized = taskRunId.trim();
     if (!normalized) {
+      return;
+    }
+    const selected = topLevelTaskGraphMonitorItems(this.store.getState().globalRuntimeMonitor)
+      .find((item) => item.task_run_id === normalized);
+    if (!selected || !isTopLevelTaskGraphMonitorItem(selected)) {
       return;
     }
     try {

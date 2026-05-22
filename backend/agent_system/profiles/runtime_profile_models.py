@@ -4,12 +4,15 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from ..models.model_profile_models import AgentModelProfile
+from .runtime_mode_config import mode_config_catalog
 
 
 @dataclass(frozen=True, slots=True)
 class AgentRuntimeProfile:
     agent_profile_id: str
     agent_id: str
+    enabled_runtime_modes: tuple[str, ...] = ()
+    default_runtime_mode: str = ""
     allowed_runtime_lanes: tuple[str, ...] = ()
     allowed_operations: tuple[str, ...] = ()
     blocked_operations: tuple[str, ...] = ()
@@ -33,6 +36,7 @@ class AgentRuntimeProfile:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         for key in (
+            "enabled_runtime_modes",
             "allowed_runtime_lanes",
             "allowed_operations",
             "blocked_operations",
@@ -43,4 +47,5 @@ class AgentRuntimeProfile:
             payload[key] = list(payload[key])
         payload["model_profile"] = self.model_profile.to_dict()
         payload["runtime_template_id"] = self.runtime_template_id
+        payload["runtime_mode_catalog"] = mode_config_catalog()
         return payload

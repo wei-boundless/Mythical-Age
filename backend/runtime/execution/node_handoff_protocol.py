@@ -490,10 +490,29 @@ def _handoff_input_items(packets: list[dict[str, Any]] | tuple[dict[str, Any], .
 
 def _task_instruction(*, contract: dict[str, Any], node_id: str) -> str:
     title = str(contract.get("title") or node_id).strip()
-    role = str(contract.get("role") or "").strip()
-    if role:
-        return f"执行节点“{title}”。你的节点职责是：{role}。"
-    return f"执行节点“{title}”。请严格依据输入包完成本节点输出契约。"
+    metadata = dict(contract.get("metadata") or {})
+    role_prompt = str(
+        metadata.get("role_prompt")
+        or contract.get("role_prompt")
+        or metadata.get("role_identity")
+        or contract.get("role_identity")
+        or ""
+    ).strip()
+    if role_prompt:
+        return role_prompt
+    responsibility_scope = str(metadata.get("responsibility_scope") or "").strip()
+    responsibility_exclusions = str(metadata.get("responsibility_exclusions") or "").strip()
+    definition_of_done = str(metadata.get("definition_of_done") or "").strip()
+    if responsibility_scope or responsibility_exclusions or definition_of_done:
+        parts = [f"你是“{title}”节点的专业执行者。"]
+        if responsibility_scope:
+            parts.append(responsibility_scope if responsibility_scope.startswith("你") else f"你只负责{responsibility_scope}")
+        if responsibility_exclusions:
+            parts.append(responsibility_exclusions if responsibility_exclusions.startswith("你") else f"你不负责{responsibility_exclusions}")
+        if definition_of_done:
+            parts.append(definition_of_done if definition_of_done.startswith("你") else f"你必须{definition_of_done}")
+        return "\n".join(parts)
+    return f"你是“{title}”节点的专业执行者。你必须依据输入材料完成本节点交付物，并输出可被下游节点直接使用的结果。"
 
 
 def _executor_instruction(*, contract: dict[str, Any]) -> str:

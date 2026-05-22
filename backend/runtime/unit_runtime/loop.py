@@ -4337,6 +4337,8 @@ class TaskRunLoop:
                 "agent_invocation": invocation_payload,
                 "agent_invocation_id": str(invocation_payload.get("invocation_id") or ""),
             }
+        if stage_request:
+            task_selection["stage_execution_request"] = stage_request
         if assembly_contract:
             task_selection.update(
                 {
@@ -5670,6 +5672,7 @@ def _stage_execution_request_diagnostics(selection: dict[str, Any]) -> dict[str,
             dispatch_context=dict(request.get("dispatch_context") or {}),
         )
     return {
+        "stage_execution_request": request,
         "coordination_run_id": str(request.get("coordination_run_id") or ""),
         "coordination_stage_id": stage_id,
         "stage_id": stage_id,
@@ -5900,6 +5903,20 @@ def _merge_invocation_identity_into_task_selection(
     invocation = dict(invocation_payload or {})
     invocation_selection = dict(invocation.get("task_selection") or {})
     assembly = dict(assembly_contract or {})
+    work_order = dict(invocation.get("work_order") or assembly.get("work_order") or {})
+
+    task_ref = str(
+        invocation.get("task_ref")
+        or assembly.get("task_ref")
+        or work_order.get("task_ref")
+        or invocation_selection.get("selected_task_id")
+        or invocation_selection.get("task_id")
+        or ""
+    ).strip()
+    if task_ref:
+        selection["selected_task_id"] = task_ref
+        selection["task_id"] = task_ref
+        selection["specific_task_id"] = task_ref
 
     for key in ("stage_execution_request_ref", "continuation_stage_id", "coordination_run_id"):
         value = invocation_selection.get(key)
@@ -6201,6 +6218,12 @@ def _chat_model_selection_runtime_defaults(model_selection: dict[str, Any] | Non
     }
     if base_url:
         defaults["base_url"] = base_url
+    thinking_mode = str(selection.get("thinking_mode") or "").strip().lower()
+    if thinking_mode in {"enabled", "disabled"}:
+        defaults["thinking_mode"] = thinking_mode
+    reasoning_effort = str(selection.get("reasoning_effort") or "").strip().lower()
+    if reasoning_effort in {"high", "max"}:
+        defaults["reasoning_effort"] = reasoning_effort
     return defaults
 
 

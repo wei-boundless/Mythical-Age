@@ -4,6 +4,7 @@ import operator
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Annotated, Any, TypedDict
 
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
@@ -387,9 +388,15 @@ class LangGraphCoordinationRuntime:
                 if not is_internal_protocol_input_key(str(key))
             }
             state["pending_inputs"] = {**dict(state.get("pending_inputs") or {}), **business_inherited_inputs}
+            project_id = _project_id_from_state(
+                state,
+                state_index=self.state_index,
+                fallback_task_run_id=coordination_run.task_run_id,
+            )
             state["diagnostics"] = {
                 **dict(state.get("diagnostics") or {}),
                 "inherited_input_keys": sorted(str(key) for key in business_inherited_inputs.keys()),
+                **({"project_id": project_id} if project_id else {}),
                 "filtered_internal_protocol_input_keys": sorted(
                     str(key)
                     for key in dict(inherited_inputs).keys()
@@ -2310,10 +2317,11 @@ class LangGraphCoordinationRuntime:
         artifact_context_packet = dict(context_packets.get("artifact_context_packet") or {})
         revision_packet = dict(context_packets.get("revision_packet") or {})
         resolved_handoff_packets = [dict(item) for item in list(context_packets.get("handoff_packets") or []) if isinstance(item, dict)]
+        agent_visible_explicit_inputs = _agent_visible_checkout_explicit_inputs(explicit_inputs)
         executor_binding = build_node_executor_binding(
             node_id=node_id,
             contract=contract,
-            explicit_inputs=explicit_inputs,
+            explicit_inputs=agent_visible_explicit_inputs,
             agent_profile_id=str(runtime_assembly_payload.get("agent_profile_id") or getattr(agent_profile, "agent_profile_id", "") or ""),
         )
         standard_input_package = build_standard_node_input_package(
@@ -2321,7 +2329,7 @@ class LangGraphCoordinationRuntime:
             stage_id=stage_id,
             node_id=node_id,
             contract=contract,
-            explicit_inputs=explicit_inputs,
+            explicit_inputs=agent_visible_explicit_inputs,
             dispatch_context=dispatch_context,
             memory_snapshot=memory_snapshot,
             artifact_context_packet=artifact_context_packet,
@@ -2350,7 +2358,7 @@ class LangGraphCoordinationRuntime:
                 stage_id=stage_id,
                 node_id=node_id,
                 contract=contract,
-                explicit_inputs=explicit_inputs,
+                explicit_inputs=agent_visible_explicit_inputs,
                 dispatch_context=dispatch_context,
                 standard_input_package=standard_input_package.to_dict(),
             )
@@ -2458,7 +2466,7 @@ class LangGraphCoordinationRuntime:
             source_agent_id=str(dict(dict(state.get("stage_contracts") or {}).get(source_stage_id) or {}).get("agent_id") or ""),
             protocol_id=protocol_id,
             message_type=message_type,
-            explicit_inputs=explicit_inputs,
+            explicit_inputs=agent_visible_explicit_inputs,
             payload_contracts=payload_contracts,
             handoff_packets=handoff_packets,
             dispatch_context=dispatch_context,
@@ -2486,7 +2494,7 @@ class LangGraphCoordinationRuntime:
             executor_binding=graph_module_executor_binding_payload or executor_binding.to_dict(),
             explicit_inputs=_explicit_inputs_with_runtime_boundary_policy(
                 explicit_inputs=_explicit_inputs_with_replay_policy(
-                    explicit_inputs=explicit_inputs,
+                    explicit_inputs=agent_visible_explicit_inputs,
                     contract=contract,
                     node_id=node_id,
                 ),
@@ -2502,7 +2510,7 @@ class LangGraphCoordinationRuntime:
                 contract=contract,
                 explicit_inputs=_explicit_inputs_with_runtime_boundary_policy(
                     explicit_inputs=_explicit_inputs_with_replay_policy(
-                        explicit_inputs=explicit_inputs,
+                        explicit_inputs=agent_visible_explicit_inputs,
                         contract=contract,
                         node_id=node_id,
                     ),
@@ -2618,7 +2626,13 @@ class LangGraphCoordinationRuntime:
             return {}
         graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
         graph_id = str(graph_spec.get("graph_ref") or graph_spec.get("graph_id") or dict(state.get("diagnostics") or {}).get("graph_ref") or "")
-        self.formal_memory.sync_graph_spec(graph_id=graph_id, graph_spec=graph_spec, task_run_id=root_task_run_id)
+        runtime_scope = _formal_memory_runtime_scope(state, state_index=self.state_index)
+        self.formal_memory.sync_graph_spec_for_scope(
+            graph_id=graph_id,
+            graph_spec=graph_spec,
+            task_run_id=root_task_run_id,
+            runtime_scope=runtime_scope,
+        )
         coordination_run_id = str(state.get("coordination_run_id") or "").strip()
         predicted_clock_seq = int(self.timeline_ledger.load(coordination_run_id).current_clock_seq or 0) + 1 if coordination_run_id else 0
         formal_selection: dict[str, Any] = {}
@@ -2632,6 +2646,7 @@ class LangGraphCoordinationRuntime:
                     clock=f"clock:{predicted_clock_seq}" if predicted_clock_seq else "",
                     clock_seq=predicted_clock_seq,
                     limit=int(read_policy.get("max_items") or graph_policy.get("max_items") or 50),
+                    runtime_scope=runtime_scope,
                 )
             except Exception as exc:  # pragma: no cover - defensive runtime diagnostics
                 formal_selection_error = str(exc)
@@ -2730,7 +2745,13 @@ class LangGraphCoordinationRuntime:
         )
         graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
         graph_id = str(graph_spec.get("graph_ref") or graph_spec.get("graph_id") or dict(state.get("diagnostics") or {}).get("graph_ref") or "")
-        self.formal_memory.sync_graph_spec(graph_id=graph_id, graph_spec=graph_spec, task_run_id=root_task_run_id)
+        runtime_scope = _formal_memory_runtime_scope(state, state_index=self.state_index)
+        self.formal_memory.sync_graph_spec_for_scope(
+            graph_id=graph_id,
+            graph_spec=graph_spec,
+            task_run_id=root_task_run_id,
+            runtime_scope=runtime_scope,
+        )
         memory_write_edge_by_id = {
             str(edge.get("edge_id") or ""): dict(edge)
             for edge in memory_write_edges
@@ -2830,6 +2851,7 @@ class LangGraphCoordinationRuntime:
                         source_clock=source_clock,
                         source_clock_seq=source_clock_seq,
                         artifact_refs=list(item.artifact_refs),
+                        runtime_scope=runtime_scope,
                     )
                     formal_update = {
                         **formal,
@@ -3019,7 +3041,12 @@ class LangGraphCoordinationRuntime:
         node_id = str(contract.get("node_id") or stage_id)
         graph_spec = dict(dict(state.get("diagnostics") or {}).get("coordination_graph_spec") or {})
         graph_id = str(graph_spec.get("graph_ref") or graph_spec.get("graph_id") or dict(state.get("diagnostics") or {}).get("graph_ref") or "")
-        self.formal_memory.sync_graph_spec(graph_id=graph_id, graph_spec=graph_spec, task_run_id=root_task_run_id)
+        self.formal_memory.sync_graph_spec_for_scope(
+            graph_id=graph_id,
+            graph_spec=graph_spec,
+            task_run_id=root_task_run_id,
+            runtime_scope=_formal_memory_runtime_scope(state, state_index=self.state_index),
+        )
         commit_edges = _graph_memory_edge_descriptors(
             state=state,
             stage_id=stage_id,
@@ -3663,6 +3690,50 @@ def _merge_runtime_nodes(*, compiled_nodes: list[dict[str, Any]], configured_nod
 def _runtime_loop_policy_from_state(state: dict[str, Any]) -> dict[str, Any]:
     diagnostics = dict(state.get("diagnostics") or {})
     return dict(diagnostics.get("runtime_loop_policy") or {})
+
+
+def _formal_memory_runtime_scope(
+    state: dict[str, Any],
+    *,
+    state_index: Any | None = None,
+) -> dict[str, Any]:
+    project_id = _project_id_from_state(
+        state,
+        state_index=state_index,
+        fallback_task_run_id=str(state.get("root_task_run_id") or ""),
+    )
+    return {"project_id": project_id} if project_id else {}
+
+
+def _project_id_from_state(
+    state: dict[str, Any],
+    *,
+    state_index: Any | None = None,
+    fallback_task_run_id: str = "",
+) -> str:
+    pending_inputs = dict(state.get("pending_inputs") or {})
+    diagnostics = dict(state.get("diagnostics") or {})
+    for value in (
+        pending_inputs.get("project_id"),
+        diagnostics.get("project_id"),
+        dict(diagnostics.get("runtime_loop") or {}).get("project_id"),
+        dict(diagnostics.get("runtime_loop_policy") or {}).get("project_id"),
+        dict(dict(diagnostics.get("runtime_loop_policy") or {}).get("initial_inputs") or {}).get("project_id"),
+    ):
+        project_id = str(value or "").strip()
+        if project_id:
+            return project_id
+    task_run_id = str(fallback_task_run_id or state.get("root_task_run_id") or "").strip()
+    if state_index is not None and task_run_id:
+        try:
+            task_run = state_index.get_task_run(task_run_id)
+        except Exception:
+            task_run = None
+        if task_run is not None:
+            project_id = str(dict(getattr(task_run, "diagnostics", {}) or {}).get("project_id") or "").strip()
+            if project_id:
+                return project_id
+    return ""
 
 
 def _normalize_pending_inputs_with_runtime_loop_policy(
@@ -4599,6 +4670,20 @@ def _explicit_inputs_with_runtime_boundary_policy(
     }
 
 
+def _agent_visible_checkout_explicit_inputs(explicit_inputs: dict[str, Any]) -> dict[str, Any]:
+    """Strip runtime checkout controls before constructing model-facing input packets."""
+
+    visible: dict[str, Any] = {}
+    for key, value in dict(explicit_inputs or {}).items():
+        key_text = str(key or "").strip()
+        if _rewind_input_key_is_runtime_residue(key_text):
+            continue
+        if key_text in {"rewind_invalidated_artifacts"}:
+            continue
+        visible[key_text] = value
+    return visible
+
+
 def _explicit_inputs_with_replay_policy(
     *,
     explicit_inputs: dict[str, Any],
@@ -5150,14 +5235,7 @@ def _rewind_preserved_pending_inputs(
     preserved: dict[str, Any] = {}
     for key, value in dict(pending_inputs or {}).items():
         key_text = str(key)
-        if key_text in {
-            "upstream_output_refs",
-            "revision_required",
-            "required_changes",
-            "review_verdict",
-            "previous_candidate_artifact_refs",
-            "rewind_invalidated_artifacts",
-        }:
+        if _rewind_input_key_is_runtime_residue(key_text):
             continue
         if _input_key_scoped_to_invalidated_stage(key_text, invalidated):
             continue
@@ -5166,6 +5244,29 @@ def _rewind_preserved_pending_inputs(
             continue
         preserved[key_text] = filtered
     return preserved
+
+
+def _rewind_input_key_is_runtime_residue(key: str) -> bool:
+    key_text = str(key or "").strip()
+    if not key_text:
+        return True
+    if re.fullmatch(r"contract\.[A-Za-z0-9_.:-]+:artifact_refs", key_text):
+        return True
+    if key_text in {
+        "upstream_output_refs",
+        "revision_required",
+        "required_changes",
+        "review_verdict",
+        "previous_candidate_artifact_refs",
+        "previous_revision_context_refs",
+        "rewind_invalidated_artifacts",
+        "rewind_from_stage",
+        "rewind_reason",
+        "force_replay",
+        "force_replay_after",
+    }:
+        return True
+    return key_text.startswith(("previous_review_", "revision_"))
 
 
 def _input_key_scoped_to_invalidated_stage(key: str, invalidated_stage_ids: set[str]) -> bool:

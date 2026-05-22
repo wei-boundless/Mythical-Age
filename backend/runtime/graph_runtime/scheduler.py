@@ -691,13 +691,40 @@ def _effective_result_record(
         record = dict(result_record_index.get(record_id) or {})
         if record:
             return record
-    if not scope_candidates:
-        for scope_records in accepted_result_records_by_scope.values():
-            record_id = str(dict(scope_records or {}).get(source) or "")
-            record = dict(result_record_index.get(record_id) or {})
-            if record:
-                return record
+    if scope_candidates and _timeline_dependency_requires_current_scope(edge):
+        return {}
+    fallback_records: list[dict[str, Any]] = []
+    for scope_records in accepted_result_records_by_scope.values():
+        record_id = str(dict(scope_records or {}).get(source) or "")
+        record = dict(result_record_index.get(record_id) or {})
+        if record:
+            fallback_records.append(record)
+    if fallback_records:
+        return sorted(
+            fallback_records,
+            key=lambda item: int(item.get("effective_from_clock_seq") or item.get("clock_seq") or 0),
+            reverse=True,
+        )[0]
+    for record in result_record_index.values():
+        item = dict(record or {})
+        if item.get("accepted") is not True:
+            continue
+        if str(item.get("stage_id") or item.get("node_id") or "") != source:
+            continue
+        fallback_records.append(item)
+    if fallback_records:
+        return sorted(
+            fallback_records,
+            key=lambda item: int(item.get("effective_from_clock_seq") or item.get("clock_seq") or 0),
+            reverse=True,
+        )[0]
     return {}
+
+
+def _timeline_dependency_requires_current_scope(edge: TaskGraphRuntimeEdge | dict[str, Any] | None) -> bool:
+    policy = _timeline_dependency_policy(edge)
+    scope_mode = str(policy.get("scope") or policy.get("scope_mode") or "").strip()
+    return policy.get("require_current_scope") is True or scope_mode in {"current", "current_scope", "same_scope"}
 
 
 def _edge_handoff_satisfied(

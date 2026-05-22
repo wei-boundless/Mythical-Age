@@ -145,18 +145,18 @@ export function OrchestrationGroupWorkbench({
           <textarea value={groupDraft.description} onChange={(event) => setGroupDraft((value) => ({ ...value, description: event.target.value }))} />
         </Field>
       </div>
-      <div className="orchestration-group-summary">
-        <article className="orchestration-group-summary-card">
+      <div className="orchestration-group-summary" aria-label="组摘要">
+        <article className="orchestration-group-summary-row">
           <span>组内成员</span>
           <strong>{memberCount}</strong>
           <small>{memberCount ? "已进入当前组" : "还没有成员"}</small>
         </article>
-        <article className="orchestration-group-summary-card">
+        <article className="orchestration-group-summary-row">
           <span>可加入成员</span>
           <strong>{availableCount}</strong>
-          <small>{availableCount ? "可在下方卡片栏直接加入" : "没有可加入成员"}</small>
+          <small>{availableCount ? "可在下方行列表直接加入" : "没有可加入成员"}</small>
         </article>
-        <article className="orchestration-group-summary-card">
+        <article className="orchestration-group-summary-row">
           <span>协调者</span>
           <strong>{groupDraft.coordinator_agent_id ? displayName(agents.find((agent) => String(agent.agent_id ?? "") === groupDraft.coordinator_agent_id)) : "未指定"}</strong>
           <small>{displayId(groupDraft.group_kind || "coordination_team")}</small>
@@ -168,16 +168,15 @@ export function OrchestrationGroupWorkbench({
             <strong>已进组</strong>
             <span>{memberCount}</span>
           </header>
-          <p className="orchestration-member-hint">成员卡片右侧可直接移出，移出前会弹出确认。</p>
-          <div className="orchestration-member-picker">
+          <div className="orchestration-member-list">
             {groupDraftMemberAgents.map((agent) => (
-              <article className="orchestration-member-card orchestration-member-card--selected" key={String(agent.agent_id)}>
-                <div className="orchestration-member-card__body">
+              <article className="orchestration-member-row orchestration-member-row--selected" key={String(agent.agent_id)}>
+                <div className="orchestration-member-row__body">
                   <strong>{displayName(agent)}</strong>
                   <span>{displayId(agent.agent_id)}</span>
                 </div>
                 <button
-                  className="orchestration-member-card__action orchestration-member-card__action--danger"
+                  className="orchestration-member-row__action orchestration-member-row__action--danger"
                   onClick={() => confirmRemoveMember(String(agent.agent_id), displayName(agent))}
                   type="button"
                 >
@@ -194,16 +193,15 @@ export function OrchestrationGroupWorkbench({
             <strong>未进组</strong>
             <span>{availableCount}</span>
           </header>
-          <p className="orchestration-member-hint">这里是未分组子 Agent 池，下方卡片可直接加入当前组。</p>
-          <div className="orchestration-member-picker">
+          <div className="orchestration-member-list">
             {groupDraftAvailableAgents.map((agent) => (
-              <article className="orchestration-member-card" key={String(agent.agent_id)}>
-                <div className="orchestration-member-card__body">
+              <article className="orchestration-member-row" key={String(agent.agent_id)}>
+                <div className="orchestration-member-row__body">
                   <strong>{displayName(agent)}</strong>
                   <span>{displayId(agent.agent_id)}</span>
                 </div>
                 <button
-                  className="orchestration-member-card__action"
+                  className="orchestration-member-row__action"
                   onClick={() => toggleGroupMember(String(agent.agent_id))}
                   type="button"
                 >

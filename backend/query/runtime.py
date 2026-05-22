@@ -171,7 +171,7 @@ class QueryRuntime:
 
                     asset_kind = str(image_generation.get("asset_kind") or "chat").strip() or "chat"
                     size = str(image_generation.get("size") or "1024x1024").strip() or "1024x1024"
-                    target_id = str(image_generation.get("selection_id") or turn_id).strip() or turn_id
+                    target_id = str(image_generation.get("target_id") or turn_id).strip() or turn_id
                     try:
                         generated = await SoulImageAssetService(self.base_dir).generate(
                             prompt=request.message,
@@ -319,6 +319,7 @@ class QueryRuntime:
                 {
                     "role": payload.get("role"),
                     "content": payload.get("content"),
+                    "image": payload.get("image"),
                     "answer_channel": payload.get("answer_channel"),
                     "answer_source": payload.get("answer_source"),
                     "answer_canonical_state": payload.get("answer_canonical_state"),
@@ -367,6 +368,7 @@ class QueryRuntime:
                 {
                     "role": payload.get("role"),
                     "content": payload.get("content"),
+                    "image": payload.get("image"),
                     "answer_channel": payload.get("answer_channel"),
                     "answer_source": payload.get("answer_source"),
                     "answer_canonical_state": payload.get("answer_canonical_state"),

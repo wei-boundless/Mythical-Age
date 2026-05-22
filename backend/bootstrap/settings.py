@@ -9,6 +9,7 @@ from context_system.budget.presets import (
     get_context_budget_preset,
     list_context_budget_presets,
 )
+from soul.image_asset_service import SoulImageAssetService
 
 
 def _provider_hint_from_model_base_url(model: str | None, base_url: str | None) -> str:
@@ -178,6 +179,8 @@ class AppSettingsService:
             "base_url": settings.llm_base_url,
             "credential_ref": f"provider:{settings.llm_provider}:primary",
             "api_key_configured": bool(settings.llm_api_key),
+            "thinking_mode": settings.llm_thinking_mode,
+            "reasoning_effort": settings.llm_reasoning_effort,
             "fallback_provider": settings.llm_fallback_provider or "",
             "fallback_model": settings.llm_fallback_model or "",
             "fallback_base_url": settings.llm_fallback_base_url or "",
@@ -295,6 +298,9 @@ class AppSettingsService:
         model_payload = self.model_provider_payload()
         budget_payload = self.context_budget_payload()
         model_overrides = dict(runtime_config.load().get("model_provider") or {})
+        image_service = SoulImageAssetService(self.base_dir)
+        image_payload = image_service.config_summary()
+        image_overrides = dict(runtime_config.load().get("soul_image_assets") or {})
 
         model_group = {
             "group_id": "model",
@@ -393,6 +399,44 @@ class AppSettingsService:
             "fields": [],
             "metadata": budget_payload,
         }
+        image_group = {
+            "group_id": "soul_image_assets",
+            "title": "生图模型",
+            "description": "控制写作图、角色图和世界观图使用的 OpenAI-compatible 生图服务。",
+            "status": "已配置" if image_payload["configured"] else "配置不完整",
+            "fields": [
+                {
+                    "key": "base_url",
+                    "label": "Base URL",
+                    "type": "text",
+                    "value": image_payload["base_url"],
+                    "source": "runtime_override" if "base_url" in image_overrides else "env_or_default",
+                    "description": "生图 API 接入地址，系统会调用其 /images/generations。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "model",
+                    "label": "模型",
+                    "type": "text",
+                    "value": image_payload["model"],
+                    "source": "runtime_override" if "model" in image_overrides else "env_or_default",
+                    "description": "生图模型名称，例如 gpt-image-2。",
+                    "restart_required": False,
+                },
+                {
+                    "key": "api_key",
+                    "label": "API Key",
+                    "type": "secret",
+                    "configured": bool(image_payload["api_key_present"]),
+                    "source": "runtime_override" if "api_key" in image_overrides else "env_or_default",
+                    "description": "留空保存会保留已有密钥。",
+                    "restart_required": False,
+                },
+            ],
+            "metadata": {
+                "public_dir": image_payload["public_dir"],
+            },
+        }
         rerank_mode = "disabled"
         if settings.rerank_enabled:
             provider = (settings.rerank_provider or "heuristic").strip().lower()
@@ -482,6 +526,7 @@ class AppSettingsService:
                         self._field(section="runtime", key="component_char_limit", label="Component Char Limit", field_type="number", value=settings.component_char_limit, description="组件内容字符限制。"),
                     ],
                 },
+                image_group,
                 context_group,
             ],
         }
@@ -499,6 +544,13 @@ class AppSettingsService:
                 fallback_model=str(values.get("fallback_model") or ""),
                 fallback_base_url=str(values.get("fallback_base_url") or ""),
                 fallback_api_key=str(values.get("fallback_api_key") or "").strip() or None,
+            )
+            return self.runtime_config_console_payload()
+        if group_id == "soul_image_assets":
+            SoulImageAssetService(self.base_dir).set_config(
+                base_url=str(values.get("base_url") or ""),
+                model=str(values.get("model") or "gpt-image-2"),
+                api_key=str(values.get("api_key") or "").strip() or None,
             )
             return self.runtime_config_console_payload()
         allowed_groups = {"embedding", "retrieval", "document", "runtime"}

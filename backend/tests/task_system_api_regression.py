@@ -527,6 +527,111 @@ def test_finalizer_suppresses_completed_result_after_task_run_stop(tmp_path: Pat
     assert not (workspace_root / "output" / "test_artifacts" / "stopped_result.md").exists()
 
 
+def test_finalizer_materialized_stage_artifacts_are_coordination_output_refs(tmp_path: Path) -> None:
+    backend_dir = tmp_path / "backend"
+    runtime_dir = tmp_path / "storage" / "runtime_state"
+    workspace_root = tmp_path
+    registry = TaskFlowRegistry(backend_dir)
+    registry.upsert_specific_task_record(
+        task_id="task.test.stage_writer",
+        task_title="Stage Writer",
+        task_family="test",
+        runtime_lane="coordination_task",
+    )
+    state_index = RuntimeStateIndex(runtime_dir)
+    event_log = TaskRunLoop(runtime_dir, backend_dir=backend_dir).event_log
+    checkpoints = RuntimeCheckpointStore(runtime_dir)
+    artifact_policy = {
+        "enabled": True,
+        "required": True,
+        "default_artifact_root": "output/test_artifacts",
+        "artifacts": [
+            {
+                "path": "stage_result.md",
+                "required": True,
+                "content_source": "final_content",
+                "fallback_to_full_content": True,
+            }
+        ],
+    }
+    stage_request = NodeExecutionRequest(
+        request_id="nodeexec:test:stage",
+        coordination_run_id="coordrun:test:stage",
+        thread_id="coordrun:test:stage",
+        root_task_run_id="taskrun:test:stage",
+        stage_id="stage_writer",
+        node_id="stage_writer",
+        task_ref="task.test.stage_writer",
+        explicit_inputs={},
+        artifact_policy=artifact_policy,
+        output_contract_id="contract.test.stage",
+    ).to_dict()
+    task_run = TaskRun(
+        task_run_id="taskrun:test:stage",
+        session_id="session:test",
+        task_id="task.test.stage_writer",
+        task_contract_ref="task.test.stage_writer",
+        runtime_lane="coordination_task",
+        status="running",
+        diagnostics={"stage_execution_request": stage_request},
+    )
+    agent_run = AgentRun(
+        agent_run_id="agrun:test:stage",
+        task_run_id=task_run.task_run_id,
+        agent_id="agent:test",
+        agent_profile_id="profile:test",
+        status="running",
+    )
+    state_index.upsert_task_run(task_run)
+    state_index.upsert_agent_run(agent_run)
+    checkpoint_event = event_log.append(
+        task_run.task_run_id,
+        "checkpoint_written",
+        payload={"checkpoint_id": "rtchk:test:stage"},
+        refs={"checkpoint_ref": "rtchk:test:stage"},
+    )
+    finalizer = TaskRunFinalizer(
+        root_dir=runtime_dir,
+        state_index=state_index,
+        event_log=event_log,
+        checkpoints=checkpoints,
+        execution_store=RuntimeExecutionStore(runtime_dir),
+        runtime_objects=RuntimeObjectStore(runtime_dir),
+        task_flow_registry=registry,
+        langgraph_coordination_runtime=SimpleNamespace(supports=lambda coordination_run: False),
+        artifact_repository=ArtifactRepositoryService(runtime_dir / "artifact_repository", workspace_root=workspace_root),
+    )
+
+    finalizer.upsert_finished_task_run(
+        start_task_run=task_run,
+        start_agent_run=agent_run,
+        start_coordination_run=None,
+        task_contract_ref="task.test.stage_writer",
+        terminal_state=RuntimeLoopState(
+            task_run_id=task_run.task_run_id,
+            status="completed",
+            terminal_reason="completed",
+        ),
+        checkpoint_event=checkpoint_event,
+        final_content="# Stage Result\n\nReal body.",
+        task_result={
+            "result_id": f"taskresult:{task_run.task_run_id}",
+            "task_run_id": task_run.task_run_id,
+            "status": "completed",
+            "final_outputs": {"final_answer": "# Stage Result\n\nReal body."},
+        },
+        current_turn_context={"stage_execution_request": stage_request, "explicit_inputs": {}},
+    )
+
+    stored = state_index.get_task_run(task_run.task_run_id)
+    assert stored is not None
+    materialization = stored.diagnostics["artifact_materialization"]
+    assert (workspace_root / "output" / "test_artifacts" / "stage_result.md").exists()
+    assert any(ref.endswith("stage_result.md") for ref in materialization["artifact_refs"])
+    result = state_index.list_task_agent_run_results(task_run.task_run_id)[0]
+    assert any(ref.endswith("stage_result.md") for ref in result.artifact_refs)
+
+
 def test_graph_module_stage_scheduler_starts_and_reuses_imported_task_graph_run(tmp_path: Path) -> None:
     backend_dir = tmp_path / "backend"
     runtime_dir = tmp_path / "runtime_state"

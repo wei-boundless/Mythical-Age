@@ -386,6 +386,102 @@ def test_scheduler_join_waits_for_explicit_upstream_edges_not_sequence_coordinat
     assert released.ready_node_ids == ("merge",)
 
 
+def test_scheduler_timeline_dependency_can_use_latest_accepted_prior_scope_result() -> None:
+    spec = TaskGraphRuntimeSpec(
+        graph_id="graph.test.cross_scope",
+        domain_id="domain.test",
+        task_family="test",
+        coordinator_agent_id="agent:0",
+        nodes=(
+            TaskGraphRuntimeNode(node_id="world_commit", title="World", node_type="agent", role="memory"),
+            TaskGraphRuntimeNode(node_id="character_review", title="Review", node_type="review_gate", role="reviewer"),
+            TaskGraphRuntimeNode(node_id="plot", title="Plot", node_type="agent", role="designer"),
+        ),
+        edges=(
+            TaskGraphRuntimeEdge(
+                edge_id="world_plot",
+                source_node_id="world_commit",
+                target_node_id="plot",
+                mode="handoff",
+                artifact_ref_policy={"required": True},
+            ),
+        ),
+        start_node_ids=("world_commit",),
+    )
+
+    state = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={
+            "world_commit": "completed",
+            "character_review": "completed",
+            "plot": "pending",
+        },
+        result_record_index={
+            "tlresult:world:r2": {
+                "stage_id": "world_commit",
+                "node_id": "world_commit",
+                "accepted": True,
+                "effective_from_clock_seq": 20,
+                "produced_artifact_refs": ["artifact:memory/world/world_commit_round_002.md"],
+            }
+        },
+        accepted_result_records_by_scope={
+            "run/volume[001]/round[002]": {"world_commit": "tlresult:world:r2"}
+        },
+        active_scope_key="run/volume[001]/round[003]",
+    )
+
+    plot = next(item for item in state.node_states if item.node_id == "plot")
+    assert plot.status == "ready"
+    assert "plot" in state.ready_node_ids
+    assert not any("timeline_result_missing:world_commit" == reason for reason in plot.blocked_reasons)
+
+
+def test_scheduler_current_scope_timeline_dependency_does_not_fallback_to_prior_scope() -> None:
+    spec = TaskGraphRuntimeSpec(
+        graph_id="graph.test.current_scope",
+        domain_id="domain.test",
+        task_family="test",
+        coordinator_agent_id="agent:0",
+        nodes=(
+            TaskGraphRuntimeNode(node_id="candidate", title="Candidate", node_type="agent", role="creator"),
+            TaskGraphRuntimeNode(node_id="review", title="Review", node_type="review_gate", role="reviewer"),
+        ),
+        edges=(
+            TaskGraphRuntimeEdge(
+                edge_id="candidate_review",
+                source_node_id="candidate",
+                target_node_id="review",
+                mode="handoff",
+                metadata={"timeline_dependency": {"require_current_scope": True}},
+                artifact_ref_policy={"required": True},
+            ),
+        ),
+    )
+
+    state = bootstrap_scheduler_state(
+        runtime_spec=spec,
+        node_statuses={"candidate": "completed", "review": "pending"},
+        result_record_index={
+            "tlresult:candidate:r2": {
+                "stage_id": "candidate",
+                "node_id": "candidate",
+                "accepted": True,
+                "effective_from_clock_seq": 20,
+                "produced_artifact_refs": ["artifact:design/candidate_round_002.md"],
+            }
+        },
+        accepted_result_records_by_scope={
+            "run/round[002]": {"candidate": "tlresult:candidate:r2"}
+        },
+        active_scope_key="run/round[003]",
+    )
+
+    review = next(item for item in state.node_states if item.node_id == "review")
+    assert review.status == "blocked"
+    assert "timeline_result_missing:candidate" in review.blocked_reasons
+
+
 def test_scheduler_allows_partial_join_after_upstreams_reach_terminal_state() -> None:
     spec = TaskGraphRuntimeSpec(
         graph_id="graph.test.partial_join",

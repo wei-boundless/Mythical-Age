@@ -28,9 +28,10 @@ async def _fake_error_astream(_request):
 
 
 async def _fake_image_generate(self, **kwargs):
+    target_id = str(kwargs.get("target_id") or "chat-turn").replace(":", "-")
     return {
-        "asset_path": "/souls/generated/chat-turn.png",
-        "file_path": "D:/tmp/chat-turn.png",
+        "asset_path": f"/souls/generated/chat-{target_id}.png",
+        "file_path": f"D:/tmp/chat-{target_id}.png",
         "reused": False,
         "bytes": 1234,
         "revised_prompt": "revised prompt",
@@ -111,8 +112,18 @@ def test_chat_routes_gpt_image_2_to_image_generation() -> None:
 
             assert response.status_code == 200
             assert response.json()["content"] == "已生成图像。"
+            image = response.json()["image"]
+            assert image["src"].startswith(f"/souls/generated/chat-turn-{session_id}-")
+            assert image["src"].endswith(".png")
             assert response.json()["image"] == {
-                "src": "/souls/generated/chat-turn.png",
+                "src": image["src"],
+                "alt": "a blue glass mountain at sunset",
+                "caption": "revised prompt",
+            }
+            history = client.get(f"/api/sessions/{session_id}/history")
+            assert history.status_code == 200
+            assert history.json()["messages"][-1]["image"] == {
+                "src": image["src"],
                 "alt": "a blue glass mountain at sunset",
                 "caption": "revised prompt",
             }

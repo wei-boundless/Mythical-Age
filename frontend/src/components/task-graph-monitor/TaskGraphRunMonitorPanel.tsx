@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, Clock3, Database, FileText, Network } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, FileText, Network } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { CoordinationTopologyGraph } from "@/components/coordination/CoordinationTopologyGraph";
@@ -83,11 +83,6 @@ export function TaskGraphRunMonitorPanel({
     ?? model.nodes[0]
     ?? null;
   const selectedEdge = model.edges.find((edge) => edge.id === selectedEdgeId) ?? null;
-  const scopedMemoryOperations = selectedEdge
-    ? model.memoryOperations.filter((operation) => operation.edgeId === selectedEdge.id)
-    : selectedNode
-      ? model.memoryOperations.filter((operation) => operation.nodeId === selectedNode.id)
-      : model.memoryOperations;
   const selectedNodeArtifacts = useMemo(() => {
     if (!selectedNode) {
       return [];
@@ -121,6 +116,9 @@ export function TaskGraphRunMonitorPanel({
     items: [],
   });
   const progress = model.nodeCount ? Math.round((model.completedCount / model.nodeCount) * 100) : 0;
+  const selectedNodeArtifactsCount = selectedNode
+    ? model.artifacts.filter((artifact) => text(artifact.producer_node_id) === selectedNode.id).length
+    : 0;
 
   useEffect(() => {
     let cancelled = false;
@@ -236,43 +234,33 @@ export function TaskGraphRunMonitorPanel({
             <em>{selectedNode ? taskGraphMonitorStatusLabel(selectedNode.status) : "待启动"}</em>
           </article>
           <article className="coordination-session__statuspill">
-            <span>时序 Clock</span>
-            <strong>{model.timelineClockSeq || model.eventCount}</strong>
-            <em>{model.timelineEventCount ? `${model.timelineEventCount} 个语义事件` : model.coordinationRunId || model.taskRunId}</em>
-          </article>
-          <article className="coordination-session__statuspill">
-            <span>项目累计进度</span>
-            <strong>{model.completedMetricTotal} / {model.targetMetricTotal || 0}</strong>
-            <em>跨 run 已提交 {model.committedUnitCount} 个单元 · {model.progressMetricLabel}</em>
+            <span>产物</span>
+            <strong>{model.artifacts.length} 个引用</strong>
+            <em>{selectedNode ? `${selectedNode.title} · ${selectedNodeArtifactsCount} 个` : "选择节点查看产物"}</em>
           </article>
         </div>
       </header>
 
       <section className="coordination-overview-strip" aria-label="运行总览">
         <article className="coordination-overview-card coordination-overview-card--active">
-          <span>当前节点</span>
-          <strong>{selectedNode?.title || "等待启动"}</strong>
-          <em>{selectedNode ? taskGraphMonitorStatusLabel(selectedNode.status) : "待启动"}</em>
-        </article>
-        <article className={model.temporalViolations.length ? "coordination-overview-card coordination-overview-card--danger" : "coordination-overview-card"}>
-          <span>执行许可</span>
-          <strong>{model.temporalBoundaryValid ? "已签发" : "未闭合"}</strong>
-          <em>{model.temporalActiveExecutionPermitId || model.temporalViolations[0]?.code || "等待节点激活"}</em>
+          <span>当前进度</span>
+          <strong>{progress}%</strong>
+          <em>完成 {model.completedCount} / {model.nodeCount}</em>
         </article>
         <article className="coordination-overview-card">
-          <span>总节点</span>
+          <span>节点状态</span>
           <strong>{model.nodeCount}</strong>
           <em>运行中 {model.runningCount} · 完成 {model.completedCount}</em>
         </article>
         <article className="coordination-overview-card">
-          <span>风险</span>
+          <span>任务产物</span>
+          <strong>{model.artifacts.length}</strong>
+          <em>{model.streamEnabled ? `实时流 ${model.streamAccumulatedChars} 字` : "完成后显示节点产物"}</em>
+        </article>
+        <article className={model.temporalViolations.length ? "coordination-overview-card coordination-overview-card--danger" : "coordination-overview-card"}>
+          <span>需要关注</span>
           <strong>{model.failedCount + model.blockedCount}</strong>
           <em>{model.healthValid ? "健康检查通过" : `${model.healthIssues.length} 个问题`}</em>
-        </article>
-        <article className="coordination-overview-card">
-          <span>监督状态</span>
-          <strong>{model.projectRuntimeStatus || "watching"}</strong>
-          <em>{model.blockerSummary || `剩余 ${model.remainingMetricTotal} ${model.progressMetricLabel}`}</em>
         </article>
       </section>
 
@@ -341,7 +329,7 @@ export function TaskGraphRunMonitorPanel({
         </div>
       </section>
 
-      <section className="coordination-output-board">
+      <section className="coordination-output-board coordination-output-board--monitor-core">
         <article className="coordination-output-card coordination-contract-card">
           <div className="coordination-output-card__head">
             <span>{selectedEdge ? "选中边" : "选中节点"}</span>
@@ -361,6 +349,7 @@ export function TaskGraphRunMonitorPanel({
                 <article className="coordination-handoff-item"><div><strong>Agent</strong><span>{selectedNode.agentLabel}</span></div></article>
                 <article className="coordination-handoff-item"><div><strong>任务</strong><span>{selectedNode.taskId || "未标注"}</span></div></article>
                 <article className="coordination-handoff-item"><div><strong>状态</strong><span>{taskGraphMonitorStatusLabel(selectedNode.status)}</span></div></article>
+                <article className="coordination-handoff-item"><div><strong>产物</strong><span>{selectedNodeArtifactsCount} 个引用</span></div></article>
               </>
             ) : null}
           </div>
@@ -368,124 +357,23 @@ export function TaskGraphRunMonitorPanel({
 
         <article className="coordination-output-card coordination-contract-card">
           <div className="coordination-output-card__head">
-            <span><Database size={14} /> 记忆读写</span>
-            <strong>{scopedMemoryOperations.length ? `${scopedMemoryOperations.length} 个操作` : "暂无操作"}</strong>
+            <span><Circle size={14} /> 节点状态</span>
+            <strong>{model.runningCount} 运行 / {model.completedCount} 完成</strong>
           </div>
-          <div className="coordination-handoff-list">
-            {scopedMemoryOperations.length ? (
-              scopedMemoryOperations.slice(-8).map((operation) => (
-                <article className="coordination-handoff-item" key={operation.key}>
+          <div className="coordination-node-status-list">
+            {model.nodes.length ? (
+              model.nodes.map((node) => (
+                <article className="coordination-node-status-item" key={node.id}>
+                  <span className={`coordination-node-status-dot coordination-node-status-dot--${node.status}`} />
                   <div>
-                    <strong>{operation.operation || "memory"}</strong>
-                    <span>{operation.nodeId || operation.edgeId || "graph"} · {taskGraphMonitorStatusLabel(operation.status)}</span>
+                    <strong>{node.title}</strong>
+                    <small>{taskGraphMonitorStatusLabel(node.status)} · {node.agentLabel || node.role}</small>
                   </div>
-                  <small>{operation.refs.join(", ") || "无引用"}</small>
                 </article>
               ))
             ) : (
-              <p className="coordination-contract-empty">当前范围没有记忆操作。</p>
+              <p className="coordination-contract-empty">还没有节点状态。</p>
             )}
-          </div>
-        </article>
-      </section>
-
-      <section className="coordination-output-board">
-        <article className={model.temporalViolations.length ? "coordination-output-card coordination-contract-card coordination-overview-card--danger" : "coordination-output-card coordination-contract-card"}>
-          <div className="coordination-output-card__head">
-            <span><Clock3 size={14} /> 执行边界</span>
-            <strong>{model.temporalBoundaryValid ? "当前许可有效" : "等待许可闭合"}</strong>
-          </div>
-          <div className="coordination-handoff-list">
-            <article className="coordination-handoff-item">
-              <div>
-                <strong>当前节点</strong>
-                <span>{model.temporalActiveNodeId || model.activeNodeId || "未激活"}</span>
-              </div>
-              <small>request {model.temporalActiveRequestId || "未生成"}</small>
-            </article>
-            <article className="coordination-handoff-item">
-              <div>
-                <strong>Activation</strong>
-                <span>{model.temporalActiveActivationId || "未打开节点窗口"}</span>
-              </div>
-              <small>permit {model.temporalActiveExecutionPermitId || "未签发"}</small>
-            </article>
-            {model.temporalViolations.length ? (
-              model.temporalViolations.map((issue) => (
-                <article className="coordination-handoff-item" key={`${issue.code}:${issue.targetId}`}>
-                  <div>
-                    <strong>{issue.code || "temporal_violation"}</strong>
-                    <span>{issue.severity || "error"} · {issue.targetId || "runtime"}</span>
-                  </div>
-                  <small>{issue.message || "节点运行不在当前显式依赖和执行许可窗口内。"}</small>
-                </article>
-              ))
-            ) : (
-              <p className="coordination-contract-empty">没有发现越界节点运行。</p>
-            )}
-          </div>
-        </article>
-
-        <article className="coordination-output-card coordination-contract-card">
-          <div className="coordination-output-card__head">
-            <span><Clock3 size={14} /> 时序账本</span>
-            <strong>{model.timelineClockSeq ? `clock ${model.timelineClockSeq}` : "未建立"}</strong>
-          </div>
-          <div className="coordination-handoff-list">
-            {model.timelineEvents.length ? (
-              model.timelineEvents.slice(-8).reverse().map((event, index) => (
-                <article className="coordination-handoff-item" key={`${text(event.event_id)}:${index}`}>
-                  <div>
-                    <strong>{text(event.event_type, "timeline_event")}</strong>
-                    <span>
-                      #{Number(event.clock_seq ?? 0)} · {Array.isArray(event.scope_path) ? event.scope_path.join(" / ") : text(event.scope_path, "run")}
-                    </span>
-                  </div>
-                  <small>{text(event.node_id) || text(event.result_record_id) || text(event.checkpoint_ref) || text(event.status)}</small>
-                </article>
-              ))
-            ) : (
-              <p className="coordination-contract-empty">还没有语义时序事件。</p>
-            )}
-          </div>
-        </article>
-
-        <article className="coordination-output-card coordination-contract-card">
-          <div className="coordination-output-card__head">
-            <span><Network size={14} /> 当前交接包</span>
-            <strong>{text(model.dispatchContext.dispatch_event_id) ? "已装配" : "暂无派发"}</strong>
-          </div>
-          <div className="coordination-handoff-list">
-            <article className="coordination-handoff-item">
-              <div>
-                <strong>Dispatch</strong>
-                <span>{text(model.dispatchContext.dispatch_event_id, "未生成")}</span>
-              </div>
-              <small>clock {Number(model.dispatchContext.clock_seq ?? 0)} · {Array.isArray(model.dispatchContext.scope_path) ? model.dispatchContext.scope_path.join(" / ") : "run"}</small>
-            </article>
-            {[
-              ["记忆快照", model.contextPackets.memory_snapshot],
-              ["产物上下文", model.contextPackets.artifact_context_packet],
-              ["返修包", model.contextPackets.revision_packet],
-            ].map(([label, packet]) => {
-              const body = packet && typeof packet === "object" && !Array.isArray(packet) ? packet as Record<string, unknown> : {};
-              const packetId = text(body.packet_id) || text(body.snapshot_id) || text(body.revision_packet_id);
-              return (
-                <article className="coordination-handoff-item" key={String(label)}>
-                  <div>
-                    <strong>{String(label)}</strong>
-                    <span>{packetId || "未命中"}</span>
-                  </div>
-                  <small>
-                    {Array.isArray(body.artifact_refs)
-                      ? `${body.artifact_refs.length} 个产物引用`
-                      : Array.isArray(body.resolved_record_refs)
-                        ? `${body.resolved_record_refs.length} 条记忆引用`
-                        : text(body.review_verdict, "无附加包")}
-                  </small>
-                </article>
-              );
-            })}
           </div>
         </article>
 
@@ -598,7 +486,7 @@ export function TaskGraphRunMonitorPanel({
 
         <article className="coordination-output-card coordination-contract-card">
           <div className="coordination-output-card__head">
-            <span><FileText size={14} /> 最近节点正文流</span>
+            <span><FileText size={14} /> 最近节点正文</span>
             <strong>
               {recentPreviewState.loading
                 ? "读取中"
@@ -640,6 +528,7 @@ export function TaskGraphRunMonitorPanel({
           </div>
         </article>
 
+        {!model.healthValid ? (
         <article className="coordination-output-card coordination-contract-card">
           <div className="coordination-output-card__head">
             <span>{model.healthValid ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />} 健康检查</span>
@@ -661,6 +550,7 @@ export function TaskGraphRunMonitorPanel({
             )}
           </div>
         </article>
+        ) : null}
       </section>
     </div>
   );

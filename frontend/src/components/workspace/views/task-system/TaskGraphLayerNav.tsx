@@ -139,6 +139,16 @@ const LAYER_GROUPS: Array<{
   { id: "validation", title: "验证", description: "编译视图、生命周期、发布" },
 ];
 
+const LAYER_GROUP_LABELS = LAYER_GROUPS.reduce<Record<TaskGraphStudioLayer["category"], string>>((acc, group) => {
+  acc[group.id] = group.title;
+  return acc;
+}, {
+  builder: "主图",
+  execution: "执行",
+  resources: "资源",
+  validation: "验证",
+});
+
 export function TaskGraphLayerNav({
   activeLayer,
   layers = TASK_GRAPH_STUDIO_LAYERS,
@@ -148,43 +158,23 @@ export function TaskGraphLayerNav({
   layers?: TaskGraphStudioLayer[];
   onChange: (layer: TaskGraphStudioLayerId) => void;
 }) {
-  const layersByGroup = new Map<TaskGraphStudioLayer["category"], TaskGraphStudioLayer[]>();
-  for (const layer of layers) {
-    layersByGroup.set(layer.category, [...(layersByGroup.get(layer.category) ?? []), layer]);
-  }
   return (
-    <nav className="task-graph-layer-nav" aria-label="多 Agent 任务图层级">
-      {LAYER_GROUPS.map((group) => {
-        const groupLayers = layersByGroup.get(group.id) ?? [];
-        if (!groupLayers.length) return null;
+    <nav className="task-graph-layer-nav task-graph-editor-rail" aria-label="多 Agent 任务图层级">
+      {layers.map((layer) => {
+        const Icon = layer.icon;
         return (
-          <section className="task-graph-layer-group" key={group.id}>
-            <header>
-              <strong>{group.title}</strong>
-              <span>{group.description}</span>
-            </header>
-            <div className="task-graph-layer-group__grid">
-              {groupLayers.map((layer) => {
-                const Icon = layer.icon;
-                return (
-                  <button
-                    aria-current={activeLayer === layer.id ? "page" : undefined}
-                    className={activeLayer === layer.id ? "task-graph-layer-card task-graph-layer-card--active" : "task-graph-layer-card"}
-                    key={layer.id}
-                    onClick={() => onChange(layer.id)}
-                    type="button"
-                  >
-                    <Icon aria-hidden="true" size={16} />
-                    <span>
-                      <strong>{layer.title}</strong>
-                      <small>{layer.description}</small>
-                    </span>
-                    <em className={`task-graph-layer-card__state task-graph-layer-card__state--${layer.state}`}>{layer.metric}</em>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
+          <button
+            aria-current={activeLayer === layer.id ? "page" : undefined}
+            className={activeLayer === layer.id ? "task-graph-editor-rail__item task-graph-editor-rail__item--active" : "task-graph-editor-rail__item"}
+            key={layer.id}
+            onClick={() => onChange(layer.id)}
+            title={`${layer.title} · ${layer.description}`}
+            type="button"
+          >
+            <Icon aria-hidden="true" size={16} />
+            <strong>{layer.title}</strong>
+            <span>{LAYER_GROUP_LABELS[layer.category]}</span>
+          </button>
         );
       })}
     </nav>

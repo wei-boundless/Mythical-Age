@@ -3720,11 +3720,22 @@
       "description": "世界观提交输出契约。用于模块化长篇写作任务图，能力来自通用任务图契约、工具和运行策略。",
       "input_fields": [
         {
-          "field_id": "上游交接包",
-          "title_zh": "上游交接包",
+          "field_id": "通过候选正文",
+          "title_zh": "通过候选正文",
           "field_type": "string",
           "required": true,
-          "description": "上游交接包",
+          "description": "通过候选正文",
+          "default_value": null,
+          "schema": {},
+          "source_hint": "upstream_output",
+          "visibility": "model_visible"
+        },
+        {
+          "field_id": "审核裁决报告",
+          "title_zh": "审核裁决报告",
+          "field_type": "string",
+          "required": true,
+          "description": "审核裁决报告",
           "default_value": null,
           "schema": {},
           "source_hint": "upstream_output",

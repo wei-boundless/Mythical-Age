@@ -360,6 +360,20 @@ def _graph_memory_edge_descriptors(
                     or edge.get("commit_visibility_policy")
                     or {}
                 ),
+                "lifecycle_policy": dict(
+                    metadata.get("resource_lifecycle_policy")
+                    or metadata.get("lifecycle_policy")
+                    or edge.get("resource_lifecycle_policy")
+                    or edge.get("lifecycle_policy")
+                    or {}
+                ),
+                "resource_lifecycle_policy": dict(
+                    metadata.get("resource_lifecycle_policy")
+                    or edge.get("resource_lifecycle_policy")
+                    or metadata.get("lifecycle_policy")
+                    or edge.get("lifecycle_policy")
+                    or {}
+                ),
             }
         )
     return descriptors

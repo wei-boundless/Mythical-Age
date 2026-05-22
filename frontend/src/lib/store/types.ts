@@ -106,6 +106,8 @@ export type ChatModelSelection = {
   model: string;
   base_url?: string;
   credential_ref?: string;
+  thinking_mode?: "enabled" | "disabled";
+  reasoning_effort?: "high" | "max";
 };
 
 export type ChatMode = "chat" | "image";
@@ -187,6 +189,7 @@ export type StoreState = {
   soulImageAssetConfig: SoulImageAssetConfig | null;
   selectedChatModelId: string;
   selectedChatMode: ChatMode;
+  deepSeekThinkingEnabled: boolean;
   mainAgentAssemblyMode: MainAgentAssemblyMode;
   skills: SkillSummary[];
   soulOptions: SoulSummary[];
@@ -235,6 +238,7 @@ export type StoreActions = {
   toggleSearchPolicySource: (source: SearchPolicySource) => void;
   setSelectedChatModel: (selectionId: string) => void;
   setSelectedChatMode: (mode: ChatMode) => void;
+  setDeepSeekThinkingEnabled: (enabled: boolean) => void;
   setMainAgentAssemblyMode: (mode: MainAgentAssemblyMode) => void;
   switchSoul: (key: SoulKey) => Promise<void>;
   renameCurrentSession: (title: string) => Promise<void>;

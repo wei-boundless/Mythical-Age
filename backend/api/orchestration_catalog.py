@@ -17,6 +17,7 @@ from orchestration import ControlKernel, TaskContract, build_base_unit_catalog
 from orchestration.delegation_catalog import DelegationCatalogBuilder
 from orchestration.resource_inventory import build_runtime_resource_inventory
 from orchestration.runtime_lane_registry import DEFAULT_RUNTIME_LANE_REGISTRY, runtime_lane_option_payloads
+from agent_system.profiles.runtime_mode_config import mode_config_catalog
 from task_system import TaskFlowRegistry
 
 router = APIRouter()
@@ -35,6 +36,8 @@ class OrchestrationModeRequest(BaseModel):
 
 class AgentRuntimeProfileRequest(BaseModel):
     agent_profile_id: str = Field(default="", max_length=160)
+    enabled_runtime_modes: list[str] = Field(default_factory=list)
+    default_runtime_mode: str = Field(default="", max_length=80)
     allowed_runtime_lanes: list[str] = Field(default_factory=list)
     allowed_operations: list[str] = Field(default_factory=list)
     blocked_operations: list[str] = Field(default_factory=list)
@@ -391,6 +394,7 @@ def _empty_orchestration_runtime_options() -> dict[str, Any]:
         "operations": [],
         "task_graphs": [],
         "runtime_lanes": [],
+        "runtime_modes": [],
         "runtime_lane_registry": {},
         "runtime_lane_diagnostics": {"authority": "orchestration.runtime_lane_registry"},
         "memory_scopes": [],
@@ -460,6 +464,7 @@ async def orchestration_runtime_options() -> dict[str, Any]:
             "operations": [item.to_dict() for item in operations],
             "task_graphs": task_graph_refs,
             "runtime_lanes": runtime_lanes,
+            "runtime_modes": mode_config_catalog(),
             "runtime_lane_registry": DEFAULT_RUNTIME_LANE_REGISTRY.catalog_payload(),
             "runtime_lane_diagnostics": runtime_lane_diagnostics,
             "memory_scopes": memory_scopes,
@@ -645,6 +650,8 @@ async def upsert_orchestration_agent_runtime_profile(
         AgentRuntimeRegistry(runtime.base_dir).upsert_profile(
             agent_id=agent_id,
             agent_profile_id=payload.agent_profile_id,
+            enabled_runtime_modes=tuple(payload.enabled_runtime_modes),
+            default_runtime_mode=payload.default_runtime_mode,
             allowed_runtime_lanes=tuple(payload.allowed_runtime_lanes),
             allowed_operations=tuple(payload.allowed_operations),
             blocked_operations=tuple(payload.blocked_operations),

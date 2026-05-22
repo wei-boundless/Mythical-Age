@@ -12,6 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.models.model_profile_resolver import ModelProfileResolver
+from runtime.unit_runtime.loop import _chat_model_selection_runtime_defaults
 
 
 class _SettingsService:
@@ -116,6 +117,28 @@ def test_model_profile_resolver_inherits_system_and_applies_requirement() -> Non
     assert resolved.long_output_timeout_seconds == 500
     assert public["credential_configured"] is True
     assert "api_key" not in str(public).lower()
+
+
+def test_chat_model_selection_defaults_keep_deepseek_thinking_controls() -> None:
+    defaults = _chat_model_selection_runtime_defaults(
+        {
+            "provider": "deepseek",
+            "model": "deepseek-v4-pro",
+            "base_url": "https://api.deepseek.com/v1",
+            "credential_ref": "provider:deepseek:primary",
+            "thinking_mode": "enabled",
+            "reasoning_effort": "max",
+        }
+    )
+
+    assert defaults == {
+        "provider": "deepseek",
+        "model": "deepseek-v4-pro",
+        "base_url": "https://api.deepseek.com/v1",
+        "credential_ref": "provider:deepseek:primary",
+        "thinking_mode": "enabled",
+        "reasoning_effort": "max",
+    }
 
 
 def test_model_profile_resolver_does_not_let_agent_base_url_override_provider_endpoint() -> None:

@@ -205,6 +205,7 @@ def resolve_artifact_context_packet(
         result = _stage_result_for_current_scope(
             state=state,
             source=source,
+            edge=edge,
             stage_results=stage_results,
             result_record_index=result_record_index,
             accepted_by_scope=accepted_by_scope,
@@ -219,19 +220,38 @@ def resolve_artifact_context_packet(
         edge_ids.append(edge_id)
         source_node_ids.append(source)
         source_result_record_ids.append(_result_record_id_from_stage_result(result))
-        artifact_refs.extend(_string_list(result.get("artifact_refs")))
-        trace_refs.extend(_string_list(result.get("trace_refs")))
+        result_artifact_refs = _string_list(result.get("artifact_refs"))
+        formal_artifact_refs = _formal_artifact_refs(result_artifact_refs)
+        artifact_refs.extend(formal_artifact_refs)
+        trace_refs.extend(
+            [
+                ref
+                for ref in result_artifact_refs
+                if ref not in formal_artifact_refs and _model_visible_trace_ref(ref)
+            ]
+        )
+        trace_refs.extend(ref for ref in _string_list(result.get("trace_refs")) if _model_visible_trace_ref(ref))
         policy = dict(edge.get("artifact_ref_policy") or {})
         target_input_key = str(policy.get("target_input_key") or "").strip()
         if target_input_key:
-            refs = _string_list(result.get("artifact_refs"))
+            refs = formal_artifact_refs
             if refs:
-                expanded_text_by_input_key[target_input_key] = "\n\n".join(
+                expanded_text = "\n\n".join(
                     _read_artifact_ref_text(ref, max_chars=int(policy.get("max_chars") or 0))
                     for ref in refs
                 ).strip()
+                if expanded_text:
+                    existing = str(expanded_text_by_input_key.get(target_input_key) or "").strip()
+                    expanded_text_by_input_key[target_input_key] = (
+                        f"{existing}\n\n{expanded_text}".strip() if existing else expanded_text
+                    )
 
     explicit_artifact_refs = _artifact_refs_from_explicit_inputs(explicit_inputs)
+    explicit_artifact_refs = [
+        ref
+        for ref in explicit_artifact_refs
+        if _explicit_artifact_ref_allowed_for_stage(ref, stage_id=stage_id, incoming_edges=incoming_edges)
+    ]
     artifact_refs.extend(ref for ref in explicit_artifact_refs if ref not in artifact_refs)
 
     packet = {
@@ -303,6 +323,7 @@ def resolve_handoff_packets(
         result = _stage_result_for_current_scope(
             state=state,
             source=source,
+            edge=edge,
             stage_results=stage_results,
             result_record_index=result_record_index,
             accepted_by_scope=accepted_by_scope,
@@ -432,6 +453,7 @@ def _stage_result_for_current_scope(
     *,
     state: dict[str, Any],
     source: str,
+    edge: dict[str, Any],
     stage_results: dict[str, Any],
     result_record_index: dict[str, dict[str, Any]],
     accepted_by_scope: dict[str, dict[str, str]],
@@ -443,14 +465,70 @@ def _stage_result_for_current_scope(
             record = dict(result_record_index.get(record_id) or {})
             if record.get("accepted") is True:
                 instance = dict(dict(state.get("stage_results_by_instance") or {}).get(record_id) or {})
-                if instance:
+                if instance and _stage_result_matches_edge_contract(instance, edge=edge):
                     return instance
+                fallback = _latest_matching_stage_result_instance(state=state, source=source, edge=edge)
+                if fallback:
+                    return fallback
     if not accepted_by_scope:
         result = dict(stage_results.get(source) or {})
         record = dict(result.get("timeline_result_record") or {})
-        if result and record.get("accepted") is True:
+        if result and record.get("accepted") is True and _stage_result_matches_edge_contract(result, edge=edge):
             return result
+        fallback = _latest_matching_stage_result_instance(state=state, source=source, edge=edge)
+        if fallback:
+            return fallback
     return {}
+
+
+def _latest_matching_stage_result_instance(*, state: dict[str, Any], source: str, edge: dict[str, Any]) -> dict[str, Any]:
+    for instance in reversed(
+        [
+            dict(item)
+            for item in dict(state.get("stage_results_by_instance") or {}).values()
+            if isinstance(item, dict)
+        ]
+    ):
+        record = dict(instance.get("timeline_result_record") or {})
+        if str(record.get("stage_id") or "") != source and str(record.get("node_id") or "") != source:
+            continue
+        if record.get("accepted") is not True and instance.get("accepted") is not True:
+            continue
+        if _stage_result_matches_edge_contract(instance, edge=edge):
+            return instance
+    return {}
+
+
+def _stage_result_matches_edge_contract(result: dict[str, Any], *, edge: dict[str, Any]) -> bool:
+    contract_id = str(edge.get("payload_contract_id") or "").strip()
+    expected_marker = _artifact_marker_for_contract(contract_id)
+    if not expected_marker:
+        return True
+    artifact_refs = [
+        str(ref)
+        for ref in list(dict(result or {}).get("artifact_refs") or [])
+        if str(ref).startswith("artifact:") and "/debug/" not in str(ref).replace("\\", "/") and "run_report" not in str(ref)
+    ]
+    if not artifact_refs:
+        return not _edge_requires_artifact(edge)
+    return any(expected_marker in ref.replace("\\", "/") for ref in artifact_refs)
+
+
+def _artifact_marker_for_contract(contract_id: str) -> str:
+    marker_by_contract = {
+        "contract.writing.modular_novel.project_brief": "project_brief",
+        "contract.writing.modular_novel.world_candidate": "world_candidate",
+        "contract.writing.modular_novel.world_review": "world_review",
+        "contract.writing.modular_novel.world_commit": "world_commit",
+        "contract.writing.modular_novel.character_design": "character_design",
+        "contract.writing.modular_novel.character_review": "character_review",
+        "contract.writing.modular_novel.character_commit": "character_commit",
+        "contract.writing.modular_novel.plot_design": "plot_design",
+        "contract.writing.modular_novel.design_alignment": "design_alignment",
+        "contract.writing.modular_novel.outline_design": "outline",
+        "contract.writing.modular_novel.outline_review": "outline_review",
+    }
+    return marker_by_contract.get(str(contract_id or "").strip(), "")
 
 
 def _result_record_id_from_stage_result(result: dict[str, Any]) -> str:
@@ -542,6 +620,46 @@ def _artifact_refs_from_explicit_inputs(explicit_inputs: dict[str, Any]) -> list
             continue
         refs.extend(_artifact_refs_from_value(value))
     return _dedupe(refs)
+
+
+def _formal_artifact_refs(refs: list[str]) -> list[str]:
+    formal: list[str] = []
+    for ref in _string_list(refs):
+        normalized = ref.replace("\\", "/")
+        if "/debug/" in normalized or "run_report" in normalized:
+            continue
+        if ref not in formal:
+            formal.append(ref)
+    return formal
+
+
+def _model_visible_trace_ref(ref: str) -> bool:
+    ref_text = str(ref or "").replace("\\", "/")
+    if not ref_text:
+        return False
+    if ref_text.startswith("artifact:"):
+        return False
+    if "/debug/" in ref_text or "run_report" in ref_text:
+        return False
+    return True
+
+
+def _explicit_artifact_ref_allowed_for_stage(ref: str, *, stage_id: str, incoming_edges: list[dict[str, Any]]) -> bool:
+    ref_text = str(ref or "").replace("\\", "/")
+    if not ref_text.startswith("artifact:"):
+        return False
+    if "/debug/" in ref_text or "run_report" in ref_text:
+        return False
+    stage_text = str(stage_id or "").strip()
+    if stage_text == "memory_commit_world":
+        markers = {
+            _artifact_marker_for_contract(str(edge.get("payload_contract_id") or ""))
+            for edge in incoming_edges
+        }
+        markers.discard("")
+        if markers and not any(marker in ref_text for marker in markers):
+            return False
+    return True
 
 
 def _artifact_refs_from_value(value: Any) -> list[str]:

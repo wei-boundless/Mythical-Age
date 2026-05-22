@@ -1,5 +1,25 @@
 <skills>
   <summary>Skill registry snapshot for admin display. Runtime prompts should inject only the selected active skill.</summary>
+  <skill name="网页操作">
+    <description>让主 Agent 使用受控浏览器打开网页、观察页面、点击、输入、等待、截图和抽取内容。</description>
+    <use_when>用户要求打开网页、搜索问题、点击页面、填写表单、检查前端页面、截图验证、从网页抽取内容时使用。
+
+不适合用于纯 HTTP 抓取；如果只需要读取一个静态 URL，优先使用 `fetch_url`。</use_when>
+    <return_protocol>向用户汇报时只说已完成什么、看到什么、下一步需要什么。不要暴露内部 selector 细节，除非用户在调试页面。</return_protocol>
+    <output_rule>向用户汇报时只说已完成什么、看到什么、下一步需要什么。不要暴露内部 selector 细节，除非用户在调试页面。</output_rule>
+  </skill>
+  <skill name="生图提示词设计">
+    <description>帮助主 Agent 将用户的生图需求改写成清晰、具体、有审美标准的图像提示词，并调用生图工具生成图片。</description>
+    <use_when>用户要求生成图片、角色立绘、场景概念图、封面、视觉参考、风格图时使用。
+
+不用于纯文字写作、代码生成、资料检索；如果用户只是在讨论视觉设定但没有要求出图，可以先给视觉方案，不必调用生图工具。</use_when>
+    <return_protocol>调用工具前，先在内部完成 prompt 优化。调用成功后，直接向用户展示图片，并用一句话说明图像主题。
+
+如果工具失败，说明失败原因，并保留用户原始需求以便重试。</return_protocol>
+    <output_rule>调用工具前，先在内部完成 prompt 优化。调用成功后，直接向用户展示图片，并用一句话说明图像主题。
+
+如果工具失败，说明失败原因，并保留用户原始需求以便重试。</output_rule>
+  </skill>
   <skill name="PDF 阅读分析">
     <description>用于本地 PDF 的整篇阅读、章节定位和页级问答，适合回答“这份文档讲什么”“这一部分讲什么”“第几页写了什么”等深读问题。</description>
     <use_when>- 用户点名某个 PDF、报告、白皮书、手册、论文。

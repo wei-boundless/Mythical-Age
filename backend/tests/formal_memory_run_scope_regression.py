@@ -90,3 +90,41 @@ def test_formal_memory_durable_scope_can_be_shared_across_runs(tmp_path) -> None
         clock_seq=3,
     )
     assert selected["required_records"][0]["canonical_text"] == "共享世界观"
+
+
+def test_formal_memory_project_scope_shares_within_project_only(tmp_path) -> None:
+    service = FormalMemoryService(tmp_path)
+    project_edge = {**_edge(), "lifecycle_policy": {"scope_kind": "project_scoped"}}
+    candidate, _write_txn = service.write_candidate_from_edge(
+        edge=project_edge,
+        candidate={"canonical_text": "同项目共享世界观", "record_key": "world.current"},
+        task_run_id="taskrun:design",
+        node_run_id="taskrun:design:writer",
+        source_node_id="writer",
+        source_clock_seq=1,
+        runtime_scope={"project_id": "project:one"},
+    )
+    service.commit_from_edge(
+        edge=project_edge,
+        candidate_version_id=candidate.version_id,
+        node_run_id="taskrun:design:commit",
+        source_clock_seq=2,
+    )
+
+    same_project = service.select_for_node(
+        read_edges=[project_edge],
+        task_run_id="taskrun:chapter",
+        node_run_id="taskrun:chapter:reader",
+        clock_seq=3,
+        runtime_scope={"project_id": "project:one"},
+    )
+    other_project = service.select_for_node(
+        read_edges=[project_edge],
+        task_run_id="taskrun:other",
+        node_run_id="taskrun:other:reader",
+        clock_seq=3,
+        runtime_scope={"project_id": "project:two"},
+    )
+
+    assert same_project["required_records"][0]["canonical_text"] == "同项目共享世界观"
+    assert other_project["required_records"] == []

@@ -181,6 +181,15 @@ class SessionManager:
             tool_calls = raw_message.get("tool_calls")
             if tool_calls:
                 message["tool_calls"] = tool_calls
+            image = raw_message.get("image")
+            if isinstance(image, dict):
+                src = str(image.get("src") or "").strip()
+                if src:
+                    message["image"] = {
+                        "src": src,
+                        "alt": str(image.get("alt") or "").strip(),
+                        "caption": str(image.get("caption") or "").strip(),
+                    }
             for key in (
                 "answer_channel",
                 "answer_source",

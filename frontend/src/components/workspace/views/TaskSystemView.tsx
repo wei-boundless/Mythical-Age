@@ -655,54 +655,12 @@ function taskDomainId(task: SpecificTaskRecord) {
   return String(metadata.domain_id ?? "").trim() || `domain.${task.task_family || "general"}`;
 }
 
-function ReadinessCard({ label, value, ready }: { label: string; value: string; ready: boolean }) {
-  return (
-    <article className={ready ? "boundary-readiness boundary-readiness--ready" : "boundary-readiness"}>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{ready ? "已配置" : "待配置"}</small>
-    </article>
-  );
-}
-
 type LayerNavItem<T extends string> = {
   value: T;
   label: string;
   meta: string;
   detail: string;
 };
-
-function LayerNav<T extends string>({
-  ariaLabel,
-  items,
-  value,
-  onChange,
-  variant = "primary",
-}: {
-  ariaLabel: string;
-  items: Array<LayerNavItem<T>>;
-  value: T;
-  onChange: (value: T) => void;
-  variant?: "primary" | "secondary";
-}) {
-  return (
-    <nav className={variant === "secondary" ? "task-system-layer-nav task-system-layer-nav--secondary" : "task-system-layer-nav"} aria-label={ariaLabel}>
-      {items.map((item) => (
-        <button
-          className={value === item.value ? "task-system-layer-nav__item task-system-layer-nav__item--active" : "task-system-layer-nav__item"}
-          key={item.value}
-          onClick={() => onChange(item.value)}
-          type="button"
-        >
-          <span>{item.label}</span>
-          <strong>{item.meta}</strong>
-          <small>{item.detail}</small>
-        </button>
-      ))}
-    </nav>
-  );
-}
-
 
 export function TaskSystemView() {
   const {
@@ -2134,50 +2092,50 @@ export function TaskSystemView() {
     {
       value: "domains",
       label: "任务域",
-      meta: selectedDomain?.title || "未选择任务域",
-      detail: "管理任务分类、入口策略和域级边界",
+      meta: selectedDomain?.title || `${visibleDomains.length} 个任务域`,
+      detail: "分类与入口",
     },
     {
       value: "tasks",
-      label: "任务定义库",
-      meta: selectedTask?.task_title || "未选择任务",
-      detail: "管理可被单独执行或被图节点引用的具体任务定义",
+      label: "任务定义",
+      meta: selectedTask?.task_title || `${selectedDomainTasks.length} 个任务`,
+      detail: "可执行任务",
     },
     {
       value: "graphs",
-      label: "任务图库",
+      label: "任务图",
       meta: `${taskGraphs.length} 张图`,
-      detail: "管理任务域下的一等 TaskGraph 编排对象",
+      detail: "多 Agent 流程",
     },
     {
       value: "contracts",
       label: "契约库",
       meta: `${domainContractSpecs.length} 个契约`,
-      detail: "管理任务域下的节点契约、边载荷契约和质量门模板",
+      detail: "输入输出边界",
     },
     {
       value: "resource-authority",
       label: "资源权威",
       meta: `${runtimeResourceInventory?.items?.length ?? 0} 层资源`,
-      detail: "查看任务、编排、投影、状态与执行义务的运行权威层级",
+      detail: "资源归属",
     },
     {
       value: "professional-run",
       label: "专业运行",
       meta: runtimeTaskRunId.trim() || "未选择 TaskRun",
-      detail: "查看长任务会话、状态机、执行义务和工具观察账本",
+      detail: "长任务会话",
     },
     {
       value: "orchestration",
       label: "编排资源",
       meta: `${orchestrationAgentCatalog?.agents?.length ?? 0} Agent / ${projectionCards.length} Projection`,
-      detail: "Agent、运行档案、Projection",
+      detail: "Agent 与 Projection",
     },
     {
       value: "runtime",
       label: "运行管理",
       meta: activeTaskGraph?.graph_id || "未绑定运行",
-      detail: "task_run、监控、记忆与产物",
+      detail: "监控与产物",
     },
   ];
   const primaryTaskSystemLayerItems = taskSystemLayerItems.filter((item) => ["domains", "tasks", "graphs"].includes(item.value));
@@ -2206,68 +2164,55 @@ export function TaskSystemView() {
     },
   ];
   const domainContextSlot = (
-    <>
-      <div className="task-system-domain-context__identity">
-        <span>当前任务域</span>
-        <TaskGraphChromeSelect
-          emptyLabel="暂无任务域"
-          label="任务域"
-          onChange={(domainId) => {
-            const domain = visibleDomains.find((item) => item.domain_id === domainId);
-            setSelectedDomainId(domainId);
-            setEditorDomainId(domainId);
-            setSelectedTaskId(domain?.tasks[0]?.task_id || "");
-            const nextGraphs = sortTaskGraphsForWorkbench((consolePayload?.task_graph_management?.task_graphs ?? []).filter((item) => String(item.domain_id ?? "").trim() === domainId));
-            setSelectedTaskGraphId(recommendedTaskGraphId(nextGraphs));
-            setEditingDomainName(false);
-          }}
-          options={visibleDomains.map((domain) => ({ value: domain.domain_id, label: domain.title }))}
-          placeholder="选择任务域"
-          value={selectedDomain?.domain_id || ""}
-        />
-        <small>{selectedDomain?.domain_id || "未选择任务域"}</small>
+    <div className="task-system-project-selector">
+      <div>
+        <span>项目</span>
+        <strong>{selectedDomain?.title || "未选择任务域"}</strong>
       </div>
-      <div className="task-system-domain-context__metrics">
-        <ReadinessCard label="具体任务" value={`${selectedDomainTasks.length}`} ready={selectedDomainTasks.length > 0} />
-        <ReadinessCard label="任务图" value={`${taskGraphs.length}`} ready={taskGraphs.length > 0} />
-        <ReadinessCard label="契约" value={`${domainContractSpecs.length}`} ready={domainContractSpecs.length > 0} />
-        <ReadinessCard label="Projection" value={`${domainProjectionCards.length}`} ready={domainProjectionCards.length > 0} />
-      </div>
-      <div className="task-system-domain-context__actions">
-        <ToolbarButton onClick={createDomainDraft}><Plus size={15} />新任务域</ToolbarButton>
-        <ToolbarButton disabled={!selectedDomain} onClick={() => setTaskSystemLayer("domains")}>编辑任务域</ToolbarButton>
-      </div>
-    </>
+      <TaskGraphChromeSelect
+        emptyLabel="暂无任务域"
+        label="任务域"
+        onChange={(domainId) => {
+          const domain = visibleDomains.find((item) => item.domain_id === domainId);
+          setSelectedDomainId(domainId);
+          setEditorDomainId(domainId);
+          setSelectedTaskId(domain?.tasks[0]?.task_id || "");
+          const nextGraphs = sortTaskGraphsForWorkbench((consolePayload?.task_graph_management?.task_graphs ?? []).filter((item) => String(item.domain_id ?? "").trim() === domainId));
+          setSelectedTaskGraphId(recommendedTaskGraphId(nextGraphs));
+          setEditingDomainName(false);
+        }}
+        options={visibleDomains.map((domain) => ({ value: domain.domain_id, label: domain.title }))}
+        placeholder="选择任务域"
+        value={selectedDomain?.domain_id || ""}
+      />
+      <small>{selectedDomain?.domain_id || "未选择任务域"}</small>
+      <ToolbarButton onClick={createDomainDraft}><Plus size={15} />新项目</ToolbarButton>
+    </div>
   );
   const managementLayerSlot = (
-    <div className="task-system-workspace-switcher-grid">
-      <section className="task-system-workspace-switcher-group task-system-workspace-switcher-group--primary" aria-label="任务系统主对象">
-        {primaryTaskSystemLayerItems.map((item) => (
-        <button
-          className={taskSystemLayer === item.value ? "task-system-workspace-card task-system-workspace-card--active" : "task-system-workspace-card"}
-          key={item.value}
-          onClick={() => selectTaskSystemLayer(item.value)}
-          type="button"
-        >
-          <span>{item.label}</span>
-          <strong>{item.meta}</strong>
-          <small>{item.detail}</small>
-        </button>
-        ))}
-      </section>
-      <section className="task-system-workspace-switcher-group task-system-workspace-switcher-group--support" aria-label="任务系统支撑对象">
-        {supportingTaskSystemLayerItems.map((item) => (
+    <div className="task-system-object-table" aria-label="任务系统对象目录">
+      <div className="task-system-object-table__head" aria-hidden="true">
+        <span>对象</span>
+        <span>当前记录</span>
+        <span>状态</span>
+      </div>
+      {[...primaryTaskSystemLayerItems, ...supportingTaskSystemLayerItems].map((item) => {
+        const active = taskSystemLayer === item.value;
+        const scope = primaryTaskSystemLayerItems.some((entry) => entry.value === item.value) ? "主对象" : "支撑对象";
+        return (
           <button
-            className={taskSystemLayer === item.value ? "task-system-workspace-card task-system-workspace-card--support task-system-workspace-card--active" : "task-system-workspace-card task-system-workspace-card--support"}
+            aria-current={active ? "page" : undefined}
+            className={active ? "task-system-object-row task-system-object-row--active" : "task-system-object-row"}
             key={item.value}
             onClick={() => selectTaskSystemLayer(item.value)}
             type="button"
           >
-            <span>{item.label}</span>
-            <strong>{item.meta}</strong>
+            <strong><span className="task-system-object-row__scope">{scope}</span>{item.label}</strong>
+            <span className="task-system-object-row__meta">{item.meta}</span>
+            <em>{active ? "当前" : "可配置"}</em>
           </button>
-        ))}
-      </section>
+        );
+      })}
     </div>
   );
   function openTaskGraphEditor(graphId = selectedTaskGraph?.graph_id || "") {
@@ -2343,18 +2288,86 @@ export function TaskSystemView() {
         <span className="boundary-status">{editorDomain?.title || "未选择任务域"}</span>
       </div>
       <div className="task-graph-editor-chrome__actions task-graph-editor-chrome__actions--minimal">
+        <ToolbarButton onClick={() => selectTaskSystemLayer("graphs")}>返回任务图库</ToolbarButton>
         <ToolbarButton disabled={saving === "task-graph-create"} onClick={() => void createTaskGraphDraft()}><Network size={15} />新图草稿</ToolbarButton>
       </div>
     </>
   );
 
+  const taskGraphEditorWorkbench = (
+    <TaskGraphWorkbench
+      addTaskGraphNode={addTaskGraphNode}
+      addTaskGraphRoleNode={addTaskGraphRoleNode}
+      addTaskGraphSuccessorNode={addTaskGraphSuccessorNode}
+      addTaskGraphTaskNode={addTaskGraphTaskNode}
+      a2aCatalog={a2aCatalog}
+      agentGroupOptions={editorAgentGroupOptions}
+      applyTaskGraphTemplate={applyTaskGraphTemplate}
+      boundTaskGraphTaskIds={boundTaskGraphTaskIds}
+      contractSpecs={editorContractSpecs}
+      taskGraphs={editorTaskGraphs}
+      domainTaskOptions={editorDomainTaskOptions}
+      duplicateTaskGraphDraft={duplicateTaskGraphDraft}
+      editorIssueCount={editorIssueCount}
+      editorPublished={editorPublished}
+      editorValid={editorValid}
+      activeGraphEdges={activeGraphEdges}
+      activeGraphNodes={activeGraphNodes}
+      handleTopologyNodeClick={handleTopologyNodeClick}
+      linkingFromNodeId={linkingFromNodeId}
+      removeTaskGraphEdge={removeTaskGraphEdge}
+      removeTaskGraphNode={removeTaskGraphNode}
+      reverseTaskGraphEdge={reverseTaskGraphEdge}
+      saveTaskGraphStack={saveTaskGraphStack}
+      saving={saving}
+      selectedTaskGraph={editorSelectedTaskGraph}
+      selectedTaskGraphId={editorTaskGraphId}
+      selectedDomain={editorDomain}
+      selectedDomainTasks={editorDomainTasks}
+      selectedGraphEdge={selectedGraphEdge}
+      selectedGraphEdgeId={selectedGraphEdgeId}
+      selectedGraphNode={selectedGraphNode}
+      selectedGraphNodeId={selectedGraphNodeId}
+      setLinkingFromNodeId={setLinkingFromNodeId}
+      setSelectedTaskGraphId={setEditorTaskGraphId}
+      setSelectedGraphEdgeId={setSelectedGraphEdgeId}
+      setSelectedGraphNodeId={setSelectedGraphNodeId}
+      taskGraphDirty={topologyDirty}
+      taskGraphDraftV2={taskGraphDraftV2}
+      workspaceSlot={editorWorkspaceSlot}
+      taskGraphStandardView={taskGraphStandardView}
+      taskGraphStandardViewError={taskGraphStandardViewError}
+      taskGraphStandardViewLoading={taskGraphStandardViewLoading}
+      refreshTaskGraphStandardView={refreshTaskGraphStandardView}
+      updateTaskGraphDraft={updateTaskGraphDraft}
+      updateTaskGraphEdge={updateTaskGraphEdge}
+      updateTaskGraphMetadata={updateTaskGraphMetadata}
+      updateTaskGraphNode={updateTaskGraphNode}
+      updateTaskGraphPublishState={updateTaskGraphPublishState}
+      updateTaskGraphRuntimePolicy={updateTaskGraphRuntimePolicy}
+      orchestrationAgentCatalog={orchestrationAgentCatalog}
+      onCreateProjectionFromPrompt={createProjectionFromNodePrompt}
+      projectionCards={domainProjectionCards}
+    />
+  );
+
+  if (taskLayer === "editor") {
+    return (
+      <section className="workspace-view task-graph-editor-page" aria-label="任务图编辑器">
+        {error ? <div className="boundary-notice boundary-notice--error">{error}</div> : null}
+        {notice ? <div className="boundary-notice">{notice}</div> : null}
+        {taskGraphEditorWorkbench}
+      </section>
+    );
+  }
+
   return (
     <TaskSystemShell
       activeLayer={taskSystemLayer}
       error={error}
-      contextSlot={taskLayer === "management" ? domainContextSlot : undefined}
-      layerSlot={taskLayer === "management" ? managementLayerSlot : undefined}
-      mode={taskLayer}
+      contextSlot={domainContextSlot}
+      layerSlot={managementLayerSlot}
+      mode="management"
       navItems={taskSystemLayerItems}
       notice={notice}
       onBackToGraphs={() => selectTaskSystemLayer("graphs")}
@@ -2363,14 +2376,11 @@ export function TaskSystemView() {
         void load();
         selectTaskSystemLayer(layer);
       }}
-      path={taskLayer === "editor"
-        ? `${editorDomain?.title || "未选择任务域"} / ${taskGraphDraftV2.title || editorSelectedTaskGraph?.title || "任务图"}`
-        : `${selectedDomain?.title || "未选择任务域"} / ${taskSystemLayerItems.find((item) => item.value === taskSystemLayer)?.label || "任务系统"}`}
-      title={taskLayer === "editor" ? taskGraphDraftV2.title || editorSelectedTaskGraph?.title || "任务图编辑器" : taskSystemLayerItems.find((item) => item.value === taskSystemLayer)?.label || "任务系统"}
+      path={selectedDomain?.title || "请选择任务域"}
+      title="任务系统"
     >
 
-      {taskLayer === "management" ? (
-        <section className={`task-management-stage task-management-stage--${taskSystemLayer}`}>
+      <section className={`task-management-stage task-management-stage--${taskSystemLayer}`}>
           {taskSystemLayer === "domains" ? (
             <TaskDomainLibraryPage
               contractCount={domainContractSpecs.length}
@@ -2523,67 +2533,7 @@ export function TaskSystemView() {
               taskGraphDraft={taskGraphDraftV2}
             />
           ) : null}
-        </section>
-      ) : null}
-
-      {taskLayer === "editor" ? (
-        <section className="task-system-editor-shell">
-          <TaskGraphWorkbench
-            addTaskGraphNode={addTaskGraphNode}
-            addTaskGraphRoleNode={addTaskGraphRoleNode}
-            addTaskGraphSuccessorNode={addTaskGraphSuccessorNode}
-            addTaskGraphTaskNode={addTaskGraphTaskNode}
-            a2aCatalog={a2aCatalog}
-            agentGroupOptions={editorAgentGroupOptions}
-            applyTaskGraphTemplate={applyTaskGraphTemplate}
-            boundTaskGraphTaskIds={boundTaskGraphTaskIds}
-            contractSpecs={editorContractSpecs}
-            taskGraphs={editorTaskGraphs}
-            domainTaskOptions={editorDomainTaskOptions}
-            duplicateTaskGraphDraft={duplicateTaskGraphDraft}
-            editorIssueCount={editorIssueCount}
-            editorPublished={editorPublished}
-            editorValid={editorValid}
-            activeGraphEdges={activeGraphEdges}
-            activeGraphNodes={activeGraphNodes}
-            handleTopologyNodeClick={handleTopologyNodeClick}
-            linkingFromNodeId={linkingFromNodeId}
-            removeTaskGraphEdge={removeTaskGraphEdge}
-            removeTaskGraphNode={removeTaskGraphNode}
-            reverseTaskGraphEdge={reverseTaskGraphEdge}
-            saveTaskGraphStack={saveTaskGraphStack}
-            saving={saving}
-            selectedTaskGraph={editorSelectedTaskGraph}
-            selectedTaskGraphId={editorTaskGraphId}
-            selectedDomain={editorDomain}
-            selectedDomainTasks={editorDomainTasks}
-            selectedGraphEdge={selectedGraphEdge}
-            selectedGraphEdgeId={selectedGraphEdgeId}
-            selectedGraphNode={selectedGraphNode}
-            selectedGraphNodeId={selectedGraphNodeId}
-            setLinkingFromNodeId={setLinkingFromNodeId}
-            setSelectedTaskGraphId={setEditorTaskGraphId}
-            setSelectedGraphEdgeId={setSelectedGraphEdgeId}
-            setSelectedGraphNodeId={setSelectedGraphNodeId}
-            taskGraphDirty={topologyDirty}
-            taskGraphDraftV2={taskGraphDraftV2}
-            workspaceSlot={editorWorkspaceSlot}
-            taskGraphStandardView={taskGraphStandardView}
-            taskGraphStandardViewError={taskGraphStandardViewError}
-            taskGraphStandardViewLoading={taskGraphStandardViewLoading}
-            refreshTaskGraphStandardView={refreshTaskGraphStandardView}
-            updateTaskGraphDraft={updateTaskGraphDraft}
-            updateTaskGraphEdge={updateTaskGraphEdge}
-            updateTaskGraphMetadata={updateTaskGraphMetadata}
-            updateTaskGraphNode={updateTaskGraphNode}
-            updateTaskGraphPublishState={updateTaskGraphPublishState}
-            updateTaskGraphRuntimePolicy={updateTaskGraphRuntimePolicy}
-            orchestrationAgentCatalog={orchestrationAgentCatalog}
-            onCreateProjectionFromPrompt={createProjectionFromNodePrompt}
-            projectionCards={domainProjectionCards}
-          />
-        </section>
-      ) : null}
+      </section>
     </TaskSystemShell>
   );
 }

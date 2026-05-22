@@ -203,14 +203,13 @@ class TaskRunFinalizer:
                     **stage_artifact_policy,
                 },
             }
+        effective_artifact_policy = dict(task_policy_for_artifacts.get("artifact_policy") or stage_artifact_policy or {})
         stage_contract_for_acceptance: dict[str, Any] = {}
         stage_acceptance_preview: dict[str, Any] = {}
         requires_file_artifact_refs_preview = bool(
-            dict(stage_execution_request.get("artifact_policy") or {}).get("enabled")
+            effective_artifact_policy.get("enabled")
             or stage_execution_request.get("artifact_targets")
         )
-        if str(stage_execution_request.get("stage_id") or "") == "project_brief":
-            requires_file_artifact_refs_preview = False
         if stage_execution_request and start_coordination_run is not None:
             coordination_state_for_acceptance = self.langgraph_coordination_runtime.checkpoints.get_state(
                 thread_id=start_coordination_run.coordination_run_id,
@@ -311,6 +310,12 @@ class TaskRunFinalizer:
             task_result_payload = dict(task_result or {})
             if output_contract_id:
                 task_result_payload["output_contract_id"] = output_contract_id
+            task_result_payload["artifact_refs"] = self._dedupe_refs(
+                [
+                    *list(task_result_payload.get("artifact_refs") or []),
+                    *list(artifact_materialization.artifact_refs),
+                ]
+            )
             task_result_payload["output_refs"] = self._dedupe_refs(
                 [
                     *list(task_result_payload.get("output_refs") or []),
@@ -509,6 +514,11 @@ class TaskRunFinalizer:
                     coordination_run=target_coordination_run,
                     langgraph_coordination_runtime=self.langgraph_coordination_runtime,
                 )
+                if not dict(current_stage_request.get("artifact_policy") or {}) and effective_artifact_policy:
+                    current_stage_request = {
+                        **current_stage_request,
+                        "artifact_policy": effective_artifact_policy,
+                    }
                 request_stage_id = str(current_stage_request.get("stage_id") or "").strip()
                 flow_stage_id = str(raw_flow_state.get("current_stage_id") or "").strip()
                 resolved_stage_id = self._stage_id_for_task_ref(
@@ -529,7 +539,7 @@ class TaskRunFinalizer:
                     }
                 all_output_refs = collect_task_result_output_refs(dict(task_result or {}))
                 requires_file_artifact_refs = bool(
-                    dict(current_stage_request.get("artifact_policy") or {}).get("enabled")
+                    dict(current_stage_request.get("artifact_policy") or effective_artifact_policy or {}).get("enabled")
                     or current_stage_request.get("artifact_targets")
                 )
                 output_refs = [

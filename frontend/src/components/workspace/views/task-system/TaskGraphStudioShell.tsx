@@ -134,17 +134,12 @@ export function TaskGraphStudioShell({
       <div className="task-graph-studio-shell__body">
         <TaskGraphLayerNav activeLayer={activeLayer} onChange={onLayerChange} />
         <main className="task-graph-studio-shell__page">
-          <section className="task-graph-layer-strip" aria-label="当前编辑层级">
+          <section className="task-graph-layer-strip task-graph-editor-context" aria-label="当前编辑层级">
             <div>
               <span>{activeLayerMeta?.metric || "图层"}</span>
               <strong>{layerContext.title}</strong>
               <small>{layerContext.summary}</small>
             </div>
-            <ul>
-              {layerContext.checkpoints.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
           </section>
           {children}
         </main>

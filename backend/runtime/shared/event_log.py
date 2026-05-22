@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import json
+from json import JSONDecodeError
 import threading
 import time
 import uuid
@@ -29,6 +30,7 @@ class RuntimeEventLog:
         self.event_dir.mkdir(parents=True, exist_ok=True)
         self._subscriptions: list[RuntimeEventSubscription] = []
         self._subscription_lock = threading.RLock()
+        self._write_lock = threading.RLock()
 
     def append(
         self,
@@ -38,19 +40,20 @@ class RuntimeEventLog:
         payload: dict[str, Any] | None = None,
         refs: dict[str, Any] | None = None,
     ) -> RuntimeEvent:
-        offset = self.next_offset(task_run_id)
-        event = RuntimeEvent(
-            event_id=f"rtevt:{task_run_id}:{offset}:{uuid.uuid4().hex[:8]}",
-            task_run_id=task_run_id,
-            event_type=event_type,
-            offset=offset,
-            created_at=time.time(),
-            payload=dict(payload or {}),
-            refs=dict(refs or {}),
-        )
-        path = self._event_path(task_run_id)
-        with path.open("a", encoding="utf-8", newline="\n") as handle:
-            handle.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
+        with self._write_lock:
+            offset = self.next_offset(task_run_id)
+            event = RuntimeEvent(
+                event_id=f"rtevt:{task_run_id}:{offset}:{uuid.uuid4().hex[:8]}",
+                task_run_id=task_run_id,
+                event_type=event_type,
+                offset=offset,
+                created_at=time.time(),
+                payload=dict(payload or {}),
+                refs=dict(refs or {}),
+            )
+            path = self._event_path(task_run_id)
+            with path.open("a", encoding="utf-8", newline="\n") as handle:
+                handle.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
         self._publish(event)
         return event
 
@@ -81,9 +84,13 @@ class RuntimeEventLog:
             return []
         events: list[RuntimeEvent] = []
         for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
+            stripped = line.strip()
+            if not stripped:
                 continue
-            payload = json.loads(line)
+            try:
+                payload = json.loads(stripped)
+            except JSONDecodeError:
+                continue
             events.append(
                 RuntimeEvent(
                     event_id=str(payload.get("event_id") or ""),
@@ -98,7 +105,25 @@ class RuntimeEventLog:
         return events
 
     def next_offset(self, task_run_id: str) -> int:
-        return len(self.list_events(task_run_id))
+        path = self._event_path(task_run_id)
+        if not path.exists():
+            return 0
+        physical_line_count = 0
+        max_seen_offset = -1
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            physical_line_count += 1
+            try:
+                payload = json.loads(stripped)
+            except JSONDecodeError:
+                continue
+            try:
+                max_seen_offset = max(max_seen_offset, int(payload.get("offset") or 0))
+            except (TypeError, ValueError):
+                continue
+        return max(physical_line_count, max_seen_offset + 1)
 
     def _publish(self, event: RuntimeEvent) -> None:
         with self._subscription_lock:

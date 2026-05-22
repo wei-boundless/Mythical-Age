@@ -61,6 +61,14 @@ def test_writing_text_artifact_worker_profiles_have_no_tool_side_effects(tmp_pat
         assert profile.metadata["preexpanded_context_required"] is True
         assert profile.metadata["pseudo_tool_output_forbidden"] is True
         assert profile.metadata["file_and_memory_side_effects_owned_by"] == "orchestration_runtime"
+        assert profile.metadata["agent_side_memory_read_allowed"] is True
+        assert profile.metadata["agent_side_memory_read_tool"] == "memory_search"
+        assert profile.default_runtime_mode == "standard"
+        assert "custom" in profile.enabled_runtime_modes
+        expected_lane = "task_graph_monitor" if agent_id == "agent:writing_modular_runtime_monitor" else "coordination_task"
+        assert expected_lane in profile.allowed_runtime_lanes
+        assert profile.model_profile.thinking_mode == "enabled"
+        assert profile.model_profile.reasoning_effort == "high"
         assert set(profile.allowed_operations).issubset({"op.model_response", "op.memory_read", "op.text_metric"})
         assert "op.delegate_to_agent" in profile.blocked_operations
         assert "op.write_file" in profile.blocked_operations

@@ -62,6 +62,10 @@ def build_task_execution_assembly_bundle(
         flow_registry=flow_registry,
         current_turn_context=current_turn_payload,
     )
+    current_turn_payload = _normalize_current_turn_for_registered_task(
+        current_turn_payload=current_turn_payload,
+        registered_task=registered_task,
+    )
     specific_task_record = (
         flow_registry.get_specific_task_record(str(registered_task.get("task_id") or ""))
         if registered_task and str(registered_task.get("task_type") or "") == "specific_task"
@@ -329,6 +333,10 @@ def build_task_execution_assembly_bundle(
     graph_ref = str(getattr(task_graph, "graph_id", "") or "").strip()
     task_graph_record = flow_registry.get_task_graph(graph_ref) if graph_ref.startswith("graph.") else None
     task_policy = dict((registered_task or {}).get("task_policy") or {})
+    task_graph_node_runtime = _registered_task_is_task_graph_node_runtime(registered_task)
+    runtime_lane_hint = str(
+        task_mode if task_graph_node_runtime else mode_policy.get("runtime_lane") or ""
+    ).strip()
     assembly = TaskExecutionAssembly(
         assembly_id=f"taskasm:{task_id}",
         task_id=task_contract.task_id,
@@ -364,7 +372,7 @@ def build_task_execution_assembly_bundle(
             "execution_kind": selected_recipe.execution_kind,
             "source_kind": selected_recipe.source_kind,
             "interaction_mode": str(mode_policy.get("interaction_mode") or ""),
-            "runtime_lane_hint": str(mode_policy.get("runtime_lane") or ""),
+            "runtime_lane_hint": runtime_lane_hint,
             "projection_strength": str(mode_policy.get("projection_strength") or ""),
             "semantic_task_type": str(semantic_task_contract.get("task_goal_type") or ""),
             "professional_profile_id": str(semantic_task_contract.get("professional_profile_id") or ""),
@@ -450,6 +458,64 @@ def _text_artifact_runtime_allowed_operations(agent_runtime_profile: AgentRuntim
         if str(item or "").strip()
     }
     return {item for item in allowed if item not in blocked and item in {"op.model_response", "op.memory_read", "op.text_metric"}}
+
+
+def _normalize_current_turn_for_registered_task(
+    *,
+    current_turn_payload: dict[str, Any],
+    registered_task: dict[str, Any] | None,
+) -> dict[str, Any]:
+    payload = dict(current_turn_payload or {})
+    if not _registered_task_is_task_graph_node_runtime(registered_task):
+        return payload
+    task_policy = dict((registered_task or {}).get("task_policy") or {})
+    task_structure = dict(task_policy.get("task_structure") or {})
+    metadata = dict((registered_task or {}).get("metadata") or {})
+    task_id = str((registered_task or {}).get("task_id") or "").strip()
+    runtime_lane = str(
+        (registered_task or {}).get("task_mode")
+        or task_structure.get("runtime_lane_hint")
+        or metadata.get("runtime_lane_hint")
+        or "coordination_task"
+    ).strip()
+    interaction_mode = str(
+        payload.get("interaction_mode")
+        or payload.get("runtime_interaction_mode")
+        or task_structure.get("runtime_interaction_mode")
+        or metadata.get("runtime_interaction_mode")
+        or metadata.get("interaction_mode")
+        or "role_mode"
+    ).strip()
+    if task_id:
+        payload["selected_task_id"] = task_id
+        payload["task_id"] = task_id
+        payload["specific_task_id"] = task_id
+    if runtime_lane:
+        payload["runtime_lane"] = runtime_lane
+    if interaction_mode:
+        payload["interaction_mode"] = interaction_mode
+        payload["runtime_interaction_mode"] = interaction_mode
+    payload["task_graph_node_runtime"] = True
+    payload["suppress_bundle_projection"] = True
+    payload.setdefault("semantic_task_type", "task_graph_node_execution")
+    payload.setdefault("task_goal_type", "task_graph_node_execution")
+    payload.setdefault("execution_obligation_policy", "orchestration_owns_task_graph_node_side_effects")
+    return payload
+
+
+def _registered_task_is_task_graph_node_runtime(registered_task: dict[str, Any] | None) -> bool:
+    item = dict(registered_task or {})
+    if not item:
+        return False
+    metadata = dict(item.get("metadata") or {})
+    task_policy = dict(item.get("task_policy") or {})
+    task_structure = dict(task_policy.get("task_structure") or {})
+    return bool(
+        metadata.get("task_graph_node_runtime") is True
+        or metadata.get("suppress_bundle_projection") is True
+        or task_structure.get("suppress_bundle_projection") is True
+        or str(task_structure.get("execution_chain_type") or "").strip() == "coordination_node"
+    )
 
 
 def _resolve_runtime_recipe_operations(

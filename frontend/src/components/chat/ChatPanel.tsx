@@ -18,6 +18,8 @@ export function ChatPanel() {
     currentSessionId,
     modelProviderConfig,
     soulImageAssetConfig,
+    deepSeekThinkingEnabled,
+    setDeepSeekThinkingEnabled,
     mainAgentAssemblyMode,
     setMainAgentAssemblyMode,
     selectedChatModelId,
@@ -60,6 +62,7 @@ export function ChatPanel() {
               assistantName="助手"
               canEdit={!currentSessionStreaming && message.id === lastEditableUserMessageId}
               content={message.content}
+              image={message.image}
               id={message.id}
               key={message.id}
               onResendEdit={resendEditedMessage}
@@ -87,6 +90,8 @@ export function ChatPanel() {
           onSelectChatModel={setSelectedChatModel}
           searchPolicy={searchPolicy}
           selectedChatModelId={selectedChatModelId}
+          deepSeekThinkingEnabled={deepSeekThinkingEnabled}
+          onToggleDeepSeekThinking={setDeepSeekThinkingEnabled}
           taskSelection={taskSelection?.mode === "coordination" ? null : taskSelection}
         />
       </div>

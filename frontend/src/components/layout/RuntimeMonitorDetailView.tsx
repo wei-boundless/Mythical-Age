@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { TaskGraphRunMonitorPanel } from "@/components/task-graph-monitor/TaskGraphRunMonitorPanel";
 import { useAppStore } from "@/lib/store";
+import { topLevelTaskGraphMonitorItems } from "../../lib/runtimeMonitorLayering";
 import {
   formatTime,
   monitorStatusLabel,
@@ -29,7 +30,7 @@ export function RuntimeMonitorDetailView({ onClose }: { onClose: () => void }) {
     refreshGlobalRuntimeMonitor,
   } = useAppStore();
   const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
-  const tasks = globalRuntimeMonitor?.task_runs ?? [];
+  const tasks = topLevelTaskGraphMonitorItems(globalRuntimeMonitor);
   const selectedTask = tasks.find((item) => item.task_run_id === globalRuntimeMonitorSelectedTaskRunId) ?? tasks[0] ?? null;
   const selectedTaskRunId = selectedTask?.task_run_id ?? "";
   const selectedTaskBucket = selectedTask?.display_bucket ?? "";
@@ -51,7 +52,7 @@ export function RuntimeMonitorDetailView({ onClose }: { onClose: () => void }) {
         <div>
           <span>详细监控</span>
           <h2>{selectedTask ? taskTitle(selectedTask) : "未选择任务"}</h2>
-          <p>{selectedTask ? selectedTask.task_run_id : "从右侧监控列表选择一个任务后，这里显示运行细节。"}</p>
+          <p>{selectedTask ? selectedTask.task_run_id : "从右侧监控列表选择一个任务图后，这里显示运行细节。"}</p>
         </div>
         <div className="runtime-monitor-center__actions">
           <button disabled={globalRuntimeMonitorLoading} onClick={() => void refreshGlobalRuntimeMonitor()} type="button">
@@ -88,8 +89,8 @@ export function RuntimeMonitorDetailView({ onClose }: { onClose: () => void }) {
             <em>{selectedTask.latest_event_type || "暂无事件"}</em>
           </article>
           <article>
-            <span>任务图</span>
-            <strong>{selectedTask.graph_id || "未绑定"}</strong>
+            <span>类型</span>
+            <strong>任务图</strong>
             <em>{selectedTask.active_node_id || "等待节点"}</em>
           </article>
           <article>
@@ -103,8 +104,8 @@ export function RuntimeMonitorDetailView({ onClose }: { onClose: () => void }) {
       {!selectedTask ? (
         <div className="runtime-monitor-center__empty">
           <Clock3 size={22} />
-          <strong>当前没有可监控任务</strong>
-          <span>Agent 开始运行后，右侧会出现任务列表；选择任务后详情会在这里展开。</span>
+          <strong>当前没有可监控任务图</strong>
+          <span>启动任务图后，右侧会出现顶层任务图；选择后可在这里查看节点和子进程。</span>
         </div>
       ) : graphMonitor ? (
         <div className="runtime-monitor-center__graph">

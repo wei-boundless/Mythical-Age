@@ -1485,6 +1485,55 @@ def _task_run_matches_graph_node(task_run: TaskRun, node_id: str) -> bool:
     return False
 
 
+def _is_platform_monitor_task_run(task_run: TaskRun) -> bool:
+    """Global monitoring only lists user-visible platform tasks.
+
+    TaskGraph node executions are intentionally modeled as child TaskRuns so
+    they can carry node-local model streams, artifacts, and failures. They must
+    stay available to TaskGraph detail monitors, but listing them globally makes
+    one graph run look like many platform tasks.
+    """
+
+    diagnostics = dict(task_run.diagnostics or {})
+    explicit_scope = str(
+        diagnostics.get("monitor_visibility")
+        or diagnostics.get("runtime_monitor_visibility")
+        or diagnostics.get("visibility_scope")
+        or ""
+    ).strip()
+    if explicit_scope in {"task_detail", "child_run", "internal", "hidden"}:
+        return False
+    if explicit_scope in {"platform", "platform_task", "global"}:
+        return True
+    if bool(diagnostics.get("graph_module_imported_run") is True):
+        return False
+    if str(diagnostics.get("importing_root_task_run_id") or "").strip():
+        return False
+    if _is_coordination_stage_child_run(diagnostics):
+        return False
+    return True
+
+
+def _is_coordination_stage_child_run(diagnostics: dict[str, Any]) -> bool:
+    coordination_run_id = str(diagnostics.get("coordination_run_id") or "").strip()
+    stage_id = str(
+        diagnostics.get("stage_id")
+        or diagnostics.get("coordination_stage_id")
+        or diagnostics.get("node_id")
+        or ""
+    ).strip()
+    if not coordination_run_id or not stage_id:
+        return False
+    child_markers = (
+        "stage_request_id",
+        "stage_idempotency_key",
+        "stage_dispatch_event_id",
+        "stage_request_ref",
+        "continuation_stage_id",
+    )
+    return any(str(diagnostics.get(key) or "").strip() for key in child_markers)
+
+
 def _identifier_segments(value: str) -> set[str]:
     text = str(value or "")
     for separator in (":", "/", "\\", ".", "|"):

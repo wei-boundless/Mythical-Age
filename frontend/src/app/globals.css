@@ -2149,6 +2149,10 @@ button:hover {
   gap: 0.62rem;
 }
 
+.coordination-output-board--monitor-core {
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1fr);
+}
+
 .coordination-contract-board {
   display: grid;
   grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
@@ -2244,6 +2248,77 @@ button:hover {
   color: var(--color-text-soft);
   font-size: 0.76rem;
   line-height: 1.5;
+}
+
+.coordination-node-status-list {
+  display: grid;
+  gap: 0.34rem;
+  max-height: 19rem;
+  min-width: 0;
+  overflow: auto;
+  padding-right: 0.1rem;
+}
+
+.coordination-node-status-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.46rem;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 0.72rem;
+  background: rgba(0, 0, 0, 0.09);
+  padding: 0.48rem 0.56rem;
+}
+
+.coordination-node-status-item strong,
+.coordination-node-status-item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coordination-node-status-item strong {
+  color: var(--color-text);
+  font-size: 0.78rem;
+}
+
+.coordination-node-status-item small {
+  color: var(--color-text-soft);
+  font-size: 0.66rem;
+}
+
+.coordination-node-status-dot {
+  width: 0.58rem;
+  height: 0.58rem;
+  border-radius: 999px;
+  background: var(--color-text-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-text-soft) 14%, transparent);
+}
+
+.coordination-node-status-dot--running {
+  background: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+}
+
+.coordination-node-status-dot--completed,
+.coordination-node-status-dot--success {
+  background: #15803d;
+  box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.16);
+}
+
+.coordination-node-status-dot--failed {
+  background: #b91c1c;
+  box-shadow: 0 0 0 3px rgba(185, 28, 28, 0.16);
+}
+
+.coordination-node-status-dot--blocked,
+.coordination-node-status-dot--waiting,
+.coordination-node-status-dot--waiting_for_human,
+.coordination-node-status-dot--human_gate {
+  background: #b7791f;
+  box-shadow: 0 0 0 3px rgba(183, 121, 31, 0.16);
 }
 
 .coordination-output-item--artifact {
@@ -9476,6 +9551,40 @@ button:hover {
 
 .chat-model-select:has(select:disabled) {
   opacity: 0.62;
+}
+
+.chat-thinking-toggle {
+  display: inline-flex;
+  width: 2.05rem;
+  height: 2.05rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--color-text-soft);
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.chat-thinking-toggle:hover:not(:disabled),
+.chat-thinking-toggle:focus-visible {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+  outline: none;
+}
+
+.chat-thinking-toggle--active {
+  border-color: color-mix(in srgb, var(--workspace-tone-ink) 28%, var(--color-border));
+  background: color-mix(in srgb, var(--workspace-tone-ink) 9%, #fff);
+  color: var(--workspace-tone-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--workspace-tone-ink) 16%, transparent);
+}
+
+.chat-thinking-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .chat-input-panel__actions {
@@ -17982,8 +18091,8 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .orchestration-group-members {
   display: grid;
-  gap: 0.38rem;
-  padding: 0 0.34rem 0.42rem;
+  gap: 0.22rem;
+  padding: 0 0.12rem 0.22rem;
 }
 
 .orchestration-directory-actions {
@@ -18001,43 +18110,58 @@ html[data-soul="xuannv"] .soul-portrait__label {
   font-size: 0.76rem;
 }
 
-.orchestration-subagent-card {
+.orchestration-subagent-row {
   display: flex;
   align-items: center;
-  gap: 0.42rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  gap: 0.18rem;
+  min-height: 1.85rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 10%, var(--color-border));
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.022);
-  padding: 0.34rem;
+  background: rgba(255, 255, 255, 0.014);
+  padding: 0.08rem 0.1rem;
 }
 
-.orchestration-subagent-card--active {
+.orchestration-subagent-row--active {
   border-color: color-mix(in srgb, var(--color-soul) 42%, var(--color-border));
   background: color-mix(in srgb, var(--color-soul) 8%, transparent);
 }
 
-.orchestration-subagent-card__main {
+.orchestration-subagent-row__main {
   display: grid;
-  gap: 0.12rem;
+  gap: 0.01rem;
   flex: 1 1 auto;
   min-width: 0;
   border: 0;
   background: transparent;
   color: var(--color-text);
-  padding: 0.34rem 0.42rem;
+  padding: 0.02rem 0.16rem;
   text-align: left;
 }
 
-.orchestration-subagent-card__main strong {
-  font-size: 0.8rem;
-  font-weight: 820;
+.orchestration-subagent-row__main strong {
+  font-size: 0.74rem;
+  font-weight: 840;
+  line-height: 1.08;
   overflow-wrap: anywhere;
 }
 
-.orchestration-subagent-card__main span {
+.orchestration-subagent-row__main span {
   color: var(--color-muted);
-  font-size: 0.68rem;
-  line-height: 1.25;
+  font-size: 0.58rem;
+  line-height: 1.05;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orchestration-subagent-row__main svg {
+  display: none;
+}
+
+.orchestration-subagent-row__delete {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 6px;
 }
 
 .boundary-nested-panel {
@@ -18057,7 +18181,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
   gap: 0.7rem;
 }
 
-.orchestration-subagent-card__delete {
+.orchestration-subagent-row__delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -18070,7 +18194,7 @@ html[data-soul="xuannv"] .soul-portrait__label {
   color: #ffb2b2;
 }
 
-.orchestration-subagent-create-card {
+.orchestration-subagent-create-row {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -18085,22 +18209,216 @@ html[data-soul="xuannv"] .soul-portrait__label {
   font-weight: 820;
 }
 
-.orchestration-agent-focus {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.9rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.024);
-  padding: 0.82rem 0.9rem;
+.orchestration-console-head {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.2fr) minmax(0, 1.6fr) auto;
+  align-items: start;
+  gap: 0.8rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  padding: 0 0.2rem 0.8rem;
 }
 
-.orchestration-agent-focus--group {
-  border-color: color-mix(in srgb, #67dc9a 28%, var(--color-border));
-  background:
-    linear-gradient(90deg, rgba(103, 220, 154, 0.07), transparent 58%),
-    rgba(255, 255, 255, 0.024);
+.orchestration-console-head__title {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.orchestration-console-head__title span {
+  color: var(--color-soul);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.orchestration-console-head__title h2 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 1.45rem;
+  line-height: 1.06;
+}
+
+.orchestration-console-head__title p {
+  margin: 0;
+  color: var(--color-text-soft);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.orchestration-console-head__summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.48rem;
+  min-width: 0;
+}
+
+.orchestration-console-head__summary > div {
+  display: grid;
+  gap: 0.14rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.018);
+  padding: 0.46rem 0.52rem;
+}
+
+.orchestration-console-head__summary span {
+  color: var(--color-text-soft);
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.orchestration-console-head__summary strong {
+  color: var(--color-text);
+  font-size: 0.82rem;
+  font-weight: 860;
+  overflow-wrap: anywhere;
+}
+
+.orchestration-console-head__summary small {
+  color: var(--color-text-soft);
+  font-size: 0.68rem;
+  line-height: 1.32;
+  overflow-wrap: anywhere;
+}
+
+.orchestration-console-head__actions {
+  align-self: start;
+}
+
+.orchestration-directory-head {
+  padding-bottom: 0.12rem;
+}
+
+.orchestration-directory-switcher {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.orchestration-directory-switcher__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 13%, var(--color-border));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  min-height: 2rem;
+  padding: 0.24rem 0.42rem;
+  text-align: left;
+}
+
+.orchestration-directory-switcher__item--active {
+  border-color: color-mix(in srgb, var(--color-soul) 42%, var(--color-border));
+  background: color-mix(in srgb, var(--color-soul) 8%, transparent);
+  color: var(--color-text);
+}
+
+.orchestration-directory-switcher__item span {
+  grid-column: 1;
+}
+
+.orchestration-directory-switcher__item strong {
+  grid-column: 2;
+  align-self: center;
+  color: var(--color-text);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.orchestration-directory-switcher__item span {
+  color: var(--color-soul);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.orchestration-section-title--compact {
+  align-items: start;
+}
+
+.orchestration-section-title--compact small {
+  text-align: right;
+}
+
+.orchestration-subagent-row {
+  display: flex;
+  align-items: center;
+  gap: 0.24rem;
+  min-height: 2.05rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.016);
+  padding: 0.12rem 0.16rem;
+}
+
+.orchestration-subagent-row--active {
+  border-color: color-mix(in srgb, var(--color-soul) 34%, var(--color-border));
+  background: color-mix(in srgb, var(--color-soul) 5%, transparent);
+}
+
+.orchestration-subagent-row__main {
+  display: grid;
+  gap: 0.02rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  padding: 0.04rem 0.18rem;
+  text-align: left;
+}
+
+.orchestration-subagent-row__main strong {
+  font-size: 0.8rem;
+  font-weight: 860;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+
+.orchestration-subagent-row__main span {
+  color: var(--color-muted);
+  font-size: 0.6rem;
+  line-height: 1.08;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orchestration-subagent-row__delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, #ff7d7d 26%, var(--color-border));
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #ffb2b2;
+}
+
+.orchestration-group-members .orchestration-subagent-row {
+  max-width: 100%;
+}
+
+.orchestration-subagent-create-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.38rem;
+  width: 100%;
+  min-height: 3.1rem;
+  border: 1px dashed color-mix(in srgb, var(--color-soul) 26%, var(--color-border));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  font-weight: 820;
 }
 
 .orchestration-agent-row {
@@ -18124,38 +18442,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
 
 .orchestration-boundary .boundary-layer-grid--wide {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.orchestration-agent-focus span,
-.orchestration-agent-focus p,
-.orchestration-agent-focus__meta span {
-  color: var(--color-text-soft);
-  font-size: 0.72rem;
-}
-
-.orchestration-agent-focus h3 {
-  color: var(--color-text);
-  font-size: 1.02rem;
-  font-weight: 860;
-  margin: 0.18rem 0 0.28rem;
-}
-
-.orchestration-agent-focus p {
-  margin: 0;
-  line-height: 1.5;
-}
-
-.orchestration-agent-focus__meta {
-  display: grid;
-  gap: 0.2rem;
-  justify-items: end;
-  text-align: right;
-}
-
-.orchestration-agent-focus__meta b {
-  color: var(--color-text);
-  font-size: 0.78rem;
-  font-weight: 860;
 }
 
 .orchestration-identity-note {
@@ -18182,6 +18468,119 @@ html[data-soul="xuannv"] .soul-portrait__label {
   color: var(--color-text);
   font-size: 0.78rem;
   line-height: 1.45;
+}
+
+.orchestration-group-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.42rem;
+}
+
+.orchestration-group-main {
+  align-content: start;
+  min-height: min(620px, 100%);
+}
+
+.orchestration-group-summary-row {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 13%, var(--color-border));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.022);
+  padding: 0.48rem 0.54rem;
+}
+
+.orchestration-group-summary-row span {
+  color: var(--color-soul);
+  font-size: 0.64rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.orchestration-group-summary-row strong {
+  color: var(--color-text);
+  font-size: 0.84rem;
+  font-weight: 860;
+  overflow-wrap: anywhere;
+}
+
+.orchestration-group-summary-row small {
+  color: var(--color-text-soft);
+  font-size: 0.68rem;
+  line-height: 1.32;
+  overflow-wrap: anywhere;
+}
+
+.orchestration-member-list {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.orchestration-member-row {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-height: 2.4rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.018);
+  padding: 0.22rem 0.28rem;
+}
+
+.orchestration-member-row--selected {
+  border-color: color-mix(in srgb, var(--color-soul) 38%, var(--color-border));
+  background: color-mix(in srgb, var(--color-soul) 6%, transparent);
+}
+
+.orchestration-member-row__body {
+  display: grid;
+  gap: 0.05rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.12rem 0.24rem;
+}
+
+.orchestration-member-row__body strong {
+  color: var(--color-text);
+  font-size: 0.76rem;
+  font-weight: 840;
+  overflow-wrap: anywhere;
+}
+
+.orchestration-member-row__body span {
+  color: var(--color-text-soft);
+  font-size: 0.64rem;
+  overflow-wrap: anywhere;
+}
+
+.orchestration-member-row__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-height: 1.75rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-text-soft);
+  cursor: pointer;
+  font-size: 0.66rem;
+  font-weight: 850;
+  padding: 0.18rem 0.34rem;
+}
+
+.orchestration-member-row__action svg {
+  flex: 0 0 auto;
+}
+
+.orchestration-member-row__action span {
+  white-space: nowrap;
+}
+
+.orchestration-member-row__action--danger {
+  border-color: color-mix(in srgb, #ff7d7d 32%, var(--color-border));
+  color: #ffb2b2;
 }
 
 .orchestration-config-library {
@@ -18307,132 +18706,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   font-family: var(--font-mono), monospace;
   font-size: 0.65rem;
   overflow-wrap: anywhere;
-}
-
-.orchestration-member-picker {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 0.5rem;
-}
-
-
-.orchestration-member-workbench {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0.72rem;
-  align-items: start;
-}
-
-.orchestration-group-main {
-  align-content: start;
-  min-height: min(620px, 100%);
-}
-
-.orchestration-group-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.62rem;
-}
-
-.orchestration-group-summary-card {
-  display: grid;
-  gap: 0.14rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 13%, var(--color-border));
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.02);
-  padding: 0.72rem 0.78rem;
-}
-
-.orchestration-group-summary-card span {
-  color: var(--color-text-soft);
-  font-size: 0.7rem;
-  font-weight: 780;
-}
-
-.orchestration-group-summary-card strong {
-  font-size: 1.12rem;
-  font-weight: 900;
-  overflow-wrap: anywhere;
-}
-
-.orchestration-group-summary-card small {
-  color: var(--color-text-soft);
-  font-size: 0.7rem;
-}
-
-.orchestration-member-column {
-  display: grid;
-  gap: 0.56rem;
-  min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.018);
-  padding: 0.68rem;
-}
-
-.orchestration-member-hint {
-  color: var(--color-text-soft);
-  font-size: 0.72rem;
-  line-height: 1.45;
-}
-
-.orchestration-member-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.6rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.024);
-  color: var(--color-text);
-  padding: 0.66rem 0.72rem;
-}
-
-.orchestration-member-card:hover,
-.orchestration-member-card--selected {
-  border-color: color-mix(in srgb, var(--color-soul) 48%, var(--color-border));
-  background: color-mix(in srgb, var(--color-soul) 9%, transparent);
-}
-
-.orchestration-member-card--selected span {
-  color: var(--color-soul);
-}
-
-.orchestration-member-card strong {
-  display: block;
-  font-size: 0.82rem;
-  overflow-wrap: anywhere;
-}
-
-.orchestration-member-card span {
-  color: var(--color-text-soft);
-  font-size: 0.68rem;
-  font-weight: 760;
-}
-
-.orchestration-member-card__body {
-  display: grid;
-  gap: 0.18rem;
-  min-width: 0;
-}
-
-.orchestration-member-card__action {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  flex: 0 0 auto;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.028);
-  color: var(--color-text);
-  padding: 0.38rem 0.56rem;
-  font-size: 0.68rem;
-  font-weight: 820;
-}
-
-.orchestration-member-card__action--danger {
-  border-color: color-mix(in srgb, #ff7272 36%, var(--color-border));
-  color: #ffb1b1;
 }
 
 @media (max-width: 980px) {
@@ -18771,159 +19044,289 @@ html[data-soul="xuannv"] .soul-portrait__label {
   font-size: 0.62rem;
 }
 
-.orchestration-capability-permissions {
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 0.38fr);
+.orchestration-permission-workbench {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
 }
 
-.orchestration-capability-pools {
-  gap: 0.86rem;
-}
-
-.orchestration-capability-pool {
-  display: grid;
+.orchestration-permission-matrix-shell {
   gap: 0.62rem;
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 13%, var(--color-border));
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.015);
-  padding: 0.68rem;
 }
 
-.orchestration-capability-pool__head {
+.orchestration-permission-summary {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.72rem;
+  flex-wrap: wrap;
+  gap: 0.42rem;
 }
 
-.orchestration-capability-pool__head div {
-  display: grid;
-  gap: 0.18rem;
-  min-width: 0;
-}
-
-.orchestration-capability-pool__head strong {
-  color: var(--color-text);
-  font-size: 0.86rem;
-}
-
-.orchestration-capability-pool__head span,
-.orchestration-capability-pool__head small {
+.orchestration-permission-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
+  min-height: 1.62rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 13%, var(--color-border));
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
   color: var(--color-text-muted);
   font-size: 0.68rem;
-  line-height: 1.35;
+  font-weight: 850;
+  padding: 0.18rem 0.48rem;
 }
 
-.orchestration-capability-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 0.46rem;
+.orchestration-permission-summary b {
+  color: var(--color-text);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.72rem;
 }
 
-.orchestration-capability-card {
+.orchestration-runtime-mode-panel {
   display: grid;
-  align-content: start;
-  gap: 0.42rem;
-  min-height: 112px;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 15%, var(--color-border));
+  gap: 0.52rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 13%, var(--color-border));
   border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.036), transparent 42%),
-    rgba(0, 0, 0, 0.12);
-  color: inherit;
+  background: rgba(255, 255, 255, 0.018);
+  padding: 0.58rem;
+}
+
+.orchestration-runtime-mode-panel__head,
+.orchestration-runtime-mode-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.orchestration-runtime-mode-panel__head span {
+  color: var(--color-soul);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.orchestration-runtime-mode-panel__head small,
+.orchestration-runtime-mode-confirm span {
+  color: var(--color-text-soft);
+  font-size: 0.68rem;
+}
+
+.orchestration-runtime-mode-grid {
+  display: grid;
+  gap: 0.36rem;
+}
+
+.orchestration-runtime-mode-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.36rem;
+}
+
+.orchestration-runtime-mode-row > button {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.018);
+  color: var(--color-text-soft);
   cursor: pointer;
-  padding: 0.52rem;
-  transition: border-color 160ms ease, box-shadow 160ms ease, opacity 160ms ease, transform 160ms ease;
 }
 
-.orchestration-capability-card:hover,
-.orchestration-capability-card--active {
-  border-color: color-mix(in srgb, var(--color-soul) 48%, var(--color-border));
-  transform: translateY(-1px);
-}
-
-.orchestration-capability-card--allowed {
-  border-color: rgba(103, 220, 154, 0.55);
-  box-shadow: 0 0 0 1px rgba(103, 220, 154, 0.1), 0 0 22px rgba(103, 220, 154, 0.12);
-}
-
-.orchestration-capability-card--blocked {
-  border-color: rgba(255, 140, 125, 0.25);
-  background: rgba(0, 0, 0, 0.2);
-  opacity: 0.56;
-}
-
-.orchestration-capability-card--conflict {
-  border-color: rgba(255, 140, 125, 0.62);
-  box-shadow: 0 0 0 1px rgba(255, 140, 125, 0.14);
-}
-
-.orchestration-capability-card--partial {
-  border-color: rgba(255, 215, 107, 0.5);
-}
-
-.orchestration-capability-card--active {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-soul) 34%, transparent);
-}
-
-.orchestration-capability-card__top,
-.orchestration-capability-card__actions {
+.orchestration-runtime-mode-row > button:first-child {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  padding: 0.48rem 0.58rem;
+  text-align: left;
 }
 
-.orchestration-capability-card__top span,
-.orchestration-capability-card small {
-  min-width: 0;
-  color: var(--color-text-muted);
-  font-size: 0.62rem;
-  overflow-wrap: anywhere;
-}
-
-.orchestration-capability-card__top em {
-  flex: 0 0 auto;
-  color: var(--color-text-muted);
-  font-size: 0.62rem;
-  font-style: normal;
+.orchestration-runtime-mode-row span {
+  color: var(--color-text);
+  font-size: 0.76rem;
   font-weight: 850;
 }
 
-.orchestration-capability-card strong {
-  color: var(--color-text);
-  display: -webkit-box;
-  min-height: 2.08rem;
+.orchestration-runtime-mode-row strong {
   overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  font-size: 0.78rem;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-}
-
-.orchestration-capability-detail-block div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.34rem;
-}
-
-.orchestration-capability-detail-block div > span {
-  max-width: 100%;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
-  border-radius: 999px;
+  max-width: 220px;
   color: var(--color-text-soft);
+  font-family: var(--font-mono), monospace;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orchestration-runtime-mode-row--active > button:first-child {
+  border-color: color-mix(in srgb, var(--color-soul) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-soul) 8%, rgba(255, 255, 255, 0.018));
+}
+
+.orchestration-runtime-mode-default {
+  min-width: 4.2rem;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
+.orchestration-runtime-mode-default--active {
+  border-color: rgba(103, 220, 154, 0.34) !important;
+  color: #baf7cf !important;
+}
+
+.orchestration-runtime-mode-default:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.orchestration-runtime-mode-confirm {
+  border: 1px solid rgba(255, 215, 107, 0.26);
+  border-radius: 7px;
+  background: rgba(255, 215, 107, 0.06);
+  padding: 0.45rem 0.5rem;
+}
+
+.orchestration-runtime-mode-confirm button {
+  border: 1px solid color-mix(in srgb, var(--color-soul) 18%, var(--color-border));
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 850;
+  padding: 0.32rem 0.48rem;
+}
+
+.orchestration-permission-matrix {
+  display: grid;
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  border-radius: 8px;
+}
+
+.orchestration-permission-matrix__head,
+.orchestration-permission-row {
+  display: grid;
+  grid-template-columns: 92px minmax(180px, 1.15fr) minmax(120px, 0.72fr) 72px minmax(92px, 0.56fr) 82px 148px;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 850px;
+}
+
+.orchestration-permission-matrix__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 2.1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 13%, var(--color-border));
+  background: color-mix(in srgb, var(--boundary-bg) 96%, var(--color-panel));
+  color: var(--color-text-muted);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  padding: 0 0.62rem;
+  text-transform: uppercase;
+}
+
+.orchestration-permission-row {
+  min-height: 2.9rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 8%, var(--color-border));
+  color: var(--color-text-soft);
+  cursor: pointer;
+  padding: 0.38rem 0.62rem;
+  transition: background 140ms ease, box-shadow 140ms ease, color 140ms ease;
+}
+
+.orchestration-permission-row:last-child {
+  border-bottom: 0;
+}
+
+.orchestration-permission-row:hover,
+.orchestration-permission-row:focus-visible {
+  outline: 0;
+  background: color-mix(in srgb, var(--color-soul) 7%, transparent);
+}
+
+.orchestration-permission-row--active {
+  background: color-mix(in srgb, var(--color-soul) 11%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--color-soul) 78%, transparent);
+}
+
+.orchestration-permission-row--allowed .orchestration-permission-row__status em {
+  border-color: rgba(103, 220, 154, 0.42);
+  color: #baf7cf;
+}
+
+.orchestration-permission-row--blocked {
+  opacity: 0.72;
+}
+
+.orchestration-permission-row--empty {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.orchestration-permission-row--empty:hover,
+.orchestration-permission-row--empty:focus-visible {
+  background: transparent;
+  box-shadow: none;
+}
+
+.orchestration-permission-row--blocked .orchestration-permission-row__status em,
+.orchestration-permission-row--conflict .orchestration-permission-row__status em {
+  border-color: rgba(255, 140, 125, 0.42);
+  color: #ffd0c8;
+}
+
+.orchestration-permission-row--partial .orchestration-permission-row__status em {
+  border-color: rgba(255, 215, 107, 0.42);
+  color: #ffdf83;
+}
+
+.orchestration-permission-row > span,
+.orchestration-permission-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orchestration-permission-row strong {
+  color: var(--color-text);
+  font-size: 0.76rem;
+}
+
+.orchestration-permission-row span {
+  color: var(--color-text-muted);
+  font-size: 0.68rem;
+}
+
+.orchestration-permission-row__type {
+  color: var(--color-soul);
+  font-weight: 900;
+}
+
+.orchestration-permission-row__status em {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.4rem;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 13%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-text-muted);
   font-size: 0.64rem;
-  padding: 0.18rem 0.38rem;
-  overflow-wrap: anywhere;
+  font-style: normal;
+  font-weight: 900;
+  padding: 0.16rem 0.4rem;
 }
 
-.orchestration-capability-card__actions {
-  margin-top: auto;
+.orchestration-permission-row__actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.32rem;
 }
 
-.orchestration-capability-card__actions button,
-.orchestration-capability-inspector__actions button {
+.orchestration-permission-row__actions button,
+.orchestration-permission-inspector__actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -18939,91 +19342,105 @@ html[data-soul="xuannv"] .soul-portrait__label {
   padding: 0.26rem 0.4rem;
 }
 
-.orchestration-capability-card__actions button:disabled,
-.orchestration-capability-inspector__actions button:disabled {
+.orchestration-permission-row__actions button:disabled,
+.orchestration-permission-inspector__actions button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
 
-.orchestration-capability-card__actions button.is-active,
-.orchestration-capability-inspector__actions button:first-child {
+.orchestration-permission-row__actions button.is-active,
+.orchestration-permission-inspector__actions button:first-child {
   border-color: rgba(103, 220, 154, 0.5);
   color: #baf7cf;
 }
 
-.orchestration-capability-card__actions button.is-danger-active,
-.orchestration-capability-inspector__actions button:last-child {
+.orchestration-permission-row__actions button.is-danger-active,
+.orchestration-permission-inspector__actions button:last-child {
   border-color: rgba(255, 140, 125, 0.45);
   color: #ffd0c8;
 }
 
-.orchestration-capability-inspector {
+.orchestration-permission-inspector {
   position: sticky;
   top: 0.75rem;
   align-self: start;
 }
 
-.orchestration-capability-inspector__hero {
+.orchestration-permission-inspector__hero {
   display: grid;
   gap: 0.36rem;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.02);
-  padding: 0.68rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-soul) 12%, var(--color-border));
+  padding-bottom: 0.64rem;
 }
 
-.orchestration-capability-inspector__hero span {
+.orchestration-permission-inspector__hero span {
   color: var(--color-soul);
   font-size: 0.68rem;
   font-weight: 900;
 }
 
-.orchestration-capability-inspector__hero h4 {
+.orchestration-permission-inspector__hero h4 {
   margin: 0;
   color: var(--color-text);
   font-size: 1rem;
 }
 
-.orchestration-capability-inspector__hero p,
-.orchestration-capability-detail-block p {
+.orchestration-permission-inspector__hero p,
+.orchestration-permission-detail-block p {
   margin: 0;
   color: var(--color-text-soft);
   font-size: 0.74rem;
   line-height: 1.52;
 }
 
-.orchestration-capability-detail-block {
+.orchestration-permission-detail-block {
   display: grid;
   gap: 0.48rem;
   border-top: 1px solid color-mix(in srgb, var(--color-soul) 12%, transparent);
   padding-top: 0.64rem;
 }
 
-.orchestration-capability-detail-block > strong {
+.orchestration-permission-detail-block > strong {
   color: var(--color-text);
   font-size: 0.8rem;
 }
 
-.orchestration-capability-detail-block p {
+.orchestration-permission-detail-block div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.34rem;
+}
+
+.orchestration-permission-detail-block div > span {
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--color-soul) 14%, var(--color-border));
+  border-radius: 999px;
+  color: var(--color-text-soft);
+  font-size: 0.64rem;
+  padding: 0.18rem 0.38rem;
+  overflow-wrap: anywhere;
+}
+
+.orchestration-permission-detail-block p {
   display: grid;
   gap: 0.16rem;
   width: 100%;
 }
 
-.orchestration-capability-detail-block p span {
+.orchestration-permission-detail-block p span {
   color: var(--color-text-muted);
   font-size: 0.66rem;
   font-weight: 850;
 }
 
-.orchestration-capability-detail-block p b {
+.orchestration-permission-detail-block p b {
   color: var(--color-text-soft);
   font-size: 0.72rem;
   font-weight: 700;
   overflow-wrap: anywhere;
 }
 
-.orchestration-capability-inspector__actions {
+.orchestration-permission-inspector__actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.46rem;
@@ -24464,6 +24881,10 @@ html[data-soul="xuannv"] .soul-portrait__label {
     grid-template-columns: 1fr;
   }
 
+  .coordination-output-board--monitor-core {
+    grid-template-columns: 1fr;
+  }
+
   .coordination-contract-board,
   .coordination-contract-summary {
     grid-template-columns: 1fr;
@@ -25452,28 +25873,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   flex-direction: column;
 }
 
-.task-system-boundary__management {
-  display: grid;
-  align-content: start;
-  gap: 0.72rem;
-  min-height: 0;
-  flex: 1;
-  overflow: hidden;
-}
-
-.task-system-boundary__object-card {
-  display: grid;
-  gap: 0.16rem;
-  align-items: start;
-  text-align: left;
-}
-
-.task-system-boundary__object-workspace {
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-}
-
 .task-system-boundary__editor {
   min-height: 0;
   flex: 1;
@@ -25489,114 +25888,6 @@ html[data-soul="xuannv"] .soul-portrait__label {
   min-height: 0;
   height: 100%;
   overflow: hidden;
-}
-
-.task-system-domain-context {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 1fr) auto;
-  gap: 0.72rem;
-  align-items: stretch;
-  min-width: 0;
-}
-
-.task-system-domain-context__identity,
-.task-system-domain-context__metrics,
-.task-system-domain-context__actions {
-  min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 16%, var(--color-border));
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 42%),
-    var(--boundary-bg);
-}
-
-.task-system-domain-context__identity {
-  display: grid;
-  gap: 0.34rem;
-  padding: 0.72rem;
-}
-
-.task-system-domain-context__identity span,
-.task-system-workspace-card span {
-  color: var(--color-soul);
-  font-size: 0.64rem;
-  font-weight: 900;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.task-system-domain-context__identity select {
-  min-width: 0;
-  width: 100%;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 22%, var(--color-border));
-  border-radius: 7px;
-  background-color: color-mix(in srgb, var(--color-surface) 92%, #07121a);
-  color: var(--color-text);
-  color-scheme: dark;
-  font-size: 1rem;
-  font-weight: 850;
-  padding: 0.48rem 0.56rem;
-}
-
-.task-system-domain-context__identity select:focus {
-  border-color: color-mix(in srgb, var(--color-soul) 52%, var(--color-border));
-  outline: none;
-}
-
-.task-system-domain-context__identity select option {
-  background-color: #0b2230;
-  color: #edf7ff;
-}
-
-.task-system-domain-context__identity select option:checked {
-  background-color: #164862;
-  color: #ffffff;
-}
-
-.task-system-domain-context__identity .task-graph-editor-chrome__field {
-  min-height: 0;
-  border: 0;
-  background: transparent;
-  padding: 0;
-}
-
-.task-system-domain-context__identity .task-graph-editor-chrome__field-label {
-  display: none;
-}
-
-.task-system-domain-context__identity .task-graph-editor-select > button {
-  min-height: 42px;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 28%, var(--color-border));
-  border-radius: 7px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.045), transparent 68%),
-    color-mix(in srgb, var(--color-surface) 86%, #07121a);
-  font-size: 1rem;
-  font-weight: 850;
-  padding: 0.46rem 0.56rem;
-}
-
-.task-system-domain-context__identity .task-graph-editor-select > button[aria-expanded="true"] {
-  border-color: color-mix(in srgb, var(--color-soul) 62%, var(--color-border));
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--color-soul) 12%, transparent), transparent 72%),
-    color-mix(in srgb, var(--color-surface) 84%, #07121a);
-}
-
-.task-system-domain-context__identity .task-graph-editor-select > button span {
-  color: var(--color-text);
-}
-
-.task-system-domain-context__identity .task-graph-editor-select__menu {
-  z-index: 50;
-  width: min(420px, max(100%, 260px));
-}
-
-.task-system-domain-context__identity small {
-  color: var(--color-text-muted);
-  font-family: var(--font-mono), monospace;
-  font-size: 0.68rem;
-  overflow-wrap: anywhere;
 }
 
 .task-system-boundary input,
@@ -25647,102 +25938,354 @@ html[data-soul="xuannv"] .soul-portrait__label {
   background-color: #0b2230;
 }
 
-.task-system-domain-context__metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.52rem;
-  padding: 0.62rem;
-}
-
-.task-system-domain-context__actions {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.42rem;
-  padding: 0.62rem;
-}
-
 .task-system-object-switcher {
   min-width: 0;
 }
 
-.task-system-workspace-switcher-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.28fr);
-  gap: 0.55rem;
+.system-page-content .boundary-console {
+  border: 1px solid #cbd3df;
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+}
+
+.system-page-content .boundary-hero {
+  min-height: 0;
+  border-color: #d8e0eb;
+  background: #f8fafc;
+  padding: 0.75rem 0.85rem;
+}
+
+.system-page-content .boundary-hero h2 {
+  font-size: 1.05rem;
+}
+
+.system-page-content .boundary-hero p {
+  color: #64748b;
+}
+
+.system-page-content .boundary-workbench,
+.system-page-content .orchestration-workbench,
+.system-page-content .orchestration-definition-center {
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  gap: 0.72rem;
+}
+
+.system-page-content .boundary-rail,
+.system-page-content .boundary-main,
+.system-page-content .boundary-card,
+.system-page-content .task-management-directory,
+.system-page-content .task-management-workbench {
+  border-color: #d8e0eb;
+  background: #fff;
+  color: #0f172a;
+}
+
+.orchestration-practical-rail {
+  grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
+}
+
+.orchestration-directory-switcher,
+.orchestration-section-title,
+.orchestration-practical-list,
+.orchestration-directory-actions--practical {
   min-width: 0;
 }
 
-.task-system-workspace-switcher-group {
-  display: grid;
-  gap: 0.55rem;
-  min-width: 0;
+.orchestration-section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.65rem;
 }
 
-.task-system-workspace-switcher-group--primary {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.orchestration-section-title span {
+  color: #1d5fd3;
+  font-size: 0.64rem;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
-.task-system-workspace-switcher-group--support {
-  grid-template-columns: 1fr;
+.orchestration-section-title small {
+  color: #64748b;
+  font-size: 0.68rem;
+  line-height: 1.32;
 }
 
-.task-system-workspace-card {
-  display: grid;
+.orchestration-practical-list {
   align-content: start;
-  gap: 0.22rem;
-  min-height: 92px;
-  border: 1px solid color-mix(in srgb, var(--color-soul) 13%, var(--color-border));
+}
+
+.orchestration-practical-group {
+  display: grid;
+  gap: 0.42rem;
+  border: 1px solid #d8e0eb;
   border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.032), transparent 58%),
-    color-mix(in srgb, var(--boundary-bg) 88%, transparent);
-  color: var(--color-text-soft);
-  cursor: pointer;
-  padding: 0.72rem;
+  background: #f8fafc;
+  padding: 0.42rem;
+}
+
+.orchestration-practical-group--active {
+  border-color: #b8c7dc;
+  background: #f2f6fd;
+}
+
+.orchestration-practical-group__head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
   text-align: left;
 }
 
-.task-system-workspace-card--support {
-  min-height: 0;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.12rem;
-  padding: 0.46rem 0.58rem;
+.orchestration-practical-group__head strong {
+  color: #0f172a;
 }
 
-.task-system-workspace-card--support small {
-  display: none;
+.orchestration-practical-group__head span {
+  color: #64748b;
 }
 
-.task-system-workspace-card--support strong {
-  font-size: 0.76rem;
+.orchestration-directory-actions--practical {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
 }
 
-.task-system-workspace-card:hover {
-  border-color: color-mix(in srgb, var(--color-soul) 36%, var(--color-border));
-  color: var(--color-text);
+.orchestration-config-main {
+  gap: 0.62rem;
 }
 
-.task-system-workspace-card--active {
-  border-color: color-mix(in srgb, var(--color-soul) 55%, var(--color-border));
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--color-soul) 10%, transparent), transparent 72%),
-    color-mix(in srgb, var(--boundary-bg) 86%, transparent);
-  color: var(--color-text);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-soul) 22%, transparent);
+.orchestration-config-tabs {
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
 }
 
-.task-system-workspace-card strong {
-  color: var(--color-text);
-  font-size: 0.9rem;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
+.orchestration-config-tabs .boundary-layer-tabs__item {
+  min-height: 52px;
+  background: #f8fafc;
 }
 
-.task-system-workspace-card small {
-  color: var(--color-text-muted);
+.system-page-content .orchestration-permission-workbench {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+}
+
+.system-page-content .orchestration-permission-summary span,
+.system-page-content .orchestration-permission-matrix,
+.system-page-content .orchestration-permission-raw {
+  border-color: #d8e0eb;
+  background: #f8fafc;
+}
+
+.system-page-content .orchestration-permission-summary span,
+.system-page-content .orchestration-permission-row span,
+.system-page-content .orchestration-permission-row__status em,
+.system-page-content .orchestration-permission-detail-block p,
+.system-page-content .orchestration-permission-detail-block p b,
+.system-page-content .orchestration-permission-inspector__hero p {
+  color: #475569;
+}
+
+.system-page-content .orchestration-permission-summary b,
+.system-page-content .orchestration-permission-row strong,
+.system-page-content .orchestration-permission-inspector__hero h4,
+.system-page-content .orchestration-permission-detail-block > strong {
+  color: #0f172a;
+}
+
+.system-page-content .orchestration-runtime-mode-panel {
+  border-color: #d8e0eb;
+  background: #f8fafc;
+}
+
+.system-page-content .orchestration-runtime-mode-panel__head span {
+  color: #1d5fd3;
+}
+
+.system-page-content .orchestration-runtime-mode-panel__head small,
+.system-page-content .orchestration-runtime-mode-confirm span,
+.system-page-content .orchestration-runtime-mode-row strong {
+  color: #64748b;
+}
+
+.system-page-content .orchestration-runtime-mode-row > button {
+  border-color: #d8e0eb;
+  background: #fff;
+  color: #334155;
+}
+
+.system-page-content .orchestration-runtime-mode-row span {
+  color: #0f172a;
+}
+
+.system-page-content .orchestration-runtime-mode-row--active > button:first-child {
+  border-color: #94b6e8;
+  background: #eef5ff;
+}
+
+.system-page-content .orchestration-runtime-mode-default--active {
+  border-color: #86c9a1 !important;
+  color: #167146 !important;
+}
+
+.system-page-content .orchestration-runtime-mode-confirm {
+  border-color: #f4d27a;
+  background: #fff8df;
+}
+
+.system-page-content .orchestration-runtime-mode-confirm button {
+  border-color: #d8e0eb;
+  background: #fff;
+  color: #0f172a;
+}
+
+.system-page-content .orchestration-permission-matrix__head {
+  border-bottom-color: #d8e0eb;
+  background: #edf2f9;
+  color: #64748b;
+}
+
+.system-page-content .orchestration-permission-row {
+  border-bottom-color: #e4eaf2;
+  color: #334155;
+}
+
+.system-page-content .orchestration-permission-row:hover,
+.system-page-content .orchestration-permission-row:focus-visible,
+.system-page-content .orchestration-permission-row--active {
+  background: #e8f0ff;
+}
+
+.system-page-content .orchestration-permission-row--active {
+  box-shadow: inset 3px 0 0 #2563eb;
+}
+
+.system-page-content .orchestration-permission-row__type,
+.system-page-content .orchestration-permission-inspector__hero span {
+  color: #1d5fd3;
+}
+
+.system-page-content .orchestration-permission-row--allowed .orchestration-permission-row__status em,
+.system-page-content .orchestration-permission-row__actions button.is-active,
+.system-page-content .orchestration-permission-inspector__actions button:first-child {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.system-page-content .orchestration-permission-row--blocked .orchestration-permission-row__status em,
+.system-page-content .orchestration-permission-row--conflict .orchestration-permission-row__status em,
+.system-page-content .orchestration-permission-row__actions button.is-danger-active,
+.system-page-content .orchestration-permission-inspector__actions button:last-child {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.system-page-content .orchestration-permission-row--partial .orchestration-permission-row__status em {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.system-page-content .orchestration-permission-row__actions button,
+.system-page-content .orchestration-permission-inspector__actions button,
+.system-page-content .orchestration-permission-detail-block div > span {
+  border-color: #d8e0eb;
+  background: #fff;
+  color: #334155;
+}
+
+.system-page-content .orchestration-permission-inspector__hero,
+.system-page-content .orchestration-permission-detail-block {
+  border-color: #e4eaf2;
+}
+
+.system-page-content .orchestration-console-head__summary > div,
+.system-page-content .orchestration-directory-switcher__item,
+.system-page-content .orchestration-group-summary-row,
+.system-page-content .orchestration-member-row,
+.system-page-content .orchestration-subagent-row {
+  border-color: #d8e0eb;
+  background: #f8fafc;
+}
+
+.system-page-content .orchestration-directory-switcher {
+  gap: 0.22rem;
+}
+
+.system-page-content .orchestration-directory-switcher__item {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.4rem;
+  min-height: 2rem;
+  padding: 0.24rem 0.42rem;
+}
+
+.system-page-content .orchestration-directory-switcher__item strong {
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.system-page-content .orchestration-directory-switcher__item span {
   font-size: 0.68rem;
-  line-height: 1.38;
+  line-height: 1.05;
+}
+
+.system-page-content .orchestration-console-head__summary strong,
+.system-page-content .orchestration-console-head__title h2,
+.system-page-content .orchestration-group-summary-row strong,
+.system-page-content .orchestration-member-row__body strong,
+.system-page-content .orchestration-subagent-row__main strong {
+  color: #0f172a;
+}
+
+.system-page-content .orchestration-console-head__summary span,
+.system-page-content .orchestration-console-head__summary small,
+.system-page-content .orchestration-group-summary-row span,
+.system-page-content .orchestration-group-summary-row small,
+.system-page-content .orchestration-member-row__body span,
+.system-page-content .orchestration-subagent-row__main span,
+.system-page-content .orchestration-section-title small {
+  color: #475569;
+}
+
+.system-page-content .orchestration-directory-switcher__item--active,
+.system-page-content .orchestration-group-summary-row,
+.system-page-content .orchestration-member-row--selected,
+.system-page-content .orchestration-subagent-row--active,
+.system-page-content .boundary-layer-tabs__item--active {
+  border-color: #b8c7dc;
+  background: #e8f0ff;
+  color: #1d5fd3;
+}
+
+.system-page-content .task-system-object-page {
+  grid-template-columns: minmax(260px, 330px) minmax(0, 1fr);
+  gap: 0.68rem;
+}
+
+.system-page-content .task-management-titlebar {
+  padding-bottom: 0.35rem;
+}
+
+@media (max-width: 980px) {
+  .system-page-shell {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .system-page-content {
+    padding: 0.48rem;
+  }
+
+  .system-page-content .boundary-workbench,
+  .system-page-content .orchestration-workbench,
+  .system-page-content .orchestration-definition-center,
+  .system-page-content .task-system-object-page {
+    grid-template-columns: 1fr;
+  }
 }
 
 .task-system-object-page {
@@ -26715,16 +27258,9 @@ html[data-soul="xuannv"] .soul-portrait__label {
 }
 
 @media (max-width: 1100px) {
-  .task-system-domain-context,
-  .task-system-workspace-switcher-grid,
-  .task-system-workspace-switcher-group--primary,
   .task-graph-composer-workbench,
   .task-graph-composer-dock__list {
     grid-template-columns: 1fr;
-  }
-
-  .task-system-domain-context__metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .task-system-object-page {
@@ -26939,7 +27475,6 @@ button:hover {
     Consolas,
     monospace;
   --workbench-bg: #f4f5f7;
-  --workbench-rail: #f9fafb;
   --workbench-surface: #ffffff;
   --workbench-surface-soft: #f7f8fa;
   --workbench-hover: #eef2f7;
@@ -26958,8 +27493,8 @@ button:hover {
   --workbench-glow: 0 0 0 rgba(0, 0, 0, 0);
   --workbench-input: #f8fafc;
   display: grid;
-  min-height: 100dvh;
-  height: 100dvh;
+  min-height: 0;
+  height: 100%;
   min-width: 0;
   overflow: hidden;
   background:
@@ -26976,7 +27511,6 @@ button:hover {
 html[data-workspace-tone] .agent-workbench {
   --workbench-bg:
     linear-gradient(180deg, var(--workspace-bg-base) 0%, var(--workspace-bg-mid) 48%, #f7f8f8 100%);
-  --workbench-rail: var(--workspace-panel-bg-strong);
   --workbench-surface: var(--workspace-panel-bg-strong);
   --workbench-surface-soft: var(--workspace-panel-bg-soft);
   --workbench-hover: color-mix(in srgb, var(--workspace-panel-bg-strong) 72%, var(--color-accent) 8%);
@@ -26996,106 +27530,11 @@ html[data-workspace-tone] .agent-workbench {
   --workbench-input: rgba(255, 255, 255, 0.66);
 }
 
-.workbench-rail {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  align-items: start;
-  border-right: 1px solid var(--workbench-line);
-  background:
-    var(--workbench-surface-texture),
-    var(--workbench-rail);
-  padding: 8px 6px;
-}
-
-.workbench-rail__mark {
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 7px;
-  background: #20242c;
-  color: #fff;
-  font-size: 0.76rem;
-  font-weight: 780;
-}
-
-.workbench-rail__nav,
-.workbench-rail__footer {
-  display: grid;
-  gap: 0.34rem;
-  justify-items: center;
-  width: 100%;
-}
-
-.workbench-rail__nav {
-  align-content: start;
-  margin-top: 1rem;
-}
-
-.workbench-rail__footer {
-  align-self: end;
-}
-
-.workbench-tone-switch {
-  display: grid;
-  gap: 0.3rem;
-  justify-items: center;
-  padding: 0.2rem 0 0.35rem;
-}
-
-.agent-workbench .workbench-tone-switch__item {
-  width: 1.05rem;
-  min-width: 1.05rem;
-  height: 1.05rem;
-  min-height: 1.05rem;
-  border: 1px solid rgba(255, 255, 255, 0.82);
-  border-radius: 999px;
-  background: var(--tone-swatch);
-  box-shadow:
-    inset 0 0 0 1px rgba(23, 26, 32, 0.08),
-    0 4px 10px rgba(31, 42, 58, 0.12);
-  cursor: pointer;
-  padding: 0;
-}
-
-.workbench-tone-switch__item[data-tone="default"] {
-  --tone-swatch: linear-gradient(135deg, #f4f5f7, #ffffff);
-}
-
-.workbench-tone-switch__item[data-tone="water"] {
-  --tone-swatch: linear-gradient(135deg, #8dc8e8, #eef9fc);
-}
-
-.workbench-tone-switch__item[data-tone="leaf"] {
-  --tone-swatch: linear-gradient(135deg, #91d0b8, #f2faf3);
-}
-
-.workbench-tone-switch__item[data-tone="gold"] {
-  --tone-swatch: linear-gradient(135deg, #d3ad59, #fff7dd);
-}
-
-.workbench-tone-switch__item[data-tone="ember"] {
-  --tone-swatch: linear-gradient(135deg, #de825d, #fff0e8);
-}
-
-.workbench-tone-switch__item[data-tone="lumen"] {
-  --tone-swatch: linear-gradient(135deg, #becde2, #ffffff);
-}
-
-.agent-workbench .workbench-tone-switch__item--active {
-  border-color: var(--workbench-blue);
-  box-shadow:
-    inset 0 0 0 2px rgba(255, 255, 255, 0.86),
-    0 0 0 2px color-mix(in srgb, var(--workbench-blue) 18%, transparent);
-}
-
-.workbench-rail__button,
 .workbench-icon-button,
 .workbench-toolbar-actions button,
-.workbench-segmented button,
 .workbench-right-tabs button,
-.workbench-manager-toolbar button,
-.workbench-session-title-editor button,
+.workbench-project-context button,
+.workbench-session-toolbar button,
 .workbench-file-row,
 .workbench-session-row button,
 .workbench-browser-bar button,
@@ -27104,23 +27543,6 @@ html[data-workspace-tone] .agent-workbench {
   background: transparent;
   color: inherit;
   cursor: pointer;
-}
-
-.workbench-rail__button {
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 7px;
-  color: #5b6470;
-  transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
-}
-
-.workbench-rail__button:hover,
-.workbench-rail__button--active {
-  border-color: var(--workbench-line);
-  background: var(--workbench-surface);
-  color: var(--workbench-blue);
 }
 
 .workbench-resource-panel,
@@ -27203,7 +27625,6 @@ html[data-workspace-tone] .agent-workbench {
   opacity: 0.38;
 }
 
-.workbench-segmented,
 .workbench-right-tabs {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -27212,11 +27633,6 @@ html[data-workspace-tone] .agent-workbench {
   padding: 7px;
 }
 
-.workbench-segmented {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.workbench-segmented button,
 .workbench-right-tabs button {
   display: inline-flex;
   align-items: center;
@@ -27230,9 +27646,7 @@ html[data-workspace-tone] .agent-workbench {
   font-weight: 690;
 }
 
-.workbench-segmented button:hover,
 .workbench-right-tabs button:hover,
-.workbench-segmented button.is-active,
 .workbench-right-tabs button.is-active {
   background: var(--workbench-surface);
   color: var(--workbench-blue);
@@ -27243,34 +27657,70 @@ html[data-workspace-tone] .agent-workbench {
 .workbench-session-panel {
   min-height: 0;
   overflow: auto;
-  padding: 8px;
+  padding: 0;
 }
 
 .workbench-project-context {
   display: grid;
-  gap: 8px;
+  gap: 7px;
   border-bottom: 1px solid var(--workbench-line);
   background: var(--workbench-surface-soft);
-  padding: 9px 10px;
+  padding: 8px 10px;
 }
 
-.workbench-project-context > div {
+.workbench-project-context__summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workbench-project-context__summary > div {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
+.workbench-project-context button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  min-height: 1.75rem;
+  border: 1px solid var(--workbench-line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--workbench-surface) 94%, white);
+  color: var(--workbench-text);
+  font-size: 0.66rem;
+  font-weight: 680;
+  padding: 0 0.48rem;
+  white-space: nowrap;
+}
+
+.workbench-project-context button:hover {
+  border-color: color-mix(in srgb, var(--workbench-blue) 34%, var(--workbench-line));
+  background: var(--workbench-blue-soft);
+  color: var(--workbench-blue);
+}
+
+.workbench-project-context__notice {
+  overflow: hidden;
+  color: var(--workbench-blue);
+  font-size: 0.62rem;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .workbench-project-context span,
 .workbench-project-context dt,
-.workbench-current-file span,
-.workbench-session-active > span {
+.workbench-current-file span {
   color: var(--workbench-muted);
   font-size: 0.66rem;
 }
 
 .workbench-project-context strong,
-.workbench-current-file strong,
-.workbench-session-active strong {
+.workbench-current-file strong {
   overflow: hidden;
   color: var(--workbench-text);
   font-size: 0.78rem;
@@ -27283,34 +27733,6 @@ html[data-workspace-tone] .agent-workbench {
   overflow: hidden;
   color: var(--workbench-soft);
   font-size: 0.62rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workbench-project-context dl {
-  display: grid;
-  gap: 1px;
-  overflow: hidden;
-  border: 1px solid var(--workbench-line);
-  border-radius: 7px;
-  background: var(--workbench-line);
-}
-
-.workbench-project-context dl div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.7rem;
-  min-width: 0;
-  background: color-mix(in srgb, var(--workbench-surface) 92%, white);
-  padding: 6px 8px;
-}
-
-.workbench-project-context dd {
-  overflow: hidden;
-  margin: 0;
-  color: var(--workbench-text);
-  font-size: 0.68rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -27401,21 +27823,22 @@ html[data-workspace-tone] .agent-workbench {
   color: #9a5b00;
 }
 
-.workbench-manager-toolbar {
+.workbench-session-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
+  border-bottom: 1px solid var(--workbench-line);
+  padding: 8px 10px;
 }
 
-.workbench-manager-toolbar div {
+.workbench-session-toolbar div {
   display: grid;
   gap: 1px;
   min-width: 0;
 }
 
-.workbench-manager-toolbar strong {
+.workbench-session-toolbar strong {
   overflow: hidden;
   color: var(--workbench-text);
   font-size: 0.78rem;
@@ -27424,12 +27847,15 @@ html[data-workspace-tone] .agent-workbench {
   white-space: nowrap;
 }
 
-.workbench-manager-toolbar span {
+.workbench-session-toolbar span {
+  overflow: hidden;
   color: var(--workbench-muted);
   font-size: 0.64rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.workbench-manager-toolbar button {
+.workbench-session-toolbar button {
   display: inline-flex;
   align-items: center;
   gap: 0.34rem;
@@ -27441,7 +27867,7 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0 0.55rem;
 }
 
-.workbench-manager-toolbar button:disabled {
+.workbench-session-toolbar button:disabled {
   cursor: default;
   background: var(--workbench-surface-soft);
   color: var(--workbench-muted);
@@ -27523,67 +27949,8 @@ html[data-workspace-tone] .agent-workbench {
 
 .workbench-session-list {
   display: grid;
-  gap: 0.22rem;
-}
-
-.workbench-session-active {
-  display: grid;
-  gap: 5px;
-  border: 1px solid var(--workbench-line);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--workbench-surface) 94%, white);
-  margin-bottom: 8px;
-  padding: 8px;
-}
-
-.workbench-session-active small {
-  overflow: hidden;
-  color: var(--workbench-muted);
-  font-size: 0.64rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.workbench-session-title-editor {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.workbench-session-title-editor svg {
-  color: var(--workbench-muted);
-}
-
-.workbench-session-title-editor input {
-  min-width: 0;
-  border: 1px solid var(--workbench-line);
-  border-radius: 6px;
-  background: var(--workbench-input);
-  color: var(--workbench-text);
-  font-size: 0.72rem;
-  outline: none;
-  padding: 0.36rem 0.44rem;
-}
-
-.workbench-session-title-editor input:focus {
-  border-color: var(--workbench-blue);
-}
-
-.workbench-session-title-editor button {
-  border-radius: 6px;
-  background: var(--workbench-blue);
-  color: #fff;
-  font-size: 0.66rem;
-  padding: 0.36rem 0.5rem;
-}
-
-.workbench-session-title-editor button:disabled {
-  cursor: default;
-  background: var(--workbench-surface-soft);
-  color: var(--workbench-muted);
-  opacity: 0.7;
+  gap: 0;
+  border-top: 1px solid var(--workbench-line);
 }
 
 .workbench-session-row {
@@ -27591,21 +27958,23 @@ html[data-workspace-tone] .agent-workbench {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.18rem;
-  border-radius: 7px;
-  padding: 0.16rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--workbench-line) 70%, transparent);
+  border-radius: 0;
+  padding: 0;
 }
 
 .workbench-session-row:hover,
 .workbench-session-row--active {
-  background: var(--workbench-hover);
-  box-shadow: inset 0 0 0 1px var(--workbench-line);
+  background: color-mix(in srgb, var(--workbench-blue-soft) 72%, #fff);
+  box-shadow: inset 3px 0 0 var(--workbench-blue);
 }
 
 .workbench-session-row button:first-child {
-  display: grid;
-  gap: 0.08rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.42rem;
   min-width: 0;
-  padding: 0.42rem;
+  padding: 0.48rem 0.36rem;
   text-align: left;
 }
 
@@ -27614,7 +27983,7 @@ html[data-workspace-tone] .agent-workbench {
   place-items: center;
   width: 1.65rem;
   height: 1.65rem;
-  border-radius: 6px;
+  border-radius: 5px;
   color: var(--workbench-muted);
   opacity: 0;
 }
@@ -27751,6 +28120,267 @@ html[data-workspace-tone] .agent-workbench {
 
 .workbench-view-host--chat {
   display: grid;
+}
+
+.system-page-shell {
+  --console-bg: #f3f5f8;
+  --console-bg-soft: #f7f9fc;
+  --console-surface: #ffffff;
+  --console-surface-soft: #f8fafc;
+  --console-surface-strong: #eef2f7;
+  --console-line: #cbd3df;
+  --console-line-soft: #dde4ee;
+  --console-line-strong: #aeb8c7;
+  --console-text: #0f172a;
+  --console-text-soft: #334155;
+  --console-muted: #64748b;
+  --console-faint: #8492a6;
+  --console-blue: #1d5fd3;
+  --console-blue-soft: #e8f0ff;
+  --console-green: #0f7a55;
+  --console-green-soft: #e5f6ee;
+  --console-warn: #a16207;
+  --console-warn-soft: #fff6dd;
+  --console-danger: #b42318;
+  --console-danger-soft: #fff0ee;
+  --color-bg: var(--console-bg);
+  --color-bg-alt: var(--console-bg-soft);
+  --color-text: var(--console-text);
+  --color-text-soft: var(--console-muted);
+  --color-text-muted: var(--console-faint);
+  --color-border: var(--console-line);
+  --color-border-strong: var(--console-line-strong);
+  --color-panel: var(--console-surface);
+  --color-panel-soft: var(--console-surface-soft);
+  --color-panel-strong: var(--console-surface);
+  --color-soul: var(--console-blue);
+  --color-soul-soft: var(--console-blue-soft);
+  --color-accent: var(--console-blue);
+  --color-danger: var(--console-danger);
+  --radius-panel: 8px;
+  --radius-block: 8px;
+  --radius-card: 8px;
+  --radius-inner: 7px;
+  --radius-control: 7px;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  width: 100vw;
+  height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #f3f5f8;
+  color: #0f172a;
+  font-size: 13px;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+.system-page-rail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.8rem;
+  border-right: 1px solid #cbd3df;
+  background: #eef2f7;
+  padding: 0.55rem 0.42rem;
+}
+
+.system-page-rail__mark,
+.system-page-rail__button {
+  display: inline-grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border: 1px solid #d8e0eb;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+}
+
+.system-page-rail__mark {
+  color: #1d5fd3;
+  font-size: 0.85rem;
+  font-weight: 900;
+}
+
+.system-page-rail nav {
+  display: grid;
+  align-content: start;
+  gap: 0.42rem;
+}
+
+.system-page-rail__button {
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease;
+}
+
+.system-page-rail__button:hover,
+.system-page-rail__button--active {
+  border-color: #b8c7dc;
+  background: #e8f0ff;
+  color: #1d5fd3;
+}
+
+.system-page-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0.75rem;
+}
+
+.system-page-content > .workspace-view {
+  height: 100%;
+  min-height: 0;
+}
+
+.system-page-shell .workspace-view,
+.system-page-shell .capability-system-console {
+  background: var(--console-bg);
+  color: var(--console-text);
+}
+
+.system-page-shell .workspace-view {
+  gap: 12px;
+  padding: 12px;
+  scrollbar-color: #aeb8c7 transparent;
+}
+
+.system-page-shell .workspace-view__title {
+  color: var(--console-text);
+}
+
+.system-page-shell .workspace-view__subtitle,
+.system-page-shell .capability-overview-bar span,
+.system-page-shell .capability-group-card__copy span,
+.system-page-shell .capability-group-card__copy i,
+.system-page-shell .capability-group-card__metric span,
+.system-page-shell .capability-group-card em,
+.system-page-shell .capability-page-head span,
+.system-page-shell .capability-issue-list span,
+.system-page-shell .capability-issue-list p,
+.system-page-shell .capability-endpoint-row span,
+.system-page-shell .mcp-tool-row span {
+  color: var(--console-muted);
+}
+
+.system-page-shell .workspace-search,
+.system-page-shell .workspace-alert,
+.system-page-shell .capability-overview-bar,
+.system-page-shell .capability-group-card,
+.system-page-shell .capability-issue-panel,
+.system-page-shell .capability-mcp-section,
+.system-page-shell .capability-mcp-rail,
+.system-page-shell .capability-system-console .operation-switcher__item,
+.system-page-shell .capability-system-console .operation-skill-card,
+.system-page-shell .capability-system-console .operation-tool-card,
+.system-page-shell .capability-system-console .operation-unit-card,
+.system-page-shell .capability-system-console .operation-detail,
+.system-page-shell .capability-system-console .operation-inline-panel,
+.system-page-shell .capability-system-console .operation-foldout,
+.system-page-shell .capability-system-console .operation-fact-grid article,
+.system-page-shell .capability-system-console .operation-tool-control,
+.system-page-shell .capability-system-console .operation-json-stack article,
+.system-page-shell .capability-system-console .operation-inline-stack article,
+.system-page-shell .mcp-tool-row,
+.system-page-shell .capability-endpoint-row,
+.system-page-shell .mcp-server-row {
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.system-page-shell .capability-group-card,
+.system-page-shell .capability-system-console .operation-switcher__item,
+.system-page-shell .capability-system-console .operation-skill-card,
+.system-page-shell .capability-system-console .operation-tool-card,
+.system-page-shell .capability-system-console .operation-unit-card,
+.system-page-shell .mcp-tool-row,
+.system-page-shell .capability-endpoint-row,
+.system-page-shell .mcp-server-row {
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.system-page-shell .capability-group-card:hover,
+.system-page-shell .capability-system-console .operation-switcher__item--active,
+.system-page-shell .capability-system-console .operation-switcher__item:hover,
+.system-page-shell .capability-system-console .operation-skill-card--active,
+.system-page-shell .capability-system-console .operation-tool-card--active,
+.system-page-shell .capability-system-console .operation-unit-card--active,
+.system-page-shell .mcp-tool-row--active,
+.system-page-shell .capability-endpoint-row--active,
+.system-page-shell .capability-system-console .mcp-server-row--active {
+  border-color: #9db6ea;
+  background: var(--console-blue-soft);
+  color: var(--console-text);
+  box-shadow: none;
+  transform: none;
+}
+
+.system-page-shell .action-button,
+.system-page-shell .capability-mcp-actions button {
+  border: 1px solid var(--console-line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--console-text);
+  box-shadow: none;
+  font-weight: 650;
+}
+
+.system-page-shell .action-button:hover:not(:disabled) {
+  border-color: #9db6ea;
+  background: var(--console-blue-soft);
+  color: var(--console-blue);
+  transform: none;
+}
+
+.system-page-shell .action-button--primary {
+  border-color: var(--console-blue);
+  background: var(--console-blue);
+  color: #fff;
+}
+
+.system-page-shell .action-button--danger {
+  border-color: #e8a19a;
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
+}
+
+.system-page-shell .workspace-search,
+.system-page-shell .capability-system-console .operation-inline-form textarea,
+.system-page-shell .capability-system-console .operation-inline-form input,
+.system-page-shell .capability-system-console .operation-prompt-editor input,
+.system-page-shell .capability-system-console .operation-prompt-editor textarea,
+.system-page-shell .capability-system-console .operation-tool-control select,
+.system-page-shell .capability-system-console .operation-tool-control textarea,
+.system-page-shell .capability-system-console .operation-tool-filters select,
+.system-page-shell .capability-system-console .mcp-form-grid input,
+.system-page-shell .capability-system-console .mcp-form-grid select,
+.system-page-shell .capability-system-console .mcp-form-grid textarea,
+.system-page-shell .capability-system-console .capability-mcp-call textarea {
+  border: 1px solid var(--console-line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--console-text);
+  box-shadow: none;
+}
+
+.system-page-shell .workspace-search:focus-within {
+  border-color: var(--console-blue);
+  box-shadow: 0 0 0 3px rgba(29, 95, 211, 0.12);
+}
+
+.system-page-shell .capability-system-console .operation-json-stack pre,
+.system-page-shell .capability-system-console .operation-inline-panel pre,
+.system-page-shell .capability-system-console .operation-foldout pre,
+.system-page-shell .capability-system-console .mcp-call-result,
+.system-page-shell code,
+.system-page-shell pre {
+  border-radius: 7px;
+  background: #eef2f7;
+  color: var(--console-text);
 }
 
 .center-workspace {
@@ -28382,13 +29012,12 @@ html[data-workspace-tone] .agent-workbench {
   font-weight: 650;
 }
 
-.agent-workbench .workbench-segmented button,
 .agent-workbench .workbench-right-tabs button,
 .agent-workbench .workbench-toolbar-actions button,
 .agent-workbench .workbench-file-inspector header button,
 .agent-workbench .workbench-browser-bar button,
 .agent-workbench .workbench-project-context strong,
-.agent-workbench .workbench-manager-toolbar strong,
+.agent-workbench .workbench-session-toolbar strong,
 .agent-workbench .workbench-file-row strong,
 .agent-workbench .workbench-session-row strong,
 .agent-workbench .workbench-file-group header,
@@ -29180,6 +29809,10 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .chat-main-agent-mode__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
   min-height: 2.05rem;
   border: 0;
   border-right: 1px solid var(--color-border);
@@ -29189,7 +29822,15 @@ html[data-workspace-tone] .agent-workbench {
   padding: 0.34rem 0.64rem;
   font-size: 0.74rem;
   font-weight: 720;
-  transition: background 160ms ease, color 160ms ease;
+  transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease;
+}
+
+.chat-main-agent-mode__item small {
+  font-size: 0.65rem;
+  font-weight: 560;
+  line-height: 1.1;
+  opacity: 0.72;
+  white-space: nowrap;
 }
 
 .chat-main-agent-mode__item:last-child {
@@ -29197,11 +29838,16 @@ html[data-workspace-tone] .agent-workbench {
 }
 
 .chat-main-agent-mode__item:hover:not(:disabled),
-.chat-main-agent-mode__item:focus-visible,
-.chat-main-agent-mode__item--active {
-  background: var(--color-text);
-  color: var(--color-ink);
+.chat-main-agent-mode__item:focus-visible {
+  background: var(--workspace-control-hover);
+  color: var(--color-text);
   outline: none;
+}
+
+.chat-main-agent-mode__item--active {
+  background: color-mix(in srgb, var(--workspace-tone-ink) 10%, #fff);
+  color: var(--workspace-tone-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--workspace-tone-ink) 26%, transparent);
 }
 
 .chat-main-agent-mode__item:disabled {
@@ -29227,7 +29873,6 @@ html[data-workspace-tone] .agent-workbench {
 .boundary-main,
 .boundary-hero,
 .boundary-list-row,
-.task-system-workspace-card,
 .task-graph-composer-panel,
 .task-graph-composer-inspector-card,
 .coordination-session__statuspill,
@@ -31024,5 +31669,2249 @@ html[data-workspace-tone] .agent-workbench {
 
   .soul-node-editor__head {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Crisp Console Unification 2026-05-22
+   This layer deliberately flattens the old atmospheric UI into a sharp
+   light-console system for the main agent workspace and system pages. */
+.agent-workbench {
+  --console-bg: #f3f5f8;
+  --console-bg-soft: #f7f9fc;
+  --console-surface: #ffffff;
+  --console-surface-soft: #f8fafc;
+  --console-surface-strong: #eef2f7;
+  --console-line: #cbd3df;
+  --console-line-soft: #dde4ee;
+  --console-line-strong: #aeb8c7;
+  --console-text: #0f172a;
+  --console-text-soft: #334155;
+  --console-muted: #64748b;
+  --console-faint: #8492a6;
+  --console-blue: #1d5fd3;
+  --console-blue-soft: #e8f0ff;
+  --console-green: #0f7a55;
+  --console-green-soft: #e5f6ee;
+  --console-warn: #a16207;
+  --console-warn-soft: #fff6dd;
+  --console-danger: #b42318;
+  --console-danger-soft: #fff0ee;
+  --console-shadow: none;
+  --workbench-bg: var(--console-bg);
+  --workbench-surface: var(--console-surface);
+  --workbench-surface-soft: var(--console-surface-soft);
+  --workbench-hover: #edf3fb;
+  --workbench-line: var(--console-line);
+  --workbench-line-strong: var(--console-line-strong);
+  --workbench-text: var(--console-text);
+  --workbench-muted: var(--console-muted);
+  --workbench-soft: var(--console-faint);
+  --workbench-blue: var(--console-blue);
+  --workbench-blue-soft: var(--console-blue-soft);
+  --workbench-green: var(--console-green);
+  --workbench-texture: none;
+  --workbench-surface-texture: none;
+  --workbench-glow: none;
+  --workbench-input: #ffffff;
+  --color-bg: var(--console-bg);
+  --color-bg-alt: var(--console-bg-soft);
+  --color-text: var(--console-text);
+  --color-text-soft: var(--console-muted);
+  --color-text-muted: var(--console-faint);
+  --color-border: var(--console-line);
+  --color-border-strong: var(--console-line-strong);
+  --color-panel: var(--console-surface);
+  --color-panel-soft: var(--console-surface-soft);
+  --color-panel-strong: var(--console-surface);
+  --color-soul: var(--console-blue);
+  --color-soul-soft: var(--console-blue-soft);
+  --color-accent: var(--console-blue);
+  --color-danger: var(--console-danger);
+  --radius-panel: 8px;
+  --radius-block: 8px;
+  --radius-card: 8px;
+  --radius-inner: 7px;
+  --radius-control: 7px;
+  background: var(--console-bg);
+  color: var(--console-text);
+  font-size: 13px;
+  font-weight: 450;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+html[data-workspace-tone] .agent-workbench {
+  --workbench-bg: var(--console-bg);
+  --workbench-surface: var(--console-surface);
+  --workbench-surface-soft: var(--console-surface-soft);
+  --workbench-hover: #edf3fb;
+  --workbench-line: var(--console-line);
+  --workbench-line-strong: var(--console-line-strong);
+  --workbench-text: var(--console-text);
+  --workbench-muted: var(--console-muted);
+  --workbench-soft: var(--console-faint);
+  --workbench-blue: var(--console-blue);
+  --workbench-blue-soft: var(--console-blue-soft);
+  --workbench-green: var(--console-green);
+  --workbench-texture: none;
+  --workbench-surface-texture: none;
+  --workbench-glow: none;
+  --workbench-input: #ffffff;
+}
+
+.agent-workbench *,
+.agent-workbench *::before,
+.agent-workbench *::after {
+  letter-spacing: 0;
+}
+
+.agent-workbench button,
+.agent-workbench input,
+.agent-workbench select,
+.agent-workbench textarea {
+  font: inherit;
+}
+
+.agent-workbench button {
+  cursor: pointer;
+}
+
+.agent-workbench button:disabled {
+  cursor: not-allowed;
+}
+
+.agent-workbench :focus-visible {
+  outline: 2px solid rgba(29, 95, 211, 0.38);
+  outline-offset: 1px;
+}
+
+.agent-workbench .workbench-resource-panel,
+.agent-workbench .workbench-right-panel,
+.agent-workbench .workbench-center,
+.agent-workbench .workbench-main-toolbar,
+.agent-workbench .workbench-center-content,
+.agent-workbench .workbench-view-host,
+.agent-workbench .panel,
+.agent-workbench .task-monitor-dock,
+.agent-workbench .chat-input-panel--inline {
+  background: var(--console-surface);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.agent-workbench .workbench-icon-button,
+.agent-workbench .workbench-toolbar-icon-button,
+.agent-workbench .task-monitor-dock__collapse,
+.agent-workbench .task-monitor-dock__open,
+.agent-workbench .task-monitor-dock__rail {
+  border-radius: 6px;
+  color: var(--console-muted);
+}
+
+.agent-workbench .workbench-icon-button:hover:not(:disabled),
+.agent-workbench .task-monitor-dock__collapse:hover,
+.agent-workbench .task-monitor-dock__open:hover,
+.agent-workbench .task-monitor-dock__rail--active {
+  border-color: var(--console-line);
+  background: var(--console-surface);
+  color: var(--console-blue);
+}
+
+.agent-workbench .workbench-panel-head,
+.agent-workbench .workbench-main-toolbar,
+.agent-workbench .workbench-browser-bar,
+.agent-workbench .workbench-file-inspector header,
+.agent-workbench .task-monitor-dock__head {
+  min-height: 42px;
+  border-color: var(--console-line);
+  background: var(--console-surface);
+  padding-block: 7px;
+}
+
+.agent-workbench .workbench-panel-head strong,
+.agent-workbench .workbench-breadcrumb strong,
+.agent-workbench .workbench-file-inspector header strong,
+.agent-workbench .task-monitor-dock__title,
+.agent-workbench .runtime-monitor-row__main strong,
+.agent-workbench .runtime-monitor-row__meta strong {
+  color: var(--console-text);
+  font-weight: 700;
+}
+
+.agent-workbench .workbench-panel-head span,
+.agent-workbench .workbench-breadcrumb span,
+.agent-workbench .workbench-file-inspector header span,
+.agent-workbench .task-monitor-summary span,
+.agent-workbench .task-monitor-summary small,
+.agent-workbench .task-monitor-alert span,
+.agent-workbench .runtime-monitor-row__main small,
+.agent-workbench .runtime-monitor-row__meta small {
+  color: var(--console-muted);
+}
+
+.agent-workbench .workbench-project-context,
+.agent-workbench .workbench-right-tabs,
+.agent-workbench .workbench-right-body,
+.agent-workbench .task-monitor-dock__body {
+  background: var(--console-surface-soft);
+}
+
+.agent-workbench .workbench-project-context {
+  border-bottom: 1px solid var(--console-line);
+}
+
+.agent-workbench .workbench-current-file,
+.agent-workbench .workbench-search-box,
+.agent-workbench .workbench-project-context button,
+.agent-workbench .workbench-browser-bar input,
+.agent-workbench .workbench-file-inspector textarea,
+.agent-workbench .chat-input-panel__textarea,
+.agent-workbench .message-edit-form__textarea {
+  border-color: var(--console-line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--console-text);
+}
+
+.agent-workbench .workbench-right-tabs {
+  gap: 4px;
+  border-color: var(--console-line);
+  padding: 6px;
+}
+
+.agent-workbench .workbench-right-tabs button,
+.agent-workbench .chat-search-policy__item,
+.agent-workbench .chat-model-select,
+.agent-workbench .chat-task-selection-bar__clear,
+.agent-workbench .message-edit-form__button,
+.agent-workbench .workbench-toolbar-actions button,
+.agent-workbench .workbench-file-inspector header button,
+.agent-workbench .workbench-browser-bar button {
+  border-radius: 6px;
+  color: var(--console-muted);
+  font-weight: 650;
+}
+
+.agent-workbench .workbench-right-tabs button:hover,
+.agent-workbench .workbench-right-tabs button.is-active,
+.agent-workbench .chat-search-policy__item:hover,
+.agent-workbench .chat-search-policy__item--active,
+.agent-workbench .workbench-toolbar-actions button:hover:not(:disabled),
+.agent-workbench .workbench-file-inspector header button:hover:not(:disabled),
+.agent-workbench .workbench-browser-bar button:hover {
+  border-color: #b8c7e4;
+  background: var(--console-blue-soft);
+  color: var(--console-blue);
+  box-shadow: none;
+}
+
+.agent-workbench .workbench-session-toolbar button,
+.agent-workbench .chat-send-button,
+.agent-workbench .message-edit-form__button--primary {
+  border-color: var(--console-blue);
+  background: var(--console-blue);
+  color: #fff;
+  box-shadow: none;
+}
+
+.agent-workbench .workbench-file-row,
+.agent-workbench .workbench-session-row,
+.agent-workbench .runtime-monitor-row,
+.agent-workbench .center-workspace__graph-card {
+  border-radius: 7px;
+}
+
+.agent-workbench .workbench-session-row {
+  border-radius: 0;
+}
+
+.agent-workbench .workbench-file-row:hover,
+.agent-workbench .workbench-file-row--active,
+.agent-workbench .runtime-monitor-row:hover,
+.agent-workbench .runtime-monitor-row--active,
+.agent-workbench .center-workspace__graph-card--active {
+  background: var(--console-blue-soft);
+  box-shadow: inset 0 0 0 1px #b8c7e4;
+}
+
+.agent-workbench .workbench-session-row:hover,
+.agent-workbench .workbench-session-row--active {
+  background: var(--console-blue-soft);
+  box-shadow: inset 3px 0 0 var(--console-blue);
+}
+
+.agent-workbench .workbench-file-row strong,
+.agent-workbench .workbench-session-row strong,
+.agent-workbench .workbench-current-file strong,
+.agent-workbench .workbench-session-toolbar strong,
+.agent-workbench .center-workspace__launchpad-head strong,
+.agent-workbench .center-workspace__summary strong,
+.agent-workbench .center-workspace__monitor-empty strong,
+.agent-workbench .center-workspace__empty strong {
+  color: var(--console-text);
+  font-weight: 700;
+}
+
+.agent-workbench .workbench-file-row small,
+.agent-workbench .workbench-session-row small,
+.agent-workbench .workbench-current-file small,
+.agent-workbench .workbench-project-context small,
+.agent-workbench .center-workspace__graph-card span,
+.agent-workbench .center-workspace__graph-card small,
+.agent-workbench .center-workspace__summary span,
+.agent-workbench .center-workspace__summary em,
+.agent-workbench .center-workspace__monitor-empty span,
+.agent-workbench .center-workspace__empty span {
+  color: var(--console-muted);
+}
+
+.agent-workbench .workbench-resize-handle:hover::after {
+  background: var(--console-blue);
+}
+
+.agent-workbench .workbench-center-content,
+.agent-workbench .workbench-view-host,
+.agent-workbench .chat-panel-shell {
+  background: var(--console-bg);
+}
+
+.agent-workbench .center-workspace {
+  gap: 10px;
+  padding: 10px;
+}
+
+.agent-workbench .center-workspace__launchpad,
+.agent-workbench .center-workspace__monitor,
+.agent-workbench .center-workspace__notice,
+.agent-workbench .center-workspace__summary article,
+.agent-workbench .chat-input-panel--inline {
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.agent-workbench .chat-panel-shell {
+  background: var(--console-bg);
+}
+
+.agent-workbench .chat-thread {
+  padding-top: 14px;
+}
+
+.agent-workbench .chat-message-shell__label,
+.agent-workbench .session-activity-bar__main strong,
+.agent-workbench .chat-task-selection-bar__content strong {
+  color: var(--console-text);
+  font-weight: 700;
+}
+
+.agent-workbench .chat-message-shell__content,
+.agent-workbench .chat-input-panel__textarea,
+.agent-workbench .message-edit-form__textarea {
+  color: var(--console-text);
+}
+
+.agent-workbench .chat-panel-footer {
+  border-top: 1px solid var(--console-line);
+  background: linear-gradient(180deg, rgba(243, 245, 248, 0), var(--console-bg) 18%, var(--console-bg));
+}
+
+.agent-workbench .message-emblem {
+  border-color: var(--console-line);
+  background: #fff;
+  color: var(--console-muted);
+}
+
+.agent-workbench .message-emblem--user {
+  background: var(--console-blue-soft);
+  color: var(--console-blue);
+}
+
+.agent-workbench .task-monitor-dock {
+  border-color: var(--console-line);
+  min-height: 100%;
+}
+
+.agent-workbench .task-monitor-summary,
+.agent-workbench .task-monitor-alert,
+.agent-workbench .runtime-monitor-metrics article,
+.agent-workbench .runtime-monitor-row,
+.agent-workbench .runtime-monitor-empty,
+.agent-workbench .runtime-monitor-center,
+.agent-workbench .runtime-monitor-center__alert,
+.agent-workbench .runtime-monitor-center__summary article,
+.agent-workbench .runtime-monitor-center__live article,
+.agent-workbench .runtime-monitor-center__footnote {
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.agent-workbench .task-monitor-summary--active,
+.agent-workbench .runtime-monitor-row--active {
+  border-color: #9db6ea;
+  background: var(--console-blue-soft);
+}
+
+.agent-workbench .task-monitor-alert--attention,
+.agent-workbench .runtime-monitor-center__alert {
+  border-color: #f1cf74;
+  background: var(--console-warn-soft);
+  color: var(--console-text);
+}
+
+.agent-workbench .task-monitor-alert--error {
+  border-color: #f0ada8;
+  background: var(--console-danger-soft);
+}
+
+.agent-workbench .runtime-monitor-row__status {
+  background: var(--console-muted);
+  box-shadow: none;
+}
+
+.agent-workbench .runtime-monitor-row__status--completed,
+.agent-workbench .runtime-monitor-row__status--success {
+  background: var(--console-green);
+}
+
+.agent-workbench .runtime-monitor-row__status--failed,
+.agent-workbench .runtime-monitor-row__status--aborted {
+  background: var(--console-danger);
+}
+
+.agent-workbench .runtime-monitor-row__status--waiting_approval,
+.agent-workbench .runtime-monitor-row__status--blocked {
+  background: var(--console-warn);
+}
+
+.agent-workbench .runtime-monitor-center {
+  padding: 12px;
+}
+
+.agent-workbench .runtime-monitor-center__head h2 {
+  color: var(--console-text);
+  font-size: 1.35rem;
+  font-weight: 750;
+}
+
+.agent-workbench .runtime-monitor-center__head span,
+.agent-workbench .runtime-monitor-center__head p,
+.agent-workbench .runtime-monitor-center__summary span,
+.agent-workbench .runtime-monitor-center__summary em,
+.agent-workbench .runtime-monitor-center__live span,
+.agent-workbench .runtime-monitor-center__footnote,
+.agent-workbench .runtime-monitor-center__empty span {
+  color: var(--console-muted);
+}
+
+.agent-workbench .runtime-monitor-center__actions button {
+  border: 1px solid var(--console-line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--console-text);
+  box-shadow: none;
+}
+
+.agent-workbench .runtime-monitor-center__actions button:hover:not(:disabled) {
+  border-color: #b8c7e4;
+  background: var(--console-blue-soft);
+  color: var(--console-blue);
+}
+
+.agent-workbench .workspace-view,
+.agent-workbench .boundary-console,
+.agent-workbench .task-system-boundary,
+.agent-workbench .capability-system-console,
+.agent-workbench .orchestration-console,
+.agent-workbench .task-system-view,
+.agent-workbench .task-system-workspace {
+  background: var(--console-bg);
+  color: var(--console-text);
+}
+
+.agent-workbench .workspace-view {
+  gap: 12px;
+  padding: 12px;
+  scrollbar-color: #aeb8c7 transparent;
+}
+
+.agent-workbench .workspace-view__eyebrow,
+.agent-workbench .workspace-view__subtitle,
+.agent-workbench .workspace-copy,
+.agent-workbench .task-system-section-head p,
+.agent-workbench .task-system-hero p,
+.agent-workbench .task-system-summary-tile span,
+.agent-workbench .task-system-info-block span,
+.agent-workbench .task-system-agent-card__head p,
+.agent-workbench .task-system-diagnostic-row span,
+.agent-workbench .task-system-table thead,
+.agent-workbench .boundary-hero p,
+.agent-workbench .boundary-list-row span,
+.agent-workbench .boundary-list-row small,
+.agent-workbench .orchestration-hero__signal p,
+.agent-workbench .orchestration-brief__card p,
+.agent-workbench .orchestration-contract-panel__card p,
+.agent-workbench .orchestration-directive-strip p,
+.agent-workbench .capability-overview-bar span,
+.agent-workbench .capability-group-card__copy span,
+.agent-workbench .capability-group-card__copy i,
+.agent-workbench .capability-group-card__metric span,
+.agent-workbench .capability-group-card em,
+.agent-workbench .capability-page-head span,
+.agent-workbench .capability-issue-list span,
+.agent-workbench .capability-issue-list p,
+.agent-workbench .capability-endpoint-row span,
+.agent-workbench .mcp-tool-row span {
+  color: var(--console-muted);
+}
+
+.agent-workbench .workspace-view__title,
+.agent-workbench .workspace-section__head h3,
+.agent-workbench .workspace-stat strong,
+.agent-workbench .workspace-record h3,
+.agent-workbench .task-system-section-head h3,
+.agent-workbench .task-system-metric strong,
+.agent-workbench .task-system-summary-tile strong,
+.agent-workbench .task-system-hero strong,
+.agent-workbench .boundary-hero h2,
+.agent-workbench .boundary-list-row strong,
+.agent-workbench .orchestration-hero__signal strong,
+.agent-workbench .orchestration-hero__metrics b,
+.agent-workbench .orchestration-brief__card strong,
+.agent-workbench .orchestration-contract-panel__card strong,
+.agent-workbench .orchestration-directive-strip strong,
+.agent-workbench .capability-overview-bar strong,
+.agent-workbench .capability-group-card__copy strong,
+.agent-workbench .capability-group-card__metric strong,
+.agent-workbench .capability-page-head strong,
+.agent-workbench .capability-issue-list strong {
+  color: var(--console-text);
+}
+
+.agent-workbench .workspace-search,
+.agent-workbench .workspace-alert,
+.agent-workbench .workspace-stat,
+.agent-workbench .workspace-section,
+.agent-workbench .workspace-record,
+.agent-workbench .workspace-mini-chip,
+.agent-workbench .workspace-chip-card,
+.agent-workbench .framework-node,
+.agent-workbench .boundary-console,
+.agent-workbench .boundary-main,
+.agent-workbench .boundary-hero,
+.agent-workbench .boundary-list-row,
+.agent-workbench .boundary-field input,
+.agent-workbench .boundary-field select,
+.agent-workbench .boundary-field textarea,
+.agent-workbench .boundary-choice,
+.agent-workbench .task-system-domain-context,
+.agent-workbench .task-system-object-switcher,
+.agent-workbench .task-system-metric,
+.agent-workbench .task-system-hero,
+.agent-workbench .task-system-hero article,
+.agent-workbench .task-system-workbench,
+.agent-workbench .task-system-inspector,
+.agent-workbench .task-system-summary-tile,
+.agent-workbench .task-system-agent-card,
+.agent-workbench .task-system-table,
+.agent-workbench .task-system-info-block,
+.agent-workbench .task-system-diagnostic-row,
+.agent-workbench .task-system-empty,
+.agent-workbench .task-system-switcher,
+.agent-workbench .task-system-search,
+.agent-workbench .task-management-directory,
+.agent-workbench .task-management-workbench,
+.agent-workbench .task-management-mode-switch__item,
+.agent-workbench .task-management-subnav__item,
+.agent-workbench .task-system-control-panel,
+.agent-workbench .task-graph-composer-panel,
+.agent-workbench .task-graph-composer-inspector-card,
+.agent-workbench .task-graph-composer-dock,
+.agent-workbench .task-graph-contract-binding-section,
+.agent-workbench .task-graph-batch-runtime-row,
+.agent-workbench .orchestration-tabs,
+.agent-workbench .orchestration-hero,
+.agent-workbench .orchestration-map,
+.agent-workbench .orchestration-dry-run,
+.agent-workbench .orchestration-brief__card,
+.agent-workbench .orchestration-contract-panel,
+.agent-workbench .orchestration-contract-panel__card,
+.agent-workbench .orchestration-phase-readiness,
+.agent-workbench .orchestration-runtime-entry,
+.agent-workbench .orchestration-runtime-preview,
+.agent-workbench .orchestration-execution-card,
+.agent-workbench .orchestration-stage,
+.agent-workbench .orchestration-node,
+.agent-workbench .orchestration-branch,
+.agent-workbench .orchestration-detail,
+.agent-workbench .orchestration-events,
+.agent-workbench .orchestration-event,
+.agent-workbench .orchestration-management-card,
+.agent-workbench .orchestration-contract-card,
+.agent-workbench .capability-overview-bar,
+.agent-workbench .capability-group-card,
+.agent-workbench .capability-issue-panel,
+.agent-workbench .capability-mcp-section,
+.agent-workbench .capability-mcp-rail,
+.agent-workbench .capability-system-console .operation-switcher__item,
+.agent-workbench .capability-system-console .operation-skill-card,
+.agent-workbench .capability-system-console .operation-tool-card,
+.agent-workbench .capability-system-console .operation-unit-card,
+.agent-workbench .capability-system-console .operation-detail,
+.agent-workbench .capability-system-console .operation-inline-panel,
+.agent-workbench .capability-system-console .operation-foldout,
+.agent-workbench .capability-system-console .operation-fact-grid article,
+.agent-workbench .capability-system-console .operation-tool-control,
+.agent-workbench .capability-system-console .operation-json-stack article,
+.agent-workbench .capability-system-console .operation-inline-stack article,
+.agent-workbench .mcp-tool-row,
+.agent-workbench .capability-endpoint-row {
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.agent-workbench .task-system-domain-context {
+  background: var(--console-surface-strong);
+}
+
+.agent-workbench .boundary-list-row,
+.agent-workbench .task-management-mode-switch__item,
+.agent-workbench .task-management-subnav__item,
+.agent-workbench .orchestration-tabs__item,
+.agent-workbench .orchestration-event,
+.agent-workbench .orchestration-management-card,
+.agent-workbench .orchestration-contract-card,
+.agent-workbench .capability-group-card,
+.agent-workbench .capability-system-console .operation-switcher__item,
+.agent-workbench .capability-system-console .operation-skill-card,
+.agent-workbench .capability-system-console .operation-tool-card,
+.agent-workbench .capability-system-console .operation-unit-card,
+.agent-workbench .mcp-tool-row,
+.agent-workbench .capability-endpoint-row {
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.agent-workbench .boundary-list-row:hover,
+.agent-workbench .boundary-list-row--active,
+.agent-workbench .task-management-mode-switch__item:hover,
+.agent-workbench .task-management-mode-switch__item--active,
+.agent-workbench .task-management-subnav__item:hover,
+.agent-workbench .task-management-subnav__item--active,
+.agent-workbench .orchestration-tabs__item:hover,
+.agent-workbench .orchestration-tabs__item--active,
+.agent-workbench .orchestration-event:hover,
+.agent-workbench .orchestration-event--active,
+.agent-workbench .capability-group-card:hover,
+.agent-workbench .capability-system-console .operation-switcher__item--active,
+.agent-workbench .capability-system-console .operation-switcher__item:hover,
+.agent-workbench .capability-system-console .operation-skill-card--active,
+.agent-workbench .capability-system-console .operation-tool-card--active,
+.agent-workbench .capability-system-console .operation-unit-card--active,
+.agent-workbench .mcp-tool-row--active,
+.agent-workbench .capability-endpoint-row--active {
+  border-color: #9db6ea;
+  background: var(--console-blue-soft);
+  color: var(--console-text);
+  box-shadow: none;
+  transform: none;
+}
+
+.agent-workbench .boundary-button,
+.agent-workbench .task-system-switcher__item,
+.agent-workbench .orchestration-dry-run__body > button,
+.agent-workbench .orchestration-detail__actions button,
+.agent-workbench .orchestration-event-filter button,
+.agent-workbench .capability-mcp-actions button,
+.agent-workbench .action-button {
+  border: 1px solid var(--console-line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--console-text);
+  box-shadow: none;
+  font-weight: 650;
+}
+
+.agent-workbench .boundary-button:hover:not(:disabled),
+.agent-workbench .task-system-switcher__item:hover,
+.agent-workbench .task-system-switcher__item--active,
+.agent-workbench .orchestration-detail__actions button:hover,
+.agent-workbench .orchestration-event-filter button:hover,
+.agent-workbench .action-button:hover {
+  border-color: #9db6ea;
+  background: var(--console-blue-soft);
+  color: var(--console-blue);
+  transform: none;
+}
+
+.agent-workbench .boundary-button--primary,
+.agent-workbench .action-button--primary {
+  border-color: var(--console-blue);
+  background: var(--console-blue);
+  color: #fff;
+}
+
+.agent-workbench .action-button--danger {
+  border-color: #e8a19a;
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
+}
+
+.agent-workbench .boundary-notice,
+.agent-workbench .workspace-alert,
+.agent-workbench .center-workspace__notice {
+  border-color: #f1cf74;
+  background: var(--console-warn-soft);
+  color: var(--console-text);
+}
+
+.agent-workbench .boundary-notice--error,
+.agent-workbench .center-workspace__notice--error {
+  border-color: #e8a19a;
+  background: var(--console-danger-soft);
+  color: var(--console-danger);
+}
+
+.agent-workbench .boundary-field span,
+.agent-workbench .task-graph-editor-chrome__field-label,
+.agent-workbench .task-system-metric span,
+.agent-workbench .orchestration-hero__signal span,
+.agent-workbench .orchestration-node span,
+.agent-workbench .orchestration-branch span,
+.agent-workbench .orchestration-detail > span,
+.agent-workbench .orchestration-brief__card span,
+.agent-workbench .orchestration-contract-panel__card span,
+.agent-workbench .orchestration-directive-strip span,
+.agent-workbench .capability-system-console .operation-fact-grid span,
+.agent-workbench .capability-system-console .operation-skill-card span,
+.agent-workbench .capability-system-console .operation-tool-card span,
+.agent-workbench .capability-system-console .operation-unit-card span,
+.agent-workbench .capability-system-console .operation-detail__head span,
+.agent-workbench .capability-system-console .operation-tool-control span,
+.agent-workbench .capability-system-console .operation-foldout summary span {
+  color: var(--console-muted);
+  font-family: var(--workbench-font);
+  font-size: 0.7rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.agent-workbench .boundary-field input,
+.agent-workbench .boundary-field select,
+.agent-workbench .boundary-field textarea,
+.agent-workbench .task-system-search input,
+.agent-workbench .orchestration-dry-run__body textarea,
+.agent-workbench .capability-system-console .operation-inline-form textarea,
+.agent-workbench .capability-system-console .operation-inline-form input,
+.agent-workbench .capability-system-console .operation-prompt-editor input,
+.agent-workbench .capability-system-console .operation-prompt-editor textarea,
+.agent-workbench .capability-system-console .operation-tool-control select,
+.agent-workbench .capability-system-console .operation-tool-control textarea,
+.agent-workbench .capability-system-console .operation-tool-filters select,
+.agent-workbench .capability-system-console .mcp-form-grid input,
+.agent-workbench .capability-system-console .mcp-form-grid select,
+.agent-workbench .capability-system-console .mcp-form-grid textarea,
+.agent-workbench .capability-system-console .capability-mcp-call textarea {
+  border: 1px solid var(--console-line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--console-text);
+  box-shadow: none;
+}
+
+.agent-workbench .boundary-field input:focus,
+.agent-workbench .boundary-field select:focus,
+.agent-workbench .boundary-field textarea:focus,
+.agent-workbench .task-system-search:focus-within,
+.agent-workbench .workbench-search-box:focus-within,
+.agent-workbench .orchestration-dry-run__body textarea:focus {
+  border-color: var(--console-blue);
+  box-shadow: 0 0 0 3px rgba(29, 95, 211, 0.12);
+}
+
+.agent-workbench .task-system-summary-tile--ok,
+.agent-workbench .runtime-monitor-center__summary article:has(strong) {
+  border-color: #b9dfcb;
+}
+
+.agent-workbench .task-system-summary-tile--warn,
+.agent-workbench .orchestration-hero--warning,
+.agent-workbench .orchestration-hero--blocked {
+  border-color: #f1cf74;
+  background: var(--console-warn-soft);
+}
+
+.agent-workbench .orchestration-hero--failed,
+.agent-workbench .orchestration-brief__card--alert,
+.agent-workbench .orchestration-contract-panel__card--alert {
+  border-color: #e8a19a;
+  background: var(--console-danger-soft);
+}
+
+.agent-workbench .orchestration-contract-panel__card em,
+.agent-workbench .orchestration-directive-strip em,
+.agent-workbench .orchestration-runtime-entry em,
+.agent-workbench .workspace-mini-chip,
+.agent-workbench .workspace-chip-card,
+.agent-workbench .capability-overview-bar__stats span,
+.agent-workbench .capability-group-card__copy i {
+  border-color: var(--console-line);
+  border-radius: 999px;
+  background: var(--console-surface-soft);
+  color: var(--console-text-soft);
+}
+
+.agent-workbench .orchestration-contract-panel__card em.is-danger,
+.agent-workbench .orchestration-runtime-entry.is-blocked em,
+.agent-workbench .orchestration-runtime-mismatch-list i,
+.agent-workbench .orchestration-runtime-entry small {
+  color: var(--console-danger);
+}
+
+.agent-workbench .orchestration-runtime-mismatch-list li,
+.agent-workbench .orchestration-runtime-entry.is-blocked {
+  border-color: #e8a19a;
+  background: var(--console-danger-soft);
+}
+
+.agent-workbench .orchestration-runtime-mismatch-list b,
+.agent-workbench .orchestration-runtime-entry b {
+  color: var(--console-blue);
+}
+
+.agent-workbench .orchestration-json,
+.agent-workbench .orchestration-detail pre,
+.agent-workbench .capability-system-console .operation-json-stack pre,
+.agent-workbench .capability-system-console .operation-inline-panel pre,
+.agent-workbench .capability-system-console .operation-foldout pre,
+.agent-workbench .capability-system-console .mcp-call-result,
+.agent-workbench code,
+.agent-workbench pre {
+  border-radius: 7px;
+  background: #eef2f7;
+  color: var(--console-text);
+}
+
+.agent-workbench .task-graph-editor-select button,
+.agent-workbench .task-graph-editor-select__menu,
+.agent-workbench .task-graph-editor-select__option,
+.agent-workbench .task-graph-composer-mode-strip article,
+.agent-workbench .task-graph-composer-mode-strip button,
+.agent-workbench .task-graph-composer-viewport,
+.agent-workbench .task-graph-composer-legend {
+  border-color: var(--console-line);
+  background: #fff;
+  color: var(--console-text);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.agent-workbench .task-graph-editor-select__option:hover,
+.agent-workbench .task-graph-editor-select__option--active,
+.agent-workbench .task-graph-composer-mode-strip article.active,
+.agent-workbench .task-graph-composer-mode-strip button.active,
+.agent-workbench .task-graph-composer-mode-strip button:hover {
+  border-color: #9db6ea;
+  background: var(--console-blue-soft);
+  color: var(--console-blue);
+}
+
+.agent-workbench svg {
+  shape-rendering: geometricPrecision;
+}
+
+/* Capability System readability pass: labels and long ids need enough air to scan. */
+.agent-workbench .capability-system-console,
+.system-page-shell .capability-system-console {
+  gap: 14px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.agent-workbench .capability-system-console .workspace-view__header,
+.system-page-shell .capability-system-console .workspace-view__header {
+  gap: 1rem;
+  padding-bottom: 0.82rem;
+}
+
+.agent-workbench .capability-system-console .workspace-view__subtitle,
+.system-page-shell .capability-system-console .workspace-view__subtitle {
+  max-width: 72ch;
+  line-height: 1.55;
+}
+
+.agent-workbench .capability-system-console .operation-switcher,
+.system-page-shell .capability-system-console .operation-switcher {
+  gap: 0.68rem;
+}
+
+.agent-workbench .capability-system-console .operation-switcher__item,
+.system-page-shell .capability-system-console .operation-switcher__item {
+  min-height: 44px;
+  gap: 0.46rem;
+  padding: 0.68rem 0.78rem;
+  line-height: 1.35;
+}
+
+.agent-workbench .capability-overview,
+.agent-workbench .capability-system-console .operation-layout,
+.agent-workbench .capability-mcp-page,
+.agent-workbench .capability-mcp-main,
+.system-page-shell .capability-overview,
+.system-page-shell .capability-system-console .operation-layout,
+.system-page-shell .capability-mcp-page,
+.system-page-shell .capability-mcp-main {
+  gap: 0.9rem;
+}
+
+.agent-workbench .capability-overview-bar,
+.agent-workbench .capability-issue-panel,
+.agent-workbench .capability-mcp-rail,
+.agent-workbench .capability-mcp-section,
+.agent-workbench .capability-system-console .operation-detail,
+.agent-workbench .capability-system-console .operation-inline-panel,
+.agent-workbench .capability-system-console .operation-foldout,
+.system-page-shell .capability-overview-bar,
+.system-page-shell .capability-issue-panel,
+.system-page-shell .capability-mcp-rail,
+.system-page-shell .capability-mcp-section,
+.system-page-shell .capability-system-console .operation-detail,
+.system-page-shell .capability-system-console .operation-inline-panel,
+.system-page-shell .capability-system-console .operation-foldout {
+  padding: 0.95rem;
+}
+
+.agent-workbench .capability-overview-bar > div,
+.agent-workbench .capability-page-head > div,
+.agent-workbench .capability-group-card__copy,
+.agent-workbench .capability-group-card__metric,
+.agent-workbench .capability-system-console .operation-detail__head > div:first-child,
+.agent-workbench .mcp-server-row__copy,
+.system-page-shell .capability-overview-bar > div,
+.system-page-shell .capability-page-head > div,
+.system-page-shell .capability-group-card__copy,
+.system-page-shell .capability-group-card__metric,
+.system-page-shell .capability-system-console .operation-detail__head > div:first-child,
+.system-page-shell .mcp-server-row__copy {
+  gap: 0.34rem;
+  min-width: 0;
+}
+
+.agent-workbench .capability-overview-bar strong,
+.agent-workbench .capability-page-head strong,
+.agent-workbench .capability-group-card__copy strong,
+.agent-workbench .capability-group-card__metric strong,
+.agent-workbench .capability-system-console .operation-skill-card strong,
+.agent-workbench .capability-system-console .operation-tool-card strong,
+.agent-workbench .capability-system-console .operation-unit-card strong,
+.agent-workbench .mcp-tool-row strong,
+.agent-workbench .capability-endpoint-row strong,
+.agent-workbench .mcp-server-row__copy strong,
+.system-page-shell .capability-overview-bar strong,
+.system-page-shell .capability-page-head strong,
+.system-page-shell .capability-group-card__copy strong,
+.system-page-shell .capability-group-card__metric strong,
+.system-page-shell .capability-system-console .operation-skill-card strong,
+.system-page-shell .capability-system-console .operation-tool-card strong,
+.system-page-shell .capability-system-console .operation-unit-card strong,
+.system-page-shell .mcp-tool-row strong,
+.system-page-shell .capability-endpoint-row strong,
+.system-page-shell .mcp-server-row__copy strong {
+  line-height: 1.32;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.agent-workbench .capability-overview-bar span,
+.agent-workbench .capability-group-card__copy span,
+.agent-workbench .capability-group-card__copy em,
+.agent-workbench .capability-group-card__copy i,
+.agent-workbench .capability-group-card__metric span,
+.agent-workbench .capability-group-card__metric em,
+.agent-workbench .capability-page-head span,
+.agent-workbench .capability-issue-list span,
+.agent-workbench .capability-issue-list p,
+.agent-workbench .capability-endpoint-row span,
+.agent-workbench .mcp-tool-row span,
+.agent-workbench .mcp-server-row__copy em,
+.agent-workbench .mcp-server-row__copy small,
+.agent-workbench .capability-system-console .operation-skill-card span,
+.agent-workbench .capability-system-console .operation-skill-card p,
+.agent-workbench .capability-system-console .operation-tool-card span,
+.agent-workbench .capability-system-console .operation-tool-card p,
+.agent-workbench .capability-system-console .operation-unit-card span,
+.agent-workbench .capability-system-console .operation-unit-card p,
+.agent-workbench .capability-system-console .operation-detail__head span,
+.agent-workbench .capability-system-console .operation-detail__head p,
+.system-page-shell .capability-overview-bar span,
+.system-page-shell .capability-group-card__copy span,
+.system-page-shell .capability-group-card__copy em,
+.system-page-shell .capability-group-card__copy i,
+.system-page-shell .capability-group-card__metric span,
+.system-page-shell .capability-group-card__metric em,
+.system-page-shell .capability-page-head span,
+.system-page-shell .capability-issue-list span,
+.system-page-shell .capability-issue-list p,
+.system-page-shell .capability-endpoint-row span,
+.system-page-shell .mcp-tool-row span,
+.system-page-shell .mcp-server-row__copy em,
+.system-page-shell .mcp-server-row__copy small,
+.system-page-shell .capability-system-console .operation-skill-card span,
+.system-page-shell .capability-system-console .operation-skill-card p,
+.system-page-shell .capability-system-console .operation-tool-card span,
+.system-page-shell .capability-system-console .operation-tool-card p,
+.system-page-shell .capability-system-console .operation-unit-card span,
+.system-page-shell .capability-system-console .operation-unit-card p,
+.system-page-shell .capability-system-console .operation-detail__head span,
+.system-page-shell .capability-system-console .operation-detail__head p {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.agent-workbench .capability-group-card,
+.system-page-shell .capability-group-card {
+  gap: 0.92rem;
+  min-height: 136px;
+  padding: 1rem;
+}
+
+.agent-workbench .capability-group-card__metric,
+.system-page-shell .capability-group-card__metric {
+  min-width: 140px;
+}
+
+.agent-workbench .capability-group-card__copy i,
+.system-page-shell .capability-group-card__copy i {
+  margin-top: 0.18rem;
+  padding: 0.26rem 0.56rem;
+  line-height: 1.35;
+}
+
+.agent-workbench .capability-system-console .operation-layout,
+.system-page-shell .capability-system-console .operation-layout {
+  grid-template-columns: minmax(280px, 0.34fr) minmax(0, 1fr);
+}
+
+.agent-workbench .capability-system-console .operation-list,
+.agent-workbench .mcp-server-list,
+.agent-workbench .capability-mcp-tool-list,
+.agent-workbench .capability-endpoint-list,
+.system-page-shell .capability-system-console .operation-list,
+.system-page-shell .mcp-server-list,
+.system-page-shell .capability-mcp-tool-list,
+.system-page-shell .capability-endpoint-list {
+  gap: 0.58rem;
+}
+
+.agent-workbench .capability-system-console .operation-skill-card,
+.agent-workbench .capability-system-console .operation-tool-card,
+.agent-workbench .capability-system-console .operation-unit-card,
+.system-page-shell .capability-system-console .operation-skill-card,
+.system-page-shell .capability-system-console .operation-tool-card,
+.system-page-shell .capability-system-console .operation-unit-card {
+  min-height: 76px;
+  align-content: center;
+  gap: 0.32rem;
+  padding: 0.78rem 0.82rem;
+}
+
+.agent-workbench .capability-system-console .operation-detail__head,
+.system-page-shell .capability-system-console .operation-detail__head {
+  gap: 1.2rem;
+  margin-bottom: 0.72rem;
+}
+
+.agent-workbench .capability-system-console .operation-detail__head h3,
+.system-page-shell .capability-system-console .operation-detail__head h3 {
+  margin: 0.12rem 0 0;
+  font-size: clamp(1.16rem, 1.4vw, 1.42rem);
+  line-height: 1.28;
+  overflow-wrap: anywhere;
+}
+
+.agent-workbench .capability-system-console .operation-detail__actions,
+.system-page-shell .capability-system-console .operation-detail__actions {
+  gap: 0.55rem;
+}
+
+.agent-workbench .capability-system-console .operation-risk-badge,
+.system-page-shell .capability-system-console .operation-risk-badge {
+  min-height: 34px;
+  padding: 0.48rem 0.66rem;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.agent-workbench .capability-system-console .operation-fact-grid,
+.system-page-shell .capability-system-console .operation-fact-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.72rem;
+  margin: 0.82rem 0;
+}
+
+.agent-workbench .capability-system-console .operation-fact-grid article,
+.system-page-shell .capability-system-console .operation-fact-grid article {
+  display: grid;
+  min-width: 0;
+  min-height: 64px;
+  align-content: center;
+  gap: 0.34rem;
+  padding: 0.72rem 0.8rem;
+}
+
+.agent-workbench .capability-system-console .operation-fact-grid span,
+.system-page-shell .capability-system-console .operation-fact-grid span {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.agent-workbench .capability-system-console .operation-fact-grid strong,
+.system-page-shell .capability-system-console .operation-fact-grid strong {
+  display: block;
+  color: var(--console-text);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.agent-workbench .capability-system-console .operation-inline-stack,
+.agent-workbench .capability-system-console .operation-json-stack,
+.agent-workbench .capability-system-console .operation-inline-form,
+.agent-workbench .capability-system-console .operation-prompt-editor,
+.agent-workbench .capability-system-console .operation-tool-control,
+.agent-workbench .capability-mcp-call,
+.agent-workbench .capability-mcp-form,
+.system-page-shell .capability-system-console .operation-inline-stack,
+.system-page-shell .capability-system-console .operation-json-stack,
+.system-page-shell .capability-system-console .operation-inline-form,
+.system-page-shell .capability-system-console .operation-prompt-editor,
+.system-page-shell .capability-system-console .operation-tool-control,
+.system-page-shell .capability-mcp-call,
+.system-page-shell .capability-mcp-form {
+  gap: 0.76rem;
+}
+
+.agent-workbench .capability-system-console .operation-inline-stack article,
+.agent-workbench .capability-system-console .operation-json-stack article,
+.system-page-shell .capability-system-console .operation-inline-stack article,
+.system-page-shell .capability-system-console .operation-json-stack article {
+  min-width: 0;
+  padding: 0.82rem;
+}
+
+.agent-workbench .capability-system-console .operation-inline-stack article strong,
+.agent-workbench .capability-system-console .operation-json-stack article strong,
+.agent-workbench .capability-system-console .operation-inline-panel__head strong,
+.agent-workbench .capability-system-console .operation-foldout summary strong,
+.system-page-shell .capability-system-console .operation-inline-stack article strong,
+.system-page-shell .capability-system-console .operation-json-stack article strong,
+.system-page-shell .capability-system-console .operation-inline-panel__head strong,
+.system-page-shell .capability-system-console .operation-foldout summary strong {
+  line-height: 1.35;
+}
+
+.agent-workbench .capability-system-console .operation-inline-stack article p,
+.system-page-shell .capability-system-console .operation-inline-stack article p {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.agent-workbench .capability-system-console .operation-foldout summary,
+.system-page-shell .capability-system-console .operation-foldout summary {
+  gap: 0.5rem;
+  line-height: 1.35;
+}
+
+.agent-workbench .capability-system-console .operation-tool-control,
+.system-page-shell .capability-system-console .operation-tool-control {
+  gap: 0.9rem;
+  margin: 0.95rem 0;
+  padding: 0.82rem;
+}
+
+.agent-workbench .capability-system-console .operation-tool-control label,
+.agent-workbench .capability-system-console .operation-prompt-editor label,
+.agent-workbench .capability-system-console .mcp-form-grid label,
+.system-page-shell .capability-system-console .operation-tool-control label,
+.system-page-shell .capability-system-console .operation-prompt-editor label,
+.system-page-shell .capability-system-console .mcp-form-grid label {
+  display: grid;
+  gap: 0.48rem;
+  min-width: 0;
+  color: var(--console-text);
+  font-size: 0.84rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.agent-workbench .capability-system-console .operation-tool-control select,
+.agent-workbench .capability-system-console .operation-tool-control textarea,
+.agent-workbench .capability-system-console .operation-tool-filters select,
+.agent-workbench .capability-system-console .operation-inline-form textarea,
+.agent-workbench .capability-system-console .operation-inline-form input,
+.agent-workbench .capability-system-console .operation-prompt-editor input,
+.agent-workbench .capability-system-console .operation-prompt-editor textarea,
+.agent-workbench .capability-system-console .mcp-form-grid input,
+.agent-workbench .capability-system-console .mcp-form-grid select,
+.agent-workbench .capability-system-console .mcp-form-grid textarea,
+.agent-workbench .capability-system-console .capability-mcp-call textarea,
+.system-page-shell .capability-system-console .operation-tool-control select,
+.system-page-shell .capability-system-console .operation-tool-control textarea,
+.system-page-shell .capability-system-console .operation-tool-filters select,
+.system-page-shell .capability-system-console .operation-inline-form textarea,
+.system-page-shell .capability-system-console .operation-inline-form input,
+.system-page-shell .capability-system-console .operation-prompt-editor input,
+.system-page-shell .capability-system-console .operation-prompt-editor textarea,
+.system-page-shell .capability-system-console .mcp-form-grid input,
+.system-page-shell .capability-system-console .mcp-form-grid select,
+.system-page-shell .capability-system-console .mcp-form-grid textarea,
+.system-page-shell .capability-system-console .capability-mcp-call textarea {
+  min-width: 0;
+  padding: 0.68rem 0.74rem;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.agent-workbench .capability-system-console .operation-tool-control textarea,
+.agent-workbench .capability-system-console .operation-prompt-editor textarea,
+.agent-workbench .capability-system-console .mcp-form-grid textarea,
+.agent-workbench .capability-system-console .capability-mcp-call textarea,
+.system-page-shell .capability-system-console .operation-tool-control textarea,
+.system-page-shell .capability-system-console .operation-prompt-editor textarea,
+.system-page-shell .capability-system-console .mcp-form-grid textarea,
+.system-page-shell .capability-system-console .capability-mcp-call textarea {
+  resize: vertical;
+}
+
+.agent-workbench .capability-system-console .operation-json-stack pre,
+.agent-workbench .capability-system-console .operation-inline-panel pre,
+.agent-workbench .capability-system-console .operation-foldout pre,
+.agent-workbench .capability-system-console .mcp-call-result,
+.system-page-shell .capability-system-console .operation-json-stack pre,
+.system-page-shell .capability-system-console .operation-inline-panel pre,
+.system-page-shell .capability-system-console .operation-foldout pre,
+.system-page-shell .capability-system-console .mcp-call-result {
+  padding: 0.78rem 0.86rem;
+  font-size: 0.76rem;
+  line-height: 1.58;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agent-workbench .capability-mcp-page,
+.system-page-shell .capability-mcp-page {
+  grid-template-columns: minmax(280px, 0.32fr) minmax(0, 1fr);
+}
+
+.agent-workbench .mcp-server-row,
+.system-page-shell .mcp-server-row {
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 0.76rem;
+  min-height: 82px;
+  padding: 0.78rem 0.82rem;
+}
+
+.agent-workbench .mcp-server-row__copy strong,
+.agent-workbench .mcp-server-row__copy small,
+.system-page-shell .mcp-server-row__copy strong,
+.system-page-shell .mcp-server-row__copy small {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.agent-workbench .mcp-tool-row,
+.agent-workbench .capability-endpoint-row,
+.system-page-shell .mcp-tool-row,
+.system-page-shell .capability-endpoint-row {
+  gap: 0.32rem;
+  min-height: 64px;
+  padding: 0.74rem 0.82rem;
+}
+
+.agent-workbench .mcp-form-grid,
+.system-page-shell .mcp-form-grid {
+  gap: 0.82rem;
+}
+
+.agent-workbench .capability-mcp-actions,
+.agent-workbench .capability-system-console .operation-detail__actions,
+.agent-workbench .capability-system-console .operation-inline-panel__actions,
+.system-page-shell .capability-mcp-actions,
+.system-page-shell .capability-system-console .operation-detail__actions,
+.system-page-shell .capability-system-console .operation-inline-panel__actions {
+  align-items: center;
+}
+
+.agent-workbench .capability-issue-list,
+.system-page-shell .capability-issue-list {
+  gap: 0.56rem;
+}
+
+.agent-workbench .capability-issue-list article,
+.system-page-shell .capability-issue-list article {
+  gap: 0.72rem;
+  padding-top: 0.62rem;
+}
+
+@media (max-width: 760px) {
+  .agent-workbench .capability-overview-bar,
+  .agent-workbench .capability-system-console .operation-detail__head,
+  .agent-workbench .capability-page-head,
+  .system-page-shell .capability-overview-bar,
+  .system-page-shell .capability-system-console .operation-detail__head,
+  .system-page-shell .capability-page-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .agent-workbench .capability-group-card,
+  .system-page-shell .capability-group-card {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .agent-workbench .capability-group-card__metric,
+  .system-page-shell .capability-group-card__metric {
+    grid-column: 1 / -1;
+    justify-items: start;
+    min-width: 0;
+    text-align: left;
+  }
+
+  .agent-workbench .capability-system-console .operation-fact-grid,
+  .system-page-shell .capability-system-console .operation-fact-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.system-framework-stage {
+  --console-bg: #f3f5f8;
+  --console-surface: #ffffff;
+  --console-surface-soft: #f8fafc;
+  --console-line: #cbd3df;
+  --console-line-strong: #aeb8c7;
+  --console-text: #0f172a;
+  --console-muted: #64748b;
+  --console-blue: #1d5fd3;
+  min-height: 100dvh;
+  background: var(--console-bg);
+  color: var(--console-text);
+}
+
+.system-framework-stage::before,
+.system-framework-stage::after {
+  display: none;
+}
+
+.system-framework-stage .project-network,
+.system-framework-stage .project-network__canvas,
+.system-framework-stage .project-network__detail,
+.system-framework-stage .project-network__legend,
+.system-framework-stage .system-framework-chat-switch,
+.system-framework-stage .prompt-manifest-panel,
+.system-framework-stage .memory-trace-panel,
+.system-framework-stage .memory-trace-grid section,
+.system-framework-stage .network-node__head,
+.system-framework-stage .network-subnode,
+.system-framework-stage .project-network__overlay {
+  border: 1px solid var(--console-line);
+  border-radius: 8px;
+  background: var(--console-surface);
+  color: var(--console-text);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.system-framework-stage .project-network__canvas {
+  background:
+    linear-gradient(#e5ebf3 1px, transparent 1px),
+    linear-gradient(90deg, #e5ebf3 1px, transparent 1px),
+    #fff;
+  background-size: 32px 32px;
+}
+
+.system-framework-stage .project-network__header h2,
+.system-framework-stage .project-network__selected-title,
+.system-framework-stage .network-node__head strong,
+.system-framework-stage .network-subnode strong,
+.system-framework-stage .prompt-manifest-panel strong,
+.system-framework-stage .memory-trace-panel strong {
+  color: var(--console-text);
+}
+
+.system-framework-stage .project-network__header p,
+.system-framework-stage .network-node__head small,
+.system-framework-stage .network-node__head em,
+.system-framework-stage .network-subnode span,
+.system-framework-stage .network-subnode em,
+.system-framework-stage .prompt-manifest-panel span,
+.system-framework-stage .memory-trace-panel span {
+  color: var(--console-muted);
+}
+
+.system-framework-stage button {
+  border-radius: 6px;
+}
+
+.system-framework-stage button:hover:not(:disabled) {
+  border-color: #9db6ea;
+  background: #e8f0ff;
+  color: var(--console-blue);
+}
+
+@media (max-width: 1120px) {
+  .agent-workbench .task-management-stage,
+  .agent-workbench .task-system-control-grid,
+  .agent-workbench .task-system-task-layout,
+  .agent-workbench .orchestration-hero,
+  .agent-workbench .orchestration-brief,
+  .agent-workbench .capability-mcp-page,
+  .agent-workbench .capability-system-console .operation-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Task System database management + dedicated graph editor */
+.system-page-content .task-system-object-table {
+  display: grid;
+  min-width: 0;
+  border: 1px solid #d8e0eb;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.system-page-content .task-system-object-table__head,
+.system-page-content .task-system-object-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 0.55fr) minmax(120px, 0.75fr) minmax(180px, 1.05fr) minmax(180px, 1fr) minmax(70px, auto);
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.system-page-content .task-system-object-table__head {
+  border-bottom: 1px solid #d8e0eb;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.64rem;
+  font-weight: 900;
+  padding: 0.44rem 0.62rem;
+}
+
+.system-page-content .task-system-object-row {
+  border: 0;
+  border-bottom: 1px solid #e3e9f1;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  padding: 0.54rem 0.62rem;
+  text-align: left;
+}
+
+.system-page-content .task-system-object-row:last-child {
+  border-bottom: 0;
+}
+
+.system-page-content .task-system-object-row:hover,
+.system-page-content .task-system-object-row--active {
+  background: #e8f0ff;
+  color: #0f172a;
+}
+
+.system-page-content .task-system-object-row__scope {
+  color: #1d5fd3;
+  font-size: 0.66rem;
+  font-weight: 900;
+}
+
+.system-page-content .task-system-object-row strong,
+.system-page-content .task-system-object-row__meta,
+.system-page-content .task-system-object-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-page-content .task-system-object-row strong {
+  color: inherit;
+  font-size: 0.78rem;
+}
+
+.system-page-content .task-system-object-row__meta,
+.system-page-content .task-system-object-row small {
+  color: #64748b;
+  font-size: 0.68rem;
+}
+
+.system-page-content .task-system-object-row em {
+  justify-self: start;
+  border: 1px solid #cbd3df;
+  border-radius: 999px;
+  color: #64748b;
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 820;
+  padding: 0.12rem 0.42rem;
+  white-space: nowrap;
+}
+
+.system-page-content .task-system-object-row--active em {
+  border-color: #9db6ea;
+  color: #1d5fd3;
+}
+
+.system-page-content .task-graph-editor-page {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  border: 1px solid #cbd3df;
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  overflow: hidden;
+}
+
+.system-page-content .task-graph-editor-page > .boundary-notice {
+  margin: 0.5rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-shell {
+  border-top: 0;
+  background: #fff;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-workspace-strip {
+  grid-template-columns: minmax(320px, 1.15fr) minmax(170px, 0.42fr) auto;
+  border-color: #d8e0eb;
+  background: #f8fafc;
+  padding: 0.34rem 0.52rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar {
+  grid-template-columns: minmax(260px, 0.7fr) minmax(280px, 0.72fr) auto;
+  gap: 0.52rem;
+  border-color: #d8e0eb;
+  background: #fff;
+  padding: 0.42rem 0.58rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics {
+  gap: 0.32rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics article {
+  border-color: #d8e0eb;
+  background: #f8fafc;
+  padding: 0.3rem 0.42rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-shell__body {
+  grid-template-columns: minmax(250px, 0.18fr) minmax(0, 1fr);
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-shell__page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-layer-nav {
+  border-color: #d8e0eb;
+  background: #f8fafc;
+  padding: 0;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-layer-strip {
+  min-height: 36px;
+  border-color: #d8e0eb;
+  background: #f8fafc;
+  padding: 0.28rem 0.52rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-page {
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(230px, 280px);
+  gap: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-rail,
+.system-page-content .task-graph-editor-page .task-graph-topology-inspector {
+  padding: 0.5rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-canvas-shell {
+  min-height: 0;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-canvas-head,
+.system-page-content .task-graph-editor-page .task-graph-topology-layer-filter {
+  padding: 0.46rem 0.56rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-viewport {
+  min-height: 0;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-execution-dock {
+  min-height: 46px;
+  border-color: #d8e0eb;
+  background: #f8fafc;
+}
+
+@media (max-width: 1180px) {
+  .system-page-content .task-system-object-table__head {
+    display: none;
+  }
+
+  .system-page-content .task-system-object-row,
+  .system-page-content .task-graph-editor-page .task-graph-studio-workspace-strip,
+  .system-page-content .task-graph-editor-page .task-graph-studio-topbar,
+  .system-page-content .task-graph-editor-page .task-graph-studio-shell__body,
+  .system-page-content .task-graph-editor-page .task-graph-topology-page {
+    grid-template-columns: 1fr;
+  }
+}
+
+.system-page-content .task-graph-editor-page .task-graph-layer-card__state {
+  font-size: 0.52rem;
+  padding: 0.1rem 0.26rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-page {
+  grid-template-columns: 150px minmax(0, 1fr) 236px;
+  min-height: 0;
+  padding: 0;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-rail,
+.system-page-content .task-graph-editor-page .task-graph-topology-inspector {
+  border-color: #d8e0eb;
+  background: #f8fafc;
+  padding: 0.38rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-rail {
+  border-right: 1px solid #d8e0eb;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-inspector {
+  border-left: 1px solid #d8e0eb;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-panel {
+  gap: 0.34rem;
+  border-color: #d8e0eb;
+  background: #fff;
+  padding: 0.42rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-actions {
+  grid-template-columns: 1fr;
+  gap: 0.26rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-actions button,
+.system-page-content .task-graph-editor-page .task-graph-topology-task-list button {
+  min-height: 1.78rem;
+  padding: 0.28rem 0.34rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-task-list {
+  max-height: 210px;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-task-list button small {
+  display: none;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-canvas-shell {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  border: 0;
+  border-radius: 0;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-canvas-head {
+  min-height: 42px;
+  padding: 0.34rem 0.5rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-layer-filter {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.24rem;
+  padding: 0.3rem 0.38rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-layer-filter button {
+  min-height: 34px;
+  padding: 0.24rem 0.32rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-layer-filter span {
+  display: none;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-resource-summary {
+  grid-template-columns: 1fr;
+  gap: 0.28rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-resource-summary p,
+.system-page-content .task-graph-editor-page .task-graph-topology-selection {
+  padding: 0.34rem 0.38rem;
+}
+
+/* Graph editor canvas-first topology layout */
+.system-page-content .task-graph-editor-page .task-graph-studio-shell__body {
+  grid-template-columns: 150px minmax(0, 1fr);
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-page {
+  grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "tools inspector"
+    "canvas inspector";
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-rail {
+  grid-area: tools;
+  display: grid;
+  grid-template-columns: minmax(250px, 0.7fr) minmax(360px, 1fr);
+  gap: 0.38rem;
+  max-height: 126px;
+  min-height: 0;
+  border-right: 0;
+  border-bottom: 1px solid #d8e0eb;
+  overflow: hidden;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-canvas-shell {
+  grid-area: canvas;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-inspector {
+  grid-area: inspector;
+  width: 220px;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-panel {
+  align-content: start;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-action-label {
+  display: none;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-task-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
+  max-height: 72px;
+  overflow: auto;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics {
+  display: flex;
+  gap: 0;
+  border: 1px solid #d8e0eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics article {
+  min-width: 5.4rem;
+  border: 0;
+  border-right: 1px solid #d8e0eb;
+  border-radius: 0;
+  background: transparent;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics article:last-child {
+  border-right: 0;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-panel {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-panel__head {
+  min-height: 24px;
+  border-bottom: 1px solid #d8e0eb;
+  color: #0f172a;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-actions button,
+.system-page-content .task-graph-editor-page .task-graph-topology-task-list button {
+  border-color: #d8e0eb;
+  border-radius: 6px;
+  background: #fff;
+  color: #334155;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-selection,
+.system-page-content .task-graph-editor-page .task-graph-topology-resource-summary p {
+  border: 0;
+  border-bottom: 1px solid #d8e0eb;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.36rem 0;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-note {
+  border-left: 0;
+  border-top: 1px solid #d8e0eb;
+  background: transparent;
+  padding: 0.45rem 0;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-execution-dock {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(0, 1.4fr) minmax(220px, 0.8fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.38rem 0.55rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-execution-dock__metrics {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.28rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-execution-dock__metrics span {
+  white-space: nowrap;
+}
+
+/* Task system redesign: compact database console + canvas-first graph editor */
+.system-page-content .task-system-boundary {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0.55rem;
+  padding: 0.58rem;
+  background: #f5f7fb;
+}
+
+.system-page-content .task-system-database-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  min-height: 3.2rem;
+  border: 1px solid #d8e0eb;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.58rem 0.72rem;
+}
+
+.system-page-content .task-system-database-header > div:first-child {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.system-page-content .task-system-database-header span {
+  color: #64748b;
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.system-page-content .task-system-database-header h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.system-page-content .task-system-database-header p {
+  margin: 0;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-page-content .task-system-database-header__actions {
+  display: flex;
+  gap: 0.42rem;
+  justify-content: flex-end;
+}
+
+.system-page-content .task-system-database-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 0.58rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.system-page-content .task-system-database-sidebar,
+.system-page-content .task-system-database-workspace {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid #d8e0eb;
+  border-radius: 8px;
+  background: #fff;
+  overflow: auto;
+}
+
+.system-page-content .task-system-database-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 0.58rem;
+  padding: 0.58rem;
+}
+
+.system-page-content .task-system-database-workspace {
+  padding: 0.68rem;
+}
+
+.system-page-content .task-system-domain-context {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: 1fr;
+  border: 0;
+  border-bottom: 1px solid #d8e0eb;
+  border-radius: 0;
+  background: transparent;
+  padding: 0 0 0.58rem;
+}
+
+.system-page-content .task-system-project-selector {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.system-page-content .task-system-project-selector > div:first-child {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.system-page-content .task-system-project-selector span {
+  color: #1d5fd3;
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.system-page-content .task-system-project-selector strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 0.86rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-page-content .task-system-project-selector small {
+  overflow-wrap: anywhere;
+  color: #64748b;
+  font-family: var(--font-mono), monospace;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.system-page-content .task-system-project-selector .task-graph-editor-chrome__field {
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.system-page-content .task-system-project-selector .task-graph-editor-chrome__field-label {
+  display: none;
+}
+
+.system-page-content .task-system-project-selector .task-graph-editor-select > button {
+  min-height: 2.25rem;
+  border-color: #c7d3e4;
+  border-radius: 7px;
+  background: #fff;
+  color: #0f172a;
+  padding: 0.38rem 0.48rem;
+}
+
+.system-page-content .task-system-project-selector .task-graph-editor-select > button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-page-content .task-system-project-selector .task-graph-editor-select__menu {
+  z-index: 50;
+  width: min(420px, max(100%, 280px));
+}
+
+.system-page-content .task-system-object-switcher {
+  display: grid;
+  min-height: 0;
+}
+
+.system-page-content .task-system-object-table {
+  border-radius: 7px;
+}
+
+.system-page-content .task-system-object-table__head,
+.system-page-content .task-system-object-row {
+  grid-template-columns: minmax(0, 1fr) minmax(92px, 0.55fr) auto;
+  gap: 0.5rem;
+}
+
+.system-page-content .task-system-object-row {
+  min-height: 2.45rem;
+  padding: 0.46rem 0.54rem;
+}
+
+.system-page-content .task-system-object-row strong {
+  display: flex;
+  align-items: center;
+  gap: 0.36rem;
+}
+
+.system-page-content .task-system-object-row__scope {
+  flex: 0 0 auto;
+  width: 3.2rem;
+}
+
+.system-page-content .task-management-stage {
+  min-height: 0;
+  height: 100%;
+}
+
+.system-page-content .task-management-stage .boundary-card,
+.system-page-content .task-management-stage .boundary-main,
+.system-page-content .task-management-stage .boundary-directory,
+.system-page-content .task-management-stage .contract-editor-section,
+.system-page-content .task-management-stage .contract-structured-row,
+.system-page-content .task-management-stage .package-template-card,
+.system-page-content .task-management-stage .contract-template-card {
+  border-radius: 7px;
+  background: #fff;
+}
+
+.system-page-content .task-graph-editor-page {
+  border-radius: 8px;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-shell {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  color: #0f172a;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar {
+  grid-template-columns: minmax(280px, 1fr) auto auto;
+  min-height: 3rem;
+  padding: 0.38rem 0.52rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__identity span {
+  color: #64748b;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__identity strong {
+  color: #0f172a;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__identity small,
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics span {
+  color: #64748b;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-topbar__metrics strong {
+  color: #0f172a;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-workspace-strip {
+  grid-template-columns: minmax(360px, 1fr) auto auto;
+  min-height: 2.55rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-studio-shell__body {
+  grid-template-columns: 58px minmax(0, 1fr);
+}
+
+.system-page-content .task-graph-editor-page .task-graph-editor-rail {
+  display: grid;
+  align-content: start;
+  gap: 0.18rem;
+  border-right: 1px solid #d8e0eb;
+  background: #f8fafc;
+  padding: 0.32rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-editor-rail__item {
+  display: grid;
+  place-items: center;
+  gap: 0.1rem;
+  width: 2.55rem;
+  min-height: 2.5rem;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0.24rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-editor-rail__item:hover,
+.system-page-content .task-graph-editor-page .task-graph-editor-rail__item--active {
+  border-color: #9db6ea;
+  background: #e8f0ff;
+  color: #1d5fd3;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-editor-rail__item strong,
+.system-page-content .task-graph-editor-page .task-graph-editor-rail__item span {
+  display: none;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-editor-context {
+  min-height: 2.15rem;
+  padding: 0.28rem 0.5rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-editor-context ul {
+  display: none;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-page {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr) 250px;
+  grid-template-areas: "tools canvas inspector";
+  height: 100%;
+  min-height: 0;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-rail {
+  grid-area: tools;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 0.48rem;
+  max-height: none;
+  height: 100%;
+  border-right: 1px solid #d8e0eb;
+  border-bottom: 0;
+  background: #f8fafc;
+  overflow: auto;
+  padding: 0.46rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-canvas-shell {
+  grid-area: canvas;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-inspector {
+  grid-area: inspector;
+  width: auto;
+  height: 100%;
+  border-left: 1px solid #d8e0eb;
+  background: #f8fafc;
+  overflow: auto;
+  padding: 0.46rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-actions,
+.system-page-content .task-graph-editor-page .task-graph-topology-rail .task-graph-topology-task-list {
+  grid-template-columns: 1fr;
+  max-height: none;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-action-label {
+  display: block;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-canvas-head {
+  min-height: 2.6rem;
+  border-bottom: 1px solid #d8e0eb;
+  background: #fff;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-layer-filter {
+  display: flex;
+  gap: 0.26rem;
+  border-bottom: 1px solid #d8e0eb;
+  background: #fff;
+  padding: 0.28rem 0.42rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-layer-filter button {
+  min-height: 1.74rem;
+  border-radius: 999px;
+  padding: 0.18rem 0.46rem;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-layer-filter span {
+  display: none;
+}
+
+.system-page-content .task-graph-editor-page .task-graph-topology-viewport,
+.system-page-content .task-graph-editor-page .coordination-topology-viewport--builder {
+  min-height: 0;
+  height: 100%;
+}
+
+@media (max-width: 1180px) {
+  .system-page-content .task-system-database-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .system-page-content .task-system-database-sidebar {
+    max-height: none;
+  }
+
+  .system-page-content .task-graph-editor-page .task-graph-studio-shell__body {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .system-page-content .task-graph-editor-page .task-graph-topology-page {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "tools"
+      "canvas"
+      "inspector";
+  }
+
+  .system-page-content .task-graph-editor-page .task-graph-topology-rail,
+  .system-page-content .task-graph-editor-page .task-graph-topology-inspector {
+    height: auto;
+    max-height: 14rem;
   }
 }

@@ -420,6 +420,46 @@ def test_model_runtime_passes_native_tool_choice_options(monkeypatch: pytest.Mon
     }
 
 
+def test_deepseek_thinking_filters_unsupported_tool_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = _runtime(retries=0, thinking_mode="enabled")
+    captured: dict[str, object] = {}
+
+    class _BindableFakeModel(_FakeModel):
+        def bind_tools(self, tools, **kwargs):
+            captured["tools"] = tools
+            captured["kwargs"] = kwargs
+            return self
+
+    monkeypatch.setattr(runtime, "_build_chat_model_for_spec", lambda _spec: _BindableFakeModel(SimpleNamespace(content="ok")))
+
+    options = ToolCallBindingOptions(
+        tool_choice={"type": "function", "function": {"name": "read_file"}},
+        strict=False,
+        parallel_tool_calls=False,
+    )
+    response = asyncio.run(
+        runtime.invoke_messages_with_tools(
+            [HumanMessage(content="read")],
+            [SimpleNamespace(name="read_file")],
+            model_spec=ModelSpec(
+                provider="deepseek",
+                model="deepseek-v4-pro",
+                api_key="deepseek-key",
+                base_url="https://api.deepseek.com/v1",
+                thinking_mode="enabled",
+            ),
+            tool_call_options=options,
+        )
+    )
+
+    assert response.content == "ok"
+    assert captured["tools"] == [SimpleNamespace(name="read_file")]
+    assert captured["kwargs"] == {
+        "strict": False,
+        "parallel_tool_calls": False,
+    }
+
+
 def test_provider_tool_call_adapter_reads_additional_kwargs_tool_calls() -> None:
     response = SimpleNamespace(
         content="",

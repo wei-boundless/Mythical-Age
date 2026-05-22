@@ -13,6 +13,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from agent_system.models.model_profile_models import AgentModelProfile, parse_agent_model_profile
+from agent_system.profiles.runtime_mode_config import CUSTOM_MODE, STANDARD_MODE
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.registry.agent_registry import AgentRegistry
 from task_system.contracts.contract_definition_models import AcceptanceRule, ArtifactRequirement, ContractField, ContractSpec
@@ -52,6 +53,7 @@ VOLUME_MIN_WORDS = CHAPTERS_PER_VOLUME * CHAPTER_MIN_WORDS
 VOLUME_MAX_WORDS = CHAPTERS_PER_VOLUME * CHAPTER_MAX_WORDS
 TARGET_WORDS = TARGET_VOLUMES * VOLUME_TARGET_WORDS
 CHAPTER_REQUESTED_COUNT = TARGET_VOLUMES * CHAPTERS_PER_VOLUME
+WRITING_LONG_OUTPUT_TOKENS = 65536
 
 ARTIFACT_ROOT = "output/novel_artifacts/modular_novel/runs"
 
@@ -573,6 +575,7 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
             "你还需要检查商业化承载：核心人物成长路线是否有连续奖励，读者期待是否能分阶段释放，世界规则是否能自然制造冲突，关键设定是否便于后续人设、剧情、细纲和章节正文引用，是否存在只有概念没有机制、只有背景没有矛盾、只有阶段没有代价的问题。",
             "你的审核标准要像资深网文责编：不满足强辨识度、升级产能、情绪回报、持续冲突、章节可写性和读者记忆点的设计，不能因为完整而通过；只有能支撑高质量商业连载的世界观才允许进入下一阶段。",
             "你必须专门检查套路资产污染：候选世界观是否把题材默认资产、通用组织模板、通用资源名词、通用探索场域、通用师承关系或通用奖励道具当成默认事实。若这些功能没有被改造成项目专属的制度、称谓、资源、场域与机制来源，必须判为返修；不能把常见网文设定当作通过理由。",
+            "你的报告第一行必须单独写成“审核裁决：通过”“审核裁决：带备注通过”“审核裁决：返修”或“审核裁决：拒绝”之一，不得使用其他裁决标题或含糊表述。若报告内存在必须修改项、阻塞问题、冻结前必须处理事项或不允许进入下一阶段的描述，第一行必须写“审核裁决：返修”或“审核裁决：拒绝”。",
             "你必须指出具体问题、风险等级、影响范围和返修建议，并检查候选世界观是否把用户未要求的题材专属元素强行写成事实。裁决只能是通过、带备注通过、返修或拒绝；返修时必须明确回到世界观设计节点的哪些部分。只要报告中存在阻塞问题、必须修改项、硬设定冲突、机制来源不明或冻结前必须处理的问题，裁决必须是返修或拒绝，不能写成通过或带备注通过。带备注通过只能用于不影响冻结和后续写作的轻微建议。你不负责替设计节点扩写世界观，也不能把自己的补充设定写成已通过事实。",
         ),
     ),
@@ -586,12 +589,14 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
         phase_id="phase.modular.design_init.world",
         sequence_index=40,
         output_contract_id="contract.writing.modular_novel.world_commit",
-        required_inputs=("上游交接包",),
+        required_inputs=("通过候选正文", "审核裁决报告"),
         memory_topics=("world_review", "world_candidate_ref", "project_brief"),
         artifact_paths=("memory/world/world_commit_round_{round_index:03d}.md",),
+        artifact_context_keys=("通过候选正文", "审核裁决报告", "上游交接包"),
         write_mode="baseline_commit",
         prompt=_role_prompt(
             "你是一名世界观基准库管理员。你只负责把已经通过审核的世界观候选固化为后续节点可长期引用的世界观基准记录。",
+            "你的主要依据是“通过候选正文”，它必须是世界观候选本体；“审核裁决报告”只用于确认该候选是否通过以及有哪些不阻塞备注。你不能把审核报告、返修报告、运行报告或问题台账当成世界观正文提交。",
             "你需要保留完整的商业网文世界设定 Bible：世界卖点、空间场域、历史秩序、权力结构、群体关系、交换体系、职业阶层、资源产出、成长体系、题材规则、群体生态、特殊场域、原创机制、升级路径、长期悬念和创作边界。摘要只能作为索引，不能替代正式设定内容。",
             "你需要把名家级质量要求一起固化：核心卖点、读者情绪回报、升级产能、可展开区域、可持续冲突、关键记忆点和禁止降级的创作边界必须可追踪。",
             "你必须把世界观全文的可引用事实提交清楚，不能只提交“已冻结哪些维度”的目录式声明。若候选中仍存在未专属化的套路资产、机制来源不明的社会组织或资源名词，即使审核报告误写通过，你也必须拒绝提交并要求回到世界观设计节点返修。",
@@ -642,6 +647,7 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
             "你是一名名家级中文商业网文人设审核员。你只负责审核角色与关系设计是否足够专业、可写、可信，能否进入后续剧情与全书细纲阶段。",
             "你需要检查核心视角人物、关键关系人物、对抗角色、合作角色、守护者、盟友和群体关系是否都从已冻结世界观中长出来，是否存在身份空泛、动机虚弱、关系功能化、角色之间缺少压力链的问题。",
             "你要以头部商业网文标准裁决：主角欲望是否明确，角色弧线是否能持续推进，关系网络是否能制造误会、合作、冲突、亏欠、反转和情绪回报，角色设定是否会污染世界边界或偷塞未冻结类型模板。",
+            "你的报告第一行必须单独写成“审核裁决：通过”“审核裁决：带备注通过”“审核裁决：返修”或“审核裁决：拒绝”之一，不得使用其他裁决标题或含糊表述。若报告内存在必须修改项、阻塞问题、进入剧情前必须处理事项或不允许进入下一阶段的描述，第一行必须写“审核裁决：返修”或“审核裁决：拒绝”。",
             "你不能替设计师补写角色正文，也不能把自己的补充设定写成事实。裁决只能是通过、带备注通过、返修或拒绝；未通过时必须明确指出返修范围和影响到的下游节点。只要报告中存在阻塞问题、必须修改项、硬设定冲突、角色动机断裂、商业承载不足或进入剧情前必须处理的问题，裁决必须是返修或拒绝，不能写成通过或带备注通过。带备注通过只能用于不影响角色冻结和后续剧情设计的轻微建议。",
         ),
     ),
@@ -756,6 +762,7 @@ DESIGN_NODES: tuple[NodeSpec, ...] = (
             "你是一名名家级中文商业网文全书细纲审核员。你只负责判断细纲是否能支撑百万字、五卷结构、章节连续创作、角色成长和伏笔闭环。",
             "你需要检查细纲是否忠于世界观和人设边界，是否每卷都有明确目标和变化，是否存在中段空转、伏笔无回收、角色动机失真、世界规则被剧情便利破坏等问题。",
             "你还要以资深责编标准判断商业质量：每卷是否有留存点，每阶段是否有足够冲突和奖励，核心人物成长是否有情绪回报，场域与群体关系是否不断扩展，追读钩子是否能接住下一阶段。",
+            "你的报告第一行必须单独写成“审核裁决：通过”“审核裁决：带备注通过”“审核裁决：返修”或“审核裁决：拒绝”之一，不得使用其他裁决标题或含糊表述。若报告内存在必须修改项、阻塞问题、进入分卷规划前必须处理事项或不允许进入下一阶段的描述，第一行必须写“审核裁决：返修”或“审核裁决：拒绝”。",
             "你必须给出通过、带备注通过、返修或拒绝裁决；未通过时必须指明返修范围、影响节点和最低修复标准。你不能替设计师重写大纲正文。",
         ),
     ),
@@ -876,6 +883,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
             "每个场景都要有目标、阻碍、转折和结果；设定信息要融入动作、对话、观察、利益争夺、人物判断、物件细节和环境反馈里释放。对白要承担关系变化、信息交换、压迫试探或情绪爆发，内心活动要服务选择和行动，不要写成旁白讲解。",
             "每章都要服务商业连载阅读体验：开局有承接和当章目标，中段有阻碍、反应和推进，结尾形成自然的章末牵引，留下新的压力、期待、反转、奖励或疑问。爽点要以铺垫、触发、出手、代价、反馈和余波形成兑现，来源可以是角色选择、实力变化、身份反差、资源获得、局势翻盘或认知揭示。",
             "你必须先完成写前取材判断，再进入正文。写前取材判断只允许简短列出本批采用的世界规则、人物当前状态、上一批承接、正文事实索引、活跃伏笔、到期伏笔、禁改边界和本批叙事目标；它必须来自基准库、动态记忆库、正文记忆库、当前卷计划和当前批次细纲，不能凭空补设定。",
+            "当预装记忆包不足以确认某个规则、人物状态、正文事实、伏笔状态或前后承接时，你必须主动搜索任务记忆数据库，并在写前取材判断中记录检索意图、采用的记忆条目和未命中的风险。你只能检索任务记忆库，不能把未检索到的猜测当作已成立事实。",
             "写前取材判断之后必须输出完整小说正文，正文才是主体。正文要尊重世界规则、角色动机、前后连续性和批次目标；如果旧产物或提示中出现其他章号，以运行时批次边界为准。你不能跳写未授权章节，也不能为方便剧情临时改世界规则。若发现必须新增设定才能写通，只能在正文后标为待审扩展建议，不能当作已成立事实写进正文核心逻辑。",
         ),
     ),
@@ -904,6 +912,7 @@ CHAPTER_NODES: tuple[NodeSpec, ...] = (
             "你需要以头部连载作品的阅读体验做裁决：章节开局是否承接有力，当章目标是否明确，叙事是否像小说而不是说明书，场景是否有画面、行动、阻碍和转折，人物是否有欲望、压力、立场和选择，设定是否通过情境自然释放，爽点是否完成铺垫和兑现，章末是否形成下一章追读牵引。",
             "你还需要像资深责编一样检查世界规则、角色动机、前后文承接、伏笔状态、批次目标、字数规模、语言自然度、情绪回报和商业卖点是否真实达标。问题必须定位到章节、场景和影响范围。",
             "你必须检查写手的写前取材判断是否真实使用了基准库、动态记忆库、正文记忆库和当前批次细纲，是否漏读了会影响本批的角色状态、世界规则、正文事实、活跃伏笔或禁改边界。取材判断缺失、取材依据与正文不一致、正文偏离取材依据，都必须进入返修或拒绝裁决。",
+            "你的报告第一行必须单独写成“审核裁决：通过”“审核裁决：带备注通过”“审核裁决：返修”或“审核裁决：拒绝”之一，不得使用其他裁决标题或含糊表述。若报告内存在必须修改项、阻塞问题、继续批次前必须处理事项或不允许写入记忆的描述，第一行必须写“审核裁决：返修”或“审核裁决：拒绝”。",
             "你不能替写手补写正文。你必须给出通过、带备注通过、返修或拒绝裁决，并把连续性问题、风格目标差距、偏移性质和返修要求登记清楚。若正文偏离世界观或大纲，你必须明确裁决为返修正文、提交动态吸收提案，或要求回到上游设计节点，不能默默当作通过事实。",
         ),
     ),
@@ -1196,7 +1205,8 @@ FINALIZE_NODES: tuple[NodeSpec, ...] = (
 DESIGN_BUSINESS_EDGES = (
     ("edge.project.world", "project_brief", "world_design", "contract.writing.modular_novel.project_brief", "把项目启动包交给世界观规划师。"),
     ("edge.world.review", "world_design", "world_review", "contract.writing.modular_novel.world_candidate", "把世界观候选交给世界观审核员。"),
-    ("edge.world_review.commit", "world_review", "memory_commit_world", "contract.writing.modular_novel.world_review", "把世界观审核结果交给基准记忆管理员。"),
+    ("edge.world.commit_candidate", "world_design", "memory_commit_world", "contract.writing.modular_novel.world_candidate", "把已通过审核的世界观候选正文交给基准记忆管理员。"),
+    ("edge.world_review.commit", "world_review", "memory_commit_world", "contract.writing.modular_novel.world_review", "把世界观审核裁决报告交给基准记忆管理员。"),
     ("edge.world_commit.character_design", "memory_commit_world", "character_design", "contract.writing.modular_novel.world_commit", "把已提交世界观交给人设与关系设计师。"),
     ("edge.world_commit.plot", "memory_commit_world", "plot_design", "contract.writing.modular_novel.world_commit", "把已提交世界观交给剧情与伏笔设计师。"),
     ("edge.character.review", "character_design", "character_review", "contract.writing.modular_novel.character_design", "把角色和关系候选交给人设审核员。"),
@@ -1360,13 +1370,13 @@ def _upsert_agents(backend_dir: Path) -> None:
             provider=writing_model_profile.provider,
             model=writing_model_profile.model,
             credential_ref=writing_model_profile.credential_ref,
-            max_output_tokens=max(int(writing_model_profile.max_output_tokens or 0), 32768),
+            max_output_tokens=max(int(writing_model_profile.max_output_tokens or 0), WRITING_LONG_OUTPUT_TOKENS),
             timeout_seconds=max(float(writing_model_profile.timeout_seconds or 0), 180.0),
             long_output_timeout_seconds=max(float(writing_model_profile.long_output_timeout_seconds or 0), 600.0),
             max_retries=max(int(writing_model_profile.max_retries or 0), 2),
             temperature=writing_model_profile.temperature,
-            thinking_mode=writing_model_profile.thinking_mode,
-            reasoning_effort=writing_model_profile.reasoning_effort,
+            thinking_mode=writing_model_profile.thinking_mode or "enabled",
+            reasoning_effort=writing_model_profile.reasoning_effort or "high",
             stream_policy=dict(writing_model_profile.stream_policy),
             fallback_profile_ref=writing_model_profile.fallback_profile_ref,
             capability_tags=tuple(writing_model_profile.capability_tags),
@@ -1375,6 +1385,8 @@ def _upsert_agents(backend_dir: Path) -> None:
         runtime_registry.upsert_profile(
             agent_id=agent_id,
             agent_profile_id=str(getattr(current, "agent_profile_id", "") or f"{agent_id.removeprefix('agent:')}_runtime"),
+            enabled_runtime_modes=(STANDARD_MODE, CUSTOM_MODE),
+            default_runtime_mode=STANDARD_MODE,
             allowed_runtime_lanes=lanes,
             allowed_operations=tuple(dict.fromkeys(("op.model_response", "op.memory_read", *extra_ops))),
             blocked_operations=(
@@ -1414,6 +1426,8 @@ def _upsert_agents(backend_dir: Path) -> None:
                 "pseudo_tool_output_forbidden": True,
                 "model_may_not_request_file_reads": True,
                 "file_and_memory_side_effects_owned_by": "orchestration_runtime",
+                "agent_side_memory_read_allowed": True,
+                "agent_side_memory_read_tool": "memory_search",
                 "generic_length_metric_tool_enabled": bool(extra_ops),
                 "allow_unregistered_runtime_lanes": True,
             },
@@ -1853,6 +1867,9 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
     agent_id = _node_agent_id(node)
     artifact_policy = _artifact_policy(node)
     runtime_bindings = {"model_requirement": _model_requirement(node.node_id), **dict(node.extra_runtime)}
+    tool_execution_policy = _node_tool_execution_policy(node)
+    if tool_execution_policy:
+        runtime_bindings["tool_execution_policy"] = dict(tool_execution_policy)
     if node.length_budget:
         runtime_bindings["length_budget"] = dict(node.length_budget)
     unit_batch_bindings = _node_unit_batch_contract(node)
@@ -1958,6 +1975,7 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
 
 
 def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:
+    lifecycle_policy = _repository_lifecycle_policy(spec)
     return {
         "node_id": spec["node_id"],
         "node_type": spec["node_type"],
@@ -1967,6 +1985,7 @@ def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:
         "wait_policy": "wait_all_upstream_completed",
         "join_policy": "all_success",
         "resource_lifecycle_policy": {
+            **lifecycle_policy,
             "versioning": "append_version",
             "mutable": bool(spec["mutable"]),
             "write_owner_node_ids": list(spec["write_owner_node_ids"]),
@@ -1989,6 +2008,7 @@ def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:
                 "repository_id": spec["node_id"],
                 "title": spec["title"],
                 "collections": _repository_collections_payload(spec),
+                "lifecycle_policy": lifecycle_policy,
             },
             "mutable": bool(spec["mutable"]),
             "library_role": spec["library_role"],
@@ -1996,6 +2016,18 @@ def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:
             "readable_by": list(spec["readable_by"]),
         },
     }
+
+
+def _repository_lifecycle_policy(spec: dict[str, Any]) -> dict[str, Any]:
+    node_id = str(spec.get("node_id") or "")
+    if node_id.startswith("memory.writing."):
+        return {
+            "scope_kind": "project_scoped",
+            "scope_id_source": "runtime_project_id",
+            "scope_required": True,
+            "fallback_scope_kind": "run_scoped",
+        }
+    return {"scope_kind": "run_scoped"}
 
 
 def _repository_collections_payload(spec: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2030,6 +2062,14 @@ def _repository_needed(spec: dict[str, Any], nodes: tuple[NodeSpec, ...]) -> boo
 
 
 def _business_edge(edge_id: str, source: str, target: str, contract_id: str, summary: str) -> dict[str, Any]:
+    target_input_key = "上游交接包"
+    model_visible_label = "上游交接包"
+    if target == "memory_commit_world" and source == "world_design":
+        target_input_key = "通过候选正文"
+        model_visible_label = "通过候选正文"
+    elif target == "memory_commit_world" and source == "world_review":
+        target_input_key = "审核裁决报告"
+        model_visible_label = "审核裁决报告"
     return {
         "edge_id": edge_id,
         "source_node_id": source,
@@ -2046,7 +2086,7 @@ def _business_edge(edge_id: str, source: str, target: str, contract_id: str, sum
             "prefer_refs_over_text": False,
             "context_mode": "refs_and_authorized_text",
             "source_output_key": f"{contract_id}:artifact_refs",
-            "target_input_key": "上游交接包",
+            "target_input_key": target_input_key,
             "usage_instruction": summary,
             "max_chars": 30000,
         },
@@ -2064,7 +2104,7 @@ def _business_edge(edge_id: str, source: str, target: str, contract_id: str, sum
                 "artifact_ref_policy": {
                     "required_for_long_outputs": True,
                     "context_mode": "refs_and_authorized_text",
-                    "target_input_key": "上游交接包",
+                    "target_input_key": target_input_key,
                     "max_chars": 30000,
                 }
             },
@@ -2073,8 +2113,8 @@ def _business_edge(edge_id: str, source: str, target: str, contract_id: str, sum
             "managed_by": MANAGED_BY,
             "handoff_summary": summary,
             "packet_kind": "HandoffPacket",
-            "input_alias": "上游交接包",
-            "model_visible_label": "上游交接包",
+            "input_alias": target_input_key,
+            "model_visible_label": model_visible_label,
             "must_use": True,
             "on_missing": "block",
             "expand_strategy": "refs_and_authorized_text",
@@ -2181,6 +2221,7 @@ def _record_kinds_for_collection(collection: str, *, fallback: tuple[str, ...]) 
 def _memory_edge(edge_id: str, source: str, target: str, operation: str, collection: str, topics: tuple[str, ...], label: str) -> dict[str, Any]:
     edge_type = "memory_read" if operation == "read" else "memory_commit"
     repository = source if operation == "read" else target
+    lifecycle_policy = _memory_repository_lifecycle_policy(repository)
     return {
         "edge_id": edge_id,
         "source_node_id": source,
@@ -2219,11 +2260,30 @@ def _memory_edge(edge_id: str, source: str, target: str, operation: str, collect
             "record_kinds": list(topics),
             "model_visible_label": label,
             "usage_instruction": f"读取或提交{label}，必须按节点契约使用。",
-            "on_missing": "block" if operation == "read" else "warn",
+            "on_missing": _memory_edge_on_missing(operation=operation, repository=repository),
+            "resource_lifecycle_policy": lifecycle_policy,
+            "lifecycle_policy": lifecycle_policy,
             "content_requirement": dict(COLLECTION_CONTENT_REQUIREMENTS.get(collection) or {}),
             "materialization_policy": _memory_materialization_policy(collection=collection, operation=operation),
         },
     }
+
+
+def _memory_repository_lifecycle_policy(repository: str) -> dict[str, Any]:
+    if str(repository or "").startswith("memory.writing."):
+        return {
+            "scope_kind": "project_scoped",
+            "scope_id_source": "runtime_project_id",
+            "scope_required": True,
+            "fallback_scope_kind": "run_scoped",
+        }
+    return {"scope_kind": "run_scoped"}
+
+
+def _memory_edge_on_missing(*, operation: str, repository: str) -> str:
+    if operation != "read":
+        return "warn"
+    return "block" if repository == "memory.writing.baseline" else "warn"
 
 
 def _memory_materialization_policy(*, collection: str, operation: str) -> dict[str, Any]:
@@ -2698,6 +2758,8 @@ def _memory_read_policy(node: NodeSpec) -> dict[str, Any]:
 def _dynamic_memory_read_policy(node: NodeSpec) -> dict[str, Any]:
     return {
         "enabled": any(repo_id in node.readable_repositories for repo_id in ("memory.writing.mutable", "memory.writing.manuscript")),
+        "allow_dynamic_read": any(repo_id in node.readable_repositories for repo_id in ("memory.writing.mutable", "memory.writing.manuscript")),
+        "dynamic_read_tool_name": "memory_search" if node.node_id == "chapter_draft" else "",
         "memory_scope": "writing_modular_novel",
         "repository_node_id": "memory.writing.mutable",
         "repository_node_ids": [repo_id for repo_id in ("memory.writing.mutable", "memory.writing.manuscript") if repo_id in node.readable_repositories],
@@ -3115,6 +3177,52 @@ def _working_memory_policy() -> dict[str, Any]:
     }
 
 
+def _node_tool_execution_policy(node: NodeSpec) -> dict[str, Any]:
+    if node.node_id != "chapter_draft":
+        return {}
+    return {
+        "authority": "task_graph.contract_bound_tool_policy",
+        "enabled": True,
+        "allowed_tool_names": ["memory_search"],
+        "allowed_operation_refs": ["op.memory_read"],
+        "denied_tool_names": [
+            "read_file",
+            "read_structured_file",
+            "search_text",
+            "search_files",
+            "web_search",
+            "fetch_url",
+            "write_file",
+            "edit_file",
+            "terminal",
+            "python_repl",
+            "delegate_to_agent",
+        ],
+        "max_tool_rounds_per_task_run": 6,
+        "max_tool_calls_per_task_run": 8,
+        "max_tool_calls_per_round": 1,
+        "read_only": True,
+        "requires_evidence_packet": True,
+        "database_search_only": True,
+        "memory_search_policy": {
+            "tool_name": "memory_search",
+            "task_run_id_binding": "root_task_run_id",
+            "repositories": ["memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"],
+            "collections": [
+                "world_bible",
+                "outline_bible",
+                "character_bible",
+                "approved_chapter_batches",
+                "chapter_summaries",
+                "manuscript_fact_index",
+                "scene_continuity",
+                "chapter_hooks",
+            ],
+            "max_results_per_call": 8,
+        },
+    }
+
+
 def _graph_contract_bindings(graph_id: str) -> dict[str, Any]:
     bindings: dict[str, Any] = {
         "schema": {"graph_contract_id": _graph_contract_id(graph_id)},
@@ -3186,7 +3294,7 @@ def _chapter_initial_runtime_loop_inputs() -> dict[str, Any]:
 
 
 def _model_requirement(node_id: str) -> dict[str, Any]:
-    preferred = 65536 if node_id in {"chapter_draft", "chapter_cycle"} else 32768 if node_id in {"volume_plan", "final_assemble"} else 16384
+    preferred = WRITING_LONG_OUTPUT_TOKENS
     return {
         "profile_ref": MODEL_PROFILE_REF,
         "provider_family": "deepseek",

@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "tool_count": 20,
+  "tool_count": 23,
   "tools": [
     {
       "name": "web_search",
@@ -553,6 +553,73 @@
       "is_concurrency_safe": true
     },
     {
+      "name": "memory_search",
+      "display_name": "搜索任务记忆",
+      "operation_id": "op.memory_read",
+      "module": "tools.memory_search_tool",
+      "contract": {
+        "required_inputs": [
+          "query"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "task_run_id",
+          "repositories",
+          "collections",
+          "limit"
+        ],
+        "owner_scope": "task_memory",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "memory",
+        "search",
+        "formal_memory",
+        "task_memory"
+      ],
+      "supported_modalities": [
+        "text",
+        "memory"
+      ],
+      "safety_tags": [
+        "read",
+        "memory_read"
+      ],
+      "route_hints": [
+        "tool",
+        "memory_read",
+        "task_memory_search"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/memory_search",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "none",
+      "is_read_only": true,
+      "is_destructive": false,
+      "is_concurrency_safe": true
+    },
+    {
       "name": "text_metric",
       "display_name": "文本计量",
       "operation_id": "op.text_metric",
@@ -676,6 +743,148 @@
       "is_read_only": true,
       "is_destructive": false,
       "is_concurrency_safe": true
+    },
+    {
+      "name": "browser_control",
+      "display_name": "网页操作",
+      "operation_id": "op.browser_control",
+      "module": "tools.browser_control_tool",
+      "contract": {
+        "required_inputs": [
+          "action"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "url",
+          "selector",
+          "text",
+          "value",
+          "timeout_ms",
+          "screenshot_name"
+        ],
+        "owner_scope": "browser_session",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "browser",
+        "web",
+        "automation",
+        "page_interaction",
+        "visual_verification"
+      ],
+      "supported_modalities": [
+        "web",
+        "browser",
+        "visual"
+      ],
+      "safety_tags": [
+        "network",
+        "interactive",
+        "external_write_possible"
+      ],
+      "route_hints": [
+        "tool",
+        "browser",
+        "web_automation",
+        "page_operation"
+      ],
+      "safe_for_auto_route": false,
+      "schema_identity": "local.tools/browser_control",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
+    },
+    {
+      "name": "image_generate",
+      "display_name": "生成图像",
+      "operation_id": "op.image_generate",
+      "module": "tools.image_generation_tool",
+      "contract": {
+        "required_inputs": [
+          "prompt"
+        ],
+        "required_bindings": [],
+        "optional_inputs": [
+          "target_id",
+          "asset_kind",
+          "size",
+          "overwrite"
+        ],
+        "owner_scope": "none",
+        "allow_catalog_default": false,
+        "allow_history_binding": false,
+        "missing_binding_behavior": "clarify",
+        "context_policy": "inline",
+        "result_channel": "canonical"
+      },
+      "resolution_contract": {
+        "path_field": "",
+        "path_kind": "",
+        "binding_field": "",
+        "allow_message_extraction": false
+      },
+      "output_contract": {
+        "display_mode": "summary_text",
+        "finalization_policy": "none",
+        "persistence_policy": "persist_canonical"
+      },
+      "projection_contract": {
+        "task_summary_policy": "canonical_only",
+        "result_ref_policy": "default",
+        "memory_projection_policy": "canonical_only"
+      },
+      "capability_tags": [
+        "image",
+        "image_generation",
+        "visual",
+        "creative",
+        "multimodal"
+      ],
+      "supported_modalities": [
+        "image",
+        "visual"
+      ],
+      "safety_tags": [
+        "write",
+        "external_model"
+      ],
+      "route_hints": [
+        "tool",
+        "image_generation",
+        "generate_image",
+        "visual_creation"
+      ],
+      "safe_for_auto_route": true,
+      "schema_identity": "local.tools/image_generate",
+      "runtime_visibility": "main_runtime",
+      "prompt_exposure_policy": "schema_only",
+      "resource_exposure_policy": "explicit_resource",
+      "is_read_only": false,
+      "is_destructive": false,
+      "is_concurrency_safe": false
     },
     {
       "name": "git_status",

@@ -258,7 +258,7 @@ class ModelRuntime:
                 model = self._build_chat_model_for_spec(spec)
                 try:
                     bound_model = (
-                        _bind_tools_with_options(model, tools, tool_call_options=tool_call_options)
+                        _bind_tools_with_options(model, tools, tool_call_options=tool_call_options, spec=spec)
                         if tools
                         else model
                     )
@@ -359,7 +359,7 @@ class ModelRuntime:
                 model = self._build_chat_model_for_spec(spec)
                 try:
                     bound_model = (
-                        _bind_tools_with_options(model, tools, tool_call_options=tool_call_options)
+                        _bind_tools_with_options(model, tools, tool_call_options=tool_call_options, spec=spec)
                         if tools
                         else model
                     )
@@ -785,10 +785,21 @@ def _bind_tools_with_options(
     tools: list[Any],
     *,
     tool_call_options: ToolCallBindingOptions | dict[str, Any] | None,
+    spec: ModelSpec | None = None,
 ) -> Any:
     options = _normalize_tool_call_options(tool_call_options)
     kwargs = options.bind_kwargs() if options is not None else {}
+    if _deepseek_thinking_disallows_tool_choice(spec):
+        kwargs.pop("tool_choice", None)
     return model.bind_tools(tools, **kwargs)
+
+
+def _deepseek_thinking_disallows_tool_choice(spec: ModelSpec | None) -> bool:
+    if spec is None:
+        return False
+    provider = str(spec.provider or "").strip().lower()
+    thinking_mode = str(spec.thinking_mode or "").strip().lower()
+    return provider == "deepseek" and thinking_mode == "enabled"
 
 
 def _normalize_tool_call_options(

@@ -58,6 +58,14 @@ def build_runtime_interaction_mode_policy(
         or dict(current_turn.get("runtime_mode_policy") or {}).get("interaction_mode")
         or intent.get("interaction_mode")
     )
+    if _is_task_graph_node_runtime(current_turn, contract):
+        return _policy_for_mode(
+            explicit_mode or ROLE_MODE,
+            mode_reason="task_graph_node_runtime",
+            contract=contract,
+            understanding=understanding,
+            execution_obligation=obligation,
+        )
     if _obligation_requires_professional_mode(obligation):
         return _policy_for_mode(
             PROFESSIONAL_MODE,
@@ -176,6 +184,18 @@ def _normalize_mode(value: Any) -> str:
     return mapping.get(raw, "")
 
 
+def _is_task_graph_node_runtime(current_turn: dict[str, Any], contract: dict[str, Any]) -> bool:
+    if str(contract.get("task_goal_type") or "").strip() == "task_graph_node_execution":
+        return True
+    if current_turn.get("task_graph_node_runtime") is True or current_turn.get("suppress_bundle_projection") is True:
+        return True
+    if str(current_turn.get("runtime_lane") or "").strip() == "coordination_task":
+        return True
+    if str(dict(contract.get("execution_obligation") or {}).get("task_graph_node_policy") or "").strip():
+        return True
+    return False
+
+
 def _policy_for_mode(
     interaction_mode: str,
     *,
@@ -186,7 +206,7 @@ def _policy_for_mode(
 ) -> RuntimeInteractionModePolicy:
     obligation = dict(execution_obligation or {})
     if interaction_mode == ROLE_MODE:
-        return RuntimeInteractionModePolicy(
+        policy = RuntimeInteractionModePolicy(
             interaction_mode=ROLE_MODE,
             mode_reason=mode_reason,
             runtime_lane="role_interaction",
@@ -215,8 +235,9 @@ def _policy_for_mode(
             output_policy={"answer_boundary": "conversation", "deliverable_validator": False},
             diagnostics=_diagnostics(contract, understanding, obligation),
         )
+        return _with_contract_bound_tool_policy(policy, contract)
     if interaction_mode == STANDARD_MODE:
-        return RuntimeInteractionModePolicy(
+        policy = RuntimeInteractionModePolicy(
             interaction_mode=STANDARD_MODE,
             mode_reason=mode_reason,
             runtime_lane="standard_task",
@@ -268,7 +289,8 @@ def _policy_for_mode(
             output_policy={"answer_boundary": "task", "deliverable_validator": "basic"},
             diagnostics=_diagnostics(contract, understanding, obligation),
         )
-    return RuntimeInteractionModePolicy(
+        return _with_contract_bound_tool_policy(policy, contract)
+    policy = RuntimeInteractionModePolicy(
         interaction_mode=PROFESSIONAL_MODE,
         mode_reason=mode_reason,
         runtime_lane="professional_task",
@@ -361,6 +383,84 @@ def _policy_for_mode(
         output_policy={"answer_boundary": "professional_deliverable", "deliverable_validator": "strict"},
         diagnostics=_diagnostics(contract, understanding, obligation),
     )
+    return _with_contract_bound_tool_policy(policy, contract)
+
+
+def _with_contract_bound_tool_policy(
+    policy: RuntimeInteractionModePolicy,
+    contract: dict[str, Any],
+) -> RuntimeInteractionModePolicy:
+    node_policy = _contract_bound_tool_policy(contract)
+    if not node_policy:
+        return policy
+    merged_tool_policy = {
+        **dict(policy.tool_policy),
+        **node_policy,
+        "allowed_tool_names": _dedupe_policy_values(
+            [
+                *list(dict(policy.tool_policy).get("allowed_tool_names") or []),
+                *list(node_policy.get("allowed_tool_names") or []),
+            ]
+        ),
+        "allowed_operation_refs": _dedupe_policy_values(
+            [
+                *list(dict(policy.tool_policy).get("allowed_operation_refs") or []),
+                *list(node_policy.get("allowed_operation_refs") or []),
+            ]
+        ),
+        "denied_tool_names": _dedupe_policy_values(
+            [
+                *list(dict(policy.tool_policy).get("denied_tool_names") or []),
+                *list(node_policy.get("denied_tool_names") or []),
+            ]
+        ),
+    }
+    return RuntimeInteractionModePolicy(
+        interaction_mode=policy.interaction_mode,
+        mode_reason=policy.mode_reason,
+        runtime_lane=policy.runtime_lane,
+        recipe_id=policy.recipe_id,
+        projection_strength=policy.projection_strength,
+        semantic_contract_required=policy.semantic_contract_required,
+        professional_profile_required=policy.professional_profile_required,
+        tool_policy=merged_tool_policy,
+        delegation_policy=dict(policy.delegation_policy),
+        checkpoint_policy=dict(policy.checkpoint_policy),
+        verification_policy=dict(policy.verification_policy),
+        sandbox_policy=dict(policy.sandbox_policy),
+        context_policy=dict(policy.context_policy),
+        output_policy=dict(policy.output_policy),
+        diagnostics={
+            **dict(policy.diagnostics),
+            "contract_bound_tool_policy_adopted": True,
+        },
+    )
+
+
+def _contract_bound_tool_policy(contract: dict[str, Any]) -> dict[str, Any]:
+    bindings = dict(contract.get("contract_bindings") or contract.get("bindings") or {})
+    runtime = dict(bindings.get("runtime") or contract.get("runtime") or {})
+    policy = dict(runtime.get("tool_execution_policy") or contract.get("tool_execution_policy") or {})
+    if not policy:
+        current_turn = dict(bindings.get("current_turn") or {})
+        stage_request = dict(current_turn.get("stage_execution_request") or {})
+        runtime = dict(dict(stage_request.get("standard_input_package") or {}).get("contract", {}).get("contract_bindings", {}).get("runtime") or {})
+        policy = dict(runtime.get("tool_execution_policy") or {})
+    if not policy or policy.get("enabled") is False:
+        return {}
+    return policy
+
+
+def _dedupe_policy_values(values: list[Any]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
 
 
 def _diagnostics(contract: dict[str, Any], understanding: dict[str, Any], execution_obligation: dict[str, Any] | None = None) -> dict[str, Any]:

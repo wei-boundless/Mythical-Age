@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 from runtime.shared.event_log import RuntimeEventLog
@@ -12,9 +13,13 @@ from runtime.coordination_runtime.runtime import (
     _memory_edge_allows_refs_only_auto_candidate,
     _review_gate_event_is_accepted,
     _pending_inputs_for_stage_quality_retry,
+    _rewind_preserved_pending_inputs,
+    _agent_visible_checkout_explicit_inputs,
     _stage_execution_message,
 )
+from runtime.coordination_runtime.node_result_committer import build_node_result_acceptance_draft
 from runtime.coordination_runtime.context_packet_resolver import build_revision_packet_from_review
+from runtime.coordination_runtime.context_packet_resolver import resolve_artifact_context_packet
 from runtime.shared.models import CoordinationRun, TaskRun
 from runtime.execution.node_execution_request import NodeResultReadyEvent
 from runtime.memory.state_index import RuntimeStateIndex
@@ -81,6 +86,239 @@ def test_loop_derived_fields_recompute_stale_batch_descriptions_without_overridi
     assert result["batch_chapter_list"] == "第1章、第2章、第3章、第4章、第5章"
     assert "第1章至第10章" not in result["runtime_loop_summary"]
     assert "第6章" not in result["runtime_loop_summary"]
+
+
+def test_rewind_preserved_pending_inputs_drops_checkout_runtime_residue() -> None:
+    preserved = _rewind_preserved_pending_inputs(
+        {
+            "project_id": "project:honghuang-times",
+            "artifact_root": "output/novel_artifacts/modular_novel/runs/project-honghuang-times",
+            "volume_index": 1,
+            "contract.writing.modular_novel.world_candidate:artifact_refs": "artifact:world/world_review_round_002.md",
+            "contract.writing.modular_novel.world_review:artifact_refs": "artifact:world/world_review_round_002_v002.md",
+            "previous_review_stage_id": "world_review",
+            "previous_review_ref": "artifact:world/world_review_round_001.md",
+            "revision_requirements": "上一轮审核未通过",
+            "revision_required": True,
+            "force_replay": True,
+            "force_replay_after": 1779478772.0,
+            "upstream_output_refs": ["artifact:stale.md"],
+            "world_review_ref": "artifact:world/world_review_round_002.md",
+        },
+        invalidated_stage_ids=["memory_commit_world", "character_design"],
+        stage_results={
+            "world_design": {"artifact_refs": ["artifact:world/world_candidate_round_002.md"]},
+            "world_review": {"artifact_refs": ["artifact:world/world_review_round_002.md"]},
+        },
+    )
+
+    assert preserved["project_id"] == "project:honghuang-times"
+    assert preserved["artifact_root"] == "output/novel_artifacts/modular_novel/runs/project-honghuang-times"
+    assert preserved["volume_index"] == 1
+    assert "contract.writing.modular_novel.world_candidate:artifact_refs" not in preserved
+    assert "contract.writing.modular_novel.world_review:artifact_refs" not in preserved
+    assert "previous_review_stage_id" not in preserved
+    assert "previous_review_ref" not in preserved
+    assert "revision_requirements" not in preserved
+    assert "revision_required" not in preserved
+    assert "force_replay" not in preserved
+    assert "force_replay_after" not in preserved
+    assert "upstream_output_refs" not in preserved
+    assert "world_review_ref" in preserved
+
+
+def test_agent_visible_checkout_explicit_inputs_hide_runtime_artifact_controls() -> None:
+    visible = _agent_visible_checkout_explicit_inputs(
+        {
+            "project_id": "project:honghuang-times",
+            "artifact_root": "output/novel_artifacts/modular_novel/runs/project-honghuang-times",
+            "contract.writing.modular_novel.world_candidate:artifact_refs": "artifact:world/world_review_round_002.md",
+            "contract.writing.modular_novel.world_review:artifact_refs": "artifact:world/world_review_round_002_v002.md",
+            "force_replay": True,
+            "force_replay_after": 1779478772.0,
+            "rewind_from_stage": "memory_commit_world",
+            "rewind_reason": "checkout_pollution_repair",
+            "revision_requirements": "旧审核意见",
+            "previous_review_ref": "artifact:world/world_review_round_001.md",
+            "upstream_output_refs": ["artifact:stale.md"],
+        }
+    )
+
+    assert visible == {
+        "project_id": "project:honghuang-times",
+        "artifact_root": "output/novel_artifacts/modular_novel/runs/project-honghuang-times",
+    }
+
+
+def test_artifact_checkout_skips_accepted_stage_result_with_wrong_contract_artifact(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "output" / "world"
+    artifact_dir.mkdir(parents=True)
+    candidate_path = artifact_dir / "world_candidate_round_002.md"
+    review_path = artifact_dir / "world_review_round_002.md"
+    candidate_path.write_text("世界观设定候选：五域为人族退守地，洪荒为多层世界。", encoding="utf-8")
+    review_path.write_text("世界观审核报告：结论为通过，但这里不是候选正文。", encoding="utf-8")
+    candidate_ref = f"artifact:{candidate_path}"
+    review_ref = f"artifact:{review_path}"
+    state = {
+        "stage_results_by_instance": {
+            "tlresult:good-world-design": {
+                "accepted": True,
+                "artifact_refs": [candidate_ref, "artifact:output/debug/run_report_world_design.md"],
+                "trace_refs": ["artifact:output/debug/run_report_world_design_trace.md"],
+                "timeline_result_record": {
+                    "result_record_id": "tlresult:good-world-design",
+                    "stage_id": "world_design",
+                    "node_id": "world_design",
+                    "accepted": True,
+                },
+            },
+            "tlresult:bad-world-design": {
+                "accepted": True,
+                "artifact_refs": [review_ref],
+                "timeline_result_record": {
+                    "result_record_id": "tlresult:bad-world-design",
+                    "stage_id": "world_design",
+                    "node_id": "world_design",
+                    "accepted": True,
+                },
+            },
+            "tlresult:world-review": {
+                "accepted": True,
+                "artifact_refs": [review_ref],
+                "timeline_result_record": {
+                    "result_record_id": "tlresult:world-review",
+                    "stage_id": "world_review",
+                    "node_id": "world_review",
+                    "accepted": True,
+                },
+            },
+        },
+        "result_record_index": {
+            "tlresult:bad-world-design": {"accepted": True},
+            "tlresult:world-review": {"accepted": True},
+        },
+        "accepted_result_records_by_scope": {
+            "run/volume[001]/round[002]": {
+                "world_design": "tlresult:bad-world-design",
+                "world_review": "tlresult:world-review",
+            }
+        },
+        "diagnostics": {
+            "coordination_graph_spec": {
+                "edges": [
+                    {
+                        "edge_id": "edge.world.commit_candidate",
+                        "source_node_id": "world_design",
+                        "target_node_id": "memory_commit_world",
+                        "payload_contract_id": "contract.writing.modular_novel.world_candidate",
+                        "artifact_ref_policy": {"target_input_key": "通过候选正文", "max_chars": 30000},
+                    },
+                    {
+                        "edge_id": "edge.world_review.commit",
+                        "source_node_id": "world_review",
+                        "target_node_id": "memory_commit_world",
+                        "payload_contract_id": "contract.writing.modular_novel.world_review",
+                        "artifact_ref_policy": {"target_input_key": "审核裁决报告", "max_chars": 30000},
+                    },
+                ]
+            }
+        },
+    }
+
+    packet = resolve_artifact_context_packet(
+        state=state,
+        stage_id="memory_commit_world",
+        node_id="memory_commit_world",
+        explicit_inputs={},
+        dispatch_context={"scope_path": ["run", "volume[001]", "round[002]"]},
+    )
+
+    assert candidate_ref in packet["artifact_refs"]
+    assert review_ref in packet["artifact_refs"]
+    assert "artifact:output/debug/run_report_world_design.md" not in packet["artifact_refs"]
+    assert "artifact:output/debug/run_report_world_design.md" not in packet["trace_refs"]
+    assert "artifact:output/debug/run_report_world_design_trace.md" not in packet["trace_refs"]
+    assert "世界观设定候选" in packet["expanded_text_by_input_key"]["通过候选正文"]
+    assert "世界观审核报告" not in packet["expanded_text_by_input_key"]["通过候选正文"]
+    assert "世界观审核报告" in packet["expanded_text_by_input_key"]["审核裁决报告"]
+    assert "tlresult:good-world-design" in packet["source_result_record_ids"]
+
+
+def test_memory_commit_world_checkout_filters_unrelated_explicit_artifact_refs() -> None:
+    state = {
+        "stage_results_by_instance": {
+            "tlresult:world-design": {
+                "accepted": True,
+                "artifact_refs": ["artifact:output/world/world_candidate_round_002.md"],
+                "timeline_result_record": {
+                    "result_record_id": "tlresult:world-design",
+                    "stage_id": "world_design",
+                    "node_id": "world_design",
+                    "accepted": True,
+                },
+            }
+        },
+        "result_record_index": {"tlresult:world-design": {"accepted": True}},
+        "accepted_result_records_by_scope": {"run": {"world_design": "tlresult:world-design"}},
+        "diagnostics": {
+            "coordination_graph_spec": {
+                "edges": [
+                    {
+                        "edge_id": "edge.world.commit_candidate",
+                        "source_node_id": "world_design",
+                        "target_node_id": "memory_commit_world",
+                        "payload_contract_id": "contract.writing.modular_novel.world_candidate",
+                        "artifact_ref_policy": {"target_input_key": "通过候选正文", "max_chars": 30000},
+                    }
+                ]
+            }
+        },
+    }
+
+    packet = resolve_artifact_context_packet(
+        state=state,
+        stage_id="memory_commit_world",
+        node_id="memory_commit_world",
+        explicit_inputs={"contract.writing.modular_novel.world_candidate:artifact_refs": "artifact:output/world/world_review_round_002.md"},
+        dispatch_context={"scope_path": ["run"]},
+    )
+
+    assert "artifact:output/world/world_candidate_round_002.md" in packet["artifact_refs"]
+    assert "artifact:output/world/world_review_round_002.md" not in packet["artifact_refs"]
+
+
+def test_node_result_acceptance_keeps_debug_reports_out_of_formal_artifact_refs() -> None:
+    draft = build_node_result_acceptance_draft(
+        state={},
+        event={
+            "accepted": True,
+            "artifact_refs": [
+                "artifact:output/project/memory/world/world_commit_round_002.md",
+                "artifact:output/project/debug/run_report_task-writing-modular-novel-node-memory-commit-world.md",
+                "trace:event:debug",
+            ],
+        },
+        stage_id="memory_commit_world",
+        contract={
+            "node_id": "memory_commit_world",
+            "output_mappings": [
+                {
+                    "output_key": "contract.writing.modular_novel.world_commit:artifact_refs",
+                    "required": True,
+                }
+            ],
+            "artifact_policy": {"enabled": True, "required": True},
+        },
+        request_payload={},
+        stage_scope={"scope_path": ["run"]},
+        event_accepted_by_policy=False,
+        committed_identities=[],
+    )
+
+    assert draft.accepted is True
+    assert draft.artifact_refs == ["artifact:output/project/memory/world/world_commit_round_002.md"]
+    assert "artifact:output/project/debug/run_report_task-writing-modular-novel-node-memory-commit-world.md" in draft.trace_refs
+    assert "trace:event:debug" in draft.trace_refs
 
 
 def test_quality_retry_pending_inputs_normalize_stale_loop_fields() -> None:

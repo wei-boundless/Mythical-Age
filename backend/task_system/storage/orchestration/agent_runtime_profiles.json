@@ -1,0 +1,1185 @@
+{
+  "profiles": [
+    {
+      "agent_profile_id": "main_interactive_agent",
+      "agent_id": "agent:0",
+      "enabled_runtime_modes": [
+        "role",
+        "standard",
+        "professional",
+        "custom"
+      ],
+      "default_runtime_mode": "standard",
+      "allowed_runtime_lanes": [
+        "role_interaction",
+        "standard_task",
+        "professional_task",
+        "full_interactive",
+        "game_delivery"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.list_dir",
+        "op.stat_path",
+        "op.path_exists",
+        "op.glob_paths",
+        "op.read_structured_file",
+        "op.search_files",
+        "op.search_text",
+        "op.git_status",
+        "op.git_diff",
+        "op.git_log",
+        "op.git_show",
+        "op.web_search",
+        "op.fetch_url",
+        "op.memory_read",
+        "op.delegate_to_agent",
+        "op.mcp_retrieval",
+        "op.mcp_pdf",
+        "op.mcp_structured_data",
+        "op.write_file",
+        "op.edit_file",
+        "op.shell"
+      ],
+      "blocked_operations": [
+        "op.python_repl",
+        "op.memory_write_candidate"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "long_term_candidate"
+      ],
+      "allowed_context_sections": [
+        "conversation",
+        "state",
+        "task",
+        "projection",
+        "tool",
+        "runtime_contracts"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": true,
+      "allowed_delegate_agent_ids": [
+        "agent:rag_analyst",
+        "agent:pdf_reader",
+        "agent:table_analyst",
+        "agent:web_researcher"
+      ],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "default",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "runtime_template_id": "builtin.main.default"
+      },
+      "runtime_template_id": "builtin.main.default",
+      "runtime_mode_catalog": [
+        {
+          "mode": "role",
+          "label": "角色模式",
+          "interaction_mode": "role_mode",
+          "runtime_lane": "role_interaction",
+          "recipe_id": "runtime.recipe.role_interaction",
+          "projection_strength": "primary",
+          "runtime_lanes": [
+            "role_interaction"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "standard",
+          "label": "标准模式",
+          "interaction_mode": "standard_mode",
+          "runtime_lane": "standard_task",
+          "recipe_id": "runtime.recipe.standard_task",
+          "projection_strength": "companion",
+          "runtime_lanes": [
+            "standard_task"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "professional",
+          "label": "专家模式",
+          "interaction_mode": "professional_mode",
+          "runtime_lane": "professional_task",
+          "recipe_id": "runtime.recipe.professional_task",
+          "projection_strength": "style_only",
+          "runtime_lanes": [
+            "professional_task"
+          ],
+          "execution_strategy": "professional_task_run",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "custom",
+          "label": "自定义模式",
+          "interaction_mode": "custom_mode",
+          "runtime_lane": "",
+          "recipe_id": "runtime.recipe.custom",
+          "projection_strength": "manual",
+          "runtime_lanes": [],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": true,
+          "description": ""
+        }
+      ]
+    },
+    {
+      "agent_profile_id": "memory_system_agent",
+      "agent_id": "agent:1",
+      "enabled_runtime_modes": [
+        "custom"
+      ],
+      "default_runtime_mode": "custom",
+      "allowed_runtime_lanes": [
+        "memory_trace_read",
+        "session_memory_maintenance",
+        "durable_memory_extraction",
+        "memory_candidate_review"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.memory_read",
+        "op.memory_write_candidate"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.agent_bounded",
+        "op.delegate_to_agent",
+        "op.web_search"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly",
+        "long_term_candidate",
+        "session_memory_write_candidate",
+        "durable_memory_write_candidate"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "runtime_trace",
+        "memory_runtime_view",
+        "prompt_manifest",
+        "runtime_contracts"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "system_key": "memory_system",
+        "manager_kind": "memory",
+        "runtime_template_id": "builtin.system.memory_manager"
+      },
+      "runtime_template_id": "builtin.system.memory_manager",
+      "runtime_mode_catalog": [
+        {
+          "mode": "role",
+          "label": "角色模式",
+          "interaction_mode": "role_mode",
+          "runtime_lane": "role_interaction",
+          "recipe_id": "runtime.recipe.role_interaction",
+          "projection_strength": "primary",
+          "runtime_lanes": [
+            "role_interaction"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "standard",
+          "label": "标准模式",
+          "interaction_mode": "standard_mode",
+          "runtime_lane": "standard_task",
+          "recipe_id": "runtime.recipe.standard_task",
+          "projection_strength": "companion",
+          "runtime_lanes": [
+            "standard_task"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "professional",
+          "label": "专家模式",
+          "interaction_mode": "professional_mode",
+          "runtime_lane": "professional_task",
+          "recipe_id": "runtime.recipe.professional_task",
+          "projection_strength": "style_only",
+          "runtime_lanes": [
+            "professional_task"
+          ],
+          "execution_strategy": "professional_task_run",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "custom",
+          "label": "自定义模式",
+          "interaction_mode": "custom_mode",
+          "runtime_lane": "",
+          "recipe_id": "runtime.recipe.custom",
+          "projection_strength": "manual",
+          "runtime_lanes": [],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": true,
+          "description": ""
+        }
+      ]
+    },
+    {
+      "agent_profile_id": "config_system_agent",
+      "agent_id": "agent:2",
+      "enabled_runtime_modes": [
+        "custom"
+      ],
+      "default_runtime_mode": "custom",
+      "allowed_runtime_lanes": [
+        "config_trace_read"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.agent_bounded"
+      ],
+      "allowed_memory_scopes": [
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "runtime_trace",
+        "runtime_contracts"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "system_key": "config_system",
+        "manager_kind": "config",
+        "runtime_template_id": "builtin.system.config_manager"
+      },
+      "runtime_template_id": "builtin.system.config_manager",
+      "runtime_mode_catalog": [
+        {
+          "mode": "role",
+          "label": "角色模式",
+          "interaction_mode": "role_mode",
+          "runtime_lane": "role_interaction",
+          "recipe_id": "runtime.recipe.role_interaction",
+          "projection_strength": "primary",
+          "runtime_lanes": [
+            "role_interaction"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "standard",
+          "label": "标准模式",
+          "interaction_mode": "standard_mode",
+          "runtime_lane": "standard_task",
+          "recipe_id": "runtime.recipe.standard_task",
+          "projection_strength": "companion",
+          "runtime_lanes": [
+            "standard_task"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "professional",
+          "label": "专家模式",
+          "interaction_mode": "professional_mode",
+          "runtime_lane": "professional_task",
+          "recipe_id": "runtime.recipe.professional_task",
+          "projection_strength": "style_only",
+          "runtime_lanes": [
+            "professional_task"
+          ],
+          "execution_strategy": "professional_task_run",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "custom",
+          "label": "自定义模式",
+          "interaction_mode": "custom_mode",
+          "runtime_lane": "",
+          "recipe_id": "runtime.recipe.custom",
+          "projection_strength": "manual",
+          "runtime_lanes": [],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": true,
+          "description": ""
+        }
+      ]
+    },
+    {
+      "agent_profile_id": "task_management_agent",
+      "agent_id": "agent:4",
+      "enabled_runtime_modes": [
+        "custom"
+      ],
+      "default_runtime_mode": "custom",
+      "allowed_runtime_lanes": [
+        "task_trace_read"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.agent_bounded"
+      ],
+      "allowed_memory_scopes": [
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "runtime_trace",
+        "runtime_contracts"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "system_key": "task_management_system",
+        "manager_kind": "task",
+        "runtime_template_id": "builtin.system.task_manager"
+      },
+      "runtime_template_id": "builtin.system.task_manager",
+      "runtime_mode_catalog": [
+        {
+          "mode": "role",
+          "label": "角色模式",
+          "interaction_mode": "role_mode",
+          "runtime_lane": "role_interaction",
+          "recipe_id": "runtime.recipe.role_interaction",
+          "projection_strength": "primary",
+          "runtime_lanes": [
+            "role_interaction"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "standard",
+          "label": "标准模式",
+          "interaction_mode": "standard_mode",
+          "runtime_lane": "standard_task",
+          "recipe_id": "runtime.recipe.standard_task",
+          "projection_strength": "companion",
+          "runtime_lanes": [
+            "standard_task"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "professional",
+          "label": "专家模式",
+          "interaction_mode": "professional_mode",
+          "runtime_lane": "professional_task",
+          "recipe_id": "runtime.recipe.professional_task",
+          "projection_strength": "style_only",
+          "runtime_lanes": [
+            "professional_task"
+          ],
+          "execution_strategy": "professional_task_run",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "custom",
+          "label": "自定义模式",
+          "interaction_mode": "custom_mode",
+          "runtime_lane": "",
+          "recipe_id": "runtime.recipe.custom",
+          "projection_strength": "manual",
+          "runtime_lanes": [],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": true,
+          "description": ""
+        }
+      ]
+    },
+    {
+      "agent_profile_id": "capability_system_agent",
+      "agent_id": "agent:5",
+      "enabled_runtime_modes": [
+        "custom"
+      ],
+      "default_runtime_mode": "custom",
+      "allowed_runtime_lanes": [
+        "capability_trace_read"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.read_file",
+        "op.search_text"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.agent_bounded"
+      ],
+      "allowed_memory_scopes": [
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "runtime_trace",
+        "runtime_contracts"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "system_key": "capability_system",
+        "manager_kind": "capability",
+        "runtime_template_id": "builtin.system.capability_manager"
+      },
+      "runtime_template_id": "builtin.system.capability_manager",
+      "runtime_mode_catalog": [
+        {
+          "mode": "role",
+          "label": "角色模式",
+          "interaction_mode": "role_mode",
+          "runtime_lane": "role_interaction",
+          "recipe_id": "runtime.recipe.role_interaction",
+          "projection_strength": "primary",
+          "runtime_lanes": [
+            "role_interaction"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "standard",
+          "label": "标准模式",
+          "interaction_mode": "standard_mode",
+          "runtime_lane": "standard_task",
+          "recipe_id": "runtime.recipe.standard_task",
+          "projection_strength": "companion",
+          "runtime_lanes": [
+            "standard_task"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "professional",
+          "label": "专家模式",
+          "interaction_mode": "professional_mode",
+          "runtime_lane": "professional_task",
+          "recipe_id": "runtime.recipe.professional_task",
+          "projection_strength": "style_only",
+          "runtime_lanes": [
+            "professional_task"
+          ],
+          "execution_strategy": "professional_task_run",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "custom",
+          "label": "自定义模式",
+          "interaction_mode": "custom_mode",
+          "runtime_lane": "",
+          "recipe_id": "runtime.recipe.custom",
+          "projection_strength": "manual",
+          "runtime_lanes": [],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": true,
+          "description": ""
+        }
+      ]
+    },
+    {
+      "agent_profile_id": "rag_analysis_agent",
+      "agent_id": "agent:rag_analyst",
+      "enabled_runtime_modes": [
+        "custom"
+      ],
+      "default_runtime_mode": "custom",
+      "allowed_runtime_lanes": [
+        "retrieval_delegate",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.mcp_retrieval",
+        "op.memory_read"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "tool",
+        "runtime_contracts",
+        "artifact_refs",
+        "memory_runtime_view"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "worker_kind": "rag_analysis",
+        "delegation_kind": "evidence_lookup",
+        "runtime_template_id": "builtin.specialist.rag_analyst"
+      },
+      "runtime_template_id": "builtin.specialist.rag_analyst",
+      "runtime_mode_catalog": [
+        {
+          "mode": "role",
+          "label": "角色模式",
+          "interaction_mode": "role_mode",
+          "runtime_lane": "role_interaction",
+          "recipe_id": "runtime.recipe.role_interaction",
+          "projection_strength": "primary",
+          "runtime_lanes": [
+            "role_interaction"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "standard",
+          "label": "标准模式",
+          "interaction_mode": "standard_mode",
+          "runtime_lane": "standard_task",
+          "recipe_id": "runtime.recipe.standard_task",
+          "projection_strength": "companion",
+          "runtime_lanes": [
+            "standard_task"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "professional",
+          "label": "专家模式",
+          "interaction_mode": "professional_mode",
+          "runtime_lane": "professional_task",
+          "recipe_id": "runtime.recipe.professional_task",
+          "projection_strength": "style_only",
+          "runtime_lanes": [
+            "professional_task"
+          ],
+          "execution_strategy": "professional_task_run",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "custom",
+          "label": "自定义模式",
+          "interaction_mode": "custom_mode",
+          "runtime_lane": "",
+          "recipe_id": "runtime.recipe.custom",
+          "projection_strength": "manual",
+          "runtime_lanes": [],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": true,
+          "description": ""
+        }
+      ]
+    },
+    {
+      "agent_profile_id": "pdf_analysis_agent",
+      "agent_id": "agent:pdf_reader",
+      "enabled_runtime_modes": [
+        "custom"
+      ],
+      "default_runtime_mode": "custom",
+      "allowed_runtime_lanes": [
+        "pdf_delegate",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.mcp_pdf",
+        "op.read_file"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "tool",
+        "runtime_contracts",
+        "artifact_refs"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "worker_kind": "pdf_analysis",
+        "delegation_kind": "pdf_reading",
+        "runtime_template_id": "builtin.specialist.pdf_reader"
+      },
+      "runtime_template_id": "builtin.specialist.pdf_reader",
+      "runtime_mode_catalog": [
+        {
+          "mode": "role",
+          "label": "角色模式",
+          "interaction_mode": "role_mode",
+          "runtime_lane": "role_interaction",
+          "recipe_id": "runtime.recipe.role_interaction",
+          "projection_strength": "primary",
+          "runtime_lanes": [
+            "role_interaction"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "standard",
+          "label": "标准模式",
+          "interaction_mode": "standard_mode",
+          "runtime_lane": "standard_task",
+          "recipe_id": "runtime.recipe.standard_task",
+          "projection_strength": "companion",
+          "runtime_lanes": [
+            "standard_task"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "professional",
+          "label": "专家模式",
+          "interaction_mode": "professional_mode",
+          "runtime_lane": "professional_task",
+          "recipe_id": "runtime.recipe.professional_task",
+          "projection_strength": "style_only",
+          "runtime_lanes": [
+            "professional_task"
+          ],
+          "execution_strategy": "professional_task_run",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "custom",
+          "label": "自定义模式",
+          "interaction_mode": "custom_mode",
+          "runtime_lane": "",
+          "recipe_id": "runtime.recipe.custom",
+          "projection_strength": "manual",
+          "runtime_lanes": [],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": true,
+          "description": ""
+        }
+      ]
+    },
+    {
+      "agent_profile_id": "structured_data_analysis_agent",
+      "agent_id": "agent:table_analyst",
+      "enabled_runtime_modes": [
+        "custom"
+      ],
+      "default_runtime_mode": "custom",
+      "allowed_runtime_lanes": [
+        "structured_data_delegate",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.mcp_structured_data",
+        "op.read_structured_file",
+        "op.read_file"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "tool",
+        "runtime_contracts",
+        "artifact_refs"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "worker_kind": "structured_data_analysis",
+        "delegation_kind": "table_analysis",
+        "runtime_template_id": "builtin.specialist.table_analyst"
+      },
+      "runtime_template_id": "builtin.specialist.table_analyst",
+      "runtime_mode_catalog": [
+        {
+          "mode": "role",
+          "label": "角色模式",
+          "interaction_mode": "role_mode",
+          "runtime_lane": "role_interaction",
+          "recipe_id": "runtime.recipe.role_interaction",
+          "projection_strength": "primary",
+          "runtime_lanes": [
+            "role_interaction"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "standard",
+          "label": "标准模式",
+          "interaction_mode": "standard_mode",
+          "runtime_lane": "standard_task",
+          "recipe_id": "runtime.recipe.standard_task",
+          "projection_strength": "companion",
+          "runtime_lanes": [
+            "standard_task"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "professional",
+          "label": "专家模式",
+          "interaction_mode": "professional_mode",
+          "runtime_lane": "professional_task",
+          "recipe_id": "runtime.recipe.professional_task",
+          "projection_strength": "style_only",
+          "runtime_lanes": [
+            "professional_task"
+          ],
+          "execution_strategy": "professional_task_run",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "custom",
+          "label": "自定义模式",
+          "interaction_mode": "custom_mode",
+          "runtime_lane": "",
+          "recipe_id": "runtime.recipe.custom",
+          "projection_strength": "manual",
+          "runtime_lanes": [],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": true,
+          "description": ""
+        }
+      ]
+    },
+    {
+      "agent_profile_id": "web_research_agent",
+      "agent_id": "agent:web_researcher",
+      "enabled_runtime_modes": [
+        "custom"
+      ],
+      "default_runtime_mode": "custom",
+      "allowed_runtime_lanes": [
+        "web_research_delegate",
+        "readonly_exploration"
+      ],
+      "allowed_operations": [
+        "op.model_response",
+        "op.web_search",
+        "op.fetch_url"
+      ],
+      "blocked_operations": [
+        "op.write_file",
+        "op.edit_file",
+        "op.shell",
+        "op.python_repl",
+        "op.memory_write_candidate",
+        "op.delegate_to_agent"
+      ],
+      "allowed_memory_scopes": [
+        "conversation_readonly",
+        "state_readonly"
+      ],
+      "allowed_context_sections": [
+        "task",
+        "projection",
+        "tool",
+        "runtime_contracts",
+        "artifact_refs"
+      ],
+      "use_shared_contract": true,
+      "can_delegate_to_agents": false,
+      "allowed_delegate_agent_ids": [],
+      "max_delegate_calls_per_turn": 1,
+      "delegate_context_policy": "summary_and_refs_only",
+      "approval_policy": "read_only_first",
+      "trace_policy": "runtime_event_log",
+      "lifecycle_policy": "system_builtin",
+      "model_profile": {
+        "profile_id": "",
+        "display_name": "",
+        "provider": "",
+        "model": "",
+        "credential_ref": "",
+        "max_output_tokens": null,
+        "timeout_seconds": null,
+        "long_output_timeout_seconds": null,
+        "max_retries": null,
+        "temperature": null,
+        "thinking_mode": "",
+        "reasoning_effort": "",
+        "stream_policy": {},
+        "fallback_profile_ref": "",
+        "capability_tags": [],
+        "metadata": {}
+      },
+      "metadata": {
+        "worker_kind": "web_research",
+        "delegation_kind": "web_research",
+        "delegation_kinds": [
+          "web_research",
+          "external_web_lookup",
+          "current_information_lookup",
+          "official_source_lookup"
+        ],
+        "runtime_template_id": "builtin.specialist.web_researcher"
+      },
+      "runtime_template_id": "builtin.specialist.web_researcher",
+      "runtime_mode_catalog": [
+        {
+          "mode": "role",
+          "label": "角色模式",
+          "interaction_mode": "role_mode",
+          "runtime_lane": "role_interaction",
+          "recipe_id": "runtime.recipe.role_interaction",
+          "projection_strength": "primary",
+          "runtime_lanes": [
+            "role_interaction"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "standard",
+          "label": "标准模式",
+          "interaction_mode": "standard_mode",
+          "runtime_lane": "standard_task",
+          "recipe_id": "runtime.recipe.standard_task",
+          "projection_strength": "companion",
+          "runtime_lanes": [
+            "standard_task"
+          ],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "professional",
+          "label": "专家模式",
+          "interaction_mode": "professional_mode",
+          "runtime_lane": "professional_task",
+          "recipe_id": "runtime.recipe.professional_task",
+          "projection_strength": "style_only",
+          "runtime_lanes": [
+            "professional_task"
+          ],
+          "execution_strategy": "professional_task_run",
+          "builtin": true,
+          "editable": false,
+          "description": ""
+        },
+        {
+          "mode": "custom",
+          "label": "自定义模式",
+          "interaction_mode": "custom_mode",
+          "runtime_lane": "",
+          "recipe_id": "runtime.recipe.custom",
+          "projection_strength": "manual",
+          "runtime_lanes": [],
+          "execution_strategy": "",
+          "builtin": true,
+          "editable": true,
+          "description": ""
+        }
+      ]
+    }
+  ]
+}

@@ -44,6 +44,121 @@ def test_settings_expose_llm_timeout_and_retry_controls(monkeypatch: pytest.Monk
     assert settings.llm_reasoning_effort == "max"
 
 
+def test_model_provider_payload_exposes_deepseek_thinking_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setenv("LLM_THINKING_MODE", "enabled")
+    monkeypatch.setenv("LLM_REASONING_EFFORT", "max")
+
+    from bootstrap.settings import AppSettingsService
+
+    payload = AppSettingsService(BACKEND_DIR).model_provider_payload()
+
+    assert payload["thinking_mode"] == "enabled"
+    assert payload["reasoning_effort"] == "max"
+
+
+def test_soul_image_asset_config_uses_runtime_override() -> None:
+    from soul.image_asset_service import SoulImageAssetService
+
+    service = SoulImageAssetService(BACKEND_DIR)
+
+    payload = service.set_config(
+        base_url="https://images.example.test/v1",
+        model="gpt-image-2",
+        api_key="image-key",
+    )
+
+    assert payload["base_url"] == "https://images.example.test/v1"
+    assert payload["model"] == "gpt-image-2"
+    assert payload["api_key_present"] is True
+    assert "image-key" not in str(payload)
+
+
+def test_soul_image_asset_generation_reports_non_json_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    import pytest
+
+    from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
+
+    service = SoulImageAssetService(BACKEND_DIR)
+    service.set_config(
+        base_url="https://images.example.test/v1",
+        model="gpt-image-2",
+        api_key="image-key",
+    )
+
+    class _Response:
+        status_code = 200
+        text = "<html>wrong endpoint</html>"
+        headers = {"content-type": "text/html"}
+
+        def json(self):
+            import json
+
+            raise json.JSONDecodeError("bad", self.text, 0)
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, *args, **kwargs):
+            return _Response()
+
+    monkeypatch.setattr("soul.image_asset_service.httpx.AsyncClient", _Client)
+
+    with pytest.raises(SoulImageAssetError) as exc_info:
+        import asyncio
+
+        asyncio.run(service.generate(prompt="test image", target_id="non-json-test", asset_kind="chat"))
+
+    assert "non-JSON response" in str(exc_info.value)
+    assert "text/html" in str(exc_info.value)
+
+
+def test_runtime_config_console_includes_soul_image_asset_group() -> None:
+    from bootstrap.settings import AppSettingsService
+
+    payload = AppSettingsService(BACKEND_DIR).runtime_config_console_payload()
+    image_group = next(group for group in payload["groups"] if group["group_id"] == "soul_image_assets")
+    field_map = {field["key"]: field for field in image_group["fields"]}
+
+    assert image_group["title"] == "生图模型"
+    assert field_map["base_url"]["type"] == "text"
+    assert field_map["model"]["value"] == "gpt-image-2"
+    assert field_map["api_key"]["type"] == "secret"
+    assert "api_key" not in str(field_map["api_key"].get("value", ""))
+
+
+def test_runtime_config_console_saves_soul_image_asset_group() -> None:
+    from bootstrap.settings import AppSettingsService
+    from soul.image_asset_service import SoulImageAssetService
+
+    service = AppSettingsService(BACKEND_DIR)
+    payload = service.set_runtime_config_group(
+        "soul_image_assets",
+        {
+            "base_url": "https://images.example.test/v1",
+            "model": "gpt-image-2",
+            "api_key": "image-key",
+        },
+    )
+    image_group = next(group for group in payload["groups"] if group["group_id"] == "soul_image_assets")
+    field_map = {field["key"]: field for field in image_group["fields"]}
+
+    summary = SoulImageAssetService(BACKEND_DIR).config_summary()
+    assert summary["base_url"] == "https://images.example.test/v1"
+    assert summary["api_key_present"] is True
+    assert field_map["api_key"]["configured"] is True
+    assert "image-key" not in str(payload)
+
+
 def test_settings_resolve_cross_provider_llm_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "deepseek")
     monkeypatch.setenv("LLM_MODEL", "deepseek-v4-flash")

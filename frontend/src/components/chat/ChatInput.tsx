@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUp, BrainCircuit, Square } from "lucide-react";
+import { ArrowUp, BrainCircuit, Lightbulb, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { ModelProviderConfig, SoulImageAssetConfig } from "@/lib/api";
@@ -26,7 +26,9 @@ export function ChatInput({
   onStop,
   onSelectChatModel,
   onSelectMainAgentAssemblyMode,
+  onToggleDeepSeekThinking,
   onToggleSearchPolicy,
+  deepSeekThinkingEnabled,
   mainAgentAssemblyMode,
   searchPolicy,
   selectedChatModelId,
@@ -39,7 +41,9 @@ export function ChatInput({
   onStop: () => void;
   onSelectChatModel: (selectionId: string) => void;
   onSelectMainAgentAssemblyMode: (mode: MainAgentAssemblyMode) => void;
+  onToggleDeepSeekThinking: (enabled: boolean) => void;
   onToggleSearchPolicy: (source: SearchPolicySource) => void;
+  deepSeekThinkingEnabled: boolean;
   mainAgentAssemblyMode: MainAgentAssemblyMode;
   searchPolicy: SearchPolicyState;
   selectedChatModelId: string;
@@ -50,7 +54,9 @@ export function ChatInput({
   const activeModelId = modelOptions.some((option) => option.id === selectedChatModelId)
     ? selectedChatModelId
     : "system-default";
-
+  const activeModel = resolveActiveChatModel(activeModelId, modelProviderConfig);
+  const showDeepSeekThinkingToggle = activeModel?.provider === "deepseek"
+    && !activeModel.model.toLowerCase().includes("image");
   const selectionLabel = taskSelection?.label?.trim()
     || taskSelection?.selected_task_id?.trim()
     || "";
@@ -105,6 +111,19 @@ export function ChatInput({
               ))}
             </select>
           </label>
+          {showDeepSeekThinkingToggle ? (
+            <button
+              aria-label="DeepSeek 思考模式"
+              aria-pressed={deepSeekThinkingEnabled}
+              className={deepSeekThinkingEnabled ? "chat-thinking-toggle chat-thinking-toggle--active" : "chat-thinking-toggle"}
+              disabled={disabled}
+              onClick={() => onToggleDeepSeekThinking(!deepSeekThinkingEnabled)}
+              title="DeepSeek 思考模式"
+              type="button"
+            >
+              <Lightbulb size={15} />
+            </button>
+          ) : null}
           <div className="chat-main-agent-mode" aria-label="主 Agent 装配模式">
             {MAIN_AGENT_MODE_ORDER.map((mode) => {
               const option = MAIN_AGENT_ASSEMBLY_MODES[mode];
@@ -119,6 +138,7 @@ export function ChatInput({
                   type="button"
                 >
                   <span>{option.label}</span>
+                  <small>{option.summary}</small>
                 </button>
               );
             })}
@@ -175,17 +195,12 @@ export function ChatInput({
 
 function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: SoulImageAssetConfig | null) {
   const systemLabel = config?.provider && config?.model
-    ? `系统默认 · ${config.provider}/${config.model}`
+    ? config.model
     : "系统默认模型";
   const options = [{ id: "system-default", label: systemLabel }];
   addConfiguredModelOption(options, {
-    id: config?.provider && config?.model ? `${config.provider}::${config.model}` : "",
-    label: config?.provider && config?.model ? `${providerDisplayName(config, config.provider)} · ${config.model}` : "",
-    baseUrl: config?.base_url,
-  });
-  addConfiguredModelOption(options, {
     id: config?.fallback_provider && config?.fallback_model ? `${config.fallback_provider}::${config.fallback_model}` : "",
-    label: config?.fallback_provider && config?.fallback_model ? `${providerDisplayName(config, config.fallback_provider)} · ${config.fallback_model}（备用）` : "",
+    label: config?.fallback_provider && config?.fallback_model ? config.fallback_model : "",
     baseUrl: config?.fallback_base_url,
   });
   if (imageConfig?.configured && imageConfig.base_url && imageConfig.model) {
@@ -193,7 +208,7 @@ function buildChatModelOptions(config: ModelProviderConfig | null, imageConfig: 
     if (!options.some((option) => option.id === imageId)) {
       options.push({
         id: imageId,
-        label: `OpenAI · ${imageConfig.model}（生图）`
+        label: imageConfig.model
       });
     }
   }
@@ -213,8 +228,17 @@ function addConfiguredModelOption(
   options.push({ id, label });
 }
 
-function providerDisplayName(config: ModelProviderConfig | null, provider: string) {
-  return config?.provider_catalog?.providers?.[provider]?.display_name
-    || config?.supported_providers?.[provider]?.display_name
-    || provider;
+function resolveActiveChatModel(selectionId: string, config: ModelProviderConfig | null) {
+  if (!config) {
+    return null;
+  }
+  if (selectionId === "system-default") {
+    const provider = String(config.provider || "").trim().toLowerCase();
+    const model = String(config.model || "").trim();
+    return provider && model ? { provider, model } : null;
+  }
+  const [provider, ...modelParts] = selectionId.split("::");
+  const normalizedProvider = provider.trim().toLowerCase();
+  const model = modelParts.join("::").trim();
+  return normalizedProvider && model ? { provider: normalizedProvider, model } : null;
 }

@@ -5,13 +5,15 @@ import json
 from pathlib import Path
 
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
+from agent_system.assembly.runtime_chain import AgentRuntimeChainAssembler
 from runtime.contracts.compiler import compile_coordination_contract_manifest
 from runtime.contracts.runtime_assembly_builder import build_node_runtime_assembly
+from runtime.shared.stage_projection import StageProjectionCycle
 from api import task_system as tasks_api
 from task_system.registry.contract_registry import TaskContractRegistry
 from task_system.registry.flow_registry import TaskFlowRegistry
 from task_system.compiler.coordination_graph_compiler import compile_task_graph_definition_runtime_spec
-from tests.support.runtime_stubs import RuntimeBaseDirStub
+from tests.support.runtime_stubs import QueryRuntimeMemoryFacadeStub, RuntimeBaseDirStub
 from tests.support.writing_fixtures import load_writing_modular_config_module, seed_writing_storage
 
 
@@ -88,6 +90,7 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     assert "不能复刻任何具体作者" in chapter_draft.metadata["role_prompt"]
     assert "爽点兑现" in chapter_draft.metadata["role_prompt"]
     assert "章末牵引" in chapter_draft.metadata["role_prompt"]
+    assert "主动搜索任务记忆数据库" in chapter_draft.metadata["role_prompt"]
     assert "名家级中文商业网文章节总审" in chapter_review.metadata["role_prompt"]
     assert "头部连载作品的阅读体验" in chapter_review.metadata["role_prompt"]
     assert "名家级中文商业网文分卷规划师" in volume_plan.metadata["role_prompt"]
@@ -102,6 +105,9 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     assert chapter_draft.contract_bindings["unit_batch"]["requested_count"] == 500
     assert chapter_draft.contract_bindings["unit_batch"]["range_start"] == 1
     assert chapter_draft.contract_bindings["runtime"]["split_policy"]["batch_size"] == 10
+    assert chapter_draft.contract_bindings["runtime"]["tool_execution_policy"]["allowed_tool_names"] == ["memory_search"]
+    assert chapter_draft.contract_bindings["runtime"]["tool_execution_policy"]["allowed_operation_refs"] == ["op.memory_read"]
+    assert chapter_draft.contract_bindings["runtime"]["tool_execution_policy"]["database_search_only"] is True
     assert chapter_draft.contract_bindings["runtime"]["length_budget"]["target_units"] == 20_000
     assert chapter_draft.contract_bindings["runtime"]["length_budget"]["batch_unit_count"] == 10
     assert chapter_draft.contract_bindings["runtime"]["batch_acceptance_policy"]["mode"] == "review_then_commit"
@@ -172,6 +178,8 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     assert "洪荒时代" not in world_prompt
     assert "世界设定 Bible" in review_prompt
     assert "商业化承载" in review_prompt
+    assert "报告第一行必须单独写成" in review_prompt
+    assert "审核裁决：返修" in review_prompt
     assert "只要报告中存在阻塞问题" in review_prompt
     assert "裁决必须是返修或拒绝" in review_prompt
     memory_commit_world = next(node for node in design_graph.nodes if node.node_id == "memory_commit_world")
@@ -182,6 +190,7 @@ def test_modular_writing_graph_config_compiles_graph_modules_and_chapter_batches
     memory_commit_character = next(node for node in design_graph.nodes if node.node_id == "memory_commit_character")
     plot_design = next(node for node in design_graph.nodes if node.node_id == "plot_design")
     assert "只要报告中存在阻塞问题" in character_review.metadata["role_prompt"]
+    assert "报告第一行必须单独写成" in character_review.metadata["role_prompt"]
     assert "裁决必须是返修或拒绝" in character_review.metadata["role_prompt"]
     assert "人设与关系基准库管理员" in memory_commit_character.metadata["role_prompt"]
     assert "创作架构对齐" in memory_commit_character.metadata["role_prompt"]
@@ -363,6 +372,8 @@ def test_modular_writing_memory_context_is_visible_to_runtime_profiles(tmp_path:
     chapter_draft_node = next(node for node in graph.nodes if node.node_id == "chapter_draft")
     assert "memory.writing.manuscript" in chapter_draft_node.memory_read_policy["readable_repositories"]
     assert "memory.writing.manuscript" in chapter_draft_node.dynamic_memory_read_policy["repository_node_ids"]
+    assert chapter_draft_node.dynamic_memory_read_policy["allow_dynamic_read"] is True
+    assert chapter_draft_node.dynamic_memory_read_policy["dynamic_read_tool_name"] == "memory_search"
     assert chapter_draft_node.contract_bindings["memory"]["prewrite_memory_plan_policy"]["enabled"] is True
     assert chapter_draft_node.contract_bindings["memory"]["prewrite_memory_plan_policy"]["required_before_main_prose"] is True
     assert "正文记忆库" in {item["label"] for item in chapter_draft_node.artifact_context_policy["items"]}
@@ -395,6 +406,9 @@ def test_modular_writing_profiles_use_text_artifact_runtime_boundary(tmp_path: P
         assert metadata["preexpanded_context_required"] is True
         assert metadata["pseudo_tool_output_forbidden"] is True
         assert metadata["file_and_memory_side_effects_owned_by"] == "orchestration_runtime"
+        assert profile.default_runtime_mode == "standard"
+        assert "custom" in profile.enabled_runtime_modes
+        assert "coordination_task" in profile.allowed_runtime_lanes
         assert "op.read_file" not in profile.allowed_operations
         assert "op.search_text" not in profile.allowed_operations
         assert "op.search_files" not in profile.allowed_operations
@@ -405,7 +419,122 @@ def test_modular_writing_profiles_use_text_artifact_runtime_boundary(tmp_path: P
         assert "op.search_files" in profile.blocked_operations
         assert profile.model_profile.timeout_seconds >= 180.0
         assert profile.model_profile.long_output_timeout_seconds >= 600.0
-        assert profile.model_profile.max_output_tokens >= 32768
+        assert profile.model_profile.max_output_tokens >= 65536
+
+
+def test_modular_writing_model_requirements_prefer_long_output_budget(tmp_path: Path) -> None:
+    base_dir = _seed_storage(tmp_path)
+    config = _load_config_module()
+    config.configure(base_dir)
+
+    registry = TaskFlowRegistry(base_dir)
+    graph_by_id = {graph.graph_id: graph for graph in registry.list_task_graphs()}
+    graphs = [
+        graph_by_id.get("graph.writing.modular_novel.design_init"),
+        graph_by_id.get("graph.writing.modular_novel.chapter_cycle"),
+        graph_by_id.get("graph.writing.modular_novel.finalize"),
+    ]
+    checked_node_ids: set[str] = set()
+    for graph in graphs:
+        assert graph is not None
+        for node in graph.nodes:
+            requirement = node.contract_bindings.get("runtime", {}).get("model_requirement")
+            if not requirement:
+                continue
+            checked_node_ids.add(node.node_id)
+            assert requirement["preferred_output_tokens"] >= 65536
+
+    assert {"volume_plan", "chapter_outline", "chapter_draft", "chapter_review", "final_assemble"} <= checked_node_ids
+
+
+def test_modular_writing_formal_memory_is_project_scoped_and_optional_layers_do_not_block_first_batch(tmp_path: Path) -> None:
+    base_dir = _seed_storage(tmp_path)
+    config = _load_config_module()
+    config.configure(base_dir)
+
+    registry = TaskFlowRegistry(base_dir)
+    chapter_graph = registry.get_task_graph("graph.writing.modular_novel.chapter_cycle")
+    assert chapter_graph is not None
+
+    repo_nodes = [node for node in chapter_graph.nodes if node.node_id.startswith("memory.writing.")]
+    assert repo_nodes
+    for node in repo_nodes:
+        policy = dict(node.metadata.get("memory_repository", {}).get("lifecycle_policy") or {})
+        assert policy["scope_kind"] == "project_scoped"
+        assert policy["scope_id_source"] == "runtime_project_id"
+
+    memory_edges = [
+        edge
+        for edge in chapter_graph.edges
+        if edge.edge_type == "memory_read"
+    ]
+    assert memory_edges
+    for edge in memory_edges:
+        metadata = dict(edge.metadata or {})
+        repository = str(metadata.get("repository") or "")
+        if repository == "memory.writing.baseline":
+            assert metadata["on_missing"] == "block"
+        elif repository in {"memory.writing.mutable", "memory.writing.manuscript"}:
+            assert metadata["on_missing"] == "warn"
+        assert metadata["resource_lifecycle_policy"]["scope_kind"] == "project_scoped"
+
+
+def test_modular_writing_world_design_runtime_uses_node_professional_prompt(tmp_path: Path) -> None:
+    base_dir = _seed_storage(tmp_path)
+    config = _load_config_module()
+    config.configure(base_dir)
+
+    profile = AgentRuntimeRegistry(base_dir).get_profile("agent:writing_modular_creator")
+    assert profile is not None
+    chain = AgentRuntimeChainAssembler(
+        base_dir=base_dir,
+        memory_facade=QueryRuntimeMemoryFacadeStub(),
+    )
+    task_selection = {
+        "selected_task_id": "task.writing.modular_novel.node.world_design",
+        "task_id": "task.writing.modular_novel.node.world_design",
+        "agent_id": "agent:writing_modular_creator",
+        "coordination_run_id": "coordrun:test-world-design",
+        "continuation_stage_id": "world_design",
+        "runtime_lane": "coordination_task",
+    }
+
+    runtime = chain.build_runtime(
+        session_id="session:test-world-design",
+        task_id="taskinst:test-world-design:world_design",
+        turn_id="turn:test-world-design",
+        message="请根据上一轮评审修复世界观候选，产出世界观设定并提交。",
+        source="test",
+        task_selection=task_selection,
+        current_turn_context_override=task_selection,
+        agent_runtime_profile=profile,
+    )
+    task_contract = dict(dict(runtime["task_operation"]).get("task_contract") or {})
+    semantic_contract = dict(task_contract.get("semantic_task_contract") or {})
+    mode_policy = dict(task_contract.get("mode_policy") or {})
+    stage_projection = StageProjectionCycle().build_from_orchestration(
+        task_id="taskinst:test-world-design:world_design",
+        task_body_orchestration=dict(runtime["task_body_orchestration"]),
+        agent_runtime_spec=dict(runtime["agent_runtime_spec"]),
+    )
+    sections = [
+        dict(item)
+        for item in list(dict(stage_projection.soul_runtime_view).get("sections") or [])
+        if isinstance(item, dict)
+    ]
+    section_text = "\n".join(str(item.get("content") or "") for item in sections)
+    section_ids = {str(item.get("section_id") or "") for item in sections}
+
+    assert semantic_contract["task_goal_type"] == "task_graph_node_execution"
+    assert semantic_contract["domain"] == "task_graph"
+    assert semantic_contract["professional_profile_id"] == ""
+    assert mode_policy["interaction_mode"] == "role_mode"
+    assert mode_policy["mode_reason"] == "task_graph_node_runtime"
+    assert "node_professional_prompt_section" in section_ids
+    assert "名家级中文商业网文世界架构师" in section_text
+    assert "题材专属元素、套路资产或类型预设" in section_text
+    assert "结构性代码修复执行员" not in section_text
+    assert "code_fix_execution" not in section_text
 
 
 def test_writing_runtime_spec_excludes_memory_repositories_from_execution_nodes(tmp_path: Path) -> None:
@@ -474,7 +603,20 @@ def test_modular_writing_review_and_commit_memory_boundaries(tmp_path: Path) -> 
 
     chapter_edge_pairs = {(edge.source_node_id, edge.target_node_id, edge.edge_type) for edge in chapter_graph.edges}
     design_edge_pairs = {(edge.source_node_id, edge.target_node_id, edge.edge_type) for edge in design_graph.edges}
+    design_edges = {(edge.source_node_id, edge.target_node_id, edge.edge_id): edge for edge in design_graph.edges}
+    world_candidate_commit_edge = design_edges[("world_design", "memory_commit_world", "edge.world.commit_candidate")]
+    world_review_commit_edge = design_edges[("world_review", "memory_commit_world", "edge.world_review.commit")]
     assert ("world_review", "memory_commit_world", "structured_handoff") in design_edge_pairs
+    assert ("world_design", "memory_commit_world", "structured_handoff") in design_edge_pairs
+    assert world_candidate_commit_edge.artifact_ref_policy["target_input_key"] == "通过候选正文"
+    assert world_review_commit_edge.artifact_ref_policy["target_input_key"] == "审核裁决报告"
+    world_commit_context_items = node("graph.writing.modular_novel.design_init", "memory_commit_world").contract_bindings["artifact"]["artifact_context_policy"]["items"]
+    required_world_commit_inputs = {
+        str(item["input_key"])
+        for item in world_commit_context_items
+        if item.get("required") is True
+    }
+    assert required_world_commit_inputs == {"通过候选正文", "审核裁决报告"}
     assert ("outline_review", "baseline_memory_seed", "structured_handoff") in design_edge_pairs
     assert ("chapter_review", "memory_commit_chapter", "structured_handoff") in chapter_edge_pairs
     assert ("volume_review", "volume_commit", "structured_handoff") in chapter_edge_pairs

@@ -67,7 +67,11 @@ async def chat(payload: ChatRequest):
     async for event in runtime.query_runtime.astream(request):
         event_type = str(event.get("type", "message"))
         if event_type == "done":
-            return JSONResponse({"content": str(event.get("content", "") or "")})
+            response: dict[str, Any] = {"content": str(event.get("content", "") or "")}
+            image = event.get("image")
+            if image is not None:
+                response["image"] = image
+            return JSONResponse(response)
         if event_type == "error":
             code = str(event.get("code", "") or "").strip()
             return JSONResponse(

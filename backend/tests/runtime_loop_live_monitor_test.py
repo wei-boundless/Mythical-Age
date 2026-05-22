@@ -93,6 +93,65 @@ def test_global_live_monitor_marks_inactive_running_task_as_stale(tmp_path, monk
     assert monitor["summary"]["stale"] == 1
 
 
+def test_global_live_monitor_hides_task_graph_child_node_runs(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("runtime.memory.trace_reader.time.time", lambda: 1000.0)
+    state_index = RuntimeStateIndex(tmp_path)
+    checkpoints = RuntimeCheckpointStore(tmp_path)
+    event_log = RuntimeEventLog(tmp_path)
+    reader = RuntimeLoopTraceReader(state_index=state_index, event_log=event_log, checkpoints=checkpoints)
+
+    root = TaskRun(
+        task_run_id="taskrun:test:graph-root",
+        session_id="session:test",
+        task_id="task.graph",
+        status="running",
+        created_at=900.0,
+        updated_at=990.0,
+        diagnostics={
+            "task_graph_run": True,
+            "task_graph_title": "章节写作任务图",
+        },
+    )
+    child = TaskRun(
+        task_run_id="taskrun:test:graph-node-draft",
+        session_id=root.session_id,
+        task_id="task.graph.chapter_draft",
+        task_contract_ref="task.graph.chapter_draft",
+        status="running",
+        created_at=930.0,
+        updated_at=995.0,
+        diagnostics={
+            "coordination_run_id": "coordrun:test:graph-root:primary",
+            "coordination_stage_id": "chapter_draft",
+            "stage_id": "chapter_draft",
+            "node_id": "chapter_draft",
+            "stage_request_id": "nodeexec:chapter_draft",
+            "stage_idempotency_key": "idem:chapter_draft",
+        },
+    )
+    state_index.upsert_task_run(root)
+    state_index.upsert_task_run(child)
+    state_index.upsert_coordination_run(
+        CoordinationRun(
+            coordination_run_id="coordrun:test:graph-root:primary",
+            task_run_id=root.task_run_id,
+            coordinator_agent_id="agent:coordinator",
+            graph_ref="graph.chapter",
+            status="running",
+            created_at=901.0,
+            updated_at=996.0,
+        )
+    )
+
+    monitor = reader.list_global_live_monitor(limit=20)
+
+    assert [item["task_run_id"] for item in monitor["task_runs"]] == [root.task_run_id]
+    assert monitor["task_runs"][0]["title"] == "章节写作任务图"
+    assert monitor["task_runs"][0]["graph_id"] == "graph.chapter"
+    assert monitor["summary"]["total"] == 1
+    assert monitor["summary"]["running"] == 1
+
+
 def test_runtime_event_log_publishes_appended_events_to_subscribers(tmp_path) -> None:
     event_log = RuntimeEventLog(tmp_path)
     all_events = event_log.subscribe()
@@ -119,6 +178,21 @@ def test_runtime_event_log_publishes_appended_events_to_subscribers(tmp_path) ->
 
     assert all_events.queue.empty()
     assert scoped_events.queue.empty()
+
+
+def test_runtime_event_log_skips_corrupt_lines_and_keeps_offsets_monotonic(tmp_path) -> None:
+    event_log = RuntimeEventLog(tmp_path)
+    first = event_log.append("taskrun:test:corrupt", "task_run_started")
+    path = event_log._event_path("taskrun:test:corrupt")
+    with path.open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write("{not-json\n")
+
+    assert [event.offset for event in event_log.list_events("taskrun:test:corrupt")] == [first.offset]
+
+    resumed = event_log.append("taskrun:test:corrupt", "checkpoint_written")
+
+    assert resumed.offset == 2
+    assert [event.offset for event in event_log.list_events("taskrun:test:corrupt")] == [0, 2]
 
 
 def test_runtime_event_log_wakes_async_subscriber_from_background_thread(tmp_path) -> None:
