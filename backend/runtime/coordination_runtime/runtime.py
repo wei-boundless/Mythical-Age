@@ -28,6 +28,7 @@ from ..contracts.continuation_policy import (
     derive_stage_contracts_from_graph,
     validate_stage_contracts,
 )
+from ..memory.project_supervision import make_supervision_record
 from .memory_helpers import (
     _artifact_repository_root_for_runtime,
     _decision_refs,
@@ -484,6 +485,20 @@ class LangGraphCoordinationRuntime:
             checkpoint_ref=checkpoint.checkpoint_id,
             event_task_run_id=event.task_run_id,
         )
+        self._record_coordination_supervision(
+            coordination_run=coordination_run,
+            issue_type="task_result_resume",
+            issue_summary=f"Task result resumed for stage {str(event.stage_id or '')}",
+            root_cause=str(event.event_type or "task_result_ready"),
+            repair_action="resume_from_task_result",
+            repair_result=str(final_state.get("terminal_status") or ""),
+            followup_status="recorded",
+            diagnostics={
+                "stage_id": str(event.stage_id or ""),
+                "task_result_ref": str(event.task_result_ref or ""),
+                "checkpoint_ref": checkpoint.checkpoint_id,
+            },
+        )
         return _runtime_result_from_state(
             state=final_state,
             events=tuple(events),
@@ -547,6 +562,24 @@ class LangGraphCoordinationRuntime:
             state=final_state,
             checkpoint_ref=checkpoint.checkpoint_id,
             event_task_run_id=coordination_run.task_run_id,
+        )
+        self._record_coordination_supervision(
+            coordination_run=coordination_run,
+            issue_type="human_gate_resume",
+            issue_summary=f"Human gate resumed with decision {str(resume_payload.get('decision') or resume_payload.get('action') or 'continue')}",
+            root_cause=str(resume_payload.get("reason") or "human_gate"),
+            repair_action=str(resume_payload.get("decision") or resume_payload.get("action") or "continue"),
+            repair_result=str(final_state.get("terminal_status") or ""),
+            followup_status="recorded",
+            diagnostics={
+                "stage_id": pending_stage_id,
+                "resume_payload": dict(resume_payload or {}),
+                "checkpoint_ref": checkpoint.checkpoint_id,
+                "final_state": {
+                    "status": str(final_state.get("terminal_status") or ""),
+                    "active_stage_id": str(final_state.get("active_stage_id") or ""),
+                },
+            },
         )
         return _runtime_result_from_state(
             state=final_state,
@@ -845,6 +878,22 @@ class LangGraphCoordinationRuntime:
             checkpoint_ref=checkpoint.checkpoint_id,
             event_task_run_id=coordination_run.task_run_id,
         )
+        self._record_coordination_supervision(
+            coordination_run=coordination_run,
+            issue_type="stage_rewind",
+            issue_summary=f"Coordination stage rewound from {target_stage_id}",
+            root_cause=str(reason or "stage_output_invalid"),
+            repair_action="rewind_stage",
+            repair_result="rewound",
+            followup_status="pending_control",
+            diagnostics={
+                "stage_id": target_stage_id,
+                "reason": reason,
+                "invalidated_stage_ids": invalidated_stage_ids,
+                "invalidated_result_record_ids": sorted(invalidated_result_record_ids),
+                "checkpoint_ref": checkpoint.checkpoint_id,
+            },
+        )
         request_payload = _active_execution_request_payload(state)
         request = NodeExecutionRequest.from_dict(request_payload) if request_payload else None
         return LangGraphCoordinationRuntimeResult(
@@ -861,6 +910,41 @@ class LangGraphCoordinationRuntime:
                 "invalidated_stage_ids": invalidated_stage_ids,
                 "invalidated_result_record_ids": sorted(invalidated_result_record_ids),
             },
+        )
+
+    def _record_coordination_supervision(
+        self,
+        *,
+        coordination_run: CoordinationRun,
+        issue_type: str,
+        issue_summary: str,
+        root_cause: str,
+        repair_action: str,
+        repair_result: str,
+        followup_status: str,
+        diagnostics: dict[str, Any] | None = None,
+    ) -> None:
+        task_run = self.state_index.get_task_run(coordination_run.task_run_id)
+        if task_run is None:
+            return
+        project_id = str(dict(task_run.diagnostics or {}).get("project_id") or "").strip()
+        session_id = str(getattr(task_run, "session_id", "") or "").strip()
+        if not project_id or not session_id:
+            return
+        self.state_index.upsert_supervision_record(
+            make_supervision_record(
+                project_id=project_id,
+                session_id=session_id,
+                task_run_id=coordination_run.task_run_id,
+                coordination_run_id=coordination_run.coordination_run_id,
+                issue_type=issue_type,
+                issue_summary=issue_summary,
+                root_cause=root_cause,
+                repair_action=repair_action,
+                repair_result=repair_result,
+                followup_status=followup_status,
+                diagnostics=dict(diagnostics or {}),
+            )
         )
 
     def dispatch_ready_batch_requests(

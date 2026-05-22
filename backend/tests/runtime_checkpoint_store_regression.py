@@ -29,3 +29,20 @@ def test_runtime_checkpoint_write_retries_windows_permission_error(tmp_path: Pat
     assert loaded.checkpoint_id == checkpoint.checkpoint_id
     assert loaded.event_offset == 3
 
+
+def test_runtime_checkpoint_persists_resume_state(tmp_path: Path) -> None:
+    store = RuntimeCheckpointStore(tmp_path)
+    state = RuntimeLoopState(
+        task_run_id="taskrun:checkpoint-resume",
+        status="waiting_approval",
+        terminal_reason="waiting_approval",
+        pending_approval_state={"status": "pending", "stage_id": "stage:a"},
+    )
+
+    checkpoint = store.write(state, event_offset=8)
+    loaded = store.load_latest(state.task_run_id)
+
+    assert checkpoint.resume_state["decision"] == "wait_for_human"
+    assert checkpoint.resume_state["reason"] == "human_gate_pending"
+    assert loaded is not None
+    assert loaded.resume_state["decision"] == "wait_for_human"

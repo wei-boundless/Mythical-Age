@@ -1,7 +1,9 @@
 import type {
   OrchestrationSnapshot,
   GlobalRuntimeMonitor,
+  ModelProviderConfig,
   RetrievalResult,
+  SoulImageAssetConfig,
   TaskGraphMonitorDecision,
   TaskGraphRunMonitorView,
   RuntimeLoopTaskRunLiveMonitor,
@@ -19,6 +21,11 @@ export type Message = {
   retrievals: RetrievalResult[];
   stageStatus?: string;
   sourceIndex?: number;
+  image?: {
+    src: string;
+    alt?: string;
+    caption?: string;
+  } | null;
 };
 
 export type SessionActivityLevel = "idle" | "running" | "waiting" | "success" | "error" | "stopped";
@@ -73,6 +80,16 @@ export type WorkspaceView =
 export type SearchPolicySource = "rag" | "local_files" | "web";
 
 export type SearchPolicyState = Record<SearchPolicySource, boolean>;
+
+export type ChatModelSelection = {
+  selection_id: string;
+  provider: string;
+  model: string;
+  base_url?: string;
+  credential_ref?: string;
+};
+
+export type ChatMode = "chat" | "image";
 
 export type SystemGraphHighlight = {
   nodeIds: string[];
@@ -132,6 +149,10 @@ export type StoreState = {
   sessionActivity: SessionActivityState;
   ragMode: boolean;
   searchPolicy: SearchPolicyState;
+  modelProviderConfig: ModelProviderConfig | null;
+  soulImageAssetConfig: SoulImageAssetConfig | null;
+  selectedChatModelId: string;
+  selectedChatMode: ChatMode;
   skills: SkillSummary[];
   soulOptions: SoulSummary[];
   activeSoulKey: SoulKey | null;
@@ -175,6 +196,8 @@ export type StoreActions = {
   resendEditedMessage: (messageId: string, value: string) => Promise<void>;
   toggleRagMode: () => Promise<void>;
   toggleSearchPolicySource: (source: SearchPolicySource) => void;
+  setSelectedChatModel: (selectionId: string) => void;
+  setSelectedChatMode: (mode: ChatMode) => void;
   switchSoul: (key: SoulKey) => Promise<void>;
   renameCurrentSession: (title: string) => Promise<void>;
   removeSession: (sessionId: string) => Promise<void>;

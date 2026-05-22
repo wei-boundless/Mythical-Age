@@ -105,9 +105,11 @@ def test_trace_reader_builds_live_monitor_from_latest_runtime_state(tmp_path) ->
     checkpoints.write(
         RuntimeLoopState(
             task_run_id=task_run.task_run_id,
-            status="running",
+            status="waiting_approval",
             turn_count=1,
             step_count=1,
+            terminal_reason="waiting_approval",
+            pending_approval_state={"status": "pending", "stage_id": "world_design"},
             diagnostics={"checkpoint_marker": "live"},
         ),
         event_offset=12,
@@ -125,6 +127,8 @@ def test_trace_reader_builds_live_monitor_from_latest_runtime_state(tmp_path) ->
     assert monitor["monitor"]["coordination_run"]["langgraph_runtime_state"]["running_nodes"] == ["world_design"]
     assert monitor["monitor"]["coordination_run"]["coordination_graph_spec"]["coordination_task_id"] == "coord.longform.live"
     assert monitor["monitor"]["coordination_run"]["node_runs"][0]["node_id"] == "world_design"
+    assert monitor["monitor"]["latest_checkpoint"]["resume_state"]["decision"] == "wait_for_human"
+    assert monitor["monitor"]["loop_state"]["checkpoint_resume_state"]["reason"] == "human_gate_pending"
 
 
 def test_session_live_view_preserves_coordination_pointer_after_root_task_update(tmp_path) -> None:

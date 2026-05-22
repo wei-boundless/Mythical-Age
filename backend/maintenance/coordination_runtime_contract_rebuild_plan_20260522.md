@@ -665,7 +665,27 @@ Progress 2026-05-22:
   helpers into `backend/runtime/execution_engine/delegation_context.py`.
 - Completed extraction of tool execution replay/idempotency preparation into
   `backend/runtime/execution_engine/tool_loop.py`.
+- Completed extraction of executor-event translation into
+  `backend/runtime/execution_engine/event_translation.py`.
+- Completed extraction of tool-call request creation, operation resolution,
+  and search-policy blocking into
+  `backend/runtime/execution_engine/tool_loop.py`.
+- Completed extraction of tool dispatch sequencing, replay handling, tool
+  runtime execution, and result observation emission into
+  `backend/runtime/execution_engine/tool_loop.py`.
+- Completed extraction of delegate tool failure/result observation emission
+  into `backend/runtime/execution_engine/tool_loop.py`.
+- Moved the `tool_call_requested` event handler out of `TaskRunLoop` and
+  into `backend/runtime/execution_engine/tool_loop.py`, including tool
+  directive adoption, operation-gate check, approval-waiting event creation,
+  delegation dispatch, and normal tool dispatch.
 - Moved approval-state resume projection into
+  `backend/runtime/execution_permit/approval_gateway.py`.
+- Moved approval rejection observation emission and approved-tool resume
+  execution from `TaskRunLoop` into
+  `backend/runtime/execution_permit/approval_gateway.py`.
+- Moved pending approval-state construction and tool-argument summarization
+  from `TaskRunLoop` into
   `backend/runtime/execution_permit/approval_gateway.py`.
 - Moved model-visible tool filtering from `TaskRunLoop` into
   `backend/runtime/execution_permit/tool_gateway.py`.
@@ -676,8 +696,9 @@ Remaining Phase 5 work:
 
 - Move the model/tool follow-up loop itself behind
   `backend/runtime/execution_engine/engine.py`.
-- Move the remaining tool dispatch sequencing/event translation into
-  `backend/runtime/execution_engine/tool_loop.py`.
+- Move the remaining model invocation, streamed event consumption, repeated
+  tool halt, forced synthesis, and final answer selection behind
+  `backend/runtime/execution_engine/engine.py`.
 - Reduce `TaskRunLoop.run_single_agent_stream` to task-run lifecycle,
   checkpoint, event-log, and finalizer orchestration.
 

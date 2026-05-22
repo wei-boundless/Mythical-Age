@@ -28,6 +28,11 @@ export type SessionHistory = {
     role: "user" | "assistant";
     content: string;
     tool_calls?: ToolCall[];
+    image?: {
+      src: string;
+      alt?: string;
+      caption?: string;
+    } | null;
   }>;
 };
 
@@ -1498,6 +1503,14 @@ export type ModelProviderConfig = {
   supported_providers: Record<string, ModelProviderOption>;
   provider_catalog?: ModelProviderCatalog;
   authority: string;
+};
+
+export type SoulImageAssetConfig = {
+  configured: boolean;
+  base_url: string;
+  model: string;
+  api_key_present: boolean;
+  public_dir: string;
 };
 
 export type RuntimeConfigField = {
@@ -3370,6 +3383,10 @@ export async function getModelProviderConfig() {
   return request<ModelProviderConfig>("/config/model-provider");
 }
 
+export async function getSoulImageAssetConfig() {
+  return request<SoulImageAssetConfig>("/soul/image-assets/config");
+}
+
 export async function setModelProviderConfig(payload: {
   provider: string;
   model: string;
@@ -4558,6 +4575,8 @@ export async function streamChat(
     ephemeral_system_messages?: string[];
     search_policy?: string[];
     task_selection?: Record<string, unknown>;
+    model_selection?: Record<string, unknown>;
+    image_generation?: Record<string, unknown>;
   },
   handlers: StreamHandlers,
   options: {

@@ -145,30 +145,6 @@
       "authority": "task_system.task_memory_request_profile"
     },
     {
-      "profile_id": "taskmem:task.writing.modular_novel.node.memory_commit_character",
-      "task_id": "task.writing.modular_novel.node.memory_commit_character",
-      "requested_memory_layers": [
-        "state",
-        "task_durable",
-        "artifact_refs"
-      ],
-      "requested_topics": [
-        "writing_modular_novel",
-        "baseline_memory",
-        "dynamic_memory",
-        "chapter_commits"
-      ],
-      "memory_priority": "high",
-      "writeback_policy": "task_graph_commit_edges",
-      "allow_long_term_memory": true,
-      "memory_scope_hint": "writing_modular_novel",
-      "metadata": {
-        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
-        "node_id": "memory_commit_character"
-      },
-      "authority": "task_system.task_memory_request_profile"
-    },
-    {
       "profile_id": "taskmem:task.writing.modular_novel.node.plot_design",
       "task_id": "task.writing.modular_novel.node.plot_design",
       "requested_memory_layers": [
@@ -213,6 +189,30 @@
       "metadata": {
         "managed_by": "codex_writing_modular_novel_graph_20260521_native",
         "node_id": "design_sync"
+      },
+      "authority": "task_system.task_memory_request_profile"
+    },
+    {
+      "profile_id": "taskmem:task.writing.modular_novel.node.memory_commit_character",
+      "task_id": "task.writing.modular_novel.node.memory_commit_character",
+      "requested_memory_layers": [
+        "state",
+        "task_durable",
+        "artifact_refs"
+      ],
+      "requested_topics": [
+        "writing_modular_novel",
+        "baseline_memory",
+        "dynamic_memory",
+        "chapter_commits"
+      ],
+      "memory_priority": "high",
+      "writeback_policy": "task_graph_commit_edges",
+      "allow_long_term_memory": true,
+      "memory_scope_hint": "writing_modular_novel",
+      "metadata": {
+        "managed_by": "codex_writing_modular_novel_graph_20260521_native",
+        "node_id": "memory_commit_character"
       },
       "authority": "task_system.task_memory_request_profile"
     },

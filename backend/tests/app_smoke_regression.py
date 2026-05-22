@@ -27,6 +27,99 @@ async def _fake_error_astream(_request):
     }
 
 
+async def _fake_image_generate(self, **kwargs):
+    return {
+        "asset_path": "/souls/generated/chat-turn.png",
+        "file_path": "D:/tmp/chat-turn.png",
+        "reused": False,
+        "bytes": 1234,
+        "revised_prompt": "revised prompt",
+    }
+
+
+def test_chat_accepts_per_turn_model_selection() -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_astream(request):
+        captured["model_selection"] = dict(request.model_selection)
+        yield {"type": "done", "content": "ok"}
+
+    with TestClient(app) as client:
+        runtime = app_runtime.require_ready()
+        original_astream = runtime.query_runtime.astream
+        runtime.query_runtime.astream = fake_astream  # type: ignore[method-assign]
+        try:
+            created = client.post("/api/sessions", json={"title": "Model selection"})
+            assert created.status_code == 200
+            session_id = created.json()["id"]
+
+            response = client.post(
+                "/api/chat",
+                json={
+                    "message": "hello selected model",
+                    "session_id": session_id,
+                    "stream": False,
+                    "model_selection": {
+                        "provider": "deepseek",
+                        "model": "deepseek-v4-flash",
+                        "credential_ref": "provider:deepseek:primary",
+                    },
+                },
+            )
+
+            assert response.status_code == 200
+            assert captured["model_selection"] == {
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "credential_ref": "provider:deepseek:primary",
+            }
+        finally:
+            runtime.query_runtime.astream = original_astream  # type: ignore[method-assign]
+
+
+def test_chat_routes_gpt_image_2_to_image_generation() -> None:
+    with TestClient(app) as client:
+        original_generate = None
+        from soul.image_asset_service import SoulImageAssetService
+
+        original_generate = SoulImageAssetService.generate
+        SoulImageAssetService.generate = _fake_image_generate  # type: ignore[method-assign]
+        try:
+            created = client.post("/api/sessions", json={"title": "Image generation"})
+            assert created.status_code == 200
+            session_id = created.json()["id"]
+
+            response = client.post(
+                "/api/chat",
+                json={
+                    "message": "a blue glass mountain at sunset",
+                    "session_id": session_id,
+                    "stream": False,
+                    "model_selection": {
+                        "provider": "openai",
+                        "model": "gpt-image-2",
+                    },
+                    "image_generation": {
+                        "mode": "generate",
+                        "selection_id": "openai::gpt-image-2",
+                        "provider": "openai",
+                        "model": "gpt-image-2",
+                        "asset_kind": "chat",
+                    },
+                },
+            )
+
+            assert response.status_code == 200
+            assert response.json()["content"] == "已生成图像。"
+            assert response.json()["image"] == {
+                "src": "/souls/generated/chat-turn.png",
+                "alt": "a blue glass mountain at sunset",
+                "caption": "revised prompt",
+            }
+        finally:
+            SoulImageAssetService.generate = original_generate  # type: ignore[method-assign]
+
+
 def test_api_smoke_flow() -> None:
     with TestClient(app) as client:
         runtime = app_runtime.require_ready()

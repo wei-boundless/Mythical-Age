@@ -164,6 +164,57 @@ class QueryRuntime:
                     "commit_gate": input_commit_gate.to_dict(),
                 }
 
+                image_generation = dict(request.image_generation or {})
+                image_model = str(image_generation.get("model") or "").strip().lower()
+                if image_model in {"gpt-image-2", "image-2"} or str(image_generation.get("mode") or "").strip().lower() == "generate":
+                    from soul.image_asset_service import SoulImageAssetError, SoulImageAssetService
+
+                    asset_kind = str(image_generation.get("asset_kind") or "chat").strip() or "chat"
+                    size = str(image_generation.get("size") or "1024x1024").strip() or "1024x1024"
+                    target_id = str(image_generation.get("selection_id") or turn_id).strip() or turn_id
+                    try:
+                        generated = await SoulImageAssetService(self.base_dir).generate(
+                            prompt=request.message,
+                            target_id=target_id,
+                            asset_kind=asset_kind,
+                            size=size,
+                            overwrite=bool(image_generation.get("overwrite") or False),
+                        )
+                    except SoulImageAssetError as exc:
+                        yield {"type": "error", "error": str(exc), "code": "provider_unavailable"}
+                        return
+                    asset_path = str(generated.get("asset_path") or "").strip()
+                    revised_prompt = str(generated.get("revised_prompt") or "").strip()
+                    content = "已生成图像。"
+                    await self._apply_assistant_message_commit_async(
+                        request.session_id,
+                        {
+                            "role": "assistant",
+                            "content": content,
+                            "image": {
+                                "src": asset_path,
+                                "alt": request.message,
+                                "caption": revised_prompt or "",
+                            } if asset_path else None,
+                            "turn_id": turn_id,
+                            "answer_channel": "image",
+                            "answer_source": "soul_image_asset_service",
+                            "answer_canonical_state": "complete",
+                            "answer_persist_policy": "store",
+                            "answer_finalization_policy": "final",
+                        },
+                    )
+                    yield {
+                        "type": "done",
+                        "content": content,
+                        "image": {
+                            "src": asset_path,
+                            "alt": request.message,
+                            "caption": revised_prompt or "",
+                        } if asset_path else None,
+                    }
+                    return
+
                 memory_intent = analyze_memory_intent(request.message)
                 agent_runtime_profile = self.agent_runtime_registry.get_profile("agent:0")
                 async for event in self.task_run_loop.run_single_agent_stream(
@@ -185,6 +236,7 @@ class QueryRuntime:
                     tool_instances=self._all_tool_instances(),
                     agent_runtime_profile=agent_runtime_profile,
                     search_policy=list(request.search_policy) if request.search_policy is not None else None,
+                    model_selection=dict(request.model_selection or {}),
                 ):
                     yield event
         except Exception as exc:

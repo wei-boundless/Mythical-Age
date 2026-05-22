@@ -8,6 +8,8 @@ import {
   deleteSession,
   getCoordinationRunTaskGraphMonitor,
   getGlobalRuntimeMonitor,
+  getModelProviderConfig,
+  getSoulImageAssetConfig,
   getTaskGraphRunMonitorDecisions,
   getTaskGraphRunMonitor,
   getOrchestrationRuntimeLoopTaskRunLiveMonitor,
@@ -39,7 +41,7 @@ import {
 
 import type { Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
-import type { SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
+import type { ChatMode, ChatModelSelection, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
 const TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY = "task-graph-monitor-binding";
@@ -90,6 +92,12 @@ export class WorkspaceRuntime {
       },
       toggleSearchPolicySource: (source) => {
         this.toggleSearchPolicySource(source);
+      },
+      setSelectedChatModel: (selectionId) => {
+        this.setSelectedChatModel(selectionId);
+      },
+      setSelectedChatMode: (mode) => {
+        this.setSelectedChatMode(mode);
       },
       switchSoul: async (key) => {
         await this.switchSoul(key);
@@ -164,11 +172,13 @@ export class WorkspaceRuntime {
   }
 
   async initialize() {
-    const [sessions, rag, skills, souls] = await Promise.all([
+    const [sessions, rag, skills, souls, modelProviderConfig, soulImageAssetConfig] = await Promise.all([
       listSessions(),
       getRagMode(),
       listSkills(),
-      this.loadSouls()
+      this.loadSouls(),
+      getModelProviderConfig().catch(() => null),
+      getSoulImageAssetConfig().catch(() => null)
     ]);
 
     this.store.setState((prev) => ({
@@ -179,9 +189,12 @@ export class WorkspaceRuntime {
         ...prev.searchPolicy,
         rag: rag.enabled
       },
+      modelProviderConfig,
+      soulImageAssetConfig,
       skills,
       soulOptions: souls.options,
-      activeSoulKey: souls.activeSoulKey
+      activeSoulKey: souls.activeSoulKey,
+      selectedChatMode: this.resolveSelectedChatMode(prev.selectedChatModelId, modelProviderConfig)
     }));
 
     const currentSessionId = this.store.getState().currentSessionId;
@@ -443,6 +456,8 @@ export class WorkspaceRuntime {
           ephemeral_system_messages: ephemeralSystemMessages,
           search_policy: searchPolicy,
           task_selection: state.taskSelection ?? undefined,
+          model_selection: this.chatModelSelectionPayload(state),
+          image_generation: this.chatImageGenerationPayload(state),
         },
         {
           onEvent: (event, data) => {
@@ -640,6 +655,78 @@ export class WorkspaceRuntime {
         }));
       });
     }
+  }
+
+  private setSelectedChatModel(selectionId: string) {
+    const normalized = selectionId.trim() || "system-default";
+    this.store.setState((prev) => ({
+      ...prev,
+      selectedChatModelId: normalized,
+      selectedChatMode: this.resolveSelectedChatMode(normalized, prev.modelProviderConfig)
+    }));
+  }
+
+  private setSelectedChatMode(mode: ChatMode) {
+    this.store.setState((prev) => ({ ...prev, selectedChatMode: mode }));
+  }
+
+  private chatModelSelectionPayload(state: StoreState): ChatModelSelection | undefined {
+    const selectionId = state.selectedChatModelId || "system-default";
+    if (selectionId === "system-default") {
+      return undefined;
+    }
+    const config = state.modelProviderConfig;
+    const catalog = config?.provider_catalog;
+    const [provider, ...modelParts] = selectionId.split("::");
+    const model = modelParts.join("::").trim();
+    if (!provider || !model) {
+      return undefined;
+    }
+    const option = catalog?.providers?.[provider];
+    return {
+      selection_id: selectionId,
+      provider,
+      model,
+      base_url: provider === config?.provider ? config.base_url : option?.default_base_url,
+      credential_ref: option?.credential_ref || `provider:${provider}:primary`,
+    };
+  }
+
+  private resolveSelectedChatMode(selectionId: string, config: StoreState["modelProviderConfig"]) {
+    if (selectionId.includes("::image-2") || selectionId.includes("::gpt-image-2")) {
+      return "image" as const;
+    }
+    if (selectionId === "image-2" || selectionId === "gpt-image-2") {
+      return "image" as const;
+    }
+    return "chat" as const;
+  }
+
+  private chatImageGenerationPayload(state: StoreState): Record<string, unknown> | undefined {
+    if (state.selectedChatMode !== "image") {
+      return undefined;
+    }
+    const selectionId = state.selectedChatModelId || "system-default";
+    const config = state.modelProviderConfig;
+    const imageConfig = state.soulImageAssetConfig;
+    if (!imageConfig?.configured || !imageConfig.base_url || !imageConfig.model) {
+      return undefined;
+    }
+    const [provider, ...modelParts] = selectionId.split("::");
+    const model = modelParts.join("::").trim() || selectionId.trim();
+    if (!model || !model.toLowerCase().includes("image")) {
+      return undefined;
+    }
+    return {
+      mode: "generate",
+      selection_id: selectionId,
+      provider: provider || "openai",
+      model: model || imageConfig.model || "gpt-image-2",
+      base_url: imageConfig.base_url,
+      credential_ref: imageConfig.api_key_present ? "soul:image-assets:api-key" : undefined,
+      asset_kind: "chat",
+      size: "1024x1024"
+    };
   }
 
   private enabledSearchPolicy(state: StoreState) {

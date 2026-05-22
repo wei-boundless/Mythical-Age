@@ -428,9 +428,9 @@ def test_writing_runtime_spec_excludes_memory_repositories_from_execution_nodes(
     assert all(edge.target_node_id not in {"memory.writing.baseline", "memory.writing.mutable", "memory.writing.manuscript"} for edge in runtime_spec.edges)
     assert set(runtime_spec.diagnostics["resource_node_ids_excluded_from_execution"]) >= {
         "memory.writing.baseline",
-        "memory.writing.mutable",
-        "memory.writing.manuscript",
     }
+    assert "memory.writing.mutable" not in {node.node_id for node in graph.nodes}
+    assert "memory.writing.manuscript" not in {node.node_id for node in graph.nodes}
 
 
 def test_modular_writing_review_and_commit_memory_boundaries(tmp_path: Path) -> None:
@@ -691,9 +691,9 @@ def test_modular_writing_design_parallelism_uses_alignment_barrier(tmp_path: Pat
     assert ("memory_commit_world", "plot_design", "structured_handoff") in edge_pairs
     assert ("character_review", "design_sync", "structured_handoff") in edge_pairs
     assert ("plot_design", "design_sync", "structured_handoff") in edge_pairs
+    assert ("character_review", "memory_commit_character", "structured_handoff") in edge_pairs
     assert ("design_sync", "memory_commit_character", "structured_handoff") in edge_pairs
     assert ("memory_commit_character", "outline_design", "structured_handoff") in edge_pairs
-    assert ("character_review", "memory_commit_character", "structured_handoff") not in edge_pairs
     assert ("memory_commit_character", "plot_design", "structured_handoff") not in edge_pairs
 
     plot_design = next(node for node in graph.nodes if node.node_id == "plot_design")

@@ -32,13 +32,28 @@ from .observation_flow import (
     record_tool_observation_projection,
 )
 from .observation_projection import project_file_work_context_from_tool_observation
-from .tool_loop import prepare_tool_execution
+from .tool_loop import (
+    append_delegate_tool_failure_observation,
+    append_delegate_tool_result_observation,
+    begin_tool_call_request,
+    execute_prepared_tool_call,
+    handle_tool_call_requested_event,
+    prepare_tool_execution,
+)
+from .followup_cycle import (
+    build_initial_followup_messages,
+    build_next_followup_messages,
+    finalize_after_followup_tool_results,
+    finalize_budget_exhausted_followup,
+)
 
 __all__ = [
     "apply_observation_aggregation",
     "artifact_success_fallback_answer_metadata",
     "append_executor_error_observation",
     "append_executor_observation_event",
+    "append_delegate_tool_failure_observation",
+    "append_delegate_tool_result_observation",
     "append_model_answer_observation",
     "append_simple_executor_event",
     "append_tool_result_received_event",
@@ -46,11 +61,18 @@ __all__ = [
     "build_artifact_success_fallback_answer",
     "build_repeated_tool_halt_message",
     "build_runtime_budget_exhausted_message",
+    "build_initial_followup_messages",
+    "build_next_followup_messages",
     "build_search_policy_blocked_tool_observation",
+    "begin_tool_call_request",
+    "execute_prepared_tool_call",
     "builtin_tool_lane_answer_from_observation",
     "classify_delegation_goal_alignment",
     "forced_synthesis_answer_metadata",
     "forced_tool_synthesis_from_available_evidence",
+    "finalize_after_followup_tool_results",
+    "finalize_budget_exhausted_followup",
+    "handle_tool_call_requested_event",
     "merge_task_spec_binding_into_delegation_payload",
     "match_bundle_ordinal_for_tool_observation",
     "ModelToolCallAccumulator",

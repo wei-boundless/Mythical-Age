@@ -108,10 +108,6 @@ export function Sidebar() {
           ))}
         </div>
       </section>
-
-      <div className="practical-sidebar__account">
-        <span>Yolo</span>
-      </div>
     </aside>
   );
 }

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from api.deps import require_runtime
 from runtime import TaskRun
+from runtime.memory.project_supervision import make_supervision_record
 from runtime.shared.models import CoordinationRun
 
 router = APIRouter()
@@ -123,12 +124,38 @@ async def resolve_runtime_loop_task_run_approval(
 ) -> dict[str, Any]:
     runtime = require_runtime()
     try:
-        return await runtime.query_runtime.task_run_loop.resolve_pending_approval(
+        task_run = runtime.query_runtime.task_run_loop.state_index.get_task_run(task_run_id)
+        result = await runtime.query_runtime.task_run_loop.resolve_pending_approval(
             task_run_id,
             decision=payload.decision,
             message=payload.message,
             tool_runtime_executor=runtime.query_runtime.tool_runtime_executor,
         )
+        if task_run is not None:
+            project_id = str(dict(task_run.diagnostics or {}).get("project_id") or "").strip()
+            session_id = str(getattr(task_run, "session_id", "") or "").strip()
+            coordination_run_id = str(dict(task_run.diagnostics or {}).get("coordination_run_ref") or "").strip()
+            if project_id and session_id:
+                runtime.query_runtime.task_run_loop.state_index.upsert_supervision_record(
+                    make_supervision_record(
+                        project_id=project_id,
+                        session_id=session_id,
+                        task_run_id=task_run_id,
+                        coordination_run_id=coordination_run_id,
+                        issue_type="task_approval",
+                        issue_summary=f"Task approval resolved as {payload.decision.strip().lower()}",
+                        root_cause="approval_api",
+                        repair_action=payload.decision.strip().lower(),
+                        repair_result=str(result.get("diagnostics", {}).get("approval_resume_result", {}).get("executed") or ""),
+                        followup_status="recorded",
+                        diagnostics={
+                            "message": payload.message.strip(),
+                            "checkpoint_ref": str(result.get("checkpoint_ref") or ""),
+                            "event_ref": str(result.get("event_ref") or ""),
+                        },
+                    )
+                )
+        return result
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="TaskRun not found") from exc
     except ValueError as exc:
@@ -156,6 +183,8 @@ async def stop_task_run(
         task_run = state_index.get_task_run(task_run_id)
         if task_run is None:
             raise HTTPException(status_code=404, detail="TaskRun not found")
+        project_id = str(dict(task_run.diagnostics or {}).get("project_id") or "").strip()
+        session_id = str(getattr(task_run, "session_id", "") or "").strip()
         coordination_run_id = payload.coordination_run_id.strip()
         coordination_run = (
             state_index.get_coordination_run(coordination_run_id)
@@ -238,6 +267,26 @@ async def stop_task_run(
                     diagnostics={
                         **dict(coordination_run.diagnostics),
                         "stop_request": {"reason": terminal_reason, "message": payload.message.strip()},
+                    },
+                )
+            )
+        if project_id and session_id:
+            state_index.upsert_supervision_record(
+                make_supervision_record(
+                    project_id=project_id,
+                    session_id=session_id,
+                    task_run_id=task_run_id,
+                    coordination_run_id=coordination_run.coordination_run_id if coordination_run is not None else "",
+                    issue_type="task_stop",
+                    issue_summary=f"Task run stopped with reason {terminal_reason}",
+                    root_cause=terminal_reason,
+                    repair_action="stop_task_run",
+                    repair_result="aborted",
+                    followup_status="recorded",
+                    diagnostics={
+                        "message": payload.message.strip(),
+                        "checkpoint_ref": str(checkpoint_event.refs.get("checkpoint_ref") or checkpoint.checkpoint_id),
+                        "event_ref": task_run_event.event_id,
                     },
                 )
             )

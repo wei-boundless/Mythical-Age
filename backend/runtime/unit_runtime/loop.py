@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-import json
 import re
 import time
 import uuid
@@ -9,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 
 from capability_system import build_default_operation_registry
 from capability_system.local_mcp_registry import get_local_mcp_unit, get_local_mcp_unit_for_source_kind
@@ -24,7 +23,6 @@ from permissions import (
     ApprovalToken,
     OperationGate,
     OperationGatePipelineContext,
-    ResourcePolicy,
 )
 from project_layout import ProjectLayout
 from memory_system.runtime_services import MemoryRuntimeServices
@@ -53,22 +51,12 @@ from task_system.tasks.run_models import (
 from task_system.tasks.spec_models import TaskSpec
 from task_system.tasks.step_models import StepInputBinding, TaskStepBlueprint
 from task_system.planning.execution_recipe_models import ExecutionRecipe, TaskValidationRule
-from capability_system.tool_authorization import resolve_tool_operation_id
-from runtime.tool_runtime.provider_tool_call_adapter import tool_calls_for_langchain_messages
 from understanding.capability_resolution_view import capability_resolution_view
 
 from context_system.projection.projection import (
     projection_from_bundle_answer,
 )
 from orchestration.commit_gate import build_assistant_session_message_commit_decision, build_task_run_final_commit_decision
-from orchestration.runtime_directive import RuntimeDirective
-from ..shared.action_request import (
-    RuntimeActionRequest,
-    build_executor_error_observation,
-    build_model_response_observation,
-    build_tool_action_request,
-    build_tool_result_observation,
-)
 from ..professional_runtime.driver import ProfessionalTaskRunDriver, ProfessionalTaskRunOutcome
 from ..shared.checkpoint import RuntimeCheckpoint, RuntimeCheckpointStore
 from ..coordination_runtime.flow import (
@@ -78,7 +66,6 @@ from ..shared.context_manager import RuntimeContextManager
 from ..shared.execution_record import (
     OperationExecutionRecord,
     RuntimeExecutionStore,
-    build_execution_receipt,
 )
 from ..shared.event_log import RuntimeEventLog
 from ..shared.loop_control import RuntimeLoopLimits, check_runtime_loop_control
@@ -97,32 +84,33 @@ from ..execution.agent_delegation_executor import AgentDelegationExecutor
 from ..coordination_runtime.runtime import LangGraphCoordinationRuntime, LangGraphCoordinationRuntimeResult
 from ..agent_assembly import WorkOrder, build_agent_assembly_contract
 from ..execution_permit import (
-    action_request_from_approval_state,
+    append_approval_rejection_observation,
     build_execution_permit_from_payload,
-    resource_policy_from_approval_state,
-    runtime_directive_from_approval_state,
+    build_pending_approval_state,
+    execute_approved_tool_from_state,
     tool_instances_for_policy_and_permit,
 )
 from ..execution_engine import (
     ModelToolCallAccumulator,
     apply_observation_aggregation,
+    append_executor_error_observation,
+    append_model_answer_observation,
+    append_simple_executor_event,
     artifact_success_fallback_answer_metadata,
-    build_answer_readiness_judge_message,
     build_artifact_success_fallback_answer,
-    build_repeated_tool_halt_message,
-    build_runtime_budget_exhausted_message,
+    build_initial_followup_messages,
+    build_next_followup_messages,
     builtin_tool_lane_answer_from_observation,
     classify_delegation_goal_alignment,
+    finalize_after_followup_tool_results,
+    finalize_budget_exhausted_followup,
     forced_synthesis_answer_metadata,
     forced_tool_synthesis_from_available_evidence,
+    handle_tool_call_requested_event,
     merge_task_spec_binding_into_delegation_payload,
-    prepare_tool_execution,
     record_tool_observation_projection,
-    repeated_tool_halt_answer_metadata,
-    runtime_budget_exhausted_answer_metadata,
     select_final_answer_from_context,
     select_final_answer_from_task_summary_refs,
-    should_force_answer_after_tool_results,
 )
 from ..memory.project_supervision import (
     build_runtime_status,
@@ -170,7 +158,6 @@ from .finalizer import (
 )
 from ..memory.trace_reader import RuntimeLoopTraceReader
 from ..execution.delegation_models import AgentDelegationRequest
-from permissions import build_tool_request_runtime_adoption
 from ..shared.tool_repetition_guard import ToolRepetitionGuard
 from agent_system.registry.worker_agent_blueprints import WorkerAgentSpawnRequest, WorkerAgentSpawnResult
 from agent_system.registry.worker_agent_factory import WorkerAgentFactory
@@ -388,11 +375,18 @@ class TaskRunLoop:
             },
         )
         if approved:
-            resume_result = await self._execute_pending_approval_tool(
-                task_run_id,
+            resume_result = await execute_approved_tool_from_state(
+                event_log=self.event_log,
+                runtime_context_manager=RuntimeContextManager(lambda **_kwargs: ""),
+                task_run_id=task_run_id,
                 approval_state=approval_state,
                 approval_token=token,
                 tool_runtime_executor=tool_runtime_executor,
+                operation_gate=self.operation_gate,
+                permission_mode=self._current_permission_mode(),
+                root_dir=self.root_dir,
+                execution_store=self.execution_store,
+                record_execution_event=self._record_execution_event,
             )
             next_approval_state = {
                 **next_approval_state,
@@ -406,44 +400,14 @@ class TaskRunLoop:
                 "rejected": True,
                 "reason": str(message or "").strip() or "approval rejected",
             }
-            rejection_observation = build_tool_result_observation(
+            append_approval_rejection_observation(
+                event_log=self.event_log,
+                runtime_context_manager=RuntimeContextManager(lambda **_kwargs: ""),
                 task_run_id=task_run_id,
-                request_ref=str(approval_state.get("action_request_ref") or ""),
+                approval_state=approval_state,
                 directive_ref=directive_ref,
-                tool_name=str(approval_state.get("tool_name") or ""),
-                tool_call_id=str(approval_state.get("tool_call_id") or approval_state.get("action_request_ref") or ""),
-                tool_args=dict(approval_state.get("tool_args") or {}),
-                result=resume_result["reason"],
-            )
-            rejection_context = RuntimeContextManager(lambda **_kwargs: "").record_observation(rejection_observation)
-            self.event_log.append(
-                task_run_id,
-                "tool_result_received",
-                payload={
-                    "observation": rejection_observation.to_dict(),
-                    "context_record": rejection_context.to_dict(),
-                    "approval_resolution": resolution,
-                },
-                refs={
-                    "action_request_ref": str(approval_state.get("action_request_ref") or ""),
-                    "directive_ref": directive_ref,
-                    "observation_ref": rejection_observation.observation_id,
-                },
-            )
-            self.event_log.append(
-                task_run_id,
-                "executor_observation_received",
-                payload={
-                    "observation": rejection_observation.to_dict(),
-                    "context_record": rejection_context.to_dict(),
-                    "source": rejection_observation.source,
-                    "content_chars": rejection_observation.content_chars,
-                },
-                refs={
-                    "action_request_ref": str(approval_state.get("action_request_ref") or ""),
-                    "directive_ref": directive_ref,
-                    "observation_ref": rejection_observation.observation_id,
-                },
+                reason=resume_result["reason"],
+                resolution=resolution,
             )
             final_status = "blocked"
             terminal_reason = "blocked_by_gate"
@@ -1242,6 +1206,7 @@ class TaskRunLoop:
         tool_instances: list[Any] | None = None,
         agent_runtime_profile: Any | None = None,
         search_policy: list[str] | None = None,
+        model_selection: dict[str, Any] | None = None,
     ):
         """Run the current single-agent lane inside the TaskRunLoop trace spine."""
 
@@ -1673,10 +1638,12 @@ class TaskRunLoop:
             model_requirement = dict(
                 dict(task_execution_assembly_payload.get("contract_bindings") or {}).get("runtime") or {}
             ).get("model_requirement")
+            graph_runtime_defaults = _chat_model_selection_runtime_defaults(model_selection)
             resolved_model_spec = ModelProfileResolver(settings_service).resolve_model_spec(
                 agent_runtime_profile=effective_agent_runtime_profile,
                 model_requirement=dict(model_requirement) if isinstance(model_requirement, dict) else {},
                 runtime_lane=str(agent_runtime_spec_payload.get("runtime_lane") or ""),
+                graph_runtime_defaults=graph_runtime_defaults,
             )
             model_resolution = resolved_model_spec.to_public_dict()
             model_resolution_event = self.event_log.append(
@@ -2440,23 +2407,15 @@ class TaskRunLoop:
             final_answer_metadata = {}
             preserve_final_answer_metadata = False
         if tool_call_accumulator.pending_tool_calls and tool_messages and terminal_reason == "completed" and not builtin_tool_lane_finalized:
-            followup_messages = [
-                *list(context_snapshot.model_messages),
-                AIMessage(
-                    content=tool_call_accumulator.assistant_content,
-                    tool_calls=tool_calls_for_langchain_messages(tool_call_accumulator.pending_tool_calls),
-                    additional_kwargs=tool_call_accumulator.assistant_additional_kwargs,
-                ),
-                *tool_messages,
-            ]
-            readiness_message = build_answer_readiness_judge_message(
+            followup_messages = build_initial_followup_messages(
+                context_model_messages=list(context_snapshot.model_messages),
+                tool_call_accumulator=tool_call_accumulator,
+                tool_messages=tool_messages,
                 user_message=user_message,
                 aggregation=observation_aggregator.snapshot(),
                 current_bundle_items=current_bundle_items,
                 remaining_model_calls=max(effective_limits.max_model_calls - model_call_count, 0),
             )
-            if readiness_message:
-                followup_messages.append(SystemMessage(content=readiness_message))
         while followup_messages and terminal_reason == "completed":
             turn_count += 1
             model_call_count += 1
@@ -2501,23 +2460,16 @@ class TaskRunLoop:
             if not followup_control.allowed:
                 terminal_reason = followup_control.reason
                 if not final_content:
-                    synthesized = forced_tool_synthesis_from_available_evidence(
+                    finalization = finalize_budget_exhausted_followup(
                         user_message=user_message,
                         aggregation=observation_aggregator.snapshot(),
                         final_task_summary_refs=final_task_summary_refs,
                         final_main_context=final_main_context,
+                        control_message=followup_control.message,
+                        tool_observation_count=tool_observation_count,
                     )
-                    if synthesized:
-                        final_content = synthesized
-                        final_answer_metadata = forced_synthesis_answer_metadata(
-                            source="runtime_loop.budget_exhausted_force_synthesis"
-                        )
-                    else:
-                        final_content = build_runtime_budget_exhausted_message(
-                            followup_control.message,
-                            tool_observation_count=tool_observation_count,
-                        )
-                        final_answer_metadata = runtime_budget_exhausted_answer_metadata()
+                    final_content = finalization.content
+                    final_answer_metadata = dict(finalization.answer_metadata or {})
                 break
             followup_event = self.event_log.append(
                 state.task_run_id,
@@ -2830,72 +2782,31 @@ class TaskRunLoop:
             ):
                 retrieval_followup_force_synthesis = True
             if next_tool_call_accumulator.pending_tool_calls and next_tool_messages and terminal_reason == "completed":
-                if should_force_answer_after_tool_results(
+                finalization = finalize_after_followup_tool_results(
+                    user_message=user_message,
                     aggregation=observation_aggregator.snapshot(),
                     final_task_summary_refs=final_task_summary_refs,
                     final_main_context=final_main_context,
-                ):
-                    synthesized = forced_tool_synthesis_from_available_evidence(
-                        user_message=user_message,
-                        aggregation=observation_aggregator.snapshot(),
-                        final_task_summary_refs=final_task_summary_refs,
-                        final_main_context=final_main_context,
-                    )
-                    if synthesized:
-                        final_content = synthesized
-                        final_answer_metadata = forced_synthesis_answer_metadata(source="runtime_loop.post_tool_judgement_force_synthesis")
-                        followup_messages = []
-                        break
-                if retrieval_followup_force_synthesis:
-                    synthesized = forced_tool_synthesis_from_available_evidence(
-                        user_message=user_message,
-                        aggregation=observation_aggregator.snapshot(),
-                        final_task_summary_refs=final_task_summary_refs,
-                        final_main_context=final_main_context,
-                    )
-                    if synthesized:
-                        final_content = synthesized
-                        final_answer_metadata = forced_synthesis_answer_metadata(source="runtime_loop.retrieval_followup_force_synthesis")
-                        followup_messages = []
-                        break
-                if repeated_tool_halt and final_content:
+                    repeated_tool_halt=repeated_tool_halt,
+                    final_content=final_content,
+                    tool_observation_count=tool_observation_count,
+                    retrieval_followup_force_synthesis=retrieval_followup_force_synthesis,
+                )
+                if finalization.finalized:
+                    final_content = finalization.content
+                    if finalization.answer_metadata is not None:
+                        final_answer_metadata = dict(finalization.answer_metadata)
                     followup_messages = []
                     break
-                if repeated_tool_halt:
-                    synthesized = forced_tool_synthesis_from_available_evidence(
-                        user_message=user_message,
-                        aggregation=observation_aggregator.snapshot(),
-                        final_task_summary_refs=final_task_summary_refs,
-                        final_main_context=final_main_context,
-                    )
-                    if synthesized:
-                        final_content = synthesized
-                        final_answer_metadata = forced_synthesis_answer_metadata(source="runtime_loop.repeated_tool_halt")
-                        followup_messages = []
-                        break
-                    final_content = build_repeated_tool_halt_message(
-                        tool_observation_count=tool_observation_count,
-                    )
-                    final_answer_metadata = repeated_tool_halt_answer_metadata()
-                    followup_messages = []
-                    break
-                followup_messages = [
-                    *followup_messages,
-                    AIMessage(
-                        content=next_tool_call_accumulator.assistant_content,
-                        tool_calls=tool_calls_for_langchain_messages(next_tool_call_accumulator.pending_tool_calls),
-                        additional_kwargs=next_tool_call_accumulator.assistant_additional_kwargs,
-                    ),
-                    *next_tool_messages,
-                ]
-                readiness_message = build_answer_readiness_judge_message(
+                followup_messages = build_next_followup_messages(
+                    previous_messages=followup_messages,
+                    tool_call_accumulator=next_tool_call_accumulator,
+                    tool_messages=next_tool_messages,
                     user_message=user_message,
                     aggregation=observation_aggregator.snapshot(),
                     current_bundle_items=current_bundle_items,
                     remaining_model_calls=max(effective_limits.max_model_calls - model_call_count, 0),
                 )
-                if readiness_message:
-                    followup_messages.append(SystemMessage(content=readiness_message))
                 continue
             followup_messages = []
 
@@ -4393,47 +4304,6 @@ class TaskRunLoop:
             )
         )
 
-    def _build_pending_approval_state(
-        self,
-        *,
-        task_run_id: str,
-        action_request: RuntimeActionRequest,
-        directive: RuntimeDirective,
-        resource_policy: ResourcePolicy,
-        gate_result: Any,
-        descriptor: Any,
-        sandbox_policy: dict[str, Any] | None,
-        step_ref: str = "",
-    ) -> dict[str, Any]:
-        tool_call = dict(action_request.payload.get("tool_call") or {})
-        tool_args = dict(tool_call.get("args") or {})
-        risk_tags = tuple(getattr(descriptor, "risk_tags", ()) or ())
-        return {
-            "status": "pending",
-            "task_run_id": task_run_id,
-            "operation_id": str(gate_result.operation_id or ""),
-            "directive_ref": directive.directive_id,
-            "action_request_ref": action_request.request_id,
-            "tool_name": str(action_request.payload.get("tool_name") or ""),
-            "tool_call_id": str(tool_call.get("id") or action_request.request_id),
-            "tool_args": tool_args,
-            "tool_args_summary": _summarize_tool_args(tool_args),
-            "risk_tags": list(risk_tags),
-            "requires_user_interaction": bool(getattr(descriptor, "requires_user_interaction", False)),
-            "gate": gate_result.to_dict(),
-            "directive": directive.to_dict(),
-            "resource_policy": resource_policy.to_dict(),
-            "sandbox_policy": dict(sandbox_policy or {}),
-            "step_ref": step_ref,
-            "created_at": time.time(),
-            "resume_contract": {
-                "operation_id": str(gate_result.operation_id or ""),
-                "directive_ref": directive.directive_id,
-                "action_request_ref": action_request.request_id,
-                "token_binding": "operation_id+directive_ref",
-            },
-        }
-
     def _enter_waiting_approval(
         self,
         *,
@@ -4510,162 +4380,6 @@ class TaskRunLoop:
                 diagnostics={"pending_approval_state": dict(approval_state)},
             )
         return waiting_state, approval_event, checkpoint_event, task_run
-
-    async def _execute_pending_approval_tool(
-        self,
-        task_run_id: str,
-        *,
-        approval_state: dict[str, Any],
-        approval_token: ApprovalToken,
-        tool_runtime_executor: Any | None,
-    ) -> dict[str, Any]:
-        if tool_runtime_executor is None:
-            return {
-                "executed": False,
-                "reason": "tool runtime executor unavailable",
-                "result_refs": [],
-            }
-        operation_id = self.operation_gate.registry.normalize_id(str(approval_state.get("operation_id") or ""))
-        descriptor = self.operation_gate.registry.get_operation(operation_id)
-        action_request = action_request_from_approval_state(task_run_id, approval_state)
-        directive = runtime_directive_from_approval_state(approval_state)
-        resource_policy = resource_policy_from_approval_state(approval_state)
-        gate_result = self.operation_gate.check(
-            operation_id,
-            resource_policy=resource_policy,
-            directive_ref=directive.directive_id,
-            context=OperationGatePipelineContext(
-                permission_mode=self._current_permission_mode(),
-                approval_token=approval_token,
-                operation_input={
-                    "operation_id": operation_id,
-                    **dict(action_request.payload.get("tool_call") or {}),
-                },
-                validators=build_task_safety_validators(
-                    root_dir=self.root_dir,
-                    safety_envelope={},
-                    sandbox_policy=dict(approval_state.get("sandbox_policy") or {}),
-                ),
-            ),
-        )
-        gate_event = self.event_log.append(
-            task_run_id,
-            "operation_gate_checked",
-            payload={
-                "gate": gate_result.to_dict(),
-                "approval_resume": True,
-                "dispatch_enabled": bool(gate_result.allowed),
-            },
-            refs={
-                "operation_id": gate_result.operation_id,
-                "directive_ref": directive.directive_id,
-                "action_request_ref": action_request.request_id,
-                "approval_token_ref": approval_token.token_id,
-            },
-        )
-        if not gate_result.allowed:
-            return {
-                "executed": False,
-                "reason": gate_result.reason,
-                "gate": gate_result.to_dict(),
-                "events": [gate_event.to_dict()],
-                "result_refs": [],
-            }
-        execution_record, execution_events, execution_decision = prepare_tool_execution(
-            task_run_id=task_run_id,
-            step_id=str(approval_state.get("step_ref") or ""),
-            action_request=action_request,
-            directive_ref=directive.directive_id,
-            operation_id=operation_id,
-            descriptor=descriptor,
-            tool_name=str(approval_state.get("tool_name") or ""),
-            execution_store=self.execution_store,
-            record_execution_event=self._record_execution_event,
-        )
-        events = [gate_event, *execution_events]
-        if execution_decision != "dispatch":
-            return {
-                "executed": False,
-                "reason": execution_decision,
-                "events": [event.to_dict() for event in events],
-                "result_refs": [],
-            }
-        events.append(
-            self._record_execution_event(
-                task_run_id,
-                event_type="execution_dispatch_started",
-                record=execution_record,
-                reason="tool_dispatch_started_after_approval",
-            )
-        )
-        execution_outcome = await tool_runtime_executor.run(
-            task_run_id=task_run_id,
-            action_request=action_request,
-            directive=directive,
-            execution_record=execution_record,
-            execution_store=self.execution_store,
-            max_result_size_chars=int(dict(gate_result.diagnostics or {}).get("max_result_size_chars") or 0),
-            sandbox_policy=dict(approval_state.get("sandbox_policy") or {}),
-        )
-        final_record = execution_outcome.get("execution_record")
-        if isinstance(final_record, OperationExecutionRecord):
-            events.append(
-                self._record_execution_event(
-                    task_run_id,
-                    event_type="execution_result_recorded",
-                    record=final_record,
-                    reason="tool_execution_finished_after_approval",
-                )
-            )
-        observation = execution_outcome.get("observation")
-        result_refs: list[str] = []
-        if observation is not None:
-            context_record = RuntimeContextManager(lambda **_kwargs: "").record_observation(observation)
-            observation_ref = str(getattr(observation, "observation_id", "") or "")
-            result_refs.append(observation_ref)
-            if getattr(observation, "observation_type", "") == "tool_result":
-                events.append(
-                    self.event_log.append(
-                        task_run_id,
-                        "tool_result_received",
-                        payload={
-                            "observation": observation.to_dict(),
-                            "context_record": context_record.to_dict(),
-                            "approval_resume": True,
-                        },
-                        refs={
-                            "action_request_ref": action_request.request_id,
-                            "directive_ref": directive.directive_id,
-                            "observation_ref": observation_ref,
-                            "execution_ref": str(getattr(final_record, "execution_id", "") or ""),
-                        },
-                    )
-                )
-            events.append(
-                self.event_log.append(
-                    task_run_id,
-                    "executor_observation_received",
-                    payload={
-                        "observation": observation.to_dict(),
-                        "context_record": context_record.to_dict(),
-                        "source": observation.source,
-                        "content_chars": observation.content_chars,
-                    },
-                    refs={
-                        "action_request_ref": action_request.request_id,
-                        "directive_ref": directive.directive_id,
-                        "observation_ref": observation_ref,
-                        "execution_ref": str(getattr(final_record, "execution_id", "") or ""),
-                    },
-                )
-            )
-        return {
-            "executed": bool(observation is not None and not execution_outcome.get("error")),
-            "reason": str(execution_outcome.get("error") or "approved tool executed"),
-            "gate": gate_result.to_dict(),
-            "events": [event.to_dict() for event in events],
-            "result_refs": result_refs,
-        }
 
     def _state_with_task_run_ledger(
         self,
@@ -5213,558 +4927,49 @@ class TaskRunLoop:
         sandbox_policy: dict[str, Any] | None = None,
     ):
         event_type = str(event.get("type") or "")
-        if event_type == "runtime_directive":
-            return [
-                self.event_log.append(
-                task_run_id,
-                "runtime_directive_issued",
-                payload={
-                    "directive": dict(event.get("directive") or {}),
-                    "resource_policy": dict(event.get("resource_policy") or {}),
-                },
-                refs={
-                    "directive_ref": str(dict(event.get("directive") or {}).get("directive_id") or ""),
-                    "resource_policy_ref": str(dict(event.get("resource_policy") or {}).get("policy_id") or ""),
-                },
-                )
-            ]
-        if event_type == "operation_gate":
-            gate = dict(event.get("gate") or {})
-            return [
-                self.event_log.append(
-                task_run_id,
-                "operation_gate_checked",
-                payload={"gate": gate},
-                refs={"operation_id": str(gate.get("operation_id") or "")},
-                )
-            ]
-        if event_type == "content_delta":
-            delta_text = str(event.get("content") or "")
-            preview_limit = 400
-            delta_preview = delta_text if len(delta_text) <= preview_limit else delta_text[:preview_limit]
-            return [
-                self.event_log.append(
-                    task_run_id,
-                    "model_item_received",
-                    payload={
-                        "stream_ref": str(event.get("stream_ref") or ""),
-                        "delta_index": int(event.get("delta_index") or 0),
-                        "delta_chars": int(event.get("delta_chars") or len(delta_text)),
-                        "accumulated_chars": int(event.get("accumulated_chars") or len(delta_text)),
-                        "delta_preview": delta_preview,
-                        "is_final_chunk": bool(event.get("is_final_chunk") is True),
-                    },
-                    refs={
-                        "directive_ref": str(event.get("stream_ref") or ""),
-                    },
-                )
-            ]
-        if event_type == "stream_recovery":
-            return [
-                self.event_log.append(
-                    task_run_id,
-                    "model_stream_recovery",
-                    payload={
-                        "status": str(event.get("status") or ""),
-                        "reason": str(event.get("reason") or ""),
-                        "code": str(event.get("code") or ""),
-                        "provider": str(event.get("provider") or ""),
-                        "model": str(event.get("model") or ""),
-                        "detail": str(event.get("detail") or ""),
-                        "partial_delta_count": int(event.get("partial_delta_count") or 0),
-                        "fallback_timeout_seconds": float(event.get("fallback_timeout_seconds") or 0),
-                    },
-                    refs={
-                        "directive_ref": str(event.get("directive_ref") or ""),
-                    },
-                )
-            ]
-        if event_type == "model_protocol_violation":
-            return [
-                self.event_log.append(
-                    task_run_id,
-                    "model_protocol_violation",
-                    payload={
-                        "content": str(event.get("content") or ""),
-                        "protocol_leak": dict(event.get("protocol_leak") or {}),
-                        "answer_source": str(event.get("answer_source") or ""),
-                    },
-                    refs={
-                        "directive_ref": str(event.get("directive_ref") or ""),
-                    },
-                )
-            ]
+        simple_events = append_simple_executor_event(self.event_log, task_run_id, event)
+        if simple_events is not None:
+            return simple_events
         if event_type == "answer_candidate":
-            observation = build_model_response_observation(task_run_id, event)
-            context_record = runtime_context_manager.record_observation(observation)
-            return [
-                self.event_log.append(
-                task_run_id,
-                "executor_observation_received",
-                payload={
-                    "observation": observation.to_dict(),
-                    "context_record": context_record.to_dict(),
-                    "source": observation.source,
-                    "content_chars": observation.content_chars,
-                },
-                refs={
-                    "directive_ref": observation.directive_ref,
-                    "observation_ref": observation.observation_id,
-                },
-                )
-            ]
+            return append_model_answer_observation(
+                event_log=self.event_log,
+                runtime_context_manager=runtime_context_manager,
+                task_run_id=task_run_id,
+                event=event,
+            )
         if event_type == "tool_call_requested":
-            from capability_system.tool_authorization import resolve_tool_operation_id
-
-            action_request = build_tool_action_request(task_run_id, event, step_id=current_step_id)
-            action_step_ref = str(current_step_id or action_request.step_id or "")
-            requested_event = self.event_log.append(
-                task_run_id,
-                "tool_call_requested",
-                payload={"action_request": action_request.to_dict()},
-                refs={
-                    "action_request_ref": action_request.request_id,
-                    "directive_ref": action_request.directive_ref,
-                    "operation_id": action_request.operation_id,
-                    "task_step_ref": action_step_ref,
-                },
-            )
-            operation_id = self.operation_gate.registry.normalize_id(
-                action_request.operation_id
-                or resolve_tool_operation_id(
-                    str(action_request.payload.get("tool_name") or ""),
-                    definitions_by_name=self.tool_authorization_index.definitions_by_name,
-                )
-            )
-            allowed_sources = allowed_search_sources if allowed_search_sources is not None else normalize_search_policy(None)
-            if not operation_allowed_by_search_policy(operation_id, allowed_sources):
-                tool_call = dict(action_request.payload.get("tool_call") or {})
-                tool_name = str(action_request.payload.get("tool_name") or "")
-                blocked_observation = build_tool_result_observation(
-                    task_run_id=task_run_id,
-                    request_ref=action_request.request_id,
-                    directive_ref=action_request.directive_ref,
-                    tool_name=tool_name,
-                    tool_call_id=str(tool_call.get("id") or action_request.request_id),
-                    tool_args=dict(tool_call.get("args") or {}),
-                    result="工具调用被本轮权限开关阻止：当前来源未授权。",
-                )
-                context_record = runtime_context_manager.record_observation(blocked_observation)
-                return [
-                    requested_event,
-                    self.event_log.append(
-                        task_run_id,
-                        "tool_call_blocked_by_search_policy",
-                        payload={
-                            "operation_id": operation_id,
-                            "tool_name": tool_name,
-                            "allowed_sources": sorted(allowed_sources),
-                            "observation": blocked_observation.to_dict(),
-                            "context_record": context_record.to_dict(),
-                        },
-                        refs={
-                            "action_request_ref": action_request.request_id,
-                            "operation_id": operation_id,
-                            "observation_ref": blocked_observation.observation_id,
-                            "task_step_ref": action_step_ref,
-                        },
-                    ),
-                    self.event_log.append(
-                        task_run_id,
-                        "executor_observation_received",
-                        payload={
-                            "observation": blocked_observation.to_dict(),
-                            "context_record": context_record.to_dict(),
-                            "source": blocked_observation.source,
-                            "content_chars": blocked_observation.content_chars,
-                        },
-                        refs={
-                            "action_request_ref": action_request.request_id,
-                            "observation_ref": blocked_observation.observation_id,
-                            "task_step_ref": action_step_ref,
-                        },
-                    ),
-                ]
-            descriptor = self.operation_gate.registry.get_operation(operation_id)
-            tool_directive, tool_policy = build_tool_request_runtime_adoption(
-                action_request=action_request,
+            return await handle_tool_call_requested_event(
+                event_log=self.event_log,
+                runtime_context_manager=runtime_context_manager,
+                task_run_id=task_run_id,
+                event=event,
+                current_step_id=current_step_id,
                 task_id=task_id,
                 task_operation=task_operation,
-                operation_id=operation_id,
-                operation_descriptor=descriptor,
                 adopted_resource_policy=adopted_resource_policy,
+                user_message=user_message,
+                model_response_executor=model_response_executor,
+                tool_runtime_executor=tool_runtime_executor,
+                definitions_by_name=self.tool_authorization_index.definitions_by_name,
+                operation_gate=self.operation_gate,
+                permission_mode=self._current_permission_mode(),
+                root_dir=self.root_dir,
+                allowed_search_sources=allowed_search_sources,
+                sandbox_policy=sandbox_policy,
+                execution_store=self.execution_store,
+                record_execution_event=self._record_execution_event,
+                build_pending_approval_state=build_pending_approval_state,
+                list_parent_agent_runs=self.state_index.list_task_agent_runs,
+                build_delegation_request=self._build_delegation_request,
+                execute_delegation=self._delegation_executor().execute,
             )
-            directive_event = self.event_log.append(
-                task_run_id,
-                "runtime_directive_issued",
-                payload={
-                    "directive": tool_directive.to_dict(),
-                    "resource_policy": tool_policy.to_dict(),
-                    "dispatch_enabled": "pending_operation_gate",
-                },
-                refs={
-                    "action_request_ref": action_request.request_id,
-                    "directive_ref": tool_directive.directive_id,
-                    "resource_policy_ref": tool_policy.policy_id,
-                    "task_step_ref": action_step_ref,
-                },
-            )
-            gate_result = self.operation_gate.check(
-                operation_id,
-                resource_policy=tool_policy,
-                directive_ref=tool_directive.directive_id,
-                context=OperationGatePipelineContext(
-                    permission_mode=self._current_permission_mode(),
-                    operation_input={
-                        "operation_id": operation_id,
-                        **dict(action_request.payload.get("tool_call") or {}),
-                    },
-                    validators=build_task_safety_validators(
-                        root_dir=self.root_dir,
-                        safety_envelope=dict(
-                            dict(task_operation.get("operation_requirement") or {}).get("metadata") or {}
-                        ).get("safety_envelope", {}),
-                        sandbox_policy=dict(sandbox_policy or {}),
-                    ),
-                ),
-            )
-            gate_event = self.event_log.append(
-                task_run_id,
-                "operation_gate_checked",
-                payload={
-                    "gate": gate_result.to_dict(),
-                    "dispatch_enabled": bool(gate_result.allowed and tool_runtime_executor is not None),
-                    "tool_preflight_only": False,
-                    "sandbox_policy": dict(sandbox_policy or {}),
-                },
-                refs={
-                    "action_request_ref": action_request.request_id,
-                    "operation_id": gate_result.operation_id,
-                    "directive_ref": tool_directive.directive_id,
-                    "task_step_ref": action_step_ref,
-                },
-            )
-            events = [requested_event, directive_event, gate_event]
-            if gate_result.requires_approval:
-                approval_state = self._build_pending_approval_state(
-                    task_run_id=task_run_id,
-                    action_request=action_request,
-                    directive=tool_directive,
-                    resource_policy=tool_policy,
-                    gate_result=gate_result,
-                    descriptor=descriptor,
-                    sandbox_policy=sandbox_policy,
-                    step_ref=action_step_ref,
-                )
-                events.append(
-                    self.event_log.append(
-                        task_run_id,
-                        "approval_waiting",
-                        payload={"approval": approval_state},
-                        refs={
-                            "action_request_ref": action_request.request_id,
-                            "operation_id": gate_result.operation_id,
-                            "directive_ref": tool_directive.directive_id,
-                            "task_step_ref": action_step_ref,
-                        },
-                    )
-                )
-                return events
-            if gate_result.allowed and tool_runtime_executor is not None:
-                step_id = action_step_ref
-                tool_name = str(action_request.payload.get("tool_name") or "")
-                if tool_name == "delegate_to_agent":
-                    parent_agent_runs = self.state_index.list_task_agent_runs(task_run_id)
-                    parent_agent_run = next((item for item in parent_agent_runs if item.agent_run_id.endswith(":main")), None)
-                    if parent_agent_run is None and parent_agent_runs:
-                        parent_agent_run = parent_agent_runs[0]
-                    if parent_agent_run is None:
-                        error_observation = build_tool_result_observation(
-                            task_run_id=task_run_id,
-                            request_ref=action_request.request_id,
-                            directive_ref=tool_directive.directive_id,
-                            tool_name="delegate_to_agent",
-                            tool_call_id=str(dict(action_request.payload.get("tool_call") or {}).get("id") or action_request.request_id),
-                            tool_args=dict(dict(action_request.payload.get("tool_call") or {}).get("args") or {}),
-                            result="委派失败：未找到父 AgentRun。",
-                        )
-                        context_record = runtime_context_manager.record_observation(error_observation)
-                        events.append(
-                            self.event_log.append(
-                                task_run_id,
-                                "executor_observation_received",
-                                payload={
-                                    "observation": error_observation.to_dict(),
-                                    "context_record": context_record.to_dict(),
-                                    "source": error_observation.source,
-                                    "content_chars": error_observation.content_chars,
-                                },
-                                refs={
-                                    "action_request_ref": action_request.request_id,
-                                    "directive_ref": tool_directive.directive_id,
-                                    "observation_ref": error_observation.observation_id,
-                                    "task_step_ref": action_step_ref,
-                                },
-                            )
-                        )
-                        return events
-                    delegation_request = self._build_delegation_request(
-                        task_run_id=task_run_id,
-                        action_request=action_request,
-                        parent_agent_run_ref=parent_agent_run.agent_run_id,
-                        source_agent_id=parent_agent_run.agent_id,
-                        user_message=user_message,
-                        task_operation=task_operation,
-                        allowed_search_sources=allowed_search_sources,
-                    )
-                    delegated = await self._delegation_executor().execute(
-                        request=delegation_request,
-                        parent_agent_run=parent_agent_run,
-                        model_response_executor=model_response_executor,
-                    )
-                    events.extend(list(delegated.get("events") or []))
-                    result_observation = build_tool_result_observation(
-                        task_run_id=task_run_id,
-                        request_ref=action_request.request_id,
-                        directive_ref=tool_directive.directive_id,
-                        tool_name="delegate_to_agent",
-                        tool_call_id=str(dict(action_request.payload.get("tool_call") or {}).get("id") or action_request.request_id),
-                        tool_args={
-                            **dict(dict(action_request.payload.get("tool_call") or {}).get("args") or {}),
-                            "current_user_message": str(user_message or "").strip(),
-                        },
-                        result=json.dumps(dict(delegated.get("observation") or {}), ensure_ascii=False),
-                    )
-                    context_record = runtime_context_manager.record_observation(result_observation)
-                    events.append(
-                        self.event_log.append(
-                            task_run_id,
-                            "tool_result_received",
-                            payload={
-                                "observation": result_observation.to_dict(),
-                                "context_record": context_record.to_dict(),
-                            },
-                            refs={
-                                "action_request_ref": action_request.request_id,
-                                "directive_ref": tool_directive.directive_id,
-                                "observation_ref": result_observation.observation_id,
-                                "delegation_request_ref": delegation_request.request_id,
-                                "task_step_ref": action_step_ref,
-                            },
-                        )
-                    )
-                    events.append(
-                        self.event_log.append(
-                            task_run_id,
-                            "executor_observation_received",
-                            payload={
-                                "observation": result_observation.to_dict(),
-                                "context_record": context_record.to_dict(),
-                                "source": result_observation.source,
-                                "content_chars": result_observation.content_chars,
-                            },
-                            refs={
-                                "action_request_ref": action_request.request_id,
-                                "directive_ref": tool_directive.directive_id,
-                                "observation_ref": result_observation.observation_id,
-                                "delegation_request_ref": delegation_request.request_id,
-                                "task_step_ref": action_step_ref,
-                            },
-                        )
-                    )
-                    return events
-                execution_record, execution_events, execution_decision = prepare_tool_execution(
-                    task_run_id=task_run_id,
-                    step_id=step_id,
-                    action_request=action_request,
-                    directive_ref=tool_directive.directive_id,
-                    operation_id=operation_id,
-                    descriptor=descriptor,
-                    tool_name=tool_name,
-                    execution_store=self.execution_store,
-                    record_execution_event=self._record_execution_event,
-                )
-                events.extend(execution_events)
-                if execution_decision == "reuse_completed_result":
-                    reused_payload = dict(execution_record.result_payload or {})
-                    reused_observation = build_tool_result_observation(
-                        task_run_id=task_run_id,
-                        request_ref=action_request.request_id,
-                        directive_ref=tool_directive.directive_id,
-                        tool_name=str(reused_payload.get("tool_name") or tool_name),
-                        tool_call_id=str(
-                            reused_payload.get("tool_call_id")
-                            or dict(action_request.payload.get("tool_call") or {}).get("id")
-                            or action_request.request_id
-                        ),
-                        tool_args=dict(reused_payload.get("tool_args") or dict(action_request.payload.get("tool_call") or {}).get("args") or {}),
-                        result=reused_payload.get("result") or "",
-                        truncated=bool(reused_payload.get("truncated") is True),
-                        execution_receipt=build_execution_receipt(
-                            execution_record,
-                            reused_previous_result=True,
-                        ).to_dict(),
-                        result_ref=str(execution_record.result_ref or ""),
-                        result_envelope=dict(reused_payload.get("result_envelope") or {}),
-                    )
-                    context_record = runtime_context_manager.record_observation(reused_observation)
-                    tool_result_event = self.event_log.append(
-                        task_run_id,
-                        "tool_result_received",
-                        payload={
-                            "observation": reused_observation.to_dict(),
-                            "context_record": context_record.to_dict(),
-                        },
-                        refs={
-                            "action_request_ref": action_request.request_id,
-                            "directive_ref": tool_directive.directive_id,
-                            "observation_ref": reused_observation.observation_id,
-                            "execution_ref": execution_record.execution_id,
-                            "task_step_ref": action_step_ref,
-                        },
-                    )
-                    observation_event = self.event_log.append(
-                        task_run_id,
-                        "executor_observation_received",
-                        payload={
-                            "observation": reused_observation.to_dict(),
-                            "context_record": context_record.to_dict(),
-                            "source": reused_observation.source,
-                            "content_chars": reused_observation.content_chars,
-                        },
-                        refs={
-                            "action_request_ref": action_request.request_id,
-                            "directive_ref": tool_directive.directive_id,
-                            "observation_ref": reused_observation.observation_id,
-                            "execution_ref": execution_record.execution_id,
-                            "task_step_ref": action_step_ref,
-                        },
-                    )
-                    events.extend([tool_result_event, observation_event])
-                    return events
-                if execution_decision == "deny_auto_replay":
-                    error_message = "Tool execution replay denied because the operation is not replay-safe."
-                    error_event = self.event_log.append(
-                        task_run_id,
-                        "loop_error",
-                        payload={
-                            "error": error_message,
-                            "answer_source": "runtime_execution_replay_guard",
-                            "execution_record": execution_record.to_dict(),
-                        },
-                        refs={
-                            "action_request_ref": action_request.request_id,
-                            "directive_ref": tool_directive.directive_id,
-                            "execution_ref": execution_record.execution_id,
-                            "operation_id": operation_id,
-                            "task_step_ref": action_step_ref,
-                        },
-                    )
-                    events.append(error_event)
-                    return events
-                dispatch_event = self._record_execution_event(
-                    task_run_id,
-                    event_type="execution_dispatch_started",
-                    record=execution_record,
-                    reason="tool_dispatch_started",
-                )
-                events.append(dispatch_event)
-                max_chars = int(dict(gate_result.diagnostics or {}).get("max_result_size_chars") or 0)
-                execution_outcome = await tool_runtime_executor.run(
-                    task_run_id=task_run_id,
-                    action_request=action_request,
-                    directive=tool_directive,
-                    execution_record=execution_record,
-                    execution_store=self.execution_store,
-                    max_result_size_chars=max_chars,
-                    sandbox_policy=dict(sandbox_policy or {}),
-                )
-                final_record = execution_outcome.get("execution_record")
-                if isinstance(final_record, OperationExecutionRecord):
-                    events.append(
-                        self._record_execution_event(
-                            task_run_id,
-                            event_type="execution_result_recorded",
-                            record=final_record,
-                            reason="tool_execution_finished",
-                        )
-                    )
-                observation = execution_outcome.get("observation")
-                if observation is not None:
-                    context_record = runtime_context_manager.record_observation(observation)
-                    if observation.observation_type == "tool_result":
-                        tool_result_event = self.event_log.append(
-                            task_run_id,
-                            "tool_result_received",
-                            payload={
-                                "observation": observation.to_dict(),
-                                "context_record": context_record.to_dict(),
-                            },
-                            refs={
-                                "action_request_ref": action_request.request_id,
-                                "directive_ref": tool_directive.directive_id,
-                                "observation_ref": observation.observation_id,
-                                "execution_ref": str(getattr(final_record, "execution_id", "") or ""),
-                                "task_step_ref": action_step_ref,
-                            },
-                        )
-                        events.append(tool_result_event)
-                    observation_event = self.event_log.append(
-                        task_run_id,
-                        "executor_observation_received",
-                        payload={
-                            "observation": observation.to_dict(),
-                            "context_record": context_record.to_dict(),
-                            "source": observation.source,
-                            "content_chars": observation.content_chars,
-                        },
-                        refs={
-                            "action_request_ref": action_request.request_id,
-                            "directive_ref": tool_directive.directive_id,
-                            "observation_ref": observation.observation_id,
-                            "execution_ref": str(getattr(final_record, "execution_id", "") or ""),
-                            "task_step_ref": action_step_ref,
-                        },
-                    )
-                    events.append(observation_event)
-            return events
-        if event_type == "output_boundary":
-            return [
-                self.event_log.append(
-                task_run_id,
-                "output_boundary_applied",
-                payload={"output": dict(event.get("output") or {})},
-                )
-            ]
-        if event_type == "runtime_commit_gate":
-            commit_gate = dict(event.get("commit_gate") or {})
-            return [
-                self.event_log.append(
-                task_run_id,
-                "commit_gate_checked",
-                payload={"commit_gate": commit_gate},
-                refs={
-                    "commit_gate_ref": str(commit_gate.get("gate_id") or ""),
-                    "commit_type": str(commit_gate.get("commit_type") or ""),
-                },
-                )
-            ]
         if event_type == "error":
-            observation = build_executor_error_observation(task_run_id, event)
-            context_record = runtime_context_manager.record_observation(observation)
-            return [
-                self.event_log.append(
-                task_run_id,
-                "loop_error",
-                payload={
-                    "observation": observation.to_dict(),
-                    "context_record": context_record.to_dict(),
-                    "error": str(event.get("error") or ""),
-                    "answer_source": str(event.get("answer_source") or ""),
-                },
-                refs={"observation_ref": observation.observation_id},
-                )
-            ]
+            return append_executor_error_observation(
+                event_log=self.event_log,
+                runtime_context_manager=runtime_context_manager,
+                task_run_id=task_run_id,
+                event=event,
+            )
         return []
 
 
@@ -6460,28 +5665,6 @@ def _commit_result_summary(result: Any) -> dict[str, Any]:
     return {"applied_count": 1, "result_type": type(result).__name__}
 
 
-def _summarize_tool_args(tool_args: dict[str, Any]) -> dict[str, Any]:
-    summary: dict[str, Any] = {}
-    for key, value in dict(tool_args or {}).items():
-        if isinstance(value, str):
-            summary[key] = value if len(value) <= 220 else f"{value[:220]}..."
-        elif isinstance(value, (int, float, bool)) or value is None:
-            summary[key] = value
-        elif isinstance(value, (list, tuple, set)):
-            summary[key] = {
-                "type": "array",
-                "count": len(list(value)),
-            }
-        elif isinstance(value, dict):
-            summary[key] = {
-                "type": "object",
-                "keys": sorted(str(item) for item in value.keys())[:20],
-            }
-        else:
-            summary[key] = type(value).__name__
-    return summary
-
-
 def _memory_commit_state_from_assistant_commit_result(result: Any) -> dict[str, Any]:
     if not isinstance(result, dict):
         return {
@@ -6643,6 +5826,23 @@ def _execution_permit_diagnostics(execution_permit: dict[str, Any] | None) -> di
         "visible_tools": list(permit.get("visible_tools") or []),
         "dispatchable_tools": list(permit.get("dispatchable_tools") or []),
     }
+
+
+def _chat_model_selection_runtime_defaults(model_selection: dict[str, Any] | None) -> dict[str, Any]:
+    selection = dict(model_selection or {})
+    provider = str(selection.get("provider") or "").strip().lower()
+    model = str(selection.get("model") or "").strip()
+    base_url = str(selection.get("base_url") or "").strip()
+    if not provider or not model:
+        return {}
+    defaults: dict[str, Any] = {
+        "provider": provider,
+        "model": model,
+        "credential_ref": str(selection.get("credential_ref") or f"provider:{provider}:primary").strip(),
+    }
+    if base_url:
+        defaults["base_url"] = base_url
+    return defaults
 
 
 class _ContinuationAgentRuntimeChain:

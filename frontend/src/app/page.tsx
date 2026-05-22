@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 
 import { AppProvider, useAppStore } from "@/lib/store";
@@ -11,6 +12,7 @@ import { TaskSystemView } from "@/components/workspace/views/TaskSystemView";
 import { TaskMonitorDock } from "@/components/layout/TaskMonitorDock";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TaskGraphRunInteractionDock } from "@/components/workspace/views/task-system/TaskGraphRunInteractionDock";
+import { isChatVisualMode, isSoulChatVisualMode, normalizeChatVisualMode, type ChatVisualMode } from "@/lib/chatVisualModes";
 import type { WorkspaceView } from "@/lib/store/types";
 
 const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
@@ -40,10 +42,16 @@ function Workspace() {
     taskGraphMonitorError,
     taskGraphMonitorLoading,
     taskGraphRunInteractionOpen,
+    activeSoulKey,
+    soulOptions,
   } = useAppStore();
   const [mounted, setMounted] = useState(false);
   const [forcedPlayground, setForcedPlayground] = useState(false);
-  const [chatVisualMode, setChatVisualMode] = useState<"default" | "reality">("default");
+  const [chatVisualMode, setChatVisualMode] = useState<ChatVisualMode>("hebo");
+  const soulVisualMode = isSoulChatVisualMode(chatVisualMode);
+  const visualSoulKey = soulVisualMode ? chatVisualMode : activeSoulKey ?? "hebo";
+  const visualSoul = soulOptions.find((soul) => soul.key === visualSoulKey) ?? soulOptions[0] ?? null;
+  const soulBackgroundPath = visualSoul?.backgroundPath ?? `/souls/backgrounds/${visualSoulKey}-bg.png`;
 
   const mainView: WorkspaceView = isTaskLayerView(activeWorkspaceView)
     ? "task-system"
@@ -54,10 +62,16 @@ function Workspace() {
   useEffect(() => {
     setMounted(true);
     const storedMode = window.localStorage.getItem("chatVisualMode");
-    if (storedMode === "reality") {
-      setChatVisualMode("reality");
-    }
+    setChatVisualMode(normalizeChatVisualMode(storedMode));
   }, []);
+
+  useEffect(() => {
+    if (isSoulChatVisualMode(chatVisualMode)) {
+      document.documentElement.dataset.soul = chatVisualMode;
+      return;
+    }
+    delete document.documentElement.dataset.soul;
+  }, [chatVisualMode]);
 
   useEffect(() => {
     const view = new URLSearchParams(window.location.search).get("view");
@@ -86,9 +100,18 @@ function Workspace() {
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }
 
-  function updateChatVisualMode(mode: "default" | "reality") {
-    setChatVisualMode(mode);
-    window.localStorage.setItem("chatVisualMode", mode);
+  function updateChatVisualMode(mode: ChatVisualMode) {
+    const nextMode = mode === "default" ? "hebo" : mode;
+    setChatVisualMode(nextMode);
+    window.localStorage.setItem("chatVisualMode", nextMode);
+  }
+
+  function buildWorkspaceClassName() {
+    const classes = ["practical-workspace"];
+    if (soulVisualMode) {
+      classes.push("practical-workspace--soul-chat");
+    }
+    return classes.join(" ");
   }
 
   if (!mounted) {
@@ -120,19 +143,32 @@ function Workspace() {
     forcedPlayground || activeWorkspaceView === "playground" ? (
       <PlaygroundView onReturnToWorkspace={returnToWorkspace} />
     ) : (
-      <main className={chatVisualMode === "reality" ? "practical-workspace practical-workspace--reality" : "practical-workspace"}>
+      <main
+        className={buildWorkspaceClassName()}
+        data-chat-visual={chatVisualMode}
+        style={soulVisualMode ? { "--soul-background-image": `url(${soulBackgroundPath})` } as CSSProperties : undefined}
+      >
+        {soulVisualMode ? <div aria-hidden="true" className="soul-chat-background-figure" /> : null}
         <Sidebar />
-        <section className="practical-main" aria-label="主工作区">
-          <section className="practical-content">
-            {activeWorkspaceView === "capability-system" ? (
+        {activeWorkspaceView === "capability-system" ? (
+          <section className="practical-main practical-main--immersive" aria-label="主工作区">
+            <section className="practical-content">
               <CapabilitySystemView />
-            ) : mainView === "task-system" ? (
-              <TaskSystemView />
-            ) : (
-              <ChatPanel onVisualModeChange={updateChatVisualMode} visualMode={chatVisualMode} />
-            )}
+            </section>
           </section>
-        </section>
+        ) : mainView === "task-system" ? (
+          <section className="practical-main practical-main--immersive" aria-label="主工作区">
+            <section className="practical-content">
+              <TaskSystemView />
+            </section>
+          </section>
+        ) : (
+          <section className="practical-main practical-main--immersive" aria-label="主工作区">
+            <section className="practical-content">
+              <ChatPanel onVisualModeChange={updateChatVisualMode} visualMode={chatVisualMode} />
+            </section>
+          </section>
+        )}
         <TaskMonitorDock />
         <TaskGraphRunInteractionDock
           actionLoading={taskGraphMonitorActionLoading}

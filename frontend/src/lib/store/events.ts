@@ -736,11 +736,12 @@ export function reduceStreamEvent(
     return {
       state: patchAssistant(stateWithOrchestration, session.assistantId, (message) =>
         message.content
-          ? { ...message, stageStatus: "完成" }
+          ? { ...message, stageStatus: "完成", image: (data.image as Message["image"]) ?? message.image ?? null }
           : {
               ...message,
               content: String(data.content ?? ""),
-              stageStatus: "完成"
+              stageStatus: "完成",
+              image: (data.image as Message["image"]) ?? message.image ?? null
             }
       ),
       session

@@ -52,6 +52,10 @@ export function getDefaultState(): StoreState {
       local_files: true,
       web: false
     },
+    modelProviderConfig: null,
+    soulImageAssetConfig: null,
+    selectedChatModelId: "system-default",
+    selectedChatMode: "chat",
     skills: [],
     soulOptions: [],
     activeSoulKey: null,

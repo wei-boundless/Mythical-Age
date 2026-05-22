@@ -2,6 +2,7 @@
 
 import { Check, Pencil, X } from "lucide-react";
 import { useState } from "react";
+import Image from "next/image";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -13,6 +14,7 @@ export function ChatMessage({
   id,
   role,
   content,
+  image,
   stageStatus,
   toolCalls,
   retrievals,
@@ -23,6 +25,11 @@ export function ChatMessage({
   id: string;
   role: "user" | "assistant";
   content: string;
+  image?: {
+    src: string;
+    alt?: string;
+    caption?: string;
+  } | null;
   stageStatus?: string;
   toolCalls: ToolCall[];
   retrievals: RetrievalResult[];
@@ -113,6 +120,17 @@ export function ChatMessage({
           </div>
         ) : isUser ? (
           content
+        ) : image?.src ? (
+          <figure className="chat-image-message">
+            <Image
+              alt={image.alt || "生成图像"}
+              height={1024}
+              src={image.src}
+              unoptimized
+              width={1024}
+            />
+            {image.caption ? <figcaption>{image.caption}</figcaption> : null}
+          </figure>
         ) : (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {content || "正在思考..."}

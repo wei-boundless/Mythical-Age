@@ -6,11 +6,13 @@ import os
 import time
 import threading
 import uuid
+from types import SimpleNamespace
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .models import AgentRun, CoordinationRun, RuntimeLoopState
+from .resume_decision import decide_runtime_resume
 
 
 _CHECKPOINT_WRITE_LOCK = threading.RLock()
@@ -35,6 +37,7 @@ class RuntimeCheckpoint:
     runtime_objects_summary: dict[str, Any] = field(default_factory=dict)
     approval_state: dict[str, Any] = field(default_factory=dict)
     commit_state: dict[str, Any] = field(default_factory=dict)
+    resume_state: dict[str, Any] = field(default_factory=dict)
     created_at: float = 0.0
     checksum: str = ""
     authority: str = "orchestration.runtime_checkpoint"
@@ -75,6 +78,20 @@ class RuntimeCheckpointStore:
     ) -> RuntimeCheckpoint:
         created_at = time.time()
         checkpoint_id = f"rtchk:{state.task_run_id}:{event_offset}"
+        checkpoint_probe = SimpleNamespace(
+            checkpoint_id=checkpoint_id,
+            event_offset=event_offset,
+            loop_state=SimpleNamespace(
+                status=state.status,
+                terminal_reason=state.terminal_reason,
+            ),
+        )
+        resume_state = decide_runtime_resume(
+            task_run_id=state.task_run_id,
+            checkpoint=checkpoint_probe,
+            current_obligation=dict(state.commit_state or {}),
+            human_gate_state=dict(state.pending_approval_state or {}),
+        ).to_dict()
         resolved_working_memory_refs = tuple(
             str(item).strip()
             for item in (working_memory_refs or tuple(state.diagnostics.get("working_memory_refs") or ()))
@@ -96,6 +113,7 @@ class RuntimeCheckpointStore:
             runtime_objects_summary=_runtime_objects_summary(agent_runs=agent_runs, coordination_runs=coordination_runs),
             approval_state=dict(state.pending_approval_state),
             commit_state=dict(state.commit_state),
+            resume_state=resume_state,
             created_at=created_at,
             checksum=_checksum(
                 state.to_dict(),
@@ -107,6 +125,7 @@ class RuntimeCheckpointStore:
                 agent_run_refs=tuple(item.agent_run_id for item in agent_runs),
                 coordination_run_refs=tuple(item.coordination_run_id for item in coordination_runs),
                 runtime_objects_summary=_runtime_objects_summary(agent_runs=agent_runs, coordination_runs=coordination_runs),
+                resume_state=resume_state,
             ),
         )
         self._atomic_write(self._checkpoint_path(state.task_run_id), checkpoint.to_dict())
@@ -159,6 +178,7 @@ class RuntimeCheckpointStore:
             runtime_objects_summary=dict(payload.get("runtime_objects_summary") or {}),
             approval_state=dict(payload.get("approval_state") or {}),
             commit_state=dict(payload.get("commit_state") or {}),
+            resume_state=dict(payload.get("resume_state") or {}),
             created_at=float(payload.get("created_at") or 0.0),
             checksum=str(payload.get("checksum") or ""),
         )
@@ -203,6 +223,7 @@ def _checksum(
     agent_run_refs: tuple[str, ...] = (),
     coordination_run_refs: tuple[str, ...] = (),
     runtime_objects_summary: dict[str, Any] | None = None,
+    resume_state: dict[str, Any] | None = None,
 ) -> str:
     raw = json.dumps(
         {
@@ -215,6 +236,7 @@ def _checksum(
             "agent_run_refs": list(agent_run_refs),
             "coordination_run_refs": list(coordination_run_refs),
             "runtime_objects_summary": dict(runtime_objects_summary or {}),
+            "resume_state": dict(resume_state or {}),
         },
         ensure_ascii=False,
         sort_keys=True,

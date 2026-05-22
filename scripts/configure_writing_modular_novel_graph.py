@@ -1076,6 +1076,7 @@ DESIGN_BUSINESS_EDGES = (
     ("edge.character.review", "character_design", "character_review", "contract.writing.modular_novel.character_design", "把角色和关系候选交给人设审核员。"),
     ("edge.character_review.sync", "character_review", "design_sync", "contract.writing.modular_novel.character_review", "把已审核人设候选交给创作架构对齐节点。"),
     ("edge.plot.sync", "plot_design", "design_sync", "contract.writing.modular_novel.plot_design", "把剧情与伏笔候选交给创作架构对齐节点。"),
+    ("edge.character_review.commit_evidence", "character_review", "memory_commit_character", "contract.writing.modular_novel.character_review", "把人设审核回执作为提交证据交给角色基准库管理员，提交仍需等待创作架构对齐。"),
     ("edge.sync.character_commit", "design_sync", "memory_commit_character", "contract.writing.modular_novel.design_alignment", "把对齐通过的人设切片交给角色基准库管理员。"),
     ("edge.character_commit.outline", "memory_commit_character", "outline_design", "contract.writing.modular_novel.character_commit", "把已提交角色基准交给全书细纲设计师。"),
     ("edge.sync.outline", "design_sync", "outline_design", "contract.writing.modular_novel.design_alignment", "把对齐包交给全书细纲设计师。"),
@@ -1742,6 +1743,12 @@ def _node_payload(node: NodeSpec) -> dict[str, Any]:
     replay_sanitization_policy = _replay_sanitization_policy(node)
     if replay_sanitization_policy:
         executor_policy["replay_sanitization_policy"] = replay_sanitization_policy
+    prewrite_memory_plan_policy = _prewrite_memory_plan_policy(node)
+    if prewrite_memory_plan_policy:
+        runtime_bindings["prewrite_memory_plan_policy"] = dict(prewrite_memory_plan_policy)
+    dynamic_expansion_policy = _dynamic_expansion_policy(node)
+    if dynamic_expansion_policy:
+        runtime_bindings["dynamic_expansion"] = dict(dynamic_expansion_policy)
     payload = {
         "node_id": node.node_id,
         "node_type": node.node_type,
@@ -1853,6 +1860,8 @@ def _repository_node_payload(spec: dict[str, Any]) -> dict[str, Any]:
             "collections": list(spec["collections"]),
             "mutable": bool(spec["mutable"]),
             "library_role": spec["library_role"],
+            "write_owner_node_ids": list(spec["write_owner_node_ids"]),
+            "readable_by": list(spec["readable_by"]),
         },
     }
 
@@ -1869,7 +1878,7 @@ def _node_agent_id(node: NodeSpec) -> str:
 
 def _repository_needed(spec: dict[str, Any], nodes: tuple[NodeSpec, ...]) -> bool:
     repo_id = str(spec["node_id"])
-    return any(repo_id in node.readable_repositories or node.write_mode in {"baseline_commit", "chapter_commit", "volume_commit", "dynamic_memory_commit", "finalize_commit", "review_and_issue_ledger"} for node in nodes)
+    return any(repo_id in node.readable_repositories or repo_id in _allowed_write_targets(node) for node in nodes)
 
 
 def _business_edge(edge_id: str, source: str, target: str, contract_id: str, summary: str) -> dict[str, Any]:

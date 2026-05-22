@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from runtime.professional_runtime.run_session import build_professional_run_session
-from runtime.shared.resume_decision import decide_professional_run_resume
+from runtime.shared.resume_decision import decide_professional_run_resume, decide_runtime_resume
 
 
 def test_professional_resume_starts_new_without_checkpoint() -> None:
@@ -58,6 +58,26 @@ def test_professional_resume_reuses_completed_checkpoint_without_repeating_side_
     assert decision.reason == "checkpoint_completed"
     assert decision.checkpoint_summary["status"] == "completed"
     assert decision.checkpoint_summary["event_offset"] == 12
+
+
+def test_runtime_resume_waits_for_human_gate_before_continuing() -> None:
+    checkpoint = SimpleNamespace(
+        checkpoint_id="rtchk:taskrun:gate:4",
+        event_offset=4,
+        loop_state=SimpleNamespace(status="blocked", terminal_reason="waiting_approval"),
+    )
+
+    decision = decide_runtime_resume(
+        task_run_id="taskrun:gate",
+        checkpoint=checkpoint,
+        current_obligation={},
+        user_goal="查看当前状态",
+        human_gate_state={"status": "pending", "stage_id": "stage:a"},
+    )
+
+    assert decision.decision == "wait_for_human"
+    assert decision.reason == "human_gate_pending"
+    assert decision.human_gate_summary["stage_id"] == "stage:a"
 
 
 def test_professional_run_session_preserves_obligation_and_ledger_refs() -> None:

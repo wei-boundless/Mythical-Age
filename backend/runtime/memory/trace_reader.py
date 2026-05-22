@@ -358,6 +358,8 @@ class RuntimeLoopTraceReader:
                 "latest_merge_result": _merge_result_payload_summary(merge_result) if merge_result is not None else None,
             }
         loop_state = checkpoint.loop_state.to_dict() if checkpoint is not None else {}
+        if checkpoint is not None:
+            loop_state["checkpoint_resume_state"] = dict(getattr(checkpoint, "resume_state", {}) or {})
         events = self.event_log.list_events(task_run_id)
         professional_task_summary = _professional_task_summary(
             task_run=task_run,
@@ -499,6 +501,7 @@ def _checkpoint_summary(checkpoint: Any) -> dict[str, Any]:
         "checksum": checkpoint.checksum,
         "execution_summary": dict(checkpoint.execution_summary or {}),
         "runtime_objects_summary": dict(checkpoint.runtime_objects_summary or {}),
+        "resume_state": dict(getattr(checkpoint, "resume_state", {}) or {}),
         "authority": checkpoint.authority,
     }
 
@@ -520,6 +523,8 @@ def _loop_state_summary(loop_state: dict[str, Any]) -> dict[str, Any]:
         "projection_ref": str(loop_state.get("projection_ref") or ""),
         "result_ref_count": len(list(loop_state.get("result_refs") or [])),
         "pending_approval_state": pending_approval_state,
+        "resume_state": dict(loop_state.get("resume_state") or {}),
+        "checkpoint_resume_state": dict(loop_state.get("checkpoint_resume_state") or {}),
         "diagnostics": {
             "task_graph_run": bool(diagnostics.get("task_graph_run") is True),
             "task_graph_id": str(diagnostics.get("task_graph_id") or ""),
