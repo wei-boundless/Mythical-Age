@@ -1,12 +1,12 @@
-from .assembler import build_agent_assembly_contract, build_execution_permit_for_work_order
+from .assembler import build_agent_assembly_contract, build_agent_invocation, build_execution_permit_for_work_order
 from .boundary import (
     CONTROL_CONTEXT_KEYS,
     MODEL_CONTEXT_KEYS,
     TASK_SELECTION_KEYS,
-    agent_assembly_contract_from_runtime_control,
     build_model_context_payload,
     build_runtime_control_payload,
     build_task_selection_payload,
+    build_turn_context_payload,
     node_work_order_from_runtime_control,
     runtime_control_ref_summary,
     sanitize_explicit_inputs,
@@ -24,6 +24,7 @@ from .ids import (
 )
 from .models import (
     AgentAssemblyContract,
+    AgentInvocation,
     AssemblyPort,
     CapabilityAssemblyBinding,
     DirectWorkOrder,
@@ -45,11 +46,13 @@ from .validation import (
     AssemblyValidationIssue,
     AssemblyValidationReport,
     validate_assembly_contract,
+    validate_agent_invocation,
     validate_execution_permit,
     validate_work_order,
 )
 __all__ = [
     "AgentAssemblyContract",
+    "AgentInvocation",
     "AssemblyPort",
     "AssemblyValidationIssue",
     "AssemblyValidationReport",
@@ -71,8 +74,8 @@ __all__ = [
     "CONTROL_CONTEXT_KEYS",
     "MODEL_CONTEXT_KEYS",
     "TASK_SELECTION_KEYS",
-    "agent_assembly_contract_from_runtime_control",
     "build_agent_assembly_contract",
+    "build_agent_invocation",
     "build_assembly_contract_id",
     "build_execution_permit_for_work_order",
     "build_execution_permit_id",
@@ -81,6 +84,7 @@ __all__ = [
     "build_node_result_envelope_id",
     "build_runtime_control_payload",
     "build_task_selection_payload",
+    "build_turn_context_payload",
     "build_work_order_id",
     "node_work_order_from_runtime_control",
     "runtime_control_ref_summary",
@@ -90,6 +94,7 @@ __all__ = [
     "stable_hash",
     "strip_control_context",
     "validate_assembly_contract",
+    "validate_agent_invocation",
     "validate_execution_permit",
     "validate_work_order",
 ]

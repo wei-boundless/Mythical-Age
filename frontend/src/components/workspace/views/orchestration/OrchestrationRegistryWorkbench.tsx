@@ -197,7 +197,7 @@ export function OrchestrationRegistryWorkbench({
         </header>
         <div className="orchestration-identity-note">
           <span>这里定义 Agent 身份本体。</span>
-          <strong>{selectedAgentBuiltin ? "这是系统预置来源的 Agent，默认会对接既定会话口；除此之外按普通 Agent 管理。" : "自定义 Agent 可自由定义名称、入口、选择灵魂、投影和职责说明。"}</strong>
+          <strong>{selectedAgentBuiltin ? "这是系统预置来源的 Agent，默认会对接既定会话口；除此之外按普通 Agent 管理。" : "子 Agent 可定义名称、入口、选择灵魂、投影和职责说明。"}</strong>
         </div>
         <div className="boundary-form">
           <OrchestrationField label="Agent 标识">

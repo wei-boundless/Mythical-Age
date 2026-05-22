@@ -313,7 +313,7 @@ function makeOrchestrationSnapshot(state: StoreState, userContent: string): Orch
     summary: node.id === "input" ? userContent.trim() : "",
     source_event: node.id === "input" ? "user_message" : ""
   }));
-  const taskSelection = state.taskSelection ?? null;
+  const taskSelection = state.taskSelection?.mode === "coordination" ? null : state.taskSelection ?? null;
   const initialEvents = taskSelection
     ? [{
         index: 1,

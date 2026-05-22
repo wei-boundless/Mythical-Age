@@ -1,3 +1,31 @@
 {
-  "groups": []
+  "groups": [
+    {
+      "group_id": "group.writing.modular_novel",
+      "title": "模块化长篇写作任务组",
+      "group_kind": "coordination_team",
+      "coordinator_agent_id": "agent:0",
+      "member_agent_ids": [
+        "agent:writing_modular_creator",
+        "agent:writing_modular_reviewer",
+        "agent:writing_modular_memory_steward",
+        "agent:writing_modular_runtime_monitor",
+        "agent:writing_modular_worker"
+      ],
+      "description": "模块化长篇写作任务图使用的子 Agent 组，承接设计初始化、章节批次创作、审核、记忆提交、运行监控与收尾交付。",
+      "lifecycle_state": "enabled",
+      "metadata": {
+        "managed_by": "orchestration_console",
+        "task_family": "writing_modular_novel",
+        "domain_id": "domain.writing.modular_novel",
+        "graph_ids": [
+          "graph.writing.modular_novel.master",
+          "graph.writing.modular_novel.design_init",
+          "graph.writing.modular_novel.chapter_cycle",
+          "graph.writing.modular_novel.finalize"
+        ]
+      },
+      "authority": "orchestration.agent_group"
+    }
+  ]
 }

@@ -159,17 +159,6 @@ function edgeView(edge: TaskGraphRunMonitorEdge): TaskGraphMonitorEdgeView {
   };
 }
 
-function isRealtimeCommunicationEdge(edge: TaskGraphMonitorEdgeView) {
-  return [
-    "running",
-    "waiting",
-    "waiting_for_human",
-    "human_gate",
-    "failed",
-    "pending_retry",
-  ].includes(edge.status);
-}
-
 function memoryOperationView(item: Record<string, unknown>, index: number): TaskGraphMonitorMemoryOperationView {
   const operation = text(item.operation);
   const nodeId = text(item.node_id) || text(item.stage_id);
@@ -190,7 +179,7 @@ export function buildTaskGraphMonitorViewModel(monitor: TaskGraphRunMonitorView 
   const topologyEdges = (monitor?.topology?.edges ?? [])
     .map(edgeView)
     .filter((edge) => edge.from && edge.to && nodeIds.has(edge.from) && nodeIds.has(edge.to));
-  const edges = topologyEdges.filter(isRealtimeCommunicationEdge);
+  const edges = topologyEdges;
   const status = text(monitor?.runtime?.status, "unknown");
   const activeNodeId =
     text(monitor?.runtime?.active_node_id)

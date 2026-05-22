@@ -57,6 +57,7 @@ export function getDefaultState(): StoreState {
     soulImageAssetConfig: null,
     selectedChatModelId: "system-default",
     selectedChatMode: "chat",
+    mainAgentAssemblyMode: "role",
     skills: [],
     soulOptions: [],
     activeSoulKey: null,

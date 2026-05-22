@@ -110,6 +110,8 @@ export type ChatModelSelection = {
 
 export type ChatMode = "chat" | "image";
 
+export type MainAgentAssemblyMode = "role" | "standard" | "professional";
+
 export type SystemGraphHighlight = {
   nodeIds: string[];
   edgeIds: string[];
@@ -143,9 +145,21 @@ export type OrchestrationInspectorTarget = {
 export type TaskSelectionState = {
   selected_task_id?: string;
   coordination_task_id?: string;
+  task_graph_id?: string;
+  selected_graph_id?: string;
   domain_id?: string;
   label?: string;
   mode?: "single_task" | "coordination";
+  agent_id?: string;
+  agent_profile_id?: string;
+  runtime_lane?: string;
+  interaction_mode?: string;
+  runtime_interaction_mode?: string;
+  runtime_assembly_hint?: Record<string, unknown>;
+  mode_policy?: Record<string, unknown>;
+  intent_decision?: Record<string, unknown>;
+  agent_invocation?: Record<string, unknown>;
+  agent_invocation_id?: string;
 };
 
 export type TaskGraphMonitorBinding = {
@@ -173,6 +187,7 @@ export type StoreState = {
   soulImageAssetConfig: SoulImageAssetConfig | null;
   selectedChatModelId: string;
   selectedChatMode: ChatMode;
+  mainAgentAssemblyMode: MainAgentAssemblyMode;
   skills: SkillSummary[];
   soulOptions: SoulSummary[];
   activeSoulKey: SoulKey | null;
@@ -220,6 +235,7 @@ export type StoreActions = {
   toggleSearchPolicySource: (source: SearchPolicySource) => void;
   setSelectedChatModel: (selectionId: string) => void;
   setSelectedChatMode: (mode: ChatMode) => void;
+  setMainAgentAssemblyMode: (mode: MainAgentAssemblyMode) => void;
   switchSoul: (key: SoulKey) => Promise<void>;
   renameCurrentSession: (title: string) => Promise<void>;
   removeSession: (sessionId: string) => Promise<void>;

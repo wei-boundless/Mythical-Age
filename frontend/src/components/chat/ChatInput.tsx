@@ -4,7 +4,8 @@ import { ArrowUp, BrainCircuit, Square } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { ModelProviderConfig, SoulImageAssetConfig } from "@/lib/api";
-import type { SearchPolicySource, SearchPolicyState, TaskSelectionState } from "@/lib/store/types";
+import { MAIN_AGENT_ASSEMBLY_MODES } from "@/lib/mainAgentAssemblyModes";
+import type { MainAgentAssemblyMode, SearchPolicySource, SearchPolicyState, TaskSelectionState } from "@/lib/store/types";
 
 const SEARCH_POLICY_OPTIONS: Array<{
   id: SearchPolicySource;
@@ -15,6 +16,8 @@ const SEARCH_POLICY_OPTIONS: Array<{
   { id: "web", label: "启用联网权限" }
 ];
 
+const MAIN_AGENT_MODE_ORDER: MainAgentAssemblyMode[] = ["role", "standard", "professional"];
+
 export function ChatInput({
   disabled,
   modelProviderConfig,
@@ -22,11 +25,12 @@ export function ChatInput({
   onSend,
   onStop,
   onSelectChatModel,
+  onSelectMainAgentAssemblyMode,
   onToggleSearchPolicy,
+  mainAgentAssemblyMode,
   searchPolicy,
   selectedChatModelId,
   taskSelection,
-  onClearTaskSelection,
 }: {
   disabled: boolean;
   modelProviderConfig: ModelProviderConfig | null;
@@ -34,11 +38,12 @@ export function ChatInput({
   onSend: (value: string) => Promise<void>;
   onStop: () => void;
   onSelectChatModel: (selectionId: string) => void;
+  onSelectMainAgentAssemblyMode: (mode: MainAgentAssemblyMode) => void;
   onToggleSearchPolicy: (source: SearchPolicySource) => void;
+  mainAgentAssemblyMode: MainAgentAssemblyMode;
   searchPolicy: SearchPolicyState;
   selectedChatModelId: string;
   taskSelection: TaskSelectionState | null;
-  onClearTaskSelection: () => void;
 }) {
   const [value, setValue] = useState("");
   const modelOptions = useMemo(() => buildChatModelOptions(modelProviderConfig, soulImageAssetConfig), [modelProviderConfig, soulImageAssetConfig]);
@@ -47,10 +52,8 @@ export function ChatInput({
     : "system-default";
 
   const selectionLabel = taskSelection?.label?.trim()
-    || taskSelection?.coordination_task_id?.trim()
     || taskSelection?.selected_task_id?.trim()
     || "";
-  const selectionModeLabel = taskSelection?.mode === "coordination" ? "协调任务" : "特定任务";
 
   return (
     <div className="chat-input-panel chat-input-panel--inline">
@@ -58,11 +61,8 @@ export function ChatInput({
         <div className="chat-task-selection-bar">
           <div className="chat-task-selection-bar__content">
             <span className="chat-task-selection-bar__eyebrow">当前承接</span>
-            <strong>{selectionModeLabel} · {selectionLabel}</strong>
+            <strong>特定任务 · {selectionLabel}</strong>
           </div>
-          <button className="chat-task-selection-bar__clear" onClick={onClearTaskSelection} type="button">
-            清除
-          </button>
         </div>
       ) : null}
       <div className="chat-input-panel__composer">
@@ -105,6 +105,24 @@ export function ChatInput({
               ))}
             </select>
           </label>
+          <div className="chat-main-agent-mode" aria-label="主 Agent 装配模式">
+            {MAIN_AGENT_MODE_ORDER.map((mode) => {
+              const option = MAIN_AGENT_ASSEMBLY_MODES[mode];
+              const active = mainAgentAssemblyMode === mode;
+              return (
+                <button
+                  aria-pressed={active}
+                  className={active ? "chat-main-agent-mode__item chat-main-agent-mode__item--active" : "chat-main-agent-mode__item"}
+                  disabled={disabled}
+                  key={mode}
+                  onClick={() => onSelectMainAgentAssemblyMode(mode)}
+                  type="button"
+                >
+                  <span>{option.label}</span>
+                </button>
+              );
+            })}
+          </div>
           <div className="chat-search-policy chat-search-policy--compact" aria-label="本轮能力权限">
             {SEARCH_POLICY_OPTIONS.map((option) => {
               const enabled = searchPolicy[option.id];

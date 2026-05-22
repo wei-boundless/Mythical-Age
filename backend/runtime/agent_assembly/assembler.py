@@ -9,6 +9,7 @@ from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.registry.agent_registry import AgentRegistry
 
 from .models import (
+    AgentInvocation,
     AgentAssemblyContract,
     AssemblyPort,
     CapabilityAssemblyBinding,
@@ -17,6 +18,12 @@ from .models import (
     PromptAssemblyContract,
     SoulAssemblyBinding,
     WorkOrder,
+)
+from .boundary import (
+    build_model_context_payload,
+    build_runtime_control_payload,
+    build_task_selection_payload,
+    runtime_control_ref_summary,
 )
 
 
@@ -150,6 +157,75 @@ def build_agent_assembly_contract(
     return assembly
 
 
+def build_agent_invocation(
+    work_order: WorkOrder,
+    *,
+    base_dir: Path,
+    agent_runtime_profile: AgentRuntimeProfile | None = None,
+) -> AgentInvocation:
+    from runtime.execution_permit import build_execution_permit
+
+    assembly = build_agent_assembly_contract(
+        work_order,
+        base_dir=base_dir,
+        agent_runtime_profile=agent_runtime_profile,
+    )
+    permit = build_execution_permit(assembly)
+    work_order_payload = work_order.to_dict()
+    assembly_payload = assembly.to_dict()
+    permit_payload = permit.to_dict()
+    stage_execution_request = _stage_execution_request_payload(work_order_payload)
+    runtime_control = build_runtime_control_payload(
+        stage_execution_request=stage_execution_request,
+        stage_execution_request_ref=str(
+            stage_execution_request.get("request_id")
+            or work_order_payload.get("idempotency_key")
+            or work_order.work_order_id
+            or ""
+        ),
+        node_work_order=work_order_payload,
+        agent_assembly_contract=assembly_payload,
+        standard_input_package=dict(work_order.input_package),
+    )
+    model_context = build_model_context_payload(
+        current_turn_context=dict(work_order.current_turn_context),
+        stage_execution_request=stage_execution_request,
+        node_work_order=work_order_payload,
+        agent_assembly_contract=assembly_payload,
+        stage_execution_request_ref=str(runtime_control.get("stage_execution_request_ref") or ""),
+    )
+    task_selection = build_task_selection_payload(
+        current_turn_context=model_context,
+        agent_assembly_contract=assembly_payload,
+        runtime_control=runtime_control,
+    )
+    return AgentInvocation(
+        invocation_id="",
+        work_order_id=work_order.work_order_id,
+        assembly_id=assembly.assembly_id,
+        task_ref=work_order.task_ref,
+        executor_type=work_order.executor_type,
+        agent_id=assembly.agent_id,
+        agent_profile_id=assembly.agent_profile_id,
+        runtime_lane=assembly.runtime_lane,
+        work_order=work_order_payload,
+        assembly_contract=assembly_payload,
+        execution_permit=permit_payload,
+        runtime_control=runtime_control,
+        model_context=model_context,
+        task_selection=task_selection,
+        diagnostics={
+            "runtime_control_summary": runtime_control_ref_summary(runtime_control),
+            "work_order_kind": work_order.work_kind,
+            "executor_type": work_order.executor_type,
+        },
+        metadata={
+            "assembly_authority": assembly.authority,
+            "permit_authority": permit.authority,
+        },
+    )
+
+
 def build_execution_permit_for_work_order(
     work_order: WorkOrder,
     *,
@@ -164,6 +240,18 @@ def build_execution_permit_for_work_order(
         agent_runtime_profile=agent_runtime_profile,
     )
     return build_execution_permit(assembly)
+
+
+def _stage_execution_request_payload(work_order_payload: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        key: value
+        for key, value in dict(work_order_payload or {}).items()
+        if key not in {"authority", "work_kind"}
+    }
+    payload.setdefault("request_id", str(work_order_payload.get("work_order_id") or ""))
+    payload.setdefault("standard_input_package", dict(work_order_payload.get("input_package") or {}))
+    payload.setdefault("authority", "task_graph.node_execution_request")
+    return payload
 
 
 def _resolve_agent_identity(

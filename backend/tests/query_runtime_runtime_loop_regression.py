@@ -11,7 +11,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from query import QueryRuntime
 from query.models import QueryRequest
-from runtime.agent_assembly import NodeWorkOrder, build_agent_assembly_contract
+from runtime.agent_assembly import NodeWorkOrder, build_agent_invocation
 from task_system import TaskFlowRegistry
 from tests.support.runtime_stubs import (
     DefaultPermissionStub,
@@ -46,6 +46,37 @@ def _build_game_generation_runtime() -> QueryRuntime:
 
 def _build_arcade_bundle_runtime(_tmp_path: Path) -> QueryRuntime:
     return _build_stream_runtime()
+
+
+def _main_agent_mode_task_selection(
+    *,
+    interaction_mode: str,
+    runtime_lane: str,
+    recipe_id: str,
+    professional: bool = False,
+) -> dict[str, object]:
+    runtime_assembly_hint: dict[str, object] = {
+        "interaction_mode": interaction_mode,
+        "runtime_mode": runtime_lane,
+    }
+    intent_decision: dict[str, object] = {"interaction_mode": interaction_mode}
+    if professional:
+        runtime_assembly_hint["execution_strategy"] = "professional_task_run"
+        intent_decision["execution_strategy"] = "professional_task_run"
+    return {
+        "agent_id": "agent:0",
+        "agent_profile_id": "main_interactive_agent",
+        "interaction_mode": interaction_mode,
+        "runtime_interaction_mode": interaction_mode,
+        "runtime_lane": runtime_lane,
+        "runtime_assembly_hint": runtime_assembly_hint,
+        "mode_policy": {
+            "interaction_mode": interaction_mode,
+            "runtime_lane": runtime_lane,
+            "recipe_id": recipe_id,
+        },
+        "intent_decision": intent_decision,
+    }
 
 
 def test_astream_specific_light_web_game_task_can_write_new_file(tmp_path: Path) -> None:
@@ -176,7 +207,8 @@ def test_graph_node_assembly_contract_overrides_stale_task_selection_agent() -> 
         input_package={"package_id": "nodeinput:assembly-authority"},
         dispatch_context={"dispatch_event_id": "tlevent:assembly-authority"},
     )
-    assembly = build_agent_assembly_contract(work_order, base_dir=runtime.base_dir).to_dict()
+    invocation = build_agent_invocation(work_order, base_dir=runtime.base_dir).to_dict()
+    assembly = dict(invocation["assembly_contract"])
 
     async def _collect() -> list[dict[str, object]]:
         events: list[dict[str, object]] = []
@@ -194,7 +226,7 @@ def test_graph_node_assembly_contract_overrides_stale_task_selection_agent() -> 
                 "agent_id": "agent:pdf_reader",
                 "agent_profile_id": "pdf_analysis_agent",
                 "runtime_lane": "pdf_delegate",
-                "agent_assembly_contract": assembly,
+                "agent_invocation": invocation,
             },
             tool_runtime_executor=runtime.tool_runtime_executor,
             tool_instances=runtime._all_tool_instances(),
@@ -218,9 +250,78 @@ def test_graph_node_assembly_contract_overrides_stale_task_selection_agent() -> 
     assert task_run["agent_profile_id"] == "main_interactive_agent"
     assert task_run["runtime_lane"] == "game_delivery"
     assert payload["agent_runtime_spec"]["agent_id"] == "agent:0"
+    assert payload["agent_invocation"]["invocation_id"] == invocation["invocation_id"]
     assert payload["agent_assembly_contract"]["assembly_id"] == assembly["assembly_id"]
+    assert "prompt_assembly" not in payload["agent_assembly_contract"]
+    assert "runtime_control" not in payload["agent_invocation"]
+    assert refs["agent_invocation_ref"] == invocation["invocation_id"]
     assert refs["agent_assembly_contract_ref"] == assembly["assembly_id"]
     assert refs["work_order_ref"] == work_order.work_order_id
+    assert refs["agent_invocation_object_ref"].startswith("rtobj:agent_invocation:")
+    assert refs["agent_assembly_object_ref"].startswith("rtobj:agent_assembly_contract:")
+    assert refs["execution_permit_object_ref"].startswith("rtobj:execution_permit:")
+
+
+def test_main_agent_assembly_modes_select_expected_runtime_lanes() -> None:
+    cases = {
+        "role": ("role_mode", "role_interaction", "runtime.recipe.role_interaction"),
+        "standard": ("standard_mode", "standard_task", "runtime.recipe.standard_task"),
+        "professional": ("professional_mode", "professional_task", "runtime.recipe.professional_task"),
+    }
+
+    for mode, (interaction_mode, runtime_lane, recipe_id) in cases.items():
+        runtime = _build_stream_runtime()
+        task_selection = _main_agent_mode_task_selection(
+            interaction_mode=interaction_mode,
+            runtime_lane=runtime_lane,
+            recipe_id=recipe_id,
+            professional=mode == "professional",
+        )
+
+        async def _collect() -> list[dict[str, object]]:
+            events: list[dict[str, object]] = []
+            async for event in runtime.astream(
+                QueryRequest(
+                    session_id=f"session-main-agent-{mode}",
+                    message="请确认当前主 Agent 装配模式。",
+                    history=[],
+                    task_selection=task_selection,
+                )
+            ):
+                events.append(event)
+            return events
+
+        events = asyncio.run(_collect())
+        started = next(event for event in events if event.get("type") == "runtime_loop_started")
+        task_run = dict(started["task_run"])
+        task_contract_event = next(
+            dict(event.get("event") or {})
+            for event in events
+            if event.get("type") == "runtime_loop_event"
+            and dict(event.get("event") or {}).get("event_type") == "task_contract_built"
+        )
+        payload = dict(task_contract_event.get("payload") or {})
+        agent_runtime_spec = dict(payload.get("agent_runtime_spec") or {})
+        agent_assembly_contract = dict(payload.get("agent_assembly_contract") or {})
+        agent_invocation = dict(payload.get("agent_invocation") or {})
+        selected_recipe = dict(payload.get("selected_recipe") or {})
+        selected_metadata = dict(selected_recipe.get("metadata") or {})
+        mode_policy = dict(selected_metadata.get("mode_policy") or {})
+
+        assert task_run["agent_id"] == "agent:0"
+        assert task_run["agent_profile_id"] == "main_interactive_agent"
+        assert task_run["runtime_lane"] == runtime_lane
+        assert agent_runtime_spec["agent_id"] == "agent:0"
+        assert agent_runtime_spec["runtime_lane"] == runtime_lane
+        assert agent_assembly_contract["agent_id"] == "agent:0"
+        assert agent_assembly_contract["agent_profile_id"] == "main_interactive_agent"
+        assert agent_assembly_contract["runtime_lane"] == runtime_lane
+        assert agent_invocation["agent_profile_id"] == "main_interactive_agent"
+        assert selected_recipe["recipe_id"] == recipe_id
+        assert mode_policy["interaction_mode"] == interaction_mode
+        assert mode_policy["runtime_lane"] == runtime_lane
+        if mode == "professional":
+            assert selected_recipe["execution_kind"] == "professional_mode"
 
 
 def test_runtime_trace_exposes_worker_spawn_trace_for_light_web_game(tmp_path: Path) -> None:

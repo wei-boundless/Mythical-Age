@@ -9,9 +9,12 @@ if str(BACKEND_DIR) not in sys.path:
 
 from capability_system import build_default_operation_registry
 from permissions import OperationGate, ResourcePolicy
+from runtime.execution_engine import handle_tool_call_requested_event
 from runtime.execution_permit import tool_instances_for_policy_and_permit
+from runtime.shared.context_manager import RuntimeContextManager
+from runtime.shared.event_log import RuntimeEventLog
 from runtime.shared.action_request import build_tool_result_observation
-from runtime.shared.execution_record import OperationExecutionRecord, build_execution_receipt
+from runtime.shared.execution_record import OperationExecutionRecord, RuntimeExecutionStore, build_execution_receipt
 from runtime.shared.models import RuntimeLoopState, TaskRun
 from runtime.unit_runtime.loop import TaskRunLoop
 from capability_system.tool_authorization import build_authorized_tool_set, build_tool_authorization_index, resolve_tool_operation_id
@@ -64,6 +67,22 @@ class _ApprovalToolExecutorStub:
             result_ref=receipt.get("result_ref", ""),
         )
         return {"observation": observation, "execution_record": final_record, "error": ""}
+
+
+def _record_execution_event(event_log: RuntimeEventLog):
+    def _record(task_run_id, *, event_type, record, reason="", diagnostics=None):
+        return event_log.append(
+            task_run_id,
+            event_type,
+            payload={
+                "record": record.to_dict(),
+                "reason": reason,
+                "diagnostics": dict(diagnostics or {}),
+            },
+            refs={"execution_ref": record.execution_id},
+        )
+
+    return _record
 
 
 def test_all_builtin_tools_have_explicit_operation_id() -> None:
@@ -221,8 +240,8 @@ def test_permit_explicit_visible_hidden_tool_can_be_model_visible() -> None:
     assert names == {"terminal"}
 
 
-def test_task_run_loop_reads_permission_mode_from_provider() -> None:
-    loop = TaskRunLoop(Path("runtime-loop-test"), permission_mode_provider=lambda: "headless")
+def test_task_run_loop_reads_permission_mode_from_provider(tmp_path: Path) -> None:
+    loop = TaskRunLoop(tmp_path / "runtime-loop", permission_mode_provider=lambda: "headless")
 
     assert loop._current_permission_mode() == "headless"
 
@@ -296,6 +315,167 @@ def test_requires_approval_schema_visible_tool_still_needs_gate_approval_token()
     assert result.allowed is False
     assert result.requires_approval is True
     assert result.decision == "requires_approval"
+
+
+def test_denied_tool_call_gets_synthetic_tool_result(tmp_path: Path) -> None:
+    event_log = RuntimeEventLog(tmp_path / "runtime-tool-protocol-deny")
+    context_manager = RuntimeContextManager(lambda **_: "base")
+    registry = build_default_operation_registry()
+    gate = OperationGate(registry)
+    policy = ResourcePolicy(
+        policy_id="respol-deny-read",
+        task_id="task-test",
+        allowed_operations=("op.model_response",),
+        adopted=True,
+        runtime_executable=True,
+        runtime_view_only=False,
+    )
+
+    import asyncio
+
+    events = asyncio.run(
+        handle_tool_call_requested_event(
+            event_log=event_log,
+            runtime_context_manager=context_manager,
+            task_run_id="taskrun:tool-deny",
+            event={"type": "tool_call_requested", "tool_call": {"id": "call-read", "name": "read_file", "args": {"path": "a.md"}}},
+            current_step_id="step:1",
+            task_id="task-test",
+            task_operation={},
+            adopted_resource_policy=policy,
+            user_message="read",
+            model_response_executor=None,
+            tool_runtime_executor=None,
+            definitions_by_name=build_tool_authorization_index(get_tool_definitions()).definitions_by_name,
+            operation_gate=gate,
+            permission_mode="default",
+            root_dir=tmp_path,
+            allowed_search_sources=None,
+            sandbox_policy={},
+            execution_store=RuntimeExecutionStore(tmp_path / "runtime-tool-protocol-deny"),
+            record_execution_event=_record_execution_event(event_log),
+            build_pending_approval_state=lambda **_: {},
+            list_parent_agent_runs=lambda _task_run_id: [],
+            build_delegation_request=lambda **_: None,
+            execute_delegation=lambda **_: {},
+        )
+    )
+
+    event_types = [event.event_type for event in events]
+    tool_result = next(event for event in events if event.event_type == "tool_result_received")
+    observation_payload = dict(dict(tool_result.payload["observation"]).get("payload") or {})
+
+    assert "tool_call_requested" in event_types
+    assert "tool_protocol_guard_synthetic_result" in event_types
+    assert observation_payload["tool_call_id"] == "call-read"
+    assert observation_payload["result_envelope"]["synthetic_tool_result"] is True
+    assert observation_payload["result_envelope"]["status"] == "error"
+
+
+def test_allowed_tool_without_executor_gets_synthetic_tool_result(tmp_path: Path) -> None:
+    event_log = RuntimeEventLog(tmp_path / "runtime-tool-protocol-no-executor")
+    context_manager = RuntimeContextManager(lambda **_: "base")
+    registry = build_default_operation_registry()
+    gate = OperationGate(registry)
+    policy = ResourcePolicy(
+        policy_id="respol-allow-read",
+        task_id="task-test",
+        allowed_operations=("op.read_file",),
+        adopted=True,
+        runtime_executable=True,
+        runtime_view_only=False,
+    )
+
+    import asyncio
+
+    events = asyncio.run(
+        handle_tool_call_requested_event(
+            event_log=event_log,
+            runtime_context_manager=context_manager,
+            task_run_id="taskrun:tool-no-executor",
+            event={"type": "tool_call_requested", "tool_call": {"id": "call-read", "name": "read_file", "args": {"path": "a.md"}}},
+            current_step_id="step:1",
+            task_id="task-test",
+            task_operation={},
+            adopted_resource_policy=policy,
+            user_message="read",
+            model_response_executor=None,
+            tool_runtime_executor=None,
+            definitions_by_name=build_tool_authorization_index(get_tool_definitions()).definitions_by_name,
+            operation_gate=gate,
+            permission_mode="default",
+            root_dir=tmp_path,
+            allowed_search_sources=None,
+            sandbox_policy={},
+            execution_store=RuntimeExecutionStore(tmp_path / "runtime-tool-protocol-no-executor"),
+            record_execution_event=_record_execution_event(event_log),
+            build_pending_approval_state=lambda **_: {},
+            list_parent_agent_runs=lambda _task_run_id: [],
+            build_delegation_request=lambda **_: None,
+            execute_delegation=lambda **_: {},
+        )
+    )
+
+    tool_result = next(event for event in events if event.event_type == "tool_result_received")
+    observation_payload = dict(dict(tool_result.payload["observation"]).get("payload") or {})
+
+    assert "Tool runtime executor unavailable" in observation_payload["result"]
+    assert observation_payload["tool_call_id"] == "call-read"
+    assert observation_payload["result_envelope"]["synthetic_tool_result"] is True
+
+
+def test_search_policy_blocked_tool_call_gets_tool_result(tmp_path: Path) -> None:
+    event_log = RuntimeEventLog(tmp_path / "runtime-tool-protocol-search-policy")
+    context_manager = RuntimeContextManager(lambda **_: "base")
+    registry = build_default_operation_registry()
+    gate = OperationGate(registry)
+    policy = ResourcePolicy(
+        policy_id="respol-allow-read-search-blocked",
+        task_id="task-test",
+        allowed_operations=("op.read_file",),
+        adopted=True,
+        runtime_executable=True,
+        runtime_view_only=False,
+    )
+
+    import asyncio
+
+    events = asyncio.run(
+        handle_tool_call_requested_event(
+            event_log=event_log,
+            runtime_context_manager=context_manager,
+            task_run_id="taskrun:tool-search-policy",
+            event={"type": "tool_call_requested", "tool_call": {"id": "call-read", "name": "read_file", "args": {"path": "a.md"}}},
+            current_step_id="step:1",
+            task_id="task-test",
+            task_operation={},
+            adopted_resource_policy=policy,
+            user_message="read",
+            model_response_executor=None,
+            tool_runtime_executor=None,
+            definitions_by_name=build_tool_authorization_index(get_tool_definitions()).definitions_by_name,
+            operation_gate=gate,
+            permission_mode="default",
+            root_dir=tmp_path,
+            allowed_search_sources={"rag"},
+            sandbox_policy={},
+            execution_store=RuntimeExecutionStore(tmp_path / "runtime-tool-protocol-search-policy"),
+            record_execution_event=_record_execution_event(event_log),
+            build_pending_approval_state=lambda **_: {},
+            list_parent_agent_runs=lambda _task_run_id: [],
+            build_delegation_request=lambda **_: None,
+            execute_delegation=lambda **_: {},
+        )
+    )
+
+    event_types = [event.event_type for event in events]
+    tool_result = next(event for event in events if event.event_type == "tool_result_received")
+    observation_payload = dict(dict(tool_result.payload["observation"]).get("payload") or {})
+
+    assert "tool_call_blocked_by_search_policy" in event_types
+    assert observation_payload["tool_call_id"] == "call-read"
+    assert observation_payload["result_envelope"]["synthetic_tool_result"] is True
+    assert observation_payload["result_envelope"]["status"] == "error"
 
 
 def test_task_run_loop_records_waiting_approval_checkpoint(tmp_path: Path) -> None:

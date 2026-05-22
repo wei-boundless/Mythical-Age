@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .models import AgentAssemblyContract, ExecutionPermit, WorkOrder
+from .boundary import CONTROL_CONTEXT_KEYS
+from .models import AgentInvocation, AgentAssemblyContract, ExecutionPermit, WorkOrder
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -75,6 +76,40 @@ def validate_execution_permit(permit: ExecutionPermit) -> AssemblyValidationRepo
         issues.append(_issue("missing_work_order_id", "执行许可缺少 work_order_id", field_name="work_order_id"))
     if not permit.allowed_operations and not permit.visible_tools and permit.executor_type == "agent":
         issues.append(_issue("empty_permit_scope", "执行许可没有任何可见或可执行能力", field_name="allowed_operations"))
+    return AssemblyValidationReport(passed=not issues, issues=tuple(issues))
+
+
+def validate_agent_invocation(invocation: AgentInvocation) -> AssemblyValidationReport:
+    issues: list[AssemblyValidationIssue] = []
+    if not str(invocation.work_order_id or "").strip():
+        issues.append(_issue("missing_work_order_id", "AgentInvocation 缺少 work_order_id", field_name="work_order_id"))
+    if not str(invocation.assembly_id or "").strip():
+        issues.append(_issue("missing_assembly_id", "AgentInvocation 缺少 assembly_id", field_name="assembly_id"))
+    if not invocation.assembly_contract:
+        issues.append(_issue("missing_assembly_contract", "AgentInvocation 缺少 assembly_contract", field_name="assembly_contract"))
+    if not invocation.execution_permit and invocation.executor_type == "agent":
+        issues.append(_issue("missing_execution_permit", "AgentInvocation 缺少 execution_permit", field_name="execution_permit"))
+    leaked_keys = sorted(key for key in dict(invocation.model_context or {}) if key in CONTROL_CONTEXT_KEYS)
+    if leaked_keys:
+        issues.append(
+            _issue(
+                "model_context_control_leak",
+                "AgentInvocation model_context 泄露 runtime control 字段",
+                field_name="model_context",
+                leaked_keys=leaked_keys,
+            )
+        )
+    permit_agent = str(dict(invocation.execution_permit or {}).get("agent_id") or "").strip()
+    if permit_agent and invocation.agent_id and permit_agent != invocation.agent_id:
+        issues.append(
+            _issue(
+                "permit_agent_mismatch",
+                "AgentInvocation execution_permit 与 assembly agent_id 不一致",
+                field_name="execution_permit.agent_id",
+                permit_agent_id=permit_agent,
+                invocation_agent_id=invocation.agent_id,
+            )
+        )
     return AssemblyValidationReport(passed=not issues, issues=tuple(issues))
 
 

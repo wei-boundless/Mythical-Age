@@ -23,6 +23,7 @@ from .event_translation import (
     append_tool_result_received_event,
     build_search_policy_blocked_tool_observation,
 )
+from .tool_protocol_guard import append_synthetic_tool_result_for_action_request
 
 
 def begin_tool_call_request(
@@ -100,6 +101,17 @@ def begin_tool_call_request(
             refs={
                 "action_request_ref": action_request.request_id,
                 "task_step_ref": action_step_ref,
+            },
+        ),
+        append_tool_result_received_event(
+            event_log=event_log,
+            task_run_id=task_run_id,
+            observation=blocked_observation,
+            context_record=context_record,
+            refs={
+                "action_request_ref": action_request.request_id,
+                "task_step_ref": action_step_ref,
+                "tool_protocol_guard": "search_policy_block",
             },
         ),
     ]
@@ -242,7 +254,42 @@ async def handle_tool_call_requested_event(
         )
         return events
 
-    if not gate_result.allowed or tool_runtime_executor is None:
+    if not gate_result.allowed:
+        events.extend(
+            append_synthetic_tool_result_for_action_request(
+                event_log=event_log,
+                runtime_context_manager=runtime_context_manager,
+                task_run_id=task_run_id,
+                action_request=action_request,
+                directive_ref=tool_directive.directive_id,
+                reason=gate_result.reason or "tool_call_denied_by_operation_gate",
+                step_ref=action_step_ref,
+                refs={
+                    "operation_id": gate_result.operation_id,
+                    "resource_policy_ref": tool_policy.policy_id,
+                },
+                diagnostics={"decision": gate_result.decision, "source": "operation_gate"},
+            )
+        )
+        return events
+
+    if tool_runtime_executor is None:
+        events.extend(
+            append_synthetic_tool_result_for_action_request(
+                event_log=event_log,
+                runtime_context_manager=runtime_context_manager,
+                task_run_id=task_run_id,
+                action_request=action_request,
+                directive_ref=tool_directive.directive_id,
+                reason="Tool runtime executor unavailable.",
+                step_ref=action_step_ref,
+                refs={
+                    "operation_id": gate_result.operation_id,
+                    "resource_policy_ref": tool_policy.policy_id,
+                },
+                diagnostics={"decision": "executor_unavailable"},
+            )
+        )
         return events
 
     tool_name = str(action_request.payload.get("tool_name") or "")
@@ -527,6 +574,23 @@ async def execute_prepared_tool_call(
                     "execution_ref": execution_record.execution_id,
                     "operation_id": operation_id,
                 },
+            )
+        )
+        events.extend(
+            append_synthetic_tool_result_for_action_request(
+                event_log=event_log,
+                runtime_context_manager=runtime_context_manager,
+                task_run_id=task_run_id,
+                action_request=action_request,
+                directive_ref=directive.directive_id,
+                reason=error_message,
+                step_ref=step_id,
+                refs={
+                    **base_refs,
+                    "execution_ref": execution_record.execution_id,
+                    "operation_id": operation_id,
+                },
+                diagnostics={"decision": "deny_auto_replay"},
             )
         )
         return events, "deny_auto_replay"

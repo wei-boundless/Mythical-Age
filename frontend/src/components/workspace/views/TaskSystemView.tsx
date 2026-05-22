@@ -1035,18 +1035,6 @@ export function TaskSystemView() {
     setNotice(`已将特定任务“${task.task_title}”带入主会话。`);
   }, [setTaskSelection, setWorkspaceView]);
 
-  const sendTaskGraphToChat = useCallback((graph: TaskGraphRecord | null, domain: DomainRecord | null) => {
-    if (!graph) return;
-    setTaskSelection({
-      coordination_task_id: graph.graph_id,
-      domain_id: domain?.domain_id || graph.domain_id || "",
-      label: graph.title,
-      mode: "coordination",
-    });
-    setWorkspaceView("chat");
-    setNotice(`已将任务图“${graph.title}”带入主会话。`);
-  }, [setTaskSelection, setWorkspaceView]);
-
   const openOrchestrationControl = useCallback((focus?: {
     agentId?: string;
     agentProfileId?: string;
@@ -2573,7 +2561,6 @@ export function TaskSystemView() {
             selectedGraphEdgeId={selectedGraphEdgeId}
             selectedGraphNode={selectedGraphNode}
             selectedGraphNodeId={selectedGraphNodeId}
-            sendTaskGraphToChat={sendTaskGraphToChat}
             setLinkingFromNodeId={setLinkingFromNodeId}
             setSelectedTaskGraphId={setEditorTaskGraphId}
             setSelectedGraphEdgeId={setSelectedGraphEdgeId}

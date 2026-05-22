@@ -22,6 +22,15 @@ function displayId(value: unknown, fallback = "未配置") {
     ["agent:", "Agent"],
     ["group.", "Agent 组"],
   ];
+  const labels: Record<string, string> = {
+    coordination_team: "协调任务组",
+    worker_pool: "执行池",
+    review_team: "审查组",
+    enabled: "启用",
+    disabled: "停用",
+    draft: "草稿",
+  };
+  if (labels[raw]) return `${labels[raw]} · ${raw}`;
   const matched = prefixLabels.find(([prefix]) => raw.startsWith(prefix));
   return matched ? `${matched[1]} · ${raw}` : raw;
 }
@@ -62,6 +71,7 @@ function Field({ label, children, wide = false }: { label: string; children: Rea
 }
 
 export function OrchestrationGroupWorkbench({
+  agents,
   groupDraft,
   setGroupDraft,
   groupMembersChanged,
@@ -71,6 +81,7 @@ export function OrchestrationGroupWorkbench({
   groupDraftMemberAgents,
   toggleGroupMember,
 }: {
+  agents: Array<Record<string, unknown>>;
   groupDraft: AgentGroupDraftLike;
   setGroupDraft: Dispatch<SetStateAction<AgentGroupDraftLike>>;
   groupMembersChanged: boolean;
@@ -82,6 +93,13 @@ export function OrchestrationGroupWorkbench({
 }) {
   const memberCount = groupDraftMemberAgents.length;
   const availableCount = groupDraftAvailableAgents.length;
+  const agentOptions = Array.from(new Set([
+    "",
+    groupDraft.coordinator_agent_id,
+    ...agents.map((agent) => String(agent.agent_id ?? "")).filter(Boolean),
+  ]));
+  const groupKinds = Array.from(new Set([groupDraft.group_kind || "coordination_team", "coordination_team", "worker_pool", "review_team"]));
+  const lifecycleStates = Array.from(new Set([groupDraft.lifecycle_state || "enabled", "enabled", "disabled", "draft"]));
 
   function confirmRemoveMember(agentId: string, name: string) {
     if (window.confirm(`确认将 ${name || agentId} 移出当前组吗？`)) {
@@ -92,7 +110,7 @@ export function OrchestrationGroupWorkbench({
   return (
     <section className="boundary-card orchestration-group-main">
       <header>
-        <strong>{groupDraft.title || "自定义 Agent 组草稿"}</strong>
+        <strong>{groupDraft.title || "子 Agent 组草稿"}</strong>
         <div className="boundary-inline-actions">
           {groupMembersChanged ? <Badge tone="warn">未保存</Badge> : <Badge tone="ok">已同步</Badge>}
           <ToolbarButton disabled={saving === "group"} onClick={() => void saveAgentGroup()} variant="primary">
@@ -102,8 +120,26 @@ export function OrchestrationGroupWorkbench({
         </div>
       </header>
       <div className="boundary-form">
+        <Field label="组标识">
+          <input value={groupDraft.group_id} onChange={(event) => setGroupDraft((value) => ({ ...value, group_id: event.target.value }))} />
+        </Field>
         <Field label="组名">
           <input value={groupDraft.title} onChange={(event) => setGroupDraft((value) => ({ ...value, title: event.target.value }))} />
+        </Field>
+        <Field label="组类型">
+          <select value={groupDraft.group_kind} onChange={(event) => setGroupDraft((value) => ({ ...value, group_kind: event.target.value }))}>
+            {groupKinds.map((item) => <option key={item} value={item}>{displayId(item)}</option>)}
+          </select>
+        </Field>
+        <Field label="协调者">
+          <select value={groupDraft.coordinator_agent_id || ""} onChange={(event) => setGroupDraft((value) => ({ ...value, coordinator_agent_id: event.target.value }))}>
+            {agentOptions.map((item) => <option key={item || "none"} value={item}>{item ? displayName(agents.find((agent) => String(agent.agent_id ?? "") === item)) : "不指定协调者"}</option>)}
+          </select>
+        </Field>
+        <Field label="生命周期">
+          <select value={groupDraft.lifecycle_state} onChange={(event) => setGroupDraft((value) => ({ ...value, lifecycle_state: event.target.value }))}>
+            {lifecycleStates.map((item) => <option key={item} value={item}>{displayId(item)}</option>)}
+          </select>
         </Field>
         <Field label="说明" wide>
           <textarea value={groupDraft.description} onChange={(event) => setGroupDraft((value) => ({ ...value, description: event.target.value }))} />
@@ -119,6 +155,11 @@ export function OrchestrationGroupWorkbench({
           <span>可加入成员</span>
           <strong>{availableCount}</strong>
           <small>{availableCount ? "可在下方卡片栏直接加入" : "没有可加入成员"}</small>
+        </article>
+        <article className="orchestration-group-summary-card">
+          <span>协调者</span>
+          <strong>{groupDraft.coordinator_agent_id ? displayName(agents.find((agent) => String(agent.agent_id ?? "") === groupDraft.coordinator_agent_id)) : "未指定"}</strong>
+          <small>{displayId(groupDraft.group_kind || "coordination_team")}</small>
         </article>
       </div>
       <div className="orchestration-member-workbench">
@@ -145,7 +186,7 @@ export function OrchestrationGroupWorkbench({
                 </button>
               </article>
             ))}
-            {!groupDraftMemberAgents.length ? <div className="boundary-empty">当前还没有自定义 Agent 进入这个组。</div> : null}
+            {!groupDraftMemberAgents.length ? <div className="boundary-empty">当前还没有子 Agent 进入这个组。</div> : null}
           </div>
         </section>
         <section className="orchestration-member-column">
@@ -153,7 +194,7 @@ export function OrchestrationGroupWorkbench({
             <strong>未进组</strong>
             <span>{availableCount}</span>
           </header>
-          <p className="orchestration-member-hint">这里是无组自定义 Agent 池，下方卡片可直接加入当前组。</p>
+          <p className="orchestration-member-hint">这里是未分组子 Agent 池，下方卡片可直接加入当前组。</p>
           <div className="orchestration-member-picker">
             {groupDraftAvailableAgents.map((agent) => (
               <article className="orchestration-member-card" key={String(agent.agent_id)}>
@@ -171,7 +212,7 @@ export function OrchestrationGroupWorkbench({
                 </button>
               </article>
             ))}
-            {!groupDraftAvailableAgents.length ? <div className="boundary-empty">当前没有可加入的自定义 Agent。</div> : null}
+            {!groupDraftAvailableAgents.length ? <div className="boundary-empty">当前没有可加入的子 Agent。</div> : null}
           </div>
         </section>
       </div>

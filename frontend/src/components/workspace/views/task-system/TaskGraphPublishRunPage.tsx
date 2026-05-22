@@ -73,7 +73,6 @@ export function TaskGraphPublishRunPage({
   standardView,
   onPublish,
   onSave,
-  onSendToChat,
   onFocusIssue,
   onRunBound,
   onRepairIssue,
@@ -96,7 +95,6 @@ export function TaskGraphPublishRunPage({
   standardView?: TaskGraphStandardView | null;
   onPublish: () => void;
   onSave: () => void;
-  onSendToChat: () => void;
   onFocusIssue?: (issue: TaskGraphPreflightIssue) => void;
   onRunBound?: () => void;
   onRepairIssue?: (issue: TaskGraphPreflightIssue) => void;
@@ -291,7 +289,7 @@ export function TaskGraphPublishRunPage({
       <header className="task-graph-studio-page__head">
         <span>图工作台</span>
         <strong>预检与运行</strong>
-        <small>把草稿保存、发布、带入会话和运行准备收束成一个闭环。</small>
+        <small>把草稿保存、发布、创建运行和监控绑定收束成一个闭环。</small>
       </header>
 
       <section className="task-graph-publish-strip">
@@ -321,9 +319,6 @@ export function TaskGraphPublishRunPage({
             </TaskSystemToolbarButton>
             <TaskSystemToolbarButton disabled={!preflightReport.valid || saving === "task-graph"} onClick={onPublish} variant="primary">
               <Send size={15} />发布可运行
-            </TaskSystemToolbarButton>
-            <TaskSystemToolbarButton onClick={onSendToChat}>
-              <MessageSquareShare size={15} />带入会话
             </TaskSystemToolbarButton>
             <TaskSystemToolbarButton disabled={!graphId || runtimeSpecLoading} onClick={() => void compileRuntimeSpec()}>
               <RefreshCw size={15} />编译执行包

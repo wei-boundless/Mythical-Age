@@ -1,9 +1,0 @@
-{
-  "session_id": "session:writing-smoke-20260521",
-  "task_run_count": 1,
-  "latest_task_run_id": "taskrun:session:writing-smoke-20260521:task.writing.modular_novel.smoke.design_init:4168997e",
-  "latest_coordination_task_run_id": "taskrun:session:writing-smoke-20260521:task.writing.modular_novel.smoke.design_init:4168997e",
-  "latest_coordination_run_id": "coordrun:taskrun:session:writing-smoke-20260521:task.writing.modular_novel.smoke.design_init:4168997e:primary",
-  "updated_at": 1779305965.2893286,
-  "authority": "orchestration.runtime_state_index.session_live_view"
-}

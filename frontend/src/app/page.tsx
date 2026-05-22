@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 
 import { AppProvider, useAppStore } from "@/lib/store";
-import { ChatPanel } from "@/components/chat/ChatPanel";
 import { CapabilitySystemView } from "@/components/workspace/views/CapabilitySystemView";
+import { CenterWorkspaceView } from "@/components/workspace/views/center/CenterWorkspaceView";
+import { OrchestrationView } from "@/components/workspace/views/OrchestrationView";
 import { PlaygroundView } from "@/components/workspace/views/PlaygroundView";
 import { SystemFrameworkView } from "@/components/workspace/views/SystemFrameworkView";
 import { TaskSystemView } from "@/components/workspace/views/TaskSystemView";
@@ -16,15 +17,12 @@ const WORKSPACE_QUERY_VIEWS = new Set<WorkspaceView>([
   "chat",
   "playground",
   "task-system",
+  "orchestration",
   "capability-system",
   "system-framework",
 ]);
 
 const WORKSPACE_TONES = new Set(["water", "leaf", "gold", "ember", "lumen"]);
-
-function isTaskLayerView(view: WorkspaceView) {
-  return view === "task-system" || view === "capability-system";
-}
 
 function Workspace() {
   const {
@@ -43,12 +41,6 @@ function Workspace() {
     taskGraphRunInteractionOpen,
   } = useAppStore();
   const [forcedPlayground, setForcedPlayground] = useState(false);
-
-  const mainView: WorkspaceView = isTaskLayerView(activeWorkspaceView)
-    ? "task-system"
-    : activeWorkspaceView === "playground"
-      ? "playground"
-      : "chat";
 
   useEffect(() => {
     window.localStorage.removeItem("chatVisualMode");
@@ -70,7 +62,9 @@ function Workspace() {
     if (
       activeWorkspaceView !== "chat"
       && activeWorkspaceView !== "playground"
-      && !isTaskLayerView(activeWorkspaceView)
+      && activeWorkspaceView !== "task-system"
+      && activeWorkspaceView !== "capability-system"
+      && activeWorkspaceView !== "orchestration"
       && activeWorkspaceView !== "system-framework"
     ) {
       setWorkspaceView("chat");
@@ -115,13 +109,17 @@ function Workspace() {
           <section className="workbench-view-host" aria-label="能力系统">
             <CapabilitySystemView />
           </section>
-        ) : mainView === "task-system" ? (
+        ) : activeWorkspaceView === "orchestration" ? (
+          <section className="workbench-view-host" aria-label="编排系统">
+            <OrchestrationView />
+          </section>
+        ) : activeWorkspaceView === "task-system" ? (
           <section className="workbench-view-host" aria-label="图任务层">
             <TaskSystemView />
           </section>
         ) : (
           <section className="workbench-view-host workbench-view-host--chat" aria-label="主会话">
-            <ChatPanel />
+            <CenterWorkspaceView />
           </section>
         )}
         <TaskGraphRunInteractionDock

@@ -7,6 +7,7 @@ import {
   Globe2,
   LayoutGrid,
   MessageSquare,
+  Network,
   PanelRightClose,
   PanelRightOpen,
   MonitorDot,
@@ -39,6 +40,7 @@ type WorkspaceTone = (typeof workspaceTones)[number];
 const navItems: Array<{ view: WorkspaceView; label: string; icon: typeof MessageSquare }> = [
   { view: "chat", label: "会话", icon: MessageSquare },
   { view: "task-system", label: "图任务", icon: Workflow },
+  { view: "orchestration", label: "编排", icon: Network },
   { view: "capability-system", label: "能力", icon: LayoutGrid },
   { view: "playground", label: "投影", icon: Sparkles },
 ];
@@ -99,6 +101,7 @@ function formatSessionTime(timestamp: number) {
 
 function workspaceViewLabel(view: WorkspaceView) {
   if (view === "task-system") return "图任务";
+  if (view === "orchestration") return "编排";
   if (view === "capability-system") return "能力";
   if (view === "playground") return "投影";
   if (view === "system-framework") return "系统";
@@ -107,6 +110,7 @@ function workspaceViewLabel(view: WorkspaceView) {
 
 function isNavActive(current: WorkspaceView, target: WorkspaceView) {
   if (target === "task-system") return current === "task-system";
+  if (target === "orchestration") return current === "orchestration";
   if (target === "capability-system") return current === "capability-system";
   return current === target;
 }
@@ -487,6 +491,8 @@ function MainToolbar({
   } = useAppStore();
   const title = activeWorkspaceView === "task-system"
     ? "图任务层"
+    : activeWorkspaceView === "orchestration"
+      ? "编排系统"
     : activeWorkspaceView === "capability-system"
       ? "能力系统"
       : activeWorkspaceView === "playground"

@@ -48,6 +48,11 @@ from .tool_loop import (
     handle_tool_call_requested_event,
     prepare_tool_execution,
 )
+from .tool_protocol_guard import (
+    TOOL_PROTOCOL_GUARD_SOURCE,
+    append_synthetic_tool_result_for_action_request,
+    tool_result_event_count_for_action_request,
+)
 from .followup_cycle import (
     build_initial_followup_messages,
     build_next_followup_messages,
@@ -64,6 +69,7 @@ __all__ = [
     "append_delegate_tool_result_observation",
     "append_model_answer_observation",
     "append_simple_executor_event",
+    "append_synthetic_tool_result_for_action_request",
     "append_tool_result_received_event",
     "build_answer_readiness_judge_message",
     "build_artifact_success_fallback_answer",
@@ -100,4 +106,6 @@ __all__ = [
     "ModelTurnEvent",
     "RuntimeExecutionEngine",
     "translate_executor_event",
+    "tool_result_event_count_for_action_request",
+    "TOOL_PROTOCOL_GUARD_SOURCE",
 ]

@@ -32,6 +32,7 @@ import {
   taskGraphRunIdFromLiveMonitor,
   truncateSessionMessages
 } from "@/lib/api";
+import { buildMainAgentTaskSelection } from "@/lib/mainAgentAssemblyModes";
 import type { GlobalRuntimeMonitor, RuntimeMonitorEventPayload } from "@/lib/api";
 import {
   ACTIVE_SOUL_PATH,
@@ -44,7 +45,7 @@ import {
 
 import type { Store } from "./core";
 import { reduceStreamEvent, startStreamingTurn, type StreamSession } from "./events";
-import type { ChatMode, ChatModelSelection, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
+import type { ChatMode, ChatModelSelection, MainAgentAssemblyMode, SearchPolicySource, StoreActions, StoreState, TaskGraphMonitorBinding, TaskSelectionState, WorkspaceView } from "./types";
 import { toUiMessages } from "./utils";
 
 const TASK_GRAPH_MONITOR_BINDING_STORAGE_KEY = "task-graph-monitor-binding";
@@ -106,6 +107,9 @@ export class WorkspaceRuntime {
       },
       setSelectedChatMode: (mode) => {
         this.setSelectedChatMode(mode);
+      },
+      setMainAgentAssemblyMode: (mode) => {
+        this.setMainAgentAssemblyMode(mode);
       },
       switchSoul: async (key) => {
         await this.switchSoul(key);
@@ -479,7 +483,7 @@ export class WorkspaceRuntime {
           session_id: sessionId,
           ephemeral_system_messages: ephemeralSystemMessages,
           search_policy: searchPolicy,
-          task_selection: state.taskSelection ?? undefined,
+          task_selection: buildMainAgentTaskSelection(state.taskSelection, state.mainAgentAssemblyMode),
           model_selection: this.chatModelSelectionPayload(state),
           image_generation: this.chatImageGenerationPayload(state),
         },
@@ -935,20 +939,14 @@ export class WorkspaceRuntime {
     if (!normalized) {
       return;
     }
-    let shouldPoll = false;
     this.store.setState((prev) => ({
       ...prev,
       taskGraphMonitorBinding: normalized,
       taskGraphMonitorError: "",
       taskGraphRunInteractionOpen: prev.taskGraphRunInteractionOpen || Boolean(prev.taskGraphMonitorDecision?.action && prev.taskGraphMonitorDecision.action !== "no_action"),
     }));
-    shouldPoll = this.store.getState().taskGraphRunInteractionOpen;
     this.persistTaskGraphMonitorBinding(normalized);
-    if (shouldPoll) {
-      this.startTaskGraphMonitorPolling(normalized.task_run_id);
-    } else {
-      this.stopTaskGraphMonitorPolling();
-    }
+    this.startTaskGraphMonitorPolling(normalized.task_run_id);
   }
 
   private clearTaskGraphMonitorRun() {
@@ -972,7 +970,7 @@ export class WorkspaceRuntime {
       this.startTaskGraphMonitorPolling(binding.task_run_id);
       return;
     }
-    if (!open) {
+    if (!open && !binding?.task_run_id) {
       this.stopTaskGraphMonitorPolling();
     }
   }
@@ -1003,9 +1001,7 @@ export class WorkspaceRuntime {
         ...prev,
         taskGraphMonitorBinding: normalized,
       }));
-      if (this.store.getState().taskGraphRunInteractionOpen) {
-        this.startTaskGraphMonitorPolling(normalized.task_run_id);
-      }
+      this.startTaskGraphMonitorPolling(normalized.task_run_id);
     } catch {
       // Binding persistence is convenience state only.
     }
@@ -1051,7 +1047,7 @@ export class WorkspaceRuntime {
     void this.pollTaskGraphMonitor(targetTaskRunId);
   }
 
-  private scheduleNextTaskGraphMonitorPoll(taskRunId: string, delayMs = 1800) {
+  private scheduleNextTaskGraphMonitorPoll(taskRunId: string, delayMs = 1000) {
     if (typeof window === "undefined") {
       return;
     }
@@ -1328,6 +1324,10 @@ export class WorkspaceRuntime {
 
   private setTaskSelection(selection: TaskSelectionState | null) {
     this.store.setState((prev) => ({ ...prev, taskSelection: selection }));
+  }
+
+  private setMainAgentAssemblyMode(mode: MainAgentAssemblyMode) {
+    this.store.setState((prev) => ({ ...prev, mainAgentAssemblyMode: mode }));
   }
 
   private startGlobalRuntimeMonitorPolling() {

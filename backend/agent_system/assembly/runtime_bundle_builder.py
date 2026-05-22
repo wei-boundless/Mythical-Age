@@ -90,6 +90,7 @@ def build_orchestration_runtime_bundle(
         binding=binding,
         registered_task=registered_task,
         task_execution_assembly=task_execution_assembly,
+        current_turn_context=current_turn_payload,
     )
     runtime_lane_profile = profile_registry.build_runtime_lane_profile(
         agent_id=agent_id,
@@ -254,7 +255,12 @@ def _requested_runtime_lane(
     binding: dict[str, Any],
     registered_task: dict[str, Any],
     task_execution_assembly: dict[str, Any],
+    current_turn_context: dict[str, Any] | None = None,
 ) -> str:
+    turn_context = dict(current_turn_context or {})
+    explicit_lane = str(turn_context.get("runtime_lane") or "").strip()
+    if explicit_lane:
+        return explicit_lane
     binding_lane = str(binding.get("runtime_lane") or "").strip()
     if binding_lane:
         return binding_lane

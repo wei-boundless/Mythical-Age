@@ -23,7 +23,6 @@ async def _execute_stage_request_in_background(
     source: str,
     stage_execution_request: Any,
     node_work_order: dict[str, Any] | None = None,
-    agent_assembly_contract: dict[str, Any] | None = None,
     current_turn_context: dict[str, Any] | None = None,
 ) -> None:
     if str(getattr(stage_execution_request, "executor_type", "") or "") == "graph_module":
@@ -33,14 +32,12 @@ async def _execute_stage_request_in_background(
             source=source,
             stage_execution_request=stage_execution_request,
             node_work_order=node_work_order,
-            agent_assembly_contract=agent_assembly_contract,
             current_turn_context=current_turn_context,
         )
         return
     continuation_payload = LangGraphCoordinationRuntimeResult(
         stage_execution_request=stage_execution_request,
         node_work_order=dict(node_work_order or {}),
-        agent_assembly_contract=dict(agent_assembly_contract or {}),
     ).continuation_payload(
         session_id=session_id,
         current_turn_context=dict(current_turn_context or {}),
@@ -75,7 +72,6 @@ def _schedule_stage_execution_background(
     source: str,
     stage_execution_request: Any,
     node_work_order: dict[str, Any] | None = None,
-    agent_assembly_contract: dict[str, Any] | None = None,
     current_turn_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     task_run_loop = runtime.query_runtime.task_run_loop
@@ -169,7 +165,6 @@ def _schedule_stage_execution_background(
                     source=source,
                     stage_execution_request=stage_execution_request,
                     node_work_order=node_work_order,
-                    agent_assembly_contract=agent_assembly_contract,
                     current_turn_context=current_turn_context,
                 )
             )
@@ -265,7 +260,6 @@ def _start_graph_module_stage_request(
     source: str,
     stage_execution_request: Any,
     node_work_order: dict[str, Any] | None = None,
-    agent_assembly_contract: dict[str, Any] | None = None,
     current_turn_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     identity = _stage_execution_schedule_identity(stage_execution_request)
@@ -277,7 +271,6 @@ def _start_graph_module_stage_request(
         identity=identity,
         schedule_stage_execution_background=_schedule_stage_execution_background,
         node_work_order=dict(node_work_order or {}),
-        agent_assembly_contract=dict(agent_assembly_contract or {}),
         current_turn_context=current_turn_context,
     )
 

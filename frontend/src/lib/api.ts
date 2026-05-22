@@ -3915,6 +3915,7 @@ export async function startTaskGraphRuntimeLoopRun(
     initial_inputs?: Record<string, unknown>;
     require_published?: boolean;
     include_trace?: boolean;
+    execute_initial_stage?: boolean;
   } = {}
 ) {
   return request<TaskGraphRunStartResult>(

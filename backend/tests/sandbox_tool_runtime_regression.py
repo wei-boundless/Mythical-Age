@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+import asyncio
+import sys
+from pathlib import Path
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from capability_system.tool_runtime import ToolRuntime
+from orchestration.runtime_directive import RuntimeDirective
+from runtime.shared.action_request import RuntimeActionRequest
+from runtime.shared.execution_record import RuntimeExecutionStore, build_idempotency_token, build_request_fingerprint
+from runtime.tool_runtime.tool_executor import ToolRuntimeExecutor
+
+
+def test_sandbox_read_file_copies_workspace_file_into_overlay(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "docs").mkdir(parents=True)
+    (workspace / "docs" / "note.md").write_text("real content", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="read_file",
+        tool_args={"path": "docs/note.md"},
+        operation_id="op.read_file",
+    )
+
+    assert result["error"] == ""
+    assert result["observation"].payload["result"] == "real content"
+    assert (sandbox_root / "docs" / "note.md").read_text(encoding="utf-8") == "real content"
+    assert result["sandbox"]["backend"] == "local_overlay"
+
+
+def test_sandbox_edit_file_copies_then_edits_overlay_without_touching_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    (workspace / "docs").mkdir(parents=True)
+    real_file = workspace / "docs" / "note.md"
+    real_file.write_text("hello old", encoding="utf-8")
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="edit_file",
+        tool_args={"path": "docs/note.md", "old_text": "old", "new_text": "sandbox"},
+        operation_id="op.edit_file",
+    )
+
+    assert result["error"] == ""
+    assert real_file.read_text(encoding="utf-8") == "hello old"
+    assert (sandbox_root / "docs" / "note.md").read_text(encoding="utf-8") == "hello sandbox"
+
+
+def test_sandbox_terminal_blocks_absolute_workspace_escape(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    workspace.mkdir(parents=True)
+    outside_path = tmp_path / "outside.txt"
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="terminal",
+        tool_args={"command": f"Get-Content {outside_path}"},
+        operation_id="op.shell",
+    )
+
+    assert "Blocked:" in result["observation"].payload["result"]
+
+
+def test_sandbox_python_repl_blocks_absolute_workspace_escape(tmp_path: Path) -> None:
+    workspace = tmp_path / "project"
+    sandbox_root = tmp_path / "sandbox" / "workspace"
+    workspace.mkdir(parents=True)
+    outside_path = tmp_path / "outside.txt"
+
+    result = _run_tool(
+        workspace=workspace,
+        sandbox_root=sandbox_root,
+        tool_name="python_repl",
+        tool_args={"code": f"from pathlib import Path\nprint(Path(r'{outside_path}').read_text())"},
+        operation_id="op.python_repl",
+    )
+
+    assert "Blocked:" in result["observation"].payload["result"]
+
+
+def _run_tool(
+    *,
+    workspace: Path,
+    sandbox_root: Path,
+    tool_name: str,
+    tool_args: dict[str, str],
+    operation_id: str,
+) -> dict:
+    workspace.mkdir(parents=True, exist_ok=True)
+    sandbox_root.mkdir(parents=True, exist_ok=True)
+    task_run_id = f"taskrun-{tool_name}"
+    action_request = RuntimeActionRequest(
+        request_id=f"rtact:{tool_name}",
+        task_run_id=task_run_id,
+        request_type="tool_call",
+        step_id="step:1",
+        directive_ref=f"runtime-directive:{tool_name}",
+        operation_id=operation_id,
+        payload={
+            "tool_name": tool_name,
+            "tool_call": {"id": f"call-{tool_name}", "name": tool_name, "args": tool_args},
+        },
+    )
+    directive = RuntimeDirective(
+        directive_id=f"runtime-directive:{tool_name}",
+        task_id="task:sandbox-tool-runtime",
+        plan_ref="plan:sandbox-tool-runtime",
+        stage_ref="stage:sandbox-tool-runtime",
+        executor_type="tool",
+        adopted_resource_policy_ref="respol:sandbox-tool-runtime",
+        operation_refs=(operation_id,),
+    )
+    execution_store = RuntimeExecutionStore(workspace / ".runtime-test")
+    fingerprint = build_request_fingerprint(
+        step_id="step:1",
+        operation_id=operation_id,
+        payload=action_request.payload,
+    )
+    record = execution_store.create_record(
+        task_run_id=task_run_id,
+        step_id="step:1",
+        action_request=action_request,
+        directive_ref=directive.directive_id,
+        operation_id=operation_id,
+        executor_type="tool",
+        replay_policy="deny_auto_replay",
+        request_fingerprint=fingerprint,
+        idempotency_token=build_idempotency_token(
+            task_run_id=task_run_id,
+            step_id="step:1",
+            operation_id=operation_id,
+            request_fingerprint=fingerprint,
+        ),
+    )
+    executor = ToolRuntimeExecutor(tool_runtime=ToolRuntime(workspace))
+    return asyncio.run(
+        executor.run(
+            task_run_id=task_run_id,
+            action_request=action_request,
+            directive=directive,
+            execution_record=record,
+            execution_store=execution_store,
+            sandbox_policy={
+                "enabled": True,
+                "mode": "workspace_overlay",
+                "sandbox_root": str(sandbox_root),
+                "workspace_root": str(workspace),
+            },
+        )
+    )

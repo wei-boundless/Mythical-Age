@@ -219,4 +219,9 @@ def build_search_policy_blocked_tool_observation(
         tool_call_id=str(tool_call.get("id") or action_request.request_id),
         tool_args=dict(tool_call.get("args") or {}),
         result=result,
+        result_envelope={
+            "status": "error",
+            "synthetic_tool_result": True,
+            "source": "runtime.execution_engine.search_policy_guard",
+        },
     )

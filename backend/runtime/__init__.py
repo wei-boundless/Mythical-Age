@@ -54,7 +54,7 @@ from .contracts.compiler_models import (
     ContractManifest,
 )
 
-from .contracts.runtime_assembly_builder import build_node_runtime_assembly, build_single_agent_runtime_assembly
+from .contracts.runtime_assembly_builder import build_node_runtime_assembly
 from .contracts.runtime_assembly_models import (
     HandoffPacket,
     NodeRuntimeAssembly,
@@ -63,10 +63,10 @@ from .contracts.runtime_assembly_models import (
     RuntimeFailureContract,
     RuntimeLoopPolicy,
     RuntimeOutputContract,
-    SingleAgentRuntimeAssembly,
 )
 from .agent_assembly import (
     AgentAssemblyContract,
+    AgentInvocation,
     DirectWorkOrder,
     ExecutionPermit,
     HumanWorkOrder,
@@ -74,6 +74,7 @@ from .agent_assembly import (
     SubRuntimeWorkOrder,
     WorkOrder,
     build_agent_assembly_contract,
+    build_agent_invocation,
 )
 from .execution_permit import build_execution_permit
 from .shared.event_log import RuntimeEventLog
@@ -184,13 +185,13 @@ __all__ = [
     "CompiledRuntimeContract",
     "CompiledAcceptanceContract",
     "AgentAssemblyContract",
+    "AgentInvocation",
     "DirectWorkOrder",
     "ExecutionPermit",
     "HumanWorkOrder",
     "NodeWorkOrder",
     "SubRuntimeWorkOrder",
     "WorkOrder",
-    "SingleAgentRuntimeAssembly",
     "NodeRuntimeAssembly",
     "RuntimeContextSection",
     "RuntimeOutputContract",
@@ -229,9 +230,9 @@ __all__ = [
     "build_executor_error_observation",
     "compile_workflow_contract_manifest",
     "compile_coordination_contract_manifest",
-    "build_single_agent_runtime_assembly",
     "build_node_runtime_assembly",
     "build_agent_assembly_contract",
+    "build_agent_invocation",
     "build_execution_permit",
     "build_coordination_flow_state",
     "attach_batch_execution_request",

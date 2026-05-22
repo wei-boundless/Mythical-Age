@@ -68,6 +68,7 @@ INTERNAL_PROTOCOL_INPUT_KEYS = frozenset(
 )
 
 INTERNAL_PROTOCOL_INPUT_PREFIXES = (
+    "__",
     "graph_module_runtime.",
     "importing_",
     "orchestration_protocol.",

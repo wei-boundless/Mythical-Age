@@ -15,28 +15,7 @@ from runtime_encoding import (
     is_windows,
     utf8_subprocess_text_kwargs,
 )
-
-
-BLOCKED_PATTERNS = (
-    "rm -rf /",
-    "shutdown",
-    "reboot",
-    "mkfs",
-    "format ",
-    ":(){:|:&};:",
-)
-BLOCKED_PATH_PATTERNS = (
-    "../",
-    "..\\",
-    "c:\\",
-    "c:/",
-    "d:\\",
-    "d:/",
-    "\\windows",
-    "/etc/",
-    "/var/",
-    "/usr/",
-)
+from capability_system.units.tools.sandbox_command_guard import validate_sandbox_command_text
 
 
 class TerminalToolInput(BaseModel):
@@ -72,11 +51,9 @@ class TerminalTool(BaseTool):
         command: str,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
-        lowered = command.lower()
-        if any(pattern in lowered for pattern in BLOCKED_PATTERNS):
-            return "Blocked: command matches the terminal blacklist."
-        if any(pattern in lowered for pattern in BLOCKED_PATH_PATTERNS):
-            return "Blocked: command references a path outside the sandbox workspace."
+        blocked_reason = validate_sandbox_command_text(command, kind="command")
+        if blocked_reason:
+            return blocked_reason
 
         settings = get_settings()
         shell_command = (

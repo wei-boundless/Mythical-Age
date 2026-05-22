@@ -75,3 +75,17 @@ def test_main_session_without_search_policy_keeps_default_search_sources() -> No
     )
 
     assert {"rag", "local_files", "web"} <= allowed
+
+
+def test_direct_agent_invocation_ref_does_not_make_turn_coordination_scoped() -> None:
+    allowed = _resolve_runtime_search_sources(
+        search_policy=None,
+        task_selection={
+            "turn_id": "turn:test",
+            "stage_execution_request_ref": "stageexec:direct:test",
+            "work_order_id": "work:direct:test",
+            "assembly_id": "assembly:direct:test",
+        },
+    )
+
+    assert {"rag", "local_files", "web"} <= allowed

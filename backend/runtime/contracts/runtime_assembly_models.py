@@ -91,44 +91,6 @@ class HandoffPacket:
 
 
 @dataclass(frozen=True, slots=True)
-class SingleAgentRuntimeAssembly:
-    assembly_id: str
-    manifest_ref: str
-    task_ref: str
-    workflow_id: str
-    agent_id: str
-    agent_profile_id: str
-    runtime_lane: str = ""
-    context_sections: tuple[RuntimeContextSection, ...] = ()
-    output_contracts: tuple[RuntimeOutputContract, ...] = ()
-    acceptance_contracts: tuple[RuntimeAcceptanceContract, ...] = ()
-    failure_contract: RuntimeFailureContract = field(default_factory=RuntimeFailureContract)
-    loop_policy: RuntimeLoopPolicy = field(default_factory=RuntimeLoopPolicy)
-    metadata: dict[str, Any] = field(default_factory=dict)
-    diagnostics: dict[str, Any] = field(default_factory=dict)
-    authority: str = "orchestration.single_agent_runtime_assembly"
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "authority": self.authority,
-            "assembly_id": self.assembly_id,
-            "manifest_ref": self.manifest_ref,
-            "task_ref": self.task_ref,
-            "workflow_id": self.workflow_id,
-            "agent_id": self.agent_id,
-            "agent_profile_id": self.agent_profile_id,
-            "runtime_lane": self.runtime_lane,
-            "context_sections": [item.to_dict() for item in self.context_sections],
-            "output_contracts": [item.to_dict() for item in self.output_contracts],
-            "acceptance_contracts": [item.to_dict() for item in self.acceptance_contracts],
-            "failure_contract": self.failure_contract.to_dict(),
-            "loop_policy": self.loop_policy.to_dict(),
-            "metadata": dict(self.metadata),
-            "diagnostics": dict(self.diagnostics),
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class NodeRuntimeAssembly:
     assembly_id: str
     manifest_ref: str

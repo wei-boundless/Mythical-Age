@@ -38,7 +38,6 @@ import type { TaskGraphWorkbenchProps } from "./taskGraphTypes";
 export function TaskGraphWorkbench({
   taskGraphDraftV2,
   saveTaskGraphStack,
-  sendTaskGraphToChat,
   applyTaskGraphTemplate,
   addTaskGraphTaskNode,
   addTaskGraphRoleNode,
@@ -547,7 +546,6 @@ export function TaskGraphWorkbench({
           onPublish={handlePublish}
           onRunBound={() => updateEditorPublishState("run_bound")}
           onSave={handleSaveDraft}
-          onSendToChat={() => sendTaskGraphToChat(rest.selectedTaskGraph, rest.selectedDomain)}
           onFocusIssue={focusPreflightIssue}
           onRepairIssue={repairPreflightIssue}
           publishState={publishState}
@@ -581,7 +579,6 @@ export function TaskGraphWorkbench({
       onLayerChange={setActiveLayer}
       onPublish={handlePublish}
       onSave={handleSaveDraft}
-      onSendToChat={() => sendTaskGraphToChat(rest.selectedTaskGraph, rest.selectedDomain)}
       publishState={publishState}
       saving={rest.saving}
       title={taskGraphDraftV2.title}

@@ -1355,58 +1355,19 @@ def _stage_execution_request_for_finalizer(
     coordination_run: CoordinationRun | None,
     langgraph_coordination_runtime: LangGraphCoordinationRuntime,
 ) -> dict[str, Any]:
-    diagnostics = dict(task_run_diagnostics or {})
-    assembly = dict(diagnostics.get("agent_assembly_contract") or {})
-    work_order = dict(assembly.get("work_order") or {})
-    if work_order:
-        return _stage_request_payload_from_work_order(work_order)
     context_request = dict(dict(current_turn_context or {}).get("stage_execution_request") or {})
     if context_request:
         return context_request
     if coordination_run is not None and langgraph_coordination_runtime.supports(coordination_run):
         state = langgraph_coordination_runtime.checkpoints.get_state(thread_id=coordination_run.coordination_run_id) or {}
-        return dict(state.get("stage_execution_request") or {})
+        state_request = dict(state.get("stage_execution_request") or {})
+        if state_request:
+            return state_request
+    diagnostics = dict(task_run_diagnostics or {})
+    stage_request = dict(diagnostics.get("stage_execution_request") or {})
+    if stage_request:
+        return stage_request
     return {}
-
-
-def _stage_request_payload_from_work_order(work_order: dict[str, Any]) -> dict[str, Any]:
-    item = dict(work_order or {})
-    if not item:
-        return {}
-    return {
-        "request_id": str(item.get("work_order_id") or ""),
-        "coordination_run_id": str(item.get("coordination_run_id") or ""),
-        "thread_id": str(item.get("thread_id") or item.get("coordination_run_id") or ""),
-        "root_task_run_id": str(item.get("root_task_run_id") or ""),
-        "stage_id": str(item.get("stage_id") or ""),
-        "node_id": str(item.get("node_id") or item.get("stage_id") or ""),
-        "task_ref": str(item.get("task_ref") or ""),
-        "agent_id": str(item.get("agent_id") or ""),
-        "agent_profile_id": str(item.get("agent_profile_id") or ""),
-        "runtime_lane": str(item.get("runtime_lane") or ""),
-        "executor_type": str(item.get("executor_type") or "agent"),
-        "executor_binding": dict(item.get("executor_binding") or {}),
-        "message": str(item.get("message") or ""),
-        "explicit_inputs": sanitize_explicit_inputs(item.get("explicit_inputs") or {}),
-        "standard_input_package": dict(item.get("input_package") or item.get("standard_input_package") or {}),
-        "artifact_policy": dict(item.get("artifact_policy") or {}),
-        "stream_policy": dict(item.get("stream_policy") or {}),
-        "artifact_root": str(item.get("artifact_root") or ""),
-        "artifact_targets": list(item.get("artifact_targets") or []),
-        "output_contract_id": str(item.get("output_contract_id") or ""),
-        "expected_outputs": list(item.get("expected_outputs") or []),
-        "working_memory_refs": list(item.get("working_memory_refs") or []),
-        "dispatch_context": dict(item.get("dispatch_context") or {}),
-        "memory_snapshot": dict(item.get("memory_snapshot") or {}),
-        "artifact_context_packet": dict(item.get("artifact_context_packet") or {}),
-        "revision_packet": dict(item.get("revision_packet") or {}),
-        "handoff_packet_refs": list(item.get("handoff_packet_refs") or []),
-        "timeline_result_policy": dict(item.get("timeline_result_policy") or {}),
-        "human_work_packet": dict(item.get("human_work_packet") or {}),
-        "a2a_payload": dict(item.get("a2a_payload") or {}),
-        "runtime_assembly": dict(item.get("runtime_assembly") or {}),
-        "idempotency_key": str(item.get("idempotency_key") or ""),
-    }
 
 
 def _task_run_finalization_suppression_reason(

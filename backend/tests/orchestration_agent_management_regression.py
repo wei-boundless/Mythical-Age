@@ -6,11 +6,8 @@ import pytest
 from agent_system.groups.registry import AgentGroupRegistry
 from agent_system.identity import agent_id_aliases, normalize_agent_id
 from agent_system.registry.agent_registry import AgentRegistry
-from agent_system.profiles.runtime_profile_models import AgentRuntimeProfile
 from agent_system.profiles.runtime_profile_registry import AgentRuntimeRegistry
 from agent_system.assembly.runtime_bundle_builder import build_orchestration_runtime_bundle
-from runtime.contracts.runtime_assembly_builder import build_single_agent_runtime_assembly
-from runtime.contracts.compiler_models import CompiledGlobalContract, ContractManifest
 from agent_system.registry.worker_agent_factory import default_worker_agent_blueprints
 
 
@@ -33,6 +30,7 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
     }
     builtin_agents = [item for item in agents if item.agent_id in builtin_ids]
     builtin_by_id = {item.agent_id: item for item in builtin_agents}
+    runtime_profile_expected_ids = builtin_ids - {"agent:3"}
 
     assert {item.agent_id for item in builtin_agents} == builtin_ids
     assert all(item.builtin for item in builtin_agents)
@@ -40,8 +38,9 @@ def test_builtin_agents_are_seeded_as_system_builtin_and_have_runtime_profiles(t
     assert all(item.editable is True for item in builtin_agents)
     assert all(item.lifecycle_policy == "system_builtin" for item in builtin_agents)
     assert all(item.definition_source == "system_builtin" for item in builtin_agents)
-    assert builtin_ids.issubset(profile_by_agent)
-    assert all(profile_by_agent[agent_id].lifecycle_policy == "system_builtin" for agent_id in builtin_ids)
+    assert runtime_profile_expected_ids.issubset(profile_by_agent)
+    assert "agent:3" not in profile_by_agent
+    assert all(profile_by_agent[agent_id].lifecycle_policy == "system_builtin" for agent_id in runtime_profile_expected_ids)
     assert builtin_by_id["agent:1"].agent_name == "记忆管理Agent"
     assert builtin_by_id["agent:1"].interface_target == "memory_system_window"
     assert builtin_by_id["agent:1"].metadata["system_key"] == "memory_system"
@@ -354,12 +353,12 @@ def test_custom_agent_prompt_profile_metadata_is_not_runtime_adopted(tmp_path):
 
 def test_builtin_agent_runtime_profile_allows_regular_updates(tmp_path):
     runtime_registry = AgentRuntimeRegistry(tmp_path)
-    current = runtime_registry.get_profile("agent:3")
+    current = runtime_registry.get_profile("agent:2")
 
     assert current is not None
 
     updated = runtime_registry.upsert_profile(
-        agent_id="agent:3",
+        agent_id="agent:2",
         agent_profile_id=current.agent_profile_id,
         allowed_runtime_lanes=current.allowed_runtime_lanes,
         allowed_operations=(*current.allowed_operations, "op.write_file"),
@@ -484,42 +483,6 @@ def test_deleted_custom_agent_does_not_resurrect_from_defaults(tmp_path):
     assert agent_registry.get_agent("agent:custom_deleted_worker") is None
     assert runtime_registry.get_profile("agent:custom_deleted_worker") is None
     assert group_registry.get_group("group.custom.deleted_worker").member_agent_ids == ()
-
-
-def test_runtime_assembly_filters_context_sections_by_agent_profile():
-    manifest = ContractManifest(
-        manifest_id="contract-manifest:test",
-        manifest_kind="single",
-        task_ref="task.test",
-        workflow_id="workflow.test",
-        global_contracts=(
-            CompiledGlobalContract(
-                contract_id="contract.test.output",
-                title_zh="输出契约",
-                contract_kind="final_output",
-                source_ref="task.test",
-                output_fields=({"field_id": "answer", "required": True},),
-            ),
-        ),
-    )
-    profile = AgentRuntimeProfile(
-        agent_profile_id="task_only_agent",
-        agent_id="agent:99",
-        allowed_context_sections=("task",),
-    )
-
-    assembly = build_single_agent_runtime_assembly(
-        manifest=manifest,
-        agent_profile=profile,
-        explicit_inputs={"goal": "测试"},
-    )
-    payload = assembly.to_dict()
-
-    assert [item["section_id"] for item in payload["context_sections"]] == ["task_inputs"]
-    assert payload["diagnostics"]["context_sections_hidden_by_profile"] == [
-        "main_session_history",
-        "runtime_contracts",
-    ]
 
 
 def test_worker_agent_blueprints_include_role_templates():

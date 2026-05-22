@@ -9,7 +9,6 @@ from runtime import (
     RuntimeContextManager,
     TaskRunLoop,
     build_node_runtime_assembly,
-    build_single_agent_runtime_assembly,
 )
 from agent_system.assembly.runtime_chain import _memory_request_profile_for_context_assembly
 from runtime.contracts.compiler_models import (
@@ -87,32 +86,6 @@ def _manifest() -> ContractManifest:
             ),
         ),
     )
-
-
-def test_single_agent_runtime_assembly_preserves_manifest_refs_and_output_contracts() -> None:
-    profile = AgentRuntimeProfile(
-        agent_profile_id="test_profile",
-        agent_id="agent:test",
-        allowed_runtime_lanes=("readonly_exploration",),
-    )
-
-    assembly = build_single_agent_runtime_assembly(
-        manifest=_manifest(),
-        agent_profile=profile,
-        explicit_inputs={"goal": "测试"},
-        runtime_lane="readonly_exploration",
-    )
-
-    payload = assembly.to_dict()
-    assert payload["authority"] == "orchestration.single_agent_runtime_assembly"
-    assert payload["manifest_ref"] == "contract-manifest:test"
-    assert payload["agent_id"] == "agent:test"
-    assert payload["diagnostics"]["full_history_included"] is False
-    assert payload["diagnostics"]["agent_resolution_source"] == "agent_profile"
-    assert payload["diagnostics"]["agent_profile_ref"] == "test_profile"
-    assert payload["diagnostics"]["prompt_manifest_ref"] == "contract-manifest:test"
-    assert any(item["contract_id"] == "contract.test.output" for item in payload["output_contracts"])
-    assert any(item["section_id"] == "task_inputs" for item in payload["context_sections"])
 
 
 def test_node_runtime_assembly_hides_main_history_and_links_handoff_packet() -> None:
@@ -382,26 +355,6 @@ def test_stage_execution_request_carries_runtime_assembly() -> None:
     assert restored.to_dict()["runtime_assembly"]["projection_id"] == "projection.test.node_worker"
 
 
-def test_task_run_loop_start_writes_runtime_assembly_refs_to_trace(tmp_path: Path) -> None:
-    assembly = build_single_agent_runtime_assembly(
-        manifest=_manifest(),
-        agent_profile=AgentRuntimeProfile(agent_profile_id="test_profile", agent_id="agent:test"),
-    )
-
-    result = TaskRunLoop(tmp_path, backend_dir=Path("backend")).start(
-        session_id="session:test",
-        task_id="task:test",
-        agent_id="agent:test",
-        agent_profile_id="test_profile",
-        runtime_assembly=assembly.to_dict(),
-    )
-
-    assert result.task_run.diagnostics["runtime_assembly_ref"] == assembly.assembly_id
-    assert result.loop_state.diagnostics["contract_manifest_ref"] == assembly.manifest_ref
-    started_event = result.events[0]
-    assert started_event["refs"]["runtime_assembly_ref"] == assembly.assembly_id
-
-
 def test_task_run_loop_starts_task_graph_with_real_dispatch_plan(tmp_path: Path) -> None:
     graph = TaskGraphDefinition(
         graph_id="graph.test.task_graph_run",
@@ -561,104 +514,6 @@ def test_task_run_loop_rejects_legacy_task_graph_fallback_when_langgraph_support
             graph=graph,
             runtime_spec=runtime_spec,
         )
-
-
-def test_runtime_assembly_includes_working_memory_sections_when_provided() -> None:
-    assembly = build_single_agent_runtime_assembly(
-        manifest=_manifest(),
-        agent_profile=AgentRuntimeProfile(agent_profile_id="test_profile", agent_id="agent:test"),
-        working_memory_context={
-            "task_run_id": "taskrun:test",
-            "graph_id": "graph:test",
-            "owner_node_id": "writer",
-            "node_run_id": "writer.run.001",
-            "working_memory.required": {
-                "item_count": 2,
-                "refs": ["wm:1", "wm:2"],
-                "content_mode": "summary",
-            },
-            "working_memory.conflict_warnings": {
-                "item_count": 1,
-                "refs": ["wm:conflict:1"],
-                "content_mode": "warning_summary",
-            },
-        },
-    )
-
-    payload = assembly.to_dict()
-    section_ids = [item["section_id"] for item in payload["context_sections"]]
-
-    assert "working_memory.required" in section_ids
-    assert "working_memory.conflict_warnings" in section_ids
-    assert payload["diagnostics"]["working_memory_enabled"] is True
-    assert payload["diagnostics"]["working_memory_required_count"] == 2
-    assert payload["diagnostics"]["working_memory_conflict_count"] == 1
-
-
-def test_runtime_assembly_includes_formal_memory_section_when_provided() -> None:
-    assembly = build_single_agent_runtime_assembly(
-        manifest=_manifest(),
-        agent_profile=AgentRuntimeProfile(agent_profile_id="test_profile", agent_id="agent:test"),
-        working_memory_context={
-            "task_run_id": "taskrun:test",
-            "graph_id": "graph:test",
-            "owner_node_id": "writer",
-            "node_run_id": "writer.run.001",
-            "formal_memory.required_records": [
-                {
-                    "version_id": "fmver:world:001",
-                    "record_key": "world_bible.current",
-                    "canonical_text": "正式仓库中的世界观。",
-                    "authority": "formal_memory.resolved_record",
-                }
-            ],
-            "formal_memory.read_log_ids": ["fmread:world:001"],
-            "diagnostics": {
-                "formal_memory_primary": True,
-                "working_memory_legacy_read_enabled": False,
-            },
-        },
-    )
-
-    payload = assembly.to_dict()
-    section_ids = [item["section_id"] for item in payload["context_sections"]]
-
-    assert "formal_memory.required_records" in section_ids
-    assert payload["diagnostics"]["formal_memory_required_count"] == 1
-    assert payload["diagnostics"]["formal_memory_primary"] is True
-    assert payload["diagnostics"]["working_memory_legacy_read_enabled"] is False
-
-
-def test_runtime_assembly_includes_task_durable_sections_when_provided() -> None:
-    assembly = build_single_agent_runtime_assembly(
-        manifest=_manifest(),
-        agent_profile=AgentRuntimeProfile(agent_profile_id="test_profile", agent_id="agent:test"),
-        task_durable_memory_context={
-            "namespace_id": "tdmns:test",
-            "task_id": "task.test",
-            "graph_id": "graph:test",
-            "task_durable_memory.required": {
-                "item_count": 1,
-                "refs": ["tdm:1"],
-                "content_mode": "summary",
-            },
-            "task_durable_memory.preferred": {
-                "item_count": 2,
-                "refs": ["tdm:2", "tdm:3"],
-                "content_mode": "summary",
-            },
-        },
-    )
-
-    payload = assembly.to_dict()
-    section_ids = [item["section_id"] for item in payload["context_sections"]]
-
-    assert "task_durable_memory.required" in section_ids
-    assert "task_durable_memory.preferred" in section_ids
-    assert payload["diagnostics"]["task_durable_memory_enabled"] is True
-    assert payload["diagnostics"]["task_durable_memory_namespace_id"] == "tdmns:test"
-    assert payload["diagnostics"]["task_durable_memory_required_count"] == 1
-    assert payload["diagnostics"]["task_durable_memory_preferred_count"] == 2
 
 
 def test_stage_execution_request_carries_working_memory_refs() -> None:

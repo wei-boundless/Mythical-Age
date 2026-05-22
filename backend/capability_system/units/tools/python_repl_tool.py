@@ -11,6 +11,7 @@ from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from runtime_encoding import utf8_subprocess_text_kwargs
+from capability_system.units.tools.sandbox_command_guard import validate_sandbox_command_text
 
 
 class PythonReplInput(BaseModel):
@@ -33,9 +34,9 @@ class PythonReplTool(BaseTool):
         code: str,
         run_manager: CallbackManagerForToolRun | None = None,
     ) -> str:
-        lowered = str(code or "").lower()
-        if any(pattern in lowered for pattern in ("../", "..\\", "c:\\", "c:/", "d:\\", "d:/", "/etc/", "/var/", "/usr/")):
-            return "Blocked: code references a path outside the sandbox workspace."
+        blocked_reason = validate_sandbox_command_text(code, kind="code")
+        if blocked_reason:
+            return blocked_reason
         try:
             completed = subprocess.run(
                 [sys.executable, "-c", code],

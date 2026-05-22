@@ -51,6 +51,7 @@ import { useAppStore } from "@/lib/store";
 type AgentCategory = "main_agent" | "builtin_agent" | "custom_agent";
 type OrchestrationLayer = "identity" | "groups" | "runtime_permissions" | "model_runtime" | "context_memory" | "collaboration" | "overview" | "diagnostics";
 type CustomDirectoryMode = "grouped" | "ungrouped";
+type AssemblySelectionKind = "agent" | "group" | "empty";
 
 type AgentDraft = OrchestrationAgentUpsertPayload & {
 };
@@ -66,7 +67,7 @@ const CATEGORY_ORDER: AgentCategory[] = ["main_agent", "builtin_agent", "custom_
 const CATEGORY_LABELS: Record<AgentCategory, string> = {
   main_agent: "主 Agent",
   builtin_agent: "内置 Agent",
-  custom_agent: "自定义 Agent",
+  custom_agent: "子 Agent",
 };
 
 const EMPTY_AGENT_DRAFT: AgentDraft = {
@@ -104,7 +105,7 @@ const EMPTY_RUNTIME_DRAFT: RuntimeDraft = {
 
 const EMPTY_GROUP_DRAFT: AgentGroupDraft = {
   group_id: "group.custom.worker_group_01",
-  title: "新自定义 Agent 组",
+  title: "新子 Agent 组",
   group_kind: "coordination_team",
   coordinator_agent_id: "",
   member_agent_ids: [],
@@ -128,7 +129,7 @@ function displayId(value: unknown, fallback = "未配置") {
   const labels: Record<string, string> = {
     main_agent: "主 Agent",
     builtin_agent: "内置 Agent",
-    custom_agent: "自定义 Agent",
+    custom_agent: "子 Agent",
     coordination_team: "协调任务组",
     enabled: "启用",
     disabled: "停用",
@@ -509,6 +510,11 @@ export function OrchestrationView() {
 
   const selectedAgent = agents.find((agent) => String(agent.agent_id) === selectedAgentId) ?? null;
   const selectedGroup = agentGroups.find((group) => group.group_id === selectedGroupId) ?? null;
+  const selectionKind: AssemblySelectionKind = activeCategory === "custom_agent" && customDirectoryMode === "grouped" && activeLayer === "groups"
+    ? "group"
+    : selectedAgent || agentMode === "new"
+      ? "agent"
+      : "empty";
   const selectedProfile = (selectedAgent?.runtime_profile ?? {}) as Partial<OrchestrationAgentRuntimeProfile>;
   const operationOptions = useMemo(
     () => (catalog?.options.operations ?? []).map((item) => String(item.operation_id || "")).filter(Boolean),
@@ -641,13 +647,11 @@ export function OrchestrationView() {
     ["overview", "总览", ""],
     ["diagnostics", "诊断", overlapOps.length ? "冲突" : ""],
   ];
-  const layerTabs: Array<[OrchestrationLayer, string, string]> = activeCategory === "custom_agent"
-    ? customDirectoryMode === "grouped" && !selectedAgent && agentMode !== "new"
-      ? [["groups", "组", String(agentGroups.length)]]
-      : customDirectoryMode === "grouped"
-        ? [["groups", "组", String(agentGroups.length)], ...agentLayerTabs]
-        : agentLayerTabs
-    : agentLayerTabs;
+  const layerTabs: Array<[OrchestrationLayer, string, string]> = selectionKind === "group"
+    ? [["groups", "分组", String(splitList(groupDraft.member_agent_ids_text).length)]]
+    : activeCategory === "custom_agent" && customDirectoryMode === "grouped"
+      ? [["groups", "分组", String(agentGroups.length)], ...agentLayerTabs]
+      : agentLayerTabs;
 
   const selectedGroupAgents = useMemo(() => {
     if (!selectedGroup) return [];
@@ -675,6 +679,24 @@ export function OrchestrationView() {
     ? `${uniqueList(runtimeDraft.allowed_delegate_agent_ids).length || "不限"} 个目标`
     : "未开放委派";
   const runtimeLaneDiagnostics = (catalog?.options as { runtime_lane_diagnostics?: Record<string, unknown> } | undefined)?.runtime_lane_diagnostics;
+  const selectedGroupCoordinator = selectedGroup
+    ? agents.find((agent) => String(agent.agent_id ?? "") === selectedGroup.coordinator_agent_id)
+    : null;
+  const focusSummary = selectionKind === "group"
+    ? {
+        eyebrow: groupMode === "new" ? "子 Agent 分组草稿" : "子 Agent 分组",
+        title: groupDraft.title || groupDraft.group_id || "请选择或新建 Agent 组",
+        body: groupDraft.description || `协调者 ${displayName(selectedGroupCoordinator)}`,
+        id: groupDraft.group_id || "未生成组 ID",
+        badge: groupMembersChanged ? "成员未保存" : `${splitList(groupDraft.member_agent_ids_text).length} 个成员`,
+      }
+    : {
+        eyebrow: CATEGORY_LABELS[agentDraft.agent_category as AgentCategory] ?? "Agent",
+        title: agentDraft.agent_name || agentDraft.agent_id || "请选择或新建 Agent",
+        body: agentDraft.description || "配置 Agent 身份与运行边界。",
+        id: agentDraft.agent_id || "未生成 ID",
+        badge: agentMode === "new" ? "新建草稿" : builtinManagedAgent ? "内置来源" : "可配置",
+      };
 
   function selectCategory(category: AgentCategory) {
     setActiveCategory(category);
@@ -688,7 +710,8 @@ export function OrchestrationView() {
       setSelectedGroupId(firstGroup?.group_id || "");
       setSelectedAgentId("");
     } else {
-        setActiveLayer("identity");
+      setSelectedGroupId("");
+      setActiveLayer("identity");
       setSelectedAgentId(String(first?.agent_id || ""));
     }
   }
@@ -706,9 +729,12 @@ export function OrchestrationView() {
         setSelectedGroupId(group.group_id);
       } else {
         setCustomDirectoryMode("ungrouped");
+        setSelectedGroupId("");
       }
+    } else {
+      setSelectedGroupId("");
     }
-      setActiveLayer("identity");
+    setActiveLayer("identity");
   }
 
   function selectSubAgentGroup(groupId: string) {
@@ -716,6 +742,7 @@ export function OrchestrationView() {
     setGroupMode("existing");
     setCustomDirectoryMode("grouped");
     setSelectedAgentId("");
+    setAgentMode("existing");
     setActiveLayer("groups");
   }
 
@@ -750,6 +777,7 @@ export function OrchestrationView() {
     setAgentMode("new");
     setGroupMode("existing");
     setSelectedAgentId("");
+    setSelectedGroupId("");
     setActiveCategory("custom_agent");
     setCustomDirectoryMode("ungrouped");
     setActiveLayer("identity");
@@ -764,7 +792,7 @@ export function OrchestrationView() {
       agent_profile_id: `${draftAgentId.replace(/[:]/g, "_")}_runtime`,
       metadata: { ...EMPTY_RUNTIME_DRAFT.metadata },
     });
-    setNotice("已进入新 Agent 草稿。先保存 Agent 名册，再配置运行档案。");
+    setNotice("已进入新子 Agent 草稿。先保存 Agent 名册，再配置运行档案。");
     setError("");
   }
 
@@ -821,11 +849,11 @@ export function OrchestrationView() {
 
   async function saveAgentGroup() {
     if (!groupDraft.group_id.trim()) {
-      setError("自定义 Agent 组标识不能为空。");
+      setError("子 Agent 组标识不能为空。");
       return;
     }
     if (!groupDraft.title.trim()) {
-      setError("自定义 Agent 组名称不能为空。");
+      setError("子 Agent 组名称不能为空。");
       return;
     }
     setSaving("group");
@@ -853,10 +881,10 @@ export function OrchestrationView() {
     setGroupDraft({
       ...EMPTY_GROUP_DRAFT,
       group_id: makeCustomGroupId(agentGroups),
-      title: "新自定义 Agent 组",
+      title: "新子 Agent 组",
       metadata: { managed_by: "orchestration_console" },
     });
-    setNotice("已进入自定义 Agent 组草稿。");
+    setNotice("已进入子 Agent 组草稿。");
     setError("");
   }
 
@@ -868,17 +896,6 @@ export function OrchestrationView() {
         : [...currentIds, agentId];
       return { ...current, member_agent_ids_text: nextIds.join("\n") };
     });
-  }
-
-  function includeAllVisibleWorkers() {
-    setGroupDraft((current) => ({
-      ...current,
-      member_agent_ids_text: visibleCustomAgents.map((agent) => String(agent.agent_id)).join("\n"),
-    }));
-  }
-
-  function clearGroupMembers() {
-    setGroupDraft((current) => ({ ...current, member_agent_ids_text: "" }));
   }
 
   async function removeAgent(agentId?: string) {
@@ -956,6 +973,7 @@ export function OrchestrationView() {
           selectCategory={selectCategory}
           selectedAgentId={selectedAgentId}
           selectedGroupId={selectedGroupId}
+          selectionKind={selectionKind}
           selectSubAgentGroup={selectSubAgentGroup}
           selectCustomDirectoryMode={selectCustomDirectoryMode}
           setQuery={setQuery}
@@ -974,15 +992,15 @@ export function OrchestrationView() {
         />
 
         <main className="boundary-main">
-          <section className="orchestration-agent-focus">
+          <section className={selectionKind === "group" ? "orchestration-agent-focus orchestration-agent-focus--group" : "orchestration-agent-focus"}>
             <div>
-              <span>{CATEGORY_LABELS[agentDraft.agent_category as AgentCategory] ?? "Agent"}</span>
-              <h3>{agentDraft.agent_name || agentDraft.agent_id || "请选择或新建 Agent"}</h3>
-              <p>{agentDraft.description || "配置 Agent 身份与运行边界。"}</p>
+              <span>{focusSummary.eyebrow}</span>
+              <h3>{focusSummary.title}</h3>
+              <p>{focusSummary.body}</p>
             </div>
             <div className="orchestration-agent-focus__meta">
-              <span>{agentDraft.agent_id || "未生成 ID"}</span>
-              <b>{agentMode === "new" ? "新建草稿" : builtinManagedAgent ? "内置来源" : "可配置"}</b>
+              <span>{focusSummary.id}</span>
+              <b>{focusSummary.badge}</b>
             </div>
           </section>
           <nav className="boundary-layer-tabs" aria-label="编排系统层级">
@@ -994,10 +1012,11 @@ export function OrchestrationView() {
             ))}
           </nav>
 
-          {!selectedAgent && agentMode !== "new" && !(activeCategory === "custom_agent" && activeLayer === "groups") ? <div className="boundary-empty boundary-empty--large">请选择一个 Agent，或新建 Agent 草稿。</div> : null}
+          {selectionKind === "empty" ? <div className="boundary-empty boundary-empty--large">请选择一个 Agent，或新建子 Agent 草稿。</div> : null}
 
-          {activeCategory === "custom_agent" && activeLayer === "groups" ? (
+          {selectionKind === "group" ? (
             <OrchestrationGroupWorkbench
+              agents={agents}
               groupDraft={groupDraft}
               groupDraftAvailableAgents={groupDraftAvailableAgents}
               groupDraftMemberAgents={groupDraftMemberAgents}

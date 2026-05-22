@@ -81,7 +81,6 @@ export function TaskGraphStudioShell({
   onLayerChange,
   onPublish,
   onSave,
-  onSendToChat,
   publishState,
   saving,
   title,
@@ -104,7 +103,6 @@ export function TaskGraphStudioShell({
   onLayerChange: (layer: TaskGraphStudioLayerId) => void;
   onPublish: () => void;
   onSave: () => void;
-  onSendToChat: () => void;
   publishState: TaskGraphPublishStateV2;
   saving: string;
   title: string;
@@ -123,7 +121,6 @@ export function TaskGraphStudioShell({
         nodeCount={nodeCount}
         onPublish={onPublish}
         onSave={onSave}
-        onSendToChat={onSendToChat}
         publishState={publishState}
         saving={saving}
         title={title}

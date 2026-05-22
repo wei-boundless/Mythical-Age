@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, MessageSquareShare, Save, Send } from "lucide-react";
+import { CheckCircle2, Save, Send } from "lucide-react";
 
 import { TaskSystemToolbarButton } from "./TaskSystemWorkbenchUi";
 import { isTaskGraphPublishedState, taskGraphPublishStateLabel, type TaskGraphPublishStateV2 } from "./taskGraphDraftV2";
@@ -13,7 +13,6 @@ export function TaskGraphTopBar({
   edgeCount,
   onPublish,
   onSave,
-  onSendToChat,
   publishState,
   saving,
   title,
@@ -26,7 +25,6 @@ export function TaskGraphTopBar({
   edgeCount: number;
   onPublish: () => void;
   onSave: () => void;
-  onSendToChat: () => void;
   publishState: TaskGraphPublishStateV2;
   saving: string;
   title: string;
@@ -65,9 +63,6 @@ export function TaskGraphTopBar({
         <TaskSystemToolbarButton disabled={!valid || saving === "task-graph"} onClick={onPublish} variant="primary">
           {published ? <CheckCircle2 size={15} /> : <Send size={15} />}
           发布可运行
-        </TaskSystemToolbarButton>
-        <TaskSystemToolbarButton onClick={onSendToChat}>
-          <MessageSquareShare size={15} />带入会话
         </TaskSystemToolbarButton>
       </div>
     </header>

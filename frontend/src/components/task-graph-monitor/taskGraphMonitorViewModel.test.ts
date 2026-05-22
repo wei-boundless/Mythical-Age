@@ -71,7 +71,7 @@ function monitorView(): TaskGraphRunMonitorView {
 }
 
 describe("buildTaskGraphMonitorViewModel", () => {
-  it("renders only realtime communication edges from canonical monitor", () => {
+  it("renders complete topology edges from canonical monitor", () => {
     const model = buildTaskGraphMonitorViewModel(monitorView());
 
     expect(model.hasSignal).toBe(true);
@@ -79,6 +79,7 @@ describe("buildTaskGraphMonitorViewModel", () => {
     expect(model.nodes.map((node) => node.id)).toEqual(["world", "outline", "memory"]);
     expect(model.edges.map((edge) => `${edge.from}->${edge.to}`)).toEqual([
       "world->outline",
+      "outline->memory",
     ]);
     expect(model.activeNodeId).toBe("outline");
     expect(model.memoryOperations[0].refs).toEqual(["wm:world"]);
@@ -117,24 +118,24 @@ describe("buildTaskGraphMonitorViewModel", () => {
     expect(model.projectRuntimeStatus).toBe("watching");
   });
 
-  it("keeps completed static topology edges out of the realtime canvas", () => {
+  it("keeps completed topology edges visible for progress continuity", () => {
     const monitor = monitorView();
     monitor.topology.edges = monitor.topology.edges.map((edge) => ({ ...edge, status: "completed" }));
 
     const model = buildTaskGraphMonitorViewModel(monitor);
 
     expect(model.edgeCount).toBe(2);
-    expect(model.edges).toEqual([]);
+    expect(model.edges.map((edge) => edge.status)).toEqual(["completed", "completed"]);
   });
 
-  it("keeps blocked non-working topology edges out of the realtime canvas", () => {
+  it("keeps blocked topology edges visible for progress diagnostics", () => {
     const monitor = monitorView();
     monitor.topology.edges = monitor.topology.edges.map((edge) => ({ ...edge, status: "blocked" }));
 
     const model = buildTaskGraphMonitorViewModel(monitor);
 
     expect(model.edgeCount).toBe(2);
-    expect(model.edges).toEqual([]);
+    expect(model.edges.map((edge) => edge.status)).toEqual(["blocked", "blocked"]);
   });
 
   it("does not synthesize fallback edges when monitor has no valid topology edges", () => {

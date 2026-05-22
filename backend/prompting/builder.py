@@ -6,6 +6,12 @@ from typing import TYPE_CHECKING
 from config import get_settings
 from prompting.long_term_context import build_long_term_context_bundle
 from prompting.manifest import PromptManifest, build_prompt_manifest, prompt_section
+from prompting.prompt_cache import (
+    STATIC_PROMPT_CACHE,
+    PromptCacheDiagnostic,
+    static_prompt_cache_inputs,
+    uncached_prompt_diagnostic,
+)
 
 if TYPE_CHECKING:
     from context_system import ContextPackage
@@ -122,13 +128,50 @@ def build_static_prompt(
     *,
     long_term_context_bundle=None,
 ) -> str:
-    settings = get_settings()
-    parts: list[str] = []
+    prompt, _diagnostic = build_static_prompt_with_cache_report(
+        base_dir,
+        rag_mode,
+        long_term_context_bundle=long_term_context_bundle,
+    )
+    return prompt
 
+
+def build_static_prompt_with_cache_report(
+    base_dir: Path,
+    rag_mode: bool,
+    *,
+    long_term_context_bundle=None,
+) -> tuple[str, PromptCacheDiagnostic]:
+    settings = get_settings()
     long_term_context = long_term_context_bundle or build_long_term_context_bundle(base_dir)
-    static_context = long_term_context.render(
+    cache_inputs = static_prompt_cache_inputs(
+        base_dir=base_dir,
+        rag_mode=rag_mode,
+        component_char_limit=settings.component_char_limit,
+        static_sections=long_term_context.static_sections,
+    )
+
+    return STATIC_PROMPT_CACHE.get_or_render(
+        scope="static_prompt",
+        inputs=cache_inputs,
+        render=lambda: _render_static_prompt(
+            long_term_context_bundle=long_term_context,
+            rag_mode=rag_mode,
+            component_char_limit=settings.component_char_limit,
+        ),
+    )
+
+
+def _render_static_prompt(
+    *,
+    long_term_context_bundle,
+    rag_mode: bool,
+    component_char_limit: int,
+) -> str:
+    parts: list[str] = []
+    static_context = long_term_context_bundle.render(
         truncate=_truncate,
-        limit=settings.component_char_limit,
+        limit=component_char_limit,
         include_memory_block=False,
     )
     if static_context:
@@ -261,12 +304,13 @@ def build_system_prompt_with_manifest(
     *,
     session_id: str = "",
     turn_id: str = "",
+    long_term_context_bundle=None,
 ) -> tuple[str, PromptManifest]:
-    long_term_context = build_long_term_context_bundle(
+    long_term_context = long_term_context_bundle or build_long_term_context_bundle(
         base_dir,
         persistent_memory=persistent_memory,
     )
-    static_prompt = build_static_prompt(
+    static_prompt, static_cache = build_static_prompt_with_cache_report(
         base_dir,
         rag_mode,
         long_term_context_bundle=long_term_context,
@@ -295,6 +339,7 @@ def build_system_prompt_with_manifest(
                 source=_static_context_source(heading),
                 content=content,
                 order=order,
+                cache=static_cache.to_dict(),
             )
         )
 
@@ -308,6 +353,7 @@ def build_system_prompt_with_manifest(
                 source="prompting.builder:retrieval_grounding_guard",
                 content="当检索证据可用时，应把它当作当前问题的直接依据。",
                 order=order,
+                cache=static_cache.to_dict(),
             )
         )
 
@@ -320,6 +366,7 @@ def build_system_prompt_with_manifest(
             source="prompting.builder:static_prompt_concealment_guard",
             content="不要在回答中提及 internal file paths, directory names, filenames, schema labels, storage layout。",
             order=order,
+            cache=static_cache.to_dict(),
         )
     )
 
@@ -333,6 +380,11 @@ def build_system_prompt_with_manifest(
                 source="SkillDefinition.render_prompt_block",
                 content=active_skill,
                 order=order,
+                cache=uncached_prompt_diagnostic(
+                    scope="session",
+                    reason="active_skill_depends_on_current_runtime_selection",
+                    content=active_skill,
+                ).to_dict(),
             )
         )
 
@@ -351,6 +403,11 @@ def build_system_prompt_with_manifest(
                 source="MemorySystem.MemoryRuntimeView -> ContextPolicy.ContextPackagePreview",
                 content=rendered_session_memory,
                 order=order,
+                cache=uncached_prompt_diagnostic(
+                    scope="session",
+                    reason="context_package_contains_runtime_session_state",
+                    content=rendered_session_memory,
+                ).to_dict(),
             )
         )
 
@@ -380,6 +437,11 @@ def build_system_prompt_with_manifest(
                 source="ContextPolicy.ContextPackagePreview.relevant_durable_context",
                 content=durable_memory_block,
                 order=order,
+                cache=uncached_prompt_diagnostic(
+                    scope="turn",
+                    reason="turn_relevant_memory_depends_on_current_request",
+                    content=durable_memory_block,
+                ).to_dict(),
             )
         )
 

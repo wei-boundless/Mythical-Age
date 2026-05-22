@@ -22,7 +22,6 @@ def start_graph_module_stage_request(
     identity: dict[str, Any],
     schedule_stage_execution_background: Callable[..., dict[str, Any]],
     node_work_order: dict[str, Any] | None = None,
-    agent_assembly_contract: dict[str, Any] | None = None,
     current_turn_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     task_run_loop = runtime.query_runtime.task_run_loop
@@ -66,7 +65,6 @@ def start_graph_module_stage_request(
         build_runtime_control_payload(
             stage_execution_request=request_payload,
             node_work_order=work_order_payload,
-            agent_assembly_contract=dict(agent_assembly_contract or {}),
             standard_input_package=dict(
                 handle.get("standard_input_package")
                 or work_order_payload.get("input_package")
@@ -88,7 +86,6 @@ def start_graph_module_stage_request(
         "importing_stage_execution_request_ref": str(request_payload.get("request_id") or request_payload.get("idempotency_key") or ""),
         "importing_runtime_control_summary": runtime_control_summary,
         "importing_node_work_order_ref": str(runtime_control_summary.get("work_order_id") or ""),
-        "importing_agent_assembly_contract_ref": str(runtime_control_summary.get("assembly_id") or ""),
         "importing_standard_input_package": dict(
             handle.get("standard_input_package")
             or work_order_payload.get("input_package")

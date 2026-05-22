@@ -77,7 +77,6 @@ export type TaskGraphWorkbenchProps = {
   saving: string;
   applyTaskGraphTemplate: (template: TaskGraphTemplateId, options?: Partial<TaskGraphTemplateBuildInput>) => void;
   duplicateTaskGraphDraft: () => Promise<void>;
-  sendTaskGraphToChat: (task: TaskGraphRecord | null, domain: TaskGraphDomainRecordLike | null) => void;
   saveTaskGraphStack: (nextPublished?: boolean, nextEditorPublishState?: TaskGraphPublishStateV2) => Promise<void>;
   editorValid: boolean;
   editorIssueCount: number;

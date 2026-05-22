@@ -96,10 +96,10 @@ from .checkpoint_adapter import LangGraphCheckpointStoreAdapter
 from .runtime_kernel import LangGraphRuntimeKernel
 from .work_order_builder import build_node_work_order_from_request
 from ..agent_assembly import (
-    build_agent_assembly_contract,
     build_model_context_payload,
     build_runtime_control_payload,
     build_task_selection_payload,
+    runtime_control_ref_summary,
 )
 from ..shared.runtime_object_store import RuntimeObjectStore
 from ..shared.models import AgentHandoffEnvelope, CoordinationRun
@@ -179,7 +179,6 @@ class CoordinationRuntimeState(TypedDict, total=False):
     current_event: dict[str, Any]
     current_task_result: dict[str, Any]
     node_work_order: dict[str, Any]
-    agent_assembly_contract: dict[str, Any]
     node_execution_request: dict[str, Any]
     stage_execution_request: dict[str, Any]
     a2a_payload: dict[str, Any]
@@ -201,13 +200,11 @@ class LangGraphCoordinationRuntimeResult:
     events: tuple[Any, ...] = ()
     stage_execution_request: NodeExecutionRequest | None = None
     node_work_order: dict[str, Any] = field(default_factory=dict)
-    agent_assembly_contract: dict[str, Any] = field(default_factory=dict)
     checkpoint_ref: str = ""
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     def continuation_payload(self, *, session_id: str, current_turn_context: dict[str, Any] | None = None) -> dict[str, Any]:
         work_order = dict(self.node_work_order or {})
-        assembly_contract = dict(self.agent_assembly_contract or {})
         if self.stage_execution_request is None and not work_order:
             return {}
         request = self.stage_execution_request or NodeExecutionRequest.from_dict(
@@ -224,14 +221,12 @@ class LangGraphCoordinationRuntimeResult:
             stage_execution_request=stage_request_payload,
             stage_execution_request_ref=stage_request_ref,
             node_work_order=work_order,
-            agent_assembly_contract=assembly_contract,
             standard_input_package=standard_input_package,
         )
         turn_context = build_model_context_payload(
             current_turn_context=current_turn_context,
             stage_execution_request=stage_request_payload,
             node_work_order=work_order,
-            agent_assembly_contract=assembly_contract,
             stage_execution_request_ref=stage_request_ref,
         )
         if work_order_executor_type == "human":
@@ -245,7 +240,6 @@ class LangGraphCoordinationRuntimeResult:
                 "runtime_control": runtime_control,
                 "stage_execution_request": stage_request_payload,
                 "node_work_order": work_order,
-                "agent_assembly_contract": assembly_contract,
                 "a2a_payload": a2a_payload,
                 "human_work_packet": dict(work_order.get("human_work_packet") or request.human_work_packet),
                 "requires_human_executor": True,
@@ -262,7 +256,6 @@ class LangGraphCoordinationRuntimeResult:
                 "runtime_control": runtime_control,
                 "stage_execution_request": stage_request_payload,
                 "node_work_order": work_order,
-                "agent_assembly_contract": assembly_contract,
                 "a2a_payload": a2a_payload,
                 "graph_module_runtime_handle": dict(
                     dict(work_order.get("runtime_assembly") or request.runtime_assembly).get("graph_module_runtime_handle") or {}
@@ -282,7 +275,6 @@ class LangGraphCoordinationRuntimeResult:
             "runtime_control": runtime_control,
             "task_selection": build_task_selection_payload(
                 current_turn_context=turn_context,
-                agent_assembly_contract=assembly_contract,
                 runtime_control=runtime_control,
             ),
             "suppress_done": True,
@@ -909,7 +901,6 @@ class LangGraphCoordinationRuntime:
             events=tuple(events),
             stage_execution_request=request,
             node_work_order=dict(state.get("node_work_order") or {}),
-            agent_assembly_contract=dict(state.get("agent_assembly_contract") or {}),
             checkpoint_ref=checkpoint.checkpoint_id,
             diagnostics={
                 "supported": True,
@@ -1039,7 +1030,6 @@ class LangGraphCoordinationRuntime:
             events=tuple(events),
             stage_execution_request=requests[-1] if requests else None,
             node_work_order=dict(state.get("node_work_order") or {}),
-            agent_assembly_contract=dict(state.get("agent_assembly_contract") or {}),
             checkpoint_ref=checkpoint.checkpoint_id,
             diagnostics={
                 "supported": True,
@@ -2541,10 +2531,11 @@ class LangGraphCoordinationRuntime:
             },
         )
         node_work_order = build_node_work_order_from_request(request, state=state)
-        agent_assembly_contract = build_agent_assembly_contract(
-            node_work_order,
-            base_dir=self.registry_base_dir,
-            agent_runtime_profile=agent_profile,
+        runtime_control = build_runtime_control_payload(
+            stage_execution_request=request.to_dict(),
+            stage_execution_request_ref=_stage_execution_request_ref(request.to_dict()),
+            node_work_order=node_work_order.to_dict(),
+            standard_input_package=standard_input_package.to_dict(),
         )
         if dispatch_event is not None:
             self._append_timeline_event(
@@ -2586,7 +2577,6 @@ class LangGraphCoordinationRuntime:
             "node_execution_request": request.to_dict(),
             "stage_execution_request": request.to_dict(),
             "node_work_order": node_work_order.to_dict(),
-            "agent_assembly_contract": agent_assembly_contract.to_dict(),
             "a2a_payload": a2a_payload,
             "pending_inputs": explicit_inputs,
             **({"batch_lifecycle_runtime_state": batch_runtime_state} if batch_runtime_state else {}),
@@ -2597,6 +2587,7 @@ class LangGraphCoordinationRuntime:
             "terminal_status": "",
             "diagnostics": {
                 **dict(state.get("diagnostics") or {}),
+                "runtime_control_summary": runtime_control_ref_summary(runtime_control),
                 **({"batch_lifecycle_runtime_state": batch_runtime_state} if batch_runtime_state else {}),
             },
         }
@@ -4231,7 +4222,6 @@ def _runtime_result_from_state(
         events=events,
         stage_execution_request=request,
         node_work_order=dict(state.get("node_work_order") or {}),
-        agent_assembly_contract=dict(state.get("agent_assembly_contract") or {}),
         checkpoint_ref=checkpoint_ref,
         diagnostics=diagnostics,
     )
@@ -5017,7 +5007,6 @@ def _clear_execution_boundary(state: dict[str, Any], *, terminal_status: str) ->
 def _execution_boundary_cleared() -> dict[str, Any]:
     return {
         "node_work_order": {},
-        "agent_assembly_contract": {},
         "node_execution_request": {},
         "stage_execution_request": {},
         "a2a_payload": {},
@@ -5027,7 +5016,6 @@ def _execution_boundary_cleared() -> dict[str, Any]:
 def _execution_boundary_preserved(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "node_work_order": dict(state.get("node_work_order") or {}),
-        "agent_assembly_contract": dict(state.get("agent_assembly_contract") or {}),
         "node_execution_request": _active_execution_request_payload(state),
         "stage_execution_request": dict(state.get("stage_execution_request") or {}),
         "a2a_payload": dict(state.get("a2a_payload") or {}),

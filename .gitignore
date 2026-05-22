@@ -15,6 +15,7 @@ node_modules/
 frontend/.next/
 frontend/tsconfig.tsbuildinfo
 frontend/orchestration-*.png
+frontend/output-center-*.png
 backend/.env
 backend/storage/
 backend/session-memory/
@@ -43,8 +44,10 @@ storage/session_memory/
 storage/sessions/
 storage/indexes_v2/
 storage/modality_artifacts/
+storage/legacy_backend_root_*/
 working_memory/
 *.sqlite
 backend/tests/_artifacts/scifact_v2_*.json
 *.pyc
 *.pyo
+.tmp-*.png

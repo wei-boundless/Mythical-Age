@@ -18,12 +18,13 @@ export function ChatPanel() {
     currentSessionId,
     modelProviderConfig,
     soulImageAssetConfig,
+    mainAgentAssemblyMode,
+    setMainAgentAssemblyMode,
     selectedChatModelId,
     setSelectedChatModel,
     searchPolicy,
     toggleSearchPolicySource,
     taskSelection,
-    setTaskSelection,
   } = useAppStore();
   const endRef = useRef<HTMLDivElement | null>(null);
   const currentSessionStreaming = Boolean(currentSessionId && activeStreamSessionIds.includes(currentSessionId));
@@ -78,14 +79,15 @@ export function ChatPanel() {
           disabled={currentSessionStreaming}
           onSend={sendMessage}
           onStop={stopCurrentStream}
-          onClearTaskSelection={() => setTaskSelection(null)}
+          mainAgentAssemblyMode={mainAgentAssemblyMode}
           modelProviderConfig={modelProviderConfig}
           soulImageAssetConfig={soulImageAssetConfig}
+          onSelectMainAgentAssemblyMode={setMainAgentAssemblyMode}
           onToggleSearchPolicy={toggleSearchPolicySource}
           onSelectChatModel={setSelectedChatModel}
           searchPolicy={searchPolicy}
           selectedChatModelId={selectedChatModelId}
-          taskSelection={taskSelection}
+          taskSelection={taskSelection?.mode === "coordination" ? null : taskSelection}
         />
       </div>
     </section>

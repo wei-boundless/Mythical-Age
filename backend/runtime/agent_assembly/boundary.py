@@ -58,6 +58,20 @@ MODEL_CONTEXT_KEYS = frozenset(
     }
 )
 
+TASK_SEMANTIC_CONTEXT_KEYS = frozenset(
+    {
+        "interaction_mode",
+        "runtime_interaction_mode",
+        "intent_decision",
+        "runtime_assembly_hint",
+        "mode_policy",
+        "runtime_mode_policy",
+        "semantic_task_type",
+        "execution_obligation",
+        "structural_signals",
+    }
+)
+
 TASK_SELECTION_KEYS = frozenset(
     {
         "turn_id",
@@ -87,6 +101,7 @@ TASK_SELECTION_KEYS = frozenset(
         "sandbox_policy",
         "stream_policy",
         "runtime_assembly",
+        *TASK_SEMANTIC_CONTEXT_KEYS,
     }
 )
 
@@ -171,7 +186,12 @@ def build_model_context_payload(
         or context.get("projection_id")
         or ""
     ).strip()
-    stage_id = str(work_order.get("stage_id") or request.get("stage_id") or request.get("node_id") or "").strip()
+    work_kind = str(work_order.get("work_kind") or request.get("work_kind") or "").strip()
+    stage_id = ""
+    if work_kind and work_kind != "direct":
+        stage_id = str(work_order.get("stage_id") or request.get("stage_id") or request.get("node_id") or "").strip()
+    elif not work_kind and (work_order.get("stage_id") or request.get("stage_id")):
+        stage_id = str(work_order.get("stage_id") or request.get("stage_id") or request.get("node_id") or "").strip()
     request_ref = str(stage_execution_request_ref or request.get("request_id") or request.get("idempotency_key") or "").strip()
 
     overlays: dict[str, Any] = {
@@ -199,6 +219,18 @@ def build_model_context_payload(
         if has_value(value):
             context[key] = value
     return context
+
+
+def build_turn_context_payload(
+    *,
+    current_turn_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    allowed = MODEL_CONTEXT_KEYS | TASK_SELECTION_KEYS | TASK_SEMANTIC_CONTEXT_KEYS
+    return {
+        key: value
+        for key, value in strip_control_context(current_turn_context).items()
+        if key in allowed
+    }
 
 
 def build_task_selection_payload(
@@ -232,19 +264,18 @@ def build_task_selection_payload(
     request_ref = str(control.get("stage_execution_request_ref") or request.get("request_id") or request.get("idempotency_key") or "").strip()
     if request_ref:
         selection["stage_execution_request_ref"] = request_ref
-    stage_id = str(work_order.get("stage_id") or request.get("stage_id") or request.get("node_id") or "").strip()
+    work_kind = str(work_order.get("work_kind") or request.get("work_kind") or "").strip()
+    stage_id = ""
+    if work_kind and work_kind != "direct":
+        stage_id = str(work_order.get("stage_id") or request.get("stage_id") or request.get("node_id") or "").strip()
+    elif not work_kind and (work_order.get("stage_id") or request.get("stage_id")):
+        stage_id = str(work_order.get("stage_id") or request.get("stage_id") or request.get("node_id") or "").strip()
     if stage_id:
         selection["continuation_stage_id"] = stage_id
     coordination_run_id = str(work_order.get("coordination_run_id") or request.get("coordination_run_id") or "").strip()
     if coordination_run_id:
         selection["coordination_run_id"] = coordination_run_id
     return {key: value for key, value in selection.items() if has_value(value)}
-
-
-def agent_assembly_contract_from_runtime_control(payload: dict[str, Any] | None) -> dict[str, Any]:
-    item = dict(payload or {})
-    control = dict(item.get("runtime_control") or {})
-    return dict(control.get("agent_assembly_contract") or item.get("agent_assembly_contract") or {})
 
 
 def node_work_order_from_runtime_control(payload: dict[str, Any] | None) -> dict[str, Any]:

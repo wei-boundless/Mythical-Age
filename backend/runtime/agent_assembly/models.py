@@ -512,6 +512,67 @@ class ExecutionPermit:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class AgentInvocation:
+    invocation_id: str
+    work_order_id: str
+    assembly_id: str
+    task_ref: str
+    executor_type: str = "agent"
+    agent_id: str = ""
+    agent_profile_id: str = ""
+    runtime_lane: str = ""
+    work_order: dict[str, Any] = field(default_factory=dict)
+    assembly_contract: dict[str, Any] = field(default_factory=dict)
+    execution_permit: dict[str, Any] = field(default_factory=dict)
+    runtime_control: dict[str, Any] = field(default_factory=dict)
+    model_context: dict[str, Any] = field(default_factory=dict)
+    task_selection: dict[str, Any] = field(default_factory=dict)
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    authority: str = "runtime.agent_assembly.invocation"
+
+    def __post_init__(self) -> None:
+        if self.authority != "runtime.agent_assembly.invocation":
+            raise ValueError("AgentInvocation authority must be runtime.agent_assembly.invocation")
+        if not self.work_order_id:
+            raise ValueError("AgentInvocation requires work_order_id")
+        if not self.assembly_id:
+            raise ValueError("AgentInvocation requires assembly_id")
+        if not self.task_ref:
+            raise ValueError("AgentInvocation requires task_ref")
+        if not self.invocation_id:
+            object.__setattr__(
+                self,
+                "invocation_id",
+                f"agent-invocation:{stable_hash(self.identity_payload())}",
+            )
+
+    def identity_payload(self) -> dict[str, Any]:
+        return {
+            "work_order_id": self.work_order_id,
+            "assembly_id": self.assembly_id,
+            "task_ref": self.task_ref,
+            "executor_type": self.executor_type,
+            "agent_id": self.agent_id,
+            "agent_profile_id": self.agent_profile_id,
+            "runtime_lane": self.runtime_lane,
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["work_order"] = dict(self.work_order)
+        payload["assembly_contract"] = dict(self.assembly_contract)
+        payload["execution_permit"] = dict(self.execution_permit)
+        payload["runtime_control"] = dict(self.runtime_control)
+        payload["model_context"] = dict(self.model_context)
+        payload["current_turn_context"] = dict(self.model_context)
+        payload["task_selection"] = dict(self.task_selection)
+        payload["diagnostics"] = dict(self.diagnostics)
+        payload["metadata"] = dict(self.metadata)
+        return payload
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ExecutionResult:
     execution_result_id: str
     assembly_id: str

@@ -6,6 +6,7 @@ import { OrchestrationToolbarButton } from "@/components/workspace/views/orchest
 
 type AgentCategory = "main_agent" | "builtin_agent" | "custom_agent";
 type CustomDirectoryMode = "grouped" | "ungrouped";
+type AssemblySelectionKind = "agent" | "group" | "empty";
 
 function text(value: unknown, fallback = "-") {
   if (value === null || value === undefined || value === "") return fallback;
@@ -19,7 +20,7 @@ function displayId(value: unknown, fallback = "未配置") {
   const labels: Record<string, string> = {
     main_agent: "主 Agent",
     builtin_agent: "内置 Agent",
-    custom_agent: "自定义 Agent",
+    custom_agent: "子 Agent",
   };
   if (labels[raw]) return `${labels[raw]} · ${raw}`;
   return raw;
@@ -47,6 +48,7 @@ export function OrchestrationDirectoryRail({
   selectedAgentId,
   selectAgent,
   activeGroupItems,
+  selectionKind,
   saving,
   startBlankAgentDraft,
   startBlankGroupDraft,
@@ -70,6 +72,7 @@ export function OrchestrationDirectoryRail({
   selectedAgentId: string;
   selectAgent: (agentId: string) => void;
   activeGroupItems: Array<Record<string, unknown>>;
+  selectionKind: AssemblySelectionKind;
   saving: "" | "agent" | "runtime" | "group" | "create" | "delete";
   startBlankAgentDraft: () => void | Promise<void>;
   startBlankGroupDraft: () => void;
@@ -79,13 +82,13 @@ export function OrchestrationDirectoryRail({
   const categoryLabels: Record<AgentCategory, string> = {
     main_agent: "主 Agent",
     builtin_agent: "内置 Agent",
-    custom_agent: "自定义 Agent",
+    custom_agent: "子 Agent",
   };
 
   const categoryDescriptions: Record<AgentCategory, string> = {
     main_agent: "主会话入口与最终整合输出",
     builtin_agent: "系统管理与内置专业 Agent",
-    custom_agent: "用户和任务图侧可配置 Agent",
+    custom_agent: "可分组、可委派的任务执行 Agent",
   };
   const builtinCount = agents.filter((agent) => Boolean(agent.builtin)).length;
   const builtinCountByCategory = agents.reduce<Record<string, number>>((acc, agent) => {
@@ -95,15 +98,40 @@ export function OrchestrationDirectoryRail({
     return acc;
   }, {});
 
-  function CustomAgentCard({ agent }: { agent: Record<string, unknown> }) {
+  function AgentRow({
+    agent,
+    compact = false,
+  }: {
+    agent: Record<string, unknown>;
+    compact?: boolean;
+  }) {
     const agentId = String(agent.agent_id);
     const name = displayName(agent);
     const builtin = Boolean(agent.builtin);
+    const category = String(agent.agent_category || agent.profile_type || "custom_agent");
+    const profile = agent.runtime_profile && typeof agent.runtime_profile === "object" ? agent.runtime_profile as Record<string, unknown> : {};
+    const profileId = String(profile.agent_profile_id || "");
+    if (!compact) {
+      return (
+        <button
+          className={agentId === selectedAgentId && selectionKind === "agent" ? "boundary-list-row boundary-list-row--active orchestration-agent-row" : "boundary-list-row orchestration-agent-row"}
+          key={agentId}
+          onClick={() => selectAgent(agentId)}
+          type="button"
+        >
+          <div>
+            <strong>{name}</strong>
+            <span>{displayId(agent.agent_id)}</span>
+          </div>
+          <small>{profileId || displayId(category)}</small>
+        </button>
+      );
+    }
     return (
-      <article className={agentId === selectedAgentId ? "orchestration-subagent-card orchestration-subagent-card--active" : "orchestration-subagent-card"}>
+      <article className={agentId === selectedAgentId && selectionKind === "agent" ? "orchestration-subagent-card orchestration-subagent-card--active" : "orchestration-subagent-card"}>
         <button className="orchestration-subagent-card__main" onClick={() => selectAgent(agentId)} type="button">
           <strong>{name}</strong>
-          <span>{builtin ? "内置 Agent" : "自定义 Agent"}</span>
+          <span>{builtin ? "内置来源" : profileId || "子 Agent"}</span>
         </button>
         <button
           className="orchestration-subagent-card__delete"
@@ -120,7 +148,7 @@ export function OrchestrationDirectoryRail({
   return (
     <aside className="boundary-rail orchestration-subagent-rail">
       <div className="boundary-rail__head">
-        <strong>Agent 分类</strong>
+        <strong>Agent 装配目录</strong>
         <span>{agents.length} 个 / 内置 {builtinCount}</span>
       </div>
       <div className="boundary-search">
@@ -137,12 +165,12 @@ export function OrchestrationDirectoryRail({
         ))}
       </div>
       {activeCategory === "custom_agent" ? (
-        <div className="orchestration-subagent-mode-strip" aria-label="自定义 Agent 目录切换">
+        <div className="orchestration-subagent-mode-strip" aria-label="子 Agent 目录切换">
           <button className={customDirectoryMode === "grouped" ? "active" : ""} onClick={() => selectCustomDirectoryMode("grouped")} type="button">
-            有组
+            Agent 分组
           </button>
           <button className={customDirectoryMode === "ungrouped" ? "active" : ""} onClick={() => selectCustomDirectoryMode("ungrouped")} type="button">
-            无组
+            未分组
           </button>
         </div>
       ) : null}
@@ -150,46 +178,36 @@ export function OrchestrationDirectoryRail({
         {loading ? <div className="boundary-empty"><Loader2 className="spin" size={16} />加载中</div> : null}
         {activeCategory === "custom_agent" && customDirectoryMode === "grouped" ? (
           <>
-            <div className="orchestration-list-label">自定义 Agent 组</div>
+            <div className="orchestration-list-label">子 Agent 组</div>
             {agentGroups.map((group) => (
-              <div className={group.group_id === selectedGroupId ? "orchestration-group-tree orchestration-group-tree--active" : "orchestration-group-tree"} key={group.group_id}>
+              <div className={group.group_id === selectedGroupId && selectionKind === "group" ? "orchestration-group-tree orchestration-group-tree--active" : "orchestration-group-tree"} key={group.group_id}>
                 <button className="boundary-list-row" onClick={() => selectSubAgentGroup(group.group_id)} type="button">
                   <strong>{group.title}</strong>
                   <span>{group.member_agent_ids.length} 个成员</span>
                 </button>
                 {group.group_id === selectedGroupId ? (
                   <div className="orchestration-group-members">
-                    {selectedGroupAgents.map((agent) => <CustomAgentCard agent={agent} key={String(agent.agent_id)} />)}
+                    {selectedGroupAgents.map((agent) => <AgentRow agent={agent} compact key={String(agent.agent_id)} />)}
                     {!selectedGroupAgents.length ? <div className="boundary-empty">当前组还没有成员。</div> : null}
                   </div>
                 ) : null}
               </div>
             ))}
-            {!loading && !agentGroups.length ? <div className="boundary-empty">暂无自定义 Agent 组。</div> : null}
+            {!loading && !agentGroups.length ? <div className="boundary-empty">暂无子 Agent 分组。</div> : null}
           </>
         ) : null}
         {activeCategory === "custom_agent" && customDirectoryMode === "ungrouped" ? (
           <>
-            <div className="orchestration-list-label">无组自定义 Agent</div>
-            {ungroupedCustomAgents.map((agent) => <CustomAgentCard agent={agent} key={String(agent.agent_id)} />)}
+            <div className="orchestration-list-label">未分组子 Agent</div>
+            {ungroupedCustomAgents.map((agent) => <AgentRow agent={agent} compact key={String(agent.agent_id)} />)}
             <button className="orchestration-subagent-create-card" onClick={startBlankAgentDraft} type="button">
               <Plus size={16} />
-              <span>新增自定义 Agent</span>
+              <span>新增子 Agent</span>
             </button>
-            {!loading && !ungroupedCustomAgents.length ? <div className="boundary-empty">暂无无组自定义 Agent。</div> : null}
+            {!loading && !ungroupedCustomAgents.length ? <div className="boundary-empty">暂无未分组子 Agent。</div> : null}
           </>
         ) : null}
-        {(activeCategory === "custom_agent" ? [] : activeGroupItems).map((agent) => (
-          <button
-            className={String(agent.agent_id) === selectedAgentId ? "boundary-list-row boundary-list-row--active" : "boundary-list-row"}
-            key={String(agent.agent_id)}
-            onClick={() => selectAgent(String(agent.agent_id))}
-            type="button"
-          >
-            <strong>{displayName(agent)}</strong>
-            <span>{displayId(agent.agent_id)}</span>
-          </button>
-        ))}
+        {(activeCategory === "custom_agent" ? [] : activeGroupItems).map((agent) => <AgentRow agent={agent} key={String(agent.agent_id)} />)}
         {!loading && (
           activeCategory === "custom_agent"
             ? customDirectoryMode === "grouped"
@@ -202,7 +220,7 @@ export function OrchestrationDirectoryRail({
         <div className="orchestration-directory-actions">
           <OrchestrationToolbarButton onClick={startBlankGroupDraft} variant="ghost">
             <Network size={14} />
-            新建自定义 Agent 组
+            新建子 Agent 组
           </OrchestrationToolbarButton>
           <OrchestrationToolbarButton
             disabled={!selectedGroupId || saving === "delete"}

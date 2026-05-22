@@ -48,7 +48,11 @@ class RuntimeLoopTraceReader:
     def list_global_live_monitor(self, limit: int = 20) -> dict[str, Any]:
         now = time.time()
         requested_limit = max(1, min(int(limit or 20), 100))
-        task_runs = self.state_index.list_task_runs()
+        task_runs = [
+            task_run
+            for task_run in self.state_index.list_task_runs()
+            if _is_platform_monitor_task_run(task_run)
+        ]
         candidate_task_runs = self._global_live_monitor_candidates(
             task_runs,
             now=now,
@@ -222,7 +226,13 @@ class RuntimeLoopTraceReader:
             "task_run_id": task_run.task_run_id,
             "session_id": task_run.session_id,
             "task_id": task_run.task_id,
-            "title": str(dict(task_run.diagnostics or {}).get("title") or dict(task_run.diagnostics or {}).get("project_title") or task_run.task_id or task_run.task_run_id),
+            "title": str(
+                dict(task_run.diagnostics or {}).get("title")
+                or dict(task_run.diagnostics or {}).get("task_graph_title")
+                or dict(task_run.diagnostics or {}).get("project_title")
+                or task_run.task_id
+                or task_run.task_run_id
+            ),
             "status": status,
             "terminal_reason": str(task_run.terminal_reason or ""),
             "created_at": created_at,

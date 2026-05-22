@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
 from typing import Any
 
 from runtime.tool_runtime.tool_result_envelope import build_tool_result_envelope
+from runtime.tool_runtime.sandbox_backend import LocalOverlaySandboxBackend
 from orchestration.runtime_directive import RuntimeDirective
 from runtime.shared.action_request import RuntimeActionRequest, build_tool_result_observation
 from runtime.shared.action_request import build_tool_execution_error_observation
@@ -18,8 +17,9 @@ from runtime.shared.execution_record import (
 class ToolRuntimeExecutor:
     """Executes tool RuntimeDirectives after OperationGate approval."""
 
-    def __init__(self, *, tool_runtime) -> None:
+    def __init__(self, *, tool_runtime, sandbox_backend: LocalOverlaySandboxBackend | None = None) -> None:
         self.tool_runtime = tool_runtime
+        self.sandbox_backend = sandbox_backend or LocalOverlaySandboxBackend()
 
     async def run(
         self,
@@ -36,18 +36,18 @@ class ToolRuntimeExecutor:
         tool_call = dict(action_request.payload.get("tool_call") or {})
         tool_args = dict(tool_call.get("args") or {})
         tool_call_id = str(tool_call.get("id") or action_request.request_id)
-        sandbox_context = _sandbox_context_for_tool(tool_name, sandbox_policy)
+        sandbox_context = self.sandbox_backend.context_for_tool(tool_name=tool_name, sandbox_policy=sandbox_policy)
         if sandbox_context:
-            _prepare_sandbox_overlay_for_tool(
+            self.sandbox_backend.prepare_tool_call(
                 tool_name=tool_name,
                 tool_args=tool_args,
-                sandbox_context=sandbox_context,
+                context=sandbox_context,
             )
         current_record = execution_record
         if execution_store is not None:
             dispatch_diagnostics = {"tool_name": tool_name, "directive_ref": directive.directive_id}
             if sandbox_context:
-                dispatch_diagnostics["sandbox"] = dict(sandbox_context)
+                dispatch_diagnostics["sandbox"] = sandbox_context.to_dict()
             current_record = execution_store.mark_dispatched(current_record, diagnostics=dispatch_diagnostics)
         definition = self.tool_runtime.get_definition(tool_name)
         if definition is None:
@@ -69,7 +69,7 @@ class ToolRuntimeExecutor:
                 "error": error,
             }
         tool = (
-            definition.build(Path(str(sandbox_context["sandbox_root"])).resolve())
+            definition.build(self.sandbox_backend.execution_root(sandbox_context))
             if sandbox_context
             else self.tool_runtime.get_instance(tool_name)
         )
@@ -128,7 +128,7 @@ class ToolRuntimeExecutor:
             execution_receipt=build_execution_receipt(current_record).to_dict(),
             result_ref=result_ref,
             truncated=truncated,
-            sandbox=sandbox_context,
+            sandbox=sandbox_context.to_dict() if sandbox_context else None,
         )
         if execution_store is not None:
             result_payload = {
@@ -146,7 +146,7 @@ class ToolRuntimeExecutor:
                 "command_receipt": dict(envelope.command_receipt),
             }
             if sandbox_context:
-                result_payload["sandbox"] = dict(sandbox_context)
+                result_payload["sandbox"] = sandbox_context.to_dict()
             current_record = execution_store.mark_completed(
                 current_record,
                 result_ref=result_ref,
@@ -169,88 +169,5 @@ class ToolRuntimeExecutor:
             "observation": observation,
             "execution_record": current_record,
             "error": "",
-            "sandbox": dict(sandbox_context),
+            "sandbox": sandbox_context.to_dict() if sandbox_context else {},
         }
-
-
-DEFAULT_SIDE_EFFECT_TOOL_NAMES = {"write_file", "edit_file", "terminal", "python_repl"}
-DEFAULT_OVERLAY_TOOL_NAMES = {
-    "read_file",
-    "read_structured_file",
-    "stat_path",
-    "path_exists",
-    "glob_paths",
-    "search_files",
-    "search_text",
-    "write_file",
-    "edit_file",
-    "terminal",
-    "python_repl",
-}
-OVERLAY_COPY_ON_WRITE_TOOL_NAMES = {"edit_file"}
-OVERLAY_COPY_ON_READ_TOOL_NAMES = {"read_file", "read_structured_file"}
-
-
-def _sandbox_context_for_tool(tool_name: str, sandbox_policy: dict[str, Any] | None) -> dict[str, Any]:
-    policy = dict(sandbox_policy or {})
-    if policy.get("enabled") is not True:
-        return {}
-    overlay_tools = {
-        str(item or "").strip()
-        for item in list(policy.get("overlay_tools") or DEFAULT_OVERLAY_TOOL_NAMES)
-        if str(item or "").strip()
-    }
-    if str(tool_name or "").strip() not in overlay_tools:
-        return {}
-    sandbox_root = Path(str(policy.get("sandbox_root") or "")).resolve() if policy.get("sandbox_root") else None
-    if sandbox_root is None:
-        return {}
-    sandbox_root.mkdir(parents=True, exist_ok=True)
-    return {
-        "enabled": True,
-        "mode": str(policy.get("mode") or "workspace_overlay"),
-        "sandbox_root": str(sandbox_root),
-        "workspace_root": str(Path(str(policy.get("workspace_root") or "")).resolve()) if policy.get("workspace_root") else "",
-        "tool_name": str(tool_name or ""),
-        "real_workspace_access": str(policy.get("real_workspace_access") or "read_only"),
-        "overlay_copy_on_write": bool(policy.get("overlay_copy_on_write") is not False),
-    }
-
-
-def _prepare_sandbox_overlay_for_tool(
-    *,
-    tool_name: str,
-    tool_args: dict[str, Any],
-    sandbox_context: dict[str, Any],
-) -> None:
-    if not bool(sandbox_context.get("overlay_copy_on_write") is True):
-        return
-    effective_tool_name = str(tool_name or "").strip()
-    if effective_tool_name not in OVERLAY_COPY_ON_WRITE_TOOL_NAMES and effective_tool_name not in OVERLAY_COPY_ON_READ_TOOL_NAMES:
-        return
-    relative_path = _normalize_relative_path(tool_args.get("path"))
-    if not relative_path:
-        return
-    workspace_root = Path(str(sandbox_context.get("workspace_root") or "")).resolve()
-    sandbox_root = Path(str(sandbox_context.get("sandbox_root") or "")).resolve()
-    if not str(workspace_root) or not str(sandbox_root):
-        return
-    source = (workspace_root / relative_path).resolve()
-    target = (sandbox_root / relative_path).resolve()
-    if workspace_root not in source.parents and source != workspace_root:
-        return
-    if sandbox_root not in target.parents and target != sandbox_root:
-        return
-    if target.exists() or not source.exists() or not source.is_file():
-        return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, target)
-
-
-def _normalize_relative_path(value: Any) -> str:
-    text = str(value or "").replace("\\", "/").strip().strip("/")
-    while "//" in text:
-        text = text.replace("//", "/")
-    if not text or text.startswith("../") or "/../" in f"/{text}/":
-        return ""
-    return text

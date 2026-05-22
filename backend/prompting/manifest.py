@@ -18,6 +18,7 @@ class PromptSection:
     chars: int
     preview: str
     order: int
+    cache: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -54,6 +55,7 @@ def prompt_section(
     content: str | None,
     order: int,
     model_visible: bool = True,
+    cache: dict[str, Any] | None = None,
 ) -> PromptSection:
     text = str(content or "").strip()
     return PromptSection(
@@ -65,6 +67,7 @@ def prompt_section(
         chars=len(text),
         preview=_preview(text),
         order=order,
+        cache=dict(cache or {}),
     )
 
 
@@ -106,6 +109,7 @@ def compact_prompt_manifest(manifest: PromptManifest | dict[str, Any] | None) ->
                 "chars": int(raw.get("chars") or 0),
                 "preview": _preview(str(raw.get("preview") or "")),
                 "order": int(raw.get("order") or 0),
+                "cache": dict(raw.get("cache") or {}) if isinstance(raw.get("cache"), dict) else {},
             }
         )
     return {
